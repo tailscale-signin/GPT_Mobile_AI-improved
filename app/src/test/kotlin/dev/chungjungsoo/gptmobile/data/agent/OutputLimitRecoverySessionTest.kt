@@ -12,6 +12,40 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class OutputLimitRecoverySessionTest {
+    @Test fun emptyWatchdogTimeoutDoesNotStartAnotherIdenticalWait() = runTest {
+        val deadline = ProgressDeadlineOutcome("MODEL_PROGRESS_TIMEOUT", ObservedProgressStage.WAITING_FOR_MODEL, 180_000, 180_000, false, 0)
+        val failure = ProviderEvent.Failed("MODEL_PROGRESS_TIMEOUT: The model stopped making progress.", progressDeadline = deadline)
+        val wrapper = OutputLimitRecoverySession(session { emit(failure) }, recoverTransientFailures = true) { _, _ ->
+            error("Nothing was produced to resume")
+        }
+        val events = wrapper.streamRound(emptyList(), emptyList()).toList()
+        assertEquals(failure, events.filterIsInstance<ProviderEvent.Failed>().single())
+        assertTrue(events.none { it == ProviderEvent.Completed })
+    }
+
+    @Test fun watchdogStallWithSavedVisibleOutputCanStillResume() = runTest {
+        val deadline = ProgressDeadlineOutcome("GENERATION_STALLED", ObservedProgressStage.ANSWER, 180_000, 90_000, true, 0)
+        var continuations = 0
+        val wrapper = OutputLimitRecoverySession(
+            session {
+                emit(ProviderEvent.TextDelta("Saved answer. "))
+                emit(ProviderEvent.Failed("GENERATION_STALLED: The model stopped making progress.", progressDeadline = deadline))
+            },
+            recoverTransientFailures = true
+        ) { draft, _ ->
+            continuations++
+            assertEquals("Saved answer. ", draft)
+            session {
+                emit(ProviderEvent.TextDelta("Remaining answer."))
+                emit(ProviderEvent.Completed)
+            }
+        }
+        val events = wrapper.streamRound(emptyList(), emptyList()).toList()
+        assertEquals(1, continuations)
+        assertEquals("Saved answer. Remaining answer.", events.filterIsInstance<ProviderEvent.TextDelta>().joinToString("") { it.text })
+        assertTrue(events.none { it is ProviderEvent.Failed })
+    }
+
     @Test fun abortedSocketRetainsThePrefixAndUsesTextOnlyRecovery() = runTest {
         var attempts = 0
         val wrapper = OutputLimitRecoverySession(

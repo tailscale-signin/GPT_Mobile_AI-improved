@@ -212,6 +212,19 @@ class ResearchDeliveryTest {
         assertEquals(emptyList<String>(), result.issues)
     }
 
+    @Test fun reportCannotPassWhenAPlannedQuestionHasNoSupportedSourceBoundClaim() {
+        val question = dev.chungjungsoo.gptmobile.data.research.ResearchQuestion("Q1", "What outcome did the trial measure?", "A supported captured claim")
+        val packet = ResearchDeliveryPacket.build(
+            ResearchSnapshot("Hydrogen inhalation trial", sources = listOf(read), questionPlan = listOf(question)),
+            ResearchReportDetail.BRIEF
+        )
+        val report = "Independent review is unavailable.\n\nThe paper reports trial findings. [S1]\n\n## References\n\n[S1] ${read.url}"
+
+        val result = ResearchDeliveryValidator.validate(report, packet)
+
+        assertTrue(result.issues.contains("QUESTION_EVIDENCE_UNCOVERED:Q1"))
+    }
+
     @Test fun largeCorpusRetainsOmissionAccountingAndAtomicClaims() {
         val sources = (1..100).map { read.copy(id = "S$it", url = "https://example.org/$it", equivalenceGroup = "$it", passage = passage.repeat(20)) }
         val result = ResearchDeliveryPacket.build(ResearchSnapshot("hydrogen", sources = sources), ResearchReportDetail.DETAILED, 4000)

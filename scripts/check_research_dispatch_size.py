@@ -14,6 +14,7 @@ import zipfile
 ART_CODE_UNIT_LIMIT = 65535 // 4
 AGENT_PREFIXES = (
     'Ldev/chungjungsoo/gptmobile/data/agent/AgentRunner',
+    'Ldev/chungjungsoo/gptmobile/data/agent/provider/LiteRtLmAdapter',
     'Ldev/chungjungsoo/gptmobile/data/research/ResearchSessionStore',
     'Ldev/chungjungsoo/gptmobile/data/research/ResearchSourceIndexer',
     'Ldev/chungjungsoo/gptmobile/data/agent/tool/AgentToolResolver',
@@ -142,6 +143,8 @@ def main():
     ):
         if not any(row['class'] == descriptor and row['method'] == method for row in rows):
             raise ValueError(f'The actual {descriptor}.{method} method was not found')
+    if not any('LiteRtLmAdapter$openSession$' in row['class'] and 'streamPlannedRound' in row['class'] and row['method'] == 'invokeSuspend' for row in rows):
+        raise ValueError('The local inference planning coroutine was not found')
     rows.sort(key=lambda row: row['code_units'], reverse=True)
     print(json.dumps({'apk': args.apk, 'max_code_units': args.max_code_units, 'methods': rows}, indent=2))
     if rows[0]['code_units'] >= args.max_code_units:

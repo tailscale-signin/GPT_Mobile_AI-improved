@@ -6,6 +6,9 @@ import kotlinx.serialization.Serializable
 @Serializable
 enum class ResearchReportValidity { ACCEPTED, EVIDENCE_ONLY, REJECTED, INCOMPLETE }
 
+@Serializable
+enum class ResearchReviewStatus { REVIEWED, PARTIALLY_REVIEWED, UNREVIEWED }
+
 /** Small durable delivery result; report bodies remain in their owned answer revision. */
 @Serializable
 data class ResearchDeliveryReceipt(
@@ -19,7 +22,11 @@ data class ResearchDeliveryReceipt(
     val blockIds: List<String> = emptyList(),
     val outputCap: Int? = null,
     val retryEligible: Boolean = false,
-    val schemaVersion: Int = 1
+    val schemaVersion: Int = 2,
+    val semanticCoverageVerified: Boolean = false,
+    val coveredClaimCount: Int = 0,
+    val eligibleClaimCount: Int = 0,
+    val reviewStatus: ResearchReviewStatus = ResearchReviewStatus.UNREVIEWED
 ) {
     val accepted: Boolean get() = reportValidity == ResearchReportValidity.ACCEPTED
     val partial: Boolean get() = reportValidity == ResearchReportValidity.EVIDENCE_ONLY || reportValidity == ResearchReportValidity.INCOMPLETE

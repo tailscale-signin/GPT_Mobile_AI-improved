@@ -21,6 +21,7 @@
 #include "gguf_chat_template.h"
 #include "gguf_prefill_governor.h"
 #include "gguf_runtime_contract.h"
+#include "gguf_vulkan_policy.h"
 #include <sstream>
 #include <iomanip>
 #include <functional>
@@ -70,6 +71,7 @@ std::atomic<bool> cancelLoad{false};
 std::atomic<jlong> loadOperation{0};
 std::mutex operationMutex;
 std::once_flag initialized, vulkanInitialized, openclInitialized;
+bool portableVulkan = false;
 using Clock = std::chrono::steady_clock;
 long elapsed(Clock::time_point from) { return std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - from).count(); }
 std::mutex errorMutex;
@@ -145,12 +147,37 @@ void initialize() {
 }
 // Global initialization now registers CPU only (see select_backends.cmake).
 // A blocked vendor initializer is contained in the disposable inference worker.
+// Must run before ggml registers/probes Vulkan: feature flags are read once.
+void configureVulkan() {
+#if GGML_USE_VULKAN && defined(__ANDROID__)
+    VkInstanceCreateInfo info{}; info.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
+    VkInstance instance;
+    if (vkCreateInstance(&info, nullptr, &instance) != VK_SUCCESS) return;
+    uint32_t count = 0;
+    if (vkEnumeratePhysicalDevices(instance, &count, nullptr) == VK_SUCCESS && count > 0 && count <= 32) {
+        std::vector<VkPhysicalDevice> devices(count);
+        const auto status = vkEnumeratePhysicalDevices(instance, &count, devices.data());
+        if (status == VK_SUCCESS || status == VK_INCOMPLETE) for (uint32_t i = 0; i < count; ++i) {
+            VkPhysicalDeviceProperties properties{};
+            vkGetPhysicalDeviceProperties(devices[i], &properties);
+            if (gguf_portable_vulkan(properties.vendorID, true)) portableVulkan = true;
+        }
+    }
+    vkDestroyInstance(instance, nullptr);
+    if (portableVulkan) {
+        for (const char * flag : {"GGML_VK_DISABLE_COOPMAT", "GGML_VK_DISABLE_COOPMAT2",
+                "GGML_VK_DISABLE_INTEGER_DOT_PRODUCT", "GGML_VK_DISABLE_BFLOAT16",
+                "GGML_VK_DISABLE_F16", "GGML_VK_DISABLE_DOT2"}) setenv(flag, "1", 0);
+        nativeStage("VULKAN_ADRENO_PORTABLE_SHADERS");
+    }
+#endif
+}
 void initializeBackend(const std::string & backend) {
     nativeStage("REGISTER_CPU_BEGIN");
     std::call_once(initialized, initialize);
     nativeStage("REGISTER_CPU_END");
 #if GGML_USE_VULKAN
-    if (backend == "gpu" && getenv("GGML_DISABLE_VULKAN") == nullptr) { nativeStage("REGISTER_VULKAN_BEGIN"); std::call_once(vulkanInitialized, [] { ggml_backend_register(ggml_backend_vk_reg()); }); nativeStage("REGISTER_VULKAN_END"); }
+    if (backend == "gpu" && getenv("GGML_DISABLE_VULKAN") == nullptr) { nativeStage("REGISTER_VULKAN_BEGIN"); std::call_once(vulkanInitialized, [] { configureVulkan(); ggml_backend_register(ggml_backend_vk_reg()); }); nativeStage("REGISTER_VULKAN_END"); }
 #endif
 #if GGUF_OPENCL
     if (backend == "opencl") { nativeStage("REGISTER_OPENCL_BEGIN"); nativeStage("OPENCL_LOADER_pinned_static_ICD_vendor_libOpenCL.so"); std::call_once(openclInitialized, [] { ggml_backend_register(ggml_backend_opencl_reg()); }); nativeStage("REGISTER_OPENCL_END"); }
@@ -450,6 +477,8 @@ extern "C" JNIEXPORT jlong JNICALL Java_dev_melo_gguf_GgufNative_loadBackendProg
         engine->threads = threads;
         engine->promptThreads = promptThreads;
         engine->microBatchTokens = microBatchTokens;
+        // The portable path also avoids extension-dependent flash-attention shaders.
+        if (backend == "gpu" && portableVulkan) cp.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_DISABLED;
         cp.offload_kqv = gpuLayers > 0;
         cp.op_offload = gpuLayers > 0;
         cp.no_perf = false;

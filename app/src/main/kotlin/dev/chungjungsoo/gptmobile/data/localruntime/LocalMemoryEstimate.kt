@@ -13,7 +13,8 @@ internal data class LocalMemoryEstimate(
     val requestedContextTokens: Int = contextTokens,
     val planIdentity: String? = null,
     val systemMemory: LocalSystemMemorySnapshot? = null,
-    val memoryPlan: MemoryPlanReceipt? = null
+    val memoryPlan: MemoryPlanReceipt? = null,
+    val selectedBackend: String? = memoryPlan?.selectedBackend
 ) {
     val budget: LocalMemoryBudget get() = LocalMemoryBudget(requiredBytes, reserveBytes, availableBytes)
 
@@ -35,7 +36,8 @@ internal data class LocalMemoryEstimate(
         requestedContextTokens = requestedContextTokens,
         planIdentity = planIdentity,
         systemMemory = systemMemory,
-        memoryPlan = memoryPlan
+        memoryPlan = memoryPlan,
+        selectedBackend = selectedBackend
     )
 
     fun rejection(
@@ -44,6 +46,12 @@ internal data class LocalMemoryEstimate(
         nativeLoadAttempted: Boolean = false
     ): LocalMemoryAdmissionException {
         val configuredReserveMb = reserveBytes / MIB
+        fun mib(bytes: Long) = "${bytes / MIB + if (bytes % MIB == 0L) 0 else 1} MiB"
+        val summary = "Selected backend: ${selectedBackend ?: method}. " +
+            "Model: ${components["weights"]?.let(::mib) ?: "included in estimate"}; " +
+            "allocation: ${mib(requiredBytes)}; reserve: ${mib(reserveBytes)}; " +
+            "available: ${availableBytes?.let(::mib) ?: "unknown"}; " +
+            "shortfall: ${budget.shortfallBytes?.let(::mib) ?: "unknown"}. "
         val recommendedFits = budget.fitsWithReserve(DEFAULT_MEMORY_RESERVE_MB * MIB)
         val recovery =
             if (configuredReserveMb > DEFAULT_MEMORY_RESERVE_MB && recommendedFits) {
@@ -65,7 +73,7 @@ internal data class LocalMemoryEstimate(
                 "availableBytes=${availableBytes ?: "unknown"} · totalBudgetBytes=${budget.totalBytes} · " +
                 "shortfallBytes=${budget.shortfallBytes ?: "unknown"} · recommendedReserveFits=$recommendedFits · " +
                 "contextTokens=$contextTokens · estimate=$method · nativeLoadAttempted=$nativeLoadAttempted. " +
-                "$detail $recovery $verification",
+                "$summary$detail $recovery $verification",
             receipt(stage, accepted = false, existingEngineResident = nativeLoadAttempted)
         )
     }

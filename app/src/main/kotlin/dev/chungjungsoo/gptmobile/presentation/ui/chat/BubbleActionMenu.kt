@@ -149,7 +149,7 @@ internal fun BubbleActionHost(identity: Any, actions: List<BubbleAction>, conten
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
                     var lastPosition = down.position
-                    val releasedOrCanceled = withTimeoutOrNull(1000L) {
+                    val releasedOrCanceled = withTimeoutOrNull(1_000L) {
                         while (true) {
                             val event = awaitPointerEvent(PointerEventPass.Main)
                             val change = event.changes.firstOrNull { it.id == down.id }
@@ -192,12 +192,12 @@ internal fun BubbleActionHost(identity: Any, actions: List<BubbleAction>, conten
             LaunchedEffect(Unit) { scale.animateTo(1f, tween(220, easing = FastOutSlowInEasing)) }
             Popup(popupPositionProvider = positioner, onDismissRequest = { touch = null }, properties = PopupProperties(focusable = true)) {
                 Surface(
-                    modifier = Modifier.width(224.dp).graphicsLayer {
+                    modifier = Modifier.width(224.dp).glassBackdrop(RoundedCornerShape(22.dp), captureAsPopup = true).graphicsLayer {
                         scaleX = scale.value
                         scaleY = scale.value
                         alpha = scale.value
                         transformOrigin = TransformOrigin.Center
-                    }.glassBackdrop(RoundedCornerShape(22.dp), captureAsPopup = true),
+                    },
                     shape = RoundedCornerShape(22.dp),
                     color = if (dev.chungjungsoo.gptmobile.presentation.common.hasGlassBackdrop()) androidx.compose.ui.graphics.Color.Transparent else dev.chungjungsoo.gptmobile.presentation.common.appOverlayTokens().background,
                     contentColor = dev.chungjungsoo.gptmobile.presentation.common.appOverlayTokens().foreground,

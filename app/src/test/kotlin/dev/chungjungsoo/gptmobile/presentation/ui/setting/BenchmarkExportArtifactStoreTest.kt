@@ -247,4 +247,26 @@ class BenchmarkExportArtifactStoreTest {
         assertEquals(complete, cleanup.find(complete.id))
         cleanup.verify(complete)
     }
+
+    @Test fun cancellationInterruptsSynchronousLargeExportAtTheNextBuffer(): Unit = runBlocking {
+        val artifacts = store()
+        var chunks = 0
+        val preparation = async {
+            artifacts.prepare(false) { output ->
+                kotlinx.coroutines.currentCoroutineContext()[kotlinx.coroutines.Job]!!.cancel()
+                repeat(1000) {
+                    output.write(ByteArray(64 * 1024))
+                    chunks++
+                }
+            }
+        }
+        try {
+            preparation.await()
+            throw AssertionError("Canceled preparation unexpectedly completed")
+        } catch (_: CancellationException) {
+            assertTrue(chunks <= 1)
+        }
+        assertNull(artifacts.latest())
+        assertTrue(File(temporary.root, "private-exports").listFiles().orEmpty().isEmpty())
+    }
 }

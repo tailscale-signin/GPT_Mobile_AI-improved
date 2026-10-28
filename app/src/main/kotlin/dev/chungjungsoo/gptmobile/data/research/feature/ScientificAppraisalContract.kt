@@ -65,6 +65,10 @@ internal object ScientificAppraisalContract {
         val parsed = values.mapNotNull { (it as? JsonPrimitive)?.takeIf { item -> item.isString }?.content }
         return parsed.takeIf { it.size == values.size }
     }
+    private fun <T : Enum<T>> enumField(row: JsonObject, key: String, values: Array<T>): T {
+        val name = string(row, key)?.trim()?.uppercase(java.util.Locale.ROOT)
+        return values.firstOrNull { it.name == name } ?: throw IllegalArgumentException("$key must be one of ${values.joinToString { it.name }}")
+    }
     private fun reportsSampleCount(quote: String, field: String, value: String): Boolean {
         // Conservative local evidence gate, not an entailment/review verdict. A price,
         // year, follow-up duration or substring of another count is not a sample size.
@@ -90,14 +94,15 @@ internal object ScientificAppraisalContract {
     }
     fun validate(reply: String, version: ResearchWorkVersion, source: String, retainFieldGaps: Boolean = false): ValidatedScientificAppraisal {
         val fieldGaps = mutableListOf<String>()
+        val fieldIssues = mutableListOf<ExaminationFieldIssue>()
         require(reply.toByteArray().size <= 96 * 1024 && researchHash(source) == version.contentHash) { "Appraisal source hash changed or output exceeds 96 KiB" }
         val root = Json.parseToJsonElement(reply) as? JsonObject ?: error("Appraisal requires an object")
-        require(root.keys.all { it in setOf("schemaVersion", "design", "passages", "fields", "judgments", "limitations") })
-        require((root["schemaVersion"] as? JsonPrimitive)?.intOrNull == 1)
-        val design = StudyDesign.valueOf(requireNotNull(string(root, "design")))
-        val rawPassages = root["passages"] as? JsonArray ?: error("Passages missing")
-        require(rawPassages.size <= 24)
-        val passages = rawPassages.map { value ->
+        require(root.keys.all { it in setOf("schemaVersion", "design", "passages", "fields", "judgments", "limitations") }) { "Appraisal has unsupported top-level fields" }
+        examinationField("schemaVersion") { require((root["schemaVersion"] as? JsonPrimitive)?.intOrNull == 1) { "schemaVersion must be 1" } }
+        val design = examinationField("design") { enumField(root, "design", StudyDesign.entries.toTypedArray()) }
+        val rawPassages = examinationField("passages") { root["passages"] as? JsonArray ?: error("passages must be an array") }
+        examinationField("passages") { require(rawPassages.size <= 24) { "passages must contain at most 24 rows" } }
+        val passages = examinationRows("passages", rawPassages, fieldIssues) { value ->
             val row = value as? JsonObject ?: error("Malformed passage")
             require(row.keys.all { it in setOf("id", "quote", "locator", "start") })
             val id = requireNotNull(string(row, "id"))
@@ -107,21 +112,25 @@ internal object ScientificAppraisalContract {
             require(id.matches(Regex("P[0-9]{1,7}")) && quote.length in 1..2000 && locator.length in 1..240 && start >= 0 && start <= source.length - quote.length && source.substring(start, start + quote.length) == quote) { "Passage $id must have a valid ID, locator and exact source quotation at its UTF-16 offset" }
             EvidencePassage("${version.versionId}:$id", version.versionId, locator, start, start + quote.length, researchHash(quote), quote)
         }
-        require(passages.map { it.passageId }.distinct().size == passages.size)
+        val seenPassageIds = mutableSetOf<String>()
+        rawPassages.forEachIndexed { index, value ->
+            val id = (value as? JsonObject)?.let { string(it, "id") }
+            if (id != null && !seenPassageIds.add(id)) fieldIssues += ExaminationFieldIssue("passages[$index]", "Passage IDs must be distinct")
+        }
         val byId = passages.associateBy { it.passageId.substringAfterLast(':') }
         fun resolve(ids: List<String>): List<EvidencePassage> {
-            require(ids.size <= 12 && ids.distinct().size == ids.size)
-            return ids.map { requireNotNull(byId[it]) { "Unknown passage" } }
+            require(ids.size <= 12 && ids.distinct().size == ids.size) { "passageIds must contain at most 12 distinct IDs from this batch" }
+            return ids.map { requireNotNull(byId[it]) { "Unknown passage ID; cite an existing passage from this batch" } }
         }
-        val rawFields = root["fields"] as? JsonArray ?: error("Fields missing")
-        require(rawFields.size <= 48)
-        val fields = rawFields.map { value ->
+        val rawFields = examinationField("fields") { root["fields"] as? JsonArray ?: error("fields must be an array") }
+        examinationField("fields") { require(rawFields.size <= 48) { "fields must contain at most 48 rows" } }
+        val fields = examinationRows("fields", rawFields, fieldIssues) { value ->
             val row = value as? JsonObject ?: error("Malformed study field")
             require(row.keys.all { it in setOf("name", "outcomeKey", "value", "unit", "missingness", "passageIds") })
             val name = requireNotNull(string(row, "name"))
-            require(name in fieldNames)
+            require(name in fieldNames) { "name must be a supported scientific field: ${fieldNames.joinToString()}" }
             val outcome = string(row, "outcomeKey")?.takeIf { it.length in 1..120 } ?: "overall"
-            val missing = Missingness.valueOf(requireNotNull(string(row, "missingness")))
+            val missing = enumField(row, "missingness", Missingness.entries.toTypedArray())
             val proposedValue = string(row, "value")?.takeIf { it.length <= 2000 }
             val proposedUnit = string(row, "unit")?.takeIf { it.length <= 80 }
             val cited = resolve(requireNotNull(strings(row, "passageIds")))
@@ -163,24 +172,34 @@ internal object ScientificAppraisalContract {
         } else {
             fields
         }
-        val rawJudgments = root["judgments"] as? JsonArray ?: error("Judgments missing")
-        require(rawJudgments.size <= domains.size)
-        val judgments = rawJudgments.map { value ->
+        val rawJudgments = examinationField("judgments") { root["judgments"] as? JsonArray ?: error("judgments must be an array") }
+        examinationField("judgments") { require(rawJudgments.size <= domains.size) { "judgments must contain at most ${domains.size} rows" } }
+        val judgments = examinationRows("judgments", rawJudgments, fieldIssues) { value ->
             val row = value as? JsonObject ?: error("Malformed judgment")
             require(row.keys.all { it in setOf("domain", "concern", "rationale", "passageIds", "applicability") })
             val domain = requireNotNull(string(row, "domain"))
-            require(domain in domains)
-            val concern = ScientificConcern.valueOf(requireNotNull(string(row, "concern")))
+            require(domain in domains) { "domain must be one of ${domains.joinToString()}" }
+            val concern = if (string(row, "concern")?.trim()?.equals("CONFLICTING", true) == true) {
+                fieldGaps += "$domain: conflicting evidence was reported; concern severity remains UNKNOWN"
+                ScientificConcern.UNKNOWN
+            } else {
+                enumField(row, "concern", ScientificConcern.entries.toTypedArray())
+            }
             val rationale = requireNotNull(string(row, "rationale"))
-            require(rationale.length in 1..1600)
+            require(rationale.length in 1..1600) { "rationale must contain 1..1600 characters" }
             val cited = resolve(requireNotNull(strings(row, "passageIds")))
             require(concern in setOf(ScientificConcern.UNKNOWN, ScientificConcern.NOT_APPLICABLE) || cited.isNotEmpty())
             AppraisalJudgment(domain, concern, rationale, cited.map { it.passageId }, string(row, "applicability")?.take(600).orEmpty())
         }
-        require(judgments.map { it.domain }.distinct().size == judgments.size)
+        val seenDomains = mutableSetOf<String>()
+        rawJudgments.forEachIndexed { index, value ->
+            val domain = (value as? JsonObject)?.let { string(it, "domain") }
+            if (domain != null && !seenDomains.add(domain)) fieldIssues += ExaminationFieldIssue("judgments[$index]", "Each domain must occur once")
+        }
         val completeJudgments = domains.map { domain -> judgments.firstOrNull { it.domain == domain } ?: AppraisalJudgment(domain, ScientificConcern.UNKNOWN, "Not assessed from available source passages", emptyList(), "Coverage incomplete") }
-        val limitations = requireNotNull(strings(root, "limitations"))
-        require(limitations.size <= 12 && limitations.all { it.length in 1..1000 })
+        val limitations = examinationField("limitations") { requireNotNull(strings(root, "limitations")) { "limitations must be a string array" } }
+        examinationField("limitations") { require(limitations.size <= 12 && limitations.all { it.length in 1..1000 }) { "limitations must contain at most 12 nonempty strings of at most 1000 characters" } }
+        if (fieldIssues.isNotEmpty()) throw ExaminationFieldValidationException(fieldIssues)
         return ValidatedScientificAppraisal(passages, retainedFields, completeJudgments, design, limitations + fieldGaps)
     }
     fun unknown(versionId: String, reason: String): EvidenceAppraisal = EvidenceAppraisal(researchHash("$versionId|unassessed"), versionId, "overall", 1, "deterministic-baseline-v1", StudyDesign.UNKNOWN, "UNASSESSED", Json.encodeToString(domains.map { AppraisalJudgment(it, ScientificConcern.UNKNOWN, reason.take(1000), emptyList(), "Source coverage insufficient for assessment") }), createdAt = System.currentTimeMillis())

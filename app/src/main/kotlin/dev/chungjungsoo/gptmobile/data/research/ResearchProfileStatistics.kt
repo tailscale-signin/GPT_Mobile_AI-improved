@@ -51,7 +51,9 @@ data class ResearchProfileStatistics(
     val sourcesPartiallyAnalyzed: Int = 0,
     val sourcesFullyAnalyzed: Int = 0,
     val sourcesInaccessible: Int = 0,
-    val admissionReasons: Map<String, Int> = emptyMap()
+    val admissionReasons: Map<String, Int> = emptyMap(),
+    val usageAvailable: Boolean = false,
+    val missingInvocationRecords: Int = 0
 )
 
 /** Attribution survives corpus sharing. Missing legacy attribution never becomes invented work. */
@@ -63,8 +65,11 @@ internal fun researchProfileStatistics(root: String, participants: Set<String>, 
     val readers = sources.mapValues { (_, versions) -> versions.filter { it.readable }.flatMap { it.readByProfiles }.toSet() }
     val scopedJobs = jobs.filter { runCatching { Json.decodeFromString<ExaminationCheckpoint>(it.checkpointJson).rootWorkId == root }.getOrDefault(false) }
     val complete = setOf(ExaminationStage.COMPLETE_FULL, ExaminationStage.COMPLETE_PARTIAL, ExaminationStage.ABSTRACT_ONLY)
-    val requestGroups = invocations.filter { it.turnKey == root }.associateBy { it.id }.values.groupBy { it.profileUid }
-    val stageGroups = scopedSessions.sortedBy { it.snapshot.updatedAt }.flatMap { it.snapshot.modelEvents }.associateBy { it.id }.values.groupBy { it.profileUid }
+    val scopedStages = scopedSessions.sortedBy { it.snapshot.updatedAt }.flatMap { it.snapshot.modelEvents }.associateBy { it.id }.values.toList()
+    val linkedIds = scopedStages.flatMap { listOfNotNull(it.invocationId) + it.metrics?.invocationIds.orEmpty() }.toSet() +
+        scopedJobs.flatMap { runCatching { Json.decodeFromString<ExaminationCheckpoint>(it.checkpointJson).invocationIds }.getOrDefault(emptyList()) }
+    val requestGroups = invocations.filter { it.turnKey == root || it.id in linkedIds }.associateBy { it.id }.values.groupBy { it.profileUid }
+    val stageGroups = scopedStages.groupBy { it.profileUid }
     val claims = scopedSessions.flatMap { it.snapshot.claims }.distinctBy { it.json().toString() }
     val completedSources = scopedSessions.flatMap { it.snapshot.extractedSourceVersions }.toSet()
     return participants.sorted().map { uid ->
@@ -155,7 +160,9 @@ internal fun researchProfileStatistics(root: String, participants: Set<String>, 
             sourcesPartiallyAnalyzed = partiallyAnalyzed.size,
             sourcesFullyAnalyzed = fullyAnalyzed.size,
             sourcesInaccessible = sources.values.count { versions -> versions.any { uid in it.discoveredByProfiles } && versions.none { it.readable } && versions.any { it.status in setOf("Blocked", "Failed", "Unavailable") } },
-            admissionReasons = localBlocks.groupingBy { it.reason.ifBlank { it.failureCategory.ifBlank { "UNKNOWN" } } }.eachCount().toSortedMap()
+            admissionReasons = localBlocks.groupingBy { it.reason.ifBlank { it.failureCategory.ifBlank { "UNKNOWN" } } }.eachCount().toSortedMap(),
+            usageAvailable = counted.isNotEmpty() && (inputTotals + outputTotals).any { it.first > 0 || it.second !in setOf("unknown", "unreported", "not_dispatched", "") },
+            missingInvocationRecords = (stages.flatMap { listOfNotNull(it.invocationId) + it.metrics?.invocationIds.orEmpty() }.toSet() - requests.map { it.id }.toSet()).size
         )
     }
 }

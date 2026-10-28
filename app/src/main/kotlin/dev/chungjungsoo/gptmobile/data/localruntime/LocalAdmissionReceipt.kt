@@ -21,7 +21,8 @@ data class LocalAdmissionReceipt(
     val requestedContextTokens: Int = contextTokens,
     val planIdentity: String? = null,
     val systemMemory: LocalSystemMemorySnapshot? = null,
-    val memoryPlan: MemoryPlanReceipt? = null
+    val memoryPlan: MemoryPlanReceipt? = null,
+    val selectedBackend: String? = memoryPlan?.selectedBackend
 )
 
 @Serializable

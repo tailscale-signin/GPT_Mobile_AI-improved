@@ -50,4 +50,27 @@ internal class CombinedInspectionCheckpoint(
             }
         )
     }
+    suspend fun restoreConsolidation(prompt: String): String? {
+        val hash = WorkspaceRepository.digest(prompt)
+        val saved = workspace?.protectedSynthesisCheckpoint("consolidation:$chatId:$identity:$hash") ?: return null
+        fun field(name: String) = (saved[name] as? JsonPrimitive)?.content
+        val report = field("report") ?: return null
+        return report.takeIf { it.isNotBlank() && it.length <= 65_536 && field("identity") == identity && field("promptHash") == hash && field("reportHash") == WorkspaceRepository.digest(it) }
+    }
+
+    suspend fun saveConsolidation(prompt: String, report: String) {
+        require(report.isNotBlank() && report.length <= 65_536)
+        val hash = WorkspaceRepository.digest(prompt)
+        workspace?.saveProtectedSynthesisCheckpoint(
+            "consolidation:$chatId:$identity:$hash",
+            chatId,
+            runId,
+            buildJsonObject {
+                put("identity", identity)
+                put("promptHash", hash)
+                put("reportHash", WorkspaceRepository.digest(report))
+                put("report", report)
+            }
+        )
+    }
 }

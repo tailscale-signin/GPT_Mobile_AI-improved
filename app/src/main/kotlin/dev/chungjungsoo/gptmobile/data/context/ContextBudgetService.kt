@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.context
 
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
+import dev.chungjungsoo.gptmobile.data.agent.incrementalSynthesis
 import kotlinx.serialization.Serializable
 
 /** Zero outputTokens means no explicit user output cap; dispatch still admits a finite per-request context reserve. */
@@ -54,7 +55,7 @@ object ContextBudgetService {
         try {
             planFullInput(turns, system, settings)
         } catch (overflow: IllegalArgumentException) {
-            if (combined?.requested?.singlePass == true || overflow.message?.startsWith("COMBINED_CONTEXT_CAPACITY:") != true) throw overflow
+            if (combined?.requested?.let { it.singlePass && !it.incrementalSynthesis } == true || overflow.message?.startsWith("COMBINED_CONTEXT_CAPACITY:") != true) throw overflow
             val stages = CombinedCorpusMultipass.plan(turns, system, settings, combined)
             ContextPlan(
                 turns = turns,

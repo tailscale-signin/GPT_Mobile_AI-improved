@@ -10,6 +10,27 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class RunDiagnosticJournalTest {
+    @Test fun compositeRendererPartsRetainCorrelatedReceiptsWithoutRawIdentifiers() = runTest {
+        val vault = MemoryVault()
+        val journal = RunDiagnosticJournal(vault, backgroundScope).apply {
+            enabled = true
+            setRunPrivacy("run", false)
+        }
+        val parts = listOf("10:pending", "source:profile-private:payload-private:block:0:abcdef", "10:0")
+        parts.forEach { part ->
+            journal.traceOutput("run", OutputTraceBoundary.RENDER_INPUT, "body", partId = part)
+            journal.traceOutput("run", OutputTraceBoundary.RENDER_TRANSFORM, "body", partId = part)
+        }
+        runCurrent()
+        val snapshot = journal.snapshot(setOf("run"))
+        assertEquals(0L, snapshot.droppedEvents)
+        assertEquals(6, snapshot.events.size)
+        assertEquals(3, snapshot.events.map { it.outputPartId }.distinct().size)
+        snapshot.events.chunked(2).forEach { assertEquals(it[0].outputPartId, it[1].outputPartId) }
+        assertTrue(snapshot.events.any { it.outputPartId == "10:0" })
+        assertTrue(vault.rows.values.none { it.decodeToString().contains("profile-private") || it.decodeToString().contains("pending") })
+    }
+
     @Test fun repeatedRendererMountsPublishOneFirstVisibleReceiptPerOwnedAnswer() = kotlinx.coroutines.test.runTest {
         val journal = RunDiagnosticJournal(MemoryVault(), backgroundScope).apply {
             enabled = true

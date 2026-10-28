@@ -349,6 +349,17 @@ class PlatformSettingViewModel @Inject constructor(
         updatePlatform(updated)
     }
 
+    fun cycleEngineeringMode() {
+        val platform = platformState.value ?: return
+        viewModelScope.launch {
+            settingRepository.mutateFeatureSettings { current ->
+                val previous = current.engineeringProfiles[platform.uid] ?: dev.chungjungsoo.gptmobile.data.context.EngineeringProfileSettings()
+                val modes = dev.chungjungsoo.gptmobile.data.context.EngineeringMode.entries
+                current.copy(engineeringProfiles = current.engineeringProfiles + (platform.uid to previous.copy(mode = modes[(previous.mode.ordinal + 1) % modes.size])))
+            }
+        }
+    }
+
     fun cycleLlamaReasoning() {
         val platform = platformState.value ?: return
         viewModelScope.launch {

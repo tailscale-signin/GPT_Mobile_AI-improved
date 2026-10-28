@@ -1,13 +1,18 @@
 package dev.chungjungsoo.gptmobile.data.research.feature
 
+import dev.chungjungsoo.gptmobile.data.agent.AgentTool
+import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
+import dev.chungjungsoo.gptmobile.data.agent.tool.ResolvedAgentTool
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
 import dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig
 import dev.chungjungsoo.gptmobile.data.model.DeepResearchSettings
 import dev.chungjungsoo.gptmobile.data.model.ModelDelegationSettings
+import dev.chungjungsoo.gptmobile.data.model.MultiSearchResearchSelection
 import dev.chungjungsoo.gptmobile.data.model.ToolPluginId
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -31,6 +36,27 @@ class ArticleExaminationContractTest {
     @Test fun automaticChatRequiresItsOwnOptIn() {
         assertTrue(examinationAdmission(features, profile, request.copy(origin = ExaminationOrigin.AUTOMATIC_CHAT), ChatMcpToolConfig()) != null)
         assertNull(examinationAdmission(features.copy(researchFeature = ResearchFeatureSettings(ordinaryChatAutoExamination = true)), profile, request.copy(origin = ExaminationOrigin.AUTOMATIC_CHAT), ChatMcpToolConfig()))
+    }
+
+    @Test fun selectedGatewayMustResolveBothReaderOperationsUnlessNativeFallbackWasAccepted() {
+        fun tool(operation: String, connectionUid: String?) = ResolvedAgentTool(
+            tool = object : AgentTool {
+                override val definition = AgentToolDefinition("deep_research_$operation", "test", JsonObject(emptyMap()))
+                override suspend fun execute(callId: String, arguments: JsonObject) = error("readiness must not execute tools")
+            },
+            connectionUid = connectionUid,
+            connectionName = "test",
+            realToolName = "deep_research_$operation",
+            modelToolName = "deep_research_$operation"
+        )
+        val selected = MultiSearchResearchSelection(gatewayConnectionUid = "gateway")
+        val ready = listOf(tool("get_paper", "gateway"), tool("read_paper", "gateway"))
+
+        assertNull(examinationGatewayReadinessBlocker(selected, ready))
+        assertTrue(examinationGatewayReadinessBlocker(selected, ready.dropLast(1))!!.contains("read_paper"))
+        assertTrue(examinationGatewayReadinessBlocker(selected, listOf(tool("get_paper", "gateway"), tool("read_paper", "other"))) != null)
+        assertNull(examinationGatewayReadinessBlocker(selected.copy(allowNativeFallback = true), listOf(tool("get_paper", null), tool("read_paper", null))))
+        assertNull(examinationGatewayReadinessBlocker(MultiSearchResearchSelection(), emptyList()))
     }
 
     @Test fun chunkOffsetsRoundTripUnicodeAndDoNotPretendToInspectFigures() {

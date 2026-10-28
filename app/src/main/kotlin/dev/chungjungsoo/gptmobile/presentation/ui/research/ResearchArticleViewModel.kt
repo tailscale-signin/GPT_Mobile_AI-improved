@@ -13,8 +13,11 @@ import dev.chungjungsoo.gptmobile.data.research.feature.ResearchArchiveRepositor
 import dev.chungjungsoo.gptmobile.data.research.feature.ResearchWork
 import dev.chungjungsoo.gptmobile.data.research.feature.ResearchWorkVersion
 import dev.chungjungsoo.gptmobile.data.research.feature.StudyField
+import dev.chungjungsoo.gptmobile.data.research.feature.recordConsent
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -28,11 +31,12 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 data class ArticleDetailState(val work: ResearchWork? = null, val version: ResearchWorkVersion? = null, val fields: List<StudyField> = emptyList(), val passages: List<EvidencePassage> = emptyList(), val appraisals: List<EvidenceAppraisal> = emptyList(), val bodyAvailable: Boolean = false, val loading: Boolean = false, val acceptedJobId: String? = null, val error: String? = null, val reviews: List<dev.chungjungsoo.gptmobile.data.research.feature.ResearchStudyReview> = emptyList(), val validations: List<dev.chungjungsoo.gptmobile.data.research.feature.ResearchSourceValidation> = emptyList(), val relationships: List<dev.chungjungsoo.gptmobile.data.research.feature.ResearchIdentityResolution> = emptyList())
 
 @HiltViewModel
-class ResearchArticleViewModel @Inject constructor(private val archive: ResearchArchiveRepository, private val coordinator: ArticleExaminationCoordinator, private val settings: SettingRepository) : ViewModel() {
+class ResearchArticleViewModel @Inject constructor(private val archive: ResearchArchiveRepository, private val coordinator: ArticleExaminationCoordinator, private val settings: SettingRepository, @dev.chungjungsoo.gptmobile.di.IoDispatcher private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO) : ViewModel() {
     val profiles = settings.observePlatformV2s().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
     val features = settings.observeFeatureSettings().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings())
     val jobs = coordinator.jobs.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -70,13 +74,16 @@ class ResearchArticleViewModel @Inject constructor(private val archive: Research
         }
         val generation = selectionGeneration
         mutable.value = if (sameSelection) mutable.value.copy(loading = true) else ArticleDetailState(loading = true)
+        // Source hashing, body decoding and detail assembly can be large; keep them off the UI thread.
         loader = viewModelScope.launch {
             try {
-                val work = requireNotNull(archive.dao.work(workId)) { "Saved article is unavailable" }
-                val version = requireNotNull(versionId?.let { archive.dao.version(it) } ?: archive.dao.latestVersion(workId)) { "Saved version is missing" }
-                require(version.workId == workId && (version.publicSource || version.authority == authority)) { "Article access is no longer authorized" }
-                val available = archive.text(version, authority) != null
-                val details = ArticleDetailState(work, archive.dao.version(version.versionId), archive.dao.fields(version.versionId), archive.dao.passages(version.versionId), archive.dao.appraisals(version.versionId), available, validations = archive.dao.sourceValidations(version.versionId), relationships = archive.dao.identityResolutions(workId), reviews = archive.dao.studyReviews(version.versionId))
+                val details = withContext(ioDispatcher) {
+                    val work = requireNotNull(archive.dao.work(workId)) { "Saved article is unavailable" }
+                    val version = requireNotNull(versionId?.let { archive.dao.version(it) } ?: archive.dao.latestVersion(workId)) { "Saved version is missing" }
+                    require(version.workId == workId && (version.publicSource || version.authority == authority)) { "Article access is no longer authorized" }
+                    val available = archive.text(version, authority) != null
+                    ArticleDetailState(work, archive.dao.version(version.versionId), archive.dao.fields(version.versionId), archive.dao.passages(version.versionId), archive.dao.appraisals(version.versionId), available, validations = archive.dao.sourceValidations(version.versionId), relationships = archive.dao.identityResolutions(workId), reviews = archive.dao.studyReviews(version.versionId))
+                }
                 currentCoroutineContext().ensureActive()
                 if (selectionGeneration == generation) mutable.update { details.copy(acceptedJobId = it.acceptedJobId, error = it.error) }
             } catch (cancel: CancellationException) {
@@ -131,8 +138,13 @@ class ResearchArticleViewModel @Inject constructor(private val archive: Research
                 val blocker = profile?.let { dev.chungjungsoo.gptmobile.data.research.feature.examinationAdmission(current, it, request.copy(origin = dev.chungjungsoo.gptmobile.data.research.feature.ExaminationOrigin.USER_EXAMINE), tools()) }
                 if (profile != null && blocker == dev.chungjungsoo.gptmobile.data.research.feature.EXAMINATION_PAPERS_CONSENT_REQUIRED) {
                     val prompt = ConsentPrompt(java.util.UUID.randomUUID().toString(), profile.uid, profile.name.ifBlank { profile.model })
+                    settings.mutateFeatureSettings { current -> current.copy(researchFeature = current.researchFeature.recordConsent(prompt.id, profile.uid, "OFFERED")) }
+                    if (generation != selectionGeneration || epoch != consentEpoch) {
+                        return@action
+                    }
                     pendingConsent = PendingConsent(prompt, selectedRequest, profile, tools, generation)
                     consent.value = prompt
+                    dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("ResearchExamine", "CONSENT_PRESENTED · promptId=${prompt.id} · profile=${profile.uid}")
                 } else {
                     examine(selectedRequest, tools)
                 }
@@ -143,6 +155,18 @@ class ResearchArticleViewModel @Inject constructor(private val archive: Research
     }
 
     fun declineExaminationConsent() {
+        pendingConsent?.let { pending ->
+            viewModelScope.launch {
+                try {
+                    settings.mutateFeatureSettings { current -> current.copy(researchFeature = current.researchFeature.recordConsent(pending.prompt.id, pending.profile.uid, "DISMISSED")) }
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    mutable.update { it.copy(error = "Consent was dismissed, but its history could not be saved.") }
+                }
+            }
+            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("ResearchExamine", "CONSENT_DISMISSED · promptId=${pending.prompt.id} · profile=${pending.profile.uid} · granted=false")
+        }
         pendingConsent = null
         consent.value = null
         consentEpoch++
@@ -152,7 +176,7 @@ class ResearchArticleViewModel @Inject constructor(private val archive: Research
         declineExaminationConsent()
         settings.mutateFeatureSettings { current ->
             val behavior = current.profileBehavior[profileUid] ?: dev.chungjungsoo.gptmobile.data.model.ProfileBehaviorSettings()
-            current.copy(profileBehavior = current.profileBehavior + (profileUid to behavior.copy(academicSourcesAllowed = false)))
+            current.copy(profileBehavior = current.profileBehavior + (profileUid to behavior.copy(academicSourcesAllowed = false)), researchFeature = current.researchFeature.recordConsent(java.util.UUID.randomUUID().toString(), profileUid, "REVOKED"))
         }
     }
 
@@ -160,7 +184,10 @@ class ResearchArticleViewModel @Inject constructor(private val archive: Research
         val pending = pendingConsent?.takeIf { it.prompt.id == id } ?: return
         if (checkingConsent || admitting.value) return
         checkingConsent = true
-        declineExaminationConsent()
+        // Accept clears the prompt without recording a contradictory decline event.
+        pendingConsent = null
+        consent.value = null
+        consentEpoch++
         val epoch = consentEpoch
         action {
             try {
@@ -171,10 +198,11 @@ class ResearchArticleViewModel @Inject constructor(private val archive: Research
                     check(pending.generation == selectionGeneration && epoch == consentEpoch) { "Article selection changed. Choose Examine again." }
                     check(current.researchFeature.enabled && current.isToolPluginEnabledForProfile(profile.uid, dev.chungjungsoo.gptmobile.data.model.ToolPluginId.DEEP_RESEARCH)) { "Research is disabled for this profile" }
                     val behavior = current.profileBehavior[profile.uid] ?: dev.chungjungsoo.gptmobile.data.model.ProfileBehaviorSettings()
-                    val accepted = current.copy(profileBehavior = current.profileBehavior + (profile.uid to behavior.copy(researchEnabledOverride = true, academicSourcesAllowed = true)))
-                    dev.chungjungsoo.gptmobile.data.research.feature.examinationAdmission(accepted, profile, pending.request.copy(origin = dev.chungjungsoo.gptmobile.data.research.feature.ExaminationOrigin.USER_EXAMINE), pending.tools())?.let { error(it) }
+                    val accepted = current.copy(profileBehavior = current.profileBehavior + (profile.uid to behavior.copy(researchEnabledOverride = true, academicSourcesAllowed = true)), researchFeature = current.researchFeature.recordConsent(pending.prompt.id, profile.uid, "ACCEPTED"))
+                    dev.chungjungsoo.gptmobile.data.research.feature.examinationAdmission(accepted, profile, pending.request.copy(origin = dev.chungjungsoo.gptmobile.data.research.feature.ExaminationOrigin.USER_EXAMINE), pending.tools(), checkCapacity = false)?.let { error(it) }
                     accepted
                 }
+                dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("ResearchExamine", "CONSENT_ACCEPTED · promptId=${pending.prompt.id} · profile=${profile.uid} · granted=true")
                 if (pending.generation == selectionGeneration && epoch == consentEpoch) examine(pending.request, pending.tools)
             } finally {
                 checkingConsent = false

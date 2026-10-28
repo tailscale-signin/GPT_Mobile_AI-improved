@@ -956,6 +956,7 @@ fun ChatScreen(
                             pausedUids = disabledPlatformUids,
                             generatingUids = if (combined) frozenProfiles.filter { it.status == CombinedResponseStatus.GENERATING }.mapTo(hashSetOf()) { it.uid } else chatViewModel.enabledPlatformsInChat.filterIndexed { index, _ -> dockTurn == lastMessageIndex && loadingStates.getOrNull(index) == ChatViewModel.LoadingState.Loading }.toSet(),
                             combined = combined,
+                            combinedWaiting = combined && frozenProfiles.any { it.status != CombinedResponseStatus.COMPLETED },
                             combinedGenerating = combined && dockTurn >= 0 && combinedAnswerStatus(replies.firstOrNull { it.isCombinedSynthesis() }, frozenProfiles, agentRunsById) == CombinedResponseStatus.GENERATING,
                             onSelect = { uid ->
                                 listState.requestScrollToItem(listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset)
@@ -1899,6 +1900,9 @@ fun ChatDropdownMenu(
 
 private suspend fun exportChat(context: Context, chatViewModel: ChatViewModel, format: ChatExportFormat) {
     try {
+        if (format == ChatExportFormat.DEBUG) {
+            Toast.makeText(context, "Preparing detailed conversation diagnostics…", Toast.LENGTH_SHORT).show()
+        }
         val file = if (format == ChatExportFormat.DEBUG) {
             withContext(Dispatchers.IO) { chatViewModel.exportDebugFile(context.getExternalFilesDir(null) ?: context.filesDir) }
         } else {
@@ -1981,6 +1985,8 @@ fun ChatInputBox(
     onCancelButtonClick: () -> Unit = {},
     onFileRetry: (String) -> Unit = {},
     onComposerFocusChanged: (Boolean) -> Unit = {},
+    placeholder: String? = null,
+    attachmentsEnabled: Boolean = true,
     onSendButtonClick: () -> Unit = {}
 ) {
     val localStyle = LocalTextStyle.current
@@ -2043,16 +2049,18 @@ fun ChatInputBox(
                                 .padding(8.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Box {
-                                IconButton(enabled = chatEnabled, onClick = { attachmentMenu = true }) {
-                                    Icon(Icons.Rounded.AttachFile, contentDescription = stringResource(R.string.attach_file))
-                                }
-                                DropdownMenu(expanded = attachmentMenu, onDismissRequest = { attachmentMenu = false }) {
-                                    listOf(R.string.attach_images to "image/*", R.string.attach_documents to "application/pdf", R.string.attach_any_file to "*/*").forEach { (label, mime) ->
-                                        DropdownMenuItem(text = { Text(stringResource(label)) }, onClick = {
-                                            attachmentMenu = false
-                                            filePickerLauncher.launch(mime)
-                                        })
+                            if (attachmentsEnabled) {
+                                Box {
+                                    IconButton(enabled = chatEnabled, onClick = { attachmentMenu = true }) {
+                                        Icon(Icons.Rounded.AttachFile, contentDescription = stringResource(R.string.attach_file))
+                                    }
+                                    DropdownMenu(expanded = attachmentMenu, onDismissRequest = { attachmentMenu = false }) {
+                                        listOf(R.string.attach_images to "image/*", R.string.attach_documents to "application/pdf", R.string.attach_any_file to "*/*").forEach { (label, mime) ->
+                                            DropdownMenuItem(text = { Text(stringResource(label)) }, onClick = {
+                                                attachmentMenu = false
+                                                filePickerLauncher.launch(mime)
+                                            })
+                                        }
                                     }
                                 }
                             }
@@ -2064,7 +2072,7 @@ fun ChatInputBox(
                                 if (inputState.text.isEmpty()) {
                                     Text(
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        text = if (chatEnabled) stringResource(R.string.write_a_message) else stringResource(R.string.some_platforms_disabled)
+                                        text = placeholder ?: if (chatEnabled) stringResource(R.string.write_a_message) else stringResource(R.string.some_platforms_disabled)
                                     )
                                 }
                                 Box(modifier = Modifier.fillMaxWidth()) {

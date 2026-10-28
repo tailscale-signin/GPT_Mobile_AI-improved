@@ -23,6 +23,7 @@ internal class CombinedDeliverySession(
     private val committedPrefix: String = "",
     private val preserveSourceContent: Boolean = false,
     private val validateAccess: suspend () -> Unit,
+    private val onStage: suspend (CombinedDeliveryPhase) -> Unit = {},
     private val onCoverage: suspend (CombinedContentCoverage.Result, Boolean) -> Unit = { _, _ -> },
     private val maxRepairRounds: Int = 1,
     private val localConversationAnswer: String? = null,
@@ -61,11 +62,12 @@ internal class CombinedDeliverySession(
                 "PLAIN_TEXT"
             }} · progressive=$progressive · constrained=$constrained · revision=$currentRevision · policy=${combined?.requested?.requestedPolicyDigest.orEmpty()}"
         )
-        data class Candidate(val text: String, val terminal: ProviderEvent?, val decoder: CombinedPassageDecoder?, val assembledLocally: Boolean = false)
+        data class Candidate(val text: String, val terminal: ProviderEvent?, val decoder: CombinedPassageDecoder?, val assembledLocally: Boolean = false, val usage: CombinedReportedUsage? = null)
         suspend fun collect(candidate: AgentProviderSession, publish: Boolean): Candidate {
             val text = StringBuilder()
             val decoder = if (structured) CombinedPassageDecoder(sources, currentEvidence, maxCharacters, strictRecords = recordProtocol) else null
             var terminal: ProviderEvent? = null
+            var usage: CombinedReportedUsage? = null
             flow { emitAll(candidate.streamRound(emptyList(), emptyList())) }.catch { error ->
                 if (error is CancellationException) throw error
                 emit(ProviderEvent.Failed("Combined synthesis stream failed. The partial answer and original contributions are retained."))
@@ -93,6 +95,12 @@ internal class CombinedDeliverySession(
                             if (deltas.isNotEmpty() && decoder != null) emit(ProviderEvent.CombinedQuality(CombinedQualityReport(passages = decoder.passages.toList(), turnContext = turnContext, revisionId = currentRevision)))
                         }
                     }
+                    is ProviderEvent.Usage -> {
+                        if (event.inputTokens != null || event.outputTokens != null) {
+                            usage = CombinedReportedUsage(event.inputTokens?.takeIf { it >= 0 } ?: usage?.inputTokens, event.outputTokens?.takeIf { it >= 0 } ?: usage?.outputTokens, if (event.inputTokens != null) event.inputSource else usage?.inputSource ?: "unknown", if (event.outputTokens != null) event.outputSource else usage?.outputSource ?: "unknown")
+                        }
+                        emit(event)
+                    }
                     is ProviderEvent.Failed -> terminal = event
                     ProviderEvent.Completed -> if (terminal == null) terminal = event
                     else -> emit(event)
@@ -111,8 +119,13 @@ internal class CombinedDeliverySession(
             } else {
                 rawAnswer
             }
-            return Candidate(answer, terminal, decoder)
+            return Candidate(answer, terminal, decoder, usage = usage)
         }
+        suspend fun phase(stage: CombinedDeliveryPhase) {
+            onStage(stage)
+            emit(ProviderEvent.Notice(stage.label))
+        }
+        phase(CombinedDeliveryPhase.VALIDATING)
         validateAccess()
         if (!singlePass && policy.requiresCurrentEvidence && currentEvidence.records.none { it.readable && it.article && it.dated }) {
             if (combined != null && !policy.noSearch) {
@@ -123,13 +136,13 @@ internal class CombinedDeliverySession(
             if (currentEvidence.records.none { it.readable && it.article && it.dated }) {
                 val allowance = policy.maximumWords ?: policy.targetWords ?: Int.MAX_VALUE
                 val answer = if (allowance < 12) "Unverified." else "I couldn’t verify the newest story from the available article evidence."
-                val report = CombinedQualityReport(version = 6, answerDigest = researchHash(answer), complete = true, status = "COMPLETED_WITH_ISSUES", wordCount = visibleWordCount(answer), issues = listOf("CURRENT_ARTICLE_EVIDENCE_UNAVAILABLE"), sourceUnits = coverage.units.size, lexicalMissing = coverage.units.size, turnContext = turnContext, deliveredScopeStatus = "COMPLETED_WITH_LIMITS", verificationStatus = "EVIDENCE_UNAVAILABLE", revisionId = currentRevision, consideredProfileUids = sources.mapTo(linkedSetOf()) { it.platformUid }, finalAssessment = true, assessmentStage = "FINAL_DISPLAY", displayedCharacters = answer.length, displayableDraft = true, protocolComplete = true)
+                val report = CombinedQualityReport(version = 6, answerDigest = researchHash(answer), complete = false, status = "PARTIAL", wordCount = visibleWordCount(answer), issues = listOf("CURRENT_ARTICLE_EVIDENCE_UNAVAILABLE"), sourceUnits = coverage.units.size, lexicalMissing = coverage.units.size, turnContext = turnContext, deliveredScopeStatus = "PARTIAL", verificationStatus = "EVIDENCE_UNAVAILABLE", correctionRequired = true, revisionId = currentRevision, consideredProfileUids = sources.mapTo(linkedSetOf()) { it.platformUid }, finalAssessment = true, assessmentStage = "FINAL_DISPLAY", displayedCharacters = answer.length, displayableDraft = true, protocolComplete = true, semanticCoverageVerified = false, topicCoverage = "UNRESOLVED")
                 emit(ProviderEvent.CombinedAnswer(answer, report))
-                emit(ProviderEvent.Completed)
+                emit(ProviderEvent.Failed("COMBINED_REQUIREMENTS_UNMET: A dated, readable article was unavailable, so this is a partial status response rather than a completed synthesis.", errorCode = "COMBINED_REQUIREMENTS_UNMET", transportComplete = true))
                 return@flow
             }
         }
-        emit(ProviderEvent.Notice("Combining the contributions within your requested scope and checking their support."))
+        phase(CombinedDeliveryPhase.COMBINING)
         var accepted = collect(base, progressive)
         validateAccess()
         val deferred = (accepted.terminal as? ProviderEvent.Failed)?.takeIf { combined?.requested?.appendContinuations == true && it.providerLimit?.knownNotAccepted == true }
@@ -155,13 +168,14 @@ internal class CombinedDeliverySession(
             val invalid = checked.receipts.filterNot { CombinedEvidenceVerifier.validateReceipt(candidate.text, currentRevision, currentEvidence, it) }
             if (invalid.isEmpty()) checked else checked.copy(checks = checked.checks + CombinedAnswerCheck("INVALID_REVISION_EVIDENCE_RECEIPT", "PROVENANCE", "FAIL", true, invalid.mapTo(linkedSetOf()) { it.claimId }, "A support receipt did not validate against this answer revision and retained evidence."))
         }
+        phase(CombinedDeliveryPhase.CHECKING)
         var assessment = assess(accepted)
         var violations = withContext(Dispatchers.Default) { policy.violations(accepted.text) }
         var coverageResult = withContext(Dispatchers.Default) { coverage.check(accepted.text) }
         var repairs = 0
         var repairAccepted = 0
         var repairRejected = 0
-        var correctionRequired = assessment.correctionRequired
+        var correctionRequired = assessment.correctionRequired || assessment.requiredFailures.isNotEmpty()
         val rejections = mutableListOf<String>()
         val verificationAttempts = linkedSetOf<String>()
         var noProgress = 0
@@ -170,8 +184,8 @@ internal class CombinedDeliverySession(
         suspend fun report(candidate: Candidate, checked: CombinedFinalAssessment, final: Boolean): CombinedQualityReport {
             val unresolvedResearch = checked.checks.any { it.category == "RESEARCH_SCOPE" && it.result != "PASS" }
             val providerComplete = candidate.terminal == ProviderEvent.Completed
-            val material = correctionRequired || checked.correctionRequired
-            val issues = (violations + candidate.decoder?.issues.orEmpty() + checked.issues + listOfNotNull("LEXICAL_COVERAGE_NOT_EVALUATED".takeIf { !coverageResult.evaluated }, "LEXICAL_COVERAGE_UNRESOLVED_HINTS".takeIf { coverageResult.missing.isNotEmpty() })).distinct()
+            val material = correctionRequired || checked.correctionRequired || checked.requiredFailures.isNotEmpty() || checked.checks.any { it.material && it.result == "FAIL" }
+            val issues = (violations + listOfNotNull("NO_FINAL_OUTPUT".takeIf { candidate.text.isBlank() }) + candidate.decoder?.issues.orEmpty() + checked.issues + listOfNotNull("LEXICAL_COVERAGE_NOT_EVALUATED".takeIf { !coverageResult.evaluated }, "LEXICAL_COVERAGE_UNRESOLVED_HINTS".takeIf { coverageResult.missing.isNotEmpty() })).distinct()
             val framingValid = candidate.decoder?.issues.orEmpty().none { it in COMBINED_FRAMING_FAILURES }
             val delivered = when {
                 candidate.text.isBlank() -> "FAILED"
@@ -179,23 +193,27 @@ internal class CombinedDeliverySession(
                 issues.any { it != "LEXICAL_COVERAGE_UNRESOLVED_HINTS" } || checked.verificationNeeds.isNotEmpty() -> "COMPLETED_WITH_LIMITS"
                 else -> "COMPLETED"
             }
-            val mapping = withContext(Dispatchers.Default) { CombinedAnswerMappings.get(candidate.text, sources) }
+            val relevantClaimIds = coverage.units.mapTo(linkedSetOf()) { it.claimId }
+            val mapping = withContext(Dispatchers.Default) { CombinedAnswerMappings.get(candidate.text, sources, relevantClaimIds) }
+            val meaningfulClaimIds = CombinedContentIndexes.get(sources).records.flatMapTo(linkedSetOf()) { it.candidateIds }
+            val semanticCoverageVerified = meaningfulClaimIds.isEmpty() ||
+                checked.checks.none { it.id.startsWith("SEMANTIC_CONTRIBUTION_UNRESOLVED:") }
             val mappedPassages = CombinedAnswerMappings.passages(candidate.text, mapping, if (candidate.assembledLocally) emptyList() else candidate.decoder?.passages.orEmpty())
             val represented = mapping.links.flatMapTo(linkedSetOf()) { it.profileUids }
             return CombinedQualityReport(
                 version = 6,
                 answerDigest = researchHash(candidate.text),
                 claimMapping = mapping,
-                complete = candidate.text.isNotBlank() && providerComplete && framingValid && !material && violations.isEmpty() && !unresolvedResearch,
+                complete = candidate.text.isNotBlank() && providerComplete && framingValid && !material && violations.isEmpty() && !unresolvedResearch && checked.requiredFailures.isEmpty() && semanticCoverageVerified,
                 status = when {
                     candidate.text.isBlank() -> "FAILED"
-                    material -> "CORRECTION_REQUIRED"
                     !providerComplete -> "INTERRUPTED"
+                    material -> "CORRECTION_REQUIRED"
                     delivered == "PARTIAL" -> "PARTIAL"
                     issues.isEmpty() -> "COMPLETED_UNVERIFIED"
                     else -> "COMPLETED_WITH_ISSUES"
                 },
-                wordCount = visibleWordCount(candidate.text), issues = issues,
+                wordCount = visibleWordCount(candidate.text), issues = issues, writerUsage = candidate.usage,
                 passages = mappedPassages.map { passage -> passage.copy(evidenceStatus = CombinedEvidenceVerifier.assess(passage.passageId, candidate.text.substring(passage.start, passage.end), currentEvidence, passage.sourceIds).result) },
                 decisions = checked.decisions,
                 sourceUnits = coverageResult.total, lexicalMissing = coverageResult.missing.size,
@@ -232,6 +250,7 @@ internal class CombinedDeliverySession(
                 protocolComplete = providerComplete && framingValid,
                 identityLinkStatus = if (candidate.decoder?.issues.orEmpty().any { it in setOf("UNKNOWN_CLAIM_REFERENCE", "UNKNOWN_PROFILE_REFERENCE") }) "REJECTED_REFERENCES" else "KNOWN_OCCURRENCES",
                 semanticSupportStatus = if (represented.isEmpty()) "UNESTABLISHED" else "CONSERVATIVE_TEXT_LINKS_ONLY",
+                semanticCoverageVerified = semanticCoverageVerified,
                 lengthCompliance = if (violations.any { it.contains("WORD") || it.contains("LENGTH") }) "UNMET" else "MET",
                 topicCoverage = if (checked.checks.any { it.category in setOf("SCOPE", "RESEARCH_SCOPE") && it.result != "PASS" }) "UNRESOLVED" else "LOCAL_CHECKS_PASSED",
                 sourceLinkStatus = when {
@@ -246,10 +265,10 @@ internal class CombinedDeliverySession(
 
         while (!singlePass && accepted.terminal == ProviderEvent.Completed) {
             validateAccess()
-            correctionRequired = correctionRequired || assessment.correctionRequired
+            correctionRequired = correctionRequired || assessment.correctionRequired || assessment.requiredFailures.isNotEmpty()
             if (correctionRequired) {
                 emit(ProviderEvent.CombinedQuality(report(accepted, assessment, false)))
-                emit(ProviderEvent.Notice("This draft has a material support problem and needs correction. Its earlier assessment has been invalidated.", persistent = true))
+                emit(ProviderEvent.Notice("This draft has unresolved required checks or material support problems and needs correction. Its earlier assessment has been invalidated.", persistent = true))
             }
             val evidenceState = researchHash(currentEvidence.records.flatMap { record -> record.retainedExcerpts.map { record.id + ":" + it.digest + ":" + it.retrieval } }.sorted().joinToString("|"))
             val needs = assessment.verificationNeeds.filter { verificationAttempts.add(researchHash(it.proposition + "|" + it.reason + "|" + evidenceState)) }
@@ -263,7 +282,7 @@ internal class CombinedDeliverySession(
                     if (acquired != null) currentEvidence = currentEvidence.mergedWith(acquired)
                 }
                 assessment = assess(accepted)
-                correctionRequired = correctionRequired || assessment.correctionRequired
+                correctionRequired = correctionRequired || assessment.correctionRequired || assessment.requiredFailures.isNotEmpty()
                 // Continue only for a shrinking set of concrete unresolved claims. Merely opening
                 // more pages does not justify another batch, and known errors proceed to revision.
                 if (!correctionRequired && assessment.verificationNeeds.isNotEmpty() && assessment.verificationNeeds.size < previousNeeds) continue
@@ -306,18 +325,22 @@ internal class CombinedDeliverySession(
             }
             val rewritten = repairSession?.let { collect(it, false) }
             validateAccess()
-            if (rewritten != null && researchHash(rewritten.text) == previousDigest && rewritten.decoder?.decisions == accepted.decoder?.decisions) {
-                repairRejected++
-                rejections += "REPLACEMENT_MADE_NO_TEXT_PROGRESS"
-                repairSkippedReason = "NO_PROGRESS_AFTER_REQUIRED_REVISION"
-                break
+            if (rewritten != null) {
+                val progress = CombinedContinuationProgress.assess(accepted.text, rewritten.text)
+                if (progress != CombinedContinuationProgress.Result.ADVANCED) {
+                    repairRejected++
+                    rejections += "REPLACEMENT_MADE_NO_TEXT_PROGRESS:${progress.name}"
+                    repairSkippedReason = "NO_PROGRESS_AFTER_REQUIRED_REVISION"
+                    AppLogRecorder.record("CombinedSynthesis", "COMBINED_REPAIR_NO_PROGRESS · reason=${progress.name} · priorCharacters=${accepted.text.length} · candidateCharacters=${rewritten.text.length}")
+                    break
+                }
             }
             val previousRevision = currentRevision
             currentRevision = requestedRepair.targetRevisionId
             val rewrittenChecks = rewritten?.let { assess(it) }
             val rewrittenViolations = rewritten?.let { policy.violations(it.text) }.orEmpty()
             val protocolFailures = rewritten?.decoder?.issues.orEmpty().filter { it in COMBINED_FRAMING_FAILURES }
-            val newMaterial = rewrittenChecks?.correctionRequired == true
+            val newMaterial = rewrittenChecks?.checks.orEmpty().any { it.material && it.result == "FAIL" && it.id !in previousFailures } || rewrittenChecks?.requiredFailures.orEmpty().any { it !in assessment.requiredFailures }
             val addedVerificationNeeds = rewrittenChecks?.verificationNeeds.orEmpty().any { next ->
                 assessment.verificationNeeds.none { previous ->
                     next.proposition == previous.proposition ||
@@ -333,12 +356,15 @@ internal class CombinedDeliverySession(
                 !newMaterial &&
                 (!addedVerificationNeeds || "TASK_SUBJECT_MISMATCH" in previousFailures) &&
                 rewrittenChecks != null &&
+                rewrittenChecks.requiredFailures.size <= assessment.requiredFailures.size &&
+                (assessment.requiredFailures.isEmpty() || rewrittenChecks.requiredFailures.size < assessment.requiredFailures.size || (rewritten.text.length > accepted.text.length && rewrittenChecks.requiredFailures.toSet() == assessment.requiredFailures.toSet())) &&
                 rewrittenChecks.hardFailures.none { it !in previousFailures } &&
+                rewrittenChecks.requiredFailures.none { it !in assessment.requiredFailures } &&
                 (rewrittenChecks.verificationNeeds.size <= assessment.verificationNeeds.size || "TASK_SUBJECT_MISMATCH" in previousFailures)
             if (canAccept && rewritten != null && rewrittenChecks != null) {
                 val nextCoverage = withContext(Dispatchers.Default) { coverage.check(rewritten.text) }
                 val priorCorrection = correctionRequired
-                correctionRequired = false
+                correctionRequired = rewrittenChecks.correctionRequired || rewrittenChecks.requiredFailures.isNotEmpty()
                 val oldCoverage = coverageResult
                 coverageResult = nextCoverage
                 val oldViolations = violations
@@ -386,7 +412,8 @@ internal class CombinedDeliverySession(
             }
         }
         val writerText = accepted.text
-        val writerMapping = withContext(Dispatchers.Default) { CombinedAnswerMappings.get(writerText, sources) }
+        val relevantClaimIds = coverage.units.mapTo(linkedSetOf()) { it.claimId }
+        val writerMapping = withContext(Dispatchers.Default) { CombinedAnswerMappings.get(writerText, sources, relevantClaimIds) }
         val writerAssessment = CombinedAssessmentSnapshot(
             researchHash(writerText),
             currentRevision,
@@ -397,6 +424,18 @@ internal class CombinedDeliverySession(
             writerMapping.claims.count { it.status == "PARTIAL" },
             assessment.verificationNeeds
         )
+        var deterministicFallback = false
+        if (accepted.text.isBlank() && committedPrefix.isEmpty()) {
+            validateAccess()
+            val fallback = withContext(Dispatchers.Default) { deterministicCombinedFallback(sources, maxCharacters, policy.maximumWords) }
+            if (fallback != null) {
+                accepted = accepted.copy(text = fallback, decoder = null, assembledLocally = true)
+                assessment = assess(accepted)
+                violations = withContext(Dispatchers.Default) { policy.violations(fallback) }
+                correctionRequired = true
+                deterministicFallback = true
+            }
+        }
         var ceilingEnforced = false
         val ceiling = policy.maximumWords
         if (!recordProtocol && !progressive && committedPrefix.isEmpty() && ceiling != null && visibleWordCount(accepted.text) > ceiling) {
@@ -404,7 +443,7 @@ internal class CombinedDeliverySession(
             accepted = accepted.copy(text = bounded, assembledLocally = true)
             violations = policy.violations(bounded)
             assessment = assess(accepted)
-            correctionRequired = assessment.correctionRequired
+            correctionRequired = assessment.correctionRequired || assessment.requiredFailures.isNotEmpty()
             ceilingEnforced = true
         }
         coverageResult = withContext(Dispatchers.Default) { coverage.check(accepted.text) }
@@ -416,6 +455,39 @@ internal class CombinedDeliverySession(
             locallyAddedCharacters = (accepted.text.length - writerText.length).coerceAtLeast(0),
             locallyRemovedCharacters = (writerText.length - accepted.text.length).coerceAtLeast(0)
         )
+        // A historical survey must not be marked complete if the displayed answer
+        // omits periods required by the same outline used to plan synthesis.
+        if (policy.task?.historicalSurvey == true && accepted.text.isNotBlank()) {
+            val expectedPeriods = sources.flatMap { CombinedContentCoverage.sentences(it.content) }
+                .filter(CombinedHistoryOutline::substantive)
+                .flatMap { CombinedHistoryOutline.periods(it) }
+                .toSet()
+            val coveredPeriods = CombinedHistoryOutline.periods(accepted.text).toSet()
+            val missingPeriods = expectedPeriods - coveredPeriods
+            if (missingPeriods.isNotEmpty()) {
+                finalReport = finalReport.copy(
+                    complete = false,
+                    status = "CORRECTION_REQUIRED",
+                    deliveredScopeStatus = "PARTIAL",
+                    correctionRequired = true,
+                    topicCoverage = "UNRESOLVED",
+                    issues = (finalReport.issues + "HISTORICAL_PERIOD_COVERAGE_INCOMPLETE").distinct()
+                )
+                AppLogRecorder.record(
+                    "CombinedSynthesis",
+                    "HISTORICAL_PERIOD_COVERAGE_INCOMPLETE · revision=$currentRevision · missingPeriods=${missingPeriods.sorted().map { CombinedHistoryOutline.labels[it] }}"
+                )
+            }
+        }
+        if (deterministicFallback) {
+            finalReport = finalReport.copy(
+                complete = false,
+                status = "FALLBACK_SOURCE_COMPILATION",
+                deliveredScopeStatus = "PARTIAL",
+                correctionRequired = true,
+                issues = (finalReport.issues + "WRITER_FAILED_SOURCE_COMPILATION" + "NO_FINAL_OUTPUT_FROM_WRITER").distinct()
+            )
+        }
         if (ceilingEnforced) finalReport = finalReport.copy(issues = (finalReport.issues + "WORD_CEILING_ENFORCED_AFTER_REPAIR").distinct())
         if (preserveSourceContent) {
             val accounting = withContext(Dispatchers.Default) { CombinedSourcePreservation.account(accepted.text, sources) }
@@ -424,7 +496,8 @@ internal class CombinedDeliverySession(
                 sourceAccountingStatus = "IMMUTABLE_ORIGINALS_AND_CLAIM_LINKS_V4"
             )
         }
-        AppLogRecorder.record("CombinedSynthesis", "SYNTHESIS_QUALITY · status=${finalReport.status} · delivered=${finalReport.deliveredScopeStatus} · verification=${finalReport.verificationStatus} · revision=${finalReport.revisionId} · assessedDigest=${finalReport.answerDigest} · assessmentStage=${finalReport.assessmentStage} · wordCounter=${finalReport.wordCounterVersion} · words=${finalReport.wordCount} · writerDigest=${finalReport.writerAnswerDigest} · writerCharacters=${finalReport.writerCharacters} · locallyAddedCharacters=${finalReport.locallyAddedCharacters} · locallyRemovedCharacters=${finalReport.locallyRemovedCharacters} · displayedCharacters=${finalReport.displayedCharacters} · fullyLinkedClaims=${finalReport.fullyLinkedClaims} · partialSourceLinks=${finalReport.partialSourceLinks} · unresolvedSourceLinks=${finalReport.unresolvedSourceLinks} · repairs=$repairs · accepted=$repairAccepted · rejected=$repairRejected · rejectionReasons=${rejections.joinToString(";")} · stoppingReason=$repairSkippedReason · semanticCoverageVerified=false · factualAccuracyVerified=false")
+        AppLogRecorder.record("CombinedSynthesis", "SYNTHESIS_QUALITY · status=${finalReport.status} · delivered=${finalReport.deliveredScopeStatus} · verification=${finalReport.verificationStatus} · revision=${finalReport.revisionId} · assessedDigest=${finalReport.answerDigest} · assessmentStage=${finalReport.assessmentStage} · wordCounter=${finalReport.wordCounterVersion} · words=${finalReport.wordCount} · writerDigest=${finalReport.writerAnswerDigest} · writerCharacters=${finalReport.writerCharacters} · locallyAddedCharacters=${finalReport.locallyAddedCharacters} · locallyRemovedCharacters=${finalReport.locallyRemovedCharacters} · displayedCharacters=${finalReport.displayedCharacters} · fullyLinkedClaims=${finalReport.fullyLinkedClaims} · partialSourceLinks=${finalReport.partialSourceLinks} · unresolvedSourceLinks=${finalReport.unresolvedSourceLinks} · repairs=$repairs · accepted=$repairAccepted · rejected=$repairRejected · rejectionReasons=${rejections.joinToString(";")} · stoppingReason=$repairSkippedReason · semanticCoverageVerified=${finalReport.semanticCoverageVerified} · factualAccuracyVerified=${finalReport.factualAccuracyVerified}")
+        phase(CombinedDeliveryPhase.PUBLISHING)
         validateAccess()
         val linkedPassages = finalReport.passages.filter { it.semanticLinkStatus == "CONSERVATIVE_LINK_CHECKED" }
         val failedChecks = assessment.checks.filter { it.result != "PASS" }.map { it.id }
@@ -435,8 +508,11 @@ internal class CombinedDeliverySession(
         } else {
             emit(ProviderEvent.CombinedQuality(finalReport))
         }
+        if (finalReport.issues.contains("HISTORICAL_PERIOD_COVERAGE_INCOMPLETE")) {
+            emit(ProviderEvent.Notice("The retained historical survey is missing required periods. It remains a partial draft until those sections are completed and checked.", persistent = true))
+        }
         if (violations.isNotEmpty()) emit(ProviderEvent.Notice(if (accepted.text.isBlank()) "Final assembly did not deliver answer text. Saved contributions and recovery actions remain available." else "The retained draft has an unmet instruction check.", persistent = true))
-        if (correctionRequired) emit(ProviderEvent.Notice("The retained draft requires correction; it is not a checked final answer.", persistent = true))
+        if (finalReport.correctionRequired || finalReport.status == "CORRECTION_REQUIRED") emit(ProviderEvent.Notice("The retained draft requires correction; it is not a checked final answer.", persistent = true))
         if (accepted.text.isBlank()) {
             emit(accepted.terminal as? ProviderEvent.Failed ?: ProviderEvent.Failed("Combined synthesis produced no usable answer records.", errorCode = if (finalReport.issues.any { it in COMBINED_FRAMING_FAILURES }) "OUTPUT_PROTOCOL_INVALID" else "COMBINED_PARTIAL"))
         } else if (!finalReport.complete || finalReport.deliveredScopeStatus == "PARTIAL") {

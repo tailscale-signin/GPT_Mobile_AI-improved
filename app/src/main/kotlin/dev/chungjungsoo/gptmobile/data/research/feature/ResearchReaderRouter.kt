@@ -32,7 +32,8 @@ internal object ResearchReaderRouter {
             }
         }
         val avoided = initial.redirectChain.toSet() + if (initial.retrievalStatus in setOf("blocked", "authentication_required", "redirect_failed")) setOf(initial.sourceUrl) else emptySet()
-        val candidates = listOfNotNull(paper.openAccessUrl, paper.canonicalUrl).filter { it.isNotBlank() }.distinct().filterNot { it in avoided }
+        val pmcid = paper.identifiers["pmcid"]?.uppercase()?.takeIf { it.matches(Regex("PMC[0-9]+")) }
+        val candidates = listOfNotNull(paper.openAccessUrl, paper.canonicalUrl, pmcid?.let { "https://pmc.ncbi.nlm.nih.gov/articles/$it/" }, pmcid?.let { "https://europepmc.org/articles/$it" }).filter { it.isNotBlank() }.distinct().filterNot { it in avoided }
         for (url in candidates) {
             if (!permitted()) return retained.copy(retrievalStatus = "permission_denied", failureCode = "PERMISSION_REVOKED")
             if (!ResearchArchiveIngestor.publicUrl(url) || !researchDomainAllowed(url, included, excluded)) continue

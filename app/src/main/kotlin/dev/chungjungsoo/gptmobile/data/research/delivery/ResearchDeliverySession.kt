@@ -51,7 +51,13 @@ internal class ResearchDeliverySession(
             }
             publishedDraft = text
         }
-        suspend fun receipt(validity: ResearchReportValidity, evidence: ResearchDeliveryPacket?, text: String, issues: List<String> = emptyList()) {
+        suspend fun receipt(
+            validity: ResearchReportValidity,
+            evidence: ResearchDeliveryPacket?,
+            text: String,
+            issues: List<String> = emptyList(),
+            validation: ResearchDeliveryValidator.Result? = null
+        ) {
             validateAccess()
             val value = ResearchDeliveryReceipt(
                 validity,
@@ -63,7 +69,11 @@ internal class ResearchDeliverySession(
                 claimIds = evidence?.claims?.map { dev.chungjungsoo.gptmobile.data.research.researchHash(it.sourceId + it.text + it.quote) }.orEmpty(),
                 blockIds = evidence?.let { ResearchReportRepair.blocks(text, it).map { block -> block.id } }.orEmpty(),
                 outputCap = outputCap,
-                retryEligible = validity != ResearchReportValidity.ACCEPTED && evidence?.studies?.isNotEmpty() == true
+                retryEligible = validity != ResearchReportValidity.ACCEPTED && evidence?.studies?.isNotEmpty() == true,
+                semanticCoverageVerified = validity == ResearchReportValidity.ACCEPTED && validation?.semanticCoverageVerified == true,
+                coveredClaimCount = validation?.coveredClaimCount ?: 0,
+                eligibleClaimCount = validation?.eligibleClaimCount ?: 0,
+                reviewStatus = evidence?.let(ResearchReportReviewStatus::status) ?: ResearchReviewStatus.UNREVIEWED
             )
             saveReceipt(value)
             validateAccess()
@@ -170,9 +180,10 @@ internal class ResearchDeliverySession(
             emit(ProviderEvent.Failed("RESEARCH_PARTIAL: No readable sources were acquired. Saved discovery leads remain available; retry collection when sources and network access are available."))
             return@flow
         }
-        var text = ResearchReportReferences.render(draft.toString(), delivery)
+        var text = ResearchReportReviewStatus.disclose(ResearchReportReferences.render(draft.toString(), delivery), delivery)
         var partialFallback = false
         val result = withContext(Dispatchers.Default) { ResearchDeliveryValidator.validate(text, delivery) }
+        var finalValidation: ResearchDeliveryValidator.Result? = result.takeIf { result.accepted }
         var deliveryIssues = result.issues
         var repairRejection: ResearchRepairResult.Reason? = null
         if (!result.accepted || overflow) {
@@ -233,7 +244,7 @@ internal class ResearchDeliverySession(
             }
             repairRejection = (application as? ResearchRepairResult.Rejected)?.reason
             val applied = (application as? ResearchRepairResult.Applied)?.text
-            val repairText = applied?.let { ResearchReportReferences.render(it, delivery) }
+            val repairText = applied?.let { ResearchReportReviewStatus.disclose(ResearchReportReferences.render(it, delivery), delivery) }
             // A rejected patch never becomes a synthetic empty report. The original
             // draft remains the fallback source, and the exact rejection is retained.
             val repaired = repairText?.let { candidate -> withContext(Dispatchers.Default) { ResearchDeliveryValidator.validate(candidate, delivery) } }
@@ -259,16 +270,24 @@ internal class ResearchDeliverySession(
                     ResearchReportRepair.evidenceFallback((listOf(text) + saved).filter(String::isNotBlank).joinToString("\n\n"), delivery, result.issues)
                 }
             }
+            finalValidation = withContext(Dispatchers.Default) { ResearchDeliveryValidator.validate(text, delivery) }
             if (!repairedAccepted && !sectionedAccepted) {
                 partialFallback = true
                 emit(ProviderEvent.Notice("The generated report did not pass evidence checks. Delivering a clearly labelled partial evidence report instead."))
             }
-            AppLogRecorder.record("Research", "DELIVERY_VALIDATED · repaired=true · accepted=${repairedAccepted || sectionedAccepted} · sectioned=$sectionedAccepted · partialFallback=${!repairedAccepted && !sectionedAccepted} · initialIssues=${result.issues.joinToString()} · repairIssues=${repairIssues.joinToString()} · repairCompleted=$repairCompleted · repairFailed=$repairFailed · repairRejection=${repairRejection?.issueCode ?: "none"} · repairResponseChars=${repair.length} · repairApplied=${applied != null} · initialOverflow=$overflow · structuralIssues=${repaired?.issues.orEmpty().joinToString()} · semanticCoverageVerified=false")
+            AppLogRecorder.record("Research", "DELIVERY_VALIDATED · repaired=true · accepted=${repairedAccepted || sectionedAccepted} · sectioned=$sectionedAccepted · partialFallback=${!repairedAccepted && !sectionedAccepted} · initialIssues=${result.issues.joinToString()} · repairIssues=${repairIssues.joinToString()} · repairCompleted=$repairCompleted · repairFailed=$repairFailed · repairRejection=${repairRejection?.issueCode ?: "none"} · repairResponseChars=${repair.length} · repairApplied=${applied != null} · initialOverflow=$overflow · structuralIssues=${repaired?.issues.orEmpty().joinToString()} · semanticCoverageVerified=${finalValidation?.semanticCoverageVerified == true} · coveredClaims=${finalValidation?.coveredClaimCount ?: 0}/${finalValidation?.eligibleClaimCount ?: 0}")
         } else {
-            AppLogRecorder.record("Research", "DELIVERY_VALIDATED · repaired=false · accepted=true · cited=${result.citedIds.size} · semanticCoverageVerified=false")
+            AppLogRecorder.record("Research", "DELIVERY_VALIDATED · repaired=false · accepted=true · cited=${result.citedIds.size} · semanticCoverageVerified=${result.semanticCoverageVerified} · coveredClaims=${result.coveredClaimCount}/${result.eligibleClaimCount}")
         }
         publish(text)
-        receipt(if (partialFallback) ResearchReportValidity.EVIDENCE_ONLY else ResearchReportValidity.ACCEPTED, delivery, text, if (partialFallback) deliveryIssues else emptyList())
+        finalValidation = finalValidation ?: withContext(Dispatchers.Default) { ResearchDeliveryValidator.validate(text, delivery) }
+        receipt(
+            if (partialFallback) ResearchReportValidity.EVIDENCE_ONLY else ResearchReportValidity.ACCEPTED,
+            delivery,
+            text,
+            if (partialFallback) deliveryIssues else emptyList(),
+            finalValidation
+        )
         if (partialFallback) {
             val correctionStatus = repairRejection?.let { " ${it.description}" }.orEmpty()
             emit(ProviderEvent.Failed("RESEARCH_PARTIAL: Evidence is retained, but the report did not pass its delivery checks.$correctionStatus Resume writing from saved evidence.", errorCode = "RESEARCH_PARTIAL"))
@@ -346,7 +365,7 @@ internal class ResearchDeliverySession(
             if (report.isNotEmpty()) report.append("\n\n")
             report.append(headings.joinToString("\n\n") { reusable.getValue(it) })
         }
-        val proposed = report.toString()
+        val proposed = ResearchReportReviewStatus.disclose(report.toString(), packet)
         validateAccess()
         return proposed.takeIf { ResearchDeliveryValidator.validate(it, packet).accepted }
     }

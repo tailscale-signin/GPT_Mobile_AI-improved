@@ -47,4 +47,19 @@ class GgufGenerationDeadlineTest {
         assertTrue(GgufLoadDeadline.expired("OPENCL_clBuildProgram_END_rc_0", 0, 20_000))
         assertEquals(180_000L, GgufLoadDeadline.ABSOLUTE_LOAD_MS)
     }
+
+    @Test fun repeatedPreparationReceiptsCannotKeepAnIdleWorkerAlive() {
+        val deadline = GgufGenerationDeadline(0, 75_000)
+        deadline.observe(GgufNativeProgress(1, "RENDER_END"), 1000)
+        deadline.observe(GgufNativeProgress(1, "RENDER_END"), 74_000)
+        assertEquals("GGUF_NATIVE_STALL", deadline.expiration(76_000))
+    }
+
+    @Test fun repeatedPrefillBeginCannotResetTheThroughputWindow() {
+        val deadline = GgufGenerationDeadline(0, 75_000)
+        deadline.observe(GgufNativeProgress(1, "PREFILL_BEGIN", 2000, 0, 0), 0)
+        deadline.observe(GgufNativeProgress(1, "PREFILL_BATCH_END", 2000, 10, 0), 119_000)
+        deadline.observe(GgufNativeProgress(1, "PREFILL_BEGIN", 2000, 10, 0), 119_500)
+        assertEquals("GGUF_PREFILL_THROUGHPUT_DEADLINE", deadline.expiration(120_000))
+    }
 }

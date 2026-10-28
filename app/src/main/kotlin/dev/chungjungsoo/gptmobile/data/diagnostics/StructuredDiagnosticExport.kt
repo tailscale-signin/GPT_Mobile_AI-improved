@@ -53,6 +53,15 @@ internal fun structuredDiagnosticLine(
         put("captureSource", captureSource)
         put("duplicate", duplicate)
         put("countAsIssue", !duplicate && incidentRoot && match != null && classification.actionable)
+        put(
+            "classification",
+            when {
+                !incidentRoot || match == null || duplicate -> "SYMPTOM"
+                classification.actionable -> "ROOT_CAUSE"
+                classification.category in setOf("compatibility_probe", "model_compatibility", "connectivity_progress", "platform_job_hint", "deferred_work", "recovery") -> "EXPECTED_LIFECYCLE"
+                else -> "INFORMATIONAL"
+            }
+        )
         put("category", classification.category)
         put("severity", classification.severity)
         put("stage", text("stage") ?: text("runtimeStage"))

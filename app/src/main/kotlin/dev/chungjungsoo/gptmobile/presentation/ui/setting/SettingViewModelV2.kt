@@ -142,6 +142,10 @@ class SettingViewModelV2 @Inject constructor(
         viewModelScope.launch { settingRepository.mutateFeatureSettings { it.copy(readiness = transform(it.readiness)) } }
     }
 
+    fun selectGitHubDefaultProfile(uid: String?) {
+        viewModelScope.launch { settingRepository.mutateFeatureSettings { it.copy(githubDefaultProfileUid = uid) } }
+    }
+
     fun updateFeature(feature: AppFeature, enabled: Boolean) {
         viewModelScope.launch {
             settingRepository.mutateFeatureSettings { it.withFeature(feature, enabled) }

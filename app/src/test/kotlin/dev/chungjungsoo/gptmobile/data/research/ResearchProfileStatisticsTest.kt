@@ -23,6 +23,20 @@ class ResearchProfileStatisticsTest {
         assertEquals(0, stats.getValue("b").modelRequests)
     }
 
+    @Test fun stageLinksRecoverInvocationUsageWhenChildTurnKeysDiffer() {
+        val stage = ResearchModelEvent("stage", "EXTRACT", "a", "m", false, "SUCCESS", 1, invocationId = "child")
+        val session = ResearchSession("run", 1, ResearchSnapshot("Task", modelEvents = listOf(stage)), "1:1")
+        val request = ModelInvocation("child", "synthetic-parent", "worker:1:1", "FREE", "m", "research-extract", 20, 30, status = "COMPLETED", profileUid = "a")
+        val stats = researchProfileStatistics("1:1", setOf("a"), listOf(session), listOf(request, request.copy(id = "unrelated")), emptyList()).single()
+        assertEquals(1, stats.modelRequests)
+        assertEquals(50L, stats.inputTokens + stats.outputTokens)
+        assertEquals(true, stats.usageAvailable)
+        assertEquals(0, stats.missingInvocationRecords)
+        val missing = researchProfileStatistics("1:1", setOf("a"), listOf(session), emptyList(), emptyList()).single()
+        assertEquals(false, missing.usageAvailable)
+        assertEquals(1, missing.missingInvocationRecords)
+    }
+
     @Test fun acceptedProfilesHaveZeroRowsBeforeAnySessionOrRequestExists() {
         val stats = researchProfileStatistics("root", setOf("a", "b"), emptyList(), emptyList(), emptyList())
         assertEquals(listOf("a", "b"), stats.map { it.profileUid })

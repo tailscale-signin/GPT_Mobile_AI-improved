@@ -10,6 +10,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.CombinedModelResponse
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CombinedResponseStateTest {
@@ -59,6 +60,22 @@ class CombinedResponseStateTest {
         assertEquals(listOf("old"), profiles.map { it.uid })
         assertEquals("Original contribution", profiles.single().message?.content)
         assertEquals("original-run", profiles.single().message?.currentRunId)
+    }
+
+    @Test
+    fun `selected profiles without responses retain empty swipe slots`() {
+        val profiles = combinedResponseProfiles(
+            responses = emptyList(),
+            platformUids = listOf("first", "second", "third"),
+            profileNames = mapOf("first" to "First", "second" to "Second", "third" to "Third"),
+            participatingUids = setOf("first", "second", "third"),
+            preparing = false,
+            runsById = emptyMap()
+        )
+
+        assertEquals(listOf("first", "second", "third"), profiles.map { it.uid })
+        assertTrue(profiles.all { it.message == null })
+        assertTrue(profiles.all { it.status == CombinedResponseStatus.FAILED })
     }
 
     @Test

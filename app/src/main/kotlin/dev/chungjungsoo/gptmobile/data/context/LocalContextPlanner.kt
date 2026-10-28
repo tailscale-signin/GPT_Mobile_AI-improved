@@ -55,7 +55,6 @@ internal object LocalContextPlanner {
         // Tool definitions are charged below at their measured cost. Reserving another
         // tool block here double-counted the same tokens and caused local conversations
         // to silently receive zero tools on small-context models.
-        val toolResultReserve = if (relevantTools.isEmpty()) 0 else maxOf(128, contextTokens / 4)
         val templateReserve = 256 // Matches the minimum uncertainty reserve at physical dispatch.
         // Reserve explicit result headroom for small local contexts; larger engines have
         // provider-level response budgeting and should not lose tools unnecessarily.
@@ -65,8 +64,21 @@ internal object LocalContextPlanner {
             estimate(turn.assistantMessage?.effectiveContent().orEmpty()) + 32 +
             historyImageCount(turn).toLong() * IMAGE_TOKEN_ESTIMATE
 
-        val safetyReserve = templateReserve + toolResultReserve + 1
         val requiredSchemaTokens = schemaCost(requiredTools)
+        // Result space is an allowance, not fixed input. On small contexts the
+        // quarter-context target can reject an otherwise usable required catalog.
+        // Borrow only from that allowance, retaining the full request and schemas,
+        // template safety, and at least a modest reply. The delivery budget below
+        // enforces the smaller result allowance on every tool callback. At least
+        // 512 bytes are needed before executeBoundTool can dispatch any tool.
+        val minimumReply = minOf(outputLimit?.takeIf { it > 0 } ?: 128, 128)
+        val resultHeadroom = contextTokens.toLong() - used - requiredSchemaTokens - templateReserve - minimumReply - 1
+        val toolResultReserve = if (relevantTools.isEmpty()) {
+            0
+        } else {
+            minOf(maxOf(256, contextTokens / 4).toLong(), resultHeadroom.coerceAtLeast(256)).toInt()
+        }
+        val safetyReserve = templateReserve + toolResultReserve + 1
         val baselineOutput = LocalOutputAllocation.reserve(contextTokens, used + requiredSchemaTokens, safetyReserve, outputLimit)
         val baselinePromptLimit = contextTokens.toLong() - baselineOutput - templateReserve - toolResultReserve
         var anchorTokens = 0L
@@ -115,7 +127,18 @@ internal object LocalContextPlanner {
             }
         }
         protectedTools.forEach(::admitTool)
-        require(selectedTools.map { it.name }.containsAll(requiredNames)) { "Required tool schemas do not fit this local context. Select fewer tools or a larger-context model; the app cannot complete this tool-dependent request without them." }
+        val missingRequiredNames = requiredNames - selectedTools.map { it.name }.toSet()
+        if (missingRequiredNames.isNotEmpty()) {
+            val missingGitHubOperations = missingRequiredNames.mapNotNull { name ->
+                dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(name)
+            }.distinct()
+            if (missingGitHubOperations.isNotEmpty()) {
+                throw IllegalArgumentException(
+                    "GITHUB_REQUIRED_TOOL_CONTEXT_BUDGET: GitHub operation schemas (${missingGitHubOperations.joinToString()}) do not fit this local model's $contextTokens-token context. Select a larger-context model or shorten the request, system instructions, and attached history. No GitHub write was dispatched."
+                )
+            }
+            throw IllegalArgumentException("Required tool schemas do not fit this local context. Select fewer tools or a larger-context model; the app cannot complete this tool-dependent request without them.")
+        }
         // Required capabilities take precedence, but optional schemas must not starve
         // the original goal or the most recent exchange (including extracted documents).
         val retainedIndices = mutableSetOf<Int>()
@@ -173,13 +196,20 @@ internal object LocalContextPlanner {
             }
             matching?.let { required += it.name }
         }
+        val requestedGitHubOperations = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.taskTools(prompt)
+        if (requestedGitHubOperations.isNotEmpty()) {
+            tools.forEach { tool ->
+                val operation = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(tool.name)
+                if (operation in requestedGitHubOperations) required += tool.name
+            }
+        }
         if (Regex("nearby|nearest|closest|my location|current location").containsMatchIn(lower)) select("device_location")
         if ("airbnb" in lower) select("airbnb")
         if (Regex("read.*https?://|open.*https?://|crawl|read the page").containsMatchIn(lower)) select("read_url")
         if (Regex("search|research|look up|latest|browse|find online").containsMatchIn(lower)) select("web_search")
         // Research needs to inspect search hits as well as obtain snippets. Protect
         // the reader alongside search so a continuation can open its sources.
-        if (Regex("research|browse|verify|sources|citations").containsMatchIn(lower)) {
+        if (Regex("search|research|browse|verify|sources|citations").containsMatchIn(lower)) {
             select("web_search")
             select("read_url")
         }
@@ -209,7 +239,7 @@ internal object LocalContextPlanner {
     internal fun isToolFollowUp(prompt: String): Boolean = prompt.trim().lowercase().let { text ->
         text.length <= 160 &&
             Regex(
-                "^(?:(?:please|can you)\\s+)?(?:check again|try again|retry|continue|go on|do that|try it again|test tool[sa]?|test the tools|check the tools)[.!?\\s]*$"
+                "^(?:(?:please|can you)\\s+)?(?:tell me|answer it|what did you find|check again|try again|retry|continue|go on|do that|try it again|test tool[sa]?|test the tools|check the tools)[.!?\\s]*$"
             ).matches(text)
     }
 

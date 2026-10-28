@@ -146,7 +146,8 @@ class ExaminationRetrievalLifecycleTest {
             coEvery { settings.getFeatureSettings() } returns features
             coEvery { settings.fetchPlatformV2s() } returns listOf(profile)
             val body = "Methods: randomized 24 participants. Results: uncertain effect."
-            val version = archive.capture(ResearchSource("S1", "https://example.org/article", "Trial", "Read", body), body, "public", true, -1, "import", true, 0, ownerKind = "import", ownerId = "fixture")
+            val version = archive.capture(ResearchSource("S1", "https://example.org/article", "Trial", "Read", body, structuredFullText = true, sectionNames = setOf("Methods", "Results"), captureTruncated = false), body, "public", true, -1, "import", true, 0, ownerKind = "import", ownerId = "fixture")
+            assertEquals(ArticleCoverage.FULL_TEXT_CAPTURED, version.coverage)
             val models = mockk<ChatRepository>()
             val reply = """{"schemaVersion":1,"design":"RANDOMIZED_TRIAL","passages":[{"id":"P1","quote":"Methods: randomized 24 participants.","locator":"Methods","start":0}],"fields":[],"judgments":[],"limitations":["Uncertain effect"]}"""
             coEvery { models.openResearchSession(any(), any(), any(), any(), any(), any(), any()) } answers {

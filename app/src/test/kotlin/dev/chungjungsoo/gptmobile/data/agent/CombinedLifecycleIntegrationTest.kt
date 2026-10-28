@@ -289,7 +289,8 @@ class CombinedLifecycleIntegrationTest {
         assertTrue(run.terminalError.orEmpty().contains("503 original writer unavailable"))
         assertFalse(run.terminalError.orEmpty().contains("EMPTY_COMBINED_DELIVERY"))
         val selected = repository.fetchMessagesV2(1).single { it.id == run.assistantMessageId }
-        assertEquals("Panel finding remains useful.", selected.effectiveContent())
+        assertTrue(selected.effectiveContent().contains("unified answer could not be completed"))
+        assertFalse(selected.effectiveContent().contains("Panel finding remains useful."))
         val budget = requireNotNull(budgets.snapshot(root(accepted).rootBudgetId))
         assertFalse(budget.closed)
         assertTrue(budget.retryEligible)
@@ -387,7 +388,8 @@ class CombinedLifecycleIntegrationTest {
         assertEquals(before, requests.size)
         assertEquals("FAILED", owner.status)
         assertEquals("NO_AUTHORIZED_WRITER", owner.terminalError)
-        assertTrue(message.effectiveContent().contains("The result is retained."))
+        assertTrue(message.effectiveContent().contains("unified answer could not be completed"))
+        assertFalse(message.effectiveContent().contains("The result is retained."))
         assertTrue(message.timeline.any { it.combinedFallback != null })
         assertFalse(requireNotNull(budgets.snapshot(root(accepted).rootBudgetId)).closed)
     }

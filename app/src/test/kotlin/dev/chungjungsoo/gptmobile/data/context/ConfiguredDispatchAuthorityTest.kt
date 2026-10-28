@@ -17,6 +17,14 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ConfiguredDispatchAuthorityTest {
+    @Test fun outputIncreasesAreHarmlessButDecreasesAndCredentialChangesRequireReview() {
+        val before = PlatformV2(uid = "p", name = "P", model = "model", maxTokens = 1024, token = "secret")
+        assertTrue(ConfiguredDispatchAuthority.allowsAcceptedProfile(before, before.copy(maxTokens = 4096, name = "Renamed")))
+        assertFalse(ConfiguredDispatchAuthority.allowsAcceptedProfile(before, before.copy(maxTokens = 512)))
+        assertFalse(ConfiguredDispatchAuthority.allowsAcceptedProfile(before, before.copy(maxTokens = 4096, token = "changed")))
+        assertFalse(ConfiguredDispatchAuthority.allowsAcceptedProfile(before.copy(maxTokens = null), before))
+    }
+
     @Test
     fun savedAuthorityRetainsTheAdmittedModelWhileRevalidatingTheRegisteredProfile() = runTest {
         val settings = mockk<SettingRepository>()
@@ -232,5 +240,26 @@ class ConfiguredDispatchAuthorityTest {
         }
         assertTrue(result.isFailure)
         assertFalse(charged)
+    }
+
+    @Test fun anotherContributorsQuoteAndContextCeilingDoNotInvalidateTheWriter() {
+        val price = dev.chungjungsoo.gptmobile.data.accounting.ModelPrice("model", 10, 20, "catalog", 1000)
+        val initial = AppFeatureSettings(spendBudget = dev.chungjungsoo.gptmobile.data.accounting.SpendBudgetSettings(perTurnMicros = 100))
+        val updated = initial.copy(
+            spendBudget = initial.spendBudget.copy(prices = mapOf("other" to price)),
+            tokenBudget = initial.tokenBudget.copy(profileContextCeilings = mapOf("other" to 4096))
+        )
+        assertEquals(ConfiguredDispatchAuthority.policyRevision(initial, "writer", 4), ConfiguredDispatchAuthority.policyRevision(updated, "writer", 4))
+        assertFalse(ConfiguredDispatchAuthority.policyRevision(initial, "other", 4) == ConfiguredDispatchAuthority.policyRevision(updated, "other", 4))
+    }
+
+    @Test fun increasedTokenCapsPreserveAcceptedPlanButReductionsAndToolCatalogChangesDoNot() {
+        val before = TokenBudgetSettings(contextTokens = 4096, outputTokens = 512, totalRunTokens = 8192)
+        assertTrue(ConfiguredDispatchAuthority.allowsAcceptedTokenPlan(before, before.copy(contextTokens = 8192, outputTokens = 1024), "writer"))
+        assertFalse(ConfiguredDispatchAuthority.allowsAcceptedTokenPlan(before.copy(responseCharacterLimit = 0), before.copy(responseCharacterLimit = 4096), "writer"))
+        assertTrue(ConfiguredDispatchAuthority.allowsAcceptedTokenPlan(before, before.copy(generationTimeoutMinutes = 0, responseCharacterLimit = 0), "writer"))
+        assertFalse(ConfiguredDispatchAuthority.allowsAcceptedTokenPlan(before, before.copy(outputTokens = 256), "writer"))
+        assertFalse(ConfiguredDispatchAuthority.allowsAcceptedTokenPlan(before, before.copy(adaptiveToolCatalog = !before.adaptiveToolCatalog), "writer"))
+        assertFalse(ConfiguredDispatchAuthority.allowsAcceptedTokenPlan(before, before.copy(profileContextCeilings = mapOf("writer" to 1024)), "writer"))
     }
 }

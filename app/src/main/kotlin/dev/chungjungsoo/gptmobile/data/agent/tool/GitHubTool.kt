@@ -57,20 +57,24 @@ class GitHubTool(
     private val conversationId: String = "",
     private val taskId: String = "",
     private val persistentState: Boolean = true,
-    private val stateStore: dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore? = null
+    private val stateStore: dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore? = null,
+    private val engineeringPrepare: (suspend (String, JsonObject) -> JsonObject)? = null,
+    private val repositoryScope: dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext? = null,
+    private val credentialAdmissionFailed: Boolean = false
 ) : AgentTool {
 
+    private val authenticationRejected = if (httpClient === defaultHttpClient) dev.chungjungsoo.gptmobile.data.github.GitHubSessionCaches.authenticationForCredential(apiToken) else java.util.concurrent.atomic.AtomicBoolean()
     private val rateLimits = if (httpClient === defaultHttpClient) dev.chungjungsoo.gptmobile.data.github.GitHubSessionCaches.rateLimitsForCredential(apiToken) else dev.chungjungsoo.gptmobile.data.github.GitHubRateLimitManager()
     internal val hasCredential get() = apiToken.isNotBlank()
     internal val hasRepositoryContext get() = repositoryContext != null
     private val scheduler = dev.chungjungsoo.gptmobile.data.github.GitHubSessionCaches.schedulerForCredential(apiToken)
     private val workspaceClient by lazy {
         GitHubWorkspaceClient(
-            apiToken, httpClient, rateLimits = rateLimits,
+            apiToken, httpClient, rateLimits = rateLimits, authenticationRejected = authenticationRejected,
             responseCache = if (httpClient === defaultHttpClient) dev.chungjungsoo.gptmobile.data.github.GitHubSessionCaches.forCredential(apiToken) else dev.chungjungsoo.gptmobile.data.github.GitHubResponseCache(),
             conditionalReads = featureSettings.githubConditionalReads, blobCache = featureSettings.githubBlobCache,
             freshnessSeconds = featureSettings.pluginExecution[dev.chungjungsoo.gptmobile.data.model.ToolPluginId.GITHUB]?.githubCacheSeconds ?: 15,
-            connectionUid = connectionUid, conversationId = conversationId, taskId = taskId, persistentState = persistentState, stateStore = stateStore, scheduler = scheduler
+            connectionUid = connectionUid, conversationId = conversationId, taskId = taskId, persistentState = persistentState, stateStore = stateStore, scheduler = scheduler, engineeringPrepare = engineeringPrepare
         )
     }
     internal fun operations(): List<GitHubOperationTool> {
@@ -101,9 +105,15 @@ class GitHubTool(
         private val defaultHttpClient: HttpClient by lazy {
             HttpClient(OkHttp) {
                 install(dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsHttpPlugin)
+                followRedirects = false
+                install(io.ktor.client.plugins.HttpTimeout) {
+                    requestTimeoutMillis = 60_000
+                    connectTimeoutMillis = 15_000
+                    socketTimeoutMillis = 30_000
+                }
                 engine {
                     config {
-                        retryOnConnectionFailure(true)
+                        retryOnConnectionFailure(false)
                     }
                 }
             }
@@ -434,6 +444,8 @@ class GitHubTool(
     )
 
     override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+        if (credentialAdmissionFailed) return AgentToolResult(callId, ToolResultContent.Text("GitHub authorization could not be verified. Check the internet connection and reconnect GitHub if authorization expired. No remote request was dispatched; reconcile any previous uncertain write before retrying."), true, errorCode = "GITHUB_AUTHORIZATION_UNVERIFIED", dispatched = false)
+
         val repository = try {
             dev.chungjungsoo.gptmobile.data.github.normalizeGitHubRepository(
                 (arguments["owner"] as? JsonPrimitive)?.content,
@@ -441,6 +453,15 @@ class GitHubTool(
             )
         } catch (invalid: IllegalArgumentException) {
             return errorResult(callId, invalid.message ?: "Invalid repository reference.")
+        }
+        repositoryScope?.let { selected ->
+            val action = (arguments["action"] as? JsonPrimitive)?.content.orEmpty()
+            if (action in setOf("search_repositories", "search_issues", "search_code", "list_repositories") || (action == "build_index" && !selected.prepareIndex)) {
+                return AgentToolResult(callId, ToolResultContent.Text("This programmer conversation uses the selected repository only. Use pinned repository search; index preparation requires its workspace option."), true, errorCode = "REPOSITORY_SCOPE_MISMATCH", dispatched = false)
+            }
+            if ((repository.first != null && !repository.first.equals(selected.owner, true)) || (repository.second != null && !repository.second.equals(selected.repo, true))) {
+                return AgentToolResult(callId, ToolResultContent.Text("This programmer conversation is bound to ${selected.owner}/${selected.repo}. Open a separate workspace to use another repository."), true, errorCode = "REPOSITORY_SCOPE_MISMATCH", dispatched = false)
+            }
         }
         val normalizedArguments = buildJsonObject {
             arguments.forEach { (key, value) -> put(key, value) }
@@ -493,7 +514,10 @@ class GitHubTool(
                 "list_workflows", "get_workflow_run", "list_workflow_jobs", "list_workflow_artifacts", "get_job_logs", "dispatch_workflow", "rerun_workflow", "rerun_failed_jobs", "cancel_workflow" -> handleWorkflowAction(callId, action, arguments)
                 "create_branch" -> handleCreateBranch(callId, arguments)
                 "create_issue_comment" -> handleIssueComment(callId, arguments)
-                "update_file" -> handleUpdateFile(callId, arguments)
+                "update_file" -> {
+                    require(engineeringPrepare == null) { "Use stage_patch and commit_staged_patch to submit the exact patch for persisted user approval in GitHub review." }
+                    handleUpdateFile(callId, arguments)
+                }
                 "create_pull_request" -> handleCreatePullRequest(callId, arguments)
                 else -> errorResult(callId, "Unknown GitHub action: '$action'.")
             }
@@ -1059,6 +1083,32 @@ class GitHubTool(
         throwable: Throwable
     ): AgentToolResult {
         val detail = throwable.localizedMessage ?: throwable.message ?: "Unknown error"
+        if (throwable is IllegalArgumentException) {
+            val explanation = detail.takeUnless { it.isBlank() || it == "Failed requirement." }
+                ?: "Invalid or missing arguments for this GitHub operation."
+            return errorResult(
+                callId,
+                "GITHUB_INVALID_ARGUMENT · action=$action · $explanation " +
+                    "Check the action's required fields and types, then retry with corrected arguments."
+            )
+        }
+        if (detail.contains("HTTP 401", ignoreCase = true)) {
+            return errorResult(callId, "GITHUB_AUTHENTICATION_REQUIRED · $detail")
+        }
+        if (detail.contains("HTTP 429", ignoreCase = true) ||
+            detail.contains("HTTP 403", ignoreCase = true) &&
+            (detail.contains("rateLimitRemaining=0") || detail.contains("secondary rate", ignoreCase = true))
+        ) {
+            return errorResult(callId, "GITHUB_RATE_LIMITED · $detail")
+        }
+        if (detail.contains("HTTP 403", ignoreCase = true) &&
+            (detail.contains("sso=", ignoreCase = true) || detail.contains("SAML", ignoreCase = true))
+        ) {
+            return errorResult(callId, "GITHUB_SSO_REQUIRED · $detail")
+        }
+        if (action in MUTATING_ACTIONS && Regex("(?i)protected branch|branch protection|repository rule|GH006|GH013").containsMatchIn(detail)) {
+            return errorResult(callId, "GITHUB_BRANCH_RULES_BLOCKED · $detail. Use a permitted working branch and PR; changing token scope does not override repository rules.")
+        }
         if (action in MUTATING_ACTIONS && detail.contains("HTTP 403", ignoreCase = true)) {
             return errorResult(callId, writeDeniedMessage(action, arguments, detail))
         }
@@ -1099,6 +1149,17 @@ class GitHubTool(
             }
         }
         return when {
+            response.status.value == 429 ||
+                response.status.value == 403 &&
+                (response.headers["X-RateLimit-Remaining"] == "0" || githubMessage?.contains("secondary rate", ignoreCase = true) == true) ->
+                errorResult(callId, "GITHUB_RATE_LIMITED · $detail. Wait for the rate-limit reset before retrying; repository write permission has not been revoked.")
+            response.status.value == 403 &&
+                (response.headers["X-GitHub-SSO"] != null || githubMessage?.contains("SAML", ignoreCase = true) == true) ->
+                errorResult(callId, "GITHUB_SSO_REQUIRED · $detail. Authorize this GitHub App or token with the organization before retrying.")
+            action in MUTATING_ACTIONS &&
+                response.status.value in setOf(403, 409, 422) &&
+                Regex("(?i)protected branch|branch protection|repository rule|GH006|GH013").containsMatchIn(githubMessage.orEmpty()) ->
+                errorResult(callId, "GITHUB_BRANCH_RULES_BLOCKED · $detail. Use a permitted working branch and PR; changing token scope does not override repository rules.")
             action in MUTATING_ACTIONS && response.status.value == 403 ->
                 errorResult(callId, writeDeniedMessage(action, arguments, detail))
             response.status.value == 404 ->
@@ -1153,7 +1214,7 @@ class GitHubTool(
         }.getOrNull()
         val capability = capabilities?.get("write_capability")?.jsonPrimitive?.content ?: "unknown"
         val canPush = capabilities?.get("can_push")?.jsonPrimitive?.content ?: "unknown"
-        val requiredPermission = requiredGitHubPermission(action)
+        val requiredPermission = if (action == "publish_release" && githubDetail.contains("Actions endpoint denied access")) "Actions: write" else requiredGitHubPermission(action)
         val diagnosis = when (capability) {
             "denied" ->
                 "Repository-level permission check reports can_push=false. The authenticated GitHub actor does not have repository write authority."
@@ -1169,7 +1230,8 @@ class GitHubTool(
     }
 
     private fun requiredGitHubPermission(action: String): String = when (action) {
-        "create_pull_request" -> "Pull requests: write"
+        "create_pull_request", "update_pull_request", "mark_ready_for_review", "submit_pull_request_review", "create_pull_request_review", "reply_pull_request_comment" -> "Pull requests: write"
+        "create_issue_comment" -> "Issues: write or Pull requests: write"
         "dispatch_workflow", "rerun_workflow", "rerun_failed_jobs", "cancel_workflow" -> "Actions: write"
         else -> "Contents: write"
     }
@@ -1183,6 +1245,7 @@ class GitHubTool(
     }
 
     private suspend fun writeGitHubApi(url: String, method: HttpMethod, body: JsonObject): HttpResponse = scheduler.execute(null) {
+        check(!authenticationRejected.get()) { "GitHub authentication was rejected (HTTP 401). Reconnect the GitHub account before retrying any operation." }
         rateLimits.requireAvailable("core")
         scheduler.recordRequest()
         httpClient.request(url) {
@@ -1193,10 +1256,14 @@ class GitHubTool(
             header("X-GitHub-Api-Version", GitHubWorkspaceClient.API_VERSION)
             header(HttpHeaders.Authorization, "Bearer $apiToken")
             setBody(body.toString())
-        }.also { rateLimits.record(it.headers) }
+        }.also {
+            rateLimits.record(it.headers, it.status.value)
+            if (it.status.value == 401) authenticationRejected.set(true)
+        }
     }
 
     private suspend fun getGitHubApi(url: String): HttpResponse = scheduler.execute(null) {
+        check(!authenticationRejected.get()) { "GitHub authentication was rejected (HTTP 401). Reconnect the GitHub account before retrying any operation." }
         rateLimits.requireAvailable(if (url.contains("/search/")) "search" else "core")
         scheduler.recordRequest()
         httpClient.get(url) {
@@ -1204,7 +1271,10 @@ class GitHubTool(
             header(HttpHeaders.UserAgent, "GPT-Mobile-App")
             header("X-GitHub-Api-Version", GitHubWorkspaceClient.API_VERSION)
             if (apiToken.isNotBlank()) header(HttpHeaders.Authorization, "Bearer $apiToken")
-        }.also { rateLimits.record(it.headers) }
+        }.also {
+            rateLimits.record(it.headers, it.status.value)
+            if (it.status.value == 401) authenticationRejected.set(true)
+        }
     }
 
     private fun truncate(text: String, maxLength: Int): String = if (text.length <= maxLength) text else text.take(maxLength) + "\n...[truncated]"
@@ -1225,7 +1295,16 @@ class GitHubTool(
         return AgentToolResult(
             callId = callId,
             content = ToolResultContent.Text(errorMessage),
-            isError = true
+            isError = true,
+            errorCode = when {
+                errorMessage.startsWith("GITHUB_AUTHENTICATION_REQUIRED") -> "AUTH_REQUIRED"
+                errorMessage.startsWith("GITHUB_INVALID_ARGUMENT") -> "INVALID_ARGUMENTS"
+                errorMessage.startsWith("GITHUB_RATE_LIMITED") -> "RATE_LIMITED"
+                errorMessage.startsWith("GITHUB_SSO_REQUIRED") -> "GITHUB_SSO_REQUIRED"
+                errorMessage.startsWith("GITHUB_BRANCH_RULES_BLOCKED") -> "GITHUB_BRANCH_RULES_BLOCKED"
+                errorMessage.startsWith("GITHUB_WRITE_BLOCKED") -> "GITHUB_ENDPOINT_PERMISSION_REQUIRED"
+                else -> null
+            }
         )
     }
 }

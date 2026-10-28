@@ -21,7 +21,8 @@ internal fun combinedSynthesisInputs(
     names: Map<String, String>,
     models: Map<String, String>,
     currentRequest: String? = null,
-    requireComplete: Boolean = false
+    requireComplete: Boolean = false,
+    recordScreening: Boolean = false
 ): List<CombinedModelResponse>? {
     if (responses.any { message ->
             val status = runs[message.currentRunId]?.status
@@ -56,7 +57,7 @@ internal fun combinedSynthesisInputs(
         val generation = sourceTimeline.lastOrNull { it.generation != null }?.generation
         val finishReason = generation?.finishReason ?: original?.nativeFinishReason
         val assessment = CombinedContributionUsability.assess(status, content, allowPartial = true, request = currentRequest, demo = demo, finishReason = finishReason, outputTokens = generation?.outputTokens, outputAllowance = generation?.outputAllowance ?: 256.takeIf { uid == "builtin-free-ai_horde" })
-        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("CombinedScreening", "CONTRIBUTION_SCREENED · uid=$uid · admitted=${assessment.admitted} · reason=${assessment.reason} · relevance=${assessment.relevance} · coherence=${assessment.coherence} · completeness=${assessment.completeness}")
+        if (recordScreening) dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("CombinedScreening", "CONTRIBUTION_SCREENED · uid=$uid · admitted=${assessment.admitted} · reason=${assessment.reason} · relevance=${assessment.relevance} · coherence=${assessment.coherence} · completeness=${assessment.completeness}")
         if (!assessment.admitted || requireComplete && assessment.usablePartial) return@mapNotNull null
         CombinedModelResponse(
             platformUid = uid,

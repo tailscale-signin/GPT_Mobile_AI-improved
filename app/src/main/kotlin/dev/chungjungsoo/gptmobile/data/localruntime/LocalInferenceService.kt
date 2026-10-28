@@ -37,6 +37,7 @@ class LocalInferenceService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val thread = HandlerThread("local-inference-ipc")
     private val generation = UUID.randomUUID().toString()
+    private val terminationGate = NativeWorkerTerminationGate()
     private var settings = AppFeatureSettings()
     private var backend = LocalRuntimeBackend.DEFAULT
     private lateinit var runtime: LocalRuntime
@@ -54,6 +55,8 @@ class LocalInferenceService : Service() {
     @Volatile private var loadDeadlineGroup: String? = null
 
     @Volatile private var generatingRequest: String? = null
+
+    @Volatile private var activeCommandRequest: String? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -75,7 +78,13 @@ class LocalInferenceService : Service() {
                         val target = message.replyTo ?: return
                         val packet = runCatching { RuntimeWireTransport.read(message) }.getOrElse { return }
                         when (packet.operation) {
-                            "ACK" -> replies[packet.requestId]?.acknowledge(packet.sequence)
+                            "ACK" ->
+                                if ((packet.generation.isBlank() || packet.generation == generation) &&
+                                    packet.requestId == activeCommandRequest &&
+                                    packet.sessionId == sessionId
+                                ) {
+                                    replies[packet.requestId]?.acknowledge(packet.sequence)
+                                }
                             "TOOL_RESULT" ->
                                 if (packet.generation == generation &&
                                     packet.requestId == generatingRequest &&
@@ -83,8 +92,16 @@ class LocalInferenceService : Service() {
                                 ) {
                                     toolResults[packet.callId]?.complete(packet)
                                 }
-                            "CANCEL" -> cancel(packet.requestId)
-                            "SHUTDOWN" -> terminateWorker("CLIENT_SHUTDOWN", packet.requestId)
+                            // Delayed control messages from an old worker generation must
+                            // never cancel or kill a newly started native process.
+                            "CANCEL" ->
+                                if (packet.generation.isBlank() || packet.generation == generation) {
+                                    cancel(packet.requestId)
+                                }
+                            "SHUTDOWN" ->
+                                if (packet.generation.isBlank() || packet.generation == generation) {
+                                    terminateWorker("CLIENT_SHUTDOWN", packet.requestId)
+                                }
                             else -> start(packet, target)
                         }
                     }
@@ -103,11 +120,23 @@ class LocalInferenceService : Service() {
             reply.send("ERROR", text = "Inference worker changed. Start a new request; interrupted work is not replayed.")
             return
         }
+        if (terminationGate.isTerminating()) {
+            reply.send("ERROR", text = "Native worker is terminating; reconnect to a fresh process.")
+            return
+        }
         if (!operationLock.tryLock()) {
             reply.send("ERROR", text = "The native worker is still busy or cancelling")
             return
         }
+        // A shutdown may win the race between the first check and acquiring the
+        // operation lease. Never start native work after termination is requested.
+        if (terminationGate.isTerminating()) {
+            operationLock.unlock()
+            reply.send("ERROR", text = "Native worker is terminating; reconnect to a fresh process.")
+            return
+        }
         reply.deferTerminal = true
+        activeCommandRequest = packet.requestId
         val job =
             scope.launch(RuntimeWorkerContext(generation, packet.requestId, packet.physicalAttemptId), start = CoroutineStart.LAZY) {
                 try {
@@ -283,8 +312,15 @@ class LocalInferenceService : Service() {
                                                 val owner = jobs[packet.requestId]
                                                 scope.launch {
                                                     delay(10_000)
-                                                    if (owner?.isCompleted ==
-                                                        false
+                                                    // A cancelled coroutine can report completion while
+                                                    // native prefill still owns the operation lease.
+                                                    // Match the explicit cancellation watchdog.
+                                                    if (NativeCancellationWatchdog.shouldTerminate(
+                                                            terminationGate.isTerminating(),
+                                                            packet.requestId,
+                                                            activeCommandRequest,
+                                                            owner?.isCompleted
+                                                        )
                                                     ) {
                                                         terminateWorker("PREFILL_CANCELLATION_UNACKNOWLEDGED", packet.requestId)
                                                     }
@@ -391,10 +427,16 @@ class LocalInferenceService : Service() {
                     )
                 } finally {
                     if (generatingRequest == packet.requestId) generatingRequest = null
-                    jobs.remove(packet.requestId)
-                    replies.remove(packet.requestId)
-                    operationLock.unlock()
-                    reply.flushTerminal()
+                    try {
+                        // Keep native ownership visible until the terminal packet
+                        // is published, even if its Binder delivery fails.
+                        reply.flushTerminal()
+                    } finally {
+                        if (activeCommandRequest == packet.requestId) activeCommandRequest = null
+                        jobs.remove(packet.requestId)
+                        replies.remove(packet.requestId)
+                        operationLock.unlock()
+                    }
                 }
             }
         jobs[packet.requestId] = job
@@ -403,11 +445,28 @@ class LocalInferenceService : Service() {
     }
 
     private fun cancel(requestId: String) {
+        if (terminationGate.isTerminating()) return
         val job = jobs[requestId] ?: return
+        // Never let a delayed cancellation target a newer command. Request IDs
+        // are unique per operation, and only the current owner may touch JNI.
+        if (activeCommandRequest != requestId) return
+        // Signal the native abort flag immediately; cancelling a coroutine cannot
+        // interrupt a blocking JNI call. Only target the command holding the lease.
+        runCatching { runtime.cancelActive() }
         job.cancel()
         scope.launch {
             delay(10_000)
-            if (!job.isCompleted) terminateWorker("CANCELLATION_UNACKNOWLEDGED", requestId)
+            // Cancellation may finish the coroutine while JNI remains blocked. Do
+            // not trust Job completion alone as proof that the native lease was released.
+            if (NativeCancellationWatchdog.shouldTerminate(
+                    terminationGate.isTerminating(),
+                    requestId,
+                    activeCommandRequest,
+                    job.isCompleted
+                )
+            ) {
+                terminateWorker("CANCELLATION_UNACKNOWLEDGED", requestId)
+            }
         }
     }
 
@@ -415,6 +474,9 @@ class LocalInferenceService : Service() {
         reason: String,
         requestId: String
     ) {
+        // Multiple watchdogs, cancellation and service destruction may race.
+        // Only the first request records a termination; no further native calls are allowed.
+        if (!terminationGate.beginTermination()) return
         runCatching {
             NativeWorkerTermination.record(
                 File(noBackupFilesDir, "native-worker"),
@@ -471,8 +533,16 @@ class LocalInferenceService : Service() {
         ) {
             credits.acquire()
             synchronized(this) {
-                outstanding.add(sequence + 1)
-                send(kind, text)
+                val nextSequence = sequence + 1
+                outstanding.add(nextSequence)
+                try {
+                    send(kind, text)
+                } catch (failure: Throwable) {
+                    // A failed Binder send cannot ever be acknowledged.
+                    // Return its credit so a later stream does not deadlock.
+                    if (outstanding.remove(nextSequence)) credits.release()
+                    throw failure
+                }
             }
         }
 

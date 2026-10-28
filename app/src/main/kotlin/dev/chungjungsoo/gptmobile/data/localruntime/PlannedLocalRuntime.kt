@@ -28,6 +28,7 @@ class PlannedLocalRuntime(
     override val isNativeOperationBusy: Boolean get() = delegate.isNativeOperationBusy
     private val planner = LocalExecutionPlanner()
     private val admission = LocalWorkloadAdmission()
+    private val memoryBackoff = LocalMemoryAdmissionBackoff()
     private val mutableState = MutableStateFlow(delegate.state.value)
     override val state = mutableState.asStateFlow()
     private var requested: LocalEngineSpec? = null
@@ -131,10 +132,12 @@ class PlannedLocalRuntime(
 
     override suspend fun loadEngine(spec: LocalEngineSpec) {
         if (isEngineLoaded(spec)) return
-        delegate.preflightModel(spec.modelPath, spec.accelerator)
         val artifact = artifactIdentity(spec)
         val current = settings.getFeatureSettings()
         val tuning = current.localEngineTuning()
+        val retryIdentity = "$artifact|$spec|$tuning|${current.localMemoryReserveMb}|${current.localExecutionPolicy}"
+        memoryBackoff.rejection(retryIdentity, availableMemory())?.let { throw it }
+        delegate.preflightModel(spec.modelPath, spec.accelerator)
         val capabilities = delegate.inspectModel(spec.modelPath)
         val speculative = spec.speculativeDecoding ?: compatibleSpeculativeDecoding(tuning.speculativeDecoding, capabilities)
         val tuned =
@@ -158,6 +161,7 @@ class PlannedLocalRuntime(
             } else {
                 null
             }
+        tuningNotice = (listOfNotNull(tuningNotice) + capabilities?.compatibilityWarnings.orEmpty()).joinToString(" ").takeIf { it.isNotBlank() }
         var evidenceKey: RuntimeQualificationKey? = null
         val decision =
             run {
@@ -195,7 +199,17 @@ class PlannedLocalRuntime(
                 current.localMemoryReserveMb.coerceIn(256, 4096) * 1024L * 1024
             )
         delegate.inspectModel(chosen)
-        val warm = delegate.loadedEngineSpec()
+        var warm = delegate.loadedEngineSpec()
+        if (warm != null && warm.engineConfiguration() != chosen.engineConfiguration()) {
+            // The holder owns this lease. Release the idle predecessor before
+            // measuring headroom; otherwise its resident weights are counted twice.
+            delegate.closeConversation()
+            delegate.unloadEngine()
+            requested = null
+            effective = null
+            artifactAtLoad = null
+            warm = null
+        }
         val assetBytes = withContext(Dispatchers.IO) { localModelAssetBytes(File(spec.modelPath)) }
         val estimate =
             if (warm?.engineConfiguration() == chosen.engineConfiguration()) {
@@ -325,13 +339,14 @@ class PlannedLocalRuntime(
                 } else if (calibration != null) {
                     "conservative_component_calibrated"
                 } else {
-                    "conservative_unmeasured"
+                    "${if (isGguf) "gguf" else "compiled"}_${chosen.accelerator}_unmeasured"
                 },
                 components,
                 spec.maxTokens,
                 calibrationKey,
                 systemMemory = LocalWorkloadAdmission.memorySnapshot(context),
-                memoryPlan = planReceipt
+                memoryPlan = planReceipt,
+                selectedBackend = chosen.accelerator
             )
         if (isGguf && chosen.contextPolicy == "AUTO" && components.isNotEmpty() && memoryEstimate.budget.hasShortfall) {
             val suggestion =
@@ -356,7 +371,13 @@ class PlannedLocalRuntime(
             if (suggestion != null) throw LocalContextReplanRequired(chosen.maxTokens, suggestion, memoryEstimate.receipt("load", false))
         }
         mutableState.value = state.value.copy(decision = decision)
-        requireAdmission(memoryEstimate, stage = "load", nativeLoadAttempted = false, accelerator = chosen.accelerator)
+        try {
+            requireAdmission(memoryEstimate, stage = "load", nativeLoadAttempted = false, accelerator = chosen.accelerator)
+            memoryBackoff.clear()
+        } catch (failure: LocalMemoryAdmissionException) {
+            memoryBackoff.remember(retryIdentity, memoryEstimate)
+            throw failure
+        }
         mutableState.value = state.value.copy(lifecycle = "LOADING", decision = decision)
         try {
             delegate.loadEngine(chosen)

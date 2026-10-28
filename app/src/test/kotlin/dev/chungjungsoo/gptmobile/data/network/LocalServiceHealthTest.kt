@@ -31,4 +31,25 @@ class LocalServiceHealthTest {
         assertTrue(LocalServiceHealth.networkEpoch > old)
         LocalServiceHealth.requireAvailable("https://mcp.example.org:8102/mcp")
     }
+
+    @Test fun localChatFailurePausesOnlyItsEndpointAndExplicitRetryReopensIt() {
+        val local = "http://100.64.0.2:8080/v1"
+        LocalServiceHealth.recordLocalFailure(local, java.net.ConnectException("Connection refused"))
+        assertThrows(java.io.IOException::class.java) { LocalServiceHealth.requireLocalAvailable(local) }
+        LocalServiceHealth.requireLocalAvailable("http://100.64.0.2:8101/mcp")
+        LocalServiceHealth.checkAgain(local)
+        LocalServiceHealth.requireLocalAvailable(local)
+        LocalServiceHealth.recordLocalHandshakeSuccess(local)
+        assertEquals(ConnectionHealth.HEALTHY, LocalServiceHealth.health(local))
+    }
+
+    @Test fun chatCooldownDoesNotTurnAuthenticationCancellationOrPublicFailuresIntoLocalOutages() {
+        val local = "http://127.0.0.1:8080/v1"
+        LocalServiceHealth.recordLocalFailure(local, IllegalStateException("HTTP 401 unauthorized"))
+        LocalServiceHealth.recordLocalFailure(local, kotlinx.coroutines.CancellationException("stop"))
+        LocalServiceHealth.requireLocalAvailable(local)
+        assertEquals(ConnectionHealth.UNKNOWN, LocalServiceHealth.health(local))
+        LocalServiceHealth.recordLocalFailure("https://public.example/v1", java.net.ConnectException("Connection refused"))
+        assertEquals(ConnectionHealth.UNKNOWN, LocalServiceHealth.health("https://public.example/v1"))
+    }
 }

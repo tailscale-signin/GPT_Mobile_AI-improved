@@ -17,9 +17,13 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
     private val schemaAllowance get() = if (advanced) MAX_SCHEMA_TOKEN_ALLOWANCE else SCHEMA_TOKEN_ALLOWANCE
     private val taskText = task
     private val candidates = definitions.filter { it.modelVisible }.associateBy { it.name }.toMutableMap()
+    private val taskRequired = definitions.filter { definition ->
+        dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(definition.name) in
+            dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.taskTools(task)
+    }
     private val requiredCapabilities = if (Regex("(?i)\\b(research|search|sources|papers|studies|latest|news|verify|article|citations)\\b").containsMatchIn(task)) setOf(AgentToolCapability.WEB_SEARCH, AgentToolCapability.PAGE_READER) else emptySet()
     private val omissions = mutableMapOf<String, String>()
-    private val active = window(ranked(task).filter { initialNames == null || it.name in initialNames }).map { it.name }.toMutableSet()
+    private val active = (window(taskRequired + ranked(task).filter { initialNames == null || it.name in initialNames }).map { it.name } + taskRequired.map { it.name }).toMutableSet()
     private val discovered = active.toMutableSet()
 
     // A catalog lives for one run: repeated discovery should not refetch the same cold source.
@@ -138,7 +142,7 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
         }
         val explicit = names.mapNotNull(candidates::get) + listOfNotNull(exact)
         val retained = ranked(taskText).filter { it.name in active }
-        val selected = window(pinned + explicit + found + retained + active.mapNotNull(candidates::get))
+        val selected = (taskRequired + window(taskRequired + pinned + explicit + found + retained + active.mapNotNull(candidates::get))).distinctBy { it.name }
         active.clear()
         active.addAll(selected.map { it.name })
         val admitted = found.filter { it.name in active }

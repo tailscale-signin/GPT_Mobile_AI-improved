@@ -70,6 +70,46 @@ fun CombinedSettingsControls(
             enabled = enabled && normalized.isSupported,
             onChange = { onChange(normalized.copy(effort = it)) }
         )
+        val preferences = dev.chungjungsoo.gptmobile.data.agent.CombinedSynthesisPreferences.from(normalized)
+        Text("Synthesis preferences · your explicit instructions take precedence", style = MaterialTheme.typography.titleSmall)
+        CombinedPolicySlider(
+            "Completeness",
+            preferences.completeness,
+            listOf("Essential", "Focused", "Balanced", "Broad", "All unique claims"),
+            List(5) { "Preserve relevant source content within your requested scope. Original contributions remain available." },
+            "combined_completeness",
+            enabled && normalized.isSupported
+        ) { onChange(preferences.copy(completeness = it).applyTo(normalized)) }
+        CombinedPolicySlider(
+            "Verbosity",
+            preferences.verbosity,
+            listOf("Very concise", "Concise", "Adaptive", "Detailed", "Comprehensive"),
+            List(5) { "Explicit length requirements and actual provider limits still apply." },
+            "combined_verbosity",
+            enabled && normalized.isSupported
+        ) { onChange(preferences.copy(verbosity = it).applyTo(normalized)) }
+        CombinedPolicySlider(
+            "Source diversity",
+            preferences.sourceDiversity,
+            listOf("Focused", "Selective", "Balanced", "Broad", "Every contributor"),
+            List(5) { "Retain relevant unique and dissenting views with their source attribution." },
+            "combined_diversity",
+            enabled && normalized.isSupported
+        ) { onChange(preferences.copy(sourceDiversity = it).applyTo(normalized)) }
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Check retained evidence", style = MaterialTheme.typography.titleSmall)
+                Text("Separate supported, disputed and unverified claims. Uses existing evidence and grants.", style = MaterialTheme.typography.bodySmall)
+            }
+            Switch(preferences.checkRetainedEvidence, { onChange(preferences.copy(checkRetainedEvidence = it).applyTo(normalized)) }, enabled = enabled && normalized.isSupported)
+        }
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Inspect large contributions in batches", style = MaterialTheme.typography.titleSmall)
+                Text("Save source inspections and publish one final answer. Extra requests use the accepted budget.", style = MaterialTheme.typography.bodySmall)
+            }
+            Switch(preferences.incrementalSynthesis, { onChange(preferences.copy(incrementalSynthesis = it).applyTo(normalized)) }, enabled = enabled && normalized.isSupported)
+        }
         if (dev.chungjungsoo.gptmobile.BuildConfig.COMBINED_APPEND_CONTINUATIONS) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {

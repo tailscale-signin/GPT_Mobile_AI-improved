@@ -171,6 +171,9 @@ class GPTMobileApp :
                     }
                 }
             }
+            StartupRecoveryGate.step("engineering-recovery") {
+                dev.chungjungsoo.gptmobile.data.agent.tool.GitHubEngineeringCiScheduler.recover(this@GPTMobileApp)
+            }
             StartupRecoveryGate.step("maintenance") {
                 secretMigrationErrors = runStartupMaintenance(
                     interruptPersistedWork = {

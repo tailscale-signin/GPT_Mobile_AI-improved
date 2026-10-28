@@ -26,6 +26,22 @@ class CombinedWriterRequestPlanTest {
         profile, "Explain the result in 500 words", prompt, "Write the final answer.", listOf("Relevant prior question", "Relevant prior answer"), "PASSAGES_V3", 8192, userLimit, context
     )
 
+    @Test fun incrementalPlanBindsTheFullCorpusAndEachScopedInspection() {
+        val prompt = "Complete source body ".repeat(5000)
+        val system = "Write the final answer."
+        val plan = CombinedWriterRequestPlan.freeze(profile, "Explain in 500 words", prompt, system, emptyList(), "PASSAGES_V3", 8192, userContextLimit = 12000, incrementalSynthesis = true)
+        assertEquals(3, plan.version)
+        assertEquals("FULL_CORPUS_INSPECTION_REQUIRED", plan.capacityState)
+        val guard = CombinedWriterDispatchGuard(plan)
+        guard.validatePreparedRequest(profile.copy(systemPrompt = system), listOf(ConversationTurn(MessageV2(platformType = null, content = prompt), null, true)))
+        val turns = listOf(ConversationTurn(MessageV2(platformType = null, content = "Inspect bounded frozen span"), null, true))
+        val inspection = guard.corpusRequest(profile.copy(systemPrompt = system), turns, 512, false)
+        inspection.validatePreparedRequest(profile.copy(systemPrompt = system), turns)
+        assertTrue(runCatching { inspection.validatePreparedRequest(profile.copy(systemPrompt = system), listOf(ConversationTurn(MessageV2(platformType = null, content = "Changed corpus"), null, true))) }.isFailure)
+        assertTrue(runCatching { guard.corpusRequest(profile.copy(model = "different"), turns, 512, false) }.isFailure)
+        assertTrue(runCatching { guard.corpusRequest(profile, turns, 512, true) }.isFailure)
+    }
+
     @Test fun unknownCapacityIsExplicitAndDoesNotClaimTheInputFits() {
         val planned = plan()
         assertEquals("CAPACITY_UNVERIFIED", planned.capacityState)

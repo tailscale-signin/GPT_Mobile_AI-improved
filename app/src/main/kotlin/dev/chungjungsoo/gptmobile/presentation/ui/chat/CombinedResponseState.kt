@@ -106,7 +106,9 @@ internal fun combinedResponseProfiles(
         val hasResponse = original?.let {
             !it.currentRunId.isNullOrBlank() || it.content.isNotBlank() || it.thoughts.isNotBlank()
         } == true
-        if (source == null && !hasResponse && !(preparing && uid in participatingUids)) return@mapIndexedNotNull null
+        // A newly opened empty pager retains every selected slot. Historical turns
+        // omit unused placeholders while retaining saved and in-flight responses.
+        if (source == null && !hasResponse && !preparing && responses.isNotEmpty()) return@mapIndexedNotNull null
         val projection = cache?.projection(uid, original, source, preparing, runsById)
             ?: combinedResponseProjection(original, source, preparing, runsById)
         CombinedResponseProfile(

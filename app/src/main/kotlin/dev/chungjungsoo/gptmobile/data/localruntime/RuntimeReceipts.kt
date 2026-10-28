@@ -178,6 +178,14 @@ data class RuntimeCleanupReceipt(
     val observedAtElapsedMs: Long? = null,
     val schemaVersion: Int = 1
 ) {
+    val cleanupState: String get() = when {
+        workerExitConfirmed == true && !quarantined -> "PROCESS_TERMINATED"
+        safeForSuccessor -> "RELEASED"
+        failureReason != null || quarantined -> "FAILED"
+        cancellationRequested || terminationRequested -> "CANCELLING"
+        else -> "REQUESTED"
+    }
+
     val safeForSuccessor: Boolean get() {
         if (!obligationsObserved || quarantined || failureReason != null) return false
         if (workerExitConfirmed == true) return true

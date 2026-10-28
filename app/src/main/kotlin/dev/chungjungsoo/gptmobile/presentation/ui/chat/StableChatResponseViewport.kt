@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -15,13 +16,15 @@ import androidx.compose.ui.platform.LocalDensity
 /** A shorter model tab cannot collapse the turn and clamp the conversation's scroll offset. */
 @Composable
 internal fun StableChatResponseViewport(contentKey: Any, content: @Composable ColumnScope.() -> Unit) {
-    val measuredHeights = remember { mutableStateMapOf<Any, Int>() }
-    val minimumHeight = with(LocalDensity.current) { (measuredHeights.values.maxOrNull() ?: 0).toDp() }
-    Box(
-        modifier = Modifier.fillMaxWidth().heightIn(min = minimumHeight)
-    ) {
-        // Measure the natural content, so collapsing details in the same tab
-        // can still remove its space. Only other model tabs reserve their height.
-        Column(Modifier.fillMaxWidth().onSizeChanged { measuredHeights[contentKey] = it.height }, content = content)
+    val density = LocalDensity.current
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        // Pixel heights belong to this width, density and font scale. Reusing heights
+        // after rotation, split-screen resizing or a font change distorts the turn.
+        val measuredHeights = remember(maxWidth, density.density, density.fontScale) { mutableStateMapOf<Any, Int>() }
+        val minimumHeight = with(density) { (measuredHeights.values.maxOrNull() ?: 0).toDp() }
+        Box(Modifier.fillMaxWidth().heightIn(min = minimumHeight)) {
+            // Measure natural content rather than the reserved outer height.
+            Column(Modifier.fillMaxWidth().onSizeChanged { measuredHeights[contentKey] = it.height }, content = content)
+        }
     }
 }

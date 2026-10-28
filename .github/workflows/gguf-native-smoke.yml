@@ -37,7 +37,7 @@ jobs:
       - name: Compile and run production JNI with real inference
         run: |
           cmake -S local-gguf-runtime/src/main/cpp -B /tmp/gguf-build -DFETCHCONTENT_SOURCE_DIR_LLAMA=/tmp/llama -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
-          cmake --build /tmp/gguf-build --target gptmobile_gguf gguf_chat_template_test gguf_runtime_contract_test gguf_prefill_governor_test -j2
+          cmake --build /tmp/gguf-build --target gptmobile_gguf gguf_chat_template_test gguf_runtime_contract_test gguf_prefill_governor_test gguf_vulkan_policy_test -j2
           python3 scripts/check_gguf_compile_flags.py /tmp/gguf-build/compile_commands.json
           ctest --test-dir /tmp/gguf-build --output-on-failure
           javac -d /tmp/gguf-classes local-gguf-runtime/src/main/java/dev/melo/gguf/*.java local-gguf-runtime/src/testHost/GgufNativeSmoke.java
@@ -46,8 +46,13 @@ jobs:
       - name: Verify optimized Android ARM64 CPU and OpenCL targets
         run: |
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" 'ndk;29.0.14206865'
+          NDK_ROOT="$ANDROID_HOME/ndk/29.0.14206865"
+          if [ ! -f "$NDK_ROOT/build/cmake/android.toolchain.cmake" ]; then
+            echo "::error::Required pinned Android NDK 29.0.14206865 was not installed at $NDK_ROOT"
+            exit 1
+          fi
           cmake -S local-gguf-runtime/src/main/cpp -B /tmp/gguf-arm64 \
-            -DCMAKE_TOOLCHAIN_FILE="$ANDROID_HOME/ndk/29.0.14206865/build/cmake/android.toolchain.cmake" \
+            -DCMAKE_TOOLCHAIN_FILE="$NDK_ROOT/build/cmake/android.toolchain.cmake" \
             -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-31 -DANDROID_STL=c++_static \
             -DGGUF_OPENCL=ON \
             -DFETCHCONTENT_SOURCE_DIR_LLAMA=/tmp/llama -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}

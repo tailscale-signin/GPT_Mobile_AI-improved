@@ -33,6 +33,23 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubOperationToolTest {
+    @Test fun incompleteRepositoryOverridesAreRejectedWithoutDispatch() = runBlocking {
+        val backend = Backend()
+        val operation = GitHubOperationTool("github_context", backend, "validation-test")
+        val result = operation.execute("invalid", args("""{"action":"status","owner":"team"}"""))
+        assertTrue(result.isError)
+        assertTrue((result.content as ToolResultContent.Text).text.contains("both owner and repo"))
+        assertTrue(backend.calls.isEmpty())
+    }
+
+    @Test fun omittedRepositoryUsesPinnedContext() = runBlocking {
+        val backend = Backend()
+        val operation = GitHubOperationTool("github_context", backend, "context-test")
+        operation.execute("context", args("""{"action":"status"}"""))
+        assertEquals(1, backend.calls.size)
+        assertEquals("repo_status", backend.calls.single()["action"]?.jsonPrimitive?.content)
+    }
+
     @Test fun compactContextCanRequestRemoteRepositoryStatus() {
         val arguments = GitHubOperationTool.nativeArguments("github_context", buildJsonObject { put("action", "status") })!!
         assertEquals("repo_status", arguments["action"]?.jsonPrimitive?.content)
@@ -72,7 +89,94 @@ class GitHubOperationToolTest {
         println("GitHub ordinary schema: ${wire.toByteArray().size} UTF-8 bytes, $estimate estimated tokens, ${selected.size} facade definitions")
         assertTrue("Ordinary schema estimate was $estimate", estimate < 1000)
         assertFalse(catalog.selected(listOf(Backend().definition) + definitions).any { it.name == "github" })
-        assertEquals(setOf("github_context", "github_search", "github_read", "github_stage_patch", "github_commit"), GitHubOperationTool.taskTools("Fix code in the repository, create a branch and push the commit"))
+        assertEquals(setOf("github_context", "github_search", "github_read", "github_stage_patch", "github_commit", "github_write"), GitHubOperationTool.taskTools("Fix code in the repository, create a branch and push the commit"))
+    }
+
+    @Test fun directWriteAdvertisesGuardedMultiFileCommits() {
+        val schema = GitHubOperationTool.definition("github_write").inputSchema
+        val arguments = args(
+            """{"action":"commit","branch":"fix/example","expected_head_sha":"$sha","message":"Fix code","files":[{"path":"src/Fix.kt","content":"updated","expected_blob_sha":"$sha"}]}"""
+        )
+        assertEquals(emptyList<String>(), ToolArgumentValidator.errors(arguments, schema))
+        assertEquals("commit_files", GitHubOperationTool.nativeArguments("github_write", arguments)?.get("action")?.jsonPrimitive?.content)
+        assertTrue(GitHubOperationTool.names.contains("github_write"))
+        assertTrue(GitHubOperationTool.taskTools("Write files and push changes in GitHub").contains("github_write"))
+    }
+
+    @Test fun repairsAndExactModelFacingWriteNamesRetainExecutableSchemas() {
+        for (task in listOf("Repair the repository failures", "Correct code in this repo", "Apply all these changes to GitHub", "Enable github_write__github_api for the current task")) {
+            assertTrue("Missing write contract for: $task", "github_write" in GitHubOperationTool.taskTools(task))
+        }
+        val args = args("""{"action":"capabilities"}""")
+        assertTrue(ToolArgumentValidator.errors(args, GitHubOperationTool.definition("github_context").inputSchema).isEmpty())
+        assertEquals("write_capabilities", GitHubOperationTool.nativeArguments("github_context", args)?.get("action")?.jsonPrimitive?.content)
+    }
+
+    @Test fun directWriteRejectsMalformedFileListsBeforeDispatch() = runBlocking {
+        val backend = Backend()
+        val tool = GitHubOperationTool("github_write", backend, "write-validation")
+        val invalid = args("""{"branch":"fix/example","files":[{"path":"src/Fix.kt"}]}""")
+        val result = tool.execute("invalid-write", invalid)
+        assertTrue(result.isError)
+        assertEquals("INVALID_ARGUMENTS", result.errorCode)
+        assertFalse(result.dispatched)
+        assertTrue(backend.calls.isEmpty())
+    }
+
+    @Test fun deletionSchemaRequiresExplicitIntentAndBlobWithoutReplacementContent() {
+        val schema = GitHubOperationTool.definition("github_write").inputSchema
+        fun arguments(file: String) = args("""{"branch":"fix/example","expected_head_sha":"$sha","message":"Delete file","files":[$file]}""")
+        val valid = arguments("""{"path":"old.txt","delete":true,"expected_blob_sha":"$sha"}""")
+        assertTrue(ToolArgumentValidator.errors(valid, schema).isEmpty())
+        for (file in listOf(
+            """{"path":"old.txt"}""",
+            """{"path":"old.txt","delete":false}""",
+            """{"path":"old.txt","delete":true}""",
+            """{"path":"old.txt","delete":true,"expected_blob_sha":"$sha","content":"replacement"}"""
+        )) {
+            assertTrue(ToolArgumentValidator.errors(arguments(file), schema).isNotEmpty())
+        }
+        assertTrue("github_write" in GitHubOperationTool.taskTools("Delete old.txt in the GitHub repository"))
+    }
+
+    @Test fun directWriteRequiresAllCommitPreconditions() = runBlocking {
+        val backend = Backend()
+        val tool = GitHubOperationTool("github_write", backend, "missing-fields")
+        for (raw in listOf(
+            """{"branch":"fix/example","message":"Update","files":[{"path":"new.txt","content":"text"}]}""",
+            """{"expected_head_sha":"$sha","message":"Update","files":[{"path":"new.txt","content":"text"}]}""",
+            """{"branch":"fix/example","expected_head_sha":"$sha","files":[{"path":"new.txt","content":"text"}]}""",
+            """{"branch":"fix/example","expected_head_sha":"$sha","message":"Update"}"""
+        )) {
+            val result = tool.execute("missing", args(raw))
+            assertEquals("INVALID_ARGUMENTS", result.errorCode)
+            assertFalse(result.dispatched)
+        }
+        assertTrue(backend.calls.isEmpty())
+    }
+
+    @Test fun directWriteRejectsMalformedHeadShaWithoutDispatch() = runBlocking {
+        val backend = Backend()
+        val tool = GitHubOperationTool("github_write", backend, "invalid-head")
+        val result = tool.execute(
+            "invalid-head",
+            args("""{"branch":"fix/example","expected_head_sha":"main","message":"Update","files":[{"path":"new.txt","content":"text"}]}""")
+        )
+        assertEquals("INVALID_ARGUMENTS", result.errorCode)
+        assertFalse(result.dispatched)
+        assertTrue(backend.calls.isEmpty())
+    }
+
+    @Test fun directWriteRoutesThroughAuthorizedBackend() = runBlocking {
+        val backend = Backend()
+        val tool = GitHubOperationTool("github_write", backend, "write-test")
+        val arguments = args(
+            """{"action":"commit","branch":"fix/example","expected_head_sha":"$sha","message":"Fix code","files":[{"path":"src/Fix.kt","content":"updated"}]}"""
+        )
+        tool.execute("write", arguments)
+        assertEquals(1, backend.calls.size)
+        assertEquals("commit_files", backend.calls.single()["action"]?.jsonPrimitive?.content)
+        assertEquals("fix/example", backend.calls.single()["branch"]?.jsonPrimitive?.content)
     }
 
     @Test fun readContinuationPreservesCommitAndLongLineOffsetsUsingOnlyAdvertisedFields() = runBlocking {

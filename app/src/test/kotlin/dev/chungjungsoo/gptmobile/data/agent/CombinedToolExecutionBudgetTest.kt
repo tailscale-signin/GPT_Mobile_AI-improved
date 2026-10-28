@@ -13,6 +13,32 @@ import org.junit.Test
 
 class CombinedToolExecutionBudgetTest {
     @Test
+    fun timedOutGitHubReadConsumesWorkButDoesNotFenceFreshReadAsMutation() = runBlocking {
+        val fixture = fixture(3)
+        fixture.store.open(fixture.context)
+        var executions = 0
+        val read = ToolExecutionBudget(
+            AgentRunLimits(maxToolCalls = 20, toolTimeoutMillis = 1000, combined = fixture.context),
+            combined = fixture.context,
+            combinedBudgets = fixture.store
+        ).bind(
+            tool("github_read__github_api") { callId, _ ->
+                executions++
+                if (executions == 1) kotlinx.coroutines.delay(5000)
+                result(callId)
+            }
+        )
+        assertEquals("READ_DEADLINE", read.execute("first", JsonObject(emptyMap())).errorCode)
+        val firstReservation = fixture.store.open(fixture.context).snapshot().reservations.values.single()
+        assertEquals(CombinedReservationStatus.SETTLED, firstReservation.status)
+        assertFalse(read.execute("fresh", JsonObject(emptyMap())).isError)
+        val snapshot = fixture.store.open(fixture.context).snapshot()
+        assertEquals(2, executions)
+        assertEquals(2L, snapshot.charged.toolOperations)
+        assertTrue(snapshot.reservations.values.all { it.effectFingerprint == null })
+    }
+
+    @Test
     fun localCatalogSelectionWorksWithoutExternalWorkAllowance() = runBlocking {
         val fixture = fixture(0)
         val catalog = ProgressiveToolCatalog(listOf(AgentToolDefinition("read_url", "Read a page", JsonObject(emptyMap()))), "research")

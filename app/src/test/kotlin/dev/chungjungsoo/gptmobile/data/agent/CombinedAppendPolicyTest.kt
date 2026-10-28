@@ -24,16 +24,18 @@ class CombinedAppendPolicyTest {
 
     @After fun clearObservations() = CombinedWriterObservations.clearForTest()
 
-    @Test fun strictDefaultsRetainTheOriginalWireDigestAndPermission() {
+    @Test fun strictDefaultsSealNewSynthesisPreferencesWithoutGrantingContinuation() {
         val strict = policy(false)
-        val legacy = """{"participantUids":["p"],"requestedModels":{"p":"model"},"userPrompt":"Task","singlePass":true}"""
-        assertEquals(legacy, Json.encodeToString(strict.copy(requestedPolicyDigest = "")))
-        assertEquals(combinedDigest(legacy), strict.requestedPolicyDigest)
+        val wire = Json.encodeToString(strict.copy(requestedPolicyDigest = ""))
+        assertTrue(wire.contains("\"synthesisIncremental\":true"))
+        assertEquals(combinedDigest(wire), strict.requestedPolicyDigest)
         assertFalse(strict.appendContinuations)
         val archived = Json { encodeDefaults = true }.encodeToString(strict)
         assertFalse(archived.contains("completionPolicy"))
-        assertFalse(archived.contains("continueLongAnswers"))
         assertEquals(strict, Json.decodeFromString<CombinedRequestedPolicy>(archived))
+        val legacy = Json.decodeFromString<CombinedRequestedPolicy>("""{"participantUids":["p"],"requestedModels":{"p":"model"},"userPrompt":"Task","singlePass":true}""")
+        assertFalse(legacy.incrementalSynthesis)
+        assertFalse(legacy.appendContinuations)
     }
 
     @Test fun appendPermissionIsVersionedSealedAndRoundTrips() {

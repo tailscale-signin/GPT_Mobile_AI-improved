@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.github
 
+import dev.chungjungsoo.gptmobile.data.network.ProviderRetryPolicy
 import io.ktor.http.Headers
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -27,31 +28,30 @@ class GitHubRateLimitManager {
 
     private val secondaryUntil = java.util.concurrent.atomic.AtomicLong()
     fun cooldown(seconds: Long, nowMillis: Long = System.currentTimeMillis()) {
-        secondaryUntil.updateAndGet { maxOf(it, nowMillis + seconds.coerceIn(1, 86400) * 1000) }
+        secondaryUntil.updateAndGet { maxOf(it, ProviderRetryPolicy.deadlineMillis(nowMillis, secondsToMillis(seconds))) }
     }
 
-    fun record(headers: Headers, status: Int = 200) {
+    fun record(headers: Headers, status: Int = 200, nowMillis: Long = System.currentTimeMillis()) {
         val state = Snapshot(
             resource = headers["X-RateLimit-Resource"],
             limit = headers["X-RateLimit-Limit"]?.toLongOrNull(),
             remaining = headers["X-RateLimit-Remaining"]?.toLongOrNull(),
             used = headers["X-RateLimit-Used"]?.toLongOrNull(),
             resetEpochSeconds = headers["X-RateLimit-Reset"]?.toLongOrNull(),
-            retryAfterSeconds = headers["Retry-After"]?.let { raw ->
-                raw.toLongOrNull() ?: runCatching { ((java.time.ZonedDateTime.parse(raw, java.time.format.DateTimeFormatter.RFC_1123_DATE_TIME).toInstant().toEpochMilli() - System.currentTimeMillis() + 999) / 1000).coerceAtLeast(0) }.getOrNull()
-            }
+            retryAfterSeconds = ProviderRetryPolicy.retryAfterMillis(headers["Retry-After"].orEmpty(), nowMillis)?.let(::ceilingSeconds),
+            observedAtMillis = nowMillis
         )
         if (state.retryAfterSeconds != null) {
-            cooldown(state.retryAfterSeconds)
+            cooldown(state.retryAfterSeconds, nowMillis)
         } else if (status == 429) {
-            cooldown(60)
+            cooldown(60, nowMillis)
         }
         latest = state
         if (state.remaining != null || state.retryAfterSeconds != null) resources[state.resource ?: "core"] = state
     }
 
     fun requireAvailable(resource: String = "core", nowEpochSeconds: Long = System.currentTimeMillis() / 1000) {
-        val secondary = ((secondaryUntil.get() + 999) / 1000 - nowEpochSeconds).coerceAtLeast(0)
+        val secondary = ceilingSeconds(ProviderRetryPolicy.remainingMillis(secondaryUntil.get(), secondsToMillis(nowEpochSeconds)))
         check(secondary == 0L) { "GitHub secondary rate limit: retry after $secondary seconds." }
         val state = resources[resource] ?: return
         val delay = maxOf(
@@ -65,25 +65,28 @@ class GitHubRateLimitManager {
 
     fun shouldBackOff(nowEpochSeconds: Long = System.currentTimeMillis() / 1000): Boolean {
         val state = latest
-        if (secondaryUntil.get() > nowEpochSeconds * 1000) return true
+        if (secondaryUntil.get() > secondsToMillis(nowEpochSeconds)) return true
         if (retryAfterRemaining(state, nowEpochSeconds) > 0L) return true
         return state.remaining == 0L && (state.resetEpochSeconds ?: 0L) > nowEpochSeconds
     }
 
     fun retryDelayMillis(nowEpochSeconds: Long = System.currentTimeMillis() / 1000): Long {
         val state = latest
-        val secondary = (secondaryUntil.get() - nowEpochSeconds * 1000).coerceAtLeast(0)
+        val secondary = ProviderRetryPolicy.remainingMillis(secondaryUntil.get(), secondsToMillis(nowEpochSeconds))
         if (secondary > 0) return secondary
-        retryAfterRemaining(state, nowEpochSeconds).takeIf { it > 0 }?.let { return it * 1000 }
+        retryAfterRemaining(state, nowEpochSeconds).takeIf { it > 0 }?.let { return secondsToMillis(it) }
         if (state.remaining != 0L) return 0L
-        return ((state.resetEpochSeconds ?: nowEpochSeconds) - nowEpochSeconds)
-            .coerceAtLeast(0L) * 1000
+        return ProviderRetryPolicy.remainingMillis(secondsToMillis(state.resetEpochSeconds ?: nowEpochSeconds), secondsToMillis(nowEpochSeconds))
     }
 
     private fun retryAfterRemaining(state: Snapshot, nowEpochSeconds: Long): Long {
         val retryAfter = state.retryAfterSeconds ?: return 0
-        return ((state.observedAtMillis / 1000 + retryAfter) - nowEpochSeconds).coerceAtLeast(0)
+        val deadline = ProviderRetryPolicy.deadlineMillis(state.observedAtMillis, secondsToMillis(retryAfter))
+        return ceilingSeconds(ProviderRetryPolicy.remainingMillis(deadline, secondsToMillis(nowEpochSeconds)))
     }
+
+    private fun secondsToMillis(seconds: Long): Long = seconds.coerceIn(0, Long.MAX_VALUE / 1000) * 1000
+    private fun ceilingSeconds(millis: Long): Long = millis / 1000 + if (millis % 1000 == 0L) 0 else 1
 
     fun toJson(): JsonObject = buildJsonObject {
         val state = latest

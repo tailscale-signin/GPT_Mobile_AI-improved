@@ -34,7 +34,7 @@ class LocalContextPlannerTest {
         val others = (1..20).map { AgentToolDefinition("a$it", "Unrelated ".repeat(80), buildJsonObject {}) }
         val goal = turn("search hulk hogan")
         val history = listOf(goal, turn("check again"))
-        listOf("check again", "test toola", "Please try again!").forEach { prompt ->
+        listOf("check again", "test toola", "Please try again!", "tell me", "what did you find").forEach { prompt ->
             val plan = LocalContextPlanner.plan(history, prompt, "", others + search, 1024, null)
             assertTrue(search in plan.tools)
             assertTrue(goal in plan.priorTurns)
@@ -52,6 +52,14 @@ class LocalContextPlannerTest {
         val disabled = LocalContextPlanner.plan(listOf(turn("search hulk hogan")), "check again", "", listOf(date), 1024, null)
         assertTrue(disabled.tools.isEmpty())
         assertEquals("required_current_request", LocalContextPlanner.plan(history, "tell me the time", "", listOf(date, search), 1024, null).toolSelectionReasons[date.name])
+    }
+
+    @Test fun explicitSearchKeepsItsReaderAvailableForTitleOnlyResults() {
+        val search = AgentToolDefinition("web_search", "Search", buildJsonObject {})
+        val reader = AgentToolDefinition("read_url", "Read a public page", buildJsonObject {})
+        val plan = LocalContextPlanner.plan(emptyList(), "Search the web for launch news", "", listOf(search, reader), 1024, null)
+        assertTrue(plan.tools.containsAll(listOf(search, reader)))
+        assertEquals("required_current_request", plan.toolSelectionReasons[reader.name])
     }
 
     @Test fun finalCapabilityInventoryIsChargedEvenWithNoTools() {
@@ -225,6 +233,28 @@ class LocalContextPlannerTest {
     fun fileReadingRemainsAvailableWithLargeOutputPreference() {
         val reader = AgentToolDefinition("read_file_slice", "Read file", buildJsonObject {})
         assertEquals(setOf(reader.name), LocalContextPlanner.requiredToolNames("Read the file", listOf(reader)))
+    }
+
+    @Test
+    fun smallContextBorrowsResultAllowanceBeforeRejectingRequiredTools() {
+        val search = AgentToolDefinition("web_search", "Search", buildJsonObject {})
+        val reader = AgentToolDefinition("read_url", "Read", buildJsonObject {})
+        val prompt = "Search with sources " + "x".repeat(4200)
+        val system = "s".repeat(1600)
+        val plan = LocalContextPlanner.plan(emptyList(), prompt, system, listOf(search, reader), 4224, 4096)
+        assertEquals(listOf(search, reader).toSet(), plan.tools.toSet())
+        assertTrue(plan.toolResultBytes in 512 until 2112)
+        assertTrue(plan.outputReserveTokens >= 128)
+        assertTrue(plan.estimatedPromptTokens + plan.outputReserveTokens + plan.toolResultBytes / 2 + 256 < 4224)
+        assertEquals(0, plan.omittedTurns)
+    }
+
+    @Test
+    fun reducedResultAllowanceCannotAdmitInputWithoutMinimumEvidenceSpace() {
+        val search = AgentToolDefinition("web_search", "Search", buildJsonObject {})
+        assertThrows(IllegalArgumentException::class.java) {
+            LocalContextPlanner.plan(emptyList(), "Search " + "x".repeat(7600), "", listOf(search), 4224, 4096)
+        }
     }
 
     private fun turn(text: String) = ConversationTurn(MessageV2(content = text, platformType = null), null, false)

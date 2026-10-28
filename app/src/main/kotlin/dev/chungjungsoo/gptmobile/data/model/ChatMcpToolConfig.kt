@@ -31,7 +31,8 @@ data class ChatMcpToolConfig(
     val reasoning: Boolean? = null,
     val delegation: ConversationDelegationSettings? = null,
     val research: MultiSearchResearchSelection? = null,
-    val combined: CombinedExecutionContext? = null
+    val combined: CombinedExecutionContext? = null,
+    val github: dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext? = null
 ) {
     fun effectiveDelegation(defaults: ModelDelegationSettings): ModelDelegationSettings =
         (delegation?.applyTo(defaults) ?: defaults.normalized()).let { research?.applyTo(it) ?: it }

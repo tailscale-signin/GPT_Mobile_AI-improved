@@ -123,20 +123,29 @@ internal object RuntimeWireTransport {
         packet: RuntimeWire,
         replyTo: Messenger? = null
     ) {
+        RuntimeWireEnvelope.validate(
+            packet.version,
+            packet.requestId,
+            packet.sessionId,
+            packet.generation,
+            packet.callId,
+            packet.sequence
+        )
         val content = json.encodeToString(packet)
-        require(content.toByteArray(Charsets.UTF_8).size <= MAX_PAYLOAD_BYTES) {
+        val contentBytes = content.toByteArray(Charsets.UTF_8)
+        require(contentBytes.size <= MAX_PAYLOAD_BYTES) {
             "Local request exceeds the IPC payload limit; reduce attached images or history."
         }
         var descriptor: ParcelFileDescriptor? = null
         try {
             val data = Bundle()
-            if (content.length < 16 * 1024) {
+            if (contentBytes.size < 16 * 1024) {
                 data.putString("json", content)
             } else {
                 val directory = File(context.noBackupFilesDir, "runtime-ipc-${android.os.Process.myPid()}").apply { mkdirs() }
                 val file = File.createTempFile("request-", ".json", directory)
                 try {
-                    file.writeText(content)
+                    file.writeBytes(contentBytes)
                     descriptor = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
                     data.putParcelable("fd", descriptor)
                 } finally {
@@ -173,10 +182,21 @@ internal object RuntimeWireTransport {
                     output.toString("UTF-8")
                 }
             } else {
-                data.getString("json").orEmpty()
+                data.getString("json").orEmpty().also { inline ->
+                    require(inline.toByteArray(Charsets.UTF_8).size <= MAX_PAYLOAD_BYTES) {
+                        "Local IPC inline input is too large"
+                    }
+                }
             }
         return json.decodeFromString<RuntimeWire>(content).also {
-            require(it.version == 1 && it.requestId.length in 1..128 && it.sessionId.length <= 128) { "Unsupported local IPC protocol" }
+            RuntimeWireEnvelope.validate(
+                it.version,
+                it.requestId,
+                it.sessionId,
+                it.generation,
+                it.callId,
+                it.sequence
+            )
         }
     }
 }

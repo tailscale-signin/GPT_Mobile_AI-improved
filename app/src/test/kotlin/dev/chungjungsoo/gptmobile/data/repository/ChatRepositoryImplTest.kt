@@ -327,7 +327,7 @@ class ChatRepositoryImplTest {
         assertTrue(api.requests.single().toString().contains(sources[1].content))
         val report = final.report
         assertTrue(report.lexicalMissing > 0)
-        assertFalse(report.semanticCoverageVerified)
+        assertTrue("The requested single event is covered; the excluded second event must not invalidate it", report.semanticCoverageVerified)
     }
 
     @Test
@@ -1632,7 +1632,7 @@ class ChatRepositoryImplTest {
                                 (1..count).map { n ->
                                     buildJsonObject {
                                         put("sourceId", "S$index")
-                                        put("text", "Panel finding $index/$n")
+                                        put("text", if (n == 1) "Panel finding: performance was measured under the stated conditions." else "Panel finding: uncertainty and scope remain explicit.")
                                         put("questionId", "Q1")
                                         put("quote", passage)
                                     }

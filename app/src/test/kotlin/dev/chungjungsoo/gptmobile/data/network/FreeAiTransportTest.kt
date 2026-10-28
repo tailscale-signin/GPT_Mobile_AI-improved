@@ -108,6 +108,41 @@ class FreeAiTransportTest {
     }
 
     @Test
+    fun malformedOptionalUsagePreservesAnswersInJsonAndStreamingTransports() = runBlocking {
+        for (streaming in listOf(false, true)) {
+            for (usage in listOf("null", "[]", "42", """{"prompt_tokens":"unknown","completion_tokens":5,"total_tokens":{},"cost_details":false}""")) {
+                val choice = if (streaming) "delta" else "message"
+                val payload = """{"choices":[{"$choice":{"content":"Grounded assessment."},"finish_reason":"stop"}],"usage":$usage}"""
+                val client = HttpClient(
+                    MockEngine {
+                        respond(
+                            if (streaming) "data: $payload\n\ndata: [DONE]\n\n" else payload,
+                            headers = headersOf(HttpHeaders.ContentType, if (streaming) "text/event-stream" else "application/json")
+                        )
+                    }
+                ) { install(HttpTimeout) }
+                try {
+                    val network = mockk<NetworkClient>()
+                    every { network.invoke() } returns client
+                    val result = OpenAIAPIImpl(network).streamChatCompletion(
+                        request(),
+                        10,
+                        ProviderRequestConfig(FreeAiProvider.KILO.apiUrl, null, freeProvider = FreeAiProvider.KILO)
+                    ).toList()
+                    assertTrue(result.all { it.error == null })
+                    val answer = result.single { !it.choices.isNullOrEmpty() }
+                    assertEquals("Grounded assessment.", answer.choices!!.single().effectiveDelta.content)
+                    assertEquals(if (usage.startsWith("{")) 5 else null, answer.usage?.completionTokens)
+                    assertNull(answer.usage?.promptTokens)
+                    assertNull(answer.usage?.totalTokens)
+                } finally {
+                    client.close()
+                }
+            }
+        }
+    }
+
+    @Test
     fun `HTTP 200 payload failures have the same category in JSON and streaming responses`() = runBlocking {
         val payload = """{"error":{"message":"Tool generation was attempted with tool_choice none","type":"invalid_request_error","code":"tool_use_failed"}}"""
         for (streaming in listOf(false, true)) {

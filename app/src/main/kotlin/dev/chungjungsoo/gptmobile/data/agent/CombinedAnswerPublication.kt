@@ -54,6 +54,7 @@ internal object CombinedAnswerPublication {
                 ) { "COMBINED_FINAL_SOURCE_METRICS_MISMATCH" }
             }
             require(!report.complete || report.protocolComplete && !report.correctionRequired) { "COMBINED_FINAL_COMPLETION_CONTRADICTORY" }
+            require(!report.complete || report.semanticCoverageVerified) { "COMBINED_FINAL_SEMANTIC_COVERAGE_UNVERIFIED" }
         }
     }
 }

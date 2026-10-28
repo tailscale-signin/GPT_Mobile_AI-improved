@@ -162,10 +162,11 @@ class OpenAIAPIImpl @Inject constructor(
                 FreeQueuedTransport(networkClient(), requestPreparation).generate(preparedRequest, config, timeoutSeconds) { emit(it) }
                 return@flow
             }
-            if (workerBudget != null) LocalServiceHealth.probe(config.apiUrl)
+            LocalServiceHealth.probe(config.apiUrl)
             val endpoint = config.buildEndpoint("chat/completions")
 
             val executeRequest: suspend () -> Unit = {
+                LocalServiceHealth.requireLocalAvailable(config.apiUrl)
                 config.freeDiagnostics?.permitAcquiredAt = ProviderElapsedClock.now()
                 if (transportRetries > 0) emit(ChatCompletionChunk(retryDurationMs = (System.nanoTime() - transportStartedNs) / 1_000_000, retryAttempts = transportRetries))
                 ProviderCooldown.await(config)
@@ -264,6 +265,7 @@ class OpenAIAPIImpl @Inject constructor(
                         }
 
                         free?.let { dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.recordAccepted(it) }
+                        LocalServiceHealth.recordLocalHandshakeSuccess(config.apiUrl)
                         config.freeDiagnostics?.stage = "generation"
                         dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
                             "Provider",
@@ -304,7 +306,7 @@ class OpenAIAPIImpl @Inject constructor(
                             (!preparedRequest.stream && responseType?.match(ContentType.Text.EventStream) != true)
                         ) {
                             val responseBody = response.body<String>()
-                            val decoded = NetworkClient.openAIJson.decodeFromString<ChatCompletionChunk>(responseBody)
+                            val decoded = decodeOpenAICompletion(NetworkClient.openAIJson, responseBody)
                             config.freeDiagnostics?.response = FreeResponseObservation.fromHeaders("json") { response.headers[it] }.withChunk(decoded)
                             usageReceipt.observe(decoded.usage, decoded.hasAssistantStreamPayload())
                             usageReceipt.completed(decoded.error == null)
@@ -383,7 +385,7 @@ class OpenAIAPIImpl @Inject constructor(
                             }
 
                             val decoded = try {
-                                NetworkClient.openAIJson.decodeFromString<ChatCompletionChunk>(data)
+                                decodeOpenAICompletion(NetworkClient.openAIJson, data)
                             } catch (_: kotlinx.serialization.SerializationException) {
                                 parseFailures++
                                 config.freeDiagnostics?.response = config.freeDiagnostics?.response?.copy(discardedChunks = parseFailures)
@@ -476,6 +478,7 @@ class OpenAIAPIImpl @Inject constructor(
                     config = ResilientStreamingClient.RetryConfig(maxAttempts = 3, initialDelayMs = 250, maxDelayMs = 1000),
                     shouldRetry = { !receivedAssistantPayload && !receivedGatewayToolActivity },
                     onRetry = { attempt, delay, failure ->
+                        LocalServiceHealth.recordLocalFailure(config.apiUrl, failure)
                         transportRetries = attempt
                         if (ResilientStreamingClient.isPrematureConnectionClose(failure)) LocalEndpointConnectionPolicy.peerClosed(endpoint)
                         dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
@@ -488,17 +491,22 @@ class OpenAIAPIImpl @Inject constructor(
             }
         } catch (e: Exception) {
             if (e is CancellationException || e is dev.chungjungsoo.gptmobile.data.agent.ToolDefinitionsRejectedException) throw e
-            val errorMessage = when (e) {
-                is java.net.UnknownHostException -> config.freeProvider?.let { "${it.displayName}: DNS could not resolve ${java.net.URI(it.apiUrl).host}. Check this provider's availability and your connection; no alternate host was contacted." } ?: "Network error: Unable to resolve host."
-                is java.nio.channels.UnresolvedAddressException -> "Network error: Unable to resolve address. Check your internet connection."
-                is java.net.ConnectException -> "Network error: Connection refused. Check the API URL."
-                is HttpRequestTimeoutException -> "Request timed out."
-                is java.net.SocketTimeoutException -> "Response timed out while waiting for the next chunk."
-                is javax.net.ssl.SSLException -> "Network error: SSL/TLS connection failed."
-                else -> if (ResilientStreamingClient.isPrematureConnectionClose(e)) {
-                    if (receivedAssistantPayload) "STREAM_INTERRUPTED: connection closed during the response." else "Connection closed before the response started. Please retry."
-                } else {
-                    e.message ?: "Unknown network error"
+            LocalServiceHealth.recordLocalFailure(config.apiUrl, e)
+            val errorMessage = if (e.message.orEmpty().startsWith("LOCAL_SERVICE_UNREACHABLE:")) {
+                e.message.orEmpty() + ". Local server offline or unreachable; check the server/Tailscale and use Test connection to retry immediately."
+            } else {
+                when (e) {
+                    is java.net.UnknownHostException -> config.freeProvider?.let { "${it.displayName}: DNS could not resolve ${java.net.URI(it.apiUrl).host}. Check this provider's availability and your connection; no alternate host was contacted." } ?: "Network error: Unable to resolve host."
+                    is java.nio.channels.UnresolvedAddressException -> "Network error: Unable to resolve address. Check your internet connection."
+                    is java.net.ConnectException -> "Network error: Connection refused. Check the API URL."
+                    is HttpRequestTimeoutException -> "Request timed out."
+                    is java.net.SocketTimeoutException -> "Response timed out while waiting for the next chunk."
+                    is javax.net.ssl.SSLException -> "Network error: SSL/TLS connection failed."
+                    else -> if (ResilientStreamingClient.isPrematureConnectionClose(e)) {
+                        if (receivedAssistantPayload) "STREAM_INTERRUPTED: connection closed during the response." else "Connection closed before the response started. Please retry."
+                    } else {
+                        e.message ?: "Unknown network error"
+                    }
                 }
             }
             config.freeDiagnostics?.apply {
@@ -545,13 +553,14 @@ class OpenAIAPIImpl @Inject constructor(
         var resolvedFreeModel: String? = null
         var preparedRequest = request.withModelSamplingPolicy()
         try {
-            if (workerBudget != null) LocalServiceHealth.probe(config.apiUrl)
+            LocalServiceHealth.probe(config.apiUrl)
             val endpoint = config.buildEndpoint("responses")
 
             ResilientStreamingClient.executeWithRetry(
                 config = ResilientStreamingClient.RetryConfig(maxAttempts = 3, initialDelayMs = 250, maxDelayMs = 1000),
                 shouldRetry = { !receivedResponsePayload },
                 onRetry = { attempt, delay, failure ->
+                    LocalServiceHealth.recordLocalFailure(config.apiUrl, failure)
                     dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
                         "ProviderRetry",
                         "RESPONSES_RETRY · attempt=$attempt delayMs=$delay · ${failure.javaClass.simpleName}: ${failure.message.orEmpty()}",
@@ -559,6 +568,7 @@ class OpenAIAPIImpl @Inject constructor(
                     )
                 }
             ) {
+                LocalServiceHealth.requireLocalAvailable(config.apiUrl)
                 ProviderCooldown.await(config)
                 config.freeDiagnostics?.stage = "preparation"
                 val admittedPayload = requestPreparation.prepare(NetworkClient.openAIJson.encodeToString(preparedRequest), config, preparedRequest.model, null)
@@ -603,6 +613,7 @@ class OpenAIAPIImpl @Inject constructor(
                         return@execute
                     }
 
+                    LocalServiceHealth.recordLocalHandshakeSuccess(config.apiUrl)
                     config.freeDiagnostics?.stage = "generation"
                     dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
                         "Provider",
@@ -642,17 +653,22 @@ class OpenAIAPIImpl @Inject constructor(
             }
         } catch (e: Exception) {
             if (e is CancellationException || e is dev.chungjungsoo.gptmobile.data.agent.ToolDefinitionsRejectedException) throw e
-            val errorMessage = when (e) {
-                is java.net.UnknownHostException -> "Network error: Unable to resolve host."
-                is java.nio.channels.UnresolvedAddressException -> "Network error: Unable to resolve address. Check your internet connection."
-                is java.net.ConnectException -> "Network error: Connection refused. Check the API URL."
-                is HttpRequestTimeoutException -> "Request timed out."
-                is java.net.SocketTimeoutException -> "Response timed out while waiting for the next chunk."
-                is javax.net.ssl.SSLException -> "Network error: SSL/TLS connection failed."
-                else -> if (ResilientStreamingClient.isPrematureConnectionClose(e)) {
-                    if (receivedResponsePayload) "STREAM_INTERRUPTED: connection closed during the response." else "Connection closed before the response started. Please retry."
-                } else {
-                    e.message ?: "Unknown network error"
+            LocalServiceHealth.recordLocalFailure(config.apiUrl, e)
+            val errorMessage = if (e.message.orEmpty().startsWith("LOCAL_SERVICE_UNREACHABLE:")) {
+                e.message.orEmpty() + ". Local server offline or unreachable; check the server/Tailscale and use Test connection to retry immediately."
+            } else {
+                when (e) {
+                    is java.net.UnknownHostException -> "Network error: Unable to resolve host."
+                    is java.nio.channels.UnresolvedAddressException -> "Network error: Unable to resolve address. Check your internet connection."
+                    is java.net.ConnectException -> "Network error: Connection refused. Check the API URL."
+                    is HttpRequestTimeoutException -> "Request timed out."
+                    is java.net.SocketTimeoutException -> "Response timed out while waiting for the next chunk."
+                    is javax.net.ssl.SSLException -> "Network error: SSL/TLS connection failed."
+                    else -> if (ResilientStreamingClient.isPrematureConnectionClose(e)) {
+                        if (receivedResponsePayload) "STREAM_INTERRUPTED: connection closed during the response." else "Connection closed before the response started. Please retry."
+                    } else {
+                        e.message ?: "Unknown network error"
+                    }
                 }
             }
             emit(

@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.github
 
 import java.util.Base64
+import kotlinx.coroutines.ensureActive
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -134,6 +135,11 @@ internal class GitHubRepositorySession(
     }
 
     suspend fun execute(action: String, owner: String, repo: String, args: JsonObject): JsonElement {
+        if (action == "changed_since") {
+            require(args.s("base").isNotBlank()) {
+                "CHANGES_BASE_REQUIRED: Supply base_sha to github_context(action=changes), or base to changed_since. Use github_pr(action=context, include_files=true) for a pull request's changed files, or github_context(action=status) for repository status."
+            }
+        }
         if (action == "read_ranges" && args.s("evidence_id").isNotEmpty()) {
             val retained = store.read(scope, "evidence:${args.s("evidence_id")}") ?: error("Evidence handle expired or belongs to another task/account.")
             require(retained.s("owner").equals(owner, true) && retained.s("repo").equals(repo, true)) { "Evidence belongs to another repository." }
@@ -159,6 +165,7 @@ internal class GitHubRepositorySession(
                 put("persistent_scope", scope.substringBefore(':'))
             }
             "index_status" -> indexStatus(context)
+            "build_index" -> buildIndex(context, args)
             "search_repository" -> search(context, args)
             "read_ranges" -> read(context, args)
             "stage_patch" -> stage(context, args)
@@ -185,6 +192,61 @@ internal class GitHubRepositorySession(
         }
     }
 
+    /** Explicit foreground preparation. Every batch is bounded and pinned to one SHA. */
+    private suspend fun buildIndex(context: GitHubTaskSnapshot, args: JsonObject): JsonObject {
+        val entries = tree(context)["tree"]!!.jsonArray.map { it.jsonObject }.filter { it.s("type") == "blob" }.sortedBy { it.s("path") }
+        val sourceExtensions = setOf("kt", "kts", "java", "py", "js", "jsx", "ts", "tsx", "json", "yaml", "yml", "xml", "toml", "md", "c", "cpp", "h", "hpp", "rs", "go", "cs", "swift", "sh", "properties", "gradle", "txt")
+        val eligible = entries.filter { item -> item.s("path").substringAfterLast('.').lowercase() in sourceExtensions || item.s("path").substringAfterLast('/').uppercase() in setOf("README", "LICENSE", "DOCKERFILE", "MAKEFILE") }
+        val cursor = args.s("index_cursor").ifBlank { "0" }.toInt().also { require(it in 0..eligible.size) }
+        var next = cursor
+        var bytes = 0L
+        var fetched = 0
+        var attempted = 0
+        var skipped = 0
+        while (next < eligible.size && next - cursor < 100 && attempted < 24 && bytes < 4L * 1024 * 1024) {
+            kotlinx.coroutines.currentCoroutineContext().ensureActive()
+            val item = eligible[next++]
+            if (store.contains(blobScope(context), "blob:${item.s("sha")}")) continue
+            val size = item["size"]?.jsonPrimitive?.longOrNull ?: MAX_BLOB_BYTES.toLong()
+            if (size > MAX_BLOB_BYTES || size < 0) {
+                skipped++
+                continue
+            }
+            if (bytes + size > 4L * 1024 * 1024) {
+                next--
+                break
+            }
+            try {
+                attempted++
+                val retained = blob(context, item)
+                bytes += retained.s("content").toByteArray(Charsets.UTF_8).size
+                fetched++
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (_: IllegalArgumentException) {
+                skipped++
+            } catch (_: java.nio.charset.CharacterCodingException) {
+                skipped++
+            }
+        }
+        val status = indexStatus(context)
+        val result = buildJsonObject {
+            status.forEach { (key, value) -> put(key, value) }
+            put("preparation_scope", "bounded_text_source_files")
+            put("eligible_paths", eligible.size)
+            put("prepared_through", next)
+            put("fetched_this_batch", fetched)
+            put("attempted_this_batch", attempted)
+            put("skipped_this_batch", skipped)
+            put("prepared_bytes_this_batch", bytes)
+            put("preparation_finished", next == eligible.size && status["tree_complete"]?.jsonPrimitive?.booleanOrNull == true)
+            // Finished traversal is not proof that every file was ingested.
+            if (next < eligible.size) put("next_index_cursor", next)
+        }
+        store.write(scope, "index-preparation:${context.commitSha}", result)
+        return result
+    }
+
     private suspend fun search(context: GitHubTaskSnapshot, args: JsonObject): JsonObject {
         val query = args.s("query")
         require(query.isNotBlank() && query.length <= 200)
@@ -196,9 +258,13 @@ internal class GitHubRepositorySession(
         var next = cursor
         var fetched = 0
         var skipped = 0
+        val startedNanos = System.nanoTime()
+        var readDeadline = false
         var incompleteSymbols = false
         val hits = mutableListOf<JsonObject>()
         while (next < all.size && next - cursor < 2000 && hits.size < 20) {
+            kotlinx.coroutines.currentCoroutineContext().ensureActive()
+            if ((System.nanoTime() - startedNanos) / 1_000_000 >= 12_000) break
             val item = all[next]
             if (mode == "paths") {
                 next++
@@ -211,7 +277,7 @@ internal class GitHubRepositorySession(
                 continue
             }
             val cached = store.read(blobScope(context), "blob:${item.s("sha")}")
-            if (cached == null && fetched >= 24) break
+            if (cached == null && fetched >= 4) break
             next++
             if ((item["size"]?.jsonPrimitive?.longOrNull ?: 0) > MAX_BLOB_BYTES) {
                 skipped++
@@ -219,7 +285,15 @@ internal class GitHubRepositorySession(
             }
             val content = try {
                 if (cached == null) fetched++
-                cached ?: blob(context, item)
+                val retained = cached ?: kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    kotlinx.coroutines.withTimeoutOrNull(8_000) { blob(context, item) }
+                }
+                if (retained == null) {
+                    next--
+                    readDeadline = true
+                    break
+                }
+                retained
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
                 throw cancelled
             } catch (_: IllegalArgumentException) {
@@ -267,6 +341,7 @@ internal class GitHubRepositorySession(
             put("total_candidate_files", all.size)
             put("skipped_files", skipped)
             put("symbols_incomplete", incompleteSymbols)
+            put("read_deadline_reached", readDeadline)
             put("has_more", next < all.size)
             put("complete", next == all.size && cursor == 0 && skipped == 0 && !incompleteSymbols && data["truncated"]?.jsonPrimitive?.booleanOrNull != true)
             put("coverage", "Query coverage is limited to the scanned interval and retained lexical positions.")
@@ -294,7 +369,16 @@ internal class GitHubRepositorySession(
         val results = ranges.map { raw ->
             val range = raw.jsonObject
             val path = range.s("path").also { GitHubWorkspaceClient.filePath(it) }
-            val entry = entries[path] ?: error("Path is not in the pinned tree: $path")
+            val entry = entries[path] ?: run {
+                val parent = path.substringBeforeLast('/', "")
+                val available = entries.values.filter {
+                    it.s("type") == "blob" && it.s("path").substringBeforeLast('/', "") == parent
+                }.map { it.s("path") }.sorted().take(12)
+                error(
+                    "Path is not in the pinned tree: $path. Use github_search mode=paths to discover exact paths." +
+                        if (available.isEmpty()) "" else " Available files in this directory: ${available.joinToString()}"
+                )
+            }
             require(entry.s("mode") in setOf("", "100644", "100755") && entry.s("type") == "blob") { "Only regular text files can be read." }
             val content = blob(context, entry).s("content")
             val lines = content.split('\n')
@@ -425,9 +509,11 @@ internal class GitHubRepositorySession(
         val staged = store.read(scope, "stage:$id") ?: error("Patch stage is unavailable or belongs to another task/account.")
         require(staged.s("owner").equals(context.owner, true) && staged.s("repo").equals(context.repo, true))
         staged["commit_receipt"]?.let { return it }
+        staged["engineering_review_receipt"]?.let { return it }
         require(staged.s("expected_head_sha") == context.commitSha) { "Task revision changed; restage the reviewed patch." }
         val result = commit(root(context.owner, context.repo), JsonObject(args + mapOf("files" to staged.getValue("files"), "expected_head_sha" to staged.getValue("expected_head_sha"))))
-        store.write(scope, "stage:$id", JsonObject(staged + ("commit_receipt" to result)))
+        val receiptKey = if (result.jsonObject["sha"] != null) "commit_receipt" else "engineering_review_receipt"
+        store.write(scope, "stage:$id", JsonObject(staged + (receiptKey to result)))
         return result
     }
 

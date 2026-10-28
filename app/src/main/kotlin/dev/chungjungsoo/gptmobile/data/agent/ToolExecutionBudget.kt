@@ -75,6 +75,8 @@ class ToolExecutionBudget(
             val invocation = "$executionOwner:${tool.definition.name}:$callId"
             if (!invocationIds.add(invocation)) return { withBudgetState(ToolResultEnvelope.error(callId, "DUPLICATE_INVOCATION", "This invocation ID was already admitted. No action repeated.")) }
             val signature = "$executionOwner:${tool.definition.name}:" + dev.chungjungsoo.gptmobile.data.permissions.ScopedToolGrant.canonicalHash(arguments)
+            val replayableRead = dev.chungjungsoo.gptmobile.data.research.ResearchTimeouts.isAcademicRead(tool.definition.name) ||
+                dev.chungjungsoo.gptmobile.data.permissions.GitHubAuthorizationBoundary.isReplayableRead(tool.definition.name, arguments)
             if (signature in unknownOutcomes) return { withBudgetState(ToolResultEnvelope.error(callId, "RECONCILIATION_REQUIRED", "Previous dispatch outcome is unknown. Reconcile it before repeating this action.")) }
             if ((failures[signature]?.get() ?: 0) >= 2) return { withBudgetState(ToolResultEnvelope.error(callId, "REPEATED_FAILURE", "An unchanged call failed twice. Stop repeating it; use retained evidence or correct the request.")) }
             terminalToolFailures[tool.definition.name]?.let { code ->
@@ -164,7 +166,7 @@ class ToolExecutionBudget(
                         sharedBudget = budget
                         if (!tool.coordinatesChildWork) {
                             val attemptId = "tool:${executionContext.role}:${executionContext.profileUid}:$statisticsRoot:$physicalIdentity"
-                            val effectFingerprint = if (CombinedToolWork.isInspection(tool.definition) || AgentToolCapability.WEB_SEARCH in tool.definition.capabilities) null else combinedDigest(statisticsIdentity.key + ":" + dev.chungjungsoo.gptmobile.data.permissions.ScopedToolGrant.canonicalHash(arguments))
+                            val effectFingerprint = if (replayableRead || CombinedToolWork.isInspection(tool.definition) || AgentToolCapability.WEB_SEARCH in tool.definition.capabilities) null else combinedDigest(statisticsIdentity.key + ":" + dev.chungjungsoo.gptmobile.data.permissions.ScopedToolGrant.canonicalHash(arguments))
                             when (val admission = budget.reserve(requireNotNull(physicalContext), attemptId, CombinedResourceQuota(toolOperations = workUnits), effectFingerprint = effectFingerprint)) {
                                 is CombinedBudgetAdmission.Denied -> return failure(admission.reason).copy(toolCallBudgetExhausted = true)
                                 is CombinedBudgetAdmission.Granted -> {
@@ -212,14 +214,20 @@ class ToolExecutionBudget(
                             withContext(ToolOutputAllowance(minOf(16 * 1024, remainingOutputBytes() / 4))) {
                                 withTimeoutOrNull(if (limits.researchAcquisition) dev.chungjungsoo.gptmobile.data.research.ResearchTimeouts.operationMillis(tool.definition.name, limits.toolTimeoutMillis) else limits.toolTimeoutMillis) { invokeObserved() }
                             }
-                                ?: if (dev.chungjungsoo.gptmobile.data.research.ResearchTimeouts.isAcademicRead(tool.definition.name)) {
-                                    ToolResultEnvelope.error(callId, "READ_DEADLINE", "Read deadline reached; completed research evidence is retained. A bounded read retry may continue without replaying actions.", dispatched = true)
+                                ?: if (replayableRead
+                                ) {
+                                    ToolResultEnvelope.error(callId, "READ_DEADLINE", "Read deadline reached; completed evidence is retained. Retry this read with a new call ID or narrow its scope; write actions are never replayed automatically.", dispatched = true)
                                 } else {
                                     ToolResultEnvelope.error(callId, "TIMEOUT_OUTCOME_UNKNOWN", "Tool timed out after dispatch. Reconcile the outcome before repeating an action.", dispatched = true)
                                 }
                         }
                     }
                     if (result.errorCode in setOf("TIMEOUT_OUTCOME_UNKNOWN", "DISPATCH_OUTCOME_UNKNOWN")) reason = result.errorCode
+                    if (result.errorCode == "READ_DEADLINE") {
+                        combinedResult = result
+                        reason = result.errorCode
+                        executionOutcome = dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolOutcome.FAILURE
+                    }
                     val boundedResult = bounded(
                         result,
                         preserveSuccessfulHandoff = tool.definition.name == DELEGATION_TOOL_NAME,
@@ -249,13 +257,13 @@ class ToolExecutionBudget(
                             terminalToolFailures[tool.definition.name] = "AUTH_FAILED"
                         }
                     }
-                    if (normalizedResult.errorCode in setOf("TIMEOUT_OUTCOME_UNKNOWN", "DISPATCH_OUTCOME_UNKNOWN") && !dev.chungjungsoo.gptmobile.data.research.ResearchTimeouts.isAcademicRead(tool.definition.name)) unknownOutcomes += signature
+                    if (normalizedResult.errorCode in setOf("TIMEOUT_OUTCOME_UNKNOWN", "DISPATCH_OUTCOME_UNKNOWN") && !replayableRead) unknownOutcomes += signature
                     if (normalizedResult.isError && normalizedResult.errorCode !in setOf("AUTH_REQUIRED", "BUDGET_EXHAUSTED")) failures.computeIfAbsent(signature) { AtomicInteger() }.incrementAndGet()
                     deliveryOutcome = if (normalizedResult.outputBudgetExhausted || normalizedResult.content != result.content || (result.retainedContent != null && result.retainedContent != result.content)) dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolDelivery.TRUNCATED else dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolDelivery.DELIVERED
                     success = !normalizedResult.isError
                     return@execution normalizedResult
                 } catch (cancellation: CancellationException) {
-                    if (!dev.chungjungsoo.gptmobile.data.research.ResearchTimeouts.isAcademicRead(tool.definition.name)) unknownOutcomes += signature
+                    if (!replayableRead) unknownOutcomes += signature
                     val cancellationContext = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.delegation.DelegationCancellationContext]
                     val origin = if (cancellation is kotlinx.coroutines.TimeoutCancellationException) "OPERATION_DEADLINE" else cancellationContext?.record?.origin?.name ?: "PARENT_CANCELLED"
                     reason = "CANCELED_$origin"
@@ -270,12 +278,14 @@ class ToolExecutionBudget(
                     reason = "COMBINED_BUDGET_EXHAUSTED"
                     return@execution failure(error.reason).copy(toolCallBudgetExhausted = true)
                 } catch (error: Exception) {
-                    val readOnly = dev.chungjungsoo.gptmobile.data.research.ResearchTimeouts.isAcademicRead(tool.definition.name)
+                    val readOnly = replayableRead
                     reason = if (readOnly) "READ_FAILED" else "DISPATCH_OUTCOME_UNKNOWN"
+                    if (readOnly) executionOutcome = dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolOutcome.FAILURE
                     deliveryOutcome = dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolDelivery.DELIVERED
                     failures.computeIfAbsent(signature) { AtomicInteger() }.incrementAndGet()
                     if (!readOnly) unknownOutcomes += signature
                     val boundedResult = bounded(ToolResultEnvelope.error(callId, if (readOnly) "READ_FAILED" else "DISPATCH_OUTCOME_UNKNOWN", failureMessage(error) + if (readOnly) " Completed evidence remains available; a bounded read retry may continue." else " Dispatch outcome is unknown; reconcile before repeating an action.", dispatched = true))
+                    if (readOnly) combinedResult = boundedResult
                     success = !boundedResult.isError
                     return@execution boundedResult
                 } finally {

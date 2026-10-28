@@ -2,6 +2,9 @@
 # Stable local/CI validation entry point. Use `provenance` to require a qualified QNN dispatch build.
 set -euo pipefail
 
+# Local validation follows CI: optional ObjectBox build telemetry stays off.
+export OBX_DISABLE_ANALYTICS="${OBX_DISABLE_ANALYTICS:-true}"
+
 TASK="${1:-all}"
 GRADLE=(./gradlew --no-daemon --stacktrace)
 

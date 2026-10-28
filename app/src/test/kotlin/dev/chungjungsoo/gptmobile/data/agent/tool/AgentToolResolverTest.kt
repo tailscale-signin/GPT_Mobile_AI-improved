@@ -1086,6 +1086,50 @@ class AgentToolResolverTest {
         assertTrue(advertised("continue", chatId = 8).isEmpty())
     }
 
+    @Test fun githubCredentialReplacementRevokesAnAlreadyResolvedToolEvenWhenMetadataIsUnchanged() = runBlocking {
+        val profile = PlatformV2(uid = "profile", name = "Writer")
+        val settings = ResolverFakeSettingRepository(listOf(profile))
+        val dao = ResolverFakeToolConnectionDao()
+        val connection = connection("github_api", ToolConnectionType.GITHUB, "https://api.github.com", "stable-reference")
+        dao.upsertConnection(connection)
+        val vault = ResolverFakeSecretVault(mapOf("stable-reference" to "first-token".encodeToByteArray()))
+        val available = resolver(dao = dao, vault = vault, settings = settings).resolve(profile.uid, userMessage = dev.chungjungsoo.gptmobile.data.database.entity.MessageV2(id = 1, chatId = 7, content = "Fix the GitHub repository and push", platformType = null))
+        val write = available.first { it.realToolName == "github_write" }
+        assertTrue(requireNotNull(write.canReuseResult).invoke())
+        vault.put("stable-reference", "replacement-token".encodeToByteArray())
+        assertEquals(connection, dao.getConnection(connection.connectionUid))
+        assertFalse(requireNotNull(write.canReuseResult).invoke())
+        assertTrue(vault.lastReadBytes!!.all { it == 0.toByte() })
+        vault.delete("stable-reference")
+        assertFalse(requireNotNull(write.canReuseResult).invoke())
+    }
+
+    @Test fun longDiagnosticsCannotHideWritesOrLoseThemOnContinuation() = runBlocking {
+        val profile = PlatformV2(uid = "profile", name = "Writer")
+        val settings = ResolverFakeSettingRepository(listOf(profile))
+        val state = dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore()
+        val dao = ResolverFakeToolConnectionDao()
+        dao.upsertConnection(connection("github_api", ToolConnectionType.GITHUB, "https://api.github.com", "github-token"))
+        val vault = ResolverFakeSecretVault(mapOf("github-token" to "test-user-token".encodeToByteArray()))
+        val resolver = resolver(dao = dao, vault = vault, settings = settings, gitHubState = state)
+        suspend fun advertised(text: String, chatId: Int = 7): Set<String> {
+            val available = resolver.resolve(profile.uid, userMessage = dev.chungjungsoo.gptmobile.data.database.entity.MessageV2(id = text.hashCode().and(Int.MAX_VALUE), chatId = chatId, content = text, platformType = null))
+            val directory = available.firstNotNullOfOrNull { it.progressiveCatalog } ?: return emptySet()
+            return directory.selected(available.map { it.tool.definition }).filter { GitHubOperationTool.operationName(it.name) != null }.map { it.name }.toSet()
+        }
+        val task = "Inspect the GitHub repository diagnostic report.\n" + "A retained diagnostic observation. ".repeat(200) + "\nRepair the failures, commit the reviewed changes and push."
+        assertTrue(task.indexOf("Repair") > 4096)
+        val initial = advertised(task)
+        assertTrue("github_write must be advertised on the original long request", "github_write__github_api" in initial)
+        assertTrue("github_commit__github_api" in initial)
+        val continued = advertised("continue")
+        assertTrue("github_write must survive task compaction", "github_write__github_api" in continued)
+        assertTrue("github_commit__github_api" in continued)
+        assertTrue(advertised("continue", chatId = 8).isEmpty())
+        settings.features = settings.features.withToolPluginEnabled(ToolPluginId.GITHUB, false)
+        assertTrue(advertised("continue").isEmpty())
+    }
+
     @Test fun telemetryEnabledStillPublishesCompactGithubOperationsAndHonorsRevocation() = runBlocking {
         val profile = PlatformV2(uid = "profile", name = "Writer")
         val settings = ResolverFakeSettingRepository(listOf(profile))

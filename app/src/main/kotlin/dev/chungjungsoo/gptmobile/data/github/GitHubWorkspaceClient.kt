@@ -55,15 +55,19 @@ class GitHubWorkspaceClient(
     private val persistentState: Boolean = true,
     stateStore: GitHubRepositoryStateStore? = null,
     private val scheduler: GitHubRequestScheduler = GitHubSessionCaches.schedulerForCredential(token),
-    private val requestPriority: Int = 0
+    private val requestPriority: Int = 0,
+    private val authenticationRejected: java.util.concurrent.atomic.AtomicBoolean = if (client === sharedClient) GitHubSessionCaches.authenticationForCredential(token) else java.util.concurrent.atomic.AtomicBoolean(),
+    private val engineeringPrepare: (suspend (String, JsonObject) -> JsonObject)? = null
 ) {
     companion object {
         const val API_VERSION = "2026-03-10"
+        private const val API_ROOT = "https://api.github.com"
 
         private val sharedClient by lazy {
             HttpClient(OkHttp) {
                 install(dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsHttpPlugin)
                 followRedirects = false
+                engine { config { retryOnConnectionFailure(false) } }
                 install(HttpTimeout) {
                     requestTimeoutMillis = 60_000
                     connectTimeoutMillis = 15_000
@@ -78,15 +82,16 @@ class GitHubWorkspaceClient(
             "read_code", "get_branch_head", "get_pull_request_files", "get_commit_checks", "compare_refs",
             "repo_status", "repo_map", "repo_docs", "find_symbol", "find_references", "find_tests", "related_files",
             "changed_since", "pr_context", "rate_limit_status", "plan_change", "write_capabilities",
-            "list_releases", "get_release", "get_release_by_tag", "list_tags", "release_status",
-            "resolve_context", "task_context", "index_status", "search_repository", "read_ranges", "ci_failure_digest", "efficiency"
+            "list_releases", "get_release", "get_release_by_tag", "list_tags", "release_status", "get_pull_request_comments",
+            "resolve_context", "task_context", "index_status", "build_index", "search_repository", "read_ranges", "ci_failure_digest", "efficiency"
         )
         val writeActions = setOf(
             "commit_files", "stage_patch", "commit_staged_patch",
             "create_tag",
             "create_release",
             "update_release",
-            "publish_release", "update_pull_request", "mark_ready_for_review", "submit_pull_request_review", "merge_pull_request"
+            "publish_release", "update_pull_request", "mark_ready_for_review", "submit_pull_request_review", "merge_pull_request",
+            "create_pull_request_review", "reply_pull_request_comment"
         )
         val actions = readActions + writeActions
 
@@ -145,7 +150,7 @@ class GitHubWorkspaceClient(
         }
         val root = "/repos/${segment(owner)}/${segment(repo)}"
         val ref = field("commit_sha").ifBlank { field("ref").ifBlank { field("branch") } }
-        if (action in setOf("resolve_context", "task_context", "index_status", "search_repository", "read_ranges", "stage_patch", "commit_staged_patch", "changed_since")) {
+        if (action in setOf("resolve_context", "task_context", "index_status", "build_index", "search_repository", "read_ranges", "stage_patch", "commit_staged_patch", "changed_since")) {
             return repositorySession.execute(action, owner, repo, args)
         }
         val refQuery = ref.takeIf { it.isNotBlank() }?.let { "?ref=${segment(it)}" }.orEmpty()
@@ -204,6 +209,7 @@ class GitHubWorkspaceClient(
                 val number = required("pull_number").toInt().also { require(it > 0) }
                 pageResult(request("$root/pulls/$number/files?$pagination"), page, "filename", "status", "additions", "deletions", "changes", "sha", "previous_filename", "patch")
             }
+            "get_pull_request_comments" -> pullRequestComments(root, required("pull_number").toInt().also { require(it > 0) }, page)
             "pr_context" -> prContext(root, required("pull_number").toInt().also { require(it > 0) }, args, page)
             "ci_failure_digest" -> ciFailureDigest(root, ref, args)
             "get_commit_checks" -> compactChecks(request("$root/commits/${segment(required("ref"))}/check-runs?$pagination").jsonObject, page)
@@ -223,7 +229,7 @@ class GitHubWorkspaceClient(
             "create_release" -> createRelease(root, args)
             "update_release" -> updateRelease(root, args)
             "publish_release" -> publishRelease(root, args)
-            "update_pull_request", "mark_ready_for_review", "submit_pull_request_review", "merge_pull_request" -> pullRequestLifecycle(root, action, args)
+            "update_pull_request", "mark_ready_for_review", "submit_pull_request_review", "merge_pull_request", "create_pull_request_review", "reply_pull_request_comment" -> pullRequestLifecycle(root, action, args)
             "commit_files" -> commitFiles(root, args)
             else -> error("Unsupported workspace action: $action")
         }
@@ -297,6 +303,11 @@ class GitHubWorkspaceClient(
         return buildJsonObject {
             put("authenticated", token.isNotBlank())
             put("permission_source", "repository_actor")
+            put("endpoint_write_capability", "unverified")
+            put("actions_write_capability", "unverified")
+            put("administrative_write_capability", "separate_elevated_authorization_required")
+            put("ordinary_grant_authorizes_administration", false)
+            put("permission_note", "Repository actor permissions do not establish this credential's endpoint permissions, organization SSO authorization or branch rules.")
             put("can_push", push?.let { JsonPrimitive(it) } ?: JsonNull)
             put("can_maintain", maintain?.let { JsonPrimitive(it) } ?: JsonNull)
             put("can_admin", admin?.let { JsonPrimitive(it) } ?: JsonNull)
@@ -618,6 +629,38 @@ class GitHubWorkspaceClient(
         }
     }
 
+    private suspend fun pullRequestComments(root: String, number: Int, page: Int): JsonObject {
+        val comments = request("$root/pulls/$number/comments?per_page=30&page=$page").jsonArray
+        val rows = comments.map { it.jsonObject }
+        return buildJsonObject {
+            put("pull_number", number)
+            put("page", page)
+            put("returned", rows.size)
+            put("has_more", rows.size == 30)
+            put(
+                "comments",
+                JsonArray(
+                    rows.map { comment ->
+                        buildJsonObject {
+                            listOf("id", "pull_request_review_id", "in_reply_to_id", "path", "line", "original_line", "side", "commit_id", "original_commit_id", "body", "created_at", "updated_at", "html_url").forEach { key -> comment[key]?.let { put(key, it) } }
+                            comment["user"]?.jsonObject?.let { put("user", project(it, "login", "html_url")) }
+                        }
+                    }
+                )
+            )
+            if (rows.size == 30) {
+                put(
+                    "continuation",
+                    buildJsonObject {
+                        put("action", "get_pull_request_comments")
+                        put("pull_number", number)
+                        put("page", page + 1)
+                    }
+                )
+            }
+        }
+    }
+
     private fun compactChecks(result: JsonObject, page: Int = 1): JsonObject {
         val runs = result["check_runs"]?.jsonArray.orEmpty()
         return buildJsonObject {
@@ -717,6 +760,60 @@ class GitHubWorkspaceClient(
                     }
                 )
             }
+            "create_pull_request_review" -> {
+                val event = args["event"]?.jsonPrimitive?.content.orEmpty().ifBlank { "COMMENT" }
+                require(event in setOf("APPROVE", "REQUEST_CHANGES", "COMMENT")) { "event must be APPROVE, REQUEST_CHANGES or COMMENT." }
+                val comments = args["comments"]?.jsonArray.orEmpty()
+                require(comments.size in 1..30) { "A code review must contain between 1 and 30 inline comments." }
+                val validatedComments = comments.map { value ->
+                    val comment = value.jsonObject
+                    val path = comment["path"]?.jsonPrimitive?.content.orEmpty()
+                    filePath(path)
+                    val line = comment["line"]?.jsonPrimitive?.content?.toIntOrNull()?.also { require(it > 0) }
+                        ?: error("Every inline review comment needs a positive line number.")
+                    val side = comment["side"]?.jsonPrimitive?.content.orEmpty().ifBlank { "RIGHT" }
+                    require(side in setOf("LEFT", "RIGHT")) { "Inline comment side must be LEFT or RIGHT." }
+                    val text = comment["body"]?.jsonPrimitive?.content.orEmpty()
+                    require(text.isNotBlank() && text.length <= 10_000) { "Every inline review comment needs nonempty text of at most 10,000 characters." }
+                    buildJsonObject {
+                        put("path", path)
+                        put("line", line)
+                        put("side", side)
+                        put("body", text)
+                        comment["start_line"]?.jsonPrimitive?.content?.toIntOrNull()?.let { startLine ->
+                            require(startLine in 1..line) { "Inline comment start_line must not exceed line." }
+                            val startSide = comment["start_side"]?.jsonPrimitive?.content ?: side
+                            require(startSide in setOf("LEFT", "RIGHT")) { "Inline comment start_side must be LEFT or RIGHT." }
+                            put("start_line", startLine)
+                            put("start_side", startSide)
+                        }
+                    }
+                }
+                request(
+                    "$root/pulls/$number/reviews",
+                    HttpMethod.Post,
+                    buildJsonObject {
+                        put("commit_id", expected)
+                        put("event", event)
+                        put("body", body)
+                        put("comments", JsonArray(validatedComments))
+                    }
+                )
+            }
+            "reply_pull_request_comment" -> {
+                val commentId = args["comment_id"]?.jsonPrimitive?.content?.toLongOrNull()?.also { require(it > 0) }
+                    ?: error("comment_id is required.")
+                require(body.isNotBlank() && body.length <= 10_000) { "A reply body of 1–10,000 characters is required." }
+                val comment = request("$root/pulls/comments/$commentId").jsonObject
+                val expectedUrl = "$API_ROOT$root/pulls/$number"
+                val commentUrl = comment["pull_request_url"]?.jsonPrimitive?.content.orEmpty()
+                require(commentUrl == expectedUrl) { "The review comment does not belong to the selected pull request." }
+                request(
+                    "$root/pulls/$number/comments/$commentId/replies",
+                    HttpMethod.Post,
+                    buildJsonObject { put("body", body) }
+                )
+            }
             else -> {
                 check(pr["draft"]?.jsonPrimitive?.booleanOrNull != true) { "Mark the draft ready before merging." }
                 val checks = request("$root/commits/$expected/check-runs?per_page=100").jsonObject
@@ -753,6 +850,7 @@ class GitHubWorkspaceClient(
     }
 
     private suspend fun commitFiles(root: String, args: JsonObject): JsonObject {
+        engineeringPrepare?.let { return it(root, args) }
         require(token.isNotBlank()) { "Connect a GitHub account before committing." }
         val branch = args["branch"]?.jsonPrimitive?.content.orEmpty()
         require(branch.isNotBlank()) { "An explicit working branch is required." }
@@ -764,7 +862,19 @@ class GitHubWorkspaceClient(
         require(files.size in 1..20) { "Commit between 1 and 20 text files at a time." }
         val paths = files.map { it.jsonObject["path"]?.jsonPrimitive?.content.orEmpty().also { filePath(it) } }
         require(paths.distinct().size == paths.size) { "Duplicate file paths are not allowed." }
-        val contents = files.map { it.jsonObject["content"]?.jsonPrimitive?.content ?: error("Every file needs UTF-8 content.") }
+        val deletions = files.map { file ->
+            val value = file.jsonObject["delete"] ?: return@map false
+            (value as? JsonPrimitive)?.booleanOrNull ?: error("delete must be a boolean.")
+        }
+        val contents = files.mapIndexed { index, file ->
+            val content = (file.jsonObject["content"] as? JsonPrimitive)?.takeIf { it.isString }?.content
+            if (deletions[index]) {
+                require(content == null || content.isEmpty()) { "A deletion cannot include replacement content." }
+                ""
+            } else {
+                requireNotNull(content) { "Every replacement needs UTF-8 content." }
+            }
+        }
         require(contents.all { it.toByteArray().size <= 2 * 1024 * 1024 && '\u0000' !in it } && contents.sumOf { it.toByteArray().size } <= 4 * 1024 * 1024) {
             "Text change set exceeds the workspace budget."
         }
@@ -785,8 +895,15 @@ class GitHubWorkspaceClient(
                 buildJsonArray {
                     paths.forEachIndexed { index, file ->
                         val existing = entries[file]
-                        files[index].jsonObject["expected_blob_sha"]?.jsonPrimitive?.content?.let { expectedBlob ->
-                            require(expectedBlob == existing?.get("sha")?.jsonPrimitive?.content) { "Original blob changed for $file; restage the patch." }
+                        require(!deletions[index] || existing != null) { "Cannot delete a missing file: $file" }
+                        val expectedBlob = files[index].jsonObject["expected_blob_sha"]?.jsonPrimitive?.content
+                        require(expectedBlob != null || existing == null) {
+                            "Updating $file requires expected_blob_sha; read the current file before writing."
+                        }
+                        if (expectedBlob != null) {
+                            require(expectedBlob == existing?.get("sha")?.jsonPrimitive?.content) {
+                                "Original blob changed for $file; restage the patch."
+                            }
                         }
                         val mode = existing?.get("mode")?.jsonPrimitive?.content ?: "100644"
                         require(mode in setOf("100644", "100755")) { "Cannot replace a directory, symlink or submodule: $file" }
@@ -800,7 +917,7 @@ class GitHubWorkspaceClient(
                                 put("path", file)
                                 put("mode", mode)
                                 put("type", "blob")
-                                put("content", contents[index])
+                                if (deletions[index]) put("sha", JsonNull) else put("content", contents[index])
                             }
                         )
                     }
@@ -1171,7 +1288,7 @@ class GitHubWorkspaceClient(
         val expectedHead = args["expected_head_sha"]?.jsonPrimitive?.content.orEmpty()
         val head = run?.get("head_sha")?.jsonPrimitive?.content.orEmpty().ifBlank { resolvedJob["head_sha"]?.jsonPrimitive?.content.orEmpty() }
         require(expectedHead.isBlank() || expectedHead == head) { "CI evidence belongs to a different commit." }
-        val log = GitHubCiLogReader(client, token, scheduler, responseCache, requestPriority).read("$root/actions/jobs/$resolvedJobId/logs", resolvedJob["status"]?.jsonPrimitive?.content == "completed")
+        val log = GitHubCiLogReader(client, token, scheduler, responseCache, requestPriority, authenticationRejected).read("$root/actions/jobs/$resolvedJobId/logs", resolvedJob["status"]?.jsonPrimitive?.content == "completed")
         val lines = log.text.split('\n')
         val failure = Regex("error|failed|failure|exception|fatal|traceback|exit code", RegexOption.IGNORE_CASE)
         val positions = lines.indices.filter { failure.containsMatchIn(lines[it]) }.takeLast(60)
@@ -1238,7 +1355,9 @@ class GitHubWorkspaceClient(
 
     private suspend fun graphQl(query: String, variables: JsonObject): JsonObject {
         require(token.isNotBlank()) { "A GitHub credential is required for GraphQL." }
+        check(!authenticationRejected.get()) { "GitHub authentication was rejected (HTTP 401). Reconnect the GitHub account before retrying any operation." }
         return scheduler.execute(priority = requestPriority) {
+            check(!authenticationRejected.get()) { "GitHub authentication was rejected (HTTP 401). Reconnect the GitHub account before retrying any operation." }
             rateLimits.requireAvailable("graphql")
             scheduler.recordRequest()
             val response = client.request("https://api.github.com/graphql") {
@@ -1257,6 +1376,10 @@ class GitHubWorkspaceClient(
             }
             rateLimits.record(response.headers, response.status.value)
             val text = response.bodyAsText()
+            if (response.status.value == 401) {
+                authenticationRejected.set(true)
+                responseCache.clear()
+            }
             if (!response.status.isSuccess()) {
                 val githubMessage = runCatching {
                     json.parseToJsonElement(text).jsonObject["message"]?.jsonPrimitive?.content
@@ -1285,6 +1408,7 @@ class GitHubWorkspaceClient(
         authenticated: Boolean = false
     ): JsonElement {
         if (authenticated || method != HttpMethod.Get) require(token.isNotBlank()) { "A GitHub credential is required." }
+        check(!authenticationRejected.get()) { "GitHub authentication was rejected (HTTP 401). Reconnect the GitHub account before retrying any operation." }
         val cacheKey = "${method.value}:$path"
         val cacheable = conditionalReads && method == HttpMethod.Get && path != "/rate_limit"
         val cached = if (cacheable) responseCache.get(cacheKey) else null
@@ -1296,6 +1420,7 @@ class GitHubWorkspaceClient(
             return cached.value
         }
         return scheduler.execute(if (method == HttpMethod.Get && immutablePath(path)) cacheKey else null, priority = requestPriority) {
+            check(!authenticationRejected.get()) { "GitHub authentication was rejected (HTTP 401). Reconnect the GitHub account before retrying any operation." }
             if (path != "/rate_limit") rateLimits.requireAvailable(if (path.startsWith("/search/")) "search" else "core")
             scheduler.recordRequest()
             val response = client.request("https://api.github.com$path") {
@@ -1321,6 +1446,7 @@ class GitHubWorkspaceClient(
             scheduler.recordBytes(text.encodeToByteArray().size.toLong())
             if (!response.status.isSuccess()) {
                 if (response.status.value in setOf(401, 403)) responseCache.clear()
+                if (response.status.value == 401) authenticationRejected.set(true)
                 val githubMessage = runCatching {
                     json.parseToJsonElement(text).jsonObject["message"]?.jsonPrimitive?.content
                 }.getOrNull()?.takeIf { it.isNotBlank() }
@@ -1337,6 +1463,13 @@ class GitHubWorkspaceClient(
                 error(
                     "GitHub HTTP ${response.status.value}" +
                         (if (details.isBlank()) ". " else " · $details. ") +
+                        (
+                            if (response.status.value == 403 && path.contains("/actions/") && response.headers["X-RateLimit-Remaining"] != "0") {
+                                "Actions endpoint denied access. Check the GitHub App installation repository access and Actions: write permission, or the token workflow scope; also verify organization SSO and repository rules. Repository can_push alone does not grant Actions API access. "
+                            } else {
+                                ""
+                            }
+                            ) +
                         requestHint(
                             response.status.value,
                             response.headers["Retry-After"],
@@ -1365,6 +1498,14 @@ class GitHubWorkspaceClient(
         status == 401 -> "Reconnect the GitHub API plugin."
         status == 429 || (status == 403 && rateLimitRemaining == "0") ->
             "GitHub rate limiting blocked this request. Retry after: ${retryAfter ?: reset ?: "not supplied"}."
+        status == 403 && githubMessage?.contains("saml", ignoreCase = true) == true ->
+            "Organization SSO authorization is required for this credential. Authorize the GitHub App or token with the organization before retrying."
+        status == 403 &&
+            (
+                githubMessage?.contains("workflow", ignoreCase = true) == true ||
+                    githubMessage?.contains("actions", ignoreCase = true) == true
+                ) ->
+            "This operation needs GitHub Actions or workflow write permission. Update the GitHub App installation permissions or token scope; repository push permission is insufficient."
         status == 403 && githubMessage?.contains("resource not accessible", ignoreCase = true) == true ->
             "The credential or GitHub App installation cannot perform this API operation. Check the plugin's repository access and required write permission."
         status == 403 && githubMessage?.contains("protected branch", ignoreCase = true) == true ->

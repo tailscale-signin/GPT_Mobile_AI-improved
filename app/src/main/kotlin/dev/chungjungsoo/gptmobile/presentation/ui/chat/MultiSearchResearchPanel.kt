@@ -62,6 +62,7 @@ internal fun MultiSearchResearchPanel(
                 })
             }
             val effective = selection.applyTo(defaults).deepResearch
+            Text("Effective scope: ${selection.scope.name.lowercase().replace('_', ' ')}. This chat selection overrides the profile default (${defaults.deepResearch.contentScope.name.lowercase().replace('_', ' ')}); Papers consent permits access but does not change this scope.", style = MaterialTheme.typography.bodySmall)
             Text(unlockReason ?: "Ready · ${selection.intensity()?.name?.lowercase() ?: "standard"}", color = if (unlockReason == null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
             Text("${selection.depth}% effort · target ${effective.maxPages} readable sources. ${if (selection.depth == 100) "All enabled eligible engines receive a query opportunity." else "Availability and quotas apply."}", style = MaterialTheme.typography.bodySmall)
             Row {

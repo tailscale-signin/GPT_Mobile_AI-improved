@@ -40,6 +40,8 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
     suspend fun execution(rootWorkId: String, persistent: Boolean = true) = taskStore.execution(rootWorkId, persistent)
     suspend fun reconcileExecutions(chatIds: Set<Int>) = taskStore.reconcile(chatIds)
     suspend fun reconcileAllExecutions() = taskStore.reconcile()
+    suspend fun loadPartial(rootWorkId: String, checkpointId: String, chatId: Int, authority: String, stage: String, profileUid: String, expectedRunId: String): String? =
+        taskStore.partial(rootWorkId, checkpointId, true, chatId, authority, stage, profileUid, expectedRunId)
     suspend fun resumeExecution(rootWorkId: String, actionId: String, persistent: Boolean = true, reconciled: Boolean = false, expectedAttempt: ResearchAttempt? = null) = taskStore.resumeAttempt(rootWorkId, actionId, persistent, reconciled, expectedAttempt)
     suspend fun updateExecution(rootWorkId: String, expected: ResearchAttempt, state: ResearchAttemptState, persistent: Boolean = true, reason: String? = null, runId: String? = null, profileUid: String? = null, dispatched: Boolean = false, checkpointId: String? = null, evidenceRevision: String? = null, readableSources: Int? = null, queueMillis: Long? = null) =
         taskStore.transition(rootWorkId, expected.attemptId, expected.generation, state, persistent, reason, runId, profileUid, dispatched, checkpointId, evidenceRevision, readableSources, queueMillis)

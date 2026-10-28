@@ -43,10 +43,12 @@ internal object ConfiguredDispatchAuthority {
             "PROFILE_CONFIGURATION_CHANGED: the queued destination or credentials changed before preparation."
         }
         val capturedProfileRevision = registered?.let(::profileRevision)
-        val capturedPolicyRevision = policyRevision(settings.getFeatureSettings(), platform.uid, chatId)
+        val capturedFeatures = settings.getFeatureSettings()
+        val capturedFields = policyFields(capturedFeatures, platform.uid, chatId)
+        val capturedPolicyRevision = policyRevision(capturedFeatures, platform.uid, chatId)
         val revision = researchHash("$capturedProfileRevision|$capturedPolicyRevision|${inherited?.revision}")
         val authority = capturedProfileRevision?.let {
-            CapturedProviderAuthority(platform.uid, platform.model, it, capturedPolicyRevision, privacyRevision, CapturedProviderAuthority.routeRevision(platform), chatId, listOfNotNull(inherited?.authority))
+            CapturedProviderAuthority(platform.uid, platform.model, it, capturedPolicyRevision, privacyRevision, CapturedProviderAuthority.routeRevision(platform), chatId, listOfNotNull(inherited?.authority), acceptedTokenBudget = capturedFeatures.tokenBudget, acceptedProfileOutputLimit = registered?.maxTokens, profileWithoutOutputLimitRevision = registered?.let(::profileWithoutOutputLimitRevision))
         }
         return RequestAuthorizationGuard("configured:$revision", authority) {
             inherited?.validate?.invoke()
@@ -56,27 +58,65 @@ internal object ConfiguredDispatchAuthority {
             check(currentMatches.size <= 1) { "PROFILE_IDENTITY_AMBIGUOUS: multiple profiles use the same identity." }
             val current = currentMatches.singleOrNull()
             if (registered != null) {
-                check(current != null && current.enabled && profileRevision(current) == capturedProfileRevision) {
-                    "PROFILE_CONFIGURATION_CHANGED: the profile, credentials or inference configuration changed; prepare a new request."
+                if (current == null) throw DispatchPolicyChangedException(listOf("profile.removed"))
+                if (!current.enabled) throw DispatchPolicyChangedException(listOf("profile.enabled"))
+                if (profileRevision(current) != capturedProfileRevision && !allowsAcceptedProfile(registered, current)) {
+                    val before = Json.encodeToJsonElement(registered) as kotlinx.serialization.json.JsonObject
+                    val after = Json.encodeToJsonElement(current) as kotlinx.serialization.json.JsonObject
+                    throw DispatchPolicyChangedException((before.keys + after.keys).filter { before[it] != after[it] }.sorted().map { "profile.$it" })
                 }
             } else {
                 check(current == null) { "PROFILE_IDENTITY_CHANGED: an ephemeral identity became a configured profile." }
             }
-            check(policyRevision(settings.getFeatureSettings(), platform.uid, chatId) == capturedPolicyRevision) {
-                "DISPATCH_POLICY_CHANGED: permissions or budgets changed after preparation; no stale request was sent."
-            }
+            val currentFeatures = settings.getFeatureSettings()
+            val currentFields = policyFields(currentFeatures, platform.uid, chatId)
+            val changed = (capturedFields.keys + currentFields.keys).filter { capturedFields[it] != currentFields[it] }.filterNot {
+                it == "budget" && allowsAcceptedTokenPlan(capturedFeatures.tokenBudget, currentFeatures.tokenBudget, platform.uid)
+            }.sorted()
+            if (changed.isNotEmpty()) throw DispatchPolicyChangedException(changed)
         }
     }
 
     internal fun profileRevision(profile: PlatformV2): String = researchHash(Json.encodeToString(profile.copy(name = "", labels = "", isFavorite = false)))
 
+    internal fun outputLimit(value: Int?): Int = value?.takeIf { it > 0 } ?: Int.MAX_VALUE
+    internal fun profileWithoutOutputLimitRevision(profile: PlatformV2): String = profileRevision(profile.copy(maxTokens = null))
+    internal fun allowsAcceptedProfile(before: PlatformV2, after: PlatformV2): Boolean =
+        outputLimit(after.maxTokens) >= outputLimit(before.maxTokens) && profileWithoutOutputLimitRevision(before) == profileWithoutOutputLimitRevision(after)
+
+    /** Increasing limits preserves an already smaller accepted allocation; reductions require revalidation. */
+    internal fun allowsAcceptedTokenPlan(before: TokenBudgetSettings, after: TokenBudgetSettings, uid: String): Boolean {
+        val previous = before.normalized()
+        val current = after.normalized()
+        fun cap(value: Int) = if (value == 0) Int.MAX_VALUE else value
+        return current.contextTokens >= previous.contextTokens &&
+            current.totalRunTokens >= previous.totalRunTokens &&
+            cap(current.outputTokens) >= cap(previous.outputTokens) &&
+            cap(current.generationTimeoutMinutes) >= cap(previous.generationTimeoutMinutes) &&
+            cap(current.responseCharacterLimit) >= cap(previous.responseCharacterLimit) &&
+            (current.profileContextCeilings[uid] ?: Int.MAX_VALUE) >= (previous.profileContextCeilings[uid] ?: Int.MAX_VALUE) &&
+            previous.copy(
+                contextTokens = current.contextTokens,
+                totalRunTokens = current.totalRunTokens,
+                outputTokens = current.outputTokens,
+                generationTimeoutMinutes = current.generationTimeoutMinutes,
+                responseCharacterLimit = current.responseCharacterLimit,
+                profileContextCeilings = current.profileContextCeilings
+            ) == current
+    }
+
     /** Display toggles, colors and wait settings apply independently and never invalidate answer bytes. */
-    internal fun policyRevision(features: AppFeatureSettings, uid: String, chatId: Int?): String = researchHash(
+    internal fun policyRevision(features: AppFeatureSettings, uid: String, chatId: Int?): String = researchHash(policyFields(features, uid, chatId).toString())
+
+    /** Scope accounting to this writer; another contributor's quote/ceiling cannot revoke it. */
+    internal fun legacyPolicyRevision(features: AppFeatureSettings, uid: String, chatId: Int?): String = researchHash(policyFields(features, uid, chatId, scopeProfile = false).toString())
+
+    internal fun policyFields(features: AppFeatureSettings, uid: String, chatId: Int?, scopeProfile: Boolean = true) =
         buildJsonObject {
-            put("budget", Json.encodeToJsonElement(features.tokenBudget))
+            put("budget", Json.encodeToJsonElement(features.tokenBudget.copy(profileContextCeilings = features.tokenBudget.profileContextCeilings.filterKeys { !scopeProfile || it == uid })))
             // Quote refresh timestamps and provenance are telemetry, not authority.
             // Keep the actual rates and limits so a cost-changing edit still blocks dispatch.
-            put("spend", Json.encodeToJsonElement(features.spendBudget.copy(prices = features.spendBudget.prices.mapValues { (_, price) -> price.copy(checkedAt = 0, source = "") })))
+            put("spend", Json.encodeToJsonElement(features.spendBudget.copy(prices = features.spendBudget.prices.filterKeys { !scopeProfile || it == uid && features.spendBudget.enforced }.mapValues { (_, price) -> price.copy(checkedAt = 0, source = "") })))
             put("profile", Json.encodeToJsonElement(features.profileBehavior[uid]))
             put("plugins", Json.encodeToJsonElement(features.pluginExecution))
             put("tools", Json.encodeToJsonElement(features.toolPluginStates))
@@ -90,7 +130,14 @@ internal object ConfiguredDispatchAuthority {
             put("researchEnabled", features.researchFeature.enabled)
             put("researchReviewer", features.researchFeature.reviewerProfileUid)
             put("reasoning", Json.encodeToJsonElement(chatId?.let { features.conversationReasoning[it] }))
+            put("engineering", Json.encodeToJsonElement(features.engineeringProfiles[uid]))
             put("llamaReasoning", Json.encodeToJsonElement(features.llamaReasoningModes[uid]))
-        }.toString()
-    )
+        }
 }
+
+/** Safe field names only; never include settings values, prompts or credentials. */
+internal class DispatchPolicyChangedException(val fields: List<String>) :
+    IllegalStateException(
+        "DISPATCH_POLICY_CHANGED: changed fields=${fields.joinToString(",")}. " +
+            "Resume final synthesis to revalidate the retained contributions; no stale request was sent."
+    )

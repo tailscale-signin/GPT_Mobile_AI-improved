@@ -19,6 +19,23 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SettingRepositoryConfigBackupTest {
+    @Test fun copiedWorkspaceKeepsItsScopeAndDeletionCannotLeaveAReusableBinding() = runBlocking {
+        val repository = SettingRepositoryImpl(
+            settingDataSource = BackupFakeSettingDataSource(),
+            platformV2Dao = BackupFakePlatformV2Dao(mutableListOf()),
+            providerConnectionDao = FakeProviderConnectionDao(),
+            chatPlatformModelV2Dao = BackupFakeChatPlatformModelV2Dao(),
+            secretVault = BackupFakeSecretVault()
+        )
+        val context = dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext("github", "owner", "repo", "feature", "a".repeat(40), "coder")
+        repository.mutateFeatureSettings { it.copy(conversationGitHub = mapOf(12 to context)) }
+        repository.copyConversationCombinedSettings(12, 24)
+        assertEquals(context, repository.getFeatureSettings().conversationGitHub[24])
+        repository.deleteConversationCombinedSettings(12)
+        assertEquals(mapOf(24 to context), repository.getFeatureSettings().conversationGitHub)
+        repository.recoverConversationCombinedDeletions(emptySet())
+        assertTrue(repository.getFeatureSettings().conversationGitHub.isEmpty())
+    }
 
     @Test
     fun `export and import restores platforms and themes`() = runBlocking {
@@ -196,6 +213,11 @@ private class BackupFakeSettingDataSource(
     var favoriteGroups: List<String> = emptyList(),
     var favoriteMessageGroups: Map<Int, String> = emptyMap()
 ) : SettingDataSource {
+    private var features = dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings()
+    override suspend fun getFeatureSettings() = features
+    override suspend fun updateFeatureSettings(settings: dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings) {
+        features = settings
+    }
     var palette: dev.chungjungsoo.gptmobile.data.dto.CustomThemePalette? = null
     var savedThemes: List<dev.chungjungsoo.gptmobile.data.dto.SavedThemeProfile> = emptyList()
     var primaryArgb: Long? = null

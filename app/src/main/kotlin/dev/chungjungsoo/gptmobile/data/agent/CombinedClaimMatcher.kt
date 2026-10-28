@@ -137,8 +137,11 @@ internal object CombinedClaimMatcher {
         if (exact) return Match.EXACT
         if (source.terms.size < 4 || overlap < 3) return Match.NONE
         val recall = overlap.toDouble() / source.terms.size
+        val precision = overlap.toDouble() / answer.terms.size.coerceAtLeast(1)
         return when {
-            overlap >= 4 && recall >= 0.77 -> Match.PARAPHRASE
+            // Keep strong precision while allowing compact paraphrases that omit
+            // source filler such as "construction of" without losing the claim.
+            overlap >= 5 && recall >= 0.70 && precision >= 0.60 -> Match.PARAPHRASE
             overlap >= 3 && recall >= 0.55 -> Match.POSSIBLE
             else -> Match.NONE
         }

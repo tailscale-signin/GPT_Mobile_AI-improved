@@ -4,18 +4,30 @@ Open **Settings → Tool connections**, add or edit a **GitHub API** connection,
 
 The October 21 upgrade adds persistent repository sessions, revision search, source evidence handles, exact patch staging, CI failure digests and incremental review. Implementation and validation are tracked in [the reliability repair record](repairs/2026-10-21-reliability-and-workspace.md).
 
+## Chat and workspace Settings
+
+The workspace opens on **Chat**, with a full repository conversation and the same composer used by other chats. **Audit branch**, **Fix CI**, **Prepare PR** and **Check CI** provide quick entry points. Recent operations show actual tool outcomes and timings; earlier messages can be loaded without truncating the latest answer.
+
+**Settings** contains repository and branch selection, engineering AI profile and **Prepare code context**. Choose a dedicated profile or **Use global default**; the default GitHub profile is selectable in main app Settings. Repository files, checks, PRs and reviewed patches remain secondary tools. Files and Review are no longer top-level tabs.
+
+Creating or switching branches requires confirmation. Creation checks the displayed base head. AI branch-selection tools also require exact approval; a successful structured tool receipt may offer to follow the AI's new branch, with confirmation before changing the visible workspace. AI prose cannot change a branch. The existing repository conversation can follow an approved branch change for future commands; queued/running commands keep their frozen destination. Staged patches and unsaved edits must be resolved before navigation.
+
+Commands use the durable conversation queue, with captured profile/model/account/repository/ref settings. Encrypted drafts remain scoped by account/repository/branch/profile. Patch review still requires inspecting and approving the exact patch and expected head; profile selection does not grant write permission.
+
+Indexing remains optional, lexical and bounded: at most 24 fetch attempts and 100 eligible paths per foreground batch, with byte limits and commit-pinned continuation. Cached blobs are reused; incomplete trees or skipped files never imply full coverage. See [the current engineering review](engineering/github-workspace-review-2026-10-27.md) for implemented foundations and remaining enhancements.
+
 ## Account and repository access
 
 The existing connection editor stores the token in `SecretVault`. Use a fine-grained GitHub token restricted to the repositories you want. Browsing needs Contents read access; commits need Contents write access; draft pull requests need Pull requests write access. Editing workflow files also requires the appropriate GitHub workflow permission. Repository permissions and the connection's read-only policy disable editing when appropriate.
 
-This implementation reuses token authentication. It does not implement GitHub App installation or browser OAuth sign-in; those need a registered GitHub application and its deployment configuration.
+The branch also includes the browser-based public authorization bridge and broker. Public GitHub App registration/deployment, installation-level selection and full sign-in lifecycle acceptance remain configuration and validation work; source scaffolding alone is not production sign-in readiness.
 
 ## Workflow
 
 1. Choose an accessible repository and branch. Repository and branch lists support loading additional pages.
 2. Browse folders and read text files from a fixed commit snapshot. Preview limits are visible and incomplete files cannot be staged from their preview.
-3. Use **Changes** to create a working branch. The default branch cannot receive workspace commits.
-4. Edit complete files or prepare an exact patch against a captured excerpt. Review before/after text in **Changes**. Exact patches validate unique source anchors and original blob hashes before reconstructing full files locally.
+3. Use **Settings** to create a working branch. The default branch cannot receive workspace commits.
+4. Edit complete files or prepare an exact patch against a captured excerpt. Open **Review proposed changes** to inspect before/after text. Exact patches validate unique source anchors and original blob hashes before reconstructing full files locally.
 5. Commit up to 20 text files together in one Git commit. The branch head must still match the snapshot used to prepare the edits. The API preserves the base tree and executable file modes and never force-updates the branch.
 6. Create a draft pull request against the repository's default branch. Browse existing PRs and page through changed files and check results at the inspected head.
 7. Use **Search this revision** to search paths, text, lexical definitions, references or tests. Partial index coverage and continuation are visible. **Explain failed CI** shows failure windows and the run's actual checked head.

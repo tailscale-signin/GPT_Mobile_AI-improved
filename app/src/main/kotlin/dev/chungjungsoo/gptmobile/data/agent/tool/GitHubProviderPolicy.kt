@@ -30,8 +30,8 @@ internal object GitHubProviderPolicy {
         "get_file_contents", "read_code", "read_ranges" -> "github_read"
         "search_code", "search_repository", "find_symbol", "find_references", "find_tests" -> "github_search"
         "resolve_context", "repo_status", "get_repository", "index_status" -> "github_context"
-        "get_pull_request", "pull_request_read", "list_pull_requests", "create_pull_request", "update_pull_request", "merge_pull_request" -> "github_pr"
-        "list_workflows", "list_workflow_runs", "get_workflow_run", "get_job_logs", "ci_failure_digest" -> "github_ci"
+        "get_pull_request", "pull_request_read", "list_pull_requests", "get_pull_request_comments", "create_pull_request", "update_pull_request", "create_pull_request_review", "reply_pull_request_comment", "merge_pull_request" -> "github_pr"
+        "list_workflows", "list_workflow_runs", "get_workflow_run", "list_workflow_jobs", "list_workflow_artifacts", "get_job_logs", "ci_failure_digest", "dispatch_workflow", "rerun_workflow", "rerun_failed_jobs", "cancel_workflow" -> "github_ci"
         "create_branch", "push_files", "commit_files", "commit_staged_patch" -> "github_commit"
         "get_latest_release", "list_releases", "publish_release" -> "github_release"
         else -> null

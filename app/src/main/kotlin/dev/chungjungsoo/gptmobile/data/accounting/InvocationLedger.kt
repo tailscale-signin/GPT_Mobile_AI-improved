@@ -72,11 +72,14 @@ interface InvocationDao {
     @Query("SELECT * FROM model_invocations WHERE id = :id")
     suspend fun byId(id: String): ModelInvocation?
 
-    @Query("SELECT i.* FROM model_invocations i INNER JOIN agent_runs r ON r.run_id = i.parentRunId WHERE r.chat_id = :chatId ORDER BY i.startedAt, i.id")
+    @Query("SELECT i.* FROM model_invocations i LEFT JOIN agent_runs r ON r.run_id = i.parentRunId WHERE r.chat_id = :chatId OR i.turnKey LIKE CAST(:chatId AS TEXT) || ':%' ORDER BY i.startedAt, i.id")
     suspend fun forChat(chatId: Int): List<ModelInvocation>
 
-    @Query("SELECT i.* FROM model_invocations i INNER JOIN agent_runs r ON r.run_id = i.parentRunId WHERE r.chat_id = :chatId ORDER BY i.startedAt, i.id")
+    @Query("SELECT i.* FROM model_invocations i LEFT JOIN agent_runs r ON r.run_id = i.parentRunId WHERE r.chat_id = :chatId OR i.turnKey LIKE CAST(:chatId AS TEXT) || ':%' ORDER BY i.startedAt, i.id")
     fun observeForChat(chatId: Int): Flow<List<ModelInvocation>>
+
+    @Query("SELECT * FROM model_invocations WHERE id IN (:ids)")
+    suspend fun byIds(ids: List<String>): List<ModelInvocation>
 
     @Query("SELECT * FROM model_invocations ORDER BY startedAt DESC LIMIT 100")
     fun recent(): Flow<List<ModelInvocation>>
@@ -134,6 +137,13 @@ class InvocationLedger @Inject constructor(
     // Live observations never replace the database reservations used by the token allowance.
     val diagnostics = combine(recent, active, LocalDiagnosticsPolicy.state) { saved, live, enabled ->
         if (enabled) (live.values + saved.filterNot { it.id in live || it.status == "RUNNING" }).distinctBy { it.id }.sortedByDescending { it.startedAt }.take(100) else emptyList()
+    }
+
+    /** Only IDs already linked by this chat's retained stage/job receipts are requested. */
+    suspend fun linkedStatistics(ids: Set<String>): List<ModelInvocation> {
+        if (ids.isEmpty()) return emptyList()
+        val saved = ids.toList().chunked(500).flatMap { dao.byIds(it) }
+        return (saved.associateBy { it.id } + active.value.filterKeys { it in ids }).values.toList()
     }
 
     /** Product statistics are available independently of diagnostic logging. */

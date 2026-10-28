@@ -23,6 +23,17 @@ class ResearchReviewScoreCalculatorTest {
         assertEquals(2, ResearchReviewRubric.VERSION)
     }
 
+    @Test fun missingOutcomeProducesALimitedCoverageReceiptWithoutInventingANullFinding() {
+        val item = limitedEvidenceAssessment(listOf("p"), ArticleCoverage.PARTIAL_TEXT)
+        val scores = ResearchReviewScoreCalculator.calculate(item, false, StudyDesign.UNKNOWN, false)
+        assertNull(scores.overall)
+        assertNull(scores.accuracy)
+        assertNull(scores.reliability)
+        assertEquals("Limited review", scores.status)
+        assertTrue(item.limitation.contains("does not establish absence"))
+        assertTrue(limitedEvidenceAssessment(listOf("p"), ArticleCoverage.ABSTRACT_ONLY).limitation.contains("abstract"))
+    }
+
     @Test fun lowerComponentDeterminesOverall() {
         val score = ResearchReviewScoreCalculator.calculate(artifact(), true, StudyDesign.RANDOMIZED_TRIAL, false)
         assertEquals(65, score.reliability)

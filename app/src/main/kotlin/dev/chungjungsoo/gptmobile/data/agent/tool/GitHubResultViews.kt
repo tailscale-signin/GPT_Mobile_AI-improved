@@ -168,7 +168,9 @@ internal class GitHubResultViews(
             continuation["base"]?.let { values["base_sha"] = it }
         }
         if (operation == "github_pr") {
-            values["action"] = JsonPrimitive("context")
+            values["action"] = JsonPrimitive(
+                if ((continuation["action"] as? JsonPrimitive)?.content == "get_pull_request_comments") "comments" else "context"
+            )
             continuation["expected_head"]?.let { values["expected_head_sha"] = it }
         }
         if (operation == "github_read" && "path" in continuation) {

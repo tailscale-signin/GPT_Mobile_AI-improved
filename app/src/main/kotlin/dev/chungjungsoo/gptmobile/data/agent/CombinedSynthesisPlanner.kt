@@ -95,7 +95,7 @@ class CombinedSynthesisPlanner @Inject constructor(
         val privateProfiles = turnRuns.filter { it.runId in privateRuns }.mapTo(hashSetOf()) { it.profileUid }
         val sources = withContext(Dispatchers.Default) {
             (
-                combinedSynthesisInputs(responses, runs, profiles.associate { it.uid to it.name }, accepted.context.requested.requestedModels, userMessage.content, requireComplete = false)
+                combinedSynthesisInputs(responses, runs, profiles.associate { it.uid to it.name }, accepted.context.requested.requestedModels, userMessage.content, requireComplete = false, recordScreening = true)
                     ?: emptyList()
                 ).map { source -> source.copy(localOnly = source.localOnly || source.platformUid in privateProfiles, claimExtractionVersion = if (accepted.context.requested.singlePass) 4 else source.claimExtractionVersion) }
         }
@@ -302,7 +302,8 @@ class CombinedSynthesisPlanner @Inject constructor(
                             outputSettings?.outputTokens,
                             listOfNotNull(outputSettings?.contextTokens, outputSettings?.profileContextCeilings?.get(leadUid)).minOrNull(),
                             writerContext,
-                            appendContinuations = combined.requested.appendContinuations
+                            appendContinuations = combined.requested.appendContinuations,
+                            incrementalSynthesis = combined.requested.incrementalSynthesis
                         )
                     } catch (capacity: CombinedInputCapacityException) {
                         if (!permitsLocalAssembly) throw capacity

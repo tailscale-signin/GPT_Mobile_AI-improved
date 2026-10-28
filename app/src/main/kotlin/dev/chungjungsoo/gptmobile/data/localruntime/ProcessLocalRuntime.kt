@@ -531,17 +531,8 @@ class ProcessLocalRuntime(
                     } != true
                 ) {
                     quarantinedBinder = remote?.binder
-                    remote?.let {
-                        runCatching {
-                            RuntimeWireTransport.send(
-                                context,
-                                it,
-                                request.packet.copy(operation = "SHUTDOWN"),
-                                incoming
-                            )
-                        }
-                    }
                     quarantineAfterUnconfirmedCleanup("Cancellation was not acknowledged by the owning worker")
+                    terminateAndAwaitExit("cancellation_unacknowledged", 5_000)
                     recordTerminal(request, "CANCELLATION_UNACKNOWLEDGED", false)
                     disconnect("Inference worker did not acknowledge cancellation. Partial output is preserved; start a new request.")
                 }
@@ -594,13 +585,11 @@ class ProcessLocalRuntime(
                             if (connection !== this) return
                             try {
                                 binder.linkToDeath({
-                                    observeWorkerExit(binder, "binder_death")
-                                    if (connection ===
-                                        this
-                                    ) {
-                                        disconnect(
-                                            "Native inference worker stopped. Completed output is preserved; tools will not be repeated."
-                                        )
+                                    synchronized(this@ProcessLocalRuntime) {
+                                        if (connection === this) {
+                                            observeWorkerExit(binder, "binder_death")
+                                            disconnect("Native inference worker stopped. Completed output is preserved; tools will not be repeated.")
+                                        }
                                     }
                                 }, 0)
                                 check(binder.isBinderAlive) { "Inference worker stopped while connecting" }
@@ -617,7 +606,8 @@ class ProcessLocalRuntime(
                     }
 
                     override fun onServiceDisconnected(name: ComponentName) {
-                        if (connection === this) {
+                        synchronized(this@ProcessLocalRuntime) {
+                            if (connection !== this) return
                             dev.chungjungsoo.gptmobile.data.diagnostics.LocalRuntimeIncidentHistory.record(
                                 "WORKER_CONNECTION_LOST",
                                 mapOf(
@@ -634,14 +624,18 @@ class ProcessLocalRuntime(
                     }
 
                     override fun onBindingDied(name: ComponentName) {
-                        if (connection === this) disconnect("Inference binding expired")
+                        synchronized(this@ProcessLocalRuntime) {
+                            if (connection === this) disconnect("Inference binding expired")
+                        }
                     }
 
                     override fun onNullBinding(name: ComponentName) {
-                        result.completeExceptionally(IllegalStateException("Inference service unavailable"))
+                        synchronized(this@ProcessLocalRuntime) {
+                            if (connection === this) disconnect("Inference service unavailable")
+                        }
                     }
                 }
-            connection = next
+            synchronized(this@ProcessLocalRuntime) { connection = next }
             try {
                 check(context.bindService(Intent(context, LocalInferenceService::class.java), next, Context.BIND_AUTO_CREATE)) {
                     "Could not bind inference service"
@@ -916,7 +910,7 @@ class ProcessLocalRuntime(
         }
     }
 
-    private fun unbind() {
+    @Synchronized private fun unbind() {
         val previous = connection
         connection = null
         remote = null
@@ -957,7 +951,16 @@ class ProcessLocalRuntime(
         if (execution.get()?.runtimeRequestId == request.packet.requestId) execution.set(value)
     }
 
-    private fun requireSafeAdmission() {
+    private suspend fun requireSafeAdmission() {
+        if (cleanupQuarantine != null || quarantinedBinder != null) {
+            // SHUTDOWN is handled on the worker control thread, independently of
+            // a stuck native coroutine. Never clear quarantine on elapsed time.
+            if (quarantinedBinder != null || remote != null) {
+                terminateAndAwaitExit("quarantine_recovery", 5_000)
+            } else {
+                cleanupAfterRequest("quarantine_recovery")
+            }
+        }
         quarantinedBinder?.takeIf { !it.isBinderAlive }?.let { observeWorkerExit(it, "binder_not_alive") }
         check(cleanupQuarantine == null && quarantinedBinder?.isBinderAlive != true) {
             "NATIVE_SESSION_QUARANTINED: ${cleanupQuarantine ?: "waiting for the old worker to exit"}; no new inference was dispatched"
@@ -1017,6 +1020,11 @@ class ProcessLocalRuntime(
         quarantinedBinder = null
         cleanupQuarantine = null
         requestedSpec = null
+        sessionId = ""
+        toolExecutor = null
+        allowedTools = emptySet()
+        processPssBytes = null
+        mutableState.value = state.value.copy(engineSpec = null, engineHealth = "RELEASED", lifecycle = "IDLE", loadProgress = null, allocationObservation = null)
     }
 
     /** At most 12s cancellation + 5s per close/release + 5s confirmed worker-exit wait. */
@@ -1150,6 +1158,7 @@ class ProcessLocalRuntime(
             buildMap {
                 put("origin", receipt.origin)
                 put("safeForSuccessor", receipt.safeForSuccessor.toString())
+                put("cleanupState", receipt.cleanupState)
                 receipt.runtimeRequestId?.let { put("runtimeRequestId", it) }
                 receipt.physicalAttemptId?.let { put("physicalAttemptId", it) }
                 receipt.workerGenerationId?.let { put("workerGenerationId", it) }

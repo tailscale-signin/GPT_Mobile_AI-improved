@@ -144,7 +144,9 @@ data class CombinedQualityReport(
     @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
     val partialSourceLinks: Int = 0,
     @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
-    val unresolvedSourceLinks: Int = 0
+    val unresolvedSourceLinks: Int = 0,
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val writerUsage: CombinedReportedUsage? = null
 )
 
 /** One NDJSON record per paragraph permits progressive delivery without leaking protocol data. */
@@ -374,7 +376,7 @@ internal class CombinedPassageDecoder(
         val claims = strings("claims")
         if (claims.any { it !in claimIds }) issues += "UNKNOWN_CLAIM_REFERENCE"
         val retainedClaims = claims.filter { it in claimIds }.toSet()
-        val mapping = CombinedAnswerMappings.get(body, sources)
+        val mapping = CombinedAnswerMappings.get(body, sources, retainedClaims)
         val mappedClaims = mapping.claims.flatMap { claim -> (claim.aliases + claim.canonicalId + claim.claimId).map { it to claim } }.toMap()
         val linkedClaims = retainedClaims.filterTo(linkedSetOf()) { mappedClaims[it]?.links?.isNotEmpty() == true }
         if (linkedClaims != retainedClaims) issues += "UNESTABLISHED_CONTRIBUTION_LINK"
@@ -436,3 +438,6 @@ internal class CombinedPassageDecoder(
         deltas += separator + rendered
     }
 }
+
+@Serializable
+data class CombinedReportedUsage(val inputTokens: Int?, val outputTokens: Int?, val inputSource: String, val outputSource: String)

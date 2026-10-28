@@ -18,6 +18,13 @@ class ExaminationOutputBudgetTest {
         assertFalse(examinationFailure(IllegalStateException(ExaminationOutputBudget.INSUFFICIENT), 0).retryable)
     }
 
+    @Test fun incapableExaminerIsBlockedBeforeDispatchButShortReviewReceiptsFit() {
+        assertTrue(ExaminationOutputBudget.examinerBlocker(256)!!.contains("Choose a capable Examiner"))
+        assertEquals(null, ExaminationOutputBudget.examinerBlocker(1024))
+        ExaminationOutputBudget.requireCapacity("research-review", 256)
+        assertThrows(IllegalStateException::class.java) { ExaminationOutputBudget.requireCapacity("research-appraisal-part", 256) }
+    }
+
     @Test fun splitAndRestoredCheckpointsRetainExactOffsetsAndCompletedChunks() {
         val source = "a".repeat(511) + "\uD83D\uDE00" + "b".repeat(511)
         val split = ExaminationSlice(0, source.length).split(source)

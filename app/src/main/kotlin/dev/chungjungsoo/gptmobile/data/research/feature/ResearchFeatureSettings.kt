@@ -31,9 +31,10 @@ data class ResearchFeatureSettings(
     val automaticOrganization: Boolean = true,
     val researchMemory: Boolean = false,
     val shareResearchRecall: Boolean = false,
-    val unexaminedStudyLimit: Int = 1000
+    val unexaminedStudyLimit: Int = 1000,
+    val consentReceipts: List<ResearchConsentReceipt> = emptyList()
 ) {
-    fun validated() = copy(archiveEnabled = true).apply { require(schemaVersion == 1 && comparisonLimit in 2..12 && rubricVersion == 1 && unexaminedStudyLimit in 1..50000) }
+    fun validated() = copy(archiveEnabled = true, consentReceipts = consentReceipts.takeLast(32)).apply { require(schemaVersion == 1 && comparisonLimit in 2..12 && rubricVersion == 1 && unexaminedStudyLimit in 1..50000) }
 }
 
 @Serializable
@@ -56,3 +57,12 @@ enum class ExaminationStage { QUEUED, RESOLVING, READING, EXTRACTING, APPRAISING
 
 @Serializable
 enum class ExaminationOrigin { USER_EXAMINE, AUTHORIZED_RESEARCH, AUTOMATIC_CHAT }
+
+/** Functional consent history, available even when optional diagnostic logging is off. */
+@Serializable
+data class ResearchConsentReceipt(val promptId: String, val profileUid: String, val decision: String, val at: Long)
+
+internal fun ResearchFeatureSettings.recordConsent(promptId: String, profileUid: String, decision: String, at: Long = System.currentTimeMillis()): ResearchFeatureSettings {
+    require(decision in setOf("OFFERED", "DISMISSED", "ACCEPTED", "REVOKED"))
+    return copy(consentReceipts = (consentReceipts + ResearchConsentReceipt(promptId, profileUid, decision, at)).takeLast(32))
+}

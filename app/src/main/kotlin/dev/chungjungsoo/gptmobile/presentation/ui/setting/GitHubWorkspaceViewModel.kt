@@ -34,6 +34,7 @@ import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 
 @kotlinx.serialization.Serializable
@@ -93,7 +94,8 @@ class GitHubWorkspaceViewModel @Inject constructor(
     private val store: GitHubWorkspaceStore,
     private val drafts: dev.chungjungsoo.gptmobile.data.github.GitHubWorkspaceDraftStore,
     private val settings: dev.chungjungsoo.gptmobile.data.repository.SettingRepository,
-    private val repositoryState: dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore? = null
+    private val repositoryState: dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore? = null,
+    private val gitHubPublicAuth: dev.chungjungsoo.gptmobile.data.github.GitHubPublicAuthCoordinator? = null
 ) : ViewModel() {
     private val _state = MutableStateFlow(GitHubWorkspaceState())
     val state = _state.asStateFlow()
@@ -141,7 +143,6 @@ class GitHubWorkspaceViewModel @Inject constructor(
     }
 
     fun open(connection: ToolConnection) {
-        if (_state.value.connection?.connectionUid == connection.connectionUid && client != null) return
         if (_state.value.busy) return
         client = null
         tool = null
@@ -150,6 +151,7 @@ class GitHubWorkspaceViewModel @Inject constructor(
         work {
             val current = connections.getConnection(connection.connectionUid) ?: error("Connection was removed.")
             require(current.type == ToolConnectionType.GITHUB) { "This connection is no longer a GitHub connection. Reopen the workspace with a GitHub connection." }
+            if (current.secretRef != null) gitHubPublicAuth?.accessToken(current)
             val bytes = current.secretRef?.let { vault.read(it) }
             val token = try {
                 credentialDigest = bytes?.let { MessageDigest.getInstance("SHA-256").digest(it) }
@@ -250,10 +252,26 @@ class GitHubWorkspaceViewModel @Inject constructor(
         _state.update { it.copy(branches = if (page == 1) branches else (it.branches + branches).distinct(), branchPage = page, moreBranches = result.flag("has_more")) }
     }
 
-    fun selectBranch(branch: String) = work {
+    fun selectBranch(branch: String, programmerChatId: Int? = null) = work {
         require(_state.value.staged.isEmpty() && _state.value.editorDrafts.isEmpty() && _state.value.patchStage == null) { "Commit or discard staged edits before switching branches." }
         _state.update { it.copy(selection = it.selection?.copy(ref = branch), directory = "", file = null, entries = emptyList(), headSha = "", commits = emptyList(), commitDetail = null, activityUpdatedAt = null, snapshot = null, indexStatus = null, searchResult = null, ciDigest = null, changedFiles = null, activityLoaded = false, directoryLoaded = false, pullPackage = null) }
         loadHeadAndDirectory()
+        syncProgrammerBranch(programmerChatId)
+    }
+
+    private suspend fun syncProgrammerBranch(programmerChatId: Int?) {
+        if (programmerChatId != null) {
+            val current = _state.value
+            val selected = requireNotNull(current.selection)
+            settings.mutateFeatureSettings { features ->
+                val prior = features.conversationGitHub[programmerChatId]
+                if (prior != null && prior.connectionUid == current.connection?.connectionUid && prior.owner.equals(selected.owner, true) && prior.repo.equals(selected.repo, true)) {
+                    features.copy(conversationGitHub = features.conversationGitHub + (programmerChatId to prior.copy(ref = selected.ref, commitSha = current.headSha)))
+                } else {
+                    features
+                }
+            }
+        }
     }
 
     fun refreshBranch() = work {
@@ -355,19 +373,22 @@ class GitHubWorkspaceViewModel @Inject constructor(
         _state.update { it.copy(notice = "Default GitHub repository context cleared.") }
     }
 
-    fun createBranch(name: String) = work {
+    fun createBranch(name: String, expectedHead: String = _state.value.headSha, programmerChatId: Int? = null) = work {
         val state = _state.value
-        require(state.canWrite && state.staged.isEmpty()) { "Commit or discard staged changes first; write access is required." }
+        check(state.headSha == expectedHead && expectedHead.matches(Regex("[a-fA-F0-9]{40}"))) { "Branch head changed; review the creation request again." }
+        require(state.canWrite && state.staged.isEmpty() && state.editorDrafts.isEmpty() && state.patchStage == null) { "Commit or discard staged changes first; write access is required." }
         toolRequest(
             "create_branch",
             buildJsonObject {
                 put("branch", name.trim())
                 put("base", requireNotNull(state.selection).ref)
+                put("expected_head_sha", state.headSha)
             }
         )
         _state.update { it.copy(selection = it.selection?.copy(ref = name.trim()), notice = "Working branch created.", directory = "") }
         loadBranches(1)
         loadHeadAndDirectory()
+        syncProgrammerBranch(programmerChatId)
     }
 
     fun commit(message: String) = work {
@@ -546,6 +567,30 @@ class GitHubWorkspaceViewModel @Inject constructor(
     fun explainFailedCi() = work {
         val result = api("ci_failure_digest").jsonObject
         _state.update { it.copy(ciDigest = result) }
+    }
+
+    fun prepareCodeIndex() = work {
+        val state = _state.value
+        require(state.headSha.isNotBlank()) { "Select a repository snapshot first." }
+        val current = state.indexStatus
+        val next = if (current?.text("commit_sha") == state.headSha) current["next_index_cursor"]?.jsonPrimitive?.content else null
+        val result = api(
+            "build_index",
+            buildJsonObject {
+                put("commit_sha", state.headSha)
+                next?.let { put("index_cursor", it) }
+            }
+        ).jsonObject
+        _state.update {
+            it.copy(
+                indexStatus = result,
+                notice = when {
+                    result["next_index_cursor"] != null -> "Code context prepared in a bounded batch. Continue when useful; other files remain available on demand."
+                    result.flag("preparation_finished") -> "Index preparation finished. Files not cached remain available on demand."
+                    else -> "The repository tree is partial. Cached files are available, but complete index coverage could not be established."
+                }
+            )
+        }
     }
     fun markReviewed() {
         _state.update { it.copy(reviewBaseline = it.headSha, changedFiles = null, notice = "Review baseline saved at ${it.headSha.take(8)}.") }

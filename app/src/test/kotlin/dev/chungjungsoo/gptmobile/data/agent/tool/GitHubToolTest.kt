@@ -22,6 +22,70 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubToolTest {
+    @Test fun unavailableCredentialVerificationReturnsAnExplicitErrorWithoutDispatchOrCatalogOmission() = runTest {
+        val http = HttpClient(MockEngine { error("An unverified account must not reach GitHub") })
+        try {
+            val tool = GitHubTool("configured-token", http, credentialAdmissionFailed = true)
+            assertTrue(tool.hasCredential)
+            assertTrue(tool.operations().any { it.operation == "github_write" })
+            val result = tool.execute("authorization", buildJsonObject { put("action", "get_account") })
+            assertTrue(result.isError)
+            assertEquals(false, result.dispatched)
+            assertEquals("GITHUB_AUTHORIZATION_UNVERIFIED", result.errorCode)
+        } finally {
+            http.close()
+        }
+    }
+
+    @Test
+    fun `programmer workspace rejects other repositories and unselected indexing before dispatch`() = runTest {
+        val client = HttpClient(MockEngine { error("Out of scope operations must not reach GitHub") })
+        try {
+            val scope = dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext("connection", "owner", "repo", "feature", "a".repeat(40), "profile")
+            val tool = GitHubTool("user-token", client, repositoryScope = scope)
+            for ((action, repository) in listOf("read_code" to "other", "list_repositories" to "repo", "search_code" to "repo", "build_index" to "repo")) {
+                val result = tool.execute(
+                    "scoped-$action",
+                    buildJsonObject {
+                        put("action", action)
+                        put("owner", "owner")
+                        put("repo", repository)
+                        put("path", "README.md")
+                        put("query", "fun main")
+                    }
+                )
+                assertTrue(result.isError)
+                assertEquals("REPOSITORY_SCOPE_MISMATCH", result.errorCode)
+                assertEquals(false, result.dispatched)
+            }
+        } finally {
+            client.close()
+        }
+    }
+
+    @Test
+    fun `invalid workflow arguments return actionable validation errors without network access`() = runTest {
+        val client = HttpClient(MockEngine { error("Invalid arguments must not reach the network") })
+        try {
+            val result = GitHubTool("user-token", client).execute(
+                "invalid-workflow",
+                buildJsonObject {
+                    put("action", "get_workflow_run")
+                    put("owner", "owner")
+                    put("repo", "repo")
+                    put("run_id", -1)
+                }
+            )
+            assertTrue(result.isError)
+            val message = (result.content as ToolResultContent.Text).text
+            assertTrue(message.contains("GITHUB_INVALID_ARGUMENT"))
+            assertTrue(message.contains("action=get_workflow_run"))
+            assertTrue(message.contains("positive run_id"))
+            assertFalse(message.contains("Failed requirement"))
+        } finally {
+            client.close()
+        }
+    }
 
     @Test
     fun `workflow dispatch carries user ref and typed inputs and accepts no-content response`() = runTest {
@@ -405,6 +469,72 @@ class GitHubToolTest {
             assertTrue(second.isError)
             assertTrue((second.content as ToolResultContent.Text).text.contains("cooling down"))
             assertEquals(1, requests)
+        } finally {
+            client.close()
+        }
+    }
+
+    @Test
+    fun `401 from a workspace operation also blocks legacy read endpoints`() = runTest {
+        var requests = 0
+        val client = HttpClient(
+            MockEngine {
+                requests++
+                respond("""{"message":"Bad credentials"}""", HttpStatusCode.Unauthorized)
+            }
+        )
+        try {
+            val tool = GitHubTool("expired", client)
+            val repository = buildJsonObject {
+                put("action", "get_repository")
+                put("owner", "owner")
+                put("repo", "repo")
+            }
+            val rejected = tool.execute("repository", repository)
+            assertTrue(rejected.isError)
+            assertEquals("AUTH_REQUIRED", rejected.errorCode)
+            val issue = buildJsonObject {
+                put("action", "get_issue")
+                put("owner", "owner")
+                put("repo", "repo")
+                put("issue_number", 1)
+            }
+            val result = tool.execute("issue", issue)
+            assertTrue(result.isError)
+            assertTrue((result.content as ToolResultContent.Text).text.contains("Reconnect"))
+            assertEquals(1, requests)
+        } finally {
+            client.close()
+        }
+    }
+
+    @Test
+    fun `repository rule denial is distinguished from missing Actions permission`() = runTest {
+        var requests = 0
+        val client = HttpClient(
+            MockEngine {
+                requests++
+                if (requests == 1) {
+                    respond("""{"object":{"sha":"abc123"}}""", HttpStatusCode.OK)
+                } else {
+                    respond("""{"message":"GH013: Repository rule violations found"}""", HttpStatusCode.Forbidden)
+                }
+            }
+        )
+        try {
+            val result = GitHubTool("rule-test", client).execute(
+                "branch",
+                buildJsonObject {
+                    put("action", "create_branch")
+                    put("owner", "owner")
+                    put("repo", "repo")
+                    put("branch", "fix/test")
+                    put("base", "main")
+                }
+            )
+            assertTrue(result.isError)
+            assertEquals("GITHUB_BRANCH_RULES_BLOCKED", result.errorCode)
+            assertEquals(2, requests)
         } finally {
             client.close()
         }

@@ -41,6 +41,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
 
 data class ResolvedAgentTool(
     val tool: AgentTool,
@@ -86,7 +87,9 @@ class AgentToolResolver @Inject constructor(
     private val statistics: dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsRepository? = null,
     private val researchArchive: dev.chungjungsoo.gptmobile.data.research.feature.ResearchArchiveRepository? = null,
     private val articleExaminations: javax.inject.Provider<dev.chungjungsoo.gptmobile.data.research.feature.ArticleExaminationCoordinator>? = null,
-    private val gitHubRepositoryState: dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore? = null
+    private val gitHubRepositoryState: dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore? = null,
+    private val engineeringController: GitHubEngineeringController? = null,
+    private val gitHubPublicAuth: dev.chungjungsoo.gptmobile.data.github.GitHubPublicAuthCoordinator? = null
 ) {
     suspend fun warmSelectedCatalogues(profileUid: String, limit: Int = 4) {
         val features = settingRepository.getFeatureSettings()
@@ -112,11 +115,11 @@ class AgentToolResolver @Inject constructor(
         }
     }
 
-    suspend fun discoverMcpTools(connection: ToolConnection, forceRefresh: Boolean = false): List<Tool> {
-        if (!forceRefresh) mcpClientManager.peekToolsForConnection(connection.connectionUid, connection.endpointUrl, connection.allowCleartext)?.let { return it }
+    suspend fun discoverMcpTools(connection: ToolConnection, forceRefresh: Boolean = false, awaitCompletion: Boolean = false): List<Tool> {
+        if (!forceRefresh && !awaitCompletion) mcpClientManager.peekToolsForConnection(connection.connectionUid, connection.endpointUrl, connection.allowCleartext)?.let { return it }
         val config = mcpConfig(connection)
         return try {
-            mcpClientManager.listTools(config, forceRefresh)
+            mcpClientManager.listTools(config, forceRefresh, awaitCompletion)
         } catch (error: Exception) {
             if (connection.authType != ToolConnectionAuthType.OAUTH || !error.isUnauthorized()) throw error
             mcpClientManager.listTools(
@@ -125,7 +128,8 @@ class AgentToolResolver @Inject constructor(
                     forceOAuthRefresh = true,
                     rejectedAuthorizationHeader = config.authorizationHeader
                 ),
-                forceRefresh = true
+                forceRefresh = true,
+                awaitCompletion = awaitCompletion
             )
         }
     }
@@ -176,6 +180,7 @@ class AgentToolResolver @Inject constructor(
         val configuredNativeGitHubConnections = connections.filter { it.type == ToolConnectionType.GITHUB }
         val nativeGitHubConnections = configuredNativeGitHubConnections.filter { connection ->
             featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.GITHUB) &&
+                (chatToolConfig?.github?.connectionUid?.let { it == connection.connectionUid } != false) &&
                 featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.connection(connection.connectionUid))
         }
 
@@ -274,10 +279,10 @@ class AgentToolResolver @Inject constructor(
             // connection exists but is disabled, do not silently replace it with
             // anonymous GitHub access because that would bypass the plugin toggle.
             if (featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.GITHUB)) {
-                if (configuredNativeGitHubConnections.isEmpty()) {
+                if (configuredNativeGitHubConnections.isEmpty() && chatToolConfig?.github == null) {
                     resolved += resolveGitHub(null, profileUid, userMessage)
                 }
-                nativeGitHubConnections.forEach { connection -> resolved += resolveGitHub(connection, profileUid, userMessage) }
+                nativeGitHubConnections.forEach { connection -> resolved += resolveGitHub(connection, profileUid, userMessage, chatToolConfig?.github) }
             }
             if (featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.WEB_SEARCH)) {
                 resolved += defaultWebSearch.resolved(null, null, WEB_SEARCH_TOOL)
@@ -323,8 +328,25 @@ class AgentToolResolver @Inject constructor(
                         } catch (error: CancellationException) {
                             throw error
                         } catch (error: Exception) {
-                            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("ToolCatalog", "TOOL_RESOLUTION_FAILED · connection=${connection.connectionUid} · reason=${error.javaClass.simpleName} · cachedOnly=$cachedCataloguesOnly", "W")
-                            emptyList<ResolvedAgentTool>() to "${connection.name}: tools unavailable. Check authentication and connection diagnostics."
+                            val outcome = when {
+                                error is McpBackoffException -> "WAITING_RECOVERY"
+                                generateSequence<Throwable>(error) { current -> current.cause?.takeUnless { cause -> cause === current } }.take(8).any { it is McpAuthenticationRequiredException } -> "AUTHENTICATION_REQUIRED"
+                                generateSequence<Throwable>(error) { current -> current.cause?.takeUnless { cause -> cause === current } }.take(8).any { it is McpEndpointConfigurationException } -> "ENDPOINT_CONFIGURATION"
+                                generateSequence<Throwable>(error) { current -> current.cause?.takeUnless { cause -> cause === current } }.take(8).any { it is java.io.IOException } -> "NETWORK_UNAVAILABLE"
+                                error is IllegalStateException -> "MCP_STATE_OR_CATALOG_INVALID"
+                                else -> "DISCOVERY_FAILED"
+                            }
+                            val event = if (outcome == "WAITING_RECOVERY") "TOOL_RESOLUTION_WAITING_RECOVERY" else "TOOL_RESOLUTION_FAILED"
+                            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("ToolCatalog", "$event · connection=${connection.connectionUid} · outcome=$outcome · reason=${error.javaClass.simpleName} · cachedOnly=$cachedCataloguesOnly · health=${mcpClientManager.healthSnapshot(connection.connectionUid).state}", if (outcome == "WAITING_RECOVERY") "I" else "W")
+                            val message = when (outcome) {
+                                "WAITING_RECOVERY" -> "${connection.name}: temporarily waiting for the MCP connection backoff to expire. The tool catalogue is retained and can be refreshed when recovery is available."
+                                "AUTHENTICATION_REQUIRED" -> "${connection.name}: authentication is required. Reconnect or update this server's credentials."
+                                "ENDPOINT_CONFIGURATION" -> "${connection.name}: the MCP endpoint path or server configuration is invalid. Check the configured URL and reconnect."
+                                "NETWORK_UNAVAILABLE" -> "${connection.name}: network access to this MCP server is unavailable. The saved catalogue is retained for retry after connectivity returns."
+                                "MCP_STATE_OR_CATALOG_INVALID" -> "${connection.name}: the MCP connection or tool catalogue changed during discovery. Refresh the catalogue after the connection settles."
+                                else -> "${connection.name}: tool discovery failed. Check connection diagnostics and retry catalogue discovery."
+                            }
+                            emptyList<ResolvedAgentTool>() to message
                         }
                     }
                 }.awaitAll()
@@ -1116,8 +1138,18 @@ class AgentToolResolver @Inject constructor(
         }
     }
 
-    private suspend fun resolveGitHub(connection: ToolConnection?, profileUid: String, userMessage: MessageV2?): ResolvedAgentTool {
+    private suspend fun resolveGitHub(connection: ToolConnection?, profileUid: String, userMessage: MessageV2?, workspaceContext: dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext? = null): ResolvedAgentTool {
         val actualConnection = connection
+        var authorizationFailed = false
+        if (actualConnection?.secretRef != null && gitHubPublicAuth != null) {
+            try {
+                gitHubPublicAuth.accessToken(actualConnection)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                authorizationFailed = true
+            }
+        }
         val token = actualConnection?.secretRef?.let { secretRef ->
             secretVault.read(secretRef)?.let { bytes ->
                 try {
@@ -1129,15 +1161,34 @@ class AgentToolResolver @Inject constructor(
         }.orEmpty()
 
         val features = settingRepository.getFeatureSettings()
+        val engineeringPrepare: (suspend (String, JsonObject) -> JsonObject)? = if (actualConnection != null && engineeringController != null) {
+            { root, args ->
+                require(userMessage?.chatId?.let { factVault?.scopeForChat(it)?.isTemporary != true } != false) {
+                    "Engineering review stores the exact patch. Use a saved conversation or open GitHub review explicitly."
+                }
+                val engineeringTaskId = engineeringController.prepareFromTool(actualConnection.connectionUid, root, args.toString())
+                kotlinx.serialization.json.buildJsonObject {
+                    put("engineering_task_id", engineeringTaskId)
+                    put("status", "AWAITING_APPROVAL")
+                    put("committed", false)
+                    put("next_action", "Open Workspaces → GitHub review → Engineering tasks to review the exact patch and approve. No remote write has occurred.")
+                }
+            }
+        } else {
+            null
+        }
         val tool = GitHubTool(
             apiToken = token,
             featureSettings = features,
             modelToolName = actualConnection?.let { "github__${it.alias}" } ?: BuiltInAgentTool.GITHUB,
             accountName = actualConnection?.name,
-            repositoryContext = actualConnection?.let { gitHubWorkspaceStore?.get(it.connectionUid) },
+            repositoryContext = workspaceContext?.repository ?: actualConnection?.let { gitHubWorkspaceStore?.get(it.connectionUid) },
             connectionUid = actualConnection?.connectionUid.orEmpty(), conversationId = userMessage?.chatId?.toString().orEmpty(), taskId = userMessage?.let { "${it.chatId}:${it.id}" }.orEmpty(),
             persistentState = userMessage?.chatId?.let { factVault?.scopeForChat(it)?.isTemporary != true } ?: true,
-            stateStore = gitHubRepositoryState
+            stateStore = gitHubRepositoryState,
+            engineeringPrepare = engineeringPrepare,
+            repositoryScope = workspaceContext,
+            credentialAdmissionFailed = authorizationFailed
         )
         val admittedProfile = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }
         // resolved() normally wraps telemetry immediately; this backend must stay
@@ -1145,7 +1196,20 @@ class AgentToolResolver @Inject constructor(
         return tool.resolved(actualConnection?.connectionUid, actualConnection?.name, BuiltInAgentTool.GITHUB).copy(tool = tool, nativeGitHub = true, nativeGitHubAuthenticated = tool.hasCredential, canReuseResult = {
             val current = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }
             val live = settingRepository.getFeatureSettings()
-            current != null &&
+            val credentialUnchanged = if (actualConnection == null) {
+                true
+            } else {
+                actualConnection.secretRef?.let { reference ->
+                    val bytes = secretVault.read(reference)
+                    try {
+                        bytes != null && bytes.decodeToString().trim() == token
+                    } finally {
+                        bytes?.fill(0)
+                    }
+                } ?: token.isEmpty()
+            }
+            credentialUnchanged &&
+                current != null &&
                 admittedProfile != null &&
                 dev.chungjungsoo.gptmobile.data.agent.sameRecoveryDestination(admittedProfile, current) &&
                 current.enabled &&
@@ -1164,12 +1228,23 @@ class AgentToolResolver @Inject constructor(
         val temporary = userMessage?.chatId?.let { factVault?.scopeForChat(it)?.isTemporary == true } == true
         val previous = if (temporary) null else store?.read(scope, "github")?.get("task")?.let { (it as? kotlinx.serialization.json.JsonPrimitive)?.content }
         val explicit = GitHubOperationTool.taskTools(task).isNotEmpty()
-        val followup = Regex("(?i)\\b(continue|resume|fix|patch|push|commit|branch|release|review|test|build)\\b").containsMatchIn(task)
-        val selected = when {
+        val followup = Regex("(?i)\\b(continue|resume|fix(?:es|ed|ing)?|repair(?:s|ed|ing)?|correct(?:ions?|ed|ing)?|changes?|patch|push|pushing|commit|committing|branch|release|review|test|build|write|writing)\\b").containsMatchIn(task)
+        val selectedTask = when {
             explicit -> task
             followup && (selectedRepository || previous != null) -> "repository " + task + " " + previous.orEmpty()
             else -> task
-        }.take(4096)
+        }
+        // Catalogue selection must inspect the whole request before compacting its
+        // durable context. Otherwise a write instruction after a long diagnostic
+        // report disappears and both this turn and its continuation become read-only.
+        // These are schemas, never permissions: execution still validates grants,
+        // approval, repository scope, expected SHAs and GitHub endpoint access.
+        val capabilities = GitHubOperationTool.taskTools(selectedTask)
+        val selected = if (capabilities.isEmpty()) {
+            selectedTask.take(4096)
+        } else {
+            (capabilities.joinToString(" ") + "\n" + selectedTask).take(4096)
+        }
         if (!temporary && GitHubOperationTool.taskTools(selected).isNotEmpty()) store?.write(scope, "github", kotlinx.serialization.json.buildJsonObject { put("task", kotlinx.serialization.json.JsonPrimitive(selected)) })
         return selected
     }

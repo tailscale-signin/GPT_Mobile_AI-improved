@@ -4,6 +4,8 @@ on:
   workflow_dispatch:
   pull_request:
     paths:
+      - 'scripts/gradle_retry.py'
+      - 'scripts/tests/test_gradle_retry.py'
       - 'app/src/geniex/**'
       - 'app/src/litertOnly/**'
       - 'app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/localmodel/**'
@@ -40,14 +42,19 @@ jobs:
         with:
           packages: 'platforms;android-37.0 build-tools;37.0.0'
       - name: Install Vulkan shader headers for Android GGUF backend
-        run: sudo apt-get update && sudo apt-get install -y glslc libvulkan-dev spirv-headers
+        timeout-minutes: 8
+        run: |
+          trap 'echo "::error::Android native dependency installation failed or timed out. Retry after checking the Ubuntu package mirror and dpkg lock."' ERR
+          apt_options=(-o Acquire::Retries=2 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 -o DPkg::Lock::Timeout=60)
+          sudo timeout --kill-after=15s 180s apt-get "${apt_options[@]}" update
+          sudo env DEBIAN_FRONTEND=noninteractive timeout --kill-after=15s 180s apt-get "${apt_options[@]}" install --no-install-recommends -y glslc libvulkan-dev spirv-headers
       - name: Run isolated preview unit tests
         timeout-minutes: 25
         shell: bash
         run: |
           set -o pipefail
           mkdir -p build/geniex-validation
-          ./gradlew -PgeniexRuntime=true :app:testDebugUnitTest --no-daemon --console=plain --stacktrace 2>&1 | tee build/geniex-validation/unit.log
+          python3 scripts/gradle_retry.py -- -PgeniexRuntime=true :app:testDebugUnitTest --no-daemon --console=plain --stacktrace 2>&1 | tee build/geniex-validation/unit.log
       - name: Save GenieX unit reports
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -61,7 +68,7 @@ jobs:
         run: |
           set -o pipefail
           mkdir -p build/geniex-validation
-          ./gradlew -PgeniexRuntime=true :app:assembleDebug --no-daemon --console=plain --stacktrace 2>&1 | tee build/geniex-validation/debug.log
+          python3 scripts/gradle_retry.py -- -PgeniexRuntime=true :app:assembleDebug --no-daemon --console=plain --stacktrace 2>&1 | tee build/geniex-validation/debug.log
       - name: Validate release shrinker for the GenieX runtime
         timeout-minutes: 25
         shell: bash
@@ -70,7 +77,7 @@ jobs:
           mkdir -p build/geniex-validation
           # Match native-memory-smoke.yml: release compiler/KSP/R8 analysis
           # memory before ApkFlinger allocates its packaging buffers.
-          ./gradlew -PgeniexRuntime=true -PnativeMemorySmoke=true :app:minifyNativeSmokeWithR8 --no-daemon --max-workers=1 --console=plain --info --stacktrace '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -Dfile.encoding=UTF-8' 2>&1 | tee build/geniex-validation/shrinker.log
+          python3 scripts/gradle_retry.py -- -PgeniexRuntime=true -PnativeMemorySmoke=true :app:minifyNativeSmokeWithR8 --no-daemon --max-workers=1 --console=plain --info --stacktrace '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -Dfile.encoding=UTF-8' 2>&1 | tee build/geniex-validation/shrinker.log
       # ApkFlinger uses the common pool, independently of --max-workers. Serialize
       # native-library compression so simultaneous byte buffers cannot exhaust the heap.
       - name: Package the minified GenieX APK in a fresh process
@@ -79,7 +86,7 @@ jobs:
         run: |
           set -o pipefail
           mkdir -p build/geniex-validation
-          ./gradlew -PgeniexRuntime=true -PnativeMemorySmoke=true :app:assembleNativeSmoke --no-daemon --max-workers=1 --console=plain --info --stacktrace '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -Djava.util.concurrent.ForkJoinPool.common.parallelism=1 -XX:+UseG1GC -Dfile.encoding=UTF-8' 2>&1 | tee build/geniex-validation/package.log
+          python3 scripts/gradle_retry.py -- -PgeniexRuntime=true -PnativeMemorySmoke=true :app:assembleNativeSmoke --no-daemon --max-workers=1 --console=plain --info --stacktrace '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -Djava.util.concurrent.ForkJoinPool.common.parallelism=1 -XX:+UseG1GC -Dfile.encoding=UTF-8' 2>&1 | tee build/geniex-validation/package.log
       - name: Audit minified GenieX native stack
         run: |
           python3 scripts/check_local_runtime_apk.py --native-stack geniex app/build/outputs/apk/nativeSmoke/*.apk

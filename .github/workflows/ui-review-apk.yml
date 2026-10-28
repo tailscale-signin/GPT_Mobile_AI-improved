@@ -3,6 +3,8 @@ on:
   pull_request:
     branches: [main, feat/unified-reliability-v2-2026-10-13]
     paths:
+      - 'scripts/gradle_retry.py'
+      - 'scripts/tests/test_gradle_retry.py'
       - 'app/**'
       - '.github/workflows/ui-review-apk.yml'
       - 'macrobenchmark/**'
@@ -32,7 +34,12 @@ jobs:
         with:
           packages: 'platforms;android-37.0 build-tools;37.0.0'
       - name: Install Vulkan shader headers for Android GGUF backend
-        run: sudo apt-get update && sudo apt-get install -y glslc libvulkan-dev spirv-headers
+        timeout-minutes: 8
+        run: |
+          trap 'echo "::error::Android native dependency installation failed or timed out. Retry after checking the Ubuntu package mirror and dpkg lock."' ERR
+          apt_options=(-o Acquire::Retries=2 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 -o DPkg::Lock::Timeout=60)
+          sudo timeout --kill-after=15s 180s apt-get "${apt_options[@]}" update
+          sudo env DEBIAN_FRONTEND=noninteractive timeout --kill-after=15s 180s apt-get "${apt_options[@]}" install --no-install-recommends -y glslc libvulkan-dev spirv-headers
       # Separate invocations release compiler/KSP memory between build variants.
       # Bound each phase so a stalled compiler cannot occupy a runner for six hours.
       - name: Build review APK
@@ -40,14 +47,14 @@ jobs:
         # Native-library packaging needs more heap after a cold Kotlin/KSP compile.
         # Keep the compiler in-process and one worker within the runner's RAM budget.
         run: >-
-          ./gradlew :app:assembleDebug --no-daemon --stacktrace --console=plain --max-workers=1
+          python3 scripts/gradle_retry.py -- :app:assembleDebug --no-daemon --stacktrace --console=plain --max-workers=1
           '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8'
       - name: Compile device regressions
         timeout-minutes: 25
-        run: ./gradlew :app:compileDebugAndroidTestKotlin --no-daemon --stacktrace --console=plain
+        run: python3 scripts/gradle_retry.py -- :app:compileDebugAndroidTestKotlin --no-daemon --stacktrace --console=plain
       - name: Compile benchmark regressions
         timeout-minutes: 30
-        run: ./gradlew :app:compileBenchmarkKotlin :macrobenchmark:compileBenchmarkKotlin --no-daemon --stacktrace --console=plain
+        run: python3 scripts/gradle_retry.py -- :app:compileBenchmarkKotlin :macrobenchmark:compileBenchmarkKotlin --no-daemon --stacktrace --console=plain
       - name: Verify packaged local runtime and privacy
         run: |
           python3 scripts/check_local_runtime_apk.py app/build/outputs/apk/debug/*.apk

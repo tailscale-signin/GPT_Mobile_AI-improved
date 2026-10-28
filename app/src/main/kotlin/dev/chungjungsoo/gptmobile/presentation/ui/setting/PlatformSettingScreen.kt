@@ -126,7 +126,7 @@ fun PlatformSettingScreen(
     activationRequest?.let { ProviderActivationDialog(it, settingViewModel::confirmProviderActivation, settingViewModel::dismissProviderActivation) }
     val features by settingViewModel.featureSettings.collectAsStateWithLifecycle()
     val behavior = features.profileBehavior[settingViewModel.platformUid] ?: dev.chungjungsoo.gptmobile.data.model.ProfileBehaviorSettings()
-    var profileTab by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableIntStateOf(initialTab.coerceIn(0, 2)) }
+    var profileTab by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableIntStateOf(initialTab.coerceIn(0, 3)) }
     val scrollState = rememberScrollState()
     val scrollBehavior = pinnedExitUntilCollapsedScrollBehavior(
         canScroll = { scrollState.canScrollForward || scrollState.canScrollBackward }
@@ -224,7 +224,7 @@ fun PlatformSettingScreen(
                         )
                     }
                     Column(Modifier.padding(horizontal = 16.dp)) {
-                        SettingsTabs(listOf("Profile", "Tools", "Advanced"), profileTab) { profileTab = it }
+                        SettingsTabs(listOf("Profile", "Tools", "Advanced", "Statistics"), profileTab) { profileTab = it }
                     }
                     if (profileTab == 0) {
                         PreferenceSwitchWithContainer(
@@ -528,6 +528,15 @@ fun PlatformSettingScreen(
                                 )
                             }
                         )
+                        SettingItem(
+                            modifier = Modifier.heightIn(min = 64.dp),
+                            title = "Engineering budget: " + (features.engineeringProfiles[platformData.uid]?.mode?.name ?: "OFF").lowercase().replace('_', ' '),
+                            description = "Tap to cycle Off, Quick, Standard, Deep, Engineering Max and Adaptive. GitHub context and output targets respect existing limits. Provider thinking controls remain separate.",
+                            enabled = platformData.enabled,
+                            onItemClick = settingViewModel::cycleEngineeringMode,
+                            showLeadingIcon = false,
+                            showTrailingIcon = true
+                        )
                         if (!isLocalPlatform && !isFreePlatform) {
                             SettingItem(
                                 modifier = Modifier.heightIn(min = 64.dp),
@@ -732,6 +741,14 @@ fun PlatformSettingScreen(
                                 showLeadingIcon = false
                             )
                         }
+                    }
+                    if (profileTab == 3) {
+                        ProfileStatisticsTab(
+                            profileUid = platformData.uid,
+                            profileName = platformData.name,
+                            onQuickBenchmark = onNavigateToBenchmarks,
+                            onViewAllStatistics = onNavigateToUsage
+                        )
                     }
 
                     PlatformNameDialog(dialogState, platformData.name, settingViewModel)

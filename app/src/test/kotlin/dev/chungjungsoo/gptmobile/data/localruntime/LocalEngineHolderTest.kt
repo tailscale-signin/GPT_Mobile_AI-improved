@@ -303,4 +303,32 @@ class LocalEngineHolderTest {
         clock += 600_000
         assertTrue(holder.unloadIfIdle(600_000))
     }
+
+    @Test fun quarantineRetriesCleanupButNeverAdmitsAnUnconfirmedWorker() = runTest {
+        val native = FakeLocalRuntime()
+        var exitConfirmed = false
+        var cleanupCalls = 0
+        val delegate = object : LocalRuntime by native {
+            override suspend fun cleanupAfterRequest(origin: String): RuntimeCleanupReceipt {
+                cleanupCalls++
+                return RuntimeCleanupReceipt(
+                    origin,
+                    obligationsObserved = true,
+                    workerExitConfirmed = exitConfirmed,
+                    quarantined = !exitConfirmed,
+                    observedAtElapsedMs = 1000L
+                )
+            }
+        }
+        val holder = LocalEngineHolder(delegate) { 1000L }
+        holder.quarantineAfterUnconfirmedCleanup("worker did not acknowledge cancellation")
+        val spec = LocalEngineSpec("model.gguf", "cpu", 512)
+        val failure = runCatching { holder.loadEngine(spec) }.exceptionOrNull()
+        assertTrue(failure?.message.orEmpty().contains("NATIVE_SESSION_QUARANTINED"))
+        assertTrue(native.loadEngineCalls.isEmpty())
+        exitConfirmed = true
+        holder.loadEngine(spec)
+        assertEquals(2, cleanupCalls)
+        assertEquals(1, native.loadEngineCalls.size)
+    }
 }

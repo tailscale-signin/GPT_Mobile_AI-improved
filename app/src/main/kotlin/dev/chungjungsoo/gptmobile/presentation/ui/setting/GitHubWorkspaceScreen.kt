@@ -5,15 +5,20 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -49,17 +54,20 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.ClipEntry
 import androidx.compose.ui.platform.LocalClipboard
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
@@ -81,12 +89,27 @@ import kotlinx.serialization.json.jsonObject
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun GitHubWorkspaceScreen(connection: ToolConnection, onDismiss: () -> Unit, viewModel: GitHubWorkspaceViewModel = hiltViewModel()) {
+fun GitHubWorkspaceScreen(connection: ToolConnection, onDismiss: () -> Unit, viewModel: GitHubWorkspaceViewModel = hiltViewModel(), onOpenConversation: (Int) -> Unit = {}, programmer: GitHubProgrammerViewModel = hiltViewModel()) {
     androidx.compose.runtime.DisposableEffect(Unit) {
         val release = dev.chungjungsoo.gptmobile.data.diagnostics.FrameTimingRecorder.screen("GitHubWorkspace")
         onDispose { release() }
     }
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val programmerState by programmer.state.collectAsStateWithLifecycle()
+    LaunchedEffect(state.connection?.connectionUid, state.selection, state.headSha) { programmer.bind(state) }
+    val commandContext = programmerState.context?.takeIf { it.connectionUid == connection.connectionUid && it.owner == state.selection?.owner && it.repo == state.selection?.repo && it.ref == state.selection?.ref }
+    val command = key(commandContext?.connectionUid, commandContext?.repository, programmerState.profileUid) { rememberTextFieldState() }
+    val visibleProgrammer = if (commandContext != null) programmerState else programmerState.copy(context = null, chatId = null, messages = emptyList(), runs = emptyList(), events = emptyList(), approvals = emptyList(), pending = emptyList(), draftLoaded = false)
+    LaunchedEffect(command, programmerState.draftLoaded, commandContext) {
+        if (programmerState.draftLoaded && commandContext != null) {
+            if (command.text.isEmpty() && programmerState.draft.isNotEmpty()) command.edit { append(programmerState.draft) }
+            val context = commandContext
+            snapshotFlow { command.text.toString() }.collect { programmer.updateDraft(context, it) }
+        }
+    }
+    visibleProgrammer.approvals.firstOrNull()?.let { approval ->
+        dev.chungjungsoo.gptmobile.presentation.ui.chat.ToolApprovalDialog(approval, onDeny = { programmer.approve(approval.id, false) }, onAllowOnce = { programmer.approve(approval.id, true) }, onAlwaysAllowTool = { programmer.alwaysAllowTool(approval.id) }, onAlwaysAllowProvider = { programmer.alwaysAllowProvider(approval.id) }, onAllowInConversation = { programmer.allowInConversation(approval.id) })
+    }
     val buildsViewModel: GitHubBuildsViewModel = hiltViewModel()
     val buildsState by buildsViewModel.state.collectAsStateWithLifecycle()
     val uriHandler = LocalUriHandler.current
@@ -94,6 +117,8 @@ fun GitHubWorkspaceScreen(connection: ToolConnection, onDismiss: () -> Unit, vie
     val scope = rememberCoroutineScope()
     val workspaceScroll = rememberScrollState()
     var tab by rememberSaveable { mutableIntStateOf(3) }
+    var composerFocused by remember { mutableStateOf(false) }
+    val compactComposer = tab == 3 && composerFocused && WindowInsets.ime.getBottom(LocalDensity.current) > 0
     LaunchedEffect(tab, state.commitDetail) { workspaceScroll.scrollTo(0) }
     LaunchedEffect(tab, state.selection, state.headSha, state.busy, state.error) { viewModel.onSectionVisible(tab) }
     var repositoryMenu by remember { mutableStateOf(false) }
@@ -107,6 +132,12 @@ fun GitHubWorkspaceScreen(connection: ToolConnection, onDismiss: () -> Unit, vie
     var createPr by remember { mutableStateOf(false) }
     var confirmCommit by remember { mutableStateOf(false) }
     var confirmClose by remember { mutableStateOf(false) }
+    var engineeringReviewOpen by rememberSaveable { mutableStateOf(false) }
+    var requestedBranch by rememberSaveable(state.selection?.fullName, state.selection?.ref) { mutableStateOf<String?>(null) }
+    var requestedCreation by rememberSaveable(state.selection?.fullName, state.selection?.ref) { mutableStateOf<String?>(null) }
+    var requestedCreationHead by rememberSaveable { mutableStateOf("") }
+    var acknowledgedBranchEvents by rememberSaveable(connection.connectionUid) { mutableStateOf(emptyList<String>()) }
+    var branchEventId by rememberSaveable { mutableStateOf<String?>(null) }
     var editorDirty by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(connection.connectionUid) {
         if (viewModel.state.value.connection?.connectionUid != connection.connectionUid) viewModel.open(connection)
@@ -116,13 +147,37 @@ fun GitHubWorkspaceScreen(connection: ToolConnection, onDismiss: () -> Unit, vie
     }
     fun close() {
         if (state.busy) return
-        if (state.staged.isNotEmpty() || state.editorDrafts.isNotEmpty() || state.patchStage != null || editorDirty) {
-            confirmClose = true
-        } else {
-            viewModel.close { onDismiss() }
+        scope.launch {
+            if (!programmer.flushDraft(commandContext, command.text.toString())) return@launch
+            if (state.staged.isNotEmpty() || state.editorDrafts.isNotEmpty() || state.patchStage != null || editorDirty) {
+                confirmClose = true
+            } else {
+                viewModel.close { onDismiss() }
+            }
+        }
+    }
+    fun openChanges() {
+        if (state.staged.isNotEmpty() || state.patchStage != null) {
+            tab = 1
+        } else if (commandContext != null) {
+            engineeringReviewOpen = true
         }
     }
     val canNavigate = !state.busy && !editorDirty && state.staged.isEmpty() && state.editorDrafts.isEmpty() && state.patchStage == null
+    val branchProposal = remember(commandContext, visibleProgrammer.events, acknowledgedBranchEvents) {
+        commandContext?.let { context -> latestBranchProposal(visibleProgrammer.events, context, acknowledgedBranchEvents) }
+    }
+    LaunchedEffect(branchProposal?.eventId, canNavigate) {
+        if (canNavigate && requestedBranch == null && branchProposal != null) {
+            branchEventId = branchProposal.eventId
+            requestedBranch = branchProposal.branch
+        }
+    }
+    fun acknowledgeBranch() {
+        branchEventId?.let { acknowledgedBranchEvents = (acknowledgedBranchEvents + it).takeLast(100) }
+        branchEventId = null
+        requestedBranch = null
+    }
     Dialog(onDismissRequest = { close() }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Scaffold(
             modifier = Modifier.fillMaxSize().glassWindowBackdrop(),
@@ -131,8 +186,18 @@ fun GitHubWorkspaceScreen(connection: ToolConnection, onDismiss: () -> Unit, vie
                 TopAppBar(
                     title = {
                         Column {
-                            Text("GitHub Workspace")
-                            Text(if (state.login.isBlank()) connection.name else "@${state.login}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(state.selection?.fullName ?: "GitHub Workspace", style = if (compactComposer) MaterialTheme.typography.titleSmall else MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(
+                                if (compactComposer) {
+                                    programmerState.profiles.firstOrNull { it.uid == programmerState.profileUid }?.name.orEmpty().take(120)
+                                } else {
+                                    state.selection?.ref ?: connection.name
+                                },
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
                         }
                     },
                     navigationIcon = { IconButton(onClick = { close() }, enabled = !state.busy) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Close workspace") } },
@@ -149,71 +214,109 @@ fun GitHubWorkspaceScreen(connection: ToolConnection, onDismiss: () -> Unit, vie
                         }
                     }
                 )
+            },
+            bottomBar = {
+                if (tab == 3) {
+                    Column(Modifier.imePadding().navigationBarsPadding()) {
+                        dev.chungjungsoo.gptmobile.presentation.ui.chat.ChatInputBox(
+                            inputState = command,
+                            chatEnabled = commandContext != null && programmerState.draftLoaded && programmerState.profiles.any { it.uid == programmerState.profileUid },
+                            sendButtonEnabled = !programmerState.submitting,
+                            isRunning = programmerState.runs.any { it.status in setOf("RUNNING", "QUEUED") } || programmerState.pending.isNotEmpty(),
+                            onCancelButtonClick = programmer::stop,
+                            onComposerFocusChanged = { composerFocused = it },
+                            placeholder = if (commandContext == null) {
+                                "Choose a repository and main AI profile"
+                            } else if (!programmerState.draftLoaded) {
+                                "Restoring command…"
+                            } else {
+                                "Ask your AI programmer…"
+                            },
+                            attachmentsEnabled = false,
+                            onSendButtonClick = {
+                                val text = command.text.toString()
+                                val context = commandContext
+                                programmer.send(text) {
+                                    if (command.text.toString() == text) {
+                                        command.edit { replace(0, length, "") }
+                                        programmer.updateDraft(context, "")
+                                    }
+                                }
+                            }
+                        )
+                    }
+                }
             }
         ) { padding ->
             Column(Modifier.fillMaxSize().padding(padding)) {
                 if (state.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
-                Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
-                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            TextButton(onClick = { repositoryMenu = true }, enabled = canNavigate, modifier = Modifier.weight(1f)) {
-                                Icon(Icons.Rounded.FolderOpen, null, Modifier.padding(end = 8.dp))
-                                Text(state.selection?.fullName ?: "Choose a repository", maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            }
-                            if (state.selection != null) WorkspaceBadge(if (state.canWrite) "Can edit" else "Read only")
-                            DropdownMenu(expanded = repositoryMenu, onDismissRequest = { repositoryMenu = false }) {
-                                OutlinedTextField(repositoryQuery, { repositoryQuery = it }, label = { Text("Find repository") }, leadingIcon = { Icon(Icons.Rounded.Search, null) }, singleLine = true, modifier = Modifier.padding(12.dp))
-                                state.repositories.filter { it.text("full_name").contains(repositoryQuery, true) }.forEach { repo ->
-                                    DropdownMenuItem(text = { Text(repo.text("full_name")) }, leadingIcon = { Icon(Icons.Rounded.Folder, null) }, onClick = {
-                                        repositoryMenu = false
-                                        viewModel.selectRepository(repo["owner"]!!.jsonObject.text("login"), repo.text("name"))
-                                    })
-                                }
-                                if (state.moreRepositories) DropdownMenuItem(text = { Text("Load more repositories") }, enabled = !state.busy, onClick = viewModel::moreRepositories)
-                            }
-                        }
-                        if (state.selection != null) {
+                if (tab == 5) {
+                    Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
+                        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                TextButton(onClick = { branchMenu = true }, enabled = canNavigate) {
-                                    Icon(Icons.Rounded.AccountTree, null, Modifier.size(18.dp).padding(end = 4.dp))
-                                    Text(state.selection?.ref.orEmpty(), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                TextButton(onClick = { repositoryMenu = true }, enabled = canNavigate, modifier = Modifier.weight(1f)) {
+                                    Icon(Icons.Rounded.FolderOpen, null, Modifier.padding(end = 8.dp))
+                                    Text(state.selection?.fullName ?: "Choose a repository", maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 }
-                                DropdownMenu(expanded = branchMenu, onDismissRequest = { branchMenu = false }) {
-                                    state.branches.forEach { branch ->
-                                        DropdownMenuItem(text = { Text(branch) }, leadingIcon = { Icon(Icons.Rounded.AccountTree, null) }, onClick = {
-                                            branchMenu = false
-                                            viewModel.selectBranch(branch)
+                                if (state.selection != null) WorkspaceBadge(if (state.canWrite) "Can edit" else "Read only")
+                                DropdownMenu(expanded = repositoryMenu, onDismissRequest = { repositoryMenu = false }) {
+                                    OutlinedTextField(repositoryQuery, { repositoryQuery = it }, label = { Text("Find repository") }, leadingIcon = { Icon(Icons.Rounded.Search, null) }, singleLine = true, modifier = Modifier.padding(12.dp))
+                                    state.repositories.filter { it.text("full_name").contains(repositoryQuery, true) }.forEach { repo ->
+                                        DropdownMenuItem(text = { Text(repo.text("full_name")) }, leadingIcon = { Icon(Icons.Rounded.Folder, null) }, onClick = {
+                                            repositoryMenu = false
+                                            viewModel.selectRepository(repo["owner"]!!.jsonObject.text("login"), repo.text("name"))
                                         })
                                     }
-                                    if (state.moreBranches) DropdownMenuItem(text = { Text("Load more branches") }, enabled = !state.busy, onClick = viewModel::moreBranches)
+                                    if (state.moreRepositories) DropdownMenuItem(text = { Text("Load more repositories") }, enabled = !state.busy, onClick = viewModel::moreRepositories)
                                 }
-                                if (state.headSha.isNotBlank()) WorkspaceBadge(state.headSha.take(8))
                             }
-                            Row(Modifier.horizontalScroll(rememberScrollState())) {
-                                TextButton(onClick = viewModel::useInChats, enabled = !state.busy && state.headSha.isNotBlank()) {
-                                    Icon(Icons.Rounded.Check, null, Modifier.size(18.dp).padding(end = 4.dp))
-                                    Text("Use in chats")
+                            if (state.selection != null) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    TextButton(onClick = { branchMenu = true }, enabled = canNavigate) {
+                                        Icon(Icons.Rounded.AccountTree, null, Modifier.size(18.dp).padding(end = 4.dp))
+                                        Text(state.selection?.ref.orEmpty(), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    }
+                                    DropdownMenu(expanded = branchMenu, onDismissRequest = { branchMenu = false }) {
+                                        state.branches.forEach { branch ->
+                                            DropdownMenuItem(text = { Text(branch) }, leadingIcon = { Icon(Icons.Rounded.AccountTree, null) }, onClick = {
+                                                branchMenu = false
+                                                if (branch != state.selection?.ref) requestedBranch = branch
+                                            })
+                                        }
+                                        if (state.moreBranches) DropdownMenuItem(text = { Text("Load more branches") }, enabled = !state.busy, onClick = viewModel::moreBranches)
+                                    }
+                                    if (state.headSha.isNotBlank()) WorkspaceBadge(state.headSha.take(8))
                                 }
-                                TextButton(onClick = viewModel::clearChatContext, enabled = !state.busy) { Text("Clear chat context") }
+                                if (tab != 3) {
+                                    Row(Modifier.horizontalScroll(rememberScrollState())) {
+                                        TextButton(onClick = viewModel::useInChats, enabled = !state.busy && state.headSha.isNotBlank()) {
+                                            Icon(Icons.Rounded.Check, null, Modifier.size(18.dp).padding(end = 4.dp))
+                                            Text("Use in chats")
+                                        }
+                                        TextButton(onClick = viewModel::clearChatContext, enabled = !state.busy) { Text("Clear chat context") }
+                                    }
+                                }
                             }
+                            state.error?.let { error ->
+                                Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                                TextButton(onClick = viewModel::clearError) { Text("Dismiss") }
+                            }
+                            state.notice?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.heightIn(max = 72.dp).verticalScroll(rememberScrollState())) }
                         }
-                        state.error?.let { error ->
-                            Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-                            TextButton(onClick = viewModel::clearError) { Text("Dismiss") }
-                        }
-                        state.notice?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.heightIn(max = 72.dp).verticalScroll(rememberScrollState())) }
                     }
                 }
-                val workspaceTabs = listOf(3 to "Home", 4 to stringResource(R.string.github_builds_tab), 0 to "Code", 1 to "Changes", 2 to "PRs")
-                PrimaryTabRow(selectedTabIndex = workspaceTabs.indexOfFirst { it.first == tab }.coerceAtLeast(0)) {
-                    workspaceTabs.forEach { (id, label) ->
-                        Tab(selected = tab == id, enabled = !editorDirty || id == 0, onClick = {
-                            tab = id
-                        }, text = { Text(if (id == 1 && state.staged.isNotEmpty()) "$label (${state.staged.size})" else label, maxLines = 1) })
+                val workspaceTabs = listOf(3 to "Chat", 5 to "Settings")
+                if (!compactComposer) {
+                    PrimaryTabRow(selectedTabIndex = if (tab == 3) 0 else 1) {
+                        workspaceTabs.forEach { (id, label) ->
+                            Tab(selected = tab == id, enabled = !editorDirty, onClick = {
+                                tab = id
+                            }, text = { Text(if (id == 1 && state.staged.isNotEmpty()) "$label (${state.staged.size})" else label, maxLines = 1) })
+                        }
                     }
                 }
-                Column(Modifier.weight(1f).then(if (tab == 4) Modifier else Modifier.verticalScroll(workspaceScroll)).padding(if (tab == 4) 0.dp else 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    if (state.selection == null) {
+                Column(Modifier.weight(1f).then(if (tab in setOf(3, 4)) Modifier else Modifier.verticalScroll(workspaceScroll)).padding(if (tab == 4) 0.dp else 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    if (state.selection == null && tab !in setOf(3, 5)) {
                         WorkspaceEmpty(Icons.Rounded.FolderOpen, "Your code, within reach", "Choose a repository above to browse files, prepare changes and review pull requests.")
                     } else {
                         when (tab) {
@@ -222,21 +325,41 @@ fun GitHubWorkspaceScreen(connection: ToolConnection, onDismiss: () -> Unit, vie
                                 GitHubBuildsPanel(connection.connectionUid, selection.owner, selection.repo, selection.ref, Modifier.fillMaxSize(), buildsViewModel)
                             }
                             3 -> {
-                                GitHubRepositoryInsights(
+                                GitHubProgrammerHome(
                                     state,
-                                    onSearch = { query, mode -> viewModel.searchRevision(query, mode) },
-                                    onContinueSearch = { viewModel.searchRevision("", continuation = true) },
-                                    onExplainCi = viewModel::explainFailedCi,
-                                    onMarkReviewed = viewModel::markReviewed,
-                                    onChanges = viewModel::changesSinceReview,
-                                    onOpenFile = { path ->
-                                        tab = 0
-                                        viewModel.readFile(path)
+                                    visibleProgrammer,
+                                    onCommand = { value ->
+                                        command.edit {
+                                            if (length != 0) append("\n\n")
+                                            append(value)
+                                        }
+                                    },
+                                    onOpenChanges = { openChanges() },
+                                    onOpenChecks = { tab = 4 },
+                                    onOpenSettings = { tab = 5 },
+                                    onLoadEarlier = programmer::loadEarlierMessages,
+                                    onDismissError = {
+                                        programmer.dismissError()
+                                        viewModel.clearError()
                                     }
                                 )
-                                GitHubActivityDashboard(state, viewModel, onOpenPulls = { tab = 2 }, onOpenUrl = uriHandler::openUri)
+                            }
+                            5 -> {
+                                GitHubProgrammerSettings(state, visibleProgrammer, programmer::selectProfile, programmer::setPrepareIndex, viewModel::prepareCodeIndex)
+                                if (state.selection != null) {
+                                    OutlinedTextField(branchName, { branchName = it }, label = { Text("New working branch") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                                    Button(onClick = {
+                                        requestedCreationHead = state.headSha
+                                        requestedCreation = branchName.trim()
+                                    }, enabled = state.canWrite && canNavigate && branchName.isNotBlank()) { Text("Create working branch") }
+                                    TextButton(onClick = { tab = 4 }) { Text("Checks & builds") }
+                                    TextButton(onClick = { tab = 2 }) { Text("Pull requests") }
+                                    TextButton(onClick = { tab = 0 }) { Text("Browse repository files") }
+                                    TextButton(onClick = { openChanges() }) { Text("Review proposed changes") }
+                                }
                             }
                             0 -> {
+                                GitHubRepositoryInsights(state, onSearch = { query, mode -> viewModel.searchRevision(query, mode) }, onContinueSearch = { viewModel.searchRevision("", continuation = true) }, onExplainCi = viewModel::explainFailedCi, onMarkReviewed = viewModel::markReviewed, onChanges = viewModel::changesSinceReview, onOpenFile = viewModel::readFile)
                                 Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
                                     TextButton(onClick = { viewModel.browse("") }, enabled = !state.busy && !editorDirty) {
                                         Icon(Icons.Rounded.FolderOpen, null, Modifier.size(18.dp))
@@ -305,7 +428,7 @@ fun GitHubWorkspaceScreen(connection: ToolConnection, onDismiss: () -> Unit, vie
                                                 editorDirty = false
                                             }, enabled = !state.busy && editorDirty) { Text("Reset editor") }
                                         }
-                                        if (state.selection?.ref == state.defaultBranch) Text("Create a working branch in Changes to start editing.", style = MaterialTheme.typography.bodySmall)
+                                        if (state.selection?.ref == state.defaultBranch) Text("Create a working branch in Settings to start editing.", style = MaterialTheme.typography.bodySmall)
                                         if (editorDirty) Text("Stage or reset your edits before leaving this file.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
                                     }
                                     if (state.canWrite && state.selection?.ref != state.defaultBranch) {
@@ -322,9 +445,12 @@ fun GitHubWorkspaceScreen(connection: ToolConnection, onDismiss: () -> Unit, vie
                                 Text("Prepare your changes", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
                                 if (state.selection?.ref == state.defaultBranch) {
                                     OutlinedTextField(branchName, { branchName = it }, label = { Text("New working branch") }, leadingIcon = { Icon(Icons.Rounded.AccountTree, null) }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                                    Button(onClick = { viewModel.createBranch(branchName) }, enabled = state.canWrite && canNavigate && branchName.isNotBlank()) { Text("Create branch") }
+                                    Button(onClick = {
+                                        requestedCreationHead = state.headSha
+                                        requestedCreation = branchName.trim()
+                                    }, enabled = state.canWrite && canNavigate && branchName.isNotBlank()) { Text("Create branch") }
                                 }
-                                if (state.staged.isEmpty() && state.patchStage == null) WorkspaceEmpty(Icons.Rounded.Commit, "No staged changes", "Edit a file in Code, then stage it here for review.")
+                                if (state.staged.isEmpty() && state.patchStage == null) WorkspaceEmpty(Icons.Rounded.Commit, "No staged changes", "Browse files from Settings, then stage your changes for review.")
                                 state.staged.forEach { file ->
                                     Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp)) {
                                         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -387,6 +513,43 @@ fun GitHubWorkspaceScreen(connection: ToolConnection, onDismiss: () -> Unit, vie
                     }
                 }
             }
+        }
+        if (engineeringReviewOpen && commandContext != null) {
+            Dialog(onDismissRequest = { engineeringReviewOpen = false }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+                Scaffold(topBar = { TopAppBar(title = { Text("Review changes") }, navigationIcon = { IconButton(onClick = { engineeringReviewOpen = false }) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back to AI programmer") } }) }) { inset ->
+                    Column(Modifier.fillMaxSize().padding(inset)) {
+                        dev.chungjungsoo.gptmobile.presentation.ui.workspace.GitHubReviewPanel(programmerContext = commandContext)
+                    }
+                }
+            }
+        }
+        requestedBranch?.let { branch ->
+            AlertDialog(
+                onDismissRequest = { acknowledgeBranch() },
+                title = { Text("Switch working branch?") },
+                text = { Text("${state.selection?.fullName}\n${state.selection?.ref} → $branch\nNew commands will use this branch. Running commands keep their captured destination.") },
+                confirmButton = {
+                    TextButton(enabled = canNavigate, onClick = {
+                        acknowledgeBranch()
+                        viewModel.selectBranch(branch, programmerState.chatId)
+                    }) { Text("Switch branch") }
+                },
+                dismissButton = { TextButton(onClick = { acknowledgeBranch() }) { Text("Cancel") } }
+            )
+        }
+        requestedCreation?.let { branch ->
+            AlertDialog(
+                onDismissRequest = { requestedCreation = null },
+                title = { Text("Create and switch branch?") },
+                text = { Text("Create $branch in ${state.selection?.fullName} from ${state.selection?.ref} at ${requestedCreationHead.take(8)} and use it for new commands.") },
+                confirmButton = {
+                    TextButton(enabled = canNavigate, onClick = {
+                        requestedCreation = null
+                        viewModel.createBranch(branch, requestedCreationHead, programmerState.chatId)
+                    }) { Text("Create branch") }
+                },
+                dismissButton = { TextButton(onClick = { requestedCreation = null }) { Text("Cancel") } }
+            )
         }
         if (confirmCommit) {
             AlertDialog(

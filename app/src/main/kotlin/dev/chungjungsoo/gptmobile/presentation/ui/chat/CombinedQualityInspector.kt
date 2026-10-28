@@ -61,7 +61,7 @@ internal fun CombinedQualityInspector(report: CombinedQualityReport, answer: Str
             Text("Uncertain source links are not evidence that material was omitted.", style = MaterialTheme.typography.labelSmall)
             Text("Revision: ${report.revisionId} · word counter: ${report.wordCounterVersion}", style = MaterialTheme.typography.labelSmall)
             Text("${report.wordCount} words · ${report.repairRounds} repair attempts · ${report.repairAccepted} accepted · ${report.repairRejected} rejected · ${report.duplicatePassagesRemoved} duplicates removed", style = MaterialTheme.typography.labelSmall)
-            Text("${report.lexicalMissing}/${report.sourceUnits} unresolved lexical hints · semantic/factual verification: not certified", style = MaterialTheme.typography.labelSmall)
+            Text(if (report.displayedCharacters == 0 && report.wordCount == 0) "NO_FINAL_OUTPUT · coverage has not been evaluated" else "${report.lexicalMissing}/${report.sourceUnits} unresolved lexical hints · semantic/factual verification: not certified", style = MaterialTheme.typography.labelSmall)
             report.turnContext?.let { Text("${it.date} · ${it.timezone} · ${it.authority}", style = MaterialTheme.typography.labelSmall) }
             report.issues.forEach { Text(it, color = MaterialTheme.colorScheme.onTertiaryContainer, style = MaterialTheme.typography.labelSmall) }
             TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "Hide contribution records" else "Inspect contribution records") }

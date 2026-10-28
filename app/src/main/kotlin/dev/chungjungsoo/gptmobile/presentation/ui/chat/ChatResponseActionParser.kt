@@ -125,6 +125,16 @@ object ChatResponseActionParser {
                 )
     }
 
+    /** A selected suggestion is a request for an answer, never another offer to the user. */
+    fun answerRequest(raw: String): String? {
+        val prompt = raw.trim().takeIf(String::isNotBlank) ?: return null
+        val offer = Regex("""(?i)^(?:would you like|do you want)\s+(?:me\s+to\s+|to\s+)?(.+?)\?$|^(?:shall i|should i|can i)\s+(.+?)\?$""").find(prompt)
+        val action = offer?.groupValues?.drop(1)?.firstOrNull(String::isNotBlank)
+        if (action != null) return "Please ${action.replaceFirstChar { it.lowercase(Locale.ROOT) }}."
+        if (prompt.startsWith("Please address each of these:")) return prompt.replaceFirst("Please address each of these:", "Please answer each of these directly:")
+        return if (prompt.endsWith('?')) "Please answer this follow-up directly: $prompt" else prompt
+    }
+
     /** Short labels are presentation only; tapping a chip sends its complete question. */
     fun extractDynamicActions(text: String, isLoading: Boolean): List<DynamicActionOption> {
         if (isLoading || text.isBlank()) return emptyList()
@@ -208,12 +218,15 @@ object ChatResponseActionParser {
         val topic = heading?.groupValues?.get(1)?.trim()?.trimEnd(':')
             ?.takeUnless { Regex("""(?i)^option\s+[A-Za-z0-9]+$""").matches(it) }
         val body = (heading?.groupValues?.get(2) ?: raw).trim()
-        val cleaned = sanitizeOptionText(body)
+        val directOffer = Regex("""(?i)^(?:would you like|do you want)\s+(?:me\s+to\s+|to\s+)?(.+?)\?$|^(?:shall i|should i|can i)\s+(.+?)\?$""").find(body)
+        val offeredAction = directOffer?.groupValues?.drop(1)?.firstOrNull(String::isNotBlank)
+        val cleaned = sanitizeOptionText(offeredAction ?: body)
         if (cleaned.isBlank() || (requireQuestion && !body.endsWith("?"))) return null
         if (Regex("""(?i)^(?:continue|proceed|more(?: details| information)?|tell me more|learn more|examples|explain further|keep going)$""").matches(cleaned)) return null
         // Do not turn the assistant's questions about unknown user details into invented answers.
         if (Regex("""(?i)^(?:what|which|where|when|how)\b.*\b(?:are you|do you|is your|your (?:name|budget|location|version))\b""").containsMatchIn(cleaned)) return null
-        val prompt = if (body.endsWith("?")) cleaned + "?" else cleaned
+        if (Regex("""(?i)^(?:any specific|what would you like|which .*would you like|is there anything)\b""").containsMatchIn(cleaned)) return null
+        val prompt = if (offeredAction == null && body.endsWith("?")) cleaned + "?" else cleaned
         return DynamicActionOption(
             label = generateShortLabel(topic ?: cleaned, null),
             actionPrompt = prompt,

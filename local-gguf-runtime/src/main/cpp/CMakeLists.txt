@@ -62,10 +62,13 @@ if(ANDROID AND GGUF_VULKAN)
     # Stage just these headers: adding /usr/include to an Android target would
     # also expose host libc headers and break NDK cross-compilation.
     find_path(GGUF_HOST_VULKAN_INCLUDE_DIR vulkan/vulkan.hpp
-        HINTS "$ENV{VULKAN_SDK}/include" NO_CMAKE_FIND_ROOT_PATH REQUIRED)
+        HINTS "$ENV{VULKAN_SDK}/include" NO_CMAKE_FIND_ROOT_PATH)
     find_path(GGUF_HOST_SPIRV_INCLUDE_DIR spirv/unified1/spirv.hpp
-        HINTS "$ENV{VULKAN_SDK}/include" NO_CMAKE_FIND_ROOT_PATH REQUIRED)
-    find_package(SPIRV-Headers CONFIG REQUIRED NO_CMAKE_FIND_ROOT_PATH)
+        HINTS "$ENV{VULKAN_SDK}/include" NO_CMAKE_FIND_ROOT_PATH)
+    find_package(SPIRV-Headers CONFIG QUIET NO_CMAKE_FIND_ROOT_PATH)
+    if(NOT GGUF_HOST_VULKAN_INCLUDE_DIR OR NOT GGUF_HOST_SPIRV_INCLUDE_DIR OR NOT SPIRV-Headers_FOUND)
+        message(FATAL_ERROR "GGUF_VULKAN=ON requires host Vulkan-Hpp and SPIRV-Headers SDK files. Install the host SDK or configure -DGGUF_VULKAN=OFF.")
+    endif()
     set(GGUF_VULKAN_HEADERS "${CMAKE_CURRENT_BINARY_DIR}/vulkan-headers/include")
     file(COPY "${GGUF_HOST_VULKAN_INCLUDE_DIR}/vulkan"
               "${GGUF_HOST_SPIRV_INCLUDE_DIR}/spirv" DESTINATION "${GGUF_VULKAN_HEADERS}")
@@ -134,6 +137,10 @@ if(NOT ANDROID)
     find_package(JNI REQUIRED)
     target_include_directories(gptmobile_gguf PRIVATE ${JNI_INCLUDE_DIRS})
     enable_testing()
+    add_executable(gguf_vulkan_policy_test ../../testHost/gguf_vulkan_policy_test.cpp)
+    target_include_directories(gguf_vulkan_policy_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    target_compile_options(gguf_vulkan_policy_test PRIVATE -UNDEBUG)
+    add_test(NAME gguf_vulkan_policy COMMAND gguf_vulkan_policy_test)
     add_executable(gguf_chat_template_test ../../testHost/gguf_chat_template_test.cpp)
     target_link_libraries(gguf_chat_template_test PRIVATE gguf_chat_template)
     add_test(NAME gguf_chat_template COMMAND gguf_chat_template_test ${llama_SOURCE_DIR}/models/templates)

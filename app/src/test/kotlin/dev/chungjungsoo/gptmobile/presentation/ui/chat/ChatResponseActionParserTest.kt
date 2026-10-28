@@ -179,4 +179,17 @@ class ChatResponseActionParserTest {
         val loadingActions = ChatResponseActionParser.extractDynamicActions("1. Option A\n2. Option B", isLoading = true)
         assertTrue(loadingActions.isEmpty())
     }
+
+    @Test fun selectedQuestionRequestsAnAnswerInsteadOfRepeatingAnAssistantOffer() {
+        assertEquals("Please answer this follow-up directly: How does a Room transaction work?", ChatResponseActionParser.answerRequest("How does a Room transaction work?"))
+        assertEquals("Please explain Room transactions.", ChatResponseActionParser.answerRequest("Would you like me to explain Room transactions?"))
+        assertEquals("No, please don't delete the backup.", ChatResponseActionParser.answerRequest("No, please don't delete the backup."))
+    }
+
+    @Test fun structuredOfferBecomesOneExecutableSuggestionAndUnknownPreferencesAreExcluded() {
+        val actions = ChatResponseActionParser.extractDynamicActions("Next questions:\n- **Transactions:** Would you like me to explain Room transaction isolation?", false)
+        assertEquals(1, actions.size)
+        assertEquals("explain Room transaction isolation", actions.single().actionPrompt)
+        assertTrue(ChatResponseActionParser.extractDynamicActions("Next questions:\n- **Period:** Any specific period or event in Portugal's history you'd like to know more about?", false).isEmpty())
+    }
 }

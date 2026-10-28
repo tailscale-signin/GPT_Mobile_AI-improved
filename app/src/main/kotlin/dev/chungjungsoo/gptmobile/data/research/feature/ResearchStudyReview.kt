@@ -103,3 +103,17 @@ internal object ResearchReviewScoreCalculator {
     }
     fun summaryHash(artifact: StudyReviewArtifact) = researchHash(artifact.conclusion + "\n" + artifact.limitation)
 }
+
+/** A deterministic coverage receipt, never an invented null finding or a scientific score. */
+internal fun limitedEvidenceAssessment(passageIds: List<String>, coverage: ArticleCoverage): StudyReviewArtifact {
+    require(passageIds.isNotEmpty())
+    val limitation = if (coverage == ArticleCoverage.ABSTRACT_ONLY) "Only the abstract was available. Methods and results were not fully assessed." else "No supported outcome/effect pair was extracted from the inspected material. This does not establish absence of benefit or harm."
+    return StudyReviewArtifact(
+        conclusion = "Source passages were inspected, but the available extraction does not establish an empirical outcome.",
+        limitation = limitation,
+        outcomeKey = "evidence_coverage_only",
+        passageIds = passageIds.distinct().take(12),
+        reliability = ResearchReviewScoreCalculator.reliabilityDomains.map { ReviewDomain(it, null, "Insufficient outcome evidence; unscored", emptyList()) },
+        accuracy = ResearchReviewScoreCalculator.accuracyDomains.map { ReviewDomain(it, null, "No empirical conclusion assessed; unscored", emptyList()) }
+    )
+}

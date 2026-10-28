@@ -1,10 +1,10 @@
 name: Gateway stability
 on:
   pull_request:
-    paths: ['gateway/**', '.github/workflows/gateway-stability.yml']
+    paths: ['gateway/**', 'authentication/**', '.github/workflows/gateway-stability.yml']
   push:
     branches: ['main', 'feat/gateway-v14-1-stability-2026-10-10', 'feat/combined-marketplace-gateway-14-2-2026-10-10']
-    paths: ['gateway/**', '.github/workflows/gateway-stability.yml']
+    paths: ['gateway/**', 'authentication/**', '.github/workflows/gateway-stability.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -28,3 +28,4 @@ jobs:
       - run: python -m pip install --require-hashes -r gateway/requirements.txt
       - run: python gateway/gateway.py validate-config
       - run: python gateway/check_gateway.py
+      - run: python -m unittest authentication.test_github_broker authentication.test_app

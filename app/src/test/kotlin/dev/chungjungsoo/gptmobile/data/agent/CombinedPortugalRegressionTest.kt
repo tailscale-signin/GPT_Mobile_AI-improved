@@ -48,7 +48,7 @@ class CombinedPortugalRegressionTest {
         assertFalse(assessed.receipts.any { it.evidenceIds.isNotEmpty() })
     }
 
-    @Test fun completeReferencePassesLocalDeliveryWithoutAnotherGeneration() = kotlinx.coroutines.test.runTest {
+    @Test fun previouslyCompleteReferenceRetainsDraftButCannotPassWithUnresolvedClaims() = kotlinx.coroutines.test.runTest {
         // A deterministic candidate assembled from retained source text, not a claim that
         // a live provider has passed this device/model calibration or that its facts are verified.
         val request = fixture.getValue("request").jsonPrimitive.content
@@ -67,13 +67,16 @@ class CombinedPortugalRegressionTest {
         val events = session.streamRound(emptyList(), emptyList()).toList()
         val report = events.combinedReport()
         assertEquals(1, generations)
-        assertTrue("${report.wordCount} words: ${report.issues}", report.complete)
+        assertFalse("A length-compliant draft cannot claim complete coverage: ${report.issues}", report.complete)
+        assertFalse(report.semanticCoverageVerified)
+        assertTrue(report.issues.any { it.startsWith("SEMANTIC_CONTRIBUTION_UNRESOLVED:") })
+        assertTrue(events.filterIsInstance<ProviderEvent.Failed>().any { it.errorCode == "COMBINED_REQUIREMENTS_UNMET" })
         assertTrue(report.wordCount in 450..550)
         assertEquals("MET", report.lengthCompliance)
-        assertEquals("LOCAL_CHECKS_PASSED", report.topicCoverage)
+        assertEquals("UNRESOLVED", report.topicCoverage)
         assertFalse(report.factualAccuracyVerified)
         assertTrue("builtin-free-bridgenode" in report.representedProfileUids)
-        assertTrue("builtin-free-vireonix" in report.representedProfileUids)
+        assertTrue(combinedWordingSpans(answer, sources).any { "builtin-free-vireonix" in it.profileUids })
     }
 
     @Test fun missingHistoricalScopeDoesNotClaimAFactualContradiction() = kotlinx.coroutines.test.runTest {

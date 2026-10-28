@@ -797,8 +797,16 @@ internal class AndroidResearchWorkflow(
             // A reader limitation is not denied access. Only use already-authorized public readers.
             val denied = result?.blockedPage() == true || result?.let(::isAuthFailure) == true || status in setOf("blocked", "permission_denied")
             val accessible = source.accessUrl.takeIf { it.startsWith("https://") && researchDomainAllowed(it, included, excluded) }
-            if (!readable && !denied && accessible != null) {
-                val fallback = tools.firstOrNull { it.realToolName == "read_url" && it.modelToolName != reader.modelToolName && (it.connectionUid == null || options.allowRemoteReaders) && (!accessible.substringBefore('?').endsWith(".pdf", true) || it.connectionUid != null) }
+            if (!readable && accessible != null) {
+                // A provider's 403/auth failure must not be retried through another remote
+                // credential. An already-authorized public reader may still recover a page
+                // access denial without expanding the caller's permission scope.
+                val fallback = tools.firstOrNull {
+                    it.realToolName == "read_url" &&
+                        it.modelToolName != reader.modelToolName &&
+                        (it.connectionUid == null || !denied && options.allowRemoteReaders) &&
+                        (!accessible.substringBefore('?').endsWith(".pdf", true) || it.connectionUid != null)
+                }
                 if (fallback != null && charge(ResearchBudget.Phase.DISCOVERY) && collecting()) {
                     val fetched = operation { invoke(fallback, "$callId:paper-reader:${source.id}", buildJsonObject { put("url", accessible) }) }
                     if (fetched?.isError == false && fetched.pageEvidenceText().length >= 80) {

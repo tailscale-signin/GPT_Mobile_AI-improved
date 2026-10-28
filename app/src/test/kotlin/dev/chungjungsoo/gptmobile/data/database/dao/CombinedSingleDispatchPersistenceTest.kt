@@ -16,6 +16,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -58,9 +59,11 @@ class CombinedSingleDispatchPersistenceTest {
             assertEquals("Removed answer.", dao.recoveryMessage(4)?.content)
             val finalRun = results.first().run
             val local = requireNotNull(dao.publishLocalCombinedAssembly(finalRun.runId, finalRun.ownershipFence))
-            assertTrue(local.content.contains(primary.content))
-            assertEquals("COMPLETE", local.timeline.mapNotNull { it.combinedQuality }.single().sourceAccountingStatus)
-            assertEquals("COMPLETED", dao.recoveryRun(finalRun.runId)?.status)
+            assertTrue(local.content.contains("unified answer could not be completed"))
+            assertFalse(local.content.contains(primary.content))
+            assertEquals("SYNTHESIS_UNAVAILABLE", local.timeline.mapNotNull { it.combinedQuality }.single().status)
+            assertFalse(local.timeline.mapNotNull { it.combinedQuality }.single().complete)
+            assertEquals("FAILED", dao.recoveryRun(finalRun.runId)?.status)
             assertEquals(null, dao.recoveryRun(finalRun.runId)?.startedAt)
             assertEquals(null, dao.publishLocalCombinedAssembly(finalRun.runId, finalRun.ownershipFence))
             assertEquals("Primary answer.", dao.recoveryMessage(3)?.content)

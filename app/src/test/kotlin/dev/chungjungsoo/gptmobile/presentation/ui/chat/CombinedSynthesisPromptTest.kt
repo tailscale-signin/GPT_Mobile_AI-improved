@@ -29,6 +29,10 @@ class CombinedSynthesisPromptTest {
         assertEquals("USER_SCOPE_AND_CONSTRAINTS_FIRST", prompt.getValue("instruction_priority").jsonPrimitive.content)
         assertEquals("PASSAGES_V2", prompt.getValue("delivery_protocol").jsonPrimitive.content)
         assertFalse(COMBINED_SYNTHESIS_INSTRUCTION.contains("REQUEST_LENGTH"))
+        assertTrue(COMBINED_SYNTHESIS_INSTRUCTION.contains("organized by subject, not by contributor or response order"))
+        assertTrue(COMBINED_SYNTHESIS_INSTRUCTION.contains("keep provenance in passage metadata"))
+        assertTrue(COMBINED_SYNTHESIS_INSTRUCTION.contains("Use factual material only from supplied contribution bodies or explicitly authorized evidence_ledger records"))
+        assertTrue(COMBINED_SYNTHESIS_INSTRUCTION.contains("disclose gaps instead of adding model background knowledge"))
     }
 
     @Test fun everyOriginalSurvivesJsonFramingIncludingLongEndingsAndConflictingDates() {

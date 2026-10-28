@@ -83,6 +83,7 @@ class ToolApprovalManager @Inject constructor(private val database: ChatDatabase
     suspend fun allowInConversation(id: String) {
         val request = dao.observe(id).first() ?: return
         if (request.state != "PENDING") return
+        if (request.requiresExactConfirmation) return
         val connection = requestConnections[id]?.let { connections.getConnection(it) } ?: return
         val scope = requestScopes[id] ?: return
         requireNotNull(trust).allowScoped(connection, request.tool, scope)
@@ -91,6 +92,7 @@ class ToolApprovalManager @Inject constructor(private val database: ChatDatabase
     suspend fun alwaysAllowProvider(id: String) {
         val request = dao.observe(id).first() ?: return
         if (request.state != "PENDING") return
+        if (request.requiresExactConfirmation) return
         val connection = requestConnections[id]?.let { connections.getConnection(it) } ?: return
         requireNotNull(trust) { "Persistent tool permissions are unavailable." }.allowProvider(connection)
         approveWaiting(connection.connectionUid, id)
@@ -98,6 +100,7 @@ class ToolApprovalManager @Inject constructor(private val database: ChatDatabase
     suspend fun alwaysAllow(id: String) {
         val request = dao.observe(id).first() ?: return
         if (request.state != "PENDING") return
+        if (request.requiresExactConfirmation) return
         val connection = requestConnections[id]?.let { connections.getConnection(it) } ?: return
         requireNotNull(trust) { "Persistent tool permissions are unavailable." }.allow(connection, request.tool)
         approveWaiting(connection.connectionUid, id, request.tool)
@@ -107,14 +110,27 @@ class ToolApprovalManager @Inject constructor(private val database: ChatDatabase
         submissionMutex.withLock {
             dao.decide(approvedId, "APPROVED")
             dao.pending().first().filter { request ->
-                requestConnections[request.id] == connectionUid && (tool == null || request.tool == tool)
+                !request.requiresExactConfirmation && requestConnections[request.id] == connectionUid && (tool == null || request.tool == tool)
             }.forEach { request ->
-                val previous = dao.previousMatchingAction(request.runId, request.connection, request.tool, request.argumentHash, request.id)
+                val previous = if (request.isReplayableGitHubRead) null else dao.previousMatchingAction(request.runId, request.connection, request.tool, request.argumentHash, request.id)
                 dao.decide(request.id, if (previous == null) "APPROVED" else "DENIED")
             }
         }
     }
-    suspend fun finish(runId: String, callId: String, success: Boolean) = dao.finish("$runId:$callId", if (success) "COMPLETED" else "OUTCOME_UNKNOWN")
+    suspend fun finish(runId: String, callId: String, success: Boolean) {
+        val id = "$runId:$callId"
+        val replayableRead = dao.observe(id).first()?.isReplayableGitHubRead == true
+        dao.finish(
+            id,
+            if (success) {
+                "COMPLETED"
+            } else if (replayableRead) {
+                "READ_FAILED"
+            } else {
+                "OUTCOME_UNKNOWN"
+            }
+        )
+    }
     suspend fun authorizeOrThrow(connectionId: String, runId: String, callId: String, tool: String, arguments: JsonObject, schema: JsonObject? = null): Boolean {
         if (dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(tool) != null && connections.getConnection(connectionId)?.type == "GITHUB") {
             val native = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.nativeArguments(tool, arguments) ?: return false
@@ -124,7 +140,10 @@ class ToolApprovalManager @Inject constructor(private val database: ChatDatabase
         val connection = connections.getConnection(connectionId)
         val current = dao.observe("$runId:$callId").first()
         val duplicate = current?.state in setOf("EXECUTING", "COMPLETED", "OUTCOME_UNKNOWN", "INTERRUPTED") ||
-            connection?.let { dao.previousMatchingAction(runId, it.name, tool, ScopedToolGrant.canonicalHash(arguments), "$runId:$callId") } != null
+            (
+                !(connection?.type == "GITHUB" && GitHubAuthorizationBoundary.isReplayableRead(tool, arguments)) &&
+                    connection?.let { dao.previousMatchingAction(runId, it.name, tool, ScopedToolGrant.canonicalHash(arguments), "$runId:$callId") } != null
+                )
         if (duplicate) throw ToolAuthorizationRejected("DUPLICATE_ACTION", "A matching action is already pending, dispatched or has an uncertain outcome. Inspect its saved receipt before repeating it; changing permission will not repeat it.")
         throw ToolAuthorizationRejected("AUTH_REQUIRED", "Tool permission was denied or is no longer available. Review this tool's source and destination grants before retrying.")
     }
@@ -149,37 +168,49 @@ class ToolApprovalManager @Inject constructor(private val database: ChatDatabase
             }
         }
         val connection = connections.getConnection(connectionId) ?: return false
-        if (connection.type !in setOf("MCP", "AMAZON_SERPAPI") && tool != "github") return true
+        val github = GitHubAuthorizationBoundary.applies(connection)
+        if (github && GitHubAuthorizationBoundary.requiresElevatedAuthorization(tool, arguments)) {
+            throw ToolAuthorizationRejected("ELEVATED_AUTH_REQUIRED", "This GitHub administrative operation requires a separate elevated authorization and explicit confirmation. Ordinary repository permissions and remembered tool grants cannot authorize it. No request was sent.")
+        }
+        if (connection.type !in setOf("MCP", "AMAZON_SERPAPI") && tool != "github") return connection.type != "GITHUB"
         val policy = runCatching { ToolPolicy.valueOf(connection.toolPolicy) }.getOrDefault(ToolPolicy.ASK_WRITES)
         val githubRead = tool != "github" ||
-            arguments["action"]?.let {
-                (it as? kotlinx.serialization.json.JsonPrimitive)?.content in setOf(
-                    "read_saved_result", "stage_patch", "search_repositories", "search_issues", "search_code", "get_file_contents", "get_issue", "get_pull_request", "list_pull_requests", "list_workflow_runs", "list_workflows", "get_workflow_run", "list_workflow_jobs", "list_workflow_artifacts", "get_job_logs"
-                ) + dev.chungjungsoo.gptmobile.data.github.GitHubWorkspaceClient.readActions
-            } == true
+            GitHubAuthorizationBoundary.isReplayableRead(tool, arguments) ||
+            (arguments["action"] as? kotlinx.serialization.json.JsonPrimitive)?.content == "stage_patch"
+        val replayableRead = connection.type == "GITHUB" && GitHubAuthorizationBoundary.isReplayableRead(tool, arguments)
+        val branchSelection = github && GitHubAuthorizationBoundary.isBranchSelection(tool, arguments)
         val readOnly = githubRead && tool in connection.approvedReadTools.lines().map(String::trim)
         if (policy == ToolPolicy.READ_ONLY && !readOnly) return false
-        if (readOnly) return true
+        if (readOnly && !branchSelection) return true
+        val exactApproval = github && (branchSelection || !(if (tool == "github") githubRead else readOnly))
         val scope = schema?.let { definition -> database.agentRunDao().getById(runId)?.let { ScopedToolGrant.from(it.chatId, definition, arguments) } }
         val id = "$runId:$callId"
         scope?.let { requestScopes[id] = it }
         requestConnections[id] = connectionId
         val hash = ScopedToolGrant.canonicalHash(arguments)
         val inserted = submissionMutex.withLock {
-            val previous = dao.previousMatchingAction(runId, connection.name, tool, hash)
-            val trusted = policy == ToolPolicy.TRUSTED || trust?.allows(connection, tool) == true
+            val previous = if (replayableRead) null else dao.previousMatchingAction(runId, connection.name, tool, hash)
+            val trusted = !exactApproval && (policy == ToolPolicy.TRUSTED || trust?.allows(connection, tool) == true)
             // Permanent permission must never prompt again. Keep the duplicate-action
             // guard: already-dispatched writes in this turn are rejected, not repeated.
-            if (trusted && previous != null) return@withLock -1L
+            if ((trusted || exactApproval) && previous != null) return@withLock -1L
             val request = ToolApproval(
                 id,
                 runId,
                 connection.name,
                 tool,
                 hash,
-                argumentPreview = (scope?.let { "Conversation #${it.chatId}" + it.resource.takeIf(String::isNotBlank)?.let { resource -> " · $resource" }.orEmpty() + "\n" }.orEmpty()) + (previous?.let { "A matching action in this turn has status $it. Check its effect before approving a repeat.\n" }.orEmpty()) +
+                argumentPreview = (
+                    if (exactApproval) {
+                        GitHubAuthorizationBoundary.EXACT_APPROVAL_PREFIX
+                    } else if (replayableRead) {
+                        GitHubAuthorizationBoundary.READ_APPROVAL_PREFIX
+                    } else {
+                        ""
+                    }
+                    ) + (scope?.let { "Conversation #${it.chatId}" + it.resource.takeIf(String::isNotBlank)?.let { resource -> " · $resource" }.orEmpty() + "\n" }.orEmpty()) + (previous?.let { "A matching action in this turn has status $it. Check its effect before approving a repeat.\n" }.orEmpty()) +
                     dev.chungjungsoo.gptmobile.data.security.DiagnosticRedactor.arguments(arguments),
-                state = if ((policy == ToolPolicy.TRUSTED || trust?.allows(connection, tool) == true || scope?.let { trust?.allowsScoped(connection, tool, it) } == true) && previous == null) "APPROVED" else "PENDING"
+                state = if (!exactApproval && (policy == ToolPolicy.TRUSTED || trust?.allows(connection, tool) == true || scope?.let { trust?.allowsScoped(connection, tool, it) } == true) && previous == null) "APPROVED" else "PENDING"
             )
             dao.insert(request)
         }

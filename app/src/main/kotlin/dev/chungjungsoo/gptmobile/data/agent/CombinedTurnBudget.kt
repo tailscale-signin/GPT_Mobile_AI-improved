@@ -42,7 +42,9 @@ data class CombinedReservation(
     val status: CombinedReservationStatus = CombinedReservationStatus.RESERVED,
     val usage: CombinedUsage? = null,
     val reason: String? = null,
-    val effectFingerprint: String? = null
+    val effectFingerprint: String? = null,
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val workItemId: String? = null
 ) {
     val charged: CombinedResourceQuota get() = when (status) {
         CombinedReservationStatus.RELEASED -> CombinedResourceQuota()
@@ -111,7 +113,9 @@ data class CombinedBudgetSnapshot(
     @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
     val finalizationWriterPlanId: String? = null,
     @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
-    val recoveryAction: CombinedBudgetRecoveryAction = CombinedBudgetRecoveryAction.NONE
+    val recoveryAction: CombinedBudgetRecoveryAction = CombinedBudgetRecoveryAction.NONE,
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val deliveryPhase: String? = null
 ) {
     val charged: CombinedResourceQuota get() = reservations.values.fold(CombinedResourceQuota()) { sum, item -> sum + item.charged }
     val unknownAttemptIds: Set<String> get() = reservations.values.filter { it.status in setOf(CombinedReservationStatus.RESERVED, CombinedReservationStatus.UNKNOWN) }.mapTo(linkedSetOf()) { it.attemptId }
@@ -128,7 +132,7 @@ data class CombinedBudgetSnapshot(
             }
         }.groupingBy { it }.eachCount()
         val finalOutcome = stageOutcomes["finalization"]?.substringBefore(':')
-        val previousDispatch = reservations.values.any { it.role.finalization && it.resources.inputTokens > 0 && it.status != CombinedReservationStatus.RELEASED }
+        val previousDispatch = reservations.values.any { it.role.finalization && !isCombinedCorpusInspection(it.workItemId) && it.resources.inputTokens > 0 && it.status != CombinedReservationStatus.RELEASED }
         val canResume = plan.requested.appendContinuations &&
             finalizationWriterUid != null &&
             !finalizationWriterPlanId.isNullOrBlank() &&
@@ -242,9 +246,23 @@ class CombinedTurnBudget(
         if (state.cancelled || state.closed) return@withLock CombinedBudgetAdmission.Denied("Combined turn is cancelled or closed; no further dispatch is allowed.")
         if (state.plan.hardLimits.deadlineEpochMillis?.let { now() >= it } == true) return@withLock CombinedBudgetAdmission.Denied("The accepted turn deadline has been reached.")
         if (context.requested.singlePass && (context.role.finalization || context.role == CombinedRunRole.VERIFIER)) {
+            val inspection = context.requested.incrementalSynthesis && isCombinedCorpusInspection(context.workItemId)
+            if (inspection) {
+                val work = context.workItemId?.let { state.pendingWork[it] }
+                if (work?.required != true || work.role != CombinedRunRole.SYNTHESIS || state.reservations.values.any { it.workItemId == context.workItemId && it.status != CombinedReservationStatus.RELEASED }) {
+                    return@withLock CombinedBudgetAdmission.Denied("COMBINED_INSPECTION_ALREADY_ADMITTED: Restore its checkpoint or explicitly resume; do not replay an uncertain request.")
+                }
+            }
             val append = context.requested.appendContinuations && context.role == CombinedRunRole.CONTINUATION
             if (context.role != CombinedRunRole.SYNTHESIS && !append) return@withLock CombinedBudgetAdmission.Denied("COMBINED_SINGLE_PASS: Automatic verification, continuation and repair are disabled.")
-            val previous = state.reservations.values.filter { it.role.finalization && it.resources.inputTokens > 0 && it.status != CombinedReservationStatus.RELEASED }
+            // Corpus inspections are controller-authorized preparation work. They
+            // must not consume the single user-facing writer dispatch.
+            val previous = state.reservations.values.filter {
+                it.role.finalization &&
+                    !isCombinedCorpusInspection(it.workItemId) &&
+                    it.resources.inputTokens > 0 &&
+                    it.status != CombinedReservationStatus.RELEASED
+            }
             if (!append && previous.isNotEmpty()) {
                 return@withLock CombinedBudgetAdmission.Denied("COMBINED_ALREADY_DISPATCHED: This turn's primary request was already admitted. Saved or uncertain output must not be recomputed.")
             }
@@ -333,7 +351,7 @@ class CombinedTurnBudget(
                 if (!resources.fits(available)) return@withLock CombinedBudgetAdmission.Denied("The next request must be a bounded batch within the renewed tranche.")
             }
         }
-        val reservation = CombinedReservation(attemptId, owner, context.role, pool, resources, upperCostMicros, now(), effectFingerprint = effectFingerprint)
+        val reservation = CombinedReservation(attemptId, owner, context.role, pool, resources, upperCostMicros, now(), effectFingerprint = effectFingerprint, workItemId = context.workItemId)
         commit(
             next.copy(
                 reservations = next.reservations + (attemptId to reservation),
@@ -611,6 +629,10 @@ class CombinedTurnBudget(
         )
     }
 
+    suspend fun recordDeliveryPhase(phase: CombinedDeliveryPhase) = mutex.withLock {
+        if (!state.cancelled && !state.closed && state.deliveryPhase != phase.name) commit(state.copy(deliveryPhase = phase.name))
+    }
+
     suspend fun recordDeliverySnapshot(snapshotId: String) = mutex.withLock {
         if (state.deliverySnapshotId != snapshotId) commit(state.copy(deliverySnapshotId = snapshotId))
     }
@@ -699,3 +721,6 @@ class CombinedTurnBudget(
         private val TERMINAL_OUTCOMES = setOf("COMPLETED", "FAILED", "CANCELLED", "BUDGET_BLOCKED", "INTERRUPTED", "PARTIAL")
     }
 }
+
+internal fun isCombinedCorpusInspection(workItemId: String?): Boolean =
+    workItemId?.startsWith("corpus-inspection:") == true || workItemId?.startsWith("corpus-combined_corpus_consolidation:") == true

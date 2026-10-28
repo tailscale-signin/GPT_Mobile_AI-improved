@@ -118,4 +118,21 @@ class GgufMemoryComponentsTest {
         assertEquals(50L, native.sharedOwnedBytes)
         assertEquals(301L, native.modelOwnedBytes)
     }
+
+    @Test fun exactNativeWeightsExcludeFileMetadataAndDoNotDuplicateSharedGpuOwnership() {
+        val native = NativeAllocationObservation(
+            schemaVersion = 2, contextTokens = 512, batchTokens = 256, microBatchTokens = 128,
+            hostModelBytes = 100, hostContextBytes = 10, hostComputeBytes = 10,
+            deviceModelBytes = 200, deviceContextBytes = 20, deviceComputeBytes = 20,
+            sharedModelBytes = 300, modelTensorBytes = 500, processPssBytes = null
+        )
+        for (backend in listOf("cpu", "gpu", "opencl")) {
+            val calibrated = ggufMemoryComponents(10_000, 512, 1, accelerator = backend, measured = native)
+            assertEquals(600L, calibrated.getValue("weights"))
+            assertEquals(0L, calibrated.getValue("backendOverlap"))
+        }
+        // A different shape cannot borrow a smaller exact allocation.
+        assertEquals(10_000L, ggufMemoryComponents(10_000, 1024, 1, measured = native).getValue("weights"))
+        assertEquals(10_000L, ggufMemoryComponents(10_000, 512, 1, accelerator = "gpu").getValue("backendOverlap"))
+    }
 }

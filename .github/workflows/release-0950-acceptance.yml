@@ -2,10 +2,10 @@ name: v0.9.50 Android acceptance
 on:
   pull_request:
     branches: [main, feat/unified-reliability-v2-2026-10-13]
-    paths: ['app/**', 'scripts/run_release0950_acceptance.sh', '.github/workflows/release-0950-acceptance.yml']
+    paths: ['app/**', 'scripts/run_release0950_acceptance.sh', 'scripts/select_android_test_apk.py', 'scripts/tests/test_select_android_test_apk.py', '.github/workflows/release-0950-acceptance.yml']
   push:
     branches: [main]
-    paths: ['app/**', 'scripts/run_release0950_acceptance.sh', '.github/workflows/release-0950-acceptance.yml']
+    paths: ['app/**', 'scripts/run_release0950_acceptance.sh', 'scripts/select_android_test_apk.py', 'scripts/tests/test_select_android_test_apk.py', '.github/workflows/release-0950-acceptance.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -28,9 +28,34 @@ jobs:
           packages: 'platforms;android-37.0 build-tools;37.0.0'
       - run: sudo chmod 666 /dev/kvm
       - name: Install Vulkan build prerequisites
-        run: sudo apt-get update && sudo apt-get install -y glslc libvulkan-dev spirv-headers
-      - name: Build device regression APKs
-        run: ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon
+        timeout-minutes: 8
+        run: |
+          trap 'echo "::error::Android native dependency installation failed or timed out. Retry after checking the Ubuntu package mirror and dpkg lock."' ERR
+          apt_options=(-o Acquire::Retries=2 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 -o DPkg::Lock::Timeout=60)
+          sudo timeout --kill-after=15s 180s apt-get "${apt_options[@]}" update
+          sudo env DEBIAN_FRONTEND=noninteractive timeout --kill-after=15s 180s apt-get "${apt_options[@]}" install --no-install-recommends -y glslc libvulkan-dev spirv-headers
+      - name: Compile device regressions before packaging
+        timeout-minutes: 25
+        # The device is x86_64. Full ABI distribution APKs are validated by the
+        # separate APK/native workflows; compiling unused ARM64 here adds no coverage.
+        run: >-
+          python3 scripts/gradle_retry.py -- :app:compileDebugKotlin :app:compileDebugAndroidTestKotlin
+          -Pandroid.injected.build.abi=x86_64 --no-daemon --max-workers=1 --console=plain --stacktrace
+          '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -Dfile.encoding=UTF-8'
+      - name: Package device regression APKs in a fresh process
+        timeout-minutes: 25
+        # Release KSP/compiler heaps before native-library compression. ApkFlinger
+        # uses the common pool independently of Gradle's worker limit.
+        run: >-
+          python3 scripts/gradle_retry.py -- :app:assembleDebug :app:assembleDebugAndroidTest
+          -Pandroid.injected.build.abi=x86_64 --no-daemon --max-workers=1 --console=plain --stacktrace
+          "-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC
+          -Djava.util.concurrent.ForkJoinPool.common.parallelism=1
+          -Xlog:gc:file=${RUNNER_TEMP}/acceptance-package-gc.log:time,level,tags -Dfile.encoding=UTF-8"
+      - name: Verify compatible device APK artifacts before booting
+        run: |
+          python3 scripts/select_android_test_apk.py app/build/intermediates/apk/debug --application-id dev.melo.gptmobile.improved --abi x86_64
+          python3 scripts/select_android_test_apk.py app/build/intermediates/apk/androidTest/debug --application-id dev.melo.gptmobile.improved.test
       - name: Run editor and Combined finalization regressions and measure database/catalog operations
         uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
         with:
@@ -48,3 +73,6 @@ jobs:
             app/build/reports/androidTests/
             app/build/outputs/androidTest-results/
             app/build/acceptance-0950/
+            app/build/outputs/apk/**/output-metadata.json
+            app/build/intermediates/apk/**/output-metadata.json
+            ${{ runner.temp }}/acceptance-package-gc.log

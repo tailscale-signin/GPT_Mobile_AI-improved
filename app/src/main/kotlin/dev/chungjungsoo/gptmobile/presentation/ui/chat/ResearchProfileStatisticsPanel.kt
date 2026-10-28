@@ -28,6 +28,16 @@ internal fun ResearchProfileStatisticsPanel(statistics: List<ResearchProfileStat
                 Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text(profileNames[stats.profileUid] ?: stats.profileUid, style = MaterialTheme.typography.labelLarge)
                     Text("${stats.sources} sources · ${stats.uniqueSources} unique · ${stats.sourcesRead} read · ${stats.studiesExamined} examined", style = MaterialTheme.typography.bodySmall)
+                    Text(
+                        when {
+                            stats.lastFailureCategory == "AUTHORIZATION" -> "Blocked by an authorization change; a fresh authorized request is needed."
+                            stats.runningRequests > 0 -> "Model generation in progress"
+                            stats.providerWaits > 0 -> "Waiting for provider capacity"
+                            stats.modelRequests == 0 && stats.acceptedStages == 0 -> "Waiting for shared evidence or dispatch; no model generation recorded"
+                            else -> "${stats.completedRequests} generations completed · ${stats.failedRequests} failed"
+                        },
+                        style = MaterialTheme.typography.bodySmall
+                    )
                     Text("Retained stages: ${stats.acceptedStages} accepted · ${stats.failedStages} failed · ${stats.skippedStages} skipped", style = MaterialTheme.typography.bodySmall)
                     if (stats.providerWaits > 0) Text("Retained provider waits: ${stats.providerWaits}", style = MaterialTheme.typography.bodySmall)
                     if (stats.examinationsPending > 0) Text("${stats.examinationsPending} examinations pending", style = MaterialTheme.typography.bodySmall)
@@ -39,8 +49,10 @@ internal fun ResearchProfileStatisticsPanel(statistics: List<ResearchProfileStat
                         if (stats.unknownTransmissions > 0 || stats.uncorrelatedInvocations > 0 || stats.uncorrelatedStageRecords > 0) {
                             Text("Unconfirmed transport: ${stats.unknownTransmissions}; records without correlation: ${stats.uncorrelatedInvocations} invocations / ${stats.uncorrelatedStageRecords} stages. Missing telemetry is not counted as a transmitted request.", style = MaterialTheme.typography.bodySmall)
                         }
-                        Text("${stats.inputTokens} input / ${stats.outputTokens} output ${if (stats.estimatedTokens) "tokens (includes estimates)" else "tokens"} · ${stats.modelDurationMs / 1000}s model time", style = MaterialTheme.typography.bodySmall)
-                        Text("Reported: ${stats.measuredInputTokens} input / ${stats.measuredOutputTokens} output · Estimates / unverified: ${stats.estimatedInputTokens} input / ${stats.estimatedOutputTokens} output", style = MaterialTheme.typography.bodySmall)
+                        if (!stats.usageAvailable) Text("Token usage unavailable; missing measurements are not zero usage.", style = MaterialTheme.typography.bodySmall)
+                        if (stats.missingInvocationRecords > 0) Text("${stats.missingInvocationRecords} linked invocation records unavailable", style = MaterialTheme.typography.bodySmall)
+                        if (stats.usageAvailable) Text("${stats.inputTokens} input / ${stats.outputTokens} output ${if (stats.estimatedTokens) "tokens (includes estimates)" else "tokens"} · ${stats.modelDurationMs / 1000}s model time", style = MaterialTheme.typography.bodySmall)
+                        if (stats.usageAvailable) Text("Reported: ${stats.measuredInputTokens} input / ${stats.measuredOutputTokens} output · Estimates / unverified: ${stats.estimatedInputTokens} input / ${stats.estimatedOutputTokens} output", style = MaterialTheme.typography.bodySmall)
                         if (stats.tokenProvenance.isNotEmpty()) Text("Usage sources: ${stats.tokenProvenance.keys.joinToString()}", style = MaterialTheme.typography.bodySmall)
                         stats.reportedReasoningTokens?.let { Text("Reported reasoning tokens: $it", style = MaterialTheme.typography.bodySmall) }
                         stats.visibleOutputEstimate?.let { Text("Visible text estimate: $it tokens; tool-call tokens are unreported.", style = MaterialTheme.typography.bodySmall) }

@@ -25,6 +25,7 @@ class AgentRunnerEmptyAnswerTest {
             protocolComplete = true,
             finalAssessment = true,
             assessmentStage = "FINAL_DISPLAY",
+            semanticCoverageVerified = true,
             wordCount = visibleWordCount(text),
             displayedCharacters = text.length
         )

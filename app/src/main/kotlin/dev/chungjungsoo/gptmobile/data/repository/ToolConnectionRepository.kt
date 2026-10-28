@@ -51,6 +51,9 @@ class ToolConnectionRepository internal constructor(
             clearCredential -> {
                 toolConnectionDao.upsertConnection(protected.copy(secretRef = null))
                 previousSecretRef?.let { secretVault.delete(it) }
+                if (connection.type == ToolConnectionType.GITHUB) secretVault.delete(connectionSecretRef(connection.connectionUid))
+                val sessionReference = dev.chungjungsoo.gptmobile.data.github.GitHubPublicAuthCoordinator.sessionReference(connection.connectionUid)
+                if (connection.type == ToolConnectionType.GITHUB || previous?.type == ToolConnectionType.GITHUB || sessionReference in secretVault.references()) secretVault.delete(sessionReference)
             }
 
             credential == null -> {
@@ -59,6 +62,7 @@ class ToolConnectionRepository internal constructor(
 
             else -> replaceCredential(protected, credential, previousSecretRef)
         }
+        if (previous?.type == ToolConnectionType.GITHUB && protected.type != ToolConnectionType.GITHUB) secretVault.delete(dev.chungjungsoo.gptmobile.data.github.GitHubPublicAuthCoordinator.sessionReference(connection.connectionUid))
         if (previous != null && dev.chungjungsoo.gptmobile.data.crawl.CrawlerCompanionGrant.recognizes(previous) && (previous.endpointUrl != protected.endpointUrl || previous.alias != protected.alias)) secretVault.delete(dev.chungjungsoo.gptmobile.data.crawl.CrawlerCompanionGrant.reference(previous))
     }
 
@@ -69,6 +73,12 @@ class ToolConnectionRepository internal constructor(
         toolConnectionDao.deleteConnectionByUid(connectionUid)
         previous?.takeIf(dev.chungjungsoo.gptmobile.data.crawl.CrawlerCompanionGrant::recognizes)?.let { secretVault.delete(dev.chungjungsoo.gptmobile.data.crawl.CrawlerCompanionGrant.reference(it)) }
         secretRef?.let { secretVault.delete(it) }
+        val references = secretVault.references()
+        val sessionReference = dev.chungjungsoo.gptmobile.data.github.GitHubPublicAuthCoordinator.sessionReference(connectionUid)
+        val bindingReference = dev.chungjungsoo.gptmobile.data.github.GitHubPublicAuthCoordinator.bindingReference(connectionUid)
+        if (previous?.type == ToolConnectionType.GITHUB || sessionReference in references) secretVault.delete(sessionReference)
+        if (previous?.type == ToolConnectionType.GITHUB || bindingReference in references) secretVault.delete(bindingReference)
+        if (previous?.type == ToolConnectionType.GITHUB && secretRef != connectionSecretRef(connectionUid)) secretVault.delete(connectionSecretRef(connectionUid))
         secretVault.delete(mcpOAuthPendingSecretRef(connectionUid))
         secretVault.delete(EndpointSecrets.reference(connectionUid))
     }
@@ -138,6 +148,10 @@ class ToolConnectionRepository internal constructor(
                 toolConnectionDao.upsertConnection(connection.copy(secretRef = secretRef))
                 if (previousSecretRef != null && previousSecretRef != secretRef) {
                     secretVault.delete(previousSecretRef)
+                }
+                if (connection.type == ToolConnectionType.GITHUB) {
+                    secretVault.delete(dev.chungjungsoo.gptmobile.data.github.GitHubPublicAuthCoordinator.sessionReference(connection.connectionUid))
+                    dev.chungjungsoo.gptmobile.data.github.GitHubSessionCaches.credentialReconnected(credential.toString(StandardCharsets.UTF_8))
                 }
             } catch (error: Exception) {
                 restoreCredential(secretRef, previousSecretRef, previousBytes)

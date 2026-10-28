@@ -87,7 +87,7 @@ internal object GgufImportAdapter {
 
     private fun inspectUncached(file: File, identity: String?, operationId: String, checkCurrent: () -> Unit): Map<String, String> {
         val cacheStarted = System.nanoTime()
-        val persisted = identity?.let { key -> metadataDirectory?.let { File(it, PackageDigest.sha256(key.toByteArray()) + ".json") } }
+        val persisted = identity?.let { key -> metadataDirectory?.let { File(it, "metadata-v2-" + PackageDigest.sha256(key.toByteArray()) + ".json") } }
         persisted?.takeIf { it.isFile && it.length() <= 2 * 1024 * 1024 }?.let { cache ->
             val saved = runCatching { kotlinx.serialization.json.Json.decodeFromString<Map<String, String>>(cache.readText()) }.getOrNull()
             if (saved != null && identity == PackageDigest.installedFileIdentity(file)) {
@@ -146,14 +146,15 @@ internal object GgufImportAdapter {
                 repeat(count.toInt()) {
                     checkCurrent()
                     val key = checkNotNull(text(true))
-                    val keep = key in setOf("general.architecture", "general.name", "general.file_type", "tokenizer.chat_template", "split.count") ||
-                        listOf(".context_length", ".block_count", ".attention.head_count", ".attention.head_count_kv", ".embedding_length", ".attention.key_length", ".attention.value_length").any(key::endsWith)
+                    val keep = key in setOf("general.architecture", "general.name", "general.file_type", "tokenizer.chat_template", "split.count", "tokenizer.ggml.eos_token_id", "tokenizer.ggml.eot_token_id", "tokenizer.ggml.eom_token_id") ||
+                        listOf(".context_length", ".block_count", ".attention.head_count", ".attention.head_count_kv", ".embedding_length", ".attention.key_length", ".attention.value_length", ".attention.sliding_window").any(key::endsWith)
                     val type = u32()
                     val value = when {
                         type == 8L -> text(keep)
                         type == 9L -> {
                             val element = u32()
                             val length = u64().also { require(it <= 1_000_000) }
+                            if (key == "tokenizer.ggml.tokens") put("tokenizer.ggml.vocab_size", length.toString())
                             when {
                                 element == 8L -> repeat(length.toInt()) {
                                     checkCurrent()

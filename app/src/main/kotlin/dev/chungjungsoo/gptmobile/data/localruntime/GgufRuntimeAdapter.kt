@@ -208,7 +208,8 @@ internal class GgufRuntimeAdapter(
                 false,
                 false,
                 false,
-                kvBytesPerToken = uniformGgufKvBytesPerToken(metadata)
+                kvBytesPerToken = uniformGgufKvBytesPerToken(metadata),
+                compatibilityWarnings = ggufCompatibilityWarnings(metadata)
             )
         }
 
@@ -305,6 +306,7 @@ internal class GgufRuntimeAdapter(
             if (isEngineLoaded(effectiveSpec)) return@withContext
             inspectModel(effectiveSpec.modelPath).validate(effectiveSpec)
             val preflightMetadata = metadata(model, manifest)
+            ggufCompatibilityWarnings(preflightMetadata)
             val templateName =
                 dev.chungjungsoo.gptmobile.data.localmodel.GgufChatTemplateIdentity.describe(
                     preflightMetadata["tokenizer.chat_template"]
@@ -1628,20 +1630,36 @@ internal class GgufRuntimeAdapter(
         history.clear()
     }
 
+    private val unloading = AtomicBoolean(false)
+
     override suspend fun unloadEngine() {
-        closeConversation()
-        val active = handle
-        handle = 0
-        healthy = false
-        engineInstanceId = null
-        loaded = null
-        requested = null
-        allocation = null
-        calibrationPlanKey = null
-        tuple = null
-        modelFallbackKey = null
-        modelReceipt = ""
-        if (active != 0L) withContext(Dispatchers.IO) { GgufNative.unload(active) }
+        check(unloading.compareAndSet(false, true)) { "GGUF native unload is already in progress" }
+        try {
+            closeConversation()
+            val active = handle
+            // Keep the handle owned until native unload finishes. A failed native unload
+            // must not allow a second caller to free an unknown native allocation.
+            if (active != 0L) {
+                try {
+                    withContext(Dispatchers.IO) { GgufNative.unload(active) }
+                } catch (failure: Throwable) {
+                    quarantineAfterUnconfirmedCleanup("GGUF_UNLOAD_FAILED: ${failure.javaClass.simpleName}")
+                    throw failure
+                }
+            }
+            handle = 0L
+            healthy = false
+            engineInstanceId = null
+            loaded = null
+            requested = null
+            allocation = null
+            calibrationPlanKey = null
+            tuple = null
+            modelFallbackKey = null
+            modelReceipt = ""
+        } finally {
+            unloading.set(false)
+        }
     }
 
     override fun quarantineAfterUnconfirmedCleanup(reason: String): RuntimeCleanupReceipt {

@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.setting
 
+import androidx.lifecycle.viewModelScope
 import dev.chungjungsoo.gptmobile.data.agent.tool.MCP_OAUTH_SCHEME
 import dev.chungjungsoo.gptmobile.data.agent.tool.McpClientManager
 import dev.chungjungsoo.gptmobile.data.agent.tool.McpOAuthClient
@@ -15,6 +16,8 @@ import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import dev.chungjungsoo.gptmobile.data.repository.ToolConnectionRepository
 import io.ktor.client.engine.cio.CIO
 import io.mockk.coEvery
+import io.mockk.coVerify
+import io.mockk.every
 import io.mockk.mockk
 import java.net.URI
 import java.net.URLDecoder
@@ -24,12 +27,14 @@ import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
+import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.decodeFromString
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -49,6 +54,46 @@ class ToolConnectionsViewModelTest {
     @After
     fun tearDown() {
         Dispatchers.resetMain()
+    }
+
+    @Test fun projectGitHubAuthorizationUsesBrowserAndRestoresConnectedAccount() = runBlocking {
+        val dao = FakeToolConnectionDao()
+        val vault = FakeSecretVault()
+        val connection = ToolConnection("github", "GitHub", "github", "GITHUB", null, "OAUTH", null, null)
+        dao.upsertConnection(connection)
+        val auth = mockk<dev.chungjungsoo.gptmobile.data.github.GitHubPublicAuthCoordinator>()
+        val account = dev.chungjungsoo.gptmobile.data.github.GitHubPublicAuthCoordinator.Account("1", "coder")
+        val callback = "https://auth.example.org/oauth/github/callback?code=private-code&state=private-state"
+        var pending: String? = null
+        var connected = false
+        coEvery { auth.pendingConnectionUid() } answers { pending }
+        coEvery { auth.connectedAccount("github") } answers { if (connected) account else null }
+        every { auth.canAuthorize(connection) } returns true
+        every { auth.acceptsCallback(callback) } returns true
+        coEvery { auth.begin("github") } coAnswers {
+            pending = "github"
+            "https://github.com/login/oauth/authorize?client_id=public-project"
+        }
+        coEvery { auth.complete(callback) } coAnswers {
+            pending = null
+            connected = true
+            account
+        }
+        val model = ToolConnectionsViewModel(dao, vault, mockk(relaxed = true), mockk(relaxed = true), fakeSettingRepository(), gitHubPublicAuth = auth)
+        try {
+            withTimeout(5000) { model.uiState.first { it.connections.isNotEmpty() } }
+            val launch = async(start = CoroutineStart.UNDISPATCHED) { model.oauthLaunches.first() }
+            model.startOAuth("github")
+            assertTrue(withTimeout(5000) { launch.await() }.startsWith("https://github.com/login/oauth/authorize"))
+            assertEquals("github", model.uiState.value.gitHubPublicSignInUid)
+            assertEquals(null, model.uiState.value.gitHubSignIn)
+            model.completeOAuthCallback(callback)
+            val completed = withTimeout(5000) { model.uiState.first { it.gitHubAccounts["github"] == account && !it.isOAuthBusy } }
+            assertEquals(null, completed.gitHubPublicSignInUid)
+            coVerify(exactly = 1) { auth.complete(callback) }
+        } finally {
+            model.viewModelScope.cancel()
+        }
     }
 
     @Test

@@ -33,5 +33,8 @@ data class RequestConstraints(
         require(continuationPrefixDigest == null || continuationPrefixDigest.matches(Regex("[a-f0-9]{64}")))
     }
 
+    /** Text-only continuation changes tool access, never the accepted reasoning policy. */
+    fun withoutTools(): RequestConstraints = copy(allowTools = false, allowGatewayLocalTools = false)
+
     fun outputLimit(preferred: Int?): Int? = dev.chungjungsoo.gptmobile.data.context.RequestLimitResolver.output(preferred, maxOutputTokens ?: combined?.let { it.plan?.outputTokens(it.role) }).tokens
 }

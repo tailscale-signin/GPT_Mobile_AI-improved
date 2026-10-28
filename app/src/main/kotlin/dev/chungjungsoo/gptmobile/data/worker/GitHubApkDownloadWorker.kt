@@ -53,7 +53,8 @@ class GitHubApkDownloadWorker @AssistedInject constructor(
     @Assisted context: Context,
     @Assisted parameters: WorkerParameters,
     private val connections: ToolConnectionRepository,
-    private val secretVault: SecretVault
+    private val secretVault: SecretVault,
+    private val gitHubPublicAuth: dev.chungjungsoo.gptmobile.data.github.GitHubPublicAuthCoordinator? = null
 ) : CoroutineWorker(context, parameters) {
     private val notifications = context.getSystemService(NotificationManager::class.java)
     private val notificationId = id.hashCode()
@@ -154,6 +155,7 @@ class GitHubApkDownloadWorker @AssistedInject constructor(
         val connection = connections.getConnection(record.connectionUid)
             ?: throw GitHubApkDownloadException("This GitHub connection was removed. Reconnect before downloading.")
         if (connection.type != ToolConnectionType.GITHUB) throw GitHubApkDownloadException("Choose the native GitHub account for this download.")
+        if (connection.secretRef != null) gitHubPublicAuth?.accessToken(connection)
         val bytes = connection.secretRef?.let { secretVault.read(it) }
         val token = try {
             bytes?.decodeToString()?.trim().orEmpty()

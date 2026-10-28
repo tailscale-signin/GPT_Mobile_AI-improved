@@ -24,7 +24,9 @@ internal class CombinedCorpusMultipassSession(
     private val onFinalContext: (List<ConversationTurn>) -> Unit,
     private val restoreInspection: suspend (CombinedCorpusInspectionPass) -> String? = { null },
     private val saveInspection: suspend (CombinedCorpusInspectionPass, String) -> Unit = { _, _ -> },
-    private val validateCheckpointAccess: suspend () -> Unit = {}
+    private val validateCheckpointAccess: suspend () -> Unit = {},
+    private val restoreConsolidation: suspend (String) -> String? = { null },
+    private val saveConsolidation: suspend (String, String) -> Unit = { _, _ -> }
 ) : AgentProviderSession {
     override fun streamRound(
         tools: List<AgentToolDefinition>,
@@ -33,6 +35,7 @@ internal class CombinedCorpusMultipassSession(
         if (tools.isNotEmpty() || exchanges.isNotEmpty()) {
             throw InspectionFailed("COMBINED_MULTIPASS_TOOLS: Inspection cannot execute or replay tools.")
         }
+        emit(ProviderEvent.Notice(dev.chungjungsoo.gptmobile.data.agent.CombinedDeliveryPhase.INSPECTING.label))
         val reports = mutableListOf<String>()
         plan.passes.forEach { pass ->
             validateCheckpointAccess()
@@ -127,10 +130,16 @@ internal class CombinedCorpusMultipassSession(
             val reduced = mutableListOf<CombinedInspectionSummary>()
             for (group in groups) {
                 validateCheckpointAccess()
+                val consolidationTurn = turn(group)
+                val restored = restoreConsolidation(consolidationTurn.userMessage.content)
+                if (!restored.isNullOrBlank() && restored.length <= 65_536) {
+                    reduced += CombinedInspectionSummary(group.flatMap { it.sourceIds }, restored)
+                    continue
+                }
                 val report = StringBuilder()
                 var completed = false
                 var truncated = false
-                open(listOf(turn(group)), "combined_corpus_consolidation", output).streamRound(emptyList(), emptyList()).collect { event ->
+                open(listOf(consolidationTurn), "combined_corpus_consolidation", output).streamRound(emptyList(), emptyList()).collect { event ->
                     when (event) {
                         is ProviderEvent.TextDelta -> {
                             if (report.length.toLong() + event.text.length > 65_536L) throw InspectionFailed("COMBINED_MULTIPASS_REPORT_TOO_LARGE")
@@ -145,6 +154,7 @@ internal class CombinedCorpusMultipassSession(
                 }
                 if (!completed || truncated || report.isBlank()) throw InspectionFailed("COMBINED_MULTIPASS_CONSOLIDATION_INCOMPLETE: Original inspections remain saved for retry.")
                 validateCheckpointAccess()
+                saveConsolidation(consolidationTurn.userMessage.content, report.toString())
                 reduced += CombinedInspectionSummary(group.flatMap { it.sourceIds }, report.toString())
             }
             records = reduced
@@ -156,6 +166,7 @@ internal class CombinedCorpusMultipassSession(
         }
         onFinalContext(delivered)
         emit(ProviderEvent.Notice("All ${plan.passes.size} frozen spans inspected; final answer is being written. Semantic coverage remains unverified."))
+        emit(ProviderEvent.Notice(dev.chungjungsoo.gptmobile.data.agent.CombinedDeliveryPhase.COMBINING.label))
         emitAll(open(delivered, "synthesis_after_full_corpus", null).streamRound(emptyList(), emptyList()))
     }.catch { error ->
         if (error is CancellationException) throw error

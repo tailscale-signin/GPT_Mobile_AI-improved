@@ -75,7 +75,12 @@ jobs:
         with:
           packages: 'platforms;android-37.0 build-tools;37.0.0'
       - name: Install Vulkan shader headers for Android GGUF backend
-        run: sudo apt-get update && sudo apt-get install -y glslc libvulkan-dev spirv-headers
+        timeout-minutes: 8
+        run: |
+          trap 'echo "::error::Android native dependency installation failed or timed out. Retry after checking the Ubuntu package mirror and dpkg lock."' ERR
+          apt_options=(-o Acquire::Retries=2 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 -o DPkg::Lock::Timeout=60)
+          sudo timeout --kill-after=15s 180s apt-get "${apt_options[@]}" update
+          sudo env DEBIAN_FRONTEND=noninteractive timeout --kill-after=15s 180s apt-get "${apt_options[@]}" install --no-install-recommends -y glslc libvulkan-dev spirv-headers
       - name: Android unit tests
         id: tests
         shell: bash
@@ -83,7 +88,7 @@ jobs:
           set -o pipefail
           echo "Tested source: $(git rev-parse HEAD)" | tee audit-unit.log
           chmod +x gradlew
-          ./gradlew --no-daemon --stacktrace :app:testDebugUnitTest 2>&1 | tee -a audit-unit.log
+          python3 scripts/gradle_retry.py -- --no-daemon --stacktrace :app:testDebugUnitTest 2>&1 | tee -a audit-unit.log
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: always()
         with:
@@ -100,14 +105,14 @@ jobs:
         run: |
           set -o pipefail
           chmod +x gradlew
-          ./gradlew --no-daemon --stacktrace :app:assembleDebug 2>&1 | tee audit-apk.log
+          python3 scripts/gradle_retry.py -- --no-daemon --stacktrace :app:assembleDebug 2>&1 | tee audit-apk.log
       - name: Android lint
         if: ${{ !cancelled() && steps.environment.outcome == 'success' }}
         shell: bash
         run: |
           set -o pipefail
           chmod +x gradlew
-          ./gradlew --no-daemon --stacktrace :app:lintDebug 2>&1 | tee audit-lint.log
+          python3 scripts/gradle_retry.py -- --no-daemon --stacktrace :app:lintDebug 2>&1 | tee audit-lint.log
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: always()
         with:

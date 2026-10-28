@@ -17,6 +17,22 @@ import org.junit.Test
 
 /** Regressions for the exported Combined answer and its finalization transaction. */
 class CombinedFinalizationRegressionTest {
+    @Test fun answerMappingCanRestrictWorkToRequestRelevantClaims() {
+        val sources = listOf(
+            CombinedModelResponse("one", "One", content = "The first distinct source claim describes coastal erosion."),
+            CombinedModelResponse("two", "Two", content = "The second distinct source claim describes urban rainfall.")
+        )
+
+        val mapping = CombinedAnswerMappings.get(
+            "The second distinct source claim describes urban rainfall.",
+            sources,
+            setOf("C2.1")
+        )
+
+        assertEquals(listOf("C2.1"), mapping.claims.map { it.claimId })
+        assertTrue(mapping.links.any { "two" in it.profileUids })
+    }
+
     private fun context(request: String): CombinedExecutionContext {
         val requested = CombinedPolicyResolver.accept(ConversationCombinedSettings(), listOf("source"), mapOf("source" to "model"), request, singlePass = true)
         return CombinedExecutionContext(requested, rootBudgetId = "finalization-regression")
@@ -67,6 +83,21 @@ class CombinedFinalizationRegressionTest {
         assertEquals(setOf("PARTIALLY_LINKED", "UNRESOLVED_LINK"), account.dispositions.map { it.disposition }.toSet())
         assertTrue(account.dispositions.all { it.sourceDigest == researchHash(sources.single { source -> source.platformUid == it.profileUid }.content) })
         assertTrue(account.dispositions.none { it.disposition == "MISSING" })
+    }
+
+    @Test fun omittedUniqueContributorClaimBlocksSuccessfulSynthesis() {
+        val sources = listOf(
+            CombinedModelResponse("source", "Source", content = "Portugal joined NATO in 1949 and the EEC in 1986.", claimExtractionVersion = 4),
+            CombinedModelResponse("other", "Other", content = "Portugal restored independence in 1640.", claimExtractionVersion = 4)
+        )
+        val assessment = CombinedFinalCheck.check(
+            "Portugal joined NATO in 1949.",
+            sources,
+            CombinedEvidenceLedger(),
+            CombinedAnswerPolicy.from("Explain the history of Portugal")
+        )
+        assertTrue(assessment.checks.any { it.id.startsWith("SEMANTIC_CONTRIBUTION_UNRESOLVED:") && it.result == "FAIL" })
+        assertTrue(assessment.requiredFailures.any { it.startsWith("SEMANTIC_CONTRIBUTION_UNRESOLVED:") })
     }
 
     @Test fun oversizedWriterRecordIsMappedPerHeadingAndIndividualListItem() {
@@ -122,7 +153,7 @@ class CombinedFinalizationRegressionTest {
         assertEquals("NEEDS_VERIFICATION", report.verificationStatus)
         assertFalse(report.correctionRequired)
         assertFalse(report.factualAccuracyVerified)
-        assertFalse(report.semanticCoverageVerified)
+        assertTrue(report.semanticCoverageVerified)
         assertTrue(report.protocolComplete)
         assertTrue(report.complete)
         assertEquals(ProviderEvent.Completed, events.last())

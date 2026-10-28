@@ -24,6 +24,49 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubWorkspaceClientTest {
+    @Test fun reviewReplyUsesPullRequestScopedEndpoint() = runTest {
+        val sha = "a".repeat(40)
+        var requests = 0
+        val http = HttpClient(
+            MockEngine { request ->
+                requests++
+                val body = when (requests) {
+                    1 -> {
+                        assertEquals("/repos/owner/repo/pulls/7", request.url.encodedPath)
+                        """{"state":"open","head":{"sha":"$sha"}}"""
+                    }
+                    2 -> {
+                        assertEquals("/repos/owner/repo/pulls/comments/9", request.url.encodedPath)
+                        """{"pull_request_url":"https://api.github.com/repos/owner/repo/pulls/7"}"""
+                    }
+                    3 -> {
+                        assertEquals(HttpMethod.Post, request.method)
+                        assertEquals("/repos/owner/repo/pulls/7/comments/9/replies", request.url.encodedPath)
+                        """{"id":10}"""
+                    }
+                    else -> error("Unexpected request")
+                }
+                respond(body)
+            }
+        )
+        try {
+            GitHubWorkspaceClient("token", http).execute(
+                "reply_pull_request_comment",
+                buildJsonObject {
+                    put("owner", "owner")
+                    put("repo", "repo")
+                    put("pull_number", 7)
+                    put("comment_id", 9)
+                    put("expected_head_sha", sha)
+                    put("body", "Addressed in the current revision.")
+                }
+            )
+            assertEquals(3, requests)
+        } finally {
+            http.close()
+        }
+    }
+
     @Test fun legacyWritesRejectMissingOrConflictingBranchBeforeAnyRequest() = runTest {
         var requests = 0
         val http = HttpClient(
@@ -106,6 +149,7 @@ class GitHubWorkspaceClientTest {
                 add(
                     buildJsonObject {
                         put("path", "run.sh")
+                        put("expected_blob_sha", "script-blob")
                         put("content", "#!/bin/sh\necho updated")
                     }
                 )
@@ -132,7 +176,7 @@ class GitHubWorkspaceClientTest {
                     }
                     1 -> """{"object":{"sha":"$head"}}"""
                     2 -> """{"tree":{"sha":"base-tree"}}"""
-                    3 -> """{"truncated":false,"tree":[{"path":"run.sh","type":"blob","mode":"100755"}]}"""
+                    3 -> """{"truncated":false,"tree":[{"path":"run.sh","type":"blob","mode":"100755","sha":"script-blob"}]}"""
                     4 -> {
                         assertEquals(HttpMethod.Post, request.method)
                         assertEquals("base-tree", body!!["base_tree"]!!.jsonPrimitive.content)
@@ -162,6 +206,162 @@ class GitHubWorkspaceClientTest {
             val result = GitHubWorkspaceClient("token", http).execute("commit_files", changeSet()).jsonObject
             assertEquals("new-commit", result["sha"]!!.jsonPrimitive.content)
             assertEquals(7, step)
+        } finally {
+            http.close()
+        }
+    }
+
+    @Test
+    fun deletionIsAtomicWithCreationAndRequiresTheCurrentBlob() = runTest {
+        for (expectedBlob in listOf("script-blob", "stale", null)) {
+            var step = 0
+            val http = HttpClient(
+                MockEngine { request ->
+                    val body = (request.body as? TextContent)?.text?.let { Json.parseToJsonElement(it).jsonObject }
+                    val response = when (step++) {
+                        0 -> """{"default_branch":"main"}"""
+                        1 -> """{"object":{"sha":"$head"}}"""
+                        2 -> """{"tree":{"sha":"base-tree"}}"""
+                        3 -> """{"truncated":false,"tree":[{"path":"run.sh","type":"blob","mode":"100755","sha":"script-blob"}]}"""
+                        4 -> {
+                            assertEquals("script-blob", expectedBlob)
+                            assertEquals(HttpMethod.Post, request.method)
+                            val entries = body!!["tree"]!!.jsonArray
+                            assertEquals(2, entries.size)
+                            assertEquals(kotlinx.serialization.json.JsonNull, entries[0].jsonObject["sha"])
+                            assertFalse(entries[0].jsonObject.containsKey("content"))
+                            assertEquals("100755", entries[0].jsonObject["mode"]!!.jsonPrimitive.content)
+                            assertEquals("Updated docs", entries[1].jsonObject["content"]!!.jsonPrimitive.content)
+                            """{"sha":"new-tree"}"""
+                        }
+                        5 -> """{"sha":"new-commit"}"""
+                        6 -> {
+                            assertEquals(HttpMethod.Patch, request.method)
+                            assertEquals("false", body!!["force"].toString())
+                            "{}"
+                        }
+                        else -> error("Unexpected mutation")
+                    }
+                    respond(response)
+                }
+            )
+            try {
+                val args = JsonObject(
+                    changeSet() + (
+                        "files" to buildJsonArray {
+                            add(
+                                buildJsonObject {
+                                    put("path", "run.sh")
+                                    put("delete", true)
+                                    if (expectedBlob != null) put("expected_blob_sha", expectedBlob)
+                                }
+                            )
+                            add(
+                                buildJsonObject {
+                                    put("path", "README.md")
+                                    put("content", "Updated docs")
+                                }
+                            )
+                        }
+                        )
+                )
+                val result = runCatching { GitHubWorkspaceClient("token", http).execute("commit_files", args) }
+                assertEquals(expectedBlob == "script-blob", result.isSuccess)
+                assertEquals(if (expectedBlob == "script-blob") 7 else 4, step)
+            } finally {
+                http.close()
+            }
+        }
+    }
+
+    @Test
+    fun `overwriting existing files without blob preconditions is rejected before creating git objects`() = runTest {
+        var requests = 0
+        val http =
+            HttpClient(
+                MockEngine { request ->
+                    requests++
+                    assertEquals(HttpMethod.Get, request.method)
+                    respond(
+                        when (requests) {
+                            1 -> """{"default_branch":"main"}"""
+                            2 -> """{"object":{"sha":"$head"}}"""
+                            3 -> """{"tree":{"sha":"base-tree"}}"""
+                            4 -> """{"truncated":false,"tree":[{"path":"README.md","type":"blob","mode":"100644","sha":"readme-blob"}]}"""
+                            else -> error("Mutation reached GitHub without expected_blob_sha")
+                        }
+                    )
+                }
+            )
+        try {
+            val change = buildJsonObject {
+                put("owner", "owner")
+                put("repo", "repo")
+                put("branch", "feature/code")
+                put("expected_head_sha", head)
+                put("message", "Replace README")
+                put(
+                    "files",
+                    buildJsonArray {
+                        add(
+                            buildJsonObject {
+                                put("path", "README.md")
+                                put("content", "New contents")
+                            }
+                        )
+                    }
+                )
+            }
+            val error = runCatching { GitHubWorkspaceClient("token", http).execute("commit_files", change) }.exceptionOrNull()
+            assertTrue(error?.message?.contains("expected_blob_sha") == true)
+            assertEquals(4, requests)
+        } finally {
+            http.close()
+        }
+    }
+
+    @Test
+    fun `stale blob SHA prevents overwrite before creating git objects`() = runTest {
+        var requests = 0
+        val http =
+            HttpClient(
+                MockEngine { request ->
+                    requests++
+                    assertEquals(HttpMethod.Get, request.method)
+                    respond(
+                        when (requests) {
+                            1 -> """{"default_branch":"main"}"""
+                            2 -> """{"object":{"sha":"$head"}}"""
+                            3 -> """{"tree":{"sha":"base-tree"}}"""
+                            4 -> """{"truncated":false,"tree":[{"path":"README.md","type":"blob","mode":"100644","sha":"current-blob"}]}"""
+                            else -> error("Stale blob attempted a mutation")
+                        }
+                    )
+                }
+            )
+        try {
+            val change = buildJsonObject {
+                put("owner", "owner")
+                put("repo", "repo")
+                put("branch", "feature/code")
+                put("expected_head_sha", head)
+                put("message", "Update README")
+                put(
+                    "files",
+                    buildJsonArray {
+                        add(
+                            buildJsonObject {
+                                put("path", "README.md")
+                                put("expected_blob_sha", "old-blob")
+                                put("content", "Updated")
+                            }
+                        )
+                    }
+                )
+            }
+            val error = runCatching { GitHubWorkspaceClient("token", http).execute("commit_files", change) }.exceptionOrNull()
+            assertTrue(error?.message?.contains("Original blob changed") == true)
+            assertEquals(4, requests)
         } finally {
             http.close()
         }
@@ -305,6 +505,117 @@ class GitHubWorkspaceClientTest {
             ).jsonObject
             assertEquals(5, last["entries"]!!.jsonArray.size)
             assertEquals("false", last["has_more"].toString())
+        } finally {
+            http.close()
+        }
+    }
+
+    @Test
+    fun actionsPermissionDeniedExplainsRequiredPermissionWithoutClaimingRateLimit() = runTest {
+        val http = HttpClient(
+            MockEngine {
+                respond(
+                    """{"message":"Resource not accessible by integration: Actions workflow permission required"}""",
+                    HttpStatusCode.Forbidden
+                )
+            }
+        )
+        try {
+            val failure = runCatching {
+                GitHubWorkspaceClient("token", http).execute(
+                    "get_repository",
+                    buildJsonObject {
+                        put("owner", "owner")
+                        put("repo", "repo")
+                    }
+                )
+            }.exceptionOrNull()
+            assertTrue(failure != null)
+            assertTrue(failure!!.message.orEmpty().contains("workflow write permission", ignoreCase = true))
+        } finally {
+            http.close()
+        }
+    }
+
+    @Test
+    fun ssoDeniedRequestExplainsOrganizationAuthorization() = runTest {
+        val http = HttpClient(
+            MockEngine {
+                respond(
+                    """{"message":"Resource protected by organization SAML enforcement"}""",
+                    HttpStatusCode.Forbidden
+                )
+            }
+        )
+        try {
+            val failure = runCatching {
+                GitHubWorkspaceClient("token", http).execute(
+                    "get_repository",
+                    buildJsonObject {
+                        put("owner", "owner")
+                        put("repo", "repo")
+                    }
+                )
+            }.exceptionOrNull()
+            assertTrue(failure != null)
+            assertTrue(failure!!.message.orEmpty().contains("SSO authorization", ignoreCase = true))
+        } finally {
+            http.close()
+        }
+    }
+
+    @Test
+    fun rejectedGitHubCredentialsStopFurtherRequestsWithinTheClient() = runTest {
+        var requests = 0
+        val http = HttpClient(
+            MockEngine {
+                requests++
+                respond("""{"message":"Bad credentials"}""", HttpStatusCode.Unauthorized)
+            }
+        )
+        try {
+            val client = GitHubWorkspaceClient("invalid-token", http)
+            val args = buildJsonObject {
+                put("owner", "owner")
+                put("repo", "repo")
+            }
+            val first = runCatching { client.execute("get_repository", args) }
+            assertTrue(first.isFailure)
+            val second = runCatching { client.execute("get_repository", args) }
+            assertTrue(second.isFailure)
+            assertTrue(second.exceptionOrNull()?.message.orEmpty().contains("Reconnect"))
+            assertEquals(1, requests)
+        } finally {
+            http.close()
+        }
+    }
+
+    @Test
+    fun rejectedCredentialStateIsSharedAcrossClientsAndReplacementCredentialCanRecover() = runTest {
+        var requests = 0
+        val rejected = java.util.concurrent.atomic.AtomicBoolean()
+        val http = HttpClient(
+            MockEngine {
+                requests++
+                if (requests == 1) {
+                    respond("""{"message":"Bad credentials"}""", HttpStatusCode.Unauthorized)
+                } else {
+                    respond("""{"name":"repo"}""", HttpStatusCode.OK)
+                }
+            }
+        )
+        try {
+            val args = buildJsonObject {
+                put("owner", "owner")
+                put("repo", "repo")
+            }
+            val first = GitHubWorkspaceClient("expired", http, authenticationRejected = rejected)
+            val sibling = GitHubWorkspaceClient("expired", http, authenticationRejected = rejected)
+            assertTrue(runCatching { first.execute("get_repository", args) }.isFailure)
+            assertTrue(runCatching { sibling.execute("get_repository", args) }.exceptionOrNull()!!.message.orEmpty().contains("Reconnect"))
+            assertEquals(1, requests)
+            GitHubWorkspaceClient("replacement", http).execute("get_repository", args)
+            assertEquals(2, requests)
         } finally {
             http.close()
         }

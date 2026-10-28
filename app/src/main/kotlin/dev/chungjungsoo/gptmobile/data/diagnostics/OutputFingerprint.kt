@@ -43,3 +43,8 @@ internal fun outputFingerprint(text: String): OutputFingerprint {
     val bytes = text.toByteArray(Charsets.UTF_8)
     return OutputFingerprint(bytes.size.toLong(), MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) })
 }
+
+/** Keep numeric legacy IDs readable; hash composite renderer identities before persistence. */
+internal fun outputTracePartId(partId: String?): String? = partId?.let {
+    if (it.matches(Regex("[0-9:]{1,40}"))) it else "sha256:" + outputFingerprint(it).sha256
+}

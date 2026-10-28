@@ -48,7 +48,10 @@ class GatewayNetworkRecoveryMonitor @Inject constructor(
                 routeIdentity = identity
                 dev.chungjungsoo.gptmobile.data.readiness.ReadinessHints.networkChanged()
                 if (dev.chungjungsoo.gptmobile.BuildConfig.MCP_ROUTE_RECOVERY) dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.networkChanged()
-                if (validatedNetwork == network) scope.launch { agentRunCoordinator.recoverInterruptedGatewayRuns() }
+                if (validatedNetwork == network) {
+                    resumeResearchOutbox()
+                    scope.launch { agentRunCoordinator.recoverInterruptedGatewayRuns() }
+                }
             }
         }
 
@@ -61,6 +64,7 @@ class GatewayNetworkRecoveryMonitor @Inject constructor(
                 validatedNetwork = network
                 dev.chungjungsoo.gptmobile.data.readiness.ReadinessHints.networkChanged()
                 if (dev.chungjungsoo.gptmobile.BuildConfig.MCP_ROUTE_RECOVERY) dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.networkChanged()
+                resumeResearchOutbox()
                 scope.launch {
                     agentRunCoordinator.recoverInterruptedGatewayRuns()
                 }
@@ -93,6 +97,23 @@ class GatewayNetworkRecoveryMonitor @Inject constructor(
         if (validatedNetwork != null) {
             scope.launch {
                 agentRunCoordinator.recoverInterruptedGatewayRuns()
+            }
+        }
+    }
+
+    private fun resumeResearchOutbox() {
+        scope.launch {
+            runCatching {
+                val manager = androidx.work.WorkManager.getInstance(context)
+                val running = manager.getWorkInfosForUniqueWork("research-examination-outbox").get()
+                    .any { it.state == androidx.work.WorkInfo.State.RUNNING }
+                if (!running) dev.chungjungsoo.gptmobile.data.research.work.ResearchExaminationWorker.enqueue(context, reconsider = true)
+            }.onFailure { error ->
+                dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
+                    "ResearchExamine",
+                    "NETWORK_RECOVERY_ENQUEUE_FAILED · reason=${error.javaClass.simpleName} · action=durable_outbox_retained",
+                    "W"
+                )
             }
         }
     }

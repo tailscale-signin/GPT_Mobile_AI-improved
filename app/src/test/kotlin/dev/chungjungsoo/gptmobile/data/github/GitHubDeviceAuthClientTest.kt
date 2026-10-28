@@ -16,6 +16,38 @@ class GitHubDeviceAuthClientTest {
     private val code = """{"device_code":"private-device-code","user_code":"ABCD-EFGH","verification_uri":"https://github.com/login/device","expires_in":900,"interval":5}"""
     private val token = """{"access_token":"test-user-token","token_type":"bearer"}"""
 
+    @Test fun deviceFlowRetainsExpiryAndRefreshMetadataWithoutExposingCredentials() = runTest {
+        var now = 0L
+        val responses = ArrayDeque(listOf(code, """{"access_token":"ghu_private","refresh_token":"ghr_private","token_type":"bearer","expires_in":28800,"refresh_token_expires_in":15897600}"""))
+        val client = HttpClient(MockEngine { respond(responses.removeFirst(), headers = headersOf(HttpHeaders.ContentType, "application/json")) })
+        try {
+            val auth = GitHubDeviceAuthClient(client, { now }, { now += it }, { 1000L })
+            val credential = auth.awaitCredential(auth.begin("Iv1.project"))
+            assertEquals("ghu_private", credential.accessToken)
+            assertEquals("ghr_private", credential.refreshToken)
+            assertEquals(28_801_000L, credential.expiresAt)
+            assertEquals(15_897_601_000L, credential.refreshExpiresAt)
+            assertFalse(credential.toString().contains("ghu_private"))
+            assertFalse(credential.toString().contains("ghr_private"))
+        } finally {
+            client.close()
+        }
+    }
+
+    @Test fun invalidDeviceCredentialExpiryFailsBeforeAConnectionCanBeSaved() = runTest {
+        var now = 0L
+        val responses = ArrayDeque(listOf(code, """{"access_token":"ghu_private","token_type":"bearer","expires_in":0}"""))
+        val client = HttpClient(MockEngine { respond(responses.removeFirst(), headers = headersOf(HttpHeaders.ContentType, "application/json")) })
+        try {
+            val auth = GitHubDeviceAuthClient(client, { now }, { now += it })
+            val failure = runCatching { auth.awaitCredential(auth.begin("Iv1.project")) }.exceptionOrNull()
+            assertTrue(failure != null)
+            assertFalse(failure?.message.orEmpty().contains("ghu_private"))
+        } finally {
+            client.close()
+        }
+    }
+
     @Test fun pendingAndSlowDownRespectThePollingInterval() = runTest {
         var now = 0L
         val waits = mutableListOf<Long>()

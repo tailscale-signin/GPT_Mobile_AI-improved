@@ -50,7 +50,10 @@ internal fun GitHubChatConversation(
             ) {
                 val model: dev.chungjungsoo.gptmobile.presentation.ui.chat.ChatViewModel = androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel()
                 androidx.compose.runtime.DisposableEffect(model) {
-                    registerExit { done -> model.checkpointComposer(); done() }
+                    registerExit { done ->
+                        model.checkpointComposer()
+                        done()
+                    }
                     onDispose {
                         model.checkpointComposer()
                         registerExit(null)

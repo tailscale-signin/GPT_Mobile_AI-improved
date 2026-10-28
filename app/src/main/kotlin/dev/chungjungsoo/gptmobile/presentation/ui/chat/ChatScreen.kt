@@ -632,21 +632,23 @@ fun ChatScreen(
             ) { focusManager.clearFocus() },
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
-            if (showTopBar) ChatTopBar(
-                title = chatRoom.title,
-                isTitleCustomized = chatRoom.isTitleCustomized,
-                isMenuItemEnabled = chatRoom.id > 0,
-                isModelItemEnabled = chatViewModel.enabledPlatformsInChat.isNotEmpty(),
-                onBackAction = onBackFromChat,
-                scrollBehavior = scrollBehavior,
-                onChatTitleItemClick = chatViewModel::openChatTitleDialog,
-                onChatModelItemClick = chatViewModel::openChatModelDialog,
-                onExportChatItemClick = { showExportOptions = true },
-                onDisablePlatformClick = {
-                    showProfileManagement = true
-                },
-                onOutlineClick = { showOutline = true }
-            )
+            if (showTopBar) {
+                ChatTopBar(
+                    title = chatRoom.title,
+                    isTitleCustomized = chatRoom.isTitleCustomized,
+                    isMenuItemEnabled = chatRoom.id > 0,
+                    isModelItemEnabled = chatViewModel.enabledPlatformsInChat.isNotEmpty(),
+                    onBackAction = onBackFromChat,
+                    scrollBehavior = scrollBehavior,
+                    onChatTitleItemClick = chatViewModel::openChatTitleDialog,
+                    onChatModelItemClick = chatViewModel::openChatModelDialog,
+                    onExportChatItemClick = { showExportOptions = true },
+                    onDisablePlatformClick = {
+                        showProfileManagement = true
+                    },
+                    onOutlineClick = { showOutline = true }
+                )
+            }
         }
     ) { innerPadding ->
         val density = LocalDensity.current

@@ -466,7 +466,10 @@ class AgentToolResolver @Inject constructor(
         }
 
         val finalized = finalizeResolvedTools(resolved, profileUid, platform, featureSettings, bindings, chatToolConfig, freeProfile, disableRemote, disableLocal, onConnectionError, chatId = userMessage?.chatId, consentPlatform = consentPlatform)
-        val catalogTask = githubCatalogTask(profileUid, userMessage, hasGitHubRepositoryContext)
+        val scopedMessage = chatToolConfig?.github?.let { context ->
+            userMessage?.copy(content = context.promptContext() + "\n\n" + userMessage.content)
+        } ?: userMessage
+        val catalogTask = githubCatalogTask(profileUid, scopedMessage, hasGitHubRepositoryContext)
         val coldBindings = if (cachedCataloguesOnly && allowRemoteMcp && userMessage != null) {
             bindings.filter { binding ->
                 binding.connection?.type == ToolConnectionType.MCP &&

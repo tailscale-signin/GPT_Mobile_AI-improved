@@ -20,6 +20,9 @@ data class GitHubConversationContext(
         require(ref.isNotBlank() && commitSha.matches(Regex("[a-fA-F0-9]{40}")))
     }
 
+    /** Request-local scope only; this does not grant tools, credentials or write access. */
+    fun promptContext(): String = "GitHub workspace: $owner/$repo\nBranch: $ref\nWork within this selected repository. Inspect current source and report actions only from tool results."
+
     val repository: GitHubRepositoryContext get() = GitHubRepositoryContext(owner, repo, ref)
     fun sameWorkspace(other: GitHubConversationContext) = connectionUid == other.connectionUid && owner.equals(other.owner, true) && repo.equals(other.repo, true) && ref == other.ref && mainProfileUid == other.mainProfileUid
 }

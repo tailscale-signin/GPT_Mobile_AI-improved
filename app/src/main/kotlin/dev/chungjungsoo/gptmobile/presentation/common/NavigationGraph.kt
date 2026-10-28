@@ -336,7 +336,8 @@ fun NavGraphBuilder.chatScreenNavigation(navController: NavHostController, toolC
         val chatId = it.arguments?.getInt("chatRoomId") ?: 0
         val githubContext = features.conversationGitHub[chatId]
         val connection = toolState.connections.firstOrNull { connection ->
-            connection.connectionUid == githubContext?.connectionUid && connection.type == ToolConnectionType.GITHUB &&
+            connection.connectionUid == githubContext?.connectionUid &&
+                connection.type == ToolConnectionType.GITHUB &&
                 (toolState.pluginStates[ToolPluginId.GITHUB] ?: true) &&
                 (toolState.pluginStates[ToolPluginId.connection(connection.connectionUid)] ?: true)
         }

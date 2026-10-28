@@ -267,8 +267,10 @@ fun GitHubWorkspaceScreen(
                         }
                     }
                 }
-                if (tab != 5) state.error?.let { error ->
-                    Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall, modifier = Modifier.fillMaxWidth().heightIn(max = 80.dp).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp))
+                if (tab != 5) {
+                    state.error?.let { error ->
+                        Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall, modifier = Modifier.fillMaxWidth().heightIn(max = 80.dp).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp))
+                    }
                 }
                 GitHubChatProgress(state, visibleProgrammer)
                 val workspaceTabs = listOf(3 to "Chat", 2 to "PR", 0 to "Files", 1 to "Changes", 4 to "Checks", 5 to "Settings")
@@ -309,11 +311,13 @@ fun GitHubWorkspaceScreen(
                                     )
                                 } else {
                                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                                        Text(when {
-                                            state.selection == null -> "Choose a repository to start GitHub chat."
-                                            visibleProgrammer.profileUid == null -> "Choose an available AI profile in Settings."
-                                            else -> "Preparing GitHub chat…"
-                                        })
+                                        Text(
+                                            when {
+                                                state.selection == null -> "Choose a repository to start GitHub chat."
+                                                visibleProgrammer.profileUid == null -> "Choose an available AI profile in Settings."
+                                                else -> "Preparing GitHub chat…"
+                                            }
+                                        )
                                         visibleProgrammer.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                                         TextButton(onClick = { tab = 5 }) { Text("Repository and AI profile settings") }
                                     }

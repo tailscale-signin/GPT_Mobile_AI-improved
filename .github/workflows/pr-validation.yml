@@ -34,7 +34,7 @@ jobs:
     name: Unit tests and Android lint
     runs-on: ubuntu-latest
     # Leave time for diagnostics after the individually bounded validation steps.
-    timeout-minutes: 100
+    timeout-minutes: 125
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -103,6 +103,15 @@ jobs:
       - name: Setup Gradle Problem Matcher
         run: echo "::add-matcher::.github/gradle-problem-matcher.json"
         continue-on-error: true
+
+      # Cold compilation consumed about 15 minutes of the old 25-minute test
+      # deadline. Bound compilation separately so the complete suite can finish.
+      - name: Compile unit tests in a separate process
+        timeout-minutes: 25
+        shell: bash
+        run: |
+          set -o pipefail
+          python3 scripts/gradle_retry.py -- :app:compileDebugUnitTestKotlin :app:compileDebugUnitTestJavaWithJavac --no-daemon --console=plain 2>&1 | tee unit-compile.log
 
       - name: Run Unit Tests & JaCoCo Coverage Report
         id: unit_tests
@@ -203,6 +212,7 @@ jobs:
         with:
           name: pr-validation-logs
           path: |
+            unit-compile.log
             test.log
             heap.log
             lint.log

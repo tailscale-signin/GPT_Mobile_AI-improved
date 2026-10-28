@@ -5630,8 +5630,11 @@ class ChatRepositoryImpl(
             val decisionRoots = runs.mapNotNull { dev.chungjungsoo.gptmobile.data.agent.CombinedAcceptedTurn.context(it.synthesisSnapshot)?.rootBudgetId }.toSet() + combinedBudgets.rootsForConversation(updated.id)
             combinedDecisions?.setPersistent(decisionRoots, !enabled)
             if (enabled) {
-                dev.chungjungsoo.gptmobile.data.agent.ToolBatchCheckpoint.deleteChat(context.filesDir, updated.id)
-                dev.chungjungsoo.gptmobile.data.crawl.CrawlStore.forDirectory(context.filesDir).forgetChat(updated.id)
+                withContext(Dispatchers.IO) {
+                    val filesDir = context.filesDir
+                    dev.chungjungsoo.gptmobile.data.agent.ToolBatchCheckpoint.deleteChat(filesDir, updated.id)
+                    dev.chungjungsoo.gptmobile.data.crawl.CrawlStore.forDirectory(filesDir).forgetChat(updated.id)
+                }
                 dev.chungjungsoo.gptmobile.data.free.FreeQueueJobs.forgetChat(updated.id)
                 dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.let { journal ->
                     runs.forEach { journal.revokeRun(it.runId) }
@@ -5652,8 +5655,11 @@ class ChatRepositoryImpl(
             val decisionRoots = runs.mapNotNull { dev.chungjungsoo.gptmobile.data.agent.CombinedAcceptedTurn.context(it.synthesisSnapshot)?.rootBudgetId }.toSet() + combinedBudgets.rootsForConversation(room.id)
             combinedDecisions?.deleteRoots(decisionRoots)
             combinedBudgets.deleteConversation(room.id)
-            dev.chungjungsoo.gptmobile.data.agent.ToolBatchCheckpoint.deleteChat(context.filesDir, room.id)
-            dev.chungjungsoo.gptmobile.data.crawl.CrawlStore.forDirectory(context.filesDir).forgetChat(room.id)
+            withContext(Dispatchers.IO) {
+                val filesDir = context.filesDir
+                dev.chungjungsoo.gptmobile.data.agent.ToolBatchCheckpoint.deleteChat(filesDir, room.id)
+                dev.chungjungsoo.gptmobile.data.crawl.CrawlStore.forDirectory(filesDir).forgetChat(room.id)
+            }
             dev.chungjungsoo.gptmobile.data.free.FreeQueueJobs.forgetChat(room.id)
             dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.let { journal ->
                 runs.forEach { journal.revokeRun(it.runId) }

@@ -1,7 +1,9 @@
 package dev.chungjungsoo.gptmobile.data.github
 
 import java.util.Base64
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -123,12 +125,16 @@ internal class GitHubRepositorySession(
         }
         require(bytes.size <= MAX_BLOB_BYTES && bytes.none { it == 0.toByte() }) { "Only bounded UTF-8 text blobs can be ingested." }
         val text = bytes.decodeToString(throwOnInvalidSequence = true)
-        val result = buildJsonObject {
-            put("sha", sha)
-            put("content", text)
-            put("bytes", bytes.size)
-            put("content_hash", GitHubRepositoryStateStore.digest(text))
-            put("index", GitHubLocalIndex.build(text))
+        // Cached ingestion can resume on Main when invoked from the workspace UI.
+        // Hashing and lexical indexing a 2 MiB blob belongs on a CPU dispatcher.
+        val result = withContext(Dispatchers.Default) {
+            buildJsonObject {
+                put("sha", sha)
+                put("content", text)
+                put("bytes", bytes.size)
+                put("content_hash", GitHubRepositoryStateStore.digest(text))
+                put("index", GitHubLocalIndex.build(text))
+            }
         }
         store.write(blobScope(context), "blob:$sha", result)
         return result
@@ -249,7 +255,7 @@ internal class GitHubRepositorySession(
 
     private suspend fun search(context: GitHubTaskSnapshot, args: JsonObject): JsonObject {
         val query = args.s("query")
-        require(query.isNotBlank() && query.length <= 200)
+        require(query.isNotBlank() && query.length <= 200) { "Search requires a non-blank query of at most 200 characters." }
         val mode = args.s("mode").ifBlank { "literal" }
         require(mode in setOf("literal", "definitions", "references", "paths", "tests"))
         val data = tree(context)

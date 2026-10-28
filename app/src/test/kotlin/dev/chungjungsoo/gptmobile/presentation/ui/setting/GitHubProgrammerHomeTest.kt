@@ -51,6 +51,14 @@ class GitHubProgrammerHomeTest {
     private val context = GitHubConversationContext("github", "owner", "repo", "feature/programmer", "a".repeat(40), "local")
     private val workspace = GitHubWorkspaceState(selection = GitHubRepositoryContext("owner", "repo", "feature/programmer"), headSha = context.commitSha)
 
+    @Test fun approvalAndProviderWaitTakePriorityOverPendingOperations() {
+        val event = dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent("event", "run", 1, "call", "github", "GitHub", "github_write", "github_write__github_api", "{}", null, null, "PENDING")
+        val run = AgentRun("run", 1, 2, 3, "local", "CUSTOM", "model", "RUNNING")
+        val approval = dev.chungjungsoo.gptmobile.data.permissions.ToolApproval("approval", "run", "github", "github_write", "hash")
+        assertEquals("Needs your approval", GitHubProgrammerState(runs = listOf(run), events = listOf(event), approvals = listOf(approval)).progressDescription())
+        assertEquals("Waiting", GitHubProgrammerState(runs = listOf(run.copy(status = "WAITING_PROVIDER_LIMIT")), events = listOf(event)).progressDescription())
+    }
+
     @Test fun fixedProgressStaysVisibleWhileConversationScrolls() {
         compose.setContent {
             MaterialTheme {

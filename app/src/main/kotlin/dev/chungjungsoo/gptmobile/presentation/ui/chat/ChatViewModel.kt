@@ -2157,6 +2157,18 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    /** Refresh request context without destroying the controller that owns the unsaved composer. */
+    suspend fun bindGitHubContext(context: dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext) = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        val roomId = _chatRoom.value.id
+        if (roomId <= 0) return@withContext
+        val features = settingRepository.getFeatureSettings()
+        val saved = features.conversationGitHub[roomId] ?: return@withContext
+        if (!saved.sameWorkspace(context) || _chatRoom.value.id != roomId) return@withContext
+        _chatToolConfig.update {
+            it.copy(github = saved.copy(commitSha = context.commitSha, prepareIndex = saved.connectionUid in features.githubPrepareIndex))
+        }
+    }
+
     /** Save before switching an embedded GitHub tab without marking this conversation as left. */
     fun checkpointComposer() {
         val room = _chatRoom.value

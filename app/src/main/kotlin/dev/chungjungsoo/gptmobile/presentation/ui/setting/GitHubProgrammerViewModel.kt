@@ -66,27 +66,57 @@ class GitHubProgrammerViewModel @Inject constructor(
     private val mutable = MutableStateFlow(GitHubProgrammerState())
     val state = mutable.asStateFlow()
     private val destination = MutableStateFlow<GitHubWorkspaceState?>(null)
-    private val sessionProfile = MutableStateFlow<String?>(null)
-    private val requestedChat = MutableStateFlow<Int?>(null)
+    private data class SessionSelection(val profileUid: String? = null, val chatId: Int? = null)
+    private val selection = MutableStateFlow(SessionSelection())
+    private var sessionConfigured = false
+    private data class DestinationInput(
+        val profiles: List<PlatformV2>,
+        val features: dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings,
+        val workspace: GitHubWorkspaceState?,
+        val session: SessionSelection
+    )
     private val conversationCreation = kotlinx.coroutines.sync.Mutex()
     private var preparedChat: Pair<String, Int>? = null
 
     fun configureSession(profileUid: String?, chatId: Int? = null, newConversation: Boolean = false) {
-        sessionProfile.value = profileUid
-        requestedChat.value = if (newConversation) savedStateHandle.get<Int>("github_session_chat") ?: 0 else chatId
+        if (sessionConfigured) return
+        sessionConfigured = true
+        val restored = savedStateHandle.get<Boolean>("github_session_initialized") == true
+        val session = if (restored) {
+            SessionSelection(savedStateHandle["github_session_profile"], savedStateHandle["github_session_chat"])
+        } else {
+            SessionSelection(profileUid, if (newConversation) 0 else chatId)
+        }
+        saveSession(session)
+    }
+
+    private fun saveSession(session: SessionSelection) {
+        savedStateHandle["github_session_initialized"] = true
+        savedStateHandle["github_session_profile"] = session.profileUid
+        savedStateHandle["github_session_chat"] = session.chatId
+        selection.value = session
     }
 
     /** Create the scoped room before mounting the standard Chat screen. Never enqueue a prompt here. */
     fun ensureConversation() = viewModelScope.launch(Dispatchers.IO) {
         conversationCreation.withLock {
             val context = mutable.value.context ?: return@withLock
-            if (mutable.value.chatId != null || !mutable.value.draftLoaded) return@withLock
-            preparedChat?.takeIf { it.first == key(context) }?.let {
-                requestedChat.value = it.second
-                observeConversation(it.second)
-                return@withLock
-            }
+            if (!mutable.value.draftLoaded) return@withLock
+            val session = selection.value
+            val workspace = destination.value ?: return@withLock
+            if (workspace.selection != context.repository || workspace.headSha != context.commitSha || (session.profileUid != null && session.profileUid != context.mainProfileUid)) return@withLock
             try {
+                val existingId = mutable.value.chatId ?: preparedChat?.takeIf { it.first == key(context) }?.second
+                if (existingId != null) {
+                    val existing = database.agentPersistenceDao().getChatRoom(existingId)
+                    val bound = settings.getFeatureSettings().conversationGitHub[existingId]
+                    if (existing != null && !existing.isTemporary && existing.activePlatform == listOf(context.mainProfileUid) && bound?.sameWorkspace(context) == true) {
+                        observeConversation(existingId)
+                        return@withLock
+                    }
+                    preparedChat = null
+                    observeConversation(null)
+                }
                 val profile = mutable.value.profiles.singleOrNull { it.uid == context.mainProfileUid } ?: return@withLock
                 val room = chats.createDraftChat(listOf(profile.uid), "STANDARD", "${context.owner}/${context.repo}", profile.uid)
                 try {
@@ -98,9 +128,10 @@ class GitHubProgrammerViewModel @Inject constructor(
                 }
                 migrateComposerDraft(room, context)
                 preparedChat = key(context) to room.id
-                withContextMain { savedStateHandle["github_session_chat"] = room.id }
-                requestedChat.value = room.id
-                if (mutable.value.context?.sameWorkspace(context) == true) observeConversation(room.id)
+                if (mutable.value.context?.sameWorkspace(context) == true && selection.value == session) {
+                    withContextMain { saveSession(session.copy(chatId = room.id)) }
+                    observeConversation(room.id)
+                }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: Exception) {
@@ -121,13 +152,14 @@ class GitHubProgrammerViewModel @Inject constructor(
 
     init {
         viewModelScope.launch(Dispatchers.IO) {
-            combine(settings.observePlatformV2s(), settings.observeFeatureSettings(), destination, sessionProfile, requestedChat) { profiles, features, workspace, _, _ -> Triple(profiles, features, workspace) }.collect { (profiles, features, workspace) ->
+            combine(settings.observePlatformV2s(), settings.observeFeatureSettings(), destination, selection) { profiles, features, workspace, session -> DestinationInput(profiles, features, workspace, session) }.collect { (profiles, features, workspace, session) ->
+                if (session != selection.value || workspace != destination.value) return@collect
                 val connection = workspace?.connection
                 val selected = workspace?.selection
                 val storedUid = connection?.connectionUid?.let(features.githubMainProfiles::get)
                 val enabled = profiles.filter { it.enabled }
-                val uid = if (sessionProfile.value != null) {
-                    sessionProfile.value?.takeIf { candidate -> enabled.any { it.uid == candidate } }
+                val uid = if (session.profileUid != null) {
+                    session.profileUid?.takeIf { candidate -> enabled.any { it.uid == candidate } }
                 } else {
                     (storedUid ?: features.githubDefaultProfileUid)?.takeIf { candidate -> enabled.any { it.uid == candidate } }
                         ?: enabled.sortedWith(compareByDescending<PlatformV2> { it.isFavorite }.thenBy { it.name }).firstOrNull()?.uid
@@ -141,23 +173,25 @@ class GitHubProgrammerViewModel @Inject constructor(
                 val previousKey = mutable.value.context?.let(::key)
                 val nextKey = context?.let(::key)
                 if (previousKey != nextKey) observeConversation(null)
-                mutable.update { it.copy(profiles = enabled, profileUid = uid, profileOverrideUid = sessionProfile.value ?: storedUid, context = context, prepareIndex = prepare, draftLoaded = it.draftLoaded && previousKey == nextKey) }
+                mutable.update { it.copy(profiles = enabled, profileUid = uid, profileOverrideUid = session.profileUid ?: storedUid, context = context, prepareIndex = prepare, draftLoaded = it.draftLoaded && previousKey == nextKey) }
                 if (previousKey != nextKey || !mutable.value.draftLoaded) {
                     try {
                         val restored = nextKey?.let { latestDrafts[it]?.text ?: drafts.read(it) }.orEmpty()
+                        if (session != selection.value || workspace != destination.value) return@collect
                         mutable.update { it.copy(draft = restored, draftLoaded = context != null) }
                     } catch (_: Exception) {
                         mutable.update { it.copy(draftLoaded = false, error = "Your encrypted command draft could not be restored. Reopen the workspace to retry.") }
                     }
                 }
                 val candidates = when {
-                    context == null || requestedChat.value == 0 -> emptySet()
-                    requestedChat.value != null -> setOfNotNull(requestedChat.value).filterTo(mutableSetOf()) { features.conversationGitHub[it]?.sameWorkspace(context) == true }
+                    context == null || session.chatId == 0 -> emptySet()
+                    session.chatId != null -> setOfNotNull(session.chatId).filterTo(mutableSetOf()) { features.conversationGitHub[it]?.sameWorkspace(context) == true }
                     else -> features.conversationGitHub.filterValues { it.sameWorkspace(context) }.keys
                 }
                 val room = candidates.sortedDescending().firstNotNullOfOrNull { id ->
-                    database.agentPersistenceDao().getChatRoom(id)?.takeIf { (requestedChat.value == it.id || !it.isArchived) && !it.isTemporary && it.activePlatform == listOf(uid) }
+                    database.agentPersistenceDao().getChatRoom(id)?.takeIf { (session.chatId == it.id || !it.isArchived) && !it.isTemporary && it.activePlatform == listOf(uid) }
                 }
+                if (session != selection.value || workspace != destination.value) return@collect
                 if (room != null && context != null) migrateComposerDraft(room, context)
                 observeConversation(room?.id)
             }
@@ -225,8 +259,7 @@ class GitHubProgrammerViewModel @Inject constructor(
     fun selectProfile(uid: String?) {
         val connectionUid = destination.value?.connection?.connectionUid ?: return
         if (uid != null && mutable.value.profiles.none { it.uid == uid }) return
-        sessionProfile.value = uid
-        requestedChat.value = null
+        saveSession(SessionSelection(uid, null))
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 settings.mutateFeatureSettings { it.copy(githubMainProfiles = if (uid == null) it.githubMainProfiles - connectionUid else it.githubMainProfiles + (connectionUid to uid)) }

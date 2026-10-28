@@ -140,6 +140,7 @@ fun GitHubWorkspaceScreen(connection: ToolConnection, onDismiss: () -> Unit, vie
     LaunchedEffect(tab, state.commitDetail) { workspaceScroll.scrollTo(0) }
     LaunchedEffect(tab, state.selection, state.headSha, state.busy, state.error) { viewModel.onSectionVisible(tab) }
     var repositoryMenu by remember { mutableStateOf(false) }
+    var installationMenu by remember { mutableStateOf(false) }
     var branchMenu by remember { mutableStateOf(false) }
     var repositoryQuery by remember { mutableStateOf("") }
     var fileQuery by remember(state.selection?.fullName, state.directory) { mutableStateOf("") }
@@ -259,9 +260,46 @@ fun GitHubWorkspaceScreen(connection: ToolConnection, onDismiss: () -> Unit, vie
         ) { padding ->
             Column(Modifier.fillMaxSize().padding(padding)) {
                 if (state.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
-                if (tab == 5) {
+                if (tab == 5 || state.appAuthorization && state.selection == null) {
                     Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
                         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            state.recoveryRepository?.let { repository ->
+                                Text("Saved edits for $repository are preserved. Choose that repository to recover them.", style = MaterialTheme.typography.bodySmall)
+                                OutlinedButton(onClick = viewModel::discardSavedRecovery, enabled = !state.busy) {
+                                    Icon(Icons.Rounded.Close, null, Modifier.padding(end = 8.dp))
+                                    Text("Discard saved edits")
+                                }
+                            }
+                            if (state.appAuthorization) {
+                                val installation = state.installations.firstOrNull { it.text("id") == state.installationId }
+                                OutlinedButton(onClick = { installationMenu = true }, enabled = canNavigate, modifier = Modifier.fillMaxWidth()) {
+                                    Icon(Icons.Rounded.AccountTree, null, Modifier.padding(end = 8.dp))
+                                    Text(installation?.get("account")?.jsonObject?.text("login")?.let { "Installation: $it" } ?: "Choose GitHub App installation")
+                                }
+                                DropdownMenu(expanded = installationMenu, onDismissRequest = { installationMenu = false }) {
+                                    state.installations.forEach { item ->
+                                        val suspended = item["suspended_at"] != null && item["suspended_at"] != kotlinx.serialization.json.JsonNull
+                                        DropdownMenuItem(
+                                            text = { Text(item["account"]?.jsonObject?.text("login").orEmpty() + if (suspended) " (suspended)" else "") },
+                                            leadingIcon = { Icon(Icons.Rounded.AccountTree, null) },
+                                            enabled = !suspended && !state.busy,
+                                            onClick = {
+                                                installationMenu = false
+                                                viewModel.selectInstallation(item.text("id"))
+                                            }
+                                        )
+                                    }
+                                    if (state.moreInstallations) DropdownMenuItem(text = { Text("Load more installations") }, enabled = !state.busy, onClick = viewModel::moreInstallations)
+                                }
+                                OutlinedButton(onClick = { uriHandler.openUri("https://github.com/settings/installations") }, modifier = Modifier.fillMaxWidth()) {
+                                    Icon(Icons.Rounded.Launch, null, Modifier.padding(end = 8.dp))
+                                    Text("Manage GitHub repository access")
+                                }
+                                if (state.installations.isEmpty()) Text("Install the GitHub App on the repositories you want to use, then reopen this workspace.", style = MaterialTheme.typography.bodySmall)
+                                installation?.get("permissions")?.jsonObject?.let { permissions ->
+                                    Text("App permissions: Contents ${permissions.text("contents").ifBlank { "none" }}, Pull requests ${permissions.text("pull_requests").ifBlank { "none" }}, Actions ${permissions.text("actions").ifBlank { "none" }}. GitHub also checks your account permissions and repository rules.", style = MaterialTheme.typography.bodySmall)
+                                }
+                            }
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 OutlinedButton(onClick = { repositoryMenu = true }, enabled = canNavigate, modifier = Modifier.weight(1f)) {
                                     Icon(Icons.Rounded.FolderOpen, null, Modifier.padding(end = 8.dp))

@@ -78,7 +78,7 @@ class GitHubWorkspaceClient(
         private val json = Json { ignoreUnknownKeys = true }
         val readActions = setOf(
             "list_commits", "list_open_pull_requests", "get_commit_detail", "get_commit_status_summary",
-            "get_account", "list_repositories", "get_repository", "list_branches", "browse_files",
+            "get_account", "list_repositories", "list_installations", "list_installation_repositories", "get_repository", "list_branches", "browse_files",
             "read_code", "get_branch_head", "get_pull_request_files", "get_commit_checks", "compare_refs",
             "repo_status", "repo_map", "repo_docs", "find_symbol", "find_references", "find_tests", "related_files",
             "changed_since", "pr_context", "rate_limit_status", "plan_change", "write_capabilities",
@@ -135,6 +135,16 @@ class GitHubWorkspaceClient(
         require(page in 1..1000) { "Page must be between 1 and 1000." }
         val pagination = "per_page=30&page=$page"
         if (action == "get_account") return request("/user", authenticated = true)
+        if (action == "list_installations") {
+            val result = request("/user/installations?$pagination", authenticated = true).jsonObject
+            return pageResult(result["installations"] ?: JsonArray(emptyList()), page, "id", "account", "app_slug", "permissions", "repository_selection", "suspended_at")
+        }
+        if (action == "list_installation_repositories") {
+            val installation = required("installation_id")
+            require(installation.matches(Regex("[1-9][0-9]{0,19}"))) { "Choose a valid GitHub App installation." }
+            val result = request("/user/installations/$installation/repositories?$pagination", authenticated = true).jsonObject
+            return pageResult(result["repositories"] ?: JsonArray(emptyList()), page, "name", "full_name", "private", "owner", "default_branch", "permissions", "html_url")
+        }
         if (action == "list_repositories") {
             return pageResult(
                 request("/user/repos?sort=updated&$pagination", authenticated = true),
@@ -1413,7 +1423,7 @@ class GitHubWorkspaceClient(
         val cacheable = conditionalReads && method == HttpMethod.Get && path != "/rate_limit"
         val cached = if (cacheable) responseCache.get(cacheKey) else null
         // Mutable branch heads and permission checks are always revalidated.
-        val freshList = path.startsWith("/user/repos") || path.matches(Regex("/repos/[^/]+/[^/]+/(?:branches|contents)(?:[?].*)?"))
+        val freshList = path.startsWith("/user/repos") || path.startsWith("/user/installations") || path.matches(Regex("/repos/[^/]+/[^/]+/(?:branches|contents)(?:[?].*)?"))
         if (cached != null && freshList && System.currentTimeMillis() - cached.storedAtMillis < freshnessSeconds.coerceIn(0, 120) * 1000L) return cached.value
         if (cached != null && cached.immutable) {
             scheduler.recordCacheHit()

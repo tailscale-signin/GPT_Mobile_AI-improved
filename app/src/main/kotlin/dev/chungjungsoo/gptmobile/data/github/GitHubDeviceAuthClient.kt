@@ -83,6 +83,26 @@ internal class GitHubDeviceAuthClient(
         error("GitHub sign-in expired. Start sign-in again.")
     }
 
+    /** Only credentials issued through device authorization may use this secret-free exchange. */
+    suspend fun refresh(clientId: String, refreshToken: String): GitHubOAuthCredential {
+        require(validClientId(clientId)) { "GitHub App client ID is invalid. Reconnect GitHub." }
+        require(refreshToken.length in 1..8192 && refreshToken.none(Char::isWhitespace)) { "GitHub refresh credential is invalid. Reconnect GitHub." }
+        val started = wallMillis()
+        val response = post(
+            TOKEN_ENDPOINT,
+            Parameters.build {
+                append("client_id", clientId)
+                append("grant_type", "refresh_token")
+                append("refresh_token", refreshToken)
+            }
+        )
+        checkError(response)
+        check(response.text("token_type").equals("bearer", true)) { "GitHub returned an unsupported token type." }
+        val rotated = decodeGitHubOAuthCredential(response, started)
+        check(rotated.refreshToken != null && rotated.refreshToken != refreshToken) { "GitHub did not rotate the refresh credential. Reconnect GitHub." }
+        return rotated
+    }
+
     private suspend fun post(endpoint: String, parameters: Parameters): JsonObject = withContext(Dispatchers.IO) {
         withTimeout(15_000L) {
             val response = client.submitForm(endpoint, parameters) { header(HttpHeaders.Accept, "application/json") }

@@ -1,18 +1,27 @@
 {
-  "version": "0.9.62.0",
-  "versionCode": 130,
+  "version": "0.9.63.0",
+  "versionCode": 131,
   "qualification": "scoped",
-  "baseCommit": "52edbffc6c58dab743193e57a27ad3f421f0bb17",
+  "baseCommit": "fe4de044363aed9f9143f882e5fedaf02286d493",
   "changes": [
-    "October 28 diagnostic repairs: deferred draft IO and indexing, chat deletion IO, validated GitHub search/change requests and bounded missing-usage continuation recovery",
-    "Cleaner GitHub workspace with automatic scoped tool execution and one branch/change-summary approval per commit",
-    "Repair the inherited draft-store formatting and continuation CI regressions",
-    "Separate mandatory GenieX unit compilation and full-suite execution into bounded stages after an observed cold-runner timeout"
+    "Cleaner GitHub Workspace with icons, outlined controls, automatic scoped repository tools and one immutable branch/change-summary approval per commit.",
+    "Follow the explicitly selected task branch for commit preparation; run the complete chat-deletion operation on IO.",
+    "Refresh device-issued GitHub App credentials directly without a confidential broker, retaining account binding and uncertain-rotation protection.",
+    "Select accessible GitHub App installations and repositories, preserve saved edits during selection and enforce installation Contents permission in edit availability."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; its remaining acceptance cases are not represented as passed.",
-    "Physical-device frame-time and ASUS firmware acceptance remain unverified.",
-    "GitHub token permissions, provider model entitlement, private servers and MCP connectivity require working external configuration."
+    "Physical-device performance and a production baseline profile remain unqualified until measured on a reference device.",
+    "Android GPU qualification requires compatible-device receipts for actual offload, prefill, decode, repeated requests and cancel/recovery; host tests do not establish those results.",
+    "Repeated physical NPU/GPU schema completion, reduced warm inspection latency, calibrated memory admission and Full-run performance remain device acceptance gates. The app does not infer runtime-effective settings from requested or SDK-applied values.",
+    "Qwen demo backend availability and live authenticated LLM7 generation are not established by deterministic tests.",
+    "Optional runtime extraction remains a staged packaging project. The measured payload inventory and APK code compression do not extract plugins or remove native runtimes.",
+    "Exact recovered France/Portugal wording and report fields, and the earlier benchmark export round-trip, do not establish a complete conversation replay; the later 16-run benchmark export remains unavailable.",
+    "Live GitHub sign-in, private-repository access and credential-refresh acceptance remain unverified in this diagnostic audit; public browser sign-in requires the registered broker deployment.",
+    "The October 28 export still requires physical-device performance replay; fixing the identified filesDir calls does not establish that the 748 ms frame stalls are resolved.",
+    "Provider HTTP 403s, Android-app GitHub token endpoint permissions, private local/MCP server reachability and the remote MCP discovery timeout require service, credential or device-route verification.",
+    "The ASUS framework finalizer SecurityException is outside application control. Host and emulator checks do not qualify the affected vendor firmware.",
+    "GitHub App registration, a real release client ID, clean-device sign-in and live private-repository read/write and refresh acceptance remain required before merge/publication. Browser PKCE also requires its registered broker and verified HTTPS callback deployment. Workflows write permission is pending explicit approval after automatic approval review rejected preparation of that privileged access."
   ],
   "requiredWorkflows": [
     "Build Android APK",
@@ -22,10 +31,9 @@
   ],
   "allowedPaths": [
     "app/",
-    "release-scope.json",
     "RELEASE_NOTES.md",
-    "docs/diagnostics/2026-10-28-log-remediation.md",
+    "release-scope.json",
     "docs/diagnostics/2026-10-28-build129-workspace-remediation.md",
-    ".github/workflows/geniex-preview.yml"
+    "docs/github-app-sign-in-implementation.md"
   ]
 }

@@ -24,6 +24,46 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubWorkspaceClientTest {
+    @Test fun appDiscoveryUsesUserInstallationEndpointsAndPreservesPaginationAndPermissions() = runTest {
+        val requests = mutableListOf<String>()
+        val http = HttpClient(
+            MockEngine { request ->
+                requests += request.url.encodedPath
+                assertEquals("Bearer user-token", request.headers["Authorization"])
+                assertEquals("2", request.url.parameters["page"])
+                assertEquals("30", request.url.parameters["per_page"])
+                respond(
+                    when (request.url.encodedPath) {
+                        "/user/installations" -> """{"installations":[{"id":42,"account":{"login":"team"},"permissions":{"contents":"read"},"suspended_at":null}]}"""
+                        "/user/installations/42/repositories" -> """{"repositories":[{"name":"allowed","full_name":"team/allowed","owner":{"login":"team"},"permissions":{"push":true}}]}"""
+                        else -> error("Unexpected endpoint")
+                    }
+                )
+            }
+        )
+        try {
+            val client = GitHubWorkspaceClient("user-token", http)
+            val installations = client.execute("list_installations", buildJsonObject { put("page", 2) }).jsonObject
+            assertEquals("read", installations["items"]!!.jsonArray.single().jsonObject["permissions"]!!.jsonObject["contents"]!!.jsonPrimitive.content)
+            val repositories = client.execute(
+                "list_installation_repositories",
+                buildJsonObject {
+                    put("page", 2)
+                    put("installation_id", "42")
+                }
+            ).jsonObject
+            assertEquals("team/allowed", repositories["items"]!!.jsonArray.single().jsonObject["full_name"]!!.jsonPrimitive.content)
+            assertEquals("false", repositories["has_more"].toString())
+            assertEquals(2, requests.size)
+            for (invalid in listOf("", "../other", "0", "42?x=1")) {
+                assertTrue(runCatching { client.execute("list_installation_repositories", buildJsonObject { put("installation_id", invalid) }) }.isFailure)
+            }
+            assertEquals(2, requests.size)
+        } finally {
+            http.close()
+        }
+    }
+
     @Test fun reviewReplyUsesPullRequestScopedEndpoint() = runTest {
         val sha = "a".repeat(40)
         var requests = 0

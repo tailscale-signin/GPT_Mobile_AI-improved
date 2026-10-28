@@ -46,6 +46,7 @@ class GitHubPublicAuthCoordinatorTest {
         var now = 1_000_000L
         var exchanges = 0
         var rotations = 0
+        var deviceRotations = 0
         var token = "ghu_first"
         var expiresIn = 28800
         var uncertainRefresh = false
@@ -71,7 +72,12 @@ class GitHubPublicAuthCoordinatorTest {
                         if (uncertainRefresh) throw IOException("Remote outcome unknown")
                         """{"access_token":"ghu_rotated","refresh_token":"ghr_rotated","token_type":"bearer","expires_in":28800,"refresh_token_expires_in":15897600}"""
                     }
-                    else -> error("Unexpected broker endpoint")
+                    request.url.toString() == GitHubDeviceAuthClient.TOKEN_ENDPOINT -> {
+                        deviceRotations++
+                        if (uncertainRefresh) throw IOException("Remote outcome unknown")
+                        """{"access_token":"ghu_rotated","refresh_token":"ghr_rotated","token_type":"bearer","expires_in":28800,"refresh_token_expires_in":15897600}"""
+                    }
+                    else -> error("Unexpected authorization endpoint")
                 }
                 respond(response, headers = headersOf(HttpHeaders.ContentType, "application/json"))
             }
@@ -90,9 +96,9 @@ class GitHubPublicAuthCoordinatorTest {
             }
         }
 
-        fun coordinator() = GitHubPublicAuthCoordinator(repository, vault, config, { now }, { GitHubPublicAuthClient(http, origin, callback, config.clientId, { now }, { ByteArray(it) }) }, { access ->
+        fun coordinator(configuration: GitHubPublicAuthConfiguration = config) = GitHubPublicAuthCoordinator(repository, vault, configuration, { now }, { GitHubPublicAuthClient(http, origin, callback, config.clientId, { now }, { ByteArray(it) }) }, { access ->
             GitHubPublicAuthCoordinator.Account(if (access == "ghu_second_account") "2" else "1", "coder")
-        })
+        }, { clientId, refreshToken -> GitHubDeviceAuthClient(http, wallMillis = { now }).refresh(clientId, refreshToken) })
         fun validCallback() = "$callback?state=$state&code=private-code"
         override fun close() {
             http.close()
@@ -109,17 +115,35 @@ class GitHubPublicAuthCoordinatorTest {
             f.now += 2000
             assertEquals("ghu_rotated", coordinator.accessToken(f.connection))
             assertEquals(0, f.exchanges)
-            assertEquals(1, f.rotations)
+            assertEquals(0, f.rotations)
+            assertEquals(1, f.deviceRotations)
+            assertEquals("DEVICE", coordinator.session("github")?.refreshMethod)
         }
     }
 
-    @Test fun aCustomDeviceAppCannotUseTheProjectsConfidentialRefreshEndpoint() = runBlocking {
+    @Test fun aCustomDeviceAppRefreshesWithoutTheProjectsConfidentialBroker() = runBlocking {
         Fixture().use { f ->
-            val coordinator = f.coordinator()
+            val coordinator = f.coordinator(GitHubPublicAuthConfiguration("", "", f.callback))
             coordinator.completeDevice(f.connection, "Iv1.custom", GitHubOAuthCredential("ghu_first", "ghr_first", f.now + 1000, f.now + 100_000))
             assertEquals("Iv1.custom", coordinator.session("github")?.clientId)
             f.now += 2000
+            assertEquals("ghu_rotated", coordinator.accessToken(f.connection))
+            assertEquals("Iv1.custom", coordinator.session("github")?.clientId)
+            assertEquals(0, f.rotations)
+            assertEquals(1, f.deviceRotations)
+        }
+    }
+
+    @Test fun uncertainDeviceRotationIsNotReplayedAfterProcessRestart() = runBlocking {
+        Fixture().use { f ->
+            val coordinator = f.coordinator()
+            coordinator.completeDevice(f.connection, "Iv1.custom", GitHubOAuthCredential("ghu_first", "ghr_first", f.now + 1000, f.now + 100_000))
+            f.now += 2000
+            f.uncertainRefresh = true
             assertTrue(runCatching { coordinator.accessToken(f.connection) }.isFailure)
+            assertEquals("REAUTH_REQUIRED", coordinator.session("github")?.refreshState)
+            assertTrue(runCatching { f.coordinator().accessToken(f.connection) }.isFailure)
+            assertEquals(1, f.deviceRotations)
             assertEquals(0, f.rotations)
         }
     }

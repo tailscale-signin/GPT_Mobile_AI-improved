@@ -1,22 +1,30 @@
-# GPT Mobile AI 0.9.62.0 (build 130)
+# GPT Mobile AI 0.9.63.0 (build 131) — candidate
 
-- Simplify the GitHub workspace with a solid background, visible buttons, icon shortcuts and collapsed operation history.
-- Run repository tools automatically within explicitly scoped workspace conversations. Show one commit popup with the branch and a short list of file changes; approval commits the frozen patch and continues the task.
-- Move chat deletion cleanup and draft directory access off the main thread; move repository indexing work to Default.
-- Validate GitHub search and change requests before dispatch. Stop repeated output-limited reasoning-only continuations while preserving partial answers and completed tool evidence.
-- Repair the inherited formatting and continuation regression failures.
+- Clean up GitHub Workspace with outlined buttons, icons, a solid background and collapsed operation history.
+- Automatically authorize scoped workspace repository tools. Present one commit popup with its branch and file-change bullets; approval validates the immutable patch and continues the saved task.
+- Follow an explicitly selected task branch when preparing a commit, and move the complete chat-deletion operation to IO.
+- Refresh device-issued GitHub App credentials directly with their registered client, retaining account binding and uncertain-rotation protection. Browser-issued credentials retain the confidential PKCE broker.
+- Select GitHub App installations and their permitted repositories. Preserve saved edits during selection and combine installation Contents permission with repository membership when displaying edit access.
 
-Limitations:
+This candidate is unmerged and unpublished. GitHub App registration, a real release client ID, clean-device sign-in and live private-repository read/write and refresh acceptance remain required before merge/publication. Browser PKCE also requires its registered broker and verified HTTPS callback deployment. Workflows write permission is pending explicit approval after automatic approval review rejected preparation of that privileged access.
 
-- Unified Reliability v2 is not complete; its remaining acceptance cases are not represented as passed.
-- Physical-device frame-time and ASUS firmware acceptance remain unverified.
-- GitHub token permissions, provider model entitlement, private servers and MCP connectivity require working external configuration.
+Unified Reliability v2 is not complete. Physical-device frame timing, external provider/token permissions, private server/MCP reachability and ASUS firmware limitations remain unqualified. See the diagnostic disposition table and GitHub sign-in implementation document.
 
-# 0.9.61.0
+# GPT Mobile AI 0.9.62.0 (130)
 
-Research evidence fallback and provider-limit recovery; full public web-search, multi-search and crawler access on active Free routes; GitHub App OAuth device sign-in; smaller Combined handoff stages.
+This scoped maintenance release includes the current main branch and the October 28 diagnostic repairs from PR #751. The earlier chat-first GitHub workspace and reliability integration are described in PR #750; this maintenance audit does not requalify every inherited feature.
 
-Unified Reliability v2 is not complete.
+## Fixes
+
+- Defer GitHub draft directory resolution to IO; run repository hashing and lexical indexing on Dispatchers.Default.
+- Validate compact GitHub search inputs and require an explicit comparison base before dispatch.
+- Retain the low-yield continuation guard when providers omit usage; preserve the earlier immediate empty-restored-continuation stop.
+- Resolve chat deletion and temporary-chat cleanup directories on Dispatchers.IO.
+- Regression coverage for encrypted draft persistence, search/comparison validation, missing-usage continuation bounds and cleanup dispatcher ownership.
+
+- Separate cold compilation and full-suite execution deadlines in PR/GenieX validation; retain all tests and the coverage gate.
+
+## Qualification and remaining limitations
 
 - Unified Reliability v2 is not complete; its remaining acceptance cases are not represented as passed.
 - Physical-device performance and a production baseline profile remain unqualified until measured on a reference device.
@@ -25,40 +33,11 @@ Unified Reliability v2 is not complete.
 - Qwen demo backend availability and live authenticated LLM7 generation are not established by deterministic tests.
 - Optional runtime extraction remains a staged packaging project. The measured payload inventory and APK code compression do not extract plugins or remove native runtimes.
 - Exact recovered France/Portugal wording and report fields, and the earlier benchmark export round-trip, do not establish a complete conversation replay; the later 16-run benchmark export remains unavailable.
-- GitHub OAuth requires a registered GitHub App client ID with device flow enabled; token refresh is manual and live sign-in remains unverified.
+- Live GitHub sign-in, private-repository access and credential-refresh acceptance remain unverified in this diagnostic audit; public browser sign-in requires the registered broker deployment.
+- The October 28 export still requires physical-device performance replay; fixing the identified filesDir calls does not establish that the 748 ms frame stalls are resolved.
+- Provider HTTP 403s, Android-app GitHub token endpoint permissions, private local/MCP server reachability and the remote MCP discovery timeout require service, credential or device-route verification.
+- The ASUS framework finalizer SecurityException is outside application control. Host and emulator checks do not qualify the affected vendor firmware.
 
-# GPT Mobile AI 0.9.60.0 (build 128)
+## Validation
 
-This version extends provider privacy, durable Research recovery and source-preserving Combined answers, and integrates the supplied GGUF/benchmark reliability requirements and October 24 benchmark audit.
-
-- Bind activation and personal-data transfer to the current recipient, model, credential, profile/chat, category, range and expiry. Carry provenance through tool results, derived queries, delegation and final dispatch. Retired PorchLM/OpenCode routes remain blocked while history is retained.
-- Persist atomic request/token reservations, settlement, cooldowns and credential/model health. Retain accepted queue identity across permission changes; known quota-deferred Research resumes its exact unfinished stage with the saved evidence and budget.
-- Preserve the originally accepted permissions through asynchronous quota resume and another wait. Revalidate the current scheduling deadline without changing the original provider evidence or losing the pause to clock sampling drift.
-- Preserve Combined sources and revisions, make append continuation an explicit versioned option, and store large documents in reusable verified pages. Final and contributor views read bounded pages; full copy/export and conversation backups retain the complete text.
-- Use one claim-to-answer map for attribution, inspection and coverage. Preserve event/date relationships, uncertainty, disagreement and raw contributor wording while removing repeated editorial metadata from prompts.
-- Recognize the original France answer's named events with parenthetical dates as partial source contributions. Interpret completed saved answers that miss requirements as needing an explicit revision, while retaining their historical reports.
-- Show an Accept / Decline pop-up when the selected paper examination needs consent; acceptance revalidates the original request.
-- Separate native engine configuration, generation configuration, execution and cleanup receipts. Add bounded automatic-context replanning, measured prompt admission, typed deadlines, exact Verify recovery and controlled CPU thread/cache experiments.
-- Require a productive GPU generation before increasing an existing qualified offload setting; cancelled samples remain diagnostic evidence and cannot qualify the increase.
-- Create a revised answer from the current or archived answer being viewed, with stale-selection checks and complete preservation of previous answers.
-- Prevent interrupted progress delivery from breaking LiteRT memory replanning. Keep cancellation effective and limit replanning to requests that have not begun generation.
-- Compress release APK code and split oversized dispatch methods while preserving runtime support and the existing size limits.
-- Version benchmark validators and reporting, preserve historical grades, distinguish executed from skipped cases, and qualify timing only from eligible observations. Move identified disk reads off UI paths and retain causal diagnostic identities.
-- Cache validated LiteRT inspection by artifact and runtime/device identity, retain inspection sub-stage evidence, and preserve constrained-decoding failures as typed errors. Structured requests disable thinking/speculative decoding, retain unmodified decoder output and require exact-schema readiness before a prompt-based fallback.
-- Add suite 10 with separate semantic, format, tool and performance evidence, recorded fixture rotations across eight intelligence domains, and distinct deterministic/saved-profile policies. Retain earlier suite manifests and grades.
-- Add cold/warm, prefill, decode, first-visible, sustained and cleanup trials; show descriptive distributions, comparable history, observed backend matrices and post-cleanup memory trends. Show provisional/unranked status and unknown effective settings explicitly, with separate client, worker, process and native deadline policies.
-- Stream benchmark exports from canonical records into a completed private file before saving through Android's document picker. Preserve full raw evidence and redaction, contain picker/provider failures, and retain a checked export for retry after interruption. A dedicated 256 MiB regression covers large benchmark histories.
-- Keep cold exports bounded after restart, including canonical rows larger than an Android cursor window, without loading all raw answers, rewriting scores or parsing a stale backup mirror. Complete original records still supply per-run grading.
-- Upgrade Room additively to schema 47; published schema 46 remains unchanged.
-
-See the [implementation scope](docs/releases/0.9.60.0.md), [validation record](docs/validation/release-0.9.60.0.md), [design ledger](docs/validation/0.9.60.0-design-coverage.md), [GGUF/benchmark ledger](docs/validation/0.9.60.0-gguf-benchmark-coverage.md) and [extended audit ledger](docs/validation/0.9.60.0-benchmark-audit-extended-coverage.md). Implementation, automated validation and device qualification are tracked separately.
-
-## Qualification limits
-
-- Unified Reliability v2 is not complete; its remaining acceptance cases are not represented as passed.
-- Physical-device performance and a production baseline profile remain unqualified until measured on a reference device.
-- Android GPU qualification requires compatible-device receipts for actual offload, prefill, decode, repeated requests and cancel/recovery; host tests do not establish those results.
-- Repeated physical NPU/GPU schema completion, reduced warm inspection latency, calibrated memory admission and Full-run performance remain device acceptance gates. The app does not infer runtime-effective settings from requested or SDK-applied values.
-- Qwen demo backend availability and live authenticated LLM7 generation are not established by deterministic tests.
-- Optional runtime extraction remains a staged packaging project. The measured payload inventory and APK code compression do not extract plugins or remove native runtimes.
-- Exact recovered France/Portugal wording and report fields, and the earlier benchmark export round-trip, do not establish a complete conversation replay; the later 16-run benchmark export remains unavailable. See the [continuation review](docs/validation/0.9.60.0-continuation-review.md).
+Publication is gated on the exact candidate's Android build, post-merge correctness, CodeQL and Android acceptance workflows, followed by signed-release validation and artifact identity checks. Check the linked workflow results for the final commit; pending checks are not passing evidence. Original device/provider scenarios must still be replayed to close the disclosed limitations.

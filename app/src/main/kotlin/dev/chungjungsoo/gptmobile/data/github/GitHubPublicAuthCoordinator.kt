@@ -30,7 +30,8 @@ class GitHubPublicAuthCoordinator internal constructor(
     private val accountIdentity: suspend (String) -> Account = { token ->
         val value = GitHubWorkspaceClient(token).execute("get_account", buildJsonObject {}).jsonObject
         Account(value.getValue("id").jsonPrimitive.content, value.getValue("login").jsonPrimitive.content, value["avatar_url"]?.jsonPrimitive?.content)
-    }
+    },
+    private val deviceRefresh: suspend (String, String) -> GitHubOAuthCredential = { clientId, refreshToken -> GitHubDeviceAuthClient(http).refresh(clientId, refreshToken) }
 ) {
     @Inject constructor(connections: ToolConnectionRepository, vault: SecretVault) : this(connections, vault, GitHubPublicAuthConfiguration.project())
 
@@ -51,7 +52,8 @@ class GitHubPublicAuthCoordinator internal constructor(
         val expiresAt: Long? = null,
         val refreshExpiresAt: Long? = null,
         val refreshState: String = "READY",
-        val refreshOperationId: String? = null
+        val refreshOperationId: String? = null,
+        val refreshMethod: String = "BROKER"
     ) {
         override fun toString() = "Encrypted GitHub session (credentials redacted)"
     }
@@ -135,7 +137,7 @@ class GitHubPublicAuthCoordinator internal constructor(
     internal suspend fun completeDevice(connection: ToolConnection, clientId: String, credential: GitHubOAuthCredential): Account = credentialMutex(connection.connectionUid).withLock {
         check(connection.type == "GITHUB" && connection.authType == "OAUTH" && connections.getConnection(connection.connectionUid) == connection && GitHubDeviceAuthClient.validClientId(clientId)) { "GitHub connection changed. Start sign-in again." }
         val account = verifyAccount(connection, credential.accessToken)
-        save(connection, credential, account, clientId)
+        save(connection, credential, account, clientId, "DEVICE")
         account
     }
 
@@ -180,18 +182,25 @@ class GitHubPublicAuthCoordinator internal constructor(
         check(session.fingerprint == fingerprint(currentToken)) { "GitHub credentials changed. Reconnect to verify this account." }
         val rejected = GitHubSessionCaches.authenticationForCredential(currentToken).get()
         if (!rejected && (session.expiresAt == null || clock() + 60_000 < session.expiresAt)) return@withLock currentToken
-        check(configuration.configured && session.clientId == configuration.clientId && session.refreshState == "READY" && session.refreshToken != null && (session.refreshExpiresAt == null || clock() < session.refreshExpiresAt)) { "GitHub authorization expired or refresh needs reconciliation. Reconnect GitHub." }
+        val canRefresh = when (session.refreshMethod) {
+            "DEVICE" -> GitHubDeviceAuthClient.validClientId(session.clientId)
+            "BROKER" -> configuration.configured && session.clientId == configuration.clientId
+            else -> false
+        }
+        check(canRefresh && session.refreshState == "READY" && session.refreshToken != null && (session.refreshExpiresAt == null || clock() < session.refreshExpiresAt)) { "GitHub authorization expired or refresh needs reconciliation. Reconnect GitHub." }
         val operationId = java.util.UUID.randomUUID().toString()
         val rotating = session.copy(refreshState = "REFRESHING", refreshOperationId = operationId)
         put(sessionReference(connection.connectionUid), rotating, Session.serializer())
         try {
-            clientFactory().use { client ->
-                val rotated = client.rotate(operationId, session.refreshToken)
-                val account = accountIdentity(rotated.accessToken)
-                check(account.id == session.account.id) { "GitHub refresh changed account identity. Reconnect GitHub." }
-                save(connection, rotated, account)
-                rotated.accessToken
+            val rotated = if (session.refreshMethod == "DEVICE") {
+                deviceRefresh(session.clientId, session.refreshToken)
+            } else {
+                clientFactory().use { it.rotate(operationId, session.refreshToken) }
             }
+            val account = accountIdentity(rotated.accessToken)
+            check(account.id == session.account.id) { "GitHub refresh changed account identity. Reconnect GitHub." }
+            save(connection, rotated, account, session.clientId, session.refreshMethod)
+            rotated.accessToken
         } catch (failure: Exception) {
             withContext(NonCancellable) {
                 if (connections.getConnection(connection.connectionUid) == connection && session(connection.connectionUid)?.refreshOperationId == operationId) {
@@ -203,7 +212,7 @@ class GitHubPublicAuthCoordinator internal constructor(
         }
     }
 
-    private suspend fun save(connection: ToolConnection, credential: GitHubOAuthCredential, account: Account, clientId: String = configuration.clientId) = dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceMutations.mutex.withLock {
+    private suspend fun save(connection: ToolConnection, credential: GitHubOAuthCredential, account: Account, clientId: String = configuration.clientId, refreshMethod: String = "BROKER") = dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceMutations.mutex.withLock {
         check(connections.getConnection(connection.connectionUid) == connection) { "GitHub connection changed before credentials could be saved. Reconnect." }
         put(bindingReference(connection.connectionUid), account, Account.serializer())
         val bytes = credential.accessToken.encodeToByteArray()
@@ -212,7 +221,7 @@ class GitHubPublicAuthCoordinator internal constructor(
         } finally {
             bytes.fill(0)
         }
-        put(sessionReference(connection.connectionUid), Session(account, fingerprint(credential.accessToken), clientId, credential.refreshToken, credential.expiresAt, credential.refreshExpiresAt), Session.serializer())
+        put(sessionReference(connection.connectionUid), Session(account, fingerprint(credential.accessToken), clientId, credential.refreshToken, credential.expiresAt, refreshMethod = refreshMethod), Session.serializer())
     }
 
     private suspend fun <T> read(reference: String, serializer: kotlinx.serialization.KSerializer<T>): T? {

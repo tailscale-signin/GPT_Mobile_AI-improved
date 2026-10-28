@@ -12,7 +12,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class OutputLimitRecoverySessionTest {
-    @Test fun missingUsageStillStopsRepeatedReasoningOnlyOutputLimits() = runTest {
+    @Test fun restoredDraftStopsAfterFirstEmptyContinuationWithoutSpendingAnotherRequest() = runTest {
         var continued = 0
         val saved = mutableListOf<String>()
         fun limited() = session {
@@ -30,10 +30,35 @@ class OutputLimitRecoverySessionTest {
             limited()
         }
         val events = wrapper.streamRound(emptyList(), emptyList()).toList()
-        // One restored-draft request and one retry, then stop even without usage.
-        assertEquals(2, continued)
-        assertTrue(events.filterIsInstance<ProviderEvent.Failed>().single().message.contains("OUTPUT_CONTINUATION_NO_VISIBLE_PROGRESS"))
+        // The existing no-progress guard stops the first empty restored continuation.
+        assertEquals(1, continued)
+        assertTrue(events.filterIsInstance<ProviderEvent.Failed>().single().message.contains("OUTPUT_CONTINUATION_NO_PROGRESS"))
         assertTrue(saved.all { it == "Saved visible answer." })
+        assertTrue(events.none { it == ProviderEvent.Completed })
+    }
+
+    @Test fun missingUsageStillStopsTwoLowYieldOutputLimitedRequests() = runTest {
+        var continued = 0
+        val saved = mutableListOf<String>()
+        val wrapper = OutputLimitRecoverySession(
+            session {
+                emit(ProviderEvent.ThinkingDelta("Reasoning without visible progress"))
+                emit(ProviderEvent.Failed("finish_reason=length"))
+            },
+            maxContinuations = 12,
+            effectiveOutputCap = 2048,
+            saveProgress = { draft, _, _, _ -> saved += draft }
+        ) { _, _ ->
+            continued++
+            session {
+                emit(ProviderEvent.ThinkingDelta("Still no answer"))
+                emit(ProviderEvent.Failed("finish_reason=length"))
+            }
+        }
+        val events = wrapper.streamRound(emptyList(), emptyList()).toList()
+        assertEquals(1, continued)
+        assertTrue(events.filterIsInstance<ProviderEvent.Failed>().single().message.contains("OUTPUT_CONTINUATION_NO_VISIBLE_PROGRESS"))
+        assertTrue(saved.all { it.isEmpty() })
         assertTrue(events.none { it == ProviderEvent.Completed })
     }
 

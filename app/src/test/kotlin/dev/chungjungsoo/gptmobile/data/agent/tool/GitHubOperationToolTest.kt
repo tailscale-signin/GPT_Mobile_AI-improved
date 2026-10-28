@@ -33,6 +33,26 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubOperationToolTest {
+    @Test fun changesRequiresAnExplicitStringBaseBeforeDispatch() = runBlocking {
+        val backend = Backend()
+        val operation = GitHubOperationTool("github_context", backend, "changes-validation")
+        for (input in listOf(
+            """{"action":"changes"}""",
+            """{"action":"changes","base_sha":"   "}""",
+            """{"action":"changes","base_sha":false}""",
+            """{"action":"changed_since","base":"main"}"""
+        )) {
+            val result = operation.execute("invalid", args(input))
+            assertTrue(result.isError)
+            assertFalse(result.dispatched)
+            assertEquals("INVALID_ARGUMENTS", result.errorCode)
+        }
+        assertTrue(backend.calls.isEmpty())
+        operation.execute("valid", args("""{"action":"changes","base_sha":"main"}"""))
+        assertEquals("changed_since", backend.calls.single()["action"]?.jsonPrimitive?.content)
+        assertEquals("main", backend.calls.single()["base"]?.jsonPrimitive?.content)
+    }
+
     @Test fun invalidSearchQueriesAreRejectedBeforeDispatch() = runBlocking {
         val backend = Backend()
         val operation = GitHubOperationTool("github_search", backend, "search-validation")

@@ -17,7 +17,11 @@ class CombinedRecordRecoverySessionTest {
         var requests = 0
         val recovery = CombinedRecordRecoverySession(
             session(ProviderEvent.TextDelta("```json\n$first\n```"), ProviderEvent.Usage(finishReason = "length"), ProviderEvent.Completed),
-            parser, 2, acceptedAppend = true, validateAccess = {}, save = {}
+            parser,
+            2,
+            acceptedAppend = true,
+            validateAccess = {},
+            save = {}
         ) { state, _ ->
             requests++
             assertEquals(1, state.lastSequence)

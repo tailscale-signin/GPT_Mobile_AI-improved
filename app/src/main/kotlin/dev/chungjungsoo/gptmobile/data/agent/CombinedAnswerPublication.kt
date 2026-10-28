@@ -42,10 +42,15 @@ internal object CombinedAnswerPublication {
             val committedDraft = report.version >= 7 && report.assessmentStage == CombinedCommittedDraft.STAGE
             if (committedDraft) {
                 require(
-                    !report.finalAssessment && !report.complete && !report.protocolComplete &&
-                        !report.semanticCoverageVerified && !report.factualAccuracyVerified &&
-                        report.verificationReceipts.isEmpty() && report.displayableDraft &&
-                        report.deliveredScopeStatus == "PARTIAL" && report.verificationStatus == "UNVERIFIED" &&
+                    !report.finalAssessment &&
+                        !report.complete &&
+                        !report.protocolComplete &&
+                        !report.semanticCoverageVerified &&
+                        !report.factualAccuracyVerified &&
+                        report.verificationReceipts.isEmpty() &&
+                        report.displayableDraft &&
+                        report.deliveredScopeStatus == "PARTIAL" &&
+                        report.verificationStatus == "UNVERIFIED" &&
                         report.status in setOf("WRITING", "FAILED", "INTERRUPTED", "CANCELED")
                 ) { "COMBINED_DRAFT_COMPLETION_CONTRADICTORY" }
             } else {

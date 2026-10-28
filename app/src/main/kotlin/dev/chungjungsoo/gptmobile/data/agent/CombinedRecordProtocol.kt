@@ -293,11 +293,13 @@ internal class CombinedRecordProtocol(
                             "Use next_sequence for the next new passage, not another premature end record. Preserve every committed passage and its source references. " +
                             "Do not repeat or pad text, invent claims, rewrite earlier passages or execute tools. Emit a new end record only after the requested scope and length are satisfied."
                     } else {
-                        (if (partial.isBlank()) {
-                            "There is no unfinished record. Start the next NEW passage at next_sequence and continue the remaining answer. "
-                        } else {
-                            "Regenerate the entire unfinished record at next_sequence, preserving its intended topic and claims, then continue with NEW passages. Never continue inside a JSON string. "
-                        }) + "Use this packet's remaining allowance for the unfinished requested scope; completing one record does not complete the answer. Use the original frozen inventory, user scope and record IDs. Emit the end record only after all required records. Do not execute tools."
+                        (
+                            if (partial.isBlank()) {
+                                "There is no unfinished record. Start the next NEW passage at next_sequence and continue the remaining answer. "
+                            } else {
+                                "Regenerate the entire unfinished record at next_sequence, preserving its intended topic and claims, then continue with NEW passages. Never continue inside a JSON string. "
+                            }
+                            ) + "Use this packet's remaining allowance for the unfinished requested scope; completing one record does not complete the answer. Use the original frozen inventory, user scope and record IDs. Emit the end record only after all required records. Do not execute tools."
                     }
                 )
             )

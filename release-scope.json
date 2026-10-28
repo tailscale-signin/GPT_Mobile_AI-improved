@@ -18,7 +18,7 @@
     "Qwen demo backend availability and live authenticated LLM7 generation are not established by deterministic tests.",
     "Optional runtime extraction remains a staged packaging project. The measured payload inventory and APK code compression do not extract plugins or remove native runtimes.",
     "Exact recovered France/Portugal wording and report fields, and the earlier benchmark export round-trip, do not establish a complete conversation replay; the later 16-run benchmark export remains unavailable.",
-    "GitHub OAuth requires a registered GitHub App client ID with device flow enabled; token refresh is manual and live sign-in remains unverified.",
+    "Live GitHub sign-in, private-repository access and credential-refresh acceptance remain unverified in this diagnostic audit; public browser sign-in requires the registered broker deployment.",
     "The October 28 export still requires physical-device performance replay; fixing the identified filesDir calls does not establish that the 748 ms frame stalls are resolved.",
     "Provider HTTP 403s, Android-app GitHub token endpoint permissions, private local/MCP server reachability and the remote MCP discovery timeout require service, credential or device-route verification.",
     "The ASUS framework finalizer SecurityException is outside application control. Host and emulator checks do not qualify the affected vendor firmware."

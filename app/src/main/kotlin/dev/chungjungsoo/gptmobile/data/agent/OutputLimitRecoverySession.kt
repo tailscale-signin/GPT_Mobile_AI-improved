@@ -186,7 +186,7 @@ internal class OutputLimitRecoverySession(
             }
             val needsMore = if (combined == null) LongResponsePolicy.needsMore(answer.toString(), targetWords) else targetWords?.let { visibleWords() < it } == true
             val shortAnswer = completed && pendingCalls.isEmpty() && needsMore
-            val noProgress = continuing && novel.isBlank() && !limitFailure && !transientFailure && pendingCalls.isEmpty()
+            val noProgress = continuing && novel.isBlank() && !transientFailure && pendingCalls.isEmpty()
             // A successful but repeated/empty packet gets one text-only regeneration
             // within the existing request allowance. Provider failures retain their own
             // recovery policy; a second repetition cannot become an unbounded loop.

@@ -69,7 +69,7 @@ interface ToolApprovalDao {
 
 /** User-owned permissions. Server readOnly annotations never grant authority. */
 @Singleton
-class ToolApprovalManager @Inject constructor(private val database: ChatDatabaseV2, private val connections: ToolConnectionRepository, private val trust: ToolTrustStore? = null, private val nativeMarketplace: dev.chungjungsoo.gptmobile.data.marketplace.NativeMarketplaceRegistry? = null) {
+class ToolApprovalManager @Inject constructor(private val database: ChatDatabaseV2, private val connections: ToolConnectionRepository, private val trust: ToolTrustStore? = null, private val nativeMarketplace: dev.chungjungsoo.gptmobile.data.marketplace.NativeMarketplaceRegistry? = null, private val settings: dev.chungjungsoo.gptmobile.data.repository.SettingRepository? = null) {
     private val dao = database.toolApprovalDao()
     private val submissionMutex = Mutex()
     private val requestConnections = java.util.concurrent.ConcurrentHashMap<String, String>()
@@ -169,6 +169,18 @@ class ToolApprovalManager @Inject constructor(private val database: ChatDatabase
         }
         val connection = connections.getConnection(connectionId) ?: return false
         val github = GitHubAuthorizationBoundary.applies(connection)
+        val workspace = if (connection.type == "GITHUB" && settings != null) {
+            database.agentRunDao().getById(runId)?.let { run -> settings.getFeatureSettings().conversationGitHub[run.chatId] }
+        } else {
+            null
+        }
+        val workspaceApproved = workspace?.let { selected ->
+            selected.autoApproveTools &&
+                selected.connectionUid == connectionId &&
+                listOf("owner" to selected.owner, "repo" to selected.repo).all { (key, expected) ->
+                    (arguments[key] as? kotlinx.serialization.json.JsonPrimitive)?.content?.equals(expected, true) != false
+                }
+        } == true
         if (github && GitHubAuthorizationBoundary.requiresElevatedAuthorization(tool, arguments)) {
             throw ToolAuthorizationRejected("ELEVATED_AUTH_REQUIRED", "This GitHub administrative operation requires a separate elevated authorization and explicit confirmation. Ordinary repository permissions and remembered tool grants cannot authorize it. No request was sent.")
         }
@@ -180,9 +192,9 @@ class ToolApprovalManager @Inject constructor(private val database: ChatDatabase
         val replayableRead = connection.type == "GITHUB" && GitHubAuthorizationBoundary.isReplayableRead(tool, arguments)
         val branchSelection = github && GitHubAuthorizationBoundary.isBranchSelection(tool, arguments)
         val readOnly = githubRead && tool in connection.approvedReadTools.lines().map(String::trim)
-        if (policy == ToolPolicy.READ_ONLY && !readOnly) return false
+        if (!workspaceApproved && policy == ToolPolicy.READ_ONLY && !readOnly) return false
         if (readOnly && !branchSelection) return true
-        val exactApproval = github && (branchSelection || !(if (tool == "github") githubRead else readOnly))
+        val exactApproval = github && !workspaceApproved && (branchSelection || !(if (tool == "github") githubRead else readOnly))
         val scope = schema?.let { definition -> database.agentRunDao().getById(runId)?.let { ScopedToolGrant.from(it.chatId, definition, arguments) } }
         val id = "$runId:$callId"
         scope?.let { requestScopes[id] = it }
@@ -190,7 +202,7 @@ class ToolApprovalManager @Inject constructor(private val database: ChatDatabase
         val hash = ScopedToolGrant.canonicalHash(arguments)
         val inserted = submissionMutex.withLock {
             val previous = if (replayableRead) null else dao.previousMatchingAction(runId, connection.name, tool, hash)
-            val trusted = !exactApproval && (policy == ToolPolicy.TRUSTED || trust?.allows(connection, tool) == true)
+            val trusted = !exactApproval && (workspaceApproved || policy == ToolPolicy.TRUSTED || trust?.allows(connection, tool) == true)
             // Permanent permission must never prompt again. Keep the duplicate-action
             // guard: already-dispatched writes in this turn are rejected, not repeated.
             if ((trusted || exactApproval) && previous != null) return@withLock -1L
@@ -210,7 +222,7 @@ class ToolApprovalManager @Inject constructor(private val database: ChatDatabase
                     }
                     ) + (scope?.let { "Conversation #${it.chatId}" + it.resource.takeIf(String::isNotBlank)?.let { resource -> " · $resource" }.orEmpty() + "\n" }.orEmpty()) + (previous?.let { "A matching action in this turn has status $it. Check its effect before approving a repeat.\n" }.orEmpty()) +
                     dev.chungjungsoo.gptmobile.data.security.DiagnosticRedactor.arguments(arguments),
-                state = if (!exactApproval && (policy == ToolPolicy.TRUSTED || trust?.allows(connection, tool) == true || scope?.let { trust?.allowsScoped(connection, tool, it) } == true) && previous == null) "APPROVED" else "PENDING"
+                state = if (!exactApproval && (workspaceApproved || policy == ToolPolicy.TRUSTED || trust?.allows(connection, tool) == true || scope?.let { trust?.allowsScoped(connection, tool, it) } == true) && previous == null) "APPROVED" else "PENDING"
             )
             dao.insert(request)
         }

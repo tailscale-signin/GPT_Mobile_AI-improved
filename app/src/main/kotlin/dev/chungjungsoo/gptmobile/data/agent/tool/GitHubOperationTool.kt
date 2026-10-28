@@ -54,6 +54,12 @@ internal class GitHubOperationTool(
                 )
             }
         }
+        if (operation == "github_context" &&
+            (arguments["action"] as? JsonPrimitive)?.content == "changes" &&
+            (arguments["base_sha"] as? JsonPrimitive)?.content.isNullOrBlank()
+        ) {
+            return AgentToolResult(callId, ToolResultContent.Text("Changes requires base_sha. Read repository status for the reviewed base, or use github_pr context with include_files=true for pull request changes."), true, errorCode = "INVALID_ARGUMENTS", dispatched = false)
+        }
         if (operation == "github_search") {
             val query = (arguments["query"] as? JsonPrimitive)?.takeIf { it.isString }?.content
             if (query.isNullOrBlank() || query.length > 200) {

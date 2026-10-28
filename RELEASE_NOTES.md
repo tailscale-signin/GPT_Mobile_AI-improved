@@ -1,3 +1,17 @@
+# GPT Mobile AI 0.9.62.0 (build 130)
+
+- Simplify the GitHub workspace with a solid background, visible buttons, icon shortcuts and collapsed operation history.
+- Run repository tools automatically within explicitly scoped workspace conversations. Show one commit popup with the branch and a short list of file changes; approval commits the frozen patch and continues the task.
+- Move chat deletion cleanup and draft directory access off the main thread; move repository indexing work to Default.
+- Validate GitHub search and change requests before dispatch. Stop repeated output-limited reasoning-only continuations while preserving partial answers and completed tool evidence.
+- Repair the inherited formatting and continuation regression failures.
+
+Limitations:
+
+- Unified Reliability v2 is not complete; its remaining acceptance cases are not represented as passed.
+- Physical-device frame-time and ASUS firmware acceptance remain unverified.
+- GitHub token permissions, provider model entitlement, private servers and MCP connectivity require working external configuration.
+
 # 0.9.61.0
 
 Research evidence fallback and provider-limit recovery; full public web-search, multi-search and crawler access on active Free routes; GitHub App OAuth device sign-in; smaller Combined handoff stages.

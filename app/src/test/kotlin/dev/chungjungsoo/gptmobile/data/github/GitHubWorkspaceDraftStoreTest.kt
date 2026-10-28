@@ -32,9 +32,13 @@ class GitHubWorkspaceDraftStoreTest {
         }
         val secrets = mutableMapOf<String, ByteArray>()
         val vault = object : SecretVault {
-            override suspend fun put(secretRef: String, secret: ByteArray) { secrets[secretRef] = secret.copyOf() }
+            override suspend fun put(secretRef: String, secret: ByteArray) {
+                secrets[secretRef] = secret.copyOf()
+            }
             override suspend fun read(secretRef: String): ByteArray? = secrets[secretRef]?.copyOf()
-            override suspend fun delete(secretRef: String) { secrets.remove(secretRef) }
+            override suspend fun delete(secretRef: String) {
+                secrets.remove(secretRef)
+            }
         }
         try {
             val store = GitHubWorkspaceDraftStore(context, vault)

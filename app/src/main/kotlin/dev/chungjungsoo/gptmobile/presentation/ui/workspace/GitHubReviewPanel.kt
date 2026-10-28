@@ -6,18 +6,20 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -71,6 +73,7 @@ class GitHubReviewViewModel @Inject constructor(private val connections: ToolCon
     internal val engineeringTasks = MutableStateFlow<List<dev.chungjungsoo.gptmobile.data.agent.tool.EngineeringTaskRow>>(emptyList())
     internal val engineeringEvents = MutableStateFlow<List<dev.chungjungsoo.gptmobile.data.agent.tool.EngineeringEventRow>>(emptyList())
     internal val selectedEngineeringRun = MutableStateFlow<dev.chungjungsoo.gptmobile.data.agent.tool.EngineeringRunRow?>(null)
+    private val dismissedCommitTasks = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     internal val pendingEngineeringTask = MutableStateFlow<String?>(null)
     internal val programmerScope = MutableStateFlow<dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext?>(null)
     fun restrictTo(scope: dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext?) {
@@ -207,7 +210,7 @@ class GitHubReviewViewModel @Inject constructor(private val connections: ToolCon
         refreshEngineeringTasksNow()
         notice.value = "Patch validated for paths, size and credentials. Review and approve this exact snapshot. Compilation and hardware remain unverified."
     }
-    fun approveCommit(taskId: String, digest: String) = action {
+    fun approveCommit(taskId: String, digest: String, onCommitted: (String) -> Unit = {}) = action {
         val task = engineeringTasks.value.single { it.taskId == taskId }
         val frozen = requireNotNull(engineering.run(taskId))
         val visible = requireNotNull(review.value)
@@ -229,6 +232,7 @@ class GitHubReviewViewModel @Inject constructor(private val connections: ToolCon
         engineeringEvents.value = engineering.events(taskId)
         refreshEngineeringTasksNow()
         notice.value = "Remote commit verified. CI evidence is pending."
+        onCommitted(sha)
     }
     fun inspectEngineeringTask(taskId: String) = action {
         selectedEngineeringRun.value = engineering.run(taskId)
@@ -256,7 +260,8 @@ class GitHubReviewViewModel @Inject constructor(private val connections: ToolCon
         engineering.cancel(taskId)
         inspectEngineeringTaskNow(taskId)
     }
-    fun reviewEngineering(taskId: String) = action {
+    fun reviewEngineering(taskId: String) = action { reviewEngineeringNow(taskId) }
+    private suspend fun reviewEngineeringNow(taskId: String) {
         val task = engineering.recent().single { it.taskId == taskId }
         val run = requireNotNull(engineering.run(taskId))
         require(review.value?.files?.none { it.changed } != false || selectedEngineeringRun.value?.taskId == taskId) { "Save or discard the current proposal before reviewing a saved task." }
@@ -269,11 +274,20 @@ class GitHubReviewViewModel @Inject constructor(private val connections: ToolCon
         pendingEngineeringTask.value = null
         notice.value = "Review the proposed files below, then choose Approve reviewed patch. No commit has been sent."
     }
+    suspend fun refreshWorkspaceApproval(scope: dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext) {
+        if (busy.value || programmerScope.value != scope || pendingEngineeringTask.value != null) return
+        refreshEngineeringTasksNow()
+        val task = engineeringTasks.value.firstOrNull { it.state == "AWAITING_APPROVAL" && it.taskId !in dismissedCommitTasks } ?: return
+        // Hydrate the frozen patch before presenting the one commit confirmation.
+        reviewEngineeringNow(task.taskId)
+        if (programmerScope.value == scope) pendingEngineeringTask.value = task.taskId
+    }
     fun requestEngineeringApproval(taskId: String) = action {
         require(selectedEngineeringRun.value?.taskId == taskId && review.value != null) { "Open and review the saved patch first." }
         pendingEngineeringTask.value = taskId
     }
     fun dismissApproval() {
+        pendingEngineeringTask.value?.let { dismissedCommitTasks += it }
         pendingEngineeringTask.value = null
     }
     private fun action(block: suspend () -> Unit) {
@@ -304,14 +318,12 @@ fun GitHubReviewPanel(model: GitHubReviewViewModel = hiltViewModel(), programmer
     val tasks by model.engineeringTasks.collectAsState()
     val events by model.engineeringEvents.collectAsState()
     val selectedRun by model.selectedEngineeringRun.collectAsState()
-    val pendingTask by model.pendingEngineeringTask.collectAsState()
     var uid by remember { mutableStateOf("") }
     var owner by remember { mutableStateOf("") }
     var repo by remember { mutableStateOf("") }
     var branch by remember { mutableStateOf("") }
     var pr by remember { mutableStateOf("") }
     var path by remember { mutableStateOf("") }
-    var confirming by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf("") }
     var requiresHardware by remember { mutableStateOf(false) }
     if (programmerContext != null && activeScope != programmerContext) {
@@ -331,7 +343,7 @@ fun GitHubReviewPanel(model: GitHubReviewViewModel = hiltViewModel(), programmer
                 } else {
                     Text("${programmerContext.owner}/${programmerContext.repo}", style = MaterialTheme.typography.titleMedium)
                     Text("Review AI-proposed changes and verified operation states.")
-                    TextButton(onClick = model::refreshEngineeringTasks, enabled = !busy) { Text("Refresh proposed changes") }
+                    OutlinedButton(onClick = model::refreshEngineeringTasks, enabled = !busy) { Text("Refresh proposed changes") }
                     if (tasks.isEmpty()) Text("No engineering proposals yet. Ask your main AI profile to prepare a change.")
                 }
                 if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
@@ -342,7 +354,7 @@ fun GitHubReviewPanel(model: GitHubReviewViewModel = hiltViewModel(), programmer
             item {
                 WorkspaceCard("Engineering tasks") {
                     tasks.forEach { task ->
-                        TextButton(enabled = !busy, onClick = { model.inspectEngineeringTask(task.taskId) }) {
+                        OutlinedButton(enabled = !busy, onClick = { model.inspectEngineeringTask(task.taskId) }) {
                             Text("${task.repositoryOwner}/${task.repositoryName} · ${task.workingBranch} · ${task.state}")
                         }
                     }
@@ -352,16 +364,16 @@ fun GitHubReviewPanel(model: GitHubReviewViewModel = hiltViewModel(), programmer
                         Text("Structural validation: recorded · CI: ${if (run.verifiedChecksJson == null) "unverified" else "receipts recorded; see task state"} · Emulator: no receipt · Physical device: ${if (run.hardwareReceiptJson == null) "unverified" else "receipt recorded"}")
                         events.filter { it.taskId == run.taskId }.forEach { Text("${it.sequence}. ${it.resultingState} · ${it.evidenceDigest.take(12)}", style = MaterialTheme.typography.bodySmall) }
                         SelectionContainer { Text(run.verifiedChecksJson.orEmpty().take(12000)) }
-                        TextButton(enabled = !busy, onClick = { model.resumeEngineering(run.taskId) }) { Text("Reconcile & refresh") }
+                        OutlinedButton(enabled = !busy, onClick = { model.resumeEngineering(run.taskId) }) { Text("Reconcile & refresh") }
                         if (tasks.firstOrNull { it.taskId == run.taskId }?.state in setOf("AWAITING_APPROVAL", "COMMITTING")) {
-                            TextButton(enabled = !busy, onClick = { model.reviewEngineering(run.taskId) }) { Text("View proposed changes") }
-                            if (review != null) TextButton(enabled = !busy, onClick = { model.requestEngineeringApproval(run.taskId) }) { Text("Approve reviewed patch") }
+                            OutlinedButton(enabled = !busy, onClick = { model.reviewEngineering(run.taskId) }) { Text("View proposed changes") }
+                            if (review != null) OutlinedButton(enabled = !busy, onClick = { model.requestEngineeringApproval(run.taskId) }) { Text("Approve reviewed patch") }
                         }
                         if (tasks.firstOrNull { it.taskId == run.taskId }?.state == "AWAITING_HARDWARE_VERIFICATION") {
-                            TextButton(enabled = !busy, onClick = { model.verifyEngineeringHardware(run.taskId) }) { Text("Verify this device's benchmark receipts") }
+                            OutlinedButton(enabled = !busy, onClick = { model.verifyEngineeringHardware(run.taskId) }) { Text("Verify this device's benchmark receipts") }
                         }
-                        TextButton(enabled = !busy, onClick = { model.revokeEngineering(run.taskId) }) { Text("Revoke approval") }
-                        TextButton(enabled = !busy, onClick = { model.cancelEngineering(run.taskId) }) { Text("Cancel task") }
+                        OutlinedButton(enabled = !busy, onClick = { model.revokeEngineering(run.taskId) }) { Text("Revoke approval") }
+                        OutlinedButton(enabled = !busy, onClick = { model.cancelEngineering(run.taskId) }) { Text("Cancel task") }
                     }
                 }
             }
@@ -373,11 +385,11 @@ fun GitHubReviewPanel(model: GitHubReviewViewModel = hiltViewModel(), programmer
                     if (value.stale) Text("STALE · branch changed", color = MaterialTheme.colorScheme.error)
                     Text("Checks for ${value.head.take(12)}", style = MaterialTheme.typography.titleSmall)
                     SelectionContainer { Text(value.checks.toString()) }
-                    TextButton(enabled = !busy, onClick = { model.refresh() }) { Text("Refresh head, checks & rate limit") }
+                    OutlinedButton(enabled = !busy, onClick = { model.refresh() }) { Text("Refresh head, checks & rate limit") }
                     if (value.changedFiles.isNotEmpty()) SelectionContainer { Text(value.changedFiles.toString().take(16000)) }
                     if (programmerContext == null) {
                         OutlinedTextField(path, { path = it }, label = { Text("Repository file path") })
-                        TextButton(enabled = !busy && !value.stale, onClick = { model.openFile(path) }) { Text("Open at inspected SHA") }
+                        OutlinedButton(enabled = !busy && !value.stale, onClick = { model.openFile(path) }) { Text("Open at inspected SHA") }
                         OutlinedTextField(value.reviewNotes, { model.notes(it) }, label = { Text("Review & test evidence for this SHA") }, maxLines = 4)
                     }
                 }
@@ -394,7 +406,7 @@ fun GitHubReviewPanel(model: GitHubReviewViewModel = hiltViewModel(), programmer
                     SelectionContainer { Text(diff, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace) }
                     if (file.before.length + file.after.length > 12000) Text("Diff preview may be truncated. Review the complete proposed file below before committing.", style = MaterialTheme.typography.bodySmall)
                     OutlinedTextField(file.after, { model.edit(file.path, it) }, readOnly = programmerContext != null, enabled = !file.delete, label = { Text("Proposed complete file") }, modifier = Modifier.fillMaxWidth(), maxLines = 16)
-                    if (programmerContext == null) TextButton(enabled = !busy && !value.stale, onClick = { model.deleteFile(file.path) }) { Text(if (file.delete) "Restore file" else "Delete file in this commit") }
+                    if (programmerContext == null) OutlinedButton(enabled = !busy && !value.stale, onClick = { model.deleteFile(file.path) }) { Text(if (file.delete) "Restore file" else "Delete file in this commit") }
                     Text(
                         "${file.before.lines().size} → ${file.after.lines().size} lines · ${if (file.delete) {
                             "deleted"
@@ -407,41 +419,50 @@ fun GitHubReviewPanel(model: GitHubReviewViewModel = hiltViewModel(), programmer
                 }
             }
             item {
+                OutlinedTextField(message, { message = it }, label = { Text("Commit message") }, modifier = Modifier.fillMaxWidth())
+                FilterChip(requiresHardware, { requiresHardware = !requiresHardware }, label = { Text("Require physical-device verification") })
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(enabled = !busy, onClick = { model.saveDraft() }) { Text("Save proposal") }
-                    TextButton(enabled = !busy, onClick = { model.discard() }) { Text("Discard") }
-                    TextButton(enabled = !busy && !value.stale && value.files.any { it.changed }, onClick = { confirming = true }) { Text("Review commit") }
+                    OutlinedButton(enabled = !busy, onClick = { model.discard() }) { Text("Discard") }
+                    OutlinedButton(enabled = !busy && !value.stale && value.files.any { it.changed } && message.isNotBlank(), onClick = { model.prepareCommit(message, requiresHardware) }) { Text("Commit changes") }
                 }
             }
         }
     }
-    if (confirming) {
-        AlertDialog(onDismissRequest = { confirming = false }, title = { Text("Commit reviewed changes?") }, text = {
-            Column {
-                Text("${review?.owner}/${review?.repo} → ${review?.branch}\nExpected head: ${review?.head}\n${review?.files?.filter { it.changed }?.joinToString("\n") { if (it.delete) "DELETE ${it.path}" else it.path }}")
-                Text("The branch must still match the inspected SHA. This creates a commit on the working branch; merging remains separate.")
-                OutlinedTextField(message, { message = it }, label = { Text("Commit message") })
-                FilterChip(requiresHardware, { requiresHardware = !requiresHardware }, label = { Text("Require physical-device verification") })
-            }
-        }, confirmButton = {
-            TextButton(onClick = {
-                confirming = false
-                model.prepareCommit(message, requiresHardware)
-            }) { Text("Validate this proposal") }
-        }, dismissButton = { TextButton(onClick = { confirming = false }) { Text("Cancel") } })
-    }
+    if (programmerContext == null) GitHubCommitApprovalDialog(model)
+}
+
+@Composable
+internal fun GitHubCommitApprovalDialog(model: GitHubReviewViewModel, onCommitted: (String) -> Unit = {}) {
+    val pendingTask by model.pendingEngineeringTask.collectAsState()
+    val selectedRun by model.selectedEngineeringRun.collectAsState()
+    val tasks by model.engineeringTasks.collectAsState()
+    val review by model.review.collectAsState()
+    val busy by model.busy.collectAsState()
     if (pendingTask != null && selectedRun?.taskId == pendingTask) {
         val run = requireNotNull(selectedRun)
         val task = tasks.firstOrNull { it.taskId == run.taskId }
-        AlertDialog(onDismissRequest = { model.dismissApproval() }, title = { Text("Approve exact patch?") }, text = {
-            Column {
-                Text("${task?.repositoryOwner}/${task?.repositoryName} → ${task?.workingBranch}")
-                Text("Base: ${task?.baseSha}\nPatch: ${run.patchDigest}\nMessage: ${run.commitMessage}")
-                Text("Approval expires in 30 minutes and applies only to this account, patch, branch and revision. Merging is separate.")
-                Text("Review the complete proposed files in the editor before approving. This confirmation applies to the saved patch digest above.")
+        AlertDialog(onDismissRequest = { model.dismissApproval() }, title = { Text("Approve commit?") }, text = {
+            Column(Modifier.fillMaxWidth().heightIn(max = 360.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("${task?.repositoryOwner}/${task?.repositoryName}")
+                Text("Branch: ${task?.workingBranch}")
+                Text(run.commitMessage.lineSequence().firstOrNull().orEmpty())
+                review?.files?.filter { it.changed }?.take(8)?.forEach { file ->
+                    Text(
+                        "• ${if (file.delete) {
+                            "Delete"
+                        } else if (file.before.isEmpty()) {
+                            "Add"
+                        } else {
+                            "Update"
+                        }} ${file.path}"
+                    )
+                }
+                val remaining = (review?.files?.count { it.changed } ?: 0) - 8
+                if (remaining > 0) Text("• $remaining more files")
             }
         }, confirmButton = {
-            TextButton(enabled = !busy, onClick = { model.approveCommit(run.taskId, run.patchDigest) }) { Text("Approve & commit") }
-        }, dismissButton = { TextButton(onClick = { model.dismissApproval() }) { Text("Keep for review") } })
+            OutlinedButton(enabled = !busy, onClick = { model.approveCommit(run.taskId, run.patchDigest, onCommitted) }) { Text("Approve & continue") }
+        }, dismissButton = { OutlinedButton(onClick = { model.dismissApproval() }) { Text("Keep for review") } })
     }
 }

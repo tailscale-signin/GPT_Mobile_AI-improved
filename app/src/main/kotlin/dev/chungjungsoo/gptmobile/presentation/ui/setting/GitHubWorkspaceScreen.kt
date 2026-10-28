@@ -43,13 +43,13 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -83,7 +83,6 @@ import dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog as Alert
 import dev.chungjungsoo.gptmobile.presentation.common.FadingDialog as Dialog
 import dev.chungjungsoo.gptmobile.presentation.common.FadingDropdownMenu as DropdownMenu
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
-import dev.chungjungsoo.gptmobile.presentation.common.glassWindowBackdrop
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.jsonObject
 
@@ -109,6 +108,25 @@ fun GitHubWorkspaceScreen(connection: ToolConnection, onDismiss: () -> Unit, vie
     }
     visibleProgrammer.approvals.firstOrNull()?.let { approval ->
         dev.chungjungsoo.gptmobile.presentation.ui.chat.ToolApprovalDialog(approval, onDeny = { programmer.approve(approval.id, false) }, onAllowOnce = { programmer.approve(approval.id, true) }, onAlwaysAllowTool = { programmer.alwaysAllowTool(approval.id) }, onAlwaysAllowProvider = { programmer.alwaysAllowProvider(approval.id) }, onAllowInConversation = { programmer.allowInConversation(approval.id) })
+    }
+    val commitReview: dev.chungjungsoo.gptmobile.presentation.ui.workspace.GitHubReviewViewModel = hiltViewModel()
+    LaunchedEffect(commandContext) {
+        commitReview.restrictTo(commandContext)
+        if (commandContext != null) {
+            while (true) {
+                try {
+                    commitReview.refreshWorkspaceApproval(commandContext)
+                } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    // A transient read failure cannot manufacture a commit approval.
+                }
+                kotlinx.coroutines.delay(2000)
+            }
+        }
+    }
+    dev.chungjungsoo.gptmobile.presentation.ui.workspace.GitHubCommitApprovalDialog(commitReview) { sha ->
+        programmer.send("Commit $sha was approved and published. Continue the requested task from its saved state: inspect this exact commit, verify checks and report the outcome. Do not repeat the commit.") {}
     }
     val buildsViewModel: GitHubBuildsViewModel = hiltViewModel()
     val buildsState by buildsViewModel.state.collectAsStateWithLifecycle()
@@ -180,8 +198,8 @@ fun GitHubWorkspaceScreen(connection: ToolConnection, onDismiss: () -> Unit, vie
     }
     Dialog(onDismissRequest = { close() }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Scaffold(
-            modifier = Modifier.fillMaxSize().glassWindowBackdrop(),
-            containerColor = dev.chungjungsoo.gptmobile.presentation.common.overlayWindowContainerColor(),
+            modifier = Modifier.fillMaxSize(),
+            containerColor = MaterialTheme.colorScheme.surface,
             topBar = {
                 TopAppBar(
                     title = {
@@ -254,7 +272,7 @@ fun GitHubWorkspaceScreen(connection: ToolConnection, onDismiss: () -> Unit, vie
                     Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
                         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                TextButton(onClick = { repositoryMenu = true }, enabled = canNavigate, modifier = Modifier.weight(1f)) {
+                                OutlinedButton(onClick = { repositoryMenu = true }, enabled = canNavigate, modifier = Modifier.weight(1f)) {
                                     Icon(Icons.Rounded.FolderOpen, null, Modifier.padding(end = 8.dp))
                                     Text(state.selection?.fullName ?: "Choose a repository", maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 }
@@ -272,7 +290,7 @@ fun GitHubWorkspaceScreen(connection: ToolConnection, onDismiss: () -> Unit, vie
                             }
                             if (state.selection != null) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    TextButton(onClick = { branchMenu = true }, enabled = canNavigate) {
+                                    OutlinedButton(onClick = { branchMenu = true }, enabled = canNavigate) {
                                         Icon(Icons.Rounded.AccountTree, null, Modifier.size(18.dp).padding(end = 4.dp))
                                         Text(state.selection?.ref.orEmpty(), maxLines = 1, overflow = TextOverflow.Ellipsis)
                                     }
@@ -289,17 +307,17 @@ fun GitHubWorkspaceScreen(connection: ToolConnection, onDismiss: () -> Unit, vie
                                 }
                                 if (tab != 3) {
                                     Row(Modifier.horizontalScroll(rememberScrollState())) {
-                                        TextButton(onClick = viewModel::useInChats, enabled = !state.busy && state.headSha.isNotBlank()) {
+                                        OutlinedButton(onClick = viewModel::useInChats, enabled = !state.busy && state.headSha.isNotBlank()) {
                                             Icon(Icons.Rounded.Check, null, Modifier.size(18.dp).padding(end = 4.dp))
                                             Text("Use in chats")
                                         }
-                                        TextButton(onClick = viewModel::clearChatContext, enabled = !state.busy) { Text("Clear chat context") }
+                                        OutlinedButton(onClick = viewModel::clearChatContext, enabled = !state.busy) { Text("Clear chat context") }
                                     }
                                 }
                             }
                             state.error?.let { error ->
                                 Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-                                TextButton(onClick = viewModel::clearError) { Text("Dismiss") }
+                                OutlinedButton(onClick = viewModel::clearError) { Text("Dismiss") }
                             }
                             state.notice?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.heightIn(max = 72.dp).verticalScroll(rememberScrollState())) }
                         }
@@ -352,23 +370,23 @@ fun GitHubWorkspaceScreen(connection: ToolConnection, onDismiss: () -> Unit, vie
                                         requestedCreationHead = state.headSha
                                         requestedCreation = branchName.trim()
                                     }, enabled = state.canWrite && canNavigate && branchName.isNotBlank()) { Text("Create working branch") }
-                                    TextButton(onClick = { tab = 4 }) { Text("Checks & builds") }
-                                    TextButton(onClick = { tab = 2 }) { Text("Pull requests") }
-                                    TextButton(onClick = { tab = 0 }) { Text("Browse repository files") }
-                                    TextButton(onClick = { openChanges() }) { Text("Review proposed changes") }
+                                    WorkspaceAction(Icons.Rounded.Check, "Checks & builds") { tab = 4 }
+                                    WorkspaceAction(Icons.Rounded.AccountTree, "Pull requests") { tab = 2 }
+                                    WorkspaceAction(Icons.Rounded.FolderOpen, "Repository files") { tab = 0 }
+                                    WorkspaceAction(Icons.Rounded.Commit, "Review changes") { openChanges() }
                                 }
                             }
                             0 -> {
                                 GitHubRepositoryInsights(state, onSearch = { query, mode -> viewModel.searchRevision(query, mode) }, onContinueSearch = { viewModel.searchRevision("", continuation = true) }, onExplainCi = viewModel::explainFailedCi, onMarkReviewed = viewModel::markReviewed, onChanges = viewModel::changesSinceReview, onOpenFile = viewModel::readFile)
                                 Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
-                                    TextButton(onClick = { viewModel.browse("") }, enabled = !state.busy && !editorDirty) {
+                                    OutlinedButton(onClick = { viewModel.browse("") }, enabled = !state.busy && !editorDirty) {
                                         Icon(Icons.Rounded.FolderOpen, null, Modifier.size(18.dp))
                                         Text("Root")
                                     }
                                     val segments = state.directory.split('/').filter(String::isNotBlank)
                                     segments.forEachIndexed { index, segment ->
                                         Text("/", color = MaterialTheme.colorScheme.outline)
-                                        TextButton(onClick = { viewModel.browse(segments.take(index + 1).joinToString("/")) }, enabled = !state.busy && !editorDirty) { Text(segment) }
+                                        OutlinedButton(onClick = { viewModel.browse(segments.take(index + 1).joinToString("/")) }, enabled = !state.busy && !editorDirty) { Text(segment) }
                                     }
                                 }
                                 if (state.file == null) {
@@ -386,7 +404,7 @@ fun GitHubWorkspaceScreen(connection: ToolConnection, onDismiss: () -> Unit, vie
                                             }
                                         }
                                     }
-                                    if (state.moreEntries) TextButton(onClick = viewModel::moreFiles, enabled = !state.busy) { Text("Load more files") }
+                                    if (state.moreEntries) OutlinedButton(onClick = viewModel::moreFiles, enabled = !state.busy) { Text("Load more files") }
                                 } else {
                                     val file = requireNotNull(state.file)
                                     val original = file.text("content")
@@ -404,11 +422,11 @@ fun GitHubWorkspaceScreen(connection: ToolConnection, onDismiss: () -> Unit, vie
                                         file.text("html_url").takeIf { it.startsWith("https://github.com/") }?.let { url -> IconButton(onClick = { uriHandler.openUri(url) }) { Icon(Icons.Rounded.Launch, "Open file on GitHub") } }
                                     }
                                     Text("Lines ${file.text("start_line")}–${file.text("end_line")} of ${file.text("total_lines")} · ${original.toByteArray().size} excerpt bytes", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    TextButton(onClick = { viewModel.browse(state.directory) }, enabled = !state.busy && !editorDirty) { Text("Back to files") }
+                                    OutlinedButton(onClick = { viewModel.browse(state.directory) }, enabled = !state.busy && !editorDirty) { Text("Back to files") }
                                     if (!file.flag("complete_file")) {
                                         Text("Bounded source excerpt. Use an exact patch to change this range safely.", style = MaterialTheme.typography.bodySmall)
                                         WorkspaceCode(original)
-                                        if (file.flag("has_more")) TextButton(onClick = viewModel::moreFileRange, enabled = !state.busy) { Text("Next source range") }
+                                        if (file.flag("has_more")) OutlinedButton(onClick = viewModel::moreFileRange, enabled = !state.busy) { Text("Next source range") }
                                     } else {
                                         OutlinedTextField(edited, {
                                             if (it.toByteArray().size <= 256_000) {
@@ -422,7 +440,7 @@ fun GitHubWorkspaceScreen(connection: ToolConnection, onDismiss: () -> Unit, vie
                                                 Icon(Icons.Rounded.Add, null, Modifier.padding(end = 6.dp), tint = MaterialTheme.colorScheme.onPrimary)
                                                 Text("Stage")
                                             }
-                                            TextButton(onClick = {
+                                            OutlinedButton(onClick = {
                                                 edited = state.staged.firstOrNull { it.path == path }?.content ?: original
                                                 viewModel.editDraft(path, edited, original)
                                                 editorDirty = false
@@ -432,7 +450,7 @@ fun GitHubWorkspaceScreen(connection: ToolConnection, onDismiss: () -> Unit, vie
                                         if (editorDirty) Text("Stage or reset your edits before leaving this file.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
                                     }
                                     if (state.canWrite && state.selection?.ref != state.defaultBranch) {
-                                        TextButton(onClick = { patchEditor = !patchEditor }, enabled = !state.busy && !editorDirty) { Text(if (patchEditor) "Hide exact patch editor" else "Prepare an exact patch") }
+                                        OutlinedButton(onClick = { patchEditor = !patchEditor }, enabled = !state.busy && !editorDirty) { Text(if (patchEditor) "Hide exact patch editor" else "Prepare an exact patch") }
                                         if (patchEditor) {
                                             OutlinedTextField(anchor, { anchor = it.take(16000) }, label = { Text("Exact existing text") }, modifier = Modifier.fillMaxWidth(), textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace))
                                             OutlinedTextField(replacement, { replacement = it.take(16000) }, label = { Text("Replacement text") }, modifier = Modifier.fillMaxWidth(), textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace))
@@ -474,7 +492,7 @@ fun GitHubWorkspaceScreen(connection: ToolConnection, onDismiss: () -> Unit, vie
                                         Icon(Icons.Rounded.Commit, null, Modifier.padding(end = 8.dp), tint = MaterialTheme.colorScheme.onPrimary)
                                         Text(if (state.patchStage != null) "Commit reviewed patch" else "Commit ${state.staged.size} files")
                                     }
-                                    TextButton(onClick = viewModel::discard, enabled = !state.busy && !editorDirty) { Text("Discard staged changes") }
+                                    OutlinedButton(onClick = viewModel::discard, enabled = !state.busy && !editorDirty) { Text("Discard staged changes") }
                                 }
                             }
                             2 -> {
@@ -503,11 +521,11 @@ fun GitHubWorkspaceScreen(connection: ToolConnection, onDismiss: () -> Unit, vie
                                         }
                                     }
                                 }
-                                if (state.morePullRequests) TextButton(onClick = viewModel::morePullRequests, enabled = !state.busy) { Text("Load more pull requests") }
-                                TextButton(onClick = viewModel::refreshVisibleChecks, enabled = !state.busy && state.pullRequests.isNotEmpty()) { Text("Refresh checks for first 5 PRs") }
+                                if (state.morePullRequests) OutlinedButton(onClick = viewModel::morePullRequests, enabled = !state.busy) { Text("Load more pull requests") }
+                                OutlinedButton(onClick = viewModel::refreshVisibleChecks, enabled = !state.busy && state.pullRequests.isNotEmpty()) { Text("Refresh checks for first 5 PRs") }
                                 state.pullDetail?.let { WorkspaceCode(it) }
-                                if (state.pullPackage?.get("files_continuation") != null) TextButton(onClick = { viewModel.continuePullReview() }, enabled = !state.busy) { Text("Next changed files") }
-                                if (state.pullPackage?.get("checks_continuation") != null) TextButton(onClick = { viewModel.continuePullReview(checks = true) }, enabled = !state.busy) { Text("Next checks") }
+                                if (state.pullPackage?.get("files_continuation") != null) OutlinedButton(onClick = { viewModel.continuePullReview() }, enabled = !state.busy) { Text("Next changed files") }
+                                if (state.pullPackage?.get("checks_continuation") != null) OutlinedButton(onClick = { viewModel.continuePullReview(checks = true) }, enabled = !state.busy) { Text("Next checks") }
                             }
                         }
                     }
@@ -518,7 +536,7 @@ fun GitHubWorkspaceScreen(connection: ToolConnection, onDismiss: () -> Unit, vie
             Dialog(onDismissRequest = { engineeringReviewOpen = false }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
                 Scaffold(topBar = { TopAppBar(title = { Text("Review changes") }, navigationIcon = { IconButton(onClick = { engineeringReviewOpen = false }) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back to AI programmer") } }) }) { inset ->
                     Column(Modifier.fillMaxSize().padding(inset)) {
-                        dev.chungjungsoo.gptmobile.presentation.ui.workspace.GitHubReviewPanel(programmerContext = commandContext)
+                        dev.chungjungsoo.gptmobile.presentation.ui.workspace.GitHubReviewPanel(model = commitReview, programmerContext = commandContext)
                     }
                 }
             }
@@ -529,12 +547,12 @@ fun GitHubWorkspaceScreen(connection: ToolConnection, onDismiss: () -> Unit, vie
                 title = { Text("Switch working branch?") },
                 text = { Text("${state.selection?.fullName}\n${state.selection?.ref} → $branch\nNew commands will use this branch. Running commands keep their captured destination.") },
                 confirmButton = {
-                    TextButton(enabled = canNavigate, onClick = {
+                    OutlinedButton(enabled = canNavigate, onClick = {
                         acknowledgeBranch()
                         viewModel.selectBranch(branch, programmerState.chatId)
                     }) { Text("Switch branch") }
                 },
-                dismissButton = { TextButton(onClick = { acknowledgeBranch() }) { Text("Cancel") } }
+                dismissButton = { OutlinedButton(onClick = { acknowledgeBranch() }) { Text("Cancel") } }
             )
         }
         requestedCreation?.let { branch ->
@@ -543,26 +561,35 @@ fun GitHubWorkspaceScreen(connection: ToolConnection, onDismiss: () -> Unit, vie
                 title = { Text("Create and switch branch?") },
                 text = { Text("Create $branch in ${state.selection?.fullName} from ${state.selection?.ref} at ${requestedCreationHead.take(8)} and use it for new commands.") },
                 confirmButton = {
-                    TextButton(enabled = canNavigate, onClick = {
+                    OutlinedButton(enabled = canNavigate, onClick = {
                         requestedCreation = null
                         viewModel.createBranch(branch, requestedCreationHead, programmerState.chatId)
                     }) { Text("Create branch") }
                 },
-                dismissButton = { TextButton(onClick = { requestedCreation = null }) { Text("Cancel") } }
+                dismissButton = { OutlinedButton(onClick = { requestedCreation = null }) { Text("Cancel") } }
             )
         }
         if (confirmCommit) {
             AlertDialog(
                 onDismissRequest = { confirmCommit = false },
                 title = { Text("Commit reviewed changes?") },
-                text = { Text("${if (state.patchStage != null) "Staged exact patch" else "${state.staged.size} files"} → ${state.selection?.fullName} @ ${state.selection?.ref}\n\n$message") },
+                text = {
+                    Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(state.selection?.fullName.orEmpty(), style = MaterialTheme.typography.titleSmall)
+                        Text("Branch: ${state.selection?.ref}")
+                        Text(message.lineSequence().firstOrNull().orEmpty())
+                        if (state.patchStage != null) Text("• Apply the reviewed exact patch")
+                        state.staged.take(8).forEach { file -> Text("• ${if (file.original.isEmpty()) "Add" else "Update"} ${file.path}") }
+                        if (state.staged.size > 8) Text("• ${state.staged.size - 8} more files")
+                    }
+                },
                 confirmButton = {
-                    TextButton(onClick = {
+                    OutlinedButton(onClick = {
                         confirmCommit = false
                         if (state.patchStage != null) viewModel.commitExactPatch(message) else viewModel.commit(message)
-                    }) { Text("Commit") }
+                    }) { Text("Approve & continue") }
                 },
-                dismissButton = { TextButton(onClick = { confirmCommit = false }) { Text("Cancel") } }
+                dismissButton = { OutlinedButton(onClick = { confirmCommit = false }) { Text("Cancel") } }
             )
         }
         if (confirmClose) {
@@ -571,11 +598,11 @@ fun GitHubWorkspaceScreen(connection: ToolConnection, onDismiss: () -> Unit, vie
                 title = { Text("Save changes and close?") },
                 text = { Text("Your editor changes and staged patches will remain available when you reopen this workspace.") },
                 confirmButton = {
-                    TextButton(onClick = {
+                    OutlinedButton(onClick = {
                         viewModel.close { onDismiss() }
                     }) { Text("Save and close") }
                 },
-                dismissButton = { TextButton(onClick = { confirmClose = false }) { Text("Keep editing") } }
+                dismissButton = { OutlinedButton(onClick = { confirmClose = false }) { Text("Keep editing") } }
             )
         }
     }
@@ -603,5 +630,13 @@ private fun WorkspaceCode(content: String) {
         SelectionContainer {
             Text(content, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall, modifier = Modifier.fillMaxWidth().heightIn(max = 300.dp).verticalScroll(rememberScrollState()).horizontalScroll(rememberScrollState()).padding(12.dp))
         }
+    }
+}
+
+@Composable
+private fun WorkspaceAction(icon: ImageVector, label: String, onClick: () -> Unit) {
+    OutlinedButton(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
+        Icon(icon, null, Modifier.size(18.dp).padding(end = 4.dp))
+        Text(label)
     }
 }

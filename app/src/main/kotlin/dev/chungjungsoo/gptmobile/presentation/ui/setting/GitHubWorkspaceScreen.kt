@@ -349,7 +349,7 @@ fun GitHubWorkspaceScreen(
                                     GitHubChatConversation(
                                         chatId = chatId,
                                         profileUid = commandContext.mainProfileUid,
-                                        // Recreate the Chat VM when the branch context changes, so tool context cannot stay pinned to the old branch.
+                                        // Keep the live request context aligned with the workspace without replacing the composer.
                                         context = commandContext,
                                         onBack = { closeWorkspace() },
                                         onOpenConversation = onOpenConversation,

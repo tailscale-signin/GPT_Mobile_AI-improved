@@ -81,6 +81,42 @@ class GitHubProgrammerViewModelTest {
         Dispatchers.resetMain()
     }
 
+    @Test fun savedProfileSelectionWinsOverTheOriginalRouteAfterRecreation() = runBlocking {
+        val handle = androidx.lifecycle.SavedStateHandle(
+            mapOf("github_session_initialized" to true, "github_session_profile" to "coder", "github_session_chat" to 42)
+        )
+        val context = dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext("github", "owner", "repo", "feature", "a".repeat(40), "coder")
+        features.value = features.value.copy(conversationGitHub = mapOf(42 to context))
+        val restored = GitHubProgrammerViewModel(settings, chats, database, queue, mockk(relaxed = true), approvals, connections, drafts, handle)
+        try {
+            restored.configureSession("old-route-profile", newConversation = true)
+            restored.bind(GitHubWorkspaceState(connection = connections.getConnection("github"), selection = context.repository, headSha = context.commitSha))
+            val value = withTimeout(5000) { restored.state.first { it.chatId == 42 } }
+            assertEquals("coder", value.profileUid)
+            assertEquals("coder", value.profileOverrideUid)
+            coVerify(exactly = 0) { chats.createDraftChat(any(), any(), any(), any()) }
+        } finally {
+            restored.viewModelScope.cancel()
+        }
+    }
+
+    @Test fun deletedPreparedRoomIsReplacedInsteadOfReopened() = runBlocking {
+        withTimeout(5000) { model.state.first { it.draftLoaded } }
+        model.ensureConversation().join()
+        withTimeout(5000) { model.state.first { it.chatId == 42 } }
+        coEvery { database.agentPersistenceDao().getChatRoom(42) } returns null
+        val replacement = room.copy(id = 43)
+        coEvery { chats.createDraftChat(any(), any(), any(), any()) } returns replacement
+        coEvery { database.agentPersistenceDao().getChatRoom(43) } returns replacement
+        every { chats.observeMessageWindow(43, 10) } returns flowOf(emptyList())
+        every { chats.observeAgentRuns(43) } returns flowOf(emptyList())
+        every { chats.observeToolEvents(43) } returns flowOf(emptyList())
+        every { queue.observe(43) } returns flowOf(emptyList())
+        model.ensureConversation().join()
+        withTimeout(5000) { model.state.first { it.chatId == 43 } }
+        coVerify(exactly = 2) { chats.createDraftChat(any(), any(), any(), any()) }
+    }
+
     @Test fun legacyCommandDraftMovesToTheStandardComposerOnce() = runBlocking {
         withTimeout(5000) { model.state.first { it.draftLoaded } }
         val context = model.state.value.context!!

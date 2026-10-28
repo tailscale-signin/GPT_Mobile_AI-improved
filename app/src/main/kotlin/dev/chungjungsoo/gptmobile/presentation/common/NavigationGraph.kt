@@ -330,18 +330,18 @@ fun NavGraphBuilder.chatScreenNavigation(navController: NavHostController, toolC
             }
         )
     ) {
-        val conversation: dev.chungjungsoo.gptmobile.presentation.ui.chat.ChatViewModel = hiltViewModel()
-        val features by conversation.featureSettings.collectAsStateWithLifecycle()
-        val toolState by toolConnectionsViewModel.uiState.collectAsStateWithLifecycle()
+        val router: dev.chungjungsoo.gptmobile.presentation.ui.chat.ConversationRoutingViewModel = hiltViewModel()
+        val routing by router.state.collectAsStateWithLifecycle()
         val chatId = it.arguments?.getInt("chatRoomId") ?: 0
-        val githubContext = features.conversationGitHub[chatId]
-        val connection = toolState.connections.firstOrNull { connection ->
-            connection.connectionUid == githubContext?.connectionUid &&
-                connection.type == ToolConnectionType.GITHUB &&
-                (toolState.pluginStates[ToolPluginId.GITHUB] ?: true) &&
-                (toolState.pluginStates[ToolPluginId.connection(connection.connectionUid)] ?: true)
-        }
-        if (githubContext != null && connection != null) {
+        val githubDestination = routing?.githubDestination(chatId)
+        val githubContext = githubDestination?.first
+        val connection = githubDestination?.second
+        if (routing == null) {
+            androidx.activity.compose.BackHandler { navController.navigateUp() }
+            Box(Modifier.fillMaxSize(), contentAlignment = androidx.compose.ui.Alignment.Center) {
+                androidx.compose.material3.CircularProgressIndicator()
+            }
+        } else if (githubContext != null && connection != null) {
             dev.chungjungsoo.gptmobile.presentation.ui.setting.GitHubWorkspaceScreen(
                 connection = connection,
                 onDismiss = { navController.navigateUp() },
@@ -353,6 +353,7 @@ fun NavGraphBuilder.chatScreenNavigation(navController: NavHostController, toolC
                 onNavigateToLocalModels = { navController.navigate(Route.LOCAL_MODELS + "?marketplace=true") }
             )
         } else {
+            val conversation: dev.chungjungsoo.gptmobile.presentation.ui.chat.ChatViewModel = hiltViewModel()
             dev.chungjungsoo.gptmobile.presentation.ui.chat.AdaptiveConversationLayout(it.arguments?.getInt("chatRoomId") ?: 0, { id -> conversation.leaveConversation { navController.navigate("chat_room/$id") { popUpTo(Route.CHAT_ROOM) { inclusive = true } } } }) {
                 ChatScreen(
                     onReviewEvidenceAccess = { navController.navigate(Route.TOOL_CONNECTIONS) },

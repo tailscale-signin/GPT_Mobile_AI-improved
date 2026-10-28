@@ -9,11 +9,13 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -37,7 +39,7 @@ internal fun GitHubChatConversation(
     onNavigateToLocalModels: () -> Unit,
     registerExit: (((() -> Unit) -> Unit)?) -> Unit
 ) {
-    key(chatId, context.ref, context.commitSha) {
+    key(chatId) {
         val controller = rememberNavController()
         NavHost(controller, startDestination = "conversation/$chatId/$profileUid", modifier = Modifier.fillMaxSize()) {
             composable(
@@ -49,6 +51,10 @@ internal fun GitHubChatConversation(
                 )
             ) {
                 val model: dev.chungjungsoo.gptmobile.presentation.ui.chat.ChatViewModel = androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel()
+                val room by model.chatRoom.collectAsStateWithLifecycle()
+                androidx.compose.runtime.LaunchedEffect(model, room.id, context) {
+                    if (room.id == chatId) model.bindGitHubContext(context)
+                }
                 androidx.compose.runtime.DisposableEffect(model) {
                     registerExit { done ->
                         model.checkpointComposer()
@@ -73,6 +79,7 @@ internal fun GitHubChatConversation(
 }
 
 internal fun GitHubProgrammerState.progressDescription(): String {
+    if (approvals.isNotEmpty() || runs.any { it.status.startsWith("WAITING_") }) return activityLabel()
     val activeIds = runs.filter { it.status !in GITHUB_TERMINAL_RUN_STATUSES }.mapTo(hashSetOf()) { it.runId }
     val event = events.lastOrNull { it.runId in activeIds && it.status in setOf("RUNNING", "PENDING", "STARTED") }
     return event?.modelToolName?.ifBlank { event.toolName }?.substringBefore("__")?.replace('_', ' ')

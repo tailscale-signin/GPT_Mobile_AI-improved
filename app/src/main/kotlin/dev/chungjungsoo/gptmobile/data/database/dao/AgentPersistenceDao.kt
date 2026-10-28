@@ -1341,7 +1341,11 @@ interface AgentPersistenceDao :
     }
 
     /** A late streaming checkpoint cannot replace a terminal or newer revision. */
-    suspend fun checkpointRunningMessage(message: MessageV2): Boolean {
+    suspend fun checkpointRunningMessage(message: MessageV2): Boolean = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+        checkpointRunningMessageOffMain(message)
+    }
+
+    private suspend fun checkpointRunningMessageOffMain(message: MessageV2): Boolean {
         val runId = message.currentRunId ?: return false
         val run = recoveryRun(runId) ?: return false
         val expected = rawRecoveryMessage(message.id) ?: return false

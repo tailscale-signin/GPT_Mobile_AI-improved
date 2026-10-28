@@ -6,6 +6,17 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class DiagnosticIncidentClassificationTest {
+    @Test fun isolatedHighRefreshMissesRemainSamplesWhileStallsRemainActionable() {
+        val sparse = classifyDiagnostic("I", "Rendering", "FRAME_TIMING · frames=824 · jankFrames=1 · maxMs=15.597008 · stallsOver100Ms=0 · droppedSamples=0")
+        assertFalse(sparse.actionable)
+        assertEquals("performance_sample", sparse.category)
+        assertTrue(classifyDiagnostic("E", "Rendering", "FRAME_TIMING · frames=824 · jankFrames=0").actionable)
+        assertTrue(classifyDiagnostic("W", "Rendering", "FRAME_TIMING · frames=824 · jankFrames=0").actionable)
+        assertTrue(classifyDiagnostic("I", "Rendering", "FRAME_TIMING · frames=824 · jankFrames=1 · maxMs=220.0 · stallsOver100Ms=1").actionable)
+        assertTrue(classifyDiagnostic("I", "Rendering", "FRAME_TIMING · frames=120 · jankFrames=6").actionable)
+        assertTrue(classifyDiagnostic("I", "Rendering", "FRAME_TIMING · frames=824 · jankFrames=0 · droppedSamples=1").actionable)
+    }
+
     @Test fun `durable crash recorded at info severity is still a critical issue`() {
         val result = classifyDiagnostic("I", "AppCrash", "eventId=abc · type=java.lang.IndexOutOfBoundsException · thread=main")
         assertTrue(result.actionable)

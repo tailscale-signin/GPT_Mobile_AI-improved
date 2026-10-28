@@ -353,7 +353,9 @@ class ChatRepositoryImpl(
         val resolved = dev.chungjungsoo.gptmobile.data.agent.CombinedPolicyResolver.resolve(
             execution.requested,
             estimatedInputTokens = estimatedInput,
-            requiredOutputTokens = profiles.filter { dev.chungjungsoo.gptmobile.data.agent.CombinedProviderEligibility.unavailableReason(it, execution.requested.userPrompt, writer = true, appendContinuations = execution.requested.appendContinuations) == null }.maxOfOrNull { dev.chungjungsoo.gptmobile.data.agent.CombinedWriterPolicy.requiredOutput(execution.requested.userPrompt, it, execution.requested.appendContinuations) },
+            requiredOutputTokens = profiles.filter { dev.chungjungsoo.gptmobile.data.agent.CombinedProviderEligibility.unavailableReason(it, execution.requested.userPrompt, writer = true, appendContinuations = execution.requested.appendContinuations) == null }.maxOfOrNull {
+                dev.chungjungsoo.gptmobile.data.agent.CombinedWriterPolicy.preferredOutput(execution.requested.userPrompt, it, execution.requested.appendContinuations, limits.outputTokens, listOfNotNull(limits.contextTokens, limits.profileContextCeilings[it.uid]).minOrNull())
+            },
             toolsAllowed = allowed,
             hardLimits = dev.chungjungsoo.gptmobile.data.agent.CombinedHardLimits(
                 totalTokens = limits.totalRunTokens.takeIf { it != Int.MAX_VALUE }?.toLong(),

@@ -33,6 +33,50 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubOperationToolTest {
+    @Test fun savedPagesRenewOnlyInsideTheirAuthorizedScopeAndEventuallyExpire() = runBlocking {
+        var clock = 0L
+        val backend = Backend().also { it.body = JsonPrimitive("captured ".repeat(2000)) }
+        val views = GitHubResultViews(now = { clock }, pageBytes = 2048)
+        val read = GitHubOperationTool("github_read", backend, "task-A", views = views)
+        val cursor = continuation(result(read.execute("first", buildJsonObject {})))
+        clock = 9 * 60_000L
+        assertFalse(read.execute("active", cursor).isError)
+        clock = 18 * 60_000L
+        assertFalse(read.execute("active-again", cursor).isError)
+        val mixed = read.execute("mixed", JsonObject(cursor + ("commit_sha" to JsonPrimitive(sha))))
+        assertEquals("INVALID_ARGUMENTS", mixed.errorCode)
+        assertFalse(mixed.dispatched)
+        clock = 29 * 60_000L
+        val expired = read.execute("expired", cursor)
+        assertEquals("SAVED_VIEW_UNAVAILABLE", expired.errorCode)
+        assertFalse(expired.dispatched)
+        assertTrue((expired.content as ToolResultContent.Text).text.contains("same commit_sha"))
+        assertEquals(1, backend.calls.size)
+    }
+
+    @Test fun malformedSourceRangesAreRejectedBeforeTheBackendRuns() = runBlocking {
+        val backend = Backend()
+        val read = GitHubOperationTool("github_read", backend, "validation")
+        for (raw in listOf("""{"ranges":[{"path":"file.kt","start_line":"1","end_line":20}]}""", """{"ranges":[{"path":"file.kt"}]}""", """{"ranges":false}""")) {
+            val result = read.execute("invalid", args(raw))
+            assertEquals("INVALID_ARGUMENTS", result.errorCode)
+            assertFalse(result.dispatched)
+        }
+        assertTrue(backend.calls.isEmpty())
+    }
+
+    @Test fun activeSavedViewsSurviveEntryEvictionBeforeInactiveViews() = runBlocking {
+        val backend = Backend().also { it.body = JsonPrimitive("captured ".repeat(500)) }
+        val views = GitHubResultViews(pageBytes = 2048)
+        val read = GitHubOperationTool("github_read", backend, "task-A", views = views)
+        val cursors = (1..32).map { continuation(result(read.execute("source-$it", buildJsonObject {}))) }
+        assertFalse(read.execute("touch-first", cursors.first()).isError)
+        read.execute("new-source", buildJsonObject {})
+        assertFalse(read.execute("first-still-present", cursors.first()).isError)
+        assertEquals("SAVED_VIEW_UNAVAILABLE", read.execute("second-evicted", cursors[1]).errorCode)
+        assertEquals(33, backend.calls.size)
+    }
+
     @Test fun changesRequiresAnExplicitStringBaseBeforeDispatch() = runBlocking {
         val backend = Backend()
         val operation = GitHubOperationTool("github_context", backend, "changes-validation")

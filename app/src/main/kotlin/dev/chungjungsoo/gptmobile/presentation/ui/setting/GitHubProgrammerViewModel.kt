@@ -91,14 +91,12 @@ class GitHubProgrammerViewModel @Inject constructor(
                 val room = chats.createDraftChat(listOf(profile.uid), "STANDARD", "${context.owner}/${context.repo}", profile.uid)
                 try {
                     chats.saveChatPlatformModels(room.id, mapOf(profile.uid to profile.model))
-                    if (mutable.value.draft.isNotBlank()) {
-                        chats.saveComposerDraft(room.id, mutable.value.draft, "[]", System.currentTimeMillis() / 1000)
-                    }
                     settings.mutateFeatureSettings { it.copy(conversationGitHub = it.conversationGitHub + (room.id to context)) }
                 } catch (failure: Exception) {
                     chats.deleteChatsV2(listOf(room))
                     throw failure
                 }
+                migrateComposerDraft(room, context)
                 preparedChat = key(context) to room.id
                 withContextMain { savedStateHandle["github_session_chat"] = room.id }
                 requestedChat.value = room.id
@@ -160,8 +158,25 @@ class GitHubProgrammerViewModel @Inject constructor(
                 val room = candidates.sortedDescending().firstNotNullOfOrNull { id ->
                     database.agentPersistenceDao().getChatRoom(id)?.takeIf { (requestedChat.value == it.id || !it.isArchived) && !it.isTemporary && it.activePlatform == listOf(uid) }
                 }
+                if (room != null && context != null) migrateComposerDraft(room, context)
                 observeConversation(room?.id)
             }
+        }
+    }
+
+    /** Transfer the old workspace command draft once, without replacing a newer normal-chat draft. */
+    private suspend fun migrateComposerDraft(room: dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2, context: GitHubConversationContext) {
+        val text = mutable.value.draft.takeIf(String::isNotBlank) ?: return
+        if (!room.draftText.isNullOrBlank() && room.draftText != text) return
+        try {
+            if (room.draftText != text) chats.saveComposerDraft(room.id, text, room.draftAttachments, System.currentTimeMillis() / 1000)
+            drafts.write(key(context), "")
+            latestDrafts.remove(key(context))
+            mutable.update { if (it.context?.sameWorkspace(context) == true) it.copy(draft = "") else it }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            mutable.update { it.copy(error = "The previous workspace command draft could not be transferred. It is retained for recovery.") }
         }
     }
 

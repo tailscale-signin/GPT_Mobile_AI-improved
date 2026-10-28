@@ -81,6 +81,17 @@ class GitHubProgrammerViewModelTest {
         Dispatchers.resetMain()
     }
 
+    @Test fun legacyCommandDraftMovesToTheStandardComposerOnce() = runBlocking {
+        withTimeout(5000) { model.state.first { it.draftLoaded } }
+        val context = model.state.value.context!!
+        model.updateDraft(context, "Continue the code review")
+        model.ensureConversation().join()
+        withTimeout(5000) { model.state.first { it.chatId == 42 } }
+        coVerify { chats.saveComposerDraft(42, "Continue the code review", "[]", any()) }
+        coVerify { drafts.write(match { "owner/repo:feature:coder" in it }, "") }
+        assertEquals("", model.state.value.draft)
+    }
+
     @Test fun openingChatCreatesOneScopedRoomWithoutSubmittingWork() = runBlocking {
         model.configureSession("coder", newConversation = true)
         withTimeout(5000) { model.state.first { it.draftLoaded && it.profileUid == "coder" } }

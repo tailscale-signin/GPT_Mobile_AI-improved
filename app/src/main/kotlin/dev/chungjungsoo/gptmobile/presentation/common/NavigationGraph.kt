@@ -450,7 +450,10 @@ fun NavGraphBuilder.settingNavigation(
             if (githubConnection != null) {
                 dev.chungjungsoo.gptmobile.presentation.ui.setting.GitHubWorkspaceScreen(
                     connection = githubConnection,
-                    onDismiss = { navController.navigateUp() }
+                    onDismiss = { navController.navigateUp() },
+                    onOpenConversation = { id -> navController.navigate("chat_room/$id") },
+                    onReviewEvidenceAccess = { navController.navigate(Route.TOOL_CONNECTIONS) },
+                    onNavigateToLocalModels = { navController.navigate(Route.LOCAL_MODELS + "?marketplace=true") }
                 )
             } else {
                 androidx.compose.material3.Text(

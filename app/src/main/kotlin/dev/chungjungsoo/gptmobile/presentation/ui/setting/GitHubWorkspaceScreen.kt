@@ -259,7 +259,7 @@ fun GitHubWorkspaceScreen(
                                     }
                                 }
                             }
-                            state.error?.let { error ->
+                            listOfNotNull(state.error, visibleProgrammer.error).distinct().joinToString("\n").takeIf(String::isNotBlank)?.let { error ->
                                 Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                                 TextButton(onClick = viewModel::clearError) { Text("Dismiss") }
                             }
@@ -268,7 +268,7 @@ fun GitHubWorkspaceScreen(
                     }
                 }
                 if (tab != 5) {
-                    state.error?.let { error ->
+                    listOfNotNull(state.error, visibleProgrammer.error).distinct().joinToString("\n").takeIf(String::isNotBlank)?.let { error ->
                         Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall, modifier = Modifier.fillMaxWidth().heightIn(max = 80.dp).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp))
                     }
                 }

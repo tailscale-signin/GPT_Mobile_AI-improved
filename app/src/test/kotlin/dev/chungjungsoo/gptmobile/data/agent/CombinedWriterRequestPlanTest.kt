@@ -18,6 +18,18 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CombinedWriterRequestPlanTest {
+    @Test fun freshAppendPlanSeparatesPacketCapacityFromAdmissionAndHonorsUserCap() {
+        fun freeze(limit: Int? = null) = CombinedWriterRequestPlan.freeze(
+            profile, "history of France", "Frozen sources", "Write", emptyList(), "PASSAGES_V3", 723,
+            userOutputLimit = limit, appendContinuations = true
+        )
+        val planned = freeze()
+        assertTrue(planned.requiredOutputTokens < 1024)
+        assertEquals(CombinedWriterPolicy.preferredOutput("history of France", profile, true), planned.effectiveOutputTokens)
+        assertEquals(900, freeze(900).effectiveOutputTokens)
+        assertTrue(runCatching { freeze(256) }.isFailure)
+    }
+
     private val profile = PlatformV2(uid = "writer-plan-test", compatibleType = ClientType.CUSTOM, name = "Writer", model = "writer-test", apiUrl = "https://writer.example/v1", enabled = true, maxTokens = 16_384)
 
     @After fun clearObservations() = CombinedWriterObservations.clearForTest()

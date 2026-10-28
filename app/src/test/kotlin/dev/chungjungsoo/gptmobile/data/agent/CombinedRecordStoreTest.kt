@@ -24,6 +24,48 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], application = android.app.Application::class)
 class CombinedRecordStoreTest {
+    @Test fun interruptedBlankMessageRecoversCommittedDraftBeforeContributorFallback() = runBlocking {
+        val db = database()
+        try {
+            val dao = db.agentPersistenceDao()
+            val store = CombinedRecordStore.open(dao, runId, snapshot, "revision", 10_000, false)
+            store.protocol.accept(first + second.take(50))
+            store.save(store.protocol.checkpoint())
+            dao.updateRunStatus(runId, "INTERRUPTED", 1L, 2L, null)
+            val restored = requireNotNull(dao.restoreCombinedCandidate(runId))
+            assertEquals("  Exact 🦋 paragraph.  ", restored.content)
+            assertEquals(-1, restored.activeRevisionIndex)
+            val report = requireNotNull(restored.timeline.last().combinedQuality)
+            assertEquals(CombinedCommittedDraft.STAGE, report.assessmentStage)
+            assertTrue(!report.complete && !report.finalAssessment && !report.semanticCoverageVerified)
+            CombinedAnswerPublication.validate(restored.content, report)
+            val staged = requireNotNull(CombinedDocuments.stage(dao, restored, dao.recoveryRun(runId)!!, "INTERRUPTED", force = true))
+            assertEquals(CombinedCommittedDraft.STAGE, staged.manifest.completeness)
+            assertEquals(restored.content, dao.restoreCombinedCandidate(runId)!!.content)
+            assertEquals("INTERRUPTED", dao.recoveryRun(runId)!!.status)
+            assertEquals(second.take(50), store.protocol.checkpoint().pending)
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test fun interruptedRecoveryRejectsACheckpointFromAnotherOwnershipFence() = runBlocking {
+        val db = database()
+        try {
+            val dao = db.agentPersistenceDao()
+            val store = CombinedRecordStore.open(dao, runId, snapshot, "revision", 10_000, false)
+            store.protocol.accept(first)
+            store.save(store.protocol.checkpoint())
+            val row = dao.combinedDeliveryCheckpoint(runId, "revision")!!
+            dao.upsertCombinedDeliveryCheckpoint(row.copy(fence = row.fence + 1))
+            dao.updateRunStatus(runId, "INTERRUPTED", 1L, 2L, null)
+            assertTrue(runCatching { dao.restoreCombinedCandidate(runId) }.isFailure)
+            assertEquals("", dao.recoveryMessage(3)!!.content)
+        } finally {
+            db.close()
+        }
+    }
+
     @Test fun prematureEndPolicyIsPersistedOnlyForNewAcceptedAppendPlans() = runBlocking {
         for ((append, version) in listOf(true to 2, true to 1, false to 1)) {
             val request = "History of Portugal in 1000 words"

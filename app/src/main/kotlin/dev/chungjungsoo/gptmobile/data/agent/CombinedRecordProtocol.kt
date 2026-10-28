@@ -134,6 +134,14 @@ internal class CombinedRecordProtocol(
         noProgressAttempts = if (progressed) 0 else Math.addExact(noProgressAttempts, 1)
     }
 
+    /** Only a known physical response boundary disambiguates a split opening fence. */
+    fun finishPacket() {
+        if (failure == null && pending.toString().trim() == "```") {
+            pending.setLength(0)
+            resetScan()
+        }
+    }
+
     /** Preserve remaining bytes until a malformed response reaches a known transport boundary. */
     fun retainRejected(delta: String) {
         check(failure != null)
@@ -170,11 +178,12 @@ internal class CombinedRecordProtocol(
                     }
                     val fence = pending.substring(0, newline).trim()
                     require(
-                        records.isEmpty() &&
-                            fence in setOf("```", "```json", "```jsonl", "```ndjson") ||
-                            records.lastOrNull()?.id == "END" &&
-                            fence == "```"
+                        fence == "```" ||
+                            records.lastOrNull()?.id != "END" &&
+                            fence in setOf("```json", "```jsonl", "```ndjson")
                     ) { "INVALID_DELIVERY_RECORD" }
+                    // A physical continuation can open/close its own wrapper before
+                    // the logical END. Wrappers never advance sequence or completion.
                     pending.delete(0, newline + 1)
                     continue
                 }
@@ -284,7 +293,13 @@ internal class CombinedRecordProtocol(
                             "Use next_sequence for the next new passage, not another premature end record. Preserve every committed passage and its source references. " +
                             "Do not repeat or pad text, invent claims, rewrite earlier passages or execute tools. Emit a new end record only after the requested scope and length are satisfied."
                     } else {
-                        "Regenerate the entire unfinished record at next_sequence, preserving its intended topic and claims, then finish the remaining records. Never continue inside a JSON string. Use the original frozen inventory, user scope and record IDs. Emit the end record after all required records. Do not execute tools."
+                        (
+                            if (partial.isBlank()) {
+                                "There is no unfinished record. Start the next NEW passage at next_sequence and continue the remaining answer. "
+                            } else {
+                                "Regenerate the entire unfinished record at next_sequence, preserving its intended topic and claims, then continue with NEW passages. Never continue inside a JSON string. "
+                            }
+                            ) + "Use this packet's remaining allowance for the unfinished requested scope; completing one record does not complete the answer. Use the original frozen inventory, user scope and record IDs. Emit the end record only after all required records. Do not execute tools."
                     }
                 )
             )

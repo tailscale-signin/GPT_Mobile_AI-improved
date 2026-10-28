@@ -147,15 +147,37 @@ internal object CombinedClaimMatcher {
         }
     }
 
+    class Prepared internal constructor(
+        val fingerprint: Fingerprint,
+        internal val answerClauses: List<Fingerprint>,
+        internal val sourceClauses: List<Fingerprint>
+    )
+
+    fun prepare(text: String): Prepared {
+        val value = fingerprint(text)
+        val clauses = CombinedClaimClauses.spans(text).map { fingerprint(it.comparisonText) }
+        return Prepared(value, clauses, value.eventClauses.map(::fingerprint).ifEmpty { listOf(value) })
+    }
+
     fun match(source: String, answer: String): Match {
         val sourceFingerprint = fingerprint(source)
         val direct = match(sourceFingerprint, fingerprint(answer))
         if (direct >= Match.PARAPHRASE && sourceFingerprint.eventClauses.isEmpty()) return direct
-        // Keep strict number/qualifier checks on each candidate clause. Never compare
-        // number sets across a merged sentence or relax date associations globally.
         val answerClauses = CombinedClaimClauses.spans(answer).map { fingerprint(it.comparisonText) }
         val sourceClauses = sourceFingerprint.eventClauses.ifEmpty { listOf(source) }.map(::fingerprint)
         val matches = sourceClauses.map { part -> answerClauses.maxOfOrNull { match(part, it) } ?: Match.NONE }
+        val aligned = matches.minOrNull() ?: Match.NONE
+        return if (sourceFingerprint.eventClauses.isNotEmpty()) aligned else maxOf(direct, aligned)
+    }
+
+    /** Same clause-sensitive checks, with extraction shared across pairwise comparisons. */
+    fun match(source: Prepared, answer: Prepared): Match {
+        val sourceFingerprint = source.fingerprint
+        val direct = match(sourceFingerprint, answer.fingerprint)
+        if (direct >= Match.PARAPHRASE && sourceFingerprint.eventClauses.isEmpty()) return direct
+        // Keep strict number/qualifier checks on each candidate clause. Never compare
+        // number sets across a merged sentence or relax date associations globally.
+        val matches = source.sourceClauses.map { part -> answer.answerClauses.maxOfOrNull { match(part, it) } ?: Match.NONE }
         // A full-sentence bag of terms can look identical after two event objects swap
         // dates. Once independent clauses exist, every association must survive.
         val aligned = matches.minOrNull() ?: Match.NONE

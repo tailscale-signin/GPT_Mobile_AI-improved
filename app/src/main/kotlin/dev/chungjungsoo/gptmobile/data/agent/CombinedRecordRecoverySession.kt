@@ -125,6 +125,7 @@ internal class CombinedRecordRecoverySession(
                 if (error !== rejectedRecord) throw error
                 failure = ProviderEvent.Failed("OUTPUT_PROTOCOL_INVALID: ${error.message.orEmpty()}", errorCode = "OUTPUT_PROTOCOL_INVALID")
             }
+            if (complete || failure?.transportComplete == true || finishReason in setOf("length", "max_tokens", "MAX_TOKENS", "output_limit")) protocol.finishPacket()
             if (rejectedRecord != null && failure == null) {
                 failure = if (protocol.canContinueUnderlength) {
                     ProviderEvent.Failed("COMBINED_LENGTH_REQUIREMENT_UNMET: The saved answer ended before its requested length was met.", errorCode = "COMBINED_LENGTH_REQUIREMENT_UNMET", transportComplete = complete)

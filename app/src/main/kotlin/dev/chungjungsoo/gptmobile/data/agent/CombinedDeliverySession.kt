@@ -48,9 +48,9 @@ internal class CombinedDeliverySession(
         val policy = answerContract ?: CombinedAnswerPolicy.from(originalRequest)
         var currentEvidence = evidence
         var currentRevision = revisionId.ifBlank { UUID.randomUUID().toString() }
-        val coverage = withContext(Dispatchers.Default) { CombinedContentCoverage(sources, originalRequest, preserveSourceContent) }
         val constrained = policy.maximumWords != null || policy.minimumWords != null || policy.targetWords != null || policy.singleExample || policy.requiresCurrentEvidence || policy.requiredFormat != null || policy.task?.subjectConfidence == "EXPLICIT"
         val singlePass = combined?.requested?.singlePass == true
+        val publishCommittedDraft = singlePass && recordProtocol && structured && combined?.requested?.appendContinuations == true && committedPrefix.isEmpty()
         val progressive = !singlePass && !preserveSourceContent && structured && !constrained && committedPrefix.isEmpty()
         AppLogRecorder.record(
             "CombinedSynthesis",
@@ -63,7 +63,7 @@ internal class CombinedDeliverySession(
             }} · progressive=$progressive · constrained=$constrained · revision=$currentRevision · policy=${combined?.requested?.requestedPolicyDigest.orEmpty()}"
         )
         data class Candidate(val text: String, val terminal: ProviderEvent?, val decoder: CombinedPassageDecoder?, val assembledLocally: Boolean = false, val usage: CombinedReportedUsage? = null)
-        suspend fun collect(candidate: AgentProviderSession, publish: Boolean): Candidate {
+        suspend fun collect(candidate: AgentProviderSession, publish: Boolean, publishDraft: Boolean = false): Candidate {
             val text = StringBuilder()
             val decoder = if (structured) CombinedPassageDecoder(sources, currentEvidence, maxCharacters, strictRecords = recordProtocol) else null
             var terminal: ProviderEvent? = null
@@ -93,6 +93,16 @@ internal class CombinedDeliverySession(
                             validateAccess()
                             deltas.filter(String::isNotEmpty).forEach { emit(ProviderEvent.TextDelta(it)) }
                             if (deltas.isNotEmpty() && decoder != null) emit(ProviderEvent.CombinedQuality(CombinedQualityReport(passages = decoder.passages.toList(), turnContext = turnContext, revisionId = currentRevision)))
+                        }
+                        if (publishDraft && deltas.isNotEmpty() && decoder != null) {
+                            validateAccess()
+                            val draft = decoder.answer()
+                            if (draft.isNotBlank() && visibleWordCount(draft) > 0) {
+                                // The upstream record owner saves before emitting. The existing
+                                // CombinedAnswer reducer atomically checkpoints text and links.
+                                // No final checks or model continuation need finish first.
+                                emit(ProviderEvent.CombinedAnswer(draft, CombinedCommittedDraft.report(draft, currentRevision, decoder.passages.toList(), sources.mapTo(linkedSetOf()) { it.platformUid })))
+                            }
                         }
                     }
                     is ProviderEvent.Usage -> {
@@ -128,6 +138,7 @@ internal class CombinedDeliverySession(
         phase(CombinedDeliveryPhase.VALIDATING)
         validateAccess()
         if (!singlePass && policy.requiresCurrentEvidence && currentEvidence.records.none { it.readable && it.article && it.dated }) {
+            val coverage = withContext(Dispatchers.Default) { CombinedContentCoverage(sources, originalRequest, preserveSourceContent) }
             if (combined != null && !policy.noSearch) {
                 val acquired = verify(CombinedVerificationRequest("", currentRevision, listOf(CombinedVerificationNeed("current-article", originalRequest, "A dated, readable article is required by the current-news request")), currentEvidence, originalRequest))
                 validateAccess()
@@ -143,7 +154,7 @@ internal class CombinedDeliverySession(
             }
         }
         phase(CombinedDeliveryPhase.COMBINING)
-        var accepted = collect(base, progressive)
+        var accepted = collect(base, progressive, publishCommittedDraft)
         validateAccess()
         val deferred = (accepted.terminal as? ProviderEvent.Failed)?.takeIf { combined?.requested?.appendContinuations == true && it.providerLimit?.knownNotAccepted == true }
         if (deferred != null) {
@@ -156,6 +167,8 @@ internal class CombinedDeliverySession(
             emit(ProviderEvent.Failed("Combined continuation cannot replace the committed prefix without a new revision. Original contributions remain available."))
             return@flow
         }
+        // Local pairwise coverage work cannot delay the first saved answer passage.
+        val coverage = withContext(Dispatchers.Default) { CombinedContentCoverage(sources, originalRequest, preserveSourceContent) }
         suspend fun assess(candidate: Candidate): CombinedFinalAssessment = withContext(Dispatchers.Default) {
             // Exact application-generated status text is checked against the frozen receipts.
             // Provider names with numbers are entity identities, not competing factual quantities.

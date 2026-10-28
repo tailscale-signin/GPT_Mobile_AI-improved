@@ -98,7 +98,7 @@ data class CombinedWriterRequestPlan(
             CombinedProviderEligibility.unavailableReason(profile, request, writer = true, appendContinuations = appendContinuations)?.let { error(it) }
             CombinedWriterPolicy.unavailableReason(profile, request, appendContinuations = appendContinuations)?.let { error(it) }
             val required = CombinedWriterPolicy.requiredOutput(request, profile, appendContinuations)
-            val requested = maxOf(required, plannedOutputTokens)
+            val requested = maxOf(required, plannedOutputTokens, CombinedWriterPolicy.preferredOutput(request, profile, appendContinuations, userOutputLimit, userContextLimit))
             val context = listOfNotNull(ProviderRouteCapacity.context(profile), userContextLimit?.takeIf { it > 0 && it < Int.MAX_VALUE }).minOrNull()
             val fixedOutput = if (profile.compatibleType == dev.chungjungsoo.gptmobile.data.model.ClientType.FREE) dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.fromApiUrl(profile.apiUrl)?.fixedOutputTokens ?: 0 else 0
             val contextOutput = if (incrementalSynthesis && context != null) maxOf(required, fixedOutput, context / 4) else Int.MAX_VALUE

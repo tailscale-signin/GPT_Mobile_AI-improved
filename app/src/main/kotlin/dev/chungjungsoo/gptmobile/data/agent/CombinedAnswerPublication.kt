@@ -39,7 +39,23 @@ internal object CombinedAnswerPublication {
             }
         ) { "COMBINED_FINAL_EVIDENCE_REVISION_MISMATCH" }
         if (report.version >= 6) {
-            require(report.finalAssessment && report.assessmentStage == "FINAL_DISPLAY") { "COMBINED_FINAL_ASSESSMENT_MISSING" }
+            val committedDraft = report.version >= 7 && report.assessmentStage == CombinedCommittedDraft.STAGE
+            if (committedDraft) {
+                require(
+                    !report.finalAssessment &&
+                        !report.complete &&
+                        !report.protocolComplete &&
+                        !report.semanticCoverageVerified &&
+                        !report.factualAccuracyVerified &&
+                        report.verificationReceipts.isEmpty() &&
+                        report.displayableDraft &&
+                        report.deliveredScopeStatus == "PARTIAL" &&
+                        report.verificationStatus == "UNVERIFIED" &&
+                        report.status in setOf("WRITING", "FAILED", "INTERRUPTED", "CANCELED")
+                ) { "COMBINED_DRAFT_COMPLETION_CONTRADICTORY" }
+            } else {
+                require(report.finalAssessment && report.assessmentStage == "FINAL_DISPLAY") { "COMBINED_FINAL_ASSESSMENT_MISSING" }
+            }
             require(report.wordCount == visibleWordCount(text) && report.displayedCharacters == text.length) { "COMBINED_FINAL_DISPLAY_METRICS_MISMATCH" }
             require(report.writerCharacters >= 0 && report.locallyAddedCharacters >= 0 && report.locallyRemovedCharacters >= 0) { "COMBINED_FINAL_ASSEMBLY_METRICS_INVALID" }
             if (report.writerAnswerDigest.isNotBlank()) {

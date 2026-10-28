@@ -17,10 +17,13 @@ internal object CombinedHistoricalEvent {
         val b = actions(second)
         return a.isNotEmpty() && b.isNotEmpty() && a.intersect(b).isEmpty()
     }
-    fun sameEvent(first: CombinedClaimRecord, second: CombinedClaimRecord): Boolean {
-        val a = CombinedClaimMatcher.fingerprint(first.proposition)
-        val b = CombinedClaimMatcher.fingerprint(second.proposition)
-        val action = actions(first.proposition).intersect(actions(second.proposition))
+    fun sameEvent(
+        first: CombinedClaimRecord,
+        second: CombinedClaimRecord,
+        a: CombinedClaimMatcher.Fingerprint = CombinedClaimMatcher.fingerprint(first.proposition),
+        b: CombinedClaimMatcher.Fingerprint = CombinedClaimMatcher.fingerprint(second.proposition)
+    ): Boolean {
+        val action = a.eventActions.intersect(b.eventActions)
         return action.isNotEmpty() &&
             a.numbers.isNotEmpty() &&
             a.numbers == b.numbers &&

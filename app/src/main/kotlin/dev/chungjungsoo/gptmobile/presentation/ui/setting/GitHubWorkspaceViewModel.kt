@@ -152,7 +152,7 @@ class GitHubWorkspaceViewModel @Inject constructor(
         _state.update { state -> state.copy(editorDrafts = if (content == (state.staged.firstOrNull { it.path == path }?.content ?: original)) state.editorDrafts - path else state.editorDrafts + (path to content)) }
     }
 
-    fun open(connection: ToolConnection) {
+    fun open(connection: ToolConnection, initialContext: dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext? = null) {
         if (_state.value.busy) return
         client = null
         tool = null
@@ -178,7 +178,12 @@ class GitHubWorkspaceViewModel @Inject constructor(
             val account = api("get_account").jsonObject
             val recovered = draftWrites.withLock { drafts.read(current.connectionUid)?.let { Json.decodeFromString(Draft.serializer(), it) } }
             pendingRecovery = recovered
-            val previousSelection = recovered?.selection ?: store.get(current.connectionUid)
+            val requested = initialContext?.repository
+            _state.update { it.copy(recoveryRepository = recovered?.takeIf { it.dirty }?.selection?.fullName) }
+            require(requested == null || recovered?.dirty != true || recovered.selection == requested) {
+                "Saved edits belong to another branch. Open GitHub Workspace in Settings to save or discard them before opening this chat."
+            }
+            val previousSelection = requested ?: recovered?.selection ?: store.get(current.connectionUid)
             val appAuthorization = current.authType == "OAUTH" && gitHubPublicAuth?.connectedAccount(current.connectionUid) != null
             _state.update { it.copy(connection = current, login = account.text("login"), appAuthorization = appAuthorization, recoveryRepository = recovered?.takeIf { it.dirty }?.selection?.fullName) }
             if (appAuthorization) {
@@ -287,7 +292,7 @@ class GitHubWorkspaceViewModel @Inject constructor(
         val selected = GitHubRepositoryContext(owner, repo, preferredRef ?: recoveredRef ?: default)
         val appCanWrite = !current.appAuthorization || current.installations.firstOrNull { it.text("id") == current.installationId }?.get("permissions")?.jsonObject?.text("contents") == "write"
         val canWrite = appCanWrite && metadata["permissions"]?.jsonObject?.flag("push") == true && !metadata.flag("archived") && current.connection?.toolPolicy != "READ_ONLY"
-        _state.update { it.copy(selection = selected, defaultBranch = default, canWrite = canWrite, branches = emptyList(), file = null, staged = emptyList(), editorDrafts = emptyMap(), pullRequests = emptyList(), commits = emptyList(), commitDetail = null, activityUpdatedAt = null, pullDetail = null, directory = "", headSha = "", entries = emptyList(), snapshot = null, indexStatus = null, searchResult = null, ciDigest = null, patchStage = null, changedFiles = null, reviewBaseline = "", activityLoaded = false, directoryLoaded = false, pullPackage = null) }
+        _state.update { it.copy(selection = selected, defaultBranch = default, canWrite = canWrite, branches = emptyList(), file = null, staged = emptyList(), editorDrafts = emptyMap(), pullRequests = emptyList(), pullsLoaded = false, pullPage = 1, morePullRequests = false, commits = emptyList(), commitDetail = null, activityUpdatedAt = null, pullDetail = null, directory = "", headSha = "", entries = emptyList(), snapshot = null, indexStatus = null, searchResult = null, ciDigest = null, patchStage = null, changedFiles = null, reviewBaseline = "", activityLoaded = false, directoryLoaded = false, pullPackage = null) }
         loadBranches(1)
         loadHeadAndDirectory()
         recovery?.takeIf { it.selection?.fullName.equals(selected.fullName, true) && it.selection?.ref == selected.ref }?.let { draft ->
@@ -361,7 +366,6 @@ class GitHubWorkspaceViewModel @Inject constructor(
     fun onSectionVisible(section: Int) {
         if (_state.value.busy || _state.value.error != null || _state.value.selection == null || _state.value.headSha.isBlank()) return
         when {
-            section == 3 && !_state.value.activityLoaded -> refreshActivity()
             section == 0 && !_state.value.directoryLoaded -> browse(_state.value.directory)
             section == 2 && !_state.value.pullsLoaded -> loadPullRequests()
         }

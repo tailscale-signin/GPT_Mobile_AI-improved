@@ -5,20 +5,15 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.ime
-import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -41,33 +36,27 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.ClipEntry
 import androidx.compose.ui.platform.LocalClipboard
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
@@ -88,7 +77,19 @@ import kotlinx.serialization.json.jsonObject
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun GitHubWorkspaceScreen(connection: ToolConnection, onDismiss: () -> Unit, viewModel: GitHubWorkspaceViewModel = hiltViewModel(), onOpenConversation: (Int) -> Unit = {}, programmer: GitHubProgrammerViewModel = hiltViewModel()) {
+fun GitHubWorkspaceScreen(
+    connection: ToolConnection,
+    onDismiss: () -> Unit,
+    viewModel: GitHubWorkspaceViewModel = hiltViewModel(),
+    onOpenConversation: (Int) -> Unit = {},
+    programmer: GitHubProgrammerViewModel = hiltViewModel(),
+    initialProfileUid: String? = null,
+    initialChatId: Int? = null,
+    initialContext: dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext? = null,
+    newConversation: Boolean = false,
+    onReviewEvidenceAccess: () -> Unit = {},
+    onNavigateToLocalModels: () -> Unit = {}
+) {
     androidx.compose.runtime.DisposableEffect(Unit) {
         val release = dev.chungjungsoo.gptmobile.data.diagnostics.FrameTimingRecorder.screen("GitHubWorkspace")
         onDispose { release() }
@@ -97,17 +98,12 @@ fun GitHubWorkspaceScreen(connection: ToolConnection, onDismiss: () -> Unit, vie
     val programmerState by programmer.state.collectAsStateWithLifecycle()
     LaunchedEffect(state.connection?.connectionUid, state.selection, state.headSha) { programmer.bind(state) }
     val commandContext = programmerState.context?.takeIf { it.connectionUid == connection.connectionUid && it.owner == state.selection?.owner && it.repo == state.selection?.repo && it.ref == state.selection?.ref }
-    val command = key(commandContext?.connectionUid, commandContext?.repository, programmerState.profileUid) { rememberTextFieldState() }
     val visibleProgrammer = if (commandContext != null) programmerState else programmerState.copy(context = null, chatId = null, messages = emptyList(), runs = emptyList(), events = emptyList(), approvals = emptyList(), pending = emptyList(), draftLoaded = false)
-    LaunchedEffect(command, programmerState.draftLoaded, commandContext) {
-        if (programmerState.draftLoaded && commandContext != null) {
-            if (command.text.isEmpty() && programmerState.draft.isNotEmpty()) command.edit { append(programmerState.draft) }
-            val context = commandContext
-            snapshotFlow { command.text.toString() }.collect { programmer.updateDraft(context, it) }
-        }
+    LaunchedEffect(connection.connectionUid, initialProfileUid, initialChatId) {
+        programmer.configureSession(initialProfileUid, initialChatId, newConversation)
     }
-    visibleProgrammer.approvals.firstOrNull()?.let { approval ->
-        dev.chungjungsoo.gptmobile.presentation.ui.chat.ToolApprovalDialog(approval, onDeny = { programmer.approve(approval.id, false) }, onAllowOnce = { programmer.approve(approval.id, true) }, onAlwaysAllowTool = { programmer.alwaysAllowTool(approval.id) }, onAlwaysAllowProvider = { programmer.alwaysAllowProvider(approval.id) }, onAllowInConversation = { programmer.allowInConversation(approval.id) })
+    LaunchedEffect(commandContext, programmerState.draftLoaded, programmerState.chatId, state.busy) {
+        if (!state.busy && commandContext != null && programmerState.draftLoaded && programmerState.chatId == null) programmer.ensureConversation()
     }
     val commitReview: dev.chungjungsoo.gptmobile.presentation.ui.workspace.GitHubReviewViewModel = hiltViewModel()
     LaunchedEffect(commandContext) {
@@ -135,8 +131,6 @@ fun GitHubWorkspaceScreen(connection: ToolConnection, onDismiss: () -> Unit, vie
     val scope = rememberCoroutineScope()
     val workspaceScroll = rememberScrollState()
     var tab by rememberSaveable { mutableIntStateOf(3) }
-    var composerFocused by remember { mutableStateOf(false) }
-    val compactComposer = tab == 3 && composerFocused && WindowInsets.ime.getBottom(LocalDensity.current) > 0
     LaunchedEffect(tab, state.commitDetail) { workspaceScroll.scrollTo(0) }
     LaunchedEffect(tab, state.selection, state.headSha, state.busy, state.error) { viewModel.onSectionVisible(tab) }
     var repositoryMenu by remember { mutableStateOf(false) }
@@ -155,21 +149,25 @@ fun GitHubWorkspaceScreen(connection: ToolConnection, onDismiss: () -> Unit, vie
     var acknowledgedBranchEvents by rememberSaveable(connection.connectionUid) { mutableStateOf(emptyList<String>()) }
     var editorDirty by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(connection.connectionUid) {
-        if (viewModel.state.value.connection?.connectionUid != connection.connectionUid) viewModel.open(connection)
+        if (viewModel.state.value.connection?.connectionUid != connection.connectionUid) viewModel.open(connection, initialContext)
     }
     fun copy(value: String) {
         scope.launch { clipboard.setClipEntry(ClipEntry(ClipData.newPlainText("GitHub workspace", value))) }
     }
-    fun close() {
+    var leaveChat by remember { mutableStateOf<((() -> Unit) -> Unit)?>(null) }
+    fun closeWorkspace() {
         if (state.busy) return
         scope.launch {
-            if (!programmer.flushDraft(commandContext, command.text.toString())) return@launch
             if (state.staged.isNotEmpty() || state.editorDrafts.isNotEmpty() || state.patchStage != null || editorDirty) {
                 confirmClose = true
             } else {
                 viewModel.close { onDismiss() }
             }
         }
+    }
+    fun close() {
+        val leave = leaveChat
+        if (leave != null) leave { closeWorkspace() } else closeWorkspace()
     }
     fun openChanges() {
         if (state.staged.isNotEmpty() || state.patchStage != null) {
@@ -196,13 +194,9 @@ fun GitHubWorkspaceScreen(connection: ToolConnection, onDismiss: () -> Unit, vie
                 TopAppBar(
                     title = {
                         Column {
-                            Text(state.selection?.fullName ?: "GitHub Workspace", style = if (compactComposer) MaterialTheme.typography.titleSmall else MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(state.selection?.fullName ?: "GitHub Workspace", style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             Text(
-                                if (compactComposer) {
-                                    programmerState.profiles.firstOrNull { it.uid == programmerState.profileUid }?.name.orEmpty().take(120)
-                                } else {
-                                    state.selection?.ref ?: connection.name
-                                },
+                                state.selection?.ref ?: connection.name,
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 1,
@@ -217,7 +211,7 @@ fun GitHubWorkspaceScreen(connection: ToolConnection, onDismiss: () -> Unit, vie
                             IconButton(onClick = {
                                 when (tab) {
                                     4 -> buildsViewModel.refresh()
-                                    3 -> viewModel.refreshActivity()
+                                    2 -> viewModel.loadPullRequests()
                                     else -> viewModel.refreshBranch()
                                 }
                             }, enabled = if (tab == 4) !buildsState.list().loading else canNavigate) { Icon(Icons.Rounded.Refresh, if (tab == 4) stringResource(R.string.github_builds_refresh) else "Refresh branch") }
@@ -225,41 +219,9 @@ fun GitHubWorkspaceScreen(connection: ToolConnection, onDismiss: () -> Unit, vie
                     }
                 )
             },
-            bottomBar = {
-                if (tab == 3) {
-                    Column(Modifier.imePadding().navigationBarsPadding()) {
-                        dev.chungjungsoo.gptmobile.presentation.ui.chat.ChatInputBox(
-                            inputState = command,
-                            chatEnabled = commandContext != null && programmerState.draftLoaded && programmerState.profiles.any { it.uid == programmerState.profileUid },
-                            sendButtonEnabled = !programmerState.submitting,
-                            isRunning = programmerState.runs.any { it.status in setOf("RUNNING", "QUEUED") } || programmerState.pending.isNotEmpty(),
-                            onCancelButtonClick = programmer::stop,
-                            onComposerFocusChanged = { composerFocused = it },
-                            placeholder = if (commandContext == null) {
-                                "Choose a repository and main AI profile"
-                            } else if (!programmerState.draftLoaded) {
-                                "Restoring command…"
-                            } else {
-                                "Ask your AI programmer…"
-                            },
-                            attachmentsEnabled = false,
-                            onSendButtonClick = {
-                                val text = command.text.toString()
-                                val context = commandContext
-                                programmer.send(text) {
-                                    if (command.text.toString() == text) {
-                                        command.edit { replace(0, length, "") }
-                                        programmer.updateDraft(context, "")
-                                    }
-                                }
-                            }
-                        )
-                    }
-                }
-            }
+            bottomBar = {}
         ) { padding ->
             Column(Modifier.fillMaxSize().padding(padding)) {
-                if (state.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
                 if (tab == 5 || state.appAuthorization && state.selection == null) {
                     Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
                         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -344,7 +306,7 @@ fun GitHubWorkspaceScreen(connection: ToolConnection, onDismiss: () -> Unit, vie
                                     }
                                 }
                             }
-                            state.error?.let { error ->
+                            listOfNotNull(state.error, visibleProgrammer.error).distinct().joinToString("\n").takeIf(String::isNotBlank)?.let { error ->
                                 Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                                 OutlinedButton(onClick = viewModel::clearError) { Text("Dismiss") }
                             }
@@ -352,17 +314,26 @@ fun GitHubWorkspaceScreen(connection: ToolConnection, onDismiss: () -> Unit, vie
                         }
                     }
                 }
-                val workspaceTabs = listOf(3 to "Chat", 5 to "Settings")
-                if (!compactComposer) {
-                    PrimaryTabRow(selectedTabIndex = if (tab == 3) 0 else 1) {
-                        workspaceTabs.forEach { (id, label) ->
-                            Tab(selected = tab == id, enabled = !editorDirty, onClick = {
-                                tab = id
-                            }, text = { Text(if (id == 1 && state.staged.isNotEmpty()) "$label (${state.staged.size})" else label, maxLines = 1) })
-                        }
+                if (tab != 5) {
+                    listOfNotNull(state.error, visibleProgrammer.error).distinct().joinToString("\n").takeIf(String::isNotBlank)?.let { error ->
+                        Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall, modifier = Modifier.fillMaxWidth().heightIn(max = 80.dp).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp))
                     }
                 }
-                Column(Modifier.weight(1f).then(if (tab in setOf(3, 4)) Modifier else Modifier.verticalScroll(workspaceScroll)).padding(if (tab == 4) 0.dp else 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                GitHubChatProgress(state, visibleProgrammer)
+                val workspaceTabs = listOf(3 to "Chat", 2 to "PR", 0 to "Files", 1 to "Changes", 4 to "Checks", 5 to "Settings")
+                dev.chungjungsoo.gptmobile.presentation.ui.chat.ChatProfileDock(
+                    profileUids = workspaceTabs.map { it.first.toString() },
+                    names = workspaceTabs.associate { (id, label) -> id.toString() to if (id == 1 && state.staged.isNotEmpty()) "$label (${state.staged.size})" else label },
+                    selectedUid = tab.toString(),
+                    pausedUids = emptySet(),
+                    generatingUids = emptySet(),
+                    combined = false,
+                    combinedGenerating = false,
+                    onSelect = { id -> if (!editorDirty) id?.toIntOrNull()?.let { tab = it } },
+                    onPause = null,
+                    showStatus = false
+                )
+                Column(Modifier.weight(1f).then(if (tab in setOf(3, 4)) Modifier else Modifier.verticalScroll(workspaceScroll)).padding(if (tab in setOf(3, 4)) 0.dp else 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     if (state.selection == null && tab !in setOf(3, 5)) {
                         WorkspaceEmpty(Icons.Rounded.FolderOpen, "Your code, within reach", "Choose a repository above to browse files, prepare changes and review pull requests.")
                     } else {
@@ -372,24 +343,32 @@ fun GitHubWorkspaceScreen(connection: ToolConnection, onDismiss: () -> Unit, vie
                                 GitHubBuildsPanel(connection.connectionUid, selection.owner, selection.repo, selection.ref, Modifier.fillMaxSize(), buildsViewModel)
                             }
                             3 -> {
-                                GitHubProgrammerHome(
-                                    state,
-                                    visibleProgrammer,
-                                    onCommand = { value ->
-                                        command.edit {
-                                            if (length != 0) append("\n\n")
-                                            append(value)
-                                        }
-                                    },
-                                    onOpenChanges = { openChanges() },
-                                    onOpenChecks = { tab = 4 },
-                                    onOpenSettings = { tab = 5 },
-                                    onLoadEarlier = programmer::loadEarlierMessages,
-                                    onDismissError = {
-                                        programmer.dismissError()
-                                        viewModel.clearError()
+                                val chatId = visibleProgrammer.chatId
+                                if (chatId != null && commandContext != null) {
+                                    GitHubChatConversation(
+                                        chatId = chatId,
+                                        profileUid = commandContext.mainProfileUid,
+                                        // Recreate the Chat VM when the branch context changes, so tool context cannot stay pinned to the old branch.
+                                        context = commandContext,
+                                        onBack = { closeWorkspace() },
+                                        onOpenConversation = onOpenConversation,
+                                        onReviewEvidenceAccess = onReviewEvidenceAccess,
+                                        onNavigateToLocalModels = onNavigateToLocalModels,
+                                        registerExit = { leaveChat = it }
+                                    )
+                                } else {
+                                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                        Text(
+                                            when {
+                                                state.selection == null -> "Choose a repository to start GitHub chat."
+                                                visibleProgrammer.profileUid == null -> "Choose an available AI profile in Settings."
+                                                else -> "Preparing GitHub chat…"
+                                            }
+                                        )
+                                        visibleProgrammer.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                                        OutlinedButton(onClick = { tab = 5 }) { Text("Repository and AI profile settings") }
                                     }
-                                )
+                                }
                             }
                             5 -> {
                                 GitHubProgrammerSettings(state, visibleProgrammer, programmer::selectProfile, programmer::setPrepareIndex, viewModel::prepareCodeIndex)

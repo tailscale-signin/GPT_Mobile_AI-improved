@@ -559,6 +559,7 @@ class AgentRunner(
         ).toLong()
         val contextNearLimit = limits.contextTokens != Int.MAX_VALUE &&
             limits.initialContextTokens.toLong() + replayTokens + limits.finalResponseReserveTokens + 256 >= limits.contextTokens
+        val repeatLimited = allResults.any { toolResultText(it).contains("reached the per-response repeat limit", ignoreCase = true) }
         val unavailableCallsOnly = noExecutableCalls && calls.isNotEmpty() && !canReadOtherSources
         val mustFinalize = unavailableCallsOnly ||
             repeatedReadSuppression ||
@@ -570,7 +571,7 @@ class AgentRunner(
             (executionToolCallLimit < Int.MAX_VALUE && toolCallCount >= executionToolCallLimit)
         if (unavailableCallsOnly) {
             finalResponseRequested = true
-            emit(AgentRunEvent.Notice("Requested tools are unavailable for this response. Finishing with the findings already collected.", persistent = false))
+            emit(AgentRunEvent.Notice(if (repeatLimited) "Repeated calls were stopped. Finishing with the findings already collected." else "Requested tools are unavailable for this response. Finishing with the findings already collected.", persistent = false))
         } else if (repeatedReadSuppression) {
             finalResponseRequested = true
             emit(AgentRunEvent.Notice("Repeated reads produced no new work. Finishing with the results already collected.", persistent = false))
@@ -630,6 +631,7 @@ class AgentRunner(
 
         if (mustFinalize && allResults.isNotEmpty()) {
             allResults[allResults.lastIndex] = when {
+                unavailableCallsOnly && repeatLimited -> appendInstruction(allResults.last(), "Repeated identical calls reached their safety limit. This does not establish that GitHub read or write tools are disabled. Report completed work and remaining actions accurately; do not claim edits or commits without successful tool receipts. Finish this response from retained evidence.")
                 unavailableCallsOnly -> appendInstruction(allResults.last(), "These tools are disabled or unavailable. Use successful findings already collected to answer now. Do not request more tools in this response.")
                 repeatedReadSuppression -> appendInstruction(allResults.last(), "Repeated reads were skipped without acquiring new evidence. Summarize the results already collected and identify remaining gaps. Do not request more tools in this response.")
                 repeatedDiscoveryStalled -> appendInstruction(allResults.last(), "No more tools became available. Do not call discovery again; summarize completed findings and clearly identify any gaps.")

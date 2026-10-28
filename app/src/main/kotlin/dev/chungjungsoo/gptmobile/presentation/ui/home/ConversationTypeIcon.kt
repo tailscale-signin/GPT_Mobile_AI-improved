@@ -18,6 +18,7 @@ internal fun conversationType(room: ChatRoomV2, research: Boolean): NewChatType 
 
 @DrawableRes
 private fun conversationIconResource(type: NewChatType, unread: Boolean): Int = when (type) {
+    NewChatType.GITHUB -> if (unread) R.drawable.ic_conversation_chat_unread else R.drawable.ic_conversation_chat_seen
     NewChatType.RESEARCH -> if (unread) R.drawable.ic_conversation_research_unread else R.drawable.ic_conversation_research_seen
     NewChatType.COMBINED -> if (unread) R.drawable.ic_conversation_combined_unread else R.drawable.ic_conversation_combined_seen
     NewChatType.MULTI_CHAT -> if (unread) R.drawable.ic_conversation_multi_unread else R.drawable.ic_conversation_multi_seen

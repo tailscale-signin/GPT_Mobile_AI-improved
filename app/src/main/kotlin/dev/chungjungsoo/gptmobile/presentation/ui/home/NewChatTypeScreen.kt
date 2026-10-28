@@ -96,6 +96,7 @@ internal fun NewChatTypeScreen(
                                             NewChatType.SINGLE -> dev.chungjungsoo.gptmobile.R.string.audit_single
                                             NewChatType.MULTI_CHAT -> dev.chungjungsoo.gptmobile.R.string.audit_multi
                                             NewChatType.COMBINED -> dev.chungjungsoo.gptmobile.R.string.audit_combined
+                                            NewChatType.GITHUB -> dev.chungjungsoo.gptmobile.R.string.github_chat_title
                                             NewChatType.RESEARCH -> dev.chungjungsoo.gptmobile.R.string.audit_research
                                         }
                                     ),
@@ -109,6 +110,7 @@ internal fun NewChatTypeScreen(
                                             NewChatType.SINGLE -> dev.chungjungsoo.gptmobile.R.string.audit_single_description
                                             NewChatType.MULTI_CHAT -> dev.chungjungsoo.gptmobile.R.string.audit_multi_description
                                             NewChatType.COMBINED -> dev.chungjungsoo.gptmobile.R.string.audit_combined_description
+                                            NewChatType.GITHUB -> dev.chungjungsoo.gptmobile.R.string.github_chat_description
                                             NewChatType.RESEARCH -> dev.chungjungsoo.gptmobile.R.string.audit_research_description
                                         }
                                     ),

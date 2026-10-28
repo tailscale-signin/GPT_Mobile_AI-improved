@@ -33,6 +33,24 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubOperationToolTest {
+    @Test fun shortWorkspaceCommandsKeepTheirRepositoryAndWriteCatalog() {
+        val context = dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext("connection", "owner", "repo", "feature", "a".repeat(40), "coder")
+        val tools = GitHubOperationTool.taskTools(context.promptContext() + "\n\nImplement fixes")
+        assertTrue(tools.containsAll(setOf("github_context", "github_read", "github_stage_patch", "github_write")))
+        assertTrue(context.promptContext().contains("GitHub workspace: owner/repo\nBranch: feature"))
+    }
+
+    @Test fun numericViewCursorExplainsRecoveryWithoutDispatch() = runBlocking {
+        val backend = Backend()
+        val operation = GitHubOperationTool("github_read", backend, "invalid-cursor")
+        val result = operation.execute("read", args("""{"view_cursor":"0"}"""))
+        assertTrue(result.isError)
+        assertFalse(result.dispatched)
+        assertEquals("INVALID_ARGUMENTS", result.errorCode)
+        assertTrue((result.content as ToolResultContent.Text).text.contains("omit view_cursor"))
+        assertTrue(backend.calls.isEmpty())
+    }
+
     @Test fun savedPagesRenewOnlyInsideTheirAuthorizedScopeAndEventuallyExpire() = runBlocking {
         var clock = 0L
         val backend = Backend().also { it.body = JsonPrimitive("captured ".repeat(2000)) }

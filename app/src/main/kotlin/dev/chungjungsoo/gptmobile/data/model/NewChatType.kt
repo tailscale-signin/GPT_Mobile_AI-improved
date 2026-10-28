@@ -4,13 +4,14 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ConversationMode
 
 /** Creation purpose is separate from the persisted response execution mode. */
 enum class NewChatType(val title: String, val explanation: String, val requiredPluginId: String? = null) {
+    GITHUB("GitHub Chat", "Work on a repository with one AI profile", ToolPluginId.GITHUB),
     RESEARCH("Research Chat", "Deep Research with one or more AI models", ToolPluginId.DEEP_RESEARCH),
     SINGLE("Single Chat", "One focused AI conversation"),
     MULTI_CHAT("Multi-chat", "One message to every AI, separate responses"),
     COMBINED("Combined Mode", "Multiple AIs, one comprehensive answer");
 
     fun isCountValid(count: Int): Boolean = when (this) {
-        SINGLE -> count == 1
+        SINGLE, GITHUB -> count == 1
         RESEARCH -> count >= 1
         MULTI_CHAT, COMBINED -> count >= 2
     }

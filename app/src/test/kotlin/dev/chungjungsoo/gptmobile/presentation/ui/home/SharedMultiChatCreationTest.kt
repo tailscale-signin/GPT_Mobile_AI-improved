@@ -82,6 +82,37 @@ class SharedMultiChatCreationTest {
         }
     }
 
+    @Test
+    fun githubSelectionOpensWorkspaceWithoutCreatingAnUnscopedChat() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val store = ViewModelStore()
+        try {
+            val profile = PlatformV2(uid = "coder", name = "Coder")
+            val features = AppFeatureSettings().withToolPluginEnabled(dev.chungjungsoo.gptmobile.data.model.ToolPluginId.GITHUB, true)
+            val settings = proxy<SettingRepository> { name, _ ->
+                when (name) {
+                    "observePlatformV2s" -> flowOf(listOf(profile))
+                    "observeFeatureSettings" -> flowOf(features)
+                    "fetchPlatformV2s" -> listOf(profile)
+                    "getFeatureSettings" -> features
+                    "providerActivationRequired" -> false
+                    else -> error("Unexpected settings operation: $name")
+                }
+            }
+            val chats = proxy<ChatRepository> { name, _ -> error("Chat must be scoped to a repository before $name") }
+            val viewModel = NewChatViewModel(SavedStateHandle(mapOf("new_chat_type" to "GITHUB", "new_chat_uids" to listOf("coder"))), settings, chats)
+            store.put("github-chat", viewModel)
+            var route = ""
+            viewModel.start { route = it }
+            runCurrent()
+            assertEquals("github_chat/coder", route)
+        } finally {
+            store.clear()
+            runCurrent()
+            Dispatchers.resetMain()
+        }
+    }
+
     private inline fun <reified T> proxy(crossinline invoke: (String, Array<out Any?>) -> Any?): T =
         Proxy.newProxyInstance(T::class.java.classLoader, arrayOf(T::class.java)) { _, method, args ->
             invoke(method.name, args.orEmpty())

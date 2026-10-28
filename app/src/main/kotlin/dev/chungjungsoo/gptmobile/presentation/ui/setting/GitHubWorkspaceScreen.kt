@@ -68,6 +68,7 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection
+import dev.chungjungsoo.gptmobile.data.github.GitHubPublicAuthConfiguration
 import dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog as AlertDialog
 import dev.chungjungsoo.gptmobile.presentation.common.FadingDialog as Dialog
 import dev.chungjungsoo.gptmobile.presentation.common.FadingDropdownMenu as DropdownMenu
@@ -253,7 +254,7 @@ fun GitHubWorkspaceScreen(
                                     }
                                     if (state.moreInstallations) DropdownMenuItem(text = { Text("Load more installations") }, enabled = !state.busy, onClick = viewModel::moreInstallations)
                                 }
-                                OutlinedButton(onClick = { uriHandler.openUri("https://github.com/settings/installations") }, modifier = Modifier.fillMaxWidth()) {
+                                OutlinedButton(onClick = { uriHandler.openUri(GitHubPublicAuthConfiguration.project().installationManagementUrl(state.connection?.oauthClientId)) }, modifier = Modifier.fillMaxWidth()) {
                                     Icon(Icons.Rounded.Launch, null, Modifier.padding(end = 8.dp))
                                     Text("Manage GitHub repository access")
                                 }

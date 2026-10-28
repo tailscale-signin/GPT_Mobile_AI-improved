@@ -5,8 +5,9 @@
 - Follow an explicitly selected task branch when preparing a commit, and move the complete chat-deletion operation to IO.
 - Refresh device-issued GitHub App credentials directly with their registered client, retaining account binding and uncertain-rotation protection. Browser-issued credentials retain the confidential PKCE broker.
 - Select GitHub App installations and their permitted repositories. Preserve saved edits during selection and combine installation Contents permission with repository membership when displaying edit access.
+- Default to the registered public GitHub App client and open its installation page only for matching-client connections. Custom clients retain isolated installation settings.
 
-This candidate is unmerged and unpublished. GitHub App registration, a real release client ID, clean-device sign-in and live private-repository read/write and refresh acceptance remain required before merge/publication. Browser PKCE also requires its registered broker and verified HTTPS callback deployment. Workflows write permission is pending explicit approval after automatic approval review rejected preparation of that privileged access.
+PR #752 was merged concurrently; its signed release failed scope validation and was not published. This follow-up preserves the concurrent diagnostic repairs and explicitly includes their synthesis document in the release scope. GitHub App registration and the selected-repository installation are complete, with a real public release client ID and approved Workflows write permission. Live Android sign-in, authenticated App-token read/write and refresh acceptance remain unverified; publication remains held. Browser PKCE requires its broker and verified HTTPS callback deployment.
 
 Unified Reliability v2 is not complete. Physical-device frame timing, external provider/token permissions, private server/MCP reachability and ASUS firmware limitations remain unqualified. See the diagnostic disposition table and GitHub sign-in implementation document.
 

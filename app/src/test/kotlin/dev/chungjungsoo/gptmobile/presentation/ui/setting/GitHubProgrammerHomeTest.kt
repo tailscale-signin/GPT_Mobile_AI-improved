@@ -15,6 +15,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.captureToImage
@@ -24,6 +25,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performScrollToIndex
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRun
@@ -48,6 +50,23 @@ class GitHubProgrammerHomeTest {
     @get:Rule val compose = createComposeRule()
     private val context = GitHubConversationContext("github", "owner", "repo", "feature/programmer", "a".repeat(40), "local")
     private val workspace = GitHubWorkspaceState(selection = GitHubRepositoryContext("owner", "repo", "feature/programmer"), headSha = context.commitSha)
+
+    @Test fun fixedProgressStaysVisibleWhileConversationScrolls() {
+        compose.setContent {
+            MaterialTheme {
+                Column(Modifier.width(320.dp).height(360.dp)) {
+                    GitHubChatProgress(workspace, GitHubProgrammerState(runs = listOf(AgentRun("active", 1, 2, 3, "local", "CUSTOM", "model", "RUNNING"))))
+                    androidx.compose.foundation.lazy.LazyColumn(Modifier.weight(1f).testTag("github_test_messages")) {
+                        items(100) { androidx.compose.material3.Text("Message $it") }
+                    }
+                }
+            }
+        }
+        compose.onNodeWithTag("github_test_messages").performScrollToIndex(99)
+        compose.onNodeWithText("Message 99").assertIsDisplayed()
+        compose.onNodeWithTag("github_chat_progress").assertIsDisplayed()
+        compose.onNodeWithText("Working").assertIsDisplayed()
+    }
 
     @Test fun commandShortcutsUseTheConversationComposerAndProfileChoice() {
         var sent = ""

@@ -142,7 +142,7 @@ class GitHubWorkspaceViewModel @Inject constructor(
         _state.update { state -> state.copy(editorDrafts = if (content == (state.staged.firstOrNull { it.path == path }?.content ?: original)) state.editorDrafts - path else state.editorDrafts + (path to content)) }
     }
 
-    fun open(connection: ToolConnection) {
+    fun open(connection: ToolConnection, initialContext: dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext? = null) {
         if (_state.value.busy) return
         client = null
         tool = null
@@ -168,7 +168,11 @@ class GitHubWorkspaceViewModel @Inject constructor(
             _state.update { it.copy(connection = current, login = account.text("login")) }
             loadRepositories(1)
             val recovered = draftWrites.withLock { drafts.read(current.connectionUid)?.let { Json.decodeFromString(Draft.serializer(), it) } }
-            (recovered?.selection ?: store.get(current.connectionUid))?.let { selectRepositoryInternal(it.owner, it.repo, it.ref) }
+            val requested = initialContext?.repository
+            require(requested == null || recovered == null || recovered.selection == requested || (recovered.staged.isEmpty() && recovered.edits.isEmpty() && recovered.patchStage == null)) {
+                "Saved edits belong to another branch. Open GitHub Workspace in Settings to save or discard them before opening this chat."
+            }
+            (requested ?: recovered?.selection ?: store.get(current.connectionUid))?.let { selectRepositoryInternal(it.owner, it.repo, it.ref) }
             recovered?.takeIf { it.selection == _state.value.selection }?.let { draft ->
                 val dirty = draft.staged.isNotEmpty() || draft.edits.isNotEmpty() || draft.patchStage != null
                 val changed = dirty && _state.value.headSha != draft.baseSha
@@ -240,7 +244,7 @@ class GitHubWorkspaceViewModel @Inject constructor(
         require(default.isNotBlank()) { "Repository has no default branch." }
         val selected = GitHubRepositoryContext(owner, repo, preferredRef ?: default)
         val canWrite = metadata["permissions"]?.jsonObject?.flag("push") == true && !metadata.flag("archived") && _state.value.connection?.toolPolicy != "READ_ONLY"
-        _state.update { it.copy(selection = selected, defaultBranch = default, canWrite = canWrite, branches = emptyList(), file = null, staged = emptyList(), editorDrafts = emptyMap(), pullRequests = emptyList(), commits = emptyList(), commitDetail = null, activityUpdatedAt = null, pullDetail = null, directory = "", headSha = "", entries = emptyList(), snapshot = null, indexStatus = null, searchResult = null, ciDigest = null, patchStage = null, changedFiles = null, reviewBaseline = "", activityLoaded = false, directoryLoaded = false, pullPackage = null) }
+        _state.update { it.copy(selection = selected, defaultBranch = default, canWrite = canWrite, branches = emptyList(), file = null, staged = emptyList(), editorDrafts = emptyMap(), pullRequests = emptyList(), pullsLoaded = false, pullPage = 1, morePullRequests = false, commits = emptyList(), commitDetail = null, activityUpdatedAt = null, pullDetail = null, directory = "", headSha = "", entries = emptyList(), snapshot = null, indexStatus = null, searchResult = null, ciDigest = null, patchStage = null, changedFiles = null, reviewBaseline = "", activityLoaded = false, directoryLoaded = false, pullPackage = null) }
         loadBranches(1)
         loadHeadAndDirectory()
     }
@@ -296,7 +300,6 @@ class GitHubWorkspaceViewModel @Inject constructor(
     fun onSectionVisible(section: Int) {
         if (_state.value.busy || _state.value.error != null || _state.value.selection == null || _state.value.headSha.isBlank()) return
         when {
-            section == 3 && !_state.value.activityLoaded -> refreshActivity()
             section == 0 && !_state.value.directoryLoaded -> browse(_state.value.directory)
             section == 2 && !_state.value.pullsLoaded -> loadPullRequests()
         }

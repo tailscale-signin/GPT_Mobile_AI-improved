@@ -816,12 +816,15 @@ class AgentRunnerTest {
             executions.incrementAndGet()
             AgentToolResult(id, ToolResultContent.Text("ok"), false)
         }
-        val session = session { tools, _ ->
+        val session = session { tools, exchanges ->
             val round = providerCalls.getAndIncrement()
             flow {
                 if (tools.isNotEmpty()) {
                     emit(toolCall("call-$round", "ordinary_lookup"))
                 } else {
+                    val finalResult = exchanges.last().results.last().content.toString()
+                    assertTrue(finalResult.contains("does not establish that GitHub read or write tools are disabled"))
+                    assertFalse(finalResult.contains("These tools are disabled or unavailable"))
                     emit(ProviderEvent.TextDelta("finished"))
                 }
                 emit(ProviderEvent.Completed)

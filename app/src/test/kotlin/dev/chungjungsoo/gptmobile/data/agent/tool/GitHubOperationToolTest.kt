@@ -33,6 +33,17 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubOperationToolTest {
+    @Test fun numericViewCursorExplainsRecoveryWithoutDispatch() = runBlocking {
+        val backend = Backend()
+        val operation = GitHubOperationTool("github_read", backend, "invalid-cursor")
+        val result = operation.execute("read", args("""{"view_cursor":"0","evidence_id":"saved-evidence"}"""))
+        assertTrue(result.isError)
+        assertFalse(result.dispatched)
+        assertEquals("INVALID_ARGUMENTS", result.errorCode)
+        assertTrue((result.content as ToolResultContent.Text).text.contains("omit view_cursor"))
+        assertTrue(backend.calls.isEmpty())
+    }
+
     @Test fun changesRequiresAnExplicitStringBaseBeforeDispatch() = runBlocking {
         val backend = Backend()
         val operation = GitHubOperationTool("github_context", backend, "changes-validation")

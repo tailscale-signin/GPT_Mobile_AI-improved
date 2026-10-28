@@ -166,7 +166,8 @@ fun ChatScreen(
     onNavigateToLocalModels: () -> Unit = {},
     onReviewEvidenceAccess: () -> Unit = {},
     onOpenConversation: (Int, Boolean) -> Unit = { _, _ -> },
-    onInspectContext: ((Int, String) -> Unit)? = null
+    onInspectContext: ((Int, String) -> Unit)? = null,
+    showTopBar: Boolean = true
 ) {
     val chatRoom by chatViewModel.chatRoom.collectAsStateWithLifecycle()
     val featureSettings by chatViewModel.featureSettings.collectAsStateWithLifecycle()
@@ -428,7 +429,7 @@ fun ChatScreen(
             chatViewModel.leaveConversation(onBackAction)
         }
     }
-    androidx.activity.compose.BackHandler(onBack = onBackFromChat)
+    if (showTopBar) androidx.activity.compose.BackHandler(onBack = onBackFromChat)
     var previousMessageCount by rememberSaveable { mutableIntStateOf(groupedMessages.userMessages.size) }
     var requestedNotificationPermission by rememberSaveable { mutableStateOf(false) }
     var sendAfterNotificationPermission by rememberSaveable { mutableStateOf(false) }
@@ -631,7 +632,7 @@ fun ChatScreen(
             ) { focusManager.clearFocus() },
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
-            ChatTopBar(
+            if (showTopBar) ChatTopBar(
                 title = chatRoom.title,
                 isTitleCustomized = chatRoom.isTitleCustomized,
                 isMenuItemEnabled = chatRoom.id > 0,

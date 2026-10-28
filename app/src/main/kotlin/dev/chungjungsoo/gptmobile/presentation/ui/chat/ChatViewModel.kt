@@ -2157,6 +2157,20 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    /** Save before switching an embedded GitHub tab without marking this conversation as left. */
+    fun checkpointComposer() {
+        val room = _chatRoom.value
+        if (!composerRestored || room.id <= 0 || room.isTemporary) return
+        val text = question.text.toString()
+        val attachments = _selectedAttachments.value.mapNotNull { it.attachment }
+        conversationExitWork.enqueue(room.id) {
+            draftMutex.withLock {
+                val encoded = kotlinx.serialization.json.Json.encodeToString(kotlinx.serialization.builtins.ListSerializer(ChatAttachment.serializer()), attachments)
+                chatRepository.saveComposerDraft(room.id, text, encoded, System.currentTimeMillis() / 1000)
+            }
+        }
+    }
+
     fun leaveConversation(done: () -> Unit) {
         if (leavingConversation) return
         leavingConversation = true

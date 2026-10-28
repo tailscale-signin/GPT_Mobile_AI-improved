@@ -280,7 +280,7 @@ internal fun NewChatProfileScreen(
                 } else {
                     Text(
                         when (kind) {
-                            NewChatType.SINGLE -> "Select exactly one profile."
+                            NewChatType.SINGLE, NewChatType.GITHUB -> "Select exactly one profile."
                             NewChatType.MULTI_CHAT -> "Select two or more profiles for independent chats."
                             NewChatType.COMBINED -> "Select two or more models for a comprehensive answer."
                             else -> ""

@@ -644,10 +644,14 @@ class AgentRunner(
             if (call.callId !in publishedCallIds) emit(AgentRunEvent.ToolFinished(call, result))
         }
         // Retain bounded observations on ingress, including trace/retained payloads.
+        val retentionBudget = limits.maxRetainedEvidenceTokens.coerceIn(1024, 32_000)
+        val observations = exchanges + AgentToolExchange(calls, allResults.map { it.copy(traceContent = null, retainedContent = null) })
         val retained = ToolExchangeCompactor.compact(
-            exchanges + AgentToolExchange(calls, allResults.map { it.copy(traceContent = null, retainedContent = null) }),
-            limits.maxRetainedEvidenceTokens.coerceIn(1024, 32_000),
-            limits.maxReplayResultTokens.coerceIn(64, 2048)
+            observations,
+            retentionBudget,
+            // Do not irreversibly trim evidence before provider replay admission.
+            // A complete source file that fits the retention budget stays readable.
+            if (ToolExchangeCompactor.estimateTokens(observations) <= retentionBudget) retentionBudget else limits.maxReplayResultTokens.coerceIn(64, 2048)
         )
         exchanges.clear()
         exchanges.addAll(retained)

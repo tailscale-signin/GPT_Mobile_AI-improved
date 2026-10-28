@@ -21,6 +21,54 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AgentRunnerTest {
+    @Test fun completeGithubEvidenceSurvivesRetentionAndFollowingProviderRound() = runBlocking {
+        val source = (1..85).joinToString("\n") { "fun sourceLine$it() = \"value-$it\"" }
+        val body = ToolResultContent.Json(
+            buildJsonObject {
+                put("schema", "github.operation.v1")
+                put("operation", "github_read")
+                put("local_page_complete", true)
+                put(
+                    "data",
+                    buildJsonObject {
+                        put("evidence_id", "evidence-handle")
+                        put("content", source)
+                        put("complete_file", true)
+                    }
+                )
+            }
+        )
+        var round = 0
+        var executed = 0
+        val events = AgentRunner().run(
+            session { _, exchanges ->
+                flow {
+                    when (round++) {
+                        0 -> emit(toolCall("read", "github_read"))
+                        1 -> {
+                            assertEquals(body, exchanges.first().results.single().content)
+                            emit(toolCall("status", "github_context"))
+                        }
+                        else -> {
+                            assertEquals(body, exchanges.first().results.single().content)
+                            emit(ProviderEvent.TextDelta("Verified all 85 source lines."))
+                        }
+                    }
+                    emit(ProviderEvent.Completed)
+                }
+            },
+            listOf(
+                tool("github_read") { id, _ ->
+                    executed++
+                    AgentToolResult(id, body, false)
+                },
+                tool("github_context") { id, _ -> AgentToolResult(id, ToolResultContent.Text("status"), false) }
+            )
+        ).toList()
+        assertEquals(1, executed)
+        assertFalse(events.any { it is AgentRunEvent.Provider && it.event is ProviderEvent.Failed })
+    }
+
     @Test fun successfulClientSearchEvidenceReachesFollowingProviderRound() = runBlocking {
         var calls = 0
         val search = object : AgentTool {

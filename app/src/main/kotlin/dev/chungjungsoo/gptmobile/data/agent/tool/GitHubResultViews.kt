@@ -89,7 +89,12 @@ internal class GitHubResultViews(
         val entry = parts.firstOrNull()?.let(entries::get)
         val offset = parts.getOrNull(1)?.toIntOrNull()
         if (parts.size != 2 || entry == null || offset == null || entry.scope != scope || entry.operation != operation || offset !in entry.fragments.indices) {
-            return AgentToolResult(callId, ToolResultContent.Text("This saved GitHub view is unavailable or outside the authorized task. Reconcile a prior mutation using its receipt; do not repeat the mutation to recover output."), true, errorCode = "SAVED_VIEW_UNAVAILABLE", dispatched = false)
+            val recovery = if (operation == "github_read") {
+                "For retained source evidence, call github_read with evidence_id and no view_cursor. Otherwise request the missing source range at its pinned commit."
+            } else {
+                "Reconcile a prior mutation using its receipt; do not repeat the mutation to recover output."
+            }
+            return AgentToolResult(callId, ToolResultContent.Text("This saved GitHub view is unavailable or outside the authorized task. Use only the exact view_cursor supplied in continuation_call.arguments. $recovery"), true, errorCode = "SAVED_VIEW_UNAVAILABLE", dispatched = false)
         }
         return AgentToolResult(callId, ToolResultContent.Json(page(parts[0], entry, offset, modelName)), entry.originalError, sharedResult = true, dispatched = false)
     }

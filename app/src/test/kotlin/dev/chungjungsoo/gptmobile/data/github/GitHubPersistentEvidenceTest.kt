@@ -25,6 +25,39 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubPersistentEvidenceTest {
+    @Test fun pathSearchFindsFilesBeyondTheContentScanWindowWithoutFetchingBlobs() = runTest {
+        val entries = (0 until 2100).map { item("src/File${it.toString().padStart(4, '0')}.kt", sha(it + 1), 30) } +
+            item("z/scripts/target.py", sha(3000), 30)
+        val client = session(GitHubRepositoryStateStore(), request = { path ->
+            when {
+                "/commits/" in path -> commit(head, headTree)
+                "/git/trees/" in path -> tree(entries)
+                else -> error("Path search must use tree metadata without fetching blobs")
+            }
+        })
+        val result = client.execute("search_repository", "owner", "repo", args("query" to JsonPrimitive(".py"), "mode" to JsonPrimitive("paths"))).jsonObject
+        assertEquals("z/scripts/target.py", result.getValue("items").jsonArray.single().jsonObject.getValue("path").jsonPrimitive.content)
+        assertTrue(result.getValue("complete").jsonPrimitive.booleanOrNull == true)
+        assertEquals(0, result.getValue("new_blobs").jsonPrimitive.intOrNull)
+    }
+
+    @Test fun wildcardPathListingUsesExactContinuationWithoutDuplicatingEntries() = runTest {
+        val entries = (0 until 25).map { item("src/File${it.toString().padStart(2, '0')}.kt", sha(it + 1), 30) }
+        val client = session(GitHubRepositoryStateStore(), request = { path ->
+            when {
+                "/commits/" in path -> commit(head, headTree)
+                "/git/trees/" in path -> tree(entries)
+                else -> error("No blob fetch expected")
+            }
+        })
+        val first = client.execute("search_repository", "owner", "repo", args("query" to JsonPrimitive("*"), "mode" to JsonPrimitive("paths"))).jsonObject
+        assertEquals(20, first.getValue("items").jsonArray.size)
+        val second = client.execute("search_repository", "owner", "repo", first.getValue("continuation").jsonObject).jsonObject
+        val paths = (first.getValue("items").jsonArray + second.getValue("items").jsonArray).map { it.jsonObject.getValue("path").jsonPrimitive.content }
+        assertEquals(25, paths.distinct().size)
+        assertFalse(second.getValue("has_more").jsonPrimitive.booleanOrNull == true)
+    }
+
     @Test fun slowSearchReturnsResumableCursorAndNeverSkipsTimedOutFile() = runTest {
         var slow = true
         var fetched = 0

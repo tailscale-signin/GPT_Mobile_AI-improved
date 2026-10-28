@@ -33,6 +33,19 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubOperationToolTest {
+    @Test fun evidenceHandleWithInventedNumericCursorReturnsActionableCorrection() = runBlocking {
+        val backend = Backend()
+        val operation = GitHubOperationTool("github_read", backend, "read-validation")
+        val invalid = operation.execute("invalid", args("""{"evidence_id":"retained-source","view_cursor":"0"}"""))
+        assertTrue(invalid.isError)
+        assertFalse(invalid.dispatched)
+        assertEquals("INVALID_ARGUMENTS", invalid.errorCode)
+        assertTrue((invalid.content as ToolResultContent.Text).text.contains("evidence_id alone"))
+        assertTrue(backend.calls.isEmpty())
+        operation.execute("corrected", args("""{"evidence_id":"retained-source"}"""))
+        assertEquals("retained-source", backend.calls.single()["evidence_id"]?.jsonPrimitive?.content)
+    }
+
     @Test fun changesRequiresAnExplicitStringBaseBeforeDispatch() = runBlocking {
         val backend = Backend()
         val operation = GitHubOperationTool("github_context", backend, "changes-validation")

@@ -64,6 +64,14 @@ class WorkflowHealthTest(unittest.TestCase):
 
 
 class DependencyReviewTest(unittest.TestCase):
+    def test_manifest_selection_includes_deletions_and_nested_dependency_files(self):
+        review = module('check_dependency_review')
+        for path in ('gradle/libs.versions.toml', 'gateway/requirements.txt', 'app/build.gradle.kts', 'nested/package-lock.json', 'gradle/wrapper/gradle-wrapper.properties'):
+            self.assertTrue(review.dependency_manifest(path), path)
+        self.assertFalse(review.dependency_manifest('docs/README.md'))
+        self.assertFalse(review.dependency_manifest('app/src/Test.kt'))
+
+
     def test_removed_advisories_do_not_block_but_added_high_risk_does(self):
         review = module('check_dependency_review')
         rows = [{'change_type': 'removed', 'vulnerabilities': [{'severity': 'critical'}]},

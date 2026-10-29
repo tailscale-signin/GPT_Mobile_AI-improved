@@ -73,7 +73,7 @@ never interpreted as an unprotected or safe branch. Do not disable protections t
 
 ## Local validation performed
 
-- 211 Python repository tests passed.
+- 212 Python repository tests passed.
 - Gateway validation: 190 Python contract tests and 7 Node session tests passed.
 - 15 GitHub authentication broker tests passed.
 - Four merge-health scenarios executed against the production Kotlin evaluator using a
@@ -82,3 +82,12 @@ never interpreted as an unprotected or safe branch. Do not disable protections t
 - Android regex/resource/icon/provenance preflights and whitespace checks passed.
 - New Android/JUnit/Compose integration tests still require CI. No device qualification,
   repository protection update, production deployment or release is claimed.
+
+## Initial hosted verification
+
+The first PR run passed workflow syntax, repository contracts and Kotlin formatting. The
+GitHub dependency-review endpoint returned HTTP 403. Dependency review now first compares
+exact base/head revisions for manifest changes: an unchanged dependency inventory emits
+NO_DEPENDENCY_CHANGES (scan_performed=false); changed manifests still require a successful
+advisory response and fail closed on access errors. This is not an administrative setting
+change or a claim that a scan ran when it did not.

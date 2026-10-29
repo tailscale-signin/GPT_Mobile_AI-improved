@@ -11,6 +11,12 @@ class ToolRoundInstructionsTest {
         assertNull(toolRoundSystemPrompt(null, true))
     }
 
+    @Test fun synthesisPreservesFrozenPromptIncludingAbsentInstructions() {
+        val constraints = RequestConstraints(allowTools = false, requestRole = "synthesis")
+        assertEquals("Frozen prompt\n", toolRoundSystemPrompt("Frozen prompt\n", false, constraints))
+        assertNull(toolRoundSystemPrompt(null, false, constraints))
+    }
+
     @Test fun toolFreeRoundsKeepUserFormatAndForbidUnexecutedSuccessClaims() {
         val prompt = requireNotNull(toolRoundSystemPrompt("Return JSON.", false))
         assertTrue(prompt.startsWith("Return JSON."))

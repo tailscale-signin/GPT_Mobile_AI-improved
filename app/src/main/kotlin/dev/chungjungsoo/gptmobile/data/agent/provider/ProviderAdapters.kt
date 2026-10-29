@@ -125,7 +125,7 @@ class OpenAIResponsesAdapter @Inject constructor(
                         }
                     },
                     stream = true,
-                    instructions = toolRoundSystemPrompt(platform.systemPrompt, tools.isNotEmpty())?.takeIf { it.isNotBlank() },
+                    instructions = toolRoundSystemPrompt(platform.systemPrompt, tools.isNotEmpty(), constraints)?.takeIf { it.isNotBlank() },
                     temperature = if (platform.reasoning) null else platform.temperature,
                     topP = if (platform.reasoning) null else platform.topP,
                     reasoning = if (platform.reasoning && constraints.allowReasoning) ReasoningConfig(effort = "medium", summary = "auto") else null,
@@ -536,8 +536,9 @@ class OpenAICompatibleAdapter @Inject constructor(
                     !clientToolsAdvertised &&
                     exchanges.isEmpty()
                 val toolImages = if (platform.compatibleType == ClientType.GROQ || platform.compatibleType == ClientType.NVIDIA && NvidiaModelCapabilities.forModel(platform.model).supportsImages != true) emptyList() else attachmentEncoder.toolMedia(exchanges)
-                val roundMessages = if (tools.isEmpty() && !promptToolBridge && !gatewayToolsAllowed) {
-                    listOf(ChatMessage(OpenAIRole.SYSTEM, listOf(OpenAITextContent(requireNotNull(toolRoundSystemPrompt(platform.systemPrompt, false)))))) +
+                val roundSystemPrompt = toolRoundSystemPrompt(platform.systemPrompt, tools.isNotEmpty(), constraints)
+                val roundMessages = if (tools.isEmpty() && !promptToolBridge && !gatewayToolsAllowed && roundSystemPrompt != platform.systemPrompt) {
+                    listOf(ChatMessage(OpenAIRole.SYSTEM, listOf(OpenAITextContent(requireNotNull(roundSystemPrompt))))) +
                         initialMessages.filterNot { it.role == OpenAIRole.SYSTEM }
                 } else {
                     initialMessages
@@ -1120,7 +1121,7 @@ class AnthropicMessagesAdapter @Inject constructor(
                     } + mediaMessages,
                     maxTokens = effectiveOutputTokens,
                     stream = platform.stream,
-                    systemPrompt = toolRoundSystemPrompt(platform.systemPrompt, tools.isNotEmpty()),
+                    systemPrompt = toolRoundSystemPrompt(platform.systemPrompt, tools.isNotEmpty(), constraints),
                     temperature = if (allowSampling) platform.temperature else null,
                     topP = if (allowSampling) platform.topP else null,
                     thinking = thinkingPolicy.config?.let { config ->
@@ -1357,7 +1358,7 @@ class GeminiAdapter @Inject constructor(
                         topP = platform.topP,
                         thinkingConfig = if (platform.reasoning && constraints.allowReasoning) GoogleThinkingConfig(includeThoughts = true) else null
                     ),
-                    systemInstruction = toolRoundSystemPrompt(platform.systemPrompt, tools.isNotEmpty())?.takeIf { it.isNotBlank() }?.let { prompt ->
+                    systemInstruction = toolRoundSystemPrompt(platform.systemPrompt, tools.isNotEmpty(), constraints)?.takeIf { it.isNotBlank() }?.let { prompt ->
                         Content(parts = listOf(Part.text(prompt)))
                     },
                     safetySettings = platform.googleSafetySettings(),

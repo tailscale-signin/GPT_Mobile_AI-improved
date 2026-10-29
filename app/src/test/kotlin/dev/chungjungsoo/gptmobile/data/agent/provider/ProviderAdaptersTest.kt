@@ -78,6 +78,53 @@ import org.junit.Assert.fail
 import org.junit.Test
 
 class ProviderAdaptersTest {
+    @Test fun frozenCombinedWriterPromptReachesEveryRemoteAdapterUnchanged() = runBlocking {
+        val prompt = "Frozen editorial instructions.\nReturn only the requested record format."
+        for (role in dev.chungjungsoo.gptmobile.data.agent.CombinedRunRole.entries.filter { it.finalization }) {
+            val combined = dev.chungjungsoo.gptmobile.data.agent.CombinedExecutionContext(
+                dev.chungjungsoo.gptmobile.data.agent.CombinedRequestedPolicy(),
+                rootBudgetId = "frozen-prompt-test",
+                role = role
+            )
+            val constraints = RequestConstraints(allowTools = false, combined = combined)
+            fun profile(type: ClientType) = platform(type).copy(systemPrompt = prompt, disableAllTools = true)
+
+            val responses = FakeOpenAIAPI(responseRounds = ArrayDeque(listOf(emptyFlow())))
+            OpenAIResponsesAdapter(responses, attachmentEncoder())
+                .openSession(turns(), profile(ClientType.OPENAI), constraints)
+                .streamRound(emptyList(), emptyList()).toList()
+            assertEquals(prompt, responses.responseRequests.single().instructions)
+            assertTrue(responses.responseRequests.single().tools.isNullOrEmpty())
+
+            for (type in listOf(ClientType.CUSTOM, ClientType.LLAMA)) {
+                val compatible = FakeOpenAIAPI(chatRounds = ArrayDeque(listOf(emptyFlow())))
+                OpenAICompatibleAdapter(compatible, FakeGroqAPI(), attachmentEncoder())
+                    .openSession(turns(), profile(type), constraints)
+                    .streamRound(emptyList(), emptyList()).toList()
+                val request = compatible.chatRequests.single()
+                val system = request.messages.single { it.role == dev.chungjungsoo.gptmobile.data.dto.openai.common.Role.SYSTEM }
+                assertEquals(prompt, system.content.orEmpty().filterIsInstance<dev.chungjungsoo.gptmobile.data.dto.openai.common.TextContent>().joinToString("") { it.text })
+                assertTrue(request.tools.isNullOrEmpty())
+                assertEquals("none", request.toolChoice)
+                if (type == ClientType.LLAMA) assertEquals("false", compatible.configs.single().extraHeaders["X-Gateway-Allow-Local-Tools"])
+            }
+
+            val anthropic = FakeAnthropicAPI(ArrayDeque(listOf(emptyFlow())))
+            AnthropicMessagesAdapter(anthropic, attachmentEncoder())
+                .openSession(turns(), profile(ClientType.ANTHROPIC), constraints)
+                .streamRound(emptyList(), emptyList()).toList()
+            assertEquals(prompt, anthropic.requests.single().systemPrompt)
+            assertTrue(anthropic.requests.single().tools.isNullOrEmpty())
+
+            val google = FakeGoogleAPI(ArrayDeque(listOf(emptyFlow())))
+            GeminiAdapter(google, attachmentEncoder())
+                .openSession(turns(), profile(ClientType.GOOGLE), constraints)
+                .streamRound(emptyList(), emptyList()).toList()
+            assertEquals(prompt, google.requests.single().systemInstruction?.parts?.single()?.text)
+            assertTrue(google.requests.single().tools.isNullOrEmpty())
+        }
+    }
+
     @Test fun separatelyAuthorizedGatewayToolsRemainAvailableOnlyBeforeClientToolHistory() = runBlocking {
         for (finalizing in listOf(false, true)) {
             val api = FakeOpenAIAPI(chatRounds = ArrayDeque(listOf(flowOf(ChatCompletionChunk(choices = listOf(Choice(delta = Delta(content = "Done."), finishReason = "stop")))))))
@@ -775,7 +822,9 @@ class ProviderAdaptersTest {
         assertEquals(1, preferenceReads)
         assertEquals(4096, api.chatRequests.first().maxTokens)
         assertEquals(expectedHeaders + ("X-Gateway-Allow-Local-Tools" to "false"), api.configs.first().extraHeaders)
-        assertEquals(expectedHeaders + ("X-Gateway-Job-ID" to "job-123"), api.configs.last().extraHeaders)
+        assertEquals(expectedHeaders + mapOf("X-Gateway-Job-ID" to "job-123", "X-Gateway-Allow-Local-Tools" to "false"), api.configs.last().extraHeaders)
+        assertEquals("none", api.chatRequests.last().toolChoice)
+        assertTrue(api.chatRequests.last().tools.isNullOrEmpty())
     }
 
     @Test

@@ -7,7 +7,7 @@ import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonObject
 
 /** Canonical explicit intent; permissions remain in the existing stable-UID grant map. */
-data class LocalAssistConfig(val enabled: Boolean, val helperUid: String?, val foregroundPreparation: Boolean)
+data class LocalAssistConfig(val enabled: Boolean, val helperUid: String?, val foregroundPreparation: Boolean, val debugMode: Boolean = false)
 
 object LocalAssistSettingsMigration {
     private val json = Json { ignoreUnknownKeys = true }

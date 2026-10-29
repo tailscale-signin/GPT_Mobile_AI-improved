@@ -97,7 +97,7 @@ fun GitHubWorkspaceScreen(
     }
     val state by viewModel.state.collectAsStateWithLifecycle()
     val programmerState by programmer.state.collectAsStateWithLifecycle()
-    LaunchedEffect(state.connection?.connectionUid, state.selection, state.headSha) { programmer.bind(state) }
+    LaunchedEffect(state.connection?.connectionUid, state.selection, state.headSha, state.commits, state.staged, state.editorDrafts, state.patchStage) { programmer.bind(state) }
     val commandContext = programmerState.context?.takeIf { it.connectionUid == connection.connectionUid && it.owner == state.selection?.owner && it.repo == state.selection?.repo && it.ref == state.selection?.ref }
     val visibleProgrammer = if (commandContext != null) programmerState else programmerState.copy(context = null, chatId = null, messages = emptyList(), runs = emptyList(), events = emptyList(), approvals = emptyList(), pending = emptyList(), draftLoaded = false)
     LaunchedEffect(connection.connectionUid, initialProfileUid, initialChatId) {
@@ -109,21 +109,7 @@ fun GitHubWorkspaceScreen(
     val commitReview: dev.chungjungsoo.gptmobile.presentation.ui.workspace.GitHubReviewViewModel = hiltViewModel()
     LaunchedEffect(commandContext) {
         commitReview.restrictTo(commandContext)
-        if (commandContext != null) {
-            while (true) {
-                try {
-                    commitReview.refreshWorkspaceApproval(commandContext)
-                } catch (cancelled: kotlinx.coroutines.CancellationException) {
-                    throw cancelled
-                } catch (_: Exception) {
-                    // A transient read failure cannot manufacture a commit approval.
-                }
-                kotlinx.coroutines.delay(2000)
-            }
-        }
-    }
-    dev.chungjungsoo.gptmobile.presentation.ui.workspace.GitHubCommitApprovalDialog(commitReview) { sha ->
-        programmer.send("Commit $sha was approved and published. Continue the requested task from its saved state: inspect this exact commit, verify checks and report the outcome. Do not repeat the commit.") {}
+        if (commandContext != null) commitReview.observeWorkspaceApproval(commandContext)
     }
     val buildsViewModel: GitHubBuildsViewModel = hiltViewModel()
     val buildsState by buildsViewModel.state.collectAsStateWithLifecycle()
@@ -346,17 +332,24 @@ fun GitHubWorkspaceScreen(
                             3 -> {
                                 val chatId = visibleProgrammer.chatId
                                 if (chatId != null && commandContext != null) {
-                                    GitHubChatConversation(
-                                        chatId = chatId,
-                                        profileUid = commandContext.mainProfileUid,
-                                        // Keep the live request context aligned with the workspace without replacing the composer.
-                                        context = commandContext,
-                                        onBack = { closeWorkspace() },
-                                        onOpenConversation = onOpenConversation,
-                                        onReviewEvidenceAccess = onReviewEvidenceAccess,
-                                        onNavigateToLocalModels = onNavigateToLocalModels,
-                                        registerExit = { leaveChat = it }
-                                    )
+                                    dev.chungjungsoo.gptmobile.presentation.ui.workspace.GitHubChatApprovalCard(commitReview) { sha ->
+                                        viewModel.acceptPublishedCommit(sha)
+                                        programmer.continueAfterCommit(sha)
+                                    }
+                                    GitHubChatChecks(chatId)
+                                    androidx.compose.foundation.layout.Box(Modifier.weight(1f)) {
+                                        GitHubChatConversation(
+                                            chatId = chatId,
+                                            profileUid = commandContext.mainProfileUid,
+                                            // Keep the live request context aligned with the workspace without replacing the composer.
+                                            context = commandContext,
+                                            onBack = { closeWorkspace() },
+                                            onOpenConversation = onOpenConversation,
+                                            onReviewEvidenceAccess = onReviewEvidenceAccess,
+                                            onNavigateToLocalModels = onNavigateToLocalModels,
+                                            registerExit = { leaveChat = it }
+                                        )
+                                    }
                                 } else {
                                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                                         Text(

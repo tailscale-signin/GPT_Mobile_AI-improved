@@ -33,6 +33,23 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubOperationToolTest {
+    @Test fun evidenceHandleWithInventedNumericCursorReturnsActionableCorrection() = runBlocking {
+        val backend = Backend()
+        val operation = GitHubOperationTool("github_read", backend, "read-validation")
+        val invalid = operation.execute("invalid", args("""{"evidence_id":"retained-source","view_cursor":"0"}"""))
+        assertTrue(invalid.isError)
+        assertFalse(invalid.dispatched)
+        assertEquals("INVALID_ARGUMENTS", invalid.errorCode)
+        val envelope = (invalid.content as ToolResultContent.Json).value.jsonObject
+        assertTrue(envelope.getValue("message").jsonPrimitive.content.contains("evidence_id alone"))
+        val correction = envelope.getValue("correction_call").jsonObject
+        assertEquals("github_read", correction.getValue("tool").jsonPrimitive.content)
+        assertEquals(args("""{"evidence_id":"retained-source"}"""), correction.getValue("arguments"))
+        assertTrue(backend.calls.isEmpty())
+        operation.execute("corrected", correction.getValue("arguments").jsonObject)
+        assertEquals("retained-source", backend.calls.single()["evidence_id"]?.jsonPrimitive?.content)
+    }
+
     @Test fun shortWorkspaceCommandsKeepTheirRepositoryAndWriteCatalog() {
         val context = dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext("connection", "owner", "repo", "feature", "a".repeat(40), "coder")
         val tools = GitHubOperationTool.taskTools(context.promptContext() + "\n\nImplement fixes")
@@ -64,6 +81,9 @@ class GitHubOperationToolTest {
         val mixed = read.execute("mixed", JsonObject(cursor + ("commit_sha" to JsonPrimitive(sha))))
         assertEquals("INVALID_ARGUMENTS", mixed.errorCode)
         assertFalse(mixed.dispatched)
+        val correction = (mixed.content as ToolResultContent.Json).value.jsonObject.getValue("correction_call").jsonObject
+        assertEquals(cursor, correction.getValue("arguments"))
+        assertEquals("github_read", correction.getValue("tool").jsonPrimitive.content)
         clock = 29 * 60_000L
         val expired = read.execute("expired", cursor)
         assertEquals("SAVED_VIEW_UNAVAILABLE", expired.errorCode)

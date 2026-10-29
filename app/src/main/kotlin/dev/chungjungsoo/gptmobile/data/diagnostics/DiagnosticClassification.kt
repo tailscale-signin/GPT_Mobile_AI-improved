@@ -26,6 +26,7 @@ internal fun classifyDiagnostic(level: String?, tag: String?, message: String): 
         text.startsWith("gguf_template_metadata") || text.startsWith("gguf_template_compatible") -> DiagnosticClassification("model_compatibility", "info", false)
         text.startsWith("gguf_template_rejected") -> DiagnosticClassification("model_compatibility", "error", true, "choose_compatible_gguf_template")
         tag == "MCP" && text.startsWith("connect failed") -> DiagnosticClassification("mcp_connectivity", "error", true, "check_server_address_and_reachability")
+        tag == "MCP" && text.startsWith("health") && ("state=unreachable" in text || "state=degraded" in text) -> DiagnosticClassification("mcp_connectivity", "warning", true, "check_server_address_and_reachability")
         tag == "MCP" && ("timed out" in text || "connection refused" in text || "connect_timeout" in text || "outcome=timeout" in text) -> DiagnosticClassification("mcp_connectivity", "warning", true, "check_server_address_and_reachability")
         text.startsWith("worker_termination_intent") -> DiagnosticClassification("termination_intent", "info", false, "exit_confirmation_pending")
         text.startsWith("load_failed") ||
@@ -52,6 +53,8 @@ internal fun classifyDiagnostic(level: String?, tag: String?, message: String): 
             "is ignored and takes no effect" in text ->
             DiagnosticClassification("platform_job_hint", "info", false)
         "asus_leak_detect_proj" in text -> DiagnosticClassification("platform", "warning", false)
+        tag == "Android" && capturedTag == "imebackdispatcher" && text.startsWith("ime callback not found. ignoring unregisterreceivedcallback.") -> DiagnosticClassification("platform_input_cleanup", "info", false)
+        tag == "Android" && capturedTag == "interactionjankmonitor" && text.startsWith("initializing without read_device_config permission. enabled=false") -> DiagnosticClassification("platform_optional_monitor", "info", false)
         "inactive inputconnection" in text -> DiagnosticClassification("input_lifecycle", "warning", true)
         "getenv: not attached" in text -> DiagnosticClassification("native_thread_attachment", "info", false)
         "feedback manager requires a model with a single signature" in text -> DiagnosticClassification("optional_model_feature", "info", false)

@@ -60,7 +60,8 @@ class GitHubTool(
     private val stateStore: dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore? = null,
     private val engineeringPrepare: (suspend (String, JsonObject) -> JsonObject)? = null,
     private val repositoryScope: dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext? = null,
-    private val credentialAdmissionFailed: Boolean = false
+    private val credentialAdmissionFailed: Boolean = false,
+    private val watchChecks: (suspend (JsonObject) -> JsonObject)? = null
 ) : AgentTool {
 
     private val authenticationRejected = if (httpClient === defaultHttpClient) dev.chungjungsoo.gptmobile.data.github.GitHubSessionCaches.authenticationForCredential(apiToken) else java.util.concurrent.atomic.AtomicBoolean()
@@ -153,6 +154,7 @@ class GitHubTool(
                                     add(JsonPrimitive("list_workflow_jobs"))
                                     add(JsonPrimitive("list_workflow_artifacts"))
                                     add(JsonPrimitive("get_job_logs"))
+                                    add(JsonPrimitive("watch_checks"))
                                     add(JsonPrimitive("dispatch_workflow"))
                                     add(JsonPrimitive("rerun_workflow"))
                                     add(JsonPrimitive("rerun_failed_jobs"))
@@ -166,7 +168,7 @@ class GitHubTool(
                             )
                         }
                     )
-                    listOf("run_id", "job_id", "release_id", "page").forEach { name ->
+                    listOf("run_id", "job_id", "release_id", "page", "pr_number").forEach { name ->
                         put(
                             name,
                             buildJsonObject {
@@ -503,6 +505,7 @@ class GitHubTool(
                 return successResult(callId, result.toString())
             }
             when (action) {
+                "watch_checks" -> successResult(callId, requireNotNull(watchChecks) { "Background check subscriptions require a connected account and saved chat." }(arguments).toString())
                 "search_repositories" -> handleSearchRepositories(callId, arguments)
                 "search_issues" -> handleSearchIssues(callId, arguments)
                 "get_file_contents" -> handleGetFileContents(callId, arguments)
@@ -965,6 +968,44 @@ class GitHubTool(
             }
         )
         val text = response.bodyAsText()
+        if (response.status.value == 422 && runCatching { jsonParser.parseToJsonElement(text).jsonObject["message"]?.jsonPrimitive?.content }.getOrNull().equals("Reference already exists", true)) {
+            val existingResponse = getGitHubApi("$BASE_URL/repos/$owner/$repo/git/ref/heads/${GitHubWorkspaceClient.segment(branch)}")
+            val existingText = existingResponse.bodyAsText()
+            if (!existingResponse.status.isSuccess()) return classifyGitHubHttpFailure(callId, "create_branch", arguments, existingResponse, existingText)
+            val existing = jsonParser.parseToJsonElement(existingText).jsonObject
+            val existingSha = existing["object"]?.jsonObject?.get("sha")?.jsonPrimitive?.content.orEmpty()
+            require(existing["ref"]?.jsonPrimitive?.content == "refs/heads/$branch" && existingSha.matches(Regex("[a-fA-F0-9]{40}"))) { "Existing branch could not be verified." }
+            return AgentToolResult(
+                callId,
+                ToolResultContent.Json(
+                    buildJsonObject {
+                        put("branch", branch)
+                        put("already_exists", true)
+                        put("created", false)
+                        put("head_sha", existingSha)
+                        put("matches_requested_base", existingSha == sha)
+                        put("message", "The branch already exists. Its head was read and no ref was changed. Select it explicitly to continue, or choose a different new branch name.")
+                        put(
+                            "recovery_call",
+                            buildJsonObject {
+                                put("tool", "github_context" + modelToolName.removePrefix("github"))
+                                put(
+                                    "arguments",
+                                    buildJsonObject {
+                                        put("action", "resolve")
+                                        put("owner", owner)
+                                        put("repo", repo)
+                                        put("ref", branch)
+                                        put("refresh", true)
+                                    }
+                                )
+                            }
+                        )
+                    }
+                ),
+                isError = false
+            )
+        }
         return if (response.status.isSuccess()) {
             val receipt = jsonParser.parseToJsonElement(text).jsonObject
             val selection = try {

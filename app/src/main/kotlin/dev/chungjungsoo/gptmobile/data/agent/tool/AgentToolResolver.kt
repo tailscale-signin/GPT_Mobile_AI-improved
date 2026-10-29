@@ -89,7 +89,8 @@ class AgentToolResolver @Inject constructor(
     private val articleExaminations: javax.inject.Provider<dev.chungjungsoo.gptmobile.data.research.feature.ArticleExaminationCoordinator>? = null,
     private val gitHubRepositoryState: dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore? = null,
     private val engineeringController: GitHubEngineeringController? = null,
-    private val gitHubPublicAuth: dev.chungjungsoo.gptmobile.data.github.GitHubPublicAuthCoordinator? = null
+    private val gitHubPublicAuth: dev.chungjungsoo.gptmobile.data.github.GitHubPublicAuthCoordinator? = null,
+    private val gitHubCheckWatches: dev.chungjungsoo.gptmobile.data.github.GitHubCheckWatchRepository? = null
 ) {
     suspend fun warmSelectedCatalogues(profileUid: String, limit: Int = 4) {
         val features = settingRepository.getFeatureSettings()
@@ -1171,7 +1172,7 @@ class AgentToolResolver @Inject constructor(
                     put("engineering_task_id", engineeringTaskId)
                     put("status", "AWAITING_APPROVAL")
                     put("committed", false)
-                    put("next_action", "Open Workspaces → GitHub review → Engineering tasks to review the exact patch and approve. No remote write has occurred.")
+                    put("next_action", "The exact patch is awaiting native approval in the GitHub chat card. Stop polling or restating the plan. Approve & Commit resumes the chat automatically; no remote write has occurred.")
                 }
             }
         } else {
@@ -1188,7 +1189,12 @@ class AgentToolResolver @Inject constructor(
             stateStore = gitHubRepositoryState,
             engineeringPrepare = engineeringPrepare,
             repositoryScope = workspaceContext,
-            credentialAdmissionFailed = authorizationFailed
+            credentialAdmissionFailed = authorizationFailed,
+            watchChecks = if (actualConnection != null && userMessage != null && gitHubCheckWatches != null) {
+                { args -> gitHubCheckWatches.subscribe(actualConnection.connectionUid, profileUid, userMessage.chatId, args) }
+            } else {
+                null
+            }
         )
         val admittedProfile = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }
         // resolved() normally wraps telemetry immediately; this backend must stay

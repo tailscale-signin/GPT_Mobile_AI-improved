@@ -25,6 +25,39 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubPersistentEvidenceTest {
+    @Test fun pathSearchFindsFilesBeyondTheContentScanWindowWithoutFetchingBlobs() = runTest {
+        val entries = (0 until 2100).map { item("src/File${it.toString().padStart(4, '0')}.kt", sha(it + 1), 30) } +
+            item("z/scripts/target.py", sha(3000), 30)
+        val client = session(GitHubRepositoryStateStore(), request = { path ->
+            when {
+                "/commits/" in path -> commit(head, headTree)
+                "/git/trees/" in path -> tree(entries)
+                else -> error("Path search must use tree metadata without fetching blobs")
+            }
+        })
+        val result = client.execute("search_repository", "owner", "repo", args("query" to JsonPrimitive(".py"), "mode" to JsonPrimitive("paths"))).jsonObject
+        assertEquals("z/scripts/target.py", result.getValue("items").jsonArray.single().jsonObject.getValue("path").jsonPrimitive.content)
+        assertTrue(result.getValue("complete").jsonPrimitive.booleanOrNull == true)
+        assertEquals(0, result.getValue("new_blobs").jsonPrimitive.intOrNull)
+    }
+
+    @Test fun wildcardPathListingUsesExactContinuationWithoutDuplicatingEntries() = runTest {
+        val entries = (0 until 25).map { item("src/File${it.toString().padStart(2, '0')}.kt", sha(it + 1), 30) }
+        val client = session(GitHubRepositoryStateStore(), request = { path ->
+            when {
+                "/commits/" in path -> commit(head, headTree)
+                "/git/trees/" in path -> tree(entries)
+                else -> error("No blob fetch expected")
+            }
+        })
+        val first = client.execute("search_repository", "owner", "repo", args("query" to JsonPrimitive("*"), "mode" to JsonPrimitive("paths"))).jsonObject
+        assertEquals(20, first.getValue("items").jsonArray.size)
+        val second = client.execute("search_repository", "owner", "repo", first.getValue("continuation").jsonObject).jsonObject
+        val paths = (first.getValue("items").jsonArray + second.getValue("items").jsonArray).map { it.jsonObject.getValue("path").jsonPrimitive.content }
+        assertEquals(25, paths.distinct().size)
+        assertFalse(second.getValue("has_more").jsonPrimitive.booleanOrNull == true)
+    }
+
     @Test fun slowSearchReturnsResumableCursorAndNeverSkipsTimedOutFile() = runTest {
         var slow = true
         var fetched = 0
@@ -321,6 +354,35 @@ class GitHubPersistentEvidenceTest {
         assertEquals(4, blobs)
         assertEquals(4, result["skipped_files"]!!.jsonPrimitive.intOrNull)
         assertTrue(result["has_more"]!!.jsonPrimitive.booleanOrNull == true)
+    }
+
+    @Test fun compoundPatchReadsPinnedBlobAndRejectsAmbiguousOrMixedEdits() = runTest {
+        var writes = 0
+        var blobReads = 0
+        val client = session(GitHubRepositoryStateStore(), request = { path ->
+            when {
+                "/commits/" in path -> commit(head, headTree)
+                "/git/trees/" in path -> tree(listOf(item("A.kt", sha(1), 100)))
+                else -> {
+                    blobReads++
+                    blob(sha(1), "fun answer() = 41\n// duplicate duplicate\n")
+                }
+            }
+        }, write = { _, _ ->
+            writes++
+            buildJsonObject {}
+        })
+        fun patch(search: String) = args("target_file" to JsonPrimitive("A.kt"), "search_snippet" to JsonPrimitive(search), "replacement_snippet" to JsonPrimitive("42"))
+        val staged = client.execute("stage_patch", "owner", "repo", patch("41")).jsonObject
+        assertEquals(1, blobReads)
+        assertEquals(0, writes)
+        assertEquals(head, staged["expected_head_sha"]!!.jsonPrimitive.content)
+        assertEquals(false, staged["committed"]!!.jsonPrimitive.booleanOrNull)
+        assertTrue(staged["preview"].toString().contains("42"))
+        assertTrue(runCatching { client.execute("stage_patch", "owner", "repo", patch("duplicate")) }.isFailure)
+        assertTrue(runCatching { client.execute("stage_patch", "owner", "repo", JsonObject(patch("41") + ("edits" to JsonArray(emptyList())))) }.isFailure)
+        assertTrue(runCatching { client.execute("stage_patch", "owner", "repo", JsonObject(patch("41") + ("branch" to JsonPrimitive("other")))) }.isFailure)
+        assertEquals(0, writes)
     }
 
     @Test fun stagedExactPatchPersistsOriginalBlobAndCommitsOnceAcrossRestart() = runTest {

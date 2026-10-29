@@ -52,6 +52,7 @@ class GitHubEngineeringController @Inject constructor(
     private suspend fun head(api: GitHubEngineeringApi, task: EngineeringTaskRow) = JSONObject(api.request("${root(task)}/git/ref/heads/${GitHubEngineeringApi.segment(task.workingBranch)}")).getJSONObject("object").getString("sha")
 
     internal suspend fun recent(): List<EngineeringTaskRow> = dao.recentTasks()
+    internal fun observeChanges() = database.invalidationTracker.createFlow("engineering_tasks", "engineering_runs", emitInitialState = true)
     internal suspend fun events(taskId: String): List<EngineeringEventRow> = dao.events(taskId)
     internal suspend fun run(taskId: String): EngineeringRunRow? = dao.run(taskId)
 

@@ -22,6 +22,46 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubToolTest {
+    @Test fun existingBranchIsReconciledWithoutUpdatingOrSelectingIt() = runTest {
+        val base = "a".repeat(40)
+        val existing = "b".repeat(40)
+        val requests = mutableListOf<String>()
+        val client = HttpClient(
+            MockEngine { request ->
+                requests += "${request.method.value} ${request.url.encodedPath}"
+                when (request.url.encodedPath) {
+                    "/repos/owner/repo/git/ref/heads/main" -> respond("""{"object":{"sha":"$base"}}""", HttpStatusCode.OK)
+                    "/repos/owner/repo/git/refs" -> respond("""{"message":"Reference already exists"}""", HttpStatusCode.UnprocessableEntity)
+                    "/repos/owner/repo/git/ref/heads/feature%2Fexisting" -> respond("""{"ref":"refs/heads/feature/existing","object":{"sha":"$existing"}}""", HttpStatusCode.OK)
+                    else -> error("Unexpected request ${request.url}")
+                }
+            }
+        )
+        try {
+            val result = GitHubTool("token", client).execute(
+                "branch",
+                buildJsonObject {
+                    put("action", "create_branch")
+                    put("owner", "owner")
+                    put("repo", "repo")
+                    put("branch", "feature/existing")
+                    put("base", "main")
+                    put("expected_head_sha", base)
+                }
+            )
+            assertFalse(result.isError)
+            val body = (result.content as ToolResultContent.Json).value.jsonObject
+            assertEquals("true", body["already_exists"].toString())
+            assertEquals("false", body["created"].toString())
+            assertEquals(existing, body["head_sha"]!!.jsonPrimitive.content)
+            assertEquals("false", body["matches_requested_base"].toString())
+            assertEquals(1, requests.count { it.startsWith("POST") })
+            assertFalse(requests.any { it.startsWith("PATCH") })
+        } finally {
+            client.close()
+        }
+    }
+
     @Test fun commitUsesTheExplicitlySelectedTaskBranchInsteadOfTheConstructorBranch() = runTest {
         val sha = "a".repeat(40)
         val tree = "b".repeat(40)

@@ -465,7 +465,7 @@ class ToolExecutionBudget(
                 content = if (changed && bounded.isBlank()) {
                     ToolResultContent.Text(safeText)
                 } else if (changed) {
-                    ToolResultEnvelope.compact(result.content, available)
+                    GitHubReplayRecovery.compact(result.content, available / 4) ?: ToolResultEnvelope.compact(result.content, available)
                 } else {
                     result.content
                 },

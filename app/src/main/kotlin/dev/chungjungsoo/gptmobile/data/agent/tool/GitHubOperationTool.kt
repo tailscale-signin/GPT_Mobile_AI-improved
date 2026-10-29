@@ -25,7 +25,36 @@ internal class GitHubOperationTool(
     override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
         if ("view_cursor" in arguments) {
             if (arguments.size != 1) {
-                return AgentToolResult(callId, ToolResultContent.Text("Use only view_cursor with the exact arguments from continuation_call. Repository, commit and range fields belong to a new read, not a saved page."), true, errorCode = "INVALID_ARGUMENTS", dispatched = false)
+                val evidence = (arguments["evidence_id"] as? JsonPrimitive)?.takeIf { it.isString && it.content.isNotBlank() }
+                val restoreEvidence = operation == "github_read" && evidence != null && (arguments["view_cursor"] as? JsonPrimitive)?.content?.contains(':') != true
+                val corrected = if (restoreEvidence) {
+                    buildJsonObject {
+                        put("evidence_id", requireNotNull(evidence))
+                        listOf("owner", "repo").forEach { key -> arguments[key]?.let { put(key, it) } }
+                    }
+                } else {
+                    buildJsonObject { put("view_cursor", arguments.getValue("view_cursor")) }
+                }
+                return AgentToolResult(
+                    callId,
+                    ToolResultContent.Json(
+                        buildJsonObject {
+                            put("schema", "github.arguments.v1")
+                            put("operation", operation)
+                            put("message", if (restoreEvidence) "evidence_id and view_cursor are different handles. Reopen source evidence with evidence_id alone, without an invented cursor. Nothing was dispatched." else "Use only view_cursor. Repository, commit and range fields belong to a new read, not a saved page. Nothing was dispatched.")
+                            put(
+                                "correction_call",
+                                buildJsonObject {
+                                    put("tool", definition.name)
+                                    put("arguments", corrected)
+                                }
+                            )
+                        }
+                    ),
+                    true,
+                    errorCode = "INVALID_ARGUMENTS",
+                    dispatched = false
+                )
             }
             val cursor = (arguments["view_cursor"] as? JsonPrimitive)?.takeIf { it.isString }?.content
                 ?: return AgentToolResult(callId, ToolResultContent.Text("view_cursor must be the exact saved cursor string."), true, errorCode = "INVALID_ARGUMENTS", dispatched = false)
@@ -128,7 +157,7 @@ internal class GitHubOperationTool(
     }
 
     companion object {
-        val names = setOf("github_context", "github_search", "github_read", "github_pr", "github_ci", "github_stage_patch", "github_commit", "github_write", "github_release")
+        val names = setOf("github_context", "github_search", "github_read", "github_pr", "github_ci", "github_watch_checks", "github_stage_patch", "github_commit", "github_write", "github_release")
         fun operationName(name: String): String? = name.substringBefore("__").takeIf { it in names }
         fun immutableRead(name: String, arguments: JsonObject): Boolean = operationName(name) in setOf("github_read", "github_search") &&
             (arguments["commit_sha"] as? JsonPrimitive)?.content?.matches(Regex("[a-fA-F0-9]{40}|[a-fA-F0-9]{64}")) == true &&
@@ -151,6 +180,7 @@ internal class GitHubOperationTool(
                 "github_search" -> "search_repository"
                 "github_read" -> "read_ranges"
                 "github_stage_patch" -> "stage_patch"
+                "github_watch_checks" -> "watch_checks"
                 "github_commit" -> when (requested) {
                     "", "commit" -> "commit_staged_patch"
                     "branch" -> "create_branch"
@@ -213,6 +243,7 @@ internal class GitHubOperationTool(
             if (Regex("\\b(commit|committing|push|pushing|branch)\\b").containsMatchIn(text)) selected += "github_commit"
             if (Regex("\\b(write|writing|create files?|edit(?:s|ed|ing)?|modify|changes?|fix(?:es|ed|ing)?|repair(?:s|ed|ing)?|correct(?:ions?|ed|ing)?|add(?:ed|ing)?|updat(?:e|ed|ing)|delet(?:e|ed|ing)|remove files?|commit|committing|push|pushing|patch(?:es|ed|ing)?|implement(?:ation|ed|ing)?|apply changes)\\b").containsMatchIn(text)) selected += "github_write"
             if ("release" in text) selected += "github_release"
+            if (Regex("\\b(watch|monitor|subscribe|ci|checks)\\b").containsMatchIn(text)) selected += "github_watch_checks"
             return selected
         }
 
@@ -270,6 +301,7 @@ internal class GitHubOperationTool(
                     }
                 }
                 "github_stage_patch" -> {
+                    listOf("target_file", "search_snippet", "replacement_snippet").forEach { properties[it] = field("string") }
                     properties["expected_head_sha"] = field("string")
                     properties["branch"] = field("string")
                     properties["edits"] = buildJsonObject {
@@ -385,6 +417,10 @@ internal class GitHubOperationTool(
                     listOf("workflow_id", "branch", "ref").forEach { properties[it] = field("string") }
                     properties["inputs"] = field("object")
                 }
+                "github_watch_checks" -> {
+                    properties["pr_number"] = field("integer")
+                    properties["run_id"] = field("integer")
+                }
                 "github_release" -> {
                     properties["action"] = choice("status", "publish")
                     listOf("tag_name", "target_commitish", "name", "body", "workflow_id").forEach { properties[it] = field("string") }
@@ -394,15 +430,16 @@ internal class GitHubOperationTool(
             }
             val description = when (operation) {
                 "github_context" -> "Resolve and pin the selected repository; check status, index, changes, efficiency or capabilities. action=capabilities inspects remote write permissions. A compact read-only schema selection does not prove write tools are disabled: discover github_write for edits. Changes requires base_sha; PR files use github_pr context with include_files=true."
-                "github_search" -> "Search pinned code and symbols locally. Supply a non-blank query (1-200 characters). Follow index_cursor with the same query until complete."
-                "github_read" -> "Read exact source ranges or a saved evidence_id at a pinned commit."
-                "github_stage_patch" -> "Validate expected head/blob SHAs and preview exact edits without committing."
+                "github_search" -> "Search pinned code and symbols locally. In mode=paths, query is a case-insensitive substring; query=* lists paths. Supply a non-blank query (1-200 characters). Follow index_cursor with the same query until complete."
+                "github_read" -> "Read exact source ranges or reopen a saved evidence_id at a pinned commit. Use evidence_id without view_cursor; numeric cursors are invalid."
+                "github_stage_patch" -> "Inspect and stage one exact replacement in a single call using target_file, search_snippet and replacement_snippet. Reads the complete pinned blob internally; rejects ambiguous anchors. Alternatively supply SHA-checked edits. Returns a bounded preview and stage_id; no commit occurs."
                 "github_commit" -> "Create a working branch or commit a validated stage_id with head checks."
                 "github_write" -> "Stage up to 20 UTF-8 file creations, replacements or deletions for exact user approval and one atomic commit on a working branch. Supply expected_head_sha and expected_blob_sha for existing files. Replacements require content; deletions require delete=true and no content. Never write to the default branch."
                 "github_pr" -> "Read PR files, checks and review threads; explicitly post inline review comments, reply to review comments, update/comment/create, or merge after all checks pass. Writes require the current expected head SHA."
                 "github_ci" -> "List workflows and runs, inspect run/job status, artifacts and parsed failure logs, or explicitly dispatch/rerun/cancel a workflow."
+                "github_watch_checks" -> "Subscribe once to background CI updates for pr_number and/or run_id in this saved chat. Pins the current head and posts native chat status updates without model polling turns. A moved PR head requires a new subscription."
                 else -> "Check release readiness or explicitly publish the selected release."
-            } + " Supply owner and repo together or omit both. Expand retained results with view_cursor."
+            } + " Supply owner and repo together or omit both. Follow continuation_call.arguments exactly to expand paged results with view_cursor."
             return AgentToolDefinition(
                 modelName,
                 description,

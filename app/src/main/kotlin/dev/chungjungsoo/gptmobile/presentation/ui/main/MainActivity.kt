@@ -53,6 +53,8 @@ class MainActivity : dev.chungjungsoo.gptmobile.presentation.ui.main.ProtectedAc
         }
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+        // DEBUG: Log activity creation timestamp
+        android.util.Log.d("MainActivity", "Activity created at: ${System.currentTimeMillis()}")
         authTabLauncher = AuthTabIntent.registerActivityResultLauncher(this) { result ->
             dispatchOAuthCallback(result.resultUri?.toString())
         }

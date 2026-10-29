@@ -21,10 +21,14 @@ concurrency:
   group: codeql-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   analyze:
     name: Analyze (${{ matrix.language }})
     runs-on: ubuntu-latest
+    timeout-minutes: 90
     permissions:
       security-events: write
       packages: read
@@ -47,8 +51,11 @@ jobs:
       with:
         distribution: "temurin"
         java-version: "21"
-        cache: "gradle"
 
+    - uses: gradle/actions/setup-gradle@748248ddd2a24f49513d8f472f81c3a07d4d50e1 # v4.4.4
+      with:
+        cache-read-only: ${{ github.event_name != 'push' || github.ref != 'refs/heads/main' }}
+        validate-wrappers: true
     - name: Setup Android SDK
       uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
       with:
@@ -70,7 +77,7 @@ jobs:
         sudo env DEBIAN_FRONTEND=noninteractive timeout --kill-after=15s 180s apt-get "${apt_options[@]}" install --no-install-recommends -y glslc libvulkan-dev spirv-headers
 
     - name: Initialize CodeQL
-      uses: github/codeql-action/init@v4
+      uses: github/codeql-action/init@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4
       with:
         languages: ${{ matrix.language }}
         build-mode: ${{ matrix.build-mode }}
@@ -85,7 +92,7 @@ jobs:
           --no-daemon --no-build-cache --rerun-tasks --stacktrace
 
     - name: Perform CodeQL Analysis
-      uses: github/codeql-action/analyze@v4
+      uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4
       with:
         category: "/language:${{matrix.language}}"
         output: results

@@ -10,11 +10,11 @@ Before contributing, make sure your development environment matches the project 
 
 - **JDK**: Java Development Kit 21 (Temurin or OpenJDK recommended)
 - **Android SDK**:
-  - Target/Compile SDK: `36`
-  - Min SDK: `26`
-  - Build Tools: `35.0.0`
-- **Gradle**: `9.4.1` (use `./gradlew` wrapper)
-- **Kotlin**: `2.3.21` / KSP `2.3.4`
+  - Target/Compile SDK: `37`
+  - Min SDK: `31`
+  - Build Tools: `37.0.0`
+- **Gradle**: `9.8.0` (use `./gradlew` wrapper)
+- **Kotlin**: `2.4.20` / KSP `2.3.12`
 - **IDE**: Android Studio Ladybug (or newer) recommended
 
 ---
@@ -68,7 +68,7 @@ The codebase follows Clean Architecture with MVVM:
 ### Conventions
 1. **Formatting**: Follow standard Kotlin coding conventions.
 2. **Commit Messages**: Write concise, descriptive commit messages in conventional commit format (`feat:`, `fix:`, `docs:`, `refactor:`, `test:`, `ci:`).
-3. **Tests**: Add or update unit tests in `app/src/test/java/dev/chungjungsoo/gptmobile/` when adding new business logic or fixing bugs.
+3. **Tests**: Add or update unit tests in `app/src/test/kotlin/dev/chungjungsoo/gptmobile/` when adding new business logic or fixing bugs.
 
 ---
 
@@ -78,3 +78,22 @@ The codebase follows Clean Architecture with MVVM:
 2. Make your changes and verify with `bash scripts/validate.sh all`.
 3. Open a Pull Request against `main`. Fill out the Pull Request template details.
 4. Ensure all CI validation checks pass. Use the **Remote diagnostics** summaries, PR report, and artifacts to investigate failures.
+
+## Engineering validation and review
+
+Create a feature branch from a verified base. Describe the user-visible problem and behavior,
+include regression evidence, and open a draft PR until Android CI and relevant device checks
+finish. For stacked work, target the parent feature branch and identify the parent PR.
+
+Follow AGENTS.md. Run `bash scripts/validate-local.sh fast`, format changed Kotlin with ktlint
+1.3.1, then run the relevant Android and gateway tests described in DEVELOPMENT.md. Keep
+checksums and Actions pinned. Update the generated architecture index if entry files change.
+
+Before review, list the exact checks run and their results. Do not mark unexecuted device tests
+as passed. CODEOWNERS routes review to the repository owner; it does not create an independent
+approval when the owner authored the PR. Add another maintainer before enforcing mandatory
+independent approval on owner-authored changes.
+
+Before merge, refresh GitHub's merge state, required checks, reviews and current head/base.
+A green individual check or a stale dashboard snapshot is insufficient. Do not force-push a
+shared branch, bypass protections or delete unrelated work to resolve a failing check.

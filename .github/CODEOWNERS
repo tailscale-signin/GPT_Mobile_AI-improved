@@ -1,0 +1,6 @@
+# Repository owner is the fallback reviewer. Replace with teams when available.
+* @tailscale-signin
+/.github/ @tailscale-signin
+/authentication/ @tailscale-signin
+/gateway/ @tailscale-signin
+/app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/ @tailscale-signin

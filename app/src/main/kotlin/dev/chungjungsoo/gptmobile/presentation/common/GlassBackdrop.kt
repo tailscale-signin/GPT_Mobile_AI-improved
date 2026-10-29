@@ -11,9 +11,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.MutableIntState
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -31,6 +33,7 @@ import dev.chrisbanes.haze.rememberHazeState
 internal val LocalGlassBackdrop = compositionLocalOf<HazeState?> { null }
 private val LocalInlineGlassBackdrop = compositionLocalOf<HazeState?> { null }
 internal val LocalGlassBackdropActive = compositionLocalOf { false }
+private val LocalGlassWindowConsumers = compositionLocalOf<MutableIntState?> { null }
 private val LocalGlassPopupSequence = compositionLocalOf<java.util.concurrent.atomic.AtomicInteger?> { null }
 internal val LocalOverlayWindow = compositionLocalOf { false }
 internal const val GLASS_OPACITY = 0.70f
@@ -42,10 +45,12 @@ fun GlassBackdropHost(content: @Composable () -> Unit) {
     val lifecycle by LocalLifecycleOwner.current.lifecycle.currentStateFlow.collectAsState()
     val active = lifecycle.isAtLeast(Lifecycle.State.STARTED)
     val state = rememberHazeState()
+    val windowConsumers = remember(state) { mutableIntStateOf(0) }
     val popupSequence = remember(state) { java.util.concurrent.atomic.AtomicInteger() }
-    CompositionLocalProvider(LocalGlassBackdrop provides state, LocalGlassBackdropActive provides active, LocalGlassPopupSequence provides popupSequence) {
-        // Removing the source when stopped releases its graphics layer, including private pixels.
-        Box(Modifier.fillMaxSize().then(if (active) Modifier.hazeSource(state) else Modifier)) { content() }
+    CompositionLocalProvider(LocalGlassBackdrop provides state, LocalGlassBackdropActive provides active, LocalGlassPopupSequence provides popupSequence, LocalGlassWindowConsumers provides windowConsumers) {
+        // Capture the window only while an effect actually samples it. Inline chat
+        // controls use their own source and must not retain a second full-screen layer.
+        Box(Modifier.fillMaxSize().then(if (active && windowConsumers.intValue > 0) Modifier.hazeSource(state) else Modifier)) { content() }
     }
 }
 
@@ -79,9 +84,16 @@ internal fun Modifier.glassBackdrop(shape: Shape, opacity: Float = GLASS_OPACITY
     val sequence = LocalGlassPopupSequence.current
     val popupZ = if (captureAsPopup) remember(state) { (sequence?.incrementAndGet() ?: 1).toFloat() } else 0f
     if (!hasGlassBackdrop(force)) return this
-    DisposableEffect(state, captureAsPopup) {
+    val windowState = LocalGlassBackdrop.current
+    val windowConsumers = LocalGlassWindowConsumers.current
+    DisposableEffect(state, captureAsPopup, windowConsumers) {
+        val samplesWindow = state === windowState && windowConsumers != null
+        if (samplesWindow) windowConsumers?.let { it.intValue++ }
         val release = dev.chungjungsoo.gptmobile.data.diagnostics.RenderingEffectDiagnostics.enter(dev.chungjungsoo.gptmobile.data.diagnostics.RenderingEffectDiagnostics.Effect.GLASS_BLUR)
-        onDispose { release() }
+        onDispose {
+            release()
+            if (samplesWindow) windowConsumers?.let { it.intValue-- }
+        }
     }
     val tokens = appOverlayTokens(opacity)
     val tint = tokens.background.copy(alpha = opacity.coerceIn(0f, 1f))
@@ -105,7 +117,7 @@ fun GlassMaterialPreview() {
     val lifecycle by LocalLifecycleOwner.current.lifecycle.currentStateFlow.collectAsState()
     val active = lifecycle.isAtLeast(Lifecycle.State.STARTED)
     val colors = listOf(MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.tertiary, MaterialTheme.colorScheme.secondary)
-    CompositionLocalProvider(LocalGlassBackdrop provides state, LocalGlassBackdropActive provides active) {
+    CompositionLocalProvider(LocalGlassBackdrop provides state, LocalGlassBackdropActive provides active, LocalGlassWindowConsumers provides null) {
         Box(Modifier.fillMaxWidth().height(112.dp)) {
             androidx.compose.foundation.Canvas(Modifier.matchParentSize().then(if (active) Modifier.hazeSource(state) else Modifier)) {
                 colors.forEachIndexed { index, color ->

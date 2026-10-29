@@ -218,12 +218,12 @@ class AgentRunner(
                         "before completing the tool call"
                     ).any { roundFailure.contains(it, ignoreCase = true) }
                 if (protocolFailure) {
-                    if (limits.combined?.requested?.singlePass != true && !protocolRecoveryAttempted && exposedDefinitions.isNotEmpty() && !round.textEmitted && !session.handlesToolsInternally) {
+                    if (limits.combined?.requested?.singlePass != true && !protocolRecoveryAttempted && !round.textEmitted && !session.handlesToolsInternally) {
                         protocolRecoveryAttempted = true
                         exposedDefinitions = exposedDefinitions.map { definition ->
                             definition.copy(description = definition.description + " Protocol repair: call this capability only with its native function-call frame and valid JSON arguments. Never print tool-call markup as assistant text.")
                         }
-                        emit(AgentRunEvent.Notice("The provider returned an invalid tool frame. Retrying its authorized call once.", persistent = false))
+                        emit(AgentRunEvent.Notice(if (exposedDefinitions.isEmpty()) "The provider attempted a tool call with tools disabled. Requesting a text answer once; no tool action was dispatched." else "The provider returned an invalid tool frame. Retrying its authorized call once.", persistent = false))
                         continue
                     }
                     emit(AgentRunEvent.Provider(ProviderEvent.Failed(roundFailure, round.progressDeadline, errorCode = "TOOL_PROTOCOL_INVALID_FRAME")))
@@ -241,8 +241,9 @@ class AgentRunner(
                 emit(AgentRunEvent.Provider(ProviderEvent.Failed(roundFailure, round.progressDeadline, round.errorCode, round.failureTransportComplete, round.providerLimit)))
                 return
             }
-            round.calls.forEach { emit(AgentRunEvent.Provider(it)) }
-            val calls = routeSearchCalls(round.calls, executableToolByName)
+            val resolvedCalls = round.calls.map { resolveGitHubReadAlias(it, executableToolByName.keys) }
+            resolvedCalls.forEach { emit(AgentRunEvent.Provider(it)) }
+            val calls = routeSearchCalls(resolvedCalls, executableToolByName)
             if (calls.isEmpty()) {
                 if (round.completed && !round.textEmitted) {
                     if (limits.combined?.requested?.singlePass != true && !emptyAnswerRecoveryAttempted && !session.handlesToolsInternally && !finalResponseRequested) {
@@ -361,9 +362,11 @@ class AgentRunner(
             }
         }
 
-        val deferredResults = deferredToolResults(deferredCalls, hostSuppressedIds, perToolSuppressedIds, exchanges)
+        val deferredResults = deferredToolResults(deferredCalls, hostSuppressedIds, perToolSuppressedIds, plan.unavailableIds, executableToolByName.keys, exchanges)
         deferredCalls.zip(deferredResults).forEach { (call, result) -> checkpoint?.complete(call, result) }
-        val canReadOtherSources = hostSuppressedIds.isNotEmpty() || deferredCalls.any { it.callId in perToolSuppressedIds && it.name in executableToolByName }
+        val canReadOtherSources = (plan.unavailableIds.isNotEmpty() && executableToolByName.isNotEmpty()) ||
+            hostSuppressedIds.isNotEmpty() ||
+            deferredCalls.any { it.callId in perToolSuppressedIds && it.name in executableToolByName }
         // Give a scoped read one round to choose another source, then stop
         // paying for provider rounds that only repeat already-suppressed work.
         suppressedReadRounds = if (executableCalls.isEmpty() && canReadOtherSources) suppressedReadRounds + 1 else 0
@@ -400,7 +403,16 @@ class AgentRunner(
         return SearchRoundContext(names, successful)
     }
 
-    private fun deferredToolResults(calls: List<ProviderEvent.ToolCall>, hostSuppressedIds: Set<String>, perToolSuppressedIds: Set<String>, exchanges: List<AgentToolExchange>): List<AgentToolResult> = calls.map { call ->
+    private fun deferredToolResults(calls: List<ProviderEvent.ToolCall>, hostSuppressedIds: Set<String>, perToolSuppressedIds: Set<String>, unavailableIds: Set<String>, availableNames: Set<String>, exchanges: List<AgentToolExchange>): List<AgentToolResult> = calls.map { call ->
+        if (call.callId in unavailableIds) {
+            return@map AgentToolResult(
+                call.callId,
+                ToolResultContent.Text("The requested tool '${call.name}' is not available in this round. Nothing was dispatched. Use an exact advertised tool name and its schema. Available tools: " + availableNames.sorted().take(32).joinToString(", ").ifEmpty { "none; answer using the evidence already collected" }),
+                isError = true,
+                dispatched = false,
+                errorCode = "TOOL_NOT_AVAILABLE"
+            )
+        }
         val message = if (call.callId in hostSuppressedIds) {
             "This website failed repeatedly and is paused for this response. read_url remains available for other hosts; choose another source."
         } else if (call.callId in perToolSuppressedIds) {

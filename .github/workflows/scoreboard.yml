@@ -18,6 +18,11 @@ on:
 
 permissions: {}
 
+concurrency:
+  # Each submission must run; sharing a pending concurrency group can discard submissions.
+  group: scoreboard-${{ github.run_id }}
+  cancel-in-progress: false
+
 jobs:
   validate-and-publish:
     if: github.repository == 'tailscale-signin/GPT_Mobile_AI-improved' && (github.event_name != 'issues' || startsWith(github.event.issue.title, '[Scoreboard v1] '))

@@ -270,3 +270,12 @@ Test files location:
 - Instrumented tests: `app/src/androidTest/kotlin/`
 
 Test naming: `methodName_condition_expectedResult` or simple descriptive names
+
+## Engineering validation and CI
+
+Read `.github/instructions/ai-engineering.md` and `docs/architecture/repository-index.json`.
+Use `bash scripts/validate-local.sh fast` for host checks and `bash scripts/validate-local.sh full`
+with JDK 21 and Android SDK 37. `Required verification` is the canonical aggregate check;
+its script rejects missing, skipped, failed and cancelled jobs. GitHub rules and current
+head/base revisions must also be satisfied before a merge. See `docs/ci-cd/modernization.md`
+for the implementation ledger and settings that require repository administration.

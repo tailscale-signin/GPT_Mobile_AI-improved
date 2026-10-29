@@ -20,6 +20,21 @@ class CombinedSinglePassTest {
         return CombinedExecutionContext(requested, CombinedPolicyResolver.resolve(requested), "single-root", profileUid = "p")
     }
 
+    @Test fun disabledToolMarkupDoesNotRetryASinglePassContributor() = runTest {
+        var generations = 0
+        val session = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                generations++
+                emit(ProviderEvent.TextDelta("<tool_call>{}</tool_call>"))
+                emit(ProviderEvent.Completed)
+            }
+        }
+        val events = AgentRunner(AgentRunLimits(combined = context())).run(session, emptyList()).toList()
+        assertEquals(1, generations)
+        assertTrue(events.any { it is AgentRunEvent.Provider && it.event is ProviderEvent.Failed })
+        assertFalse(events.any { it is AgentRunEvent.ToolStarted })
+    }
+
     @Test fun singlePassReservesOneWriterInsteadOfAnUnusedRewrite() {
         val plan = context().plan!!
         assertEquals(plan.finalOutputTokens.toLong(), plan.finalizationReserve.generatedTokens)

@@ -52,6 +52,8 @@ internal fun classifyDiagnostic(level: String?, tag: String?, message: String): 
             "requested important-while-foreground flag" in text &&
             "is ignored and takes no effect" in text ->
             DiagnosticClassification("platform_job_hint", "info", false)
+        tag == "Android" && capturedTag == "libc" && text == "access denied finding property \"ro.hardware.chipname\"" ->
+            DiagnosticClassification("platform_optional_property", "info", false)
         "asus_leak_detect_proj" in text -> DiagnosticClassification("platform", "warning", false)
         tag == "Android" && capturedTag == "imebackdispatcher" && text.startsWith("ime callback not found. ignoring unregisterreceivedcallback.") -> DiagnosticClassification("platform_input_cleanup", "info", false)
         tag == "Android" && capturedTag == "interactionjankmonitor" && text.startsWith("initializing without read_device_config permission. enabled=false") -> DiagnosticClassification("platform_optional_monitor", "info", false)

@@ -15,10 +15,25 @@ internal class EngineeringApiException(val status: Int, val retryAtEpochMs: Long
 /** Fixed host, no redirects, bounded responses, and a fresh credential for every request. */
 internal open class GitHubEngineeringApi(private val token: suspend () -> String?) {
     internal var expectedWriteActor: String? = null
-    open suspend fun request(path: String, method: String = "GET", body: JSONObject? = null): String = withContext(Dispatchers.IO) {
+    open suspend fun request(path: String, method: String = "GET", body: JSONObject? = null): String = execute(path, method, body)
+
+    // Fixed query only: arbitrary GraphQL mutations still require approved write identity.
+    open suspend fun pullRequestHealth(owner: String, repo: String, number: Int): String {
+        root(owner, repo)
+        require(number > 0)
+        return execute(
+            "/graphql",
+            "POST",
+            JSONObject().put("query", dev.chungjungsoo.gptmobile.data.github.gitHubPullRequestHealthQuery)
+                .put("variables", JSONObject().put("owner", owner).put("repo", repo).put("number", number)),
+            readOnlyHealthQuery = true
+        )
+    }
+
+    private suspend fun execute(path: String, method: String, body: JSONObject?, readOnlyHealthQuery: Boolean = false): String = withContext(Dispatchers.IO) {
         require(path.startsWith("/") && !path.startsWith("//") && '\r' !in path && '\n' !in path)
         val credential = requireNotNull(token()?.takeIf { it.isNotBlank() && '\r' !in it && '\n' !in it }) { "Reconnect the GitHub account" }
-        if (method != "GET") {
+        if (method != "GET" && !readOnlyHealthQuery) {
             val expectedActor = requireNotNull(expectedWriteActor) { "Engineering write has no approved account" }
             val actualActor = JSONObject(GitHubEngineeringApi { credential }.request("/user")).getLong("id").toString()
             check(actualActor == expectedActor) { "GitHub credential changed accounts; review approval again" }

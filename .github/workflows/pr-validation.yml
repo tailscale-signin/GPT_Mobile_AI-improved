@@ -7,19 +7,24 @@ on:
   pull_request:
     # Changing draft status or retargeting a PR must re-run the completion gate.
     types: [opened, reopened, synchronize, ready_for_review, converted_to_draft, edited]
-    branches:
-      - main
-      - feat/unified-reliability-v2-2026-10-13
-      - master
+  push:
+    branches: [main]
+  merge_group:
+    types: [checks_requested]
+  workflow_dispatch:
 
 concurrency:
   group: pr-validation-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   reliability_v2_completion:
     name: Unified Reliability v2 completion gate
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     permissions:
       contents: read
     steps:
@@ -39,55 +44,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Check Android regex compatibility
-        run: |
-          python3 scripts/check_unified_reliability_v2.py
-          python3 scripts/check_android_regex.py
-          python3 -m unittest discover -s scripts/tests
-          python3 scripts/test_gguf_prefill_governor.py
-
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
-        with:
-          node-version: '22'
-
-      - name: Validate gateway Python and contract tests
-        run: |
-          python3 -m pip install --retries 6 --timeout 60 -r gateway/requirements.txt
-          python3 -m py_compile gateway/gateway*.py
-          python3 gateway/check_gateway.py
-          python3 -m unittest authentication.test_github_broker authentication.test_app
-
-      - name: Resource preflight
-        run: bash scripts/validate.sh resources
-
-      - name: Setup JDK 21
-        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
-        with:
-          distribution: "temurin"
-          java-version: "21"
-          cache: "gradle"
-
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
-        with:
-          packages: "platforms;android-37.0 build-tools;37.0.0"
-
-      - name: Accept Android licenses
-        env:
-          GRADLE_LICENSE_ACCEPT: "y"
-        run: |
-          set -euo pipefail
-          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
-          test -x "$SDKMANAGER"
-          yes | "$SDKMANAGER" --licenses > sdk-licenses.log 2>&1 || status=$?
-          # sdkmanager can return nonzero after successful acceptance when the
-          # yes producer is terminated by a closed pipe. Trust the final SDK
-          # acceptance report, not the pipeline status alone.
-          if ! grep -Eq "All SDK package licenses accepted" sdk-licenses.log; then
-            cat sdk-licenses.log
-            exit 1
-          fi
-          tail -n 20 sdk-licenses.log
+      - uses: ./.github/actions/setup-android
 
       - name: Install Vulkan shader headers for Android GGUF backend
         timeout-minutes: 8
@@ -126,6 +83,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
+          retention-days: 14
           name: statistics-schema-and-tests
           path: |
             app/schemas/dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsDatabase/*.json
@@ -163,10 +121,14 @@ jobs:
         uses: mikepenz/action-junit-report@a9170d5795813c01ab4901ffb045b52bab4ab09d # v6.5.0
         if: always()
         with:
-          report_paths: "**/build/test-results/**/*.xml"
+          report_paths: "app/build/test-results/testDebugUnitTest/*.xml"
+          annotate_only: true
           check_name: "Unit Test Results"
-          fail_on_failure: false
-          require_tests: false
+          fail_on_failure: true
+          require_tests: true
+          check_annotations: false
+          check_retries: false
+          fail_on_parse_error: true
 
       - name: Build review APK and verify packaged runtime
         id: review_apk
@@ -184,6 +146,7 @@ jobs:
       - name: Upload review APK
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
+          retention-days: 14
           name: app-debug
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
@@ -192,6 +155,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
+          retention-days: 14
           name: jacoco-coverage-report
           path: app/build/reports/jacoco/jacocoTestReport/
           if-no-files-found: ignore
@@ -205,6 +169,10 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+      - name: Collect structured failure diagnostics
+        if: always()
+        run: python3 scripts/collect_ci_diagnostics.py unit-compile.log test.log lint.log heap.log apk.log
+
       - name: Upload validation logs
         if: always()
         timeout-minutes: 5
@@ -212,6 +180,7 @@ jobs:
         with:
           name: pr-validation-logs
           path: |
+            ci-diagnostics.json
             unit-compile.log
             test.log
             heap.log
@@ -240,3 +209,89 @@ jobs:
             printf '| 256 MiB recovery and export gate | %s |\n' "${HEAP_RECOVERY_OUTCOME:-not run}"
             printf '| APK build and runtime verification | %s |\n' "${REVIEW_APK_OUTCOME:-not run}"
           } >> "$GITHUB_STEP_SUMMARY"
+
+  contracts:
+    name: Repository and gateway contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: '22'
+      - name: Validate workflow syntax
+        run: |
+          curl --fail --location --retry 3 https://github.com/rhysd/actionlint/releases/download/v1.7.7/actionlint_1.7.7_linux_amd64.tar.gz -o "$RUNNER_TEMP/actionlint.tgz"
+          echo "023070a287cd8cccd71515fedc843f1985bf96c436b7effaecce67290e7e0757  $RUNNER_TEMP/actionlint.tgz" | sha256sum --check
+          tar -xzf "$RUNNER_TEMP/actionlint.tgz" -C "$RUNNER_TEMP" actionlint
+          "$RUNNER_TEMP/actionlint" -shellcheck= -pyflakes=
+      - name: Repository contracts and workflow policy
+        env:
+          CHANGE_BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
+        run: |
+          python3 scripts/check_ci_policy.py
+          python3 scripts/generate_architecture_index.py --check
+          python3 scripts/check_unified_reliability_v2.py
+          python3 scripts/check_android_regex.py
+          python3 -m unittest discover -s scripts/tests
+          python3 scripts/test_gguf_prefill_governor.py
+          bash scripts/validate.sh resources
+          python3 scripts/check_change_size.py --base "$CHANGE_BASE"
+          python3 scripts/scan_secrets.py
+      - name: Review newly introduced dependency vulnerabilities
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: python3 scripts/check_dependency_review.py --repository "$GITHUB_REPOSITORY" --base "$PR_BASE_SHA" --head "$PR_HEAD_SHA"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: dependency-review
+          path: dependency-review.json
+          if-no-files-found: ignore
+          retention-days: 14
+      - name: Gateway and GitHub OAuth broker contracts
+        run: |
+          python3 -m pip install --require-hashes -r gateway/requirements.txt
+          python3 -m py_compile gateway/gateway*.py
+          python3 gateway/check_gateway.py
+          python3 -m unittest authentication.test_github_broker authentication.test_app
+
+  format:
+    name: Changed Kotlin formatting
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Check changed Kotlin sources
+        env:
+          CHANGE_BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
+        run: |
+          curl --fail --location --retry 3 https://github.com/ktlint/ktlint/releases/download/1.3.1/ktlint -o "$RUNNER_TEMP/ktlint"
+          echo "a9f923be58fbd32670a17f0b729b1df804af882fa57402165741cb26e5440ca1  $RUNNER_TEMP/ktlint" | sha256sum --check
+          python3 scripts/check_changed_kotlin.py --base "$CHANGE_BASE" --ktlint "$RUNNER_TEMP/ktlint"
+
+  required_verification:
+    name: Required verification
+    if: always()
+    needs: [reliability_v2_completion, validate, contracts, format]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Require every expected job to succeed
+        env:
+          VERIFICATION_NEEDS: ${{ toJSON(needs) }}
+        run: python3 scripts/check_required_verification.py

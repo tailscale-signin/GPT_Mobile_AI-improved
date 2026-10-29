@@ -17,6 +17,7 @@ jobs:
   release_intent:
     name: Check whether the version changed
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
       publish: ${{ steps.intent.outputs.publish }}
     steps:
@@ -35,6 +36,7 @@ jobs:
     if: needs.release_intent.outputs.publish == 'true'
     name: Validate exact release commit
     runs-on: ubuntu-latest
+    timeout-minutes: 90
     outputs:
       tag: ${{ steps.version.outputs.tag }}
       prerelease: ${{ steps.version.outputs.prerelease }}
@@ -85,7 +87,10 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
-          cache: gradle
+      - uses: gradle/actions/setup-gradle@748248ddd2a24f49513d8f472f81c3a07d4d50e1 # v4.4.4
+        with:
+          cache-read-only: ${{ github.event_name != 'push' || github.ref != 'refs/heads/main' }}
+          validate-wrappers: true
       - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
         with:
           packages: 'platforms;android-37.0 build-tools;37.0.0'
@@ -108,6 +113,7 @@ jobs:
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
+          retention-days: 14
           name: release-validation-${{ github.sha }}
           path: |
             app/build/reports/tests/
@@ -116,6 +122,7 @@ jobs:
     needs: validate
     name: Build, verify and publish
     runs-on: ubuntu-latest
+    timeout-minutes: 180
     permissions:
       contents: write
       id-token: write
@@ -130,7 +137,10 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
-          cache: gradle
+      - uses: gradle/actions/setup-gradle@748248ddd2a24f49513d8f472f81c3a07d4d50e1 # v4.4.4
+        with:
+          cache-read-only: ${{ github.event_name != 'push' || github.ref != 'refs/heads/main' }}
+          validate-wrappers: true
       - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
         with:
           packages: 'platforms;android-37.0 build-tools;37.0.0'
@@ -240,6 +250,7 @@ jobs:
           subject-path: 'release-artifacts/*'
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
+          retention-days: 14
           name: signed-release-${{ github.sha }}
           path: release-artifacts/
           if-no-files-found: error
@@ -265,6 +276,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
+          retention-days: 14
           name: signed-apk-size-${{ github.sha }}
           path: release-apk-size-report.json
           if-no-files-found: ignore

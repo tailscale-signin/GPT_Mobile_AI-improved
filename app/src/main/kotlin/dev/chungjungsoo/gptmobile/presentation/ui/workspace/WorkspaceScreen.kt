@@ -79,6 +79,7 @@ fun WorkspaceScreen(onBack: () -> Unit, onChat: (Int) -> Unit, initialChat: Int 
     val chats by model.chats.collectAsStateWithLifecycle()
     val selectedChat by model.chatId.collectAsStateWithLifecycle()
     val events by model.events.collectAsStateWithLifecycle()
+    val orderedEvents = remember(events) { events.sortedByDescending { it.startedAt } }
     val comparison by model.comparison.collectAsStateWithLifecycle()
     val notice by model.notice.collectAsStateWithLifecycle()
     val inputs by model.interactions.pending.collectAsStateWithLifecycle()
@@ -186,7 +187,7 @@ fun WorkspaceScreen(onBack: () -> Unit, onChat: (Int) -> Unit, initialChat: Int 
                                     TextButton(onClick = { model.delete(entry) }) { Text("Unpin") }
                                 }
                             }
-                            items(remember(events) { events.sortedByDescending { it.startedAt } }, key = { it.eventId }) { event ->
+                            items(orderedEvents, key = { it.eventId }) { event ->
                                 val result = remember(event) { event.recoveryResult() }
                                 WorkspaceCard("${event.toolName} · ${event.status}") {
                                     Text(Date((event.completedAt ?: event.startedAt ?: 0) * if ((event.startedAt ?: 0) < 100000000000L) 1000 else 1).toString(), style = MaterialTheme.typography.labelSmall)

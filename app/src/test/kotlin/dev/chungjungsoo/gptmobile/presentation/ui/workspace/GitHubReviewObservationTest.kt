@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.workspace
 
+import android.app.Application
 import androidx.lifecycle.viewModelScope
 import dev.chungjungsoo.gptmobile.data.agent.tool.EngineeringFilePatch
 import dev.chungjungsoo.gptmobile.data.agent.tool.EngineeringRunRow
@@ -33,8 +34,13 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 
 @OptIn(ExperimentalCoroutinesApi::class)
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34], application = Application::class)
 class GitHubReviewObservationTest {
     private val scope = GitHubConversationContext("github", "owner", "repo", "feature", "a".repeat(40), "profile")
     private val engineering = mockk<GitHubEngineeringController>()

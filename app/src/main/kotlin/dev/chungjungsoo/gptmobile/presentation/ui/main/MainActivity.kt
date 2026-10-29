@@ -57,8 +57,8 @@ class MainActivity : dev.chungjungsoo.gptmobile.presentation.ui.main.ProtectedAc
             dispatchOAuthCallback(result.resultUri?.toString())
         }
 
-        // Prevent keyboard from pushing the entire view up - composable handles insets via imePadding()
-        window.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING)
+        // Deliver IME insets to Compose; the navigation shell consumes keyboard space once.
+        window.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
 
         setContent {
             val navController = rememberNavController()

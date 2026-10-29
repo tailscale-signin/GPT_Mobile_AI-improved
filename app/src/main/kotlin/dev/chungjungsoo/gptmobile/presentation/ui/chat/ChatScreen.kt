@@ -98,7 +98,6 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
@@ -168,6 +167,34 @@ fun ChatScreen(
     onOpenConversation: (Int, Boolean) -> Unit = { _, _ -> },
     onInspectContext: ((Int, String) -> Unit)? = null,
     showTopBar: Boolean = true
+) {
+    ConversationViewport { viewportWidth, viewportHeight ->
+        ChatScreenContent(
+            chatViewModel = chatViewModel,
+            onBackAction = onBackAction,
+            onNavigateToLocalModels = onNavigateToLocalModels,
+            onReviewEvidenceAccess = onReviewEvidenceAccess,
+            onOpenConversation = onOpenConversation,
+            onInspectContext = onInspectContext,
+            showTopBar = showTopBar,
+            viewportWidth = viewportWidth,
+            viewportHeight = viewportHeight
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ChatScreenContent(
+    chatViewModel: ChatViewModel = hiltViewModel(),
+    onBackAction: () -> Unit,
+    onNavigateToLocalModels: () -> Unit = {},
+    onReviewEvidenceAccess: () -> Unit = {},
+    onOpenConversation: (Int, Boolean) -> Unit = { _, _ -> },
+    onInspectContext: ((Int, String) -> Unit)? = null,
+    showTopBar: Boolean = true,
+    viewportWidth: Dp,
+    viewportHeight: Dp
 ) {
     val chatRoom by chatViewModel.chatRoom.collectAsStateWithLifecycle()
     val featureSettings by chatViewModel.featureSettings.collectAsStateWithLifecycle()
@@ -241,15 +268,13 @@ fun ChatScreen(
             onDismiss = chatViewModel::dismissFreeToolConsent
         )
     }
-    val configuration = LocalConfiguration.current
-    val screenWidthDp = configuration.screenWidthDp.dp
     val focusManager = LocalFocusManager.current
     androidx.compose.runtime.DisposableEffect(focusManager) {
         onDispose { focusManager.clearFocus(force = true) }
     }
     val systemChatMargin = 16.dp
-    val maximumUserChatBubbleWidth = (screenWidthDp - systemChatMargin) * 0.8F
-    val maximumOpponentChatBubbleWidth = screenWidthDp - systemChatMargin
+    val maximumUserChatBubbleWidth = (viewportWidth - systemChatMargin).coerceAtLeast(0.dp) * 0.8F
+    val maximumOpponentChatBubbleWidth = (viewportWidth - systemChatMargin).coerceAtLeast(0.dp)
     val hasOlderHistory by chatViewModel.olderHistoryAvailable.collectAsStateWithLifecycle()
     val groupedMessages by chatViewModel.groupedMessages.collectAsStateWithLifecycle()
     val academicGateways by chatViewModel.academicGateways.collectAsStateWithLifecycle()
@@ -675,8 +700,8 @@ fun ChatScreen(
                         }
                     }
                     .chatMessageBackdrop(
-                        topFadeStart = if (featureSettings.edgeFades) (innerPadding.calculateTopPadding() + 16.dp - configuration.screenHeightDp.dp * 0.05f).coerceAtLeast(0.dp) else 0.dp,
-                        topFade = if (featureSettings.edgeFades) (innerPadding.calculateTopPadding() + 48.dp - configuration.screenHeightDp.dp * 0.05f).coerceAtLeast(0.dp) else 0.dp,
+                        topFadeStart = if (featureSettings.edgeFades) (innerPadding.calculateTopPadding() + 16.dp - viewportHeight * 0.05f).coerceAtLeast(0.dp) else 0.dp,
+                        topFade = if (featureSettings.edgeFades) (innerPadding.calculateTopPadding() + 48.dp - viewportHeight * 0.05f).coerceAtLeast(0.dp) else 0.dp,
                         // Content continues behind the composer. Fade it from the top edge
                         // of the input surface to transparent halfway through the bar.
                         bottomFadeStartFromBottom = if (featureSettings.edgeFades && !inspectingCombinedSource) composerHeight else 0.dp,

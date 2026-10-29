@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -175,7 +176,7 @@ fun GitHubWorkspaceScreen(
     }
     Dialog(onDismissRequest = { close() }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Scaffold(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.fillMaxSize().imePadding(),
             containerColor = MaterialTheme.colorScheme.surface,
             topBar = {
                 TopAppBar(
@@ -534,7 +535,7 @@ fun GitHubWorkspaceScreen(
         }
         if (engineeringReviewOpen && commandContext != null) {
             Dialog(onDismissRequest = { engineeringReviewOpen = false }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-                Scaffold(topBar = { TopAppBar(title = { Text("Review changes") }, navigationIcon = { IconButton(onClick = { engineeringReviewOpen = false }) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back to AI programmer") } }) }) { inset ->
+                Scaffold(modifier = Modifier.fillMaxSize().imePadding(), topBar = { TopAppBar(title = { Text("Review changes") }, navigationIcon = { IconButton(onClick = { engineeringReviewOpen = false }) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back to AI programmer") } }) }) { inset ->
                     Column(Modifier.fillMaxSize().padding(inset)) {
                         dev.chungjungsoo.gptmobile.presentation.ui.workspace.GitHubReviewPanel(model = commitReview, programmerContext = commandContext)
                     }

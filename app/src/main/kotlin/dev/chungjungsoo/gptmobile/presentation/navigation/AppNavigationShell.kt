@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.only
 import androidx.compose.material.icons.Icons
@@ -62,7 +63,9 @@ internal fun AppNavigationShell(navController: NavHostController, route: String?
             }
         }
     }
-    BoxWithConstraints(Modifier.fillMaxSize()) {
+    // The shell owns IME space; Compose consumption makes child imePadding a no-op.
+    // Screens retain ownership of system bars through their Scaffold/top bars.
+    BoxWithConstraints(Modifier.fillMaxSize().imePadding()) {
         val rail = selected != null && maxWidth >= 600.dp
         Row(Modifier.fillMaxSize()) {
             if (rail) {

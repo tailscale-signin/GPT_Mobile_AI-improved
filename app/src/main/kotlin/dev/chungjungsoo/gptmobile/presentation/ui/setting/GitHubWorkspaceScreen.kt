@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -175,36 +176,39 @@ fun GitHubWorkspaceScreen(
     }
     Dialog(onDismissRequest = { close() }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Scaffold(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.fillMaxSize().imePadding(),
             containerColor = MaterialTheme.colorScheme.surface,
             topBar = {
-                TopAppBar(
-                    title = {
-                        Column {
-                            Text(state.selection?.fullName ?: "GitHub Workspace", style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Text(
-                                state.selection?.ref ?: connection.name,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
+                Column {
+                    TopAppBar(
+                        title = {
+                            Column {
+                                Text(state.selection?.fullName ?: "GitHub Workspace", style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(
+                                    state.selection?.ref ?: connection.name,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        },
+                        navigationIcon = { IconButton(onClick = { close() }, enabled = !state.busy) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Close workspace") } },
+                        actions = {
+                            state.selection?.let { repo ->
+                                IconButton(onClick = { uriHandler.openUri("https://github.com/${repo.fullName}") }) { Icon(Icons.Rounded.Launch, "Open repository on GitHub") }
+                                IconButton(onClick = {
+                                    when (tab) {
+                                        4 -> buildsViewModel.refresh()
+                                        2 -> viewModel.loadPullRequests()
+                                        else -> viewModel.refreshBranch()
+                                    }
+                                }, enabled = if (tab == 4) !buildsState.list().loading else canNavigate) { Icon(Icons.Rounded.Refresh, if (tab == 4) stringResource(R.string.github_builds_refresh) else "Refresh branch") }
+                            }
                         }
-                    },
-                    navigationIcon = { IconButton(onClick = { close() }, enabled = !state.busy) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Close workspace") } },
-                    actions = {
-                        state.selection?.let { repo ->
-                            IconButton(onClick = { uriHandler.openUri("https://github.com/${repo.fullName}") }) { Icon(Icons.Rounded.Launch, "Open repository on GitHub") }
-                            IconButton(onClick = {
-                                when (tab) {
-                                    4 -> buildsViewModel.refresh()
-                                    2 -> viewModel.loadPullRequests()
-                                    else -> viewModel.refreshBranch()
-                                }
-                            }, enabled = if (tab == 4) !buildsState.list().loading else canNavigate) { Icon(Icons.Rounded.Refresh, if (tab == 4) stringResource(R.string.github_builds_refresh) else "Refresh branch") }
-                        }
-                    }
-                )
+                    )
+                    GitHubChatProgress(state, visibleProgrammer)
+                }
             },
             bottomBar = {}
         ) { padding ->
@@ -306,7 +310,6 @@ fun GitHubWorkspaceScreen(
                         Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall, modifier = Modifier.fillMaxWidth().heightIn(max = 80.dp).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp))
                     }
                 }
-                GitHubChatProgress(state, visibleProgrammer)
                 val workspaceTabs = listOf(3 to "Chat", 2 to "PR", 0 to "Files", 1 to "Changes", 4 to "Checks", 5 to "Settings")
                 dev.chungjungsoo.gptmobile.presentation.ui.chat.ChatProfileDock(
                     profileUids = workspaceTabs.map { it.first.toString() },
@@ -318,7 +321,8 @@ fun GitHubWorkspaceScreen(
                     combinedGenerating = false,
                     onSelect = { id -> if (!editorDirty) id?.toIntOrNull()?.let { tab = it } },
                     onPause = null,
-                    showStatus = false
+                    showStatus = false,
+                    showContainer = false
                 )
                 Column(Modifier.weight(1f).then(if (tab in setOf(3, 4)) Modifier else Modifier.verticalScroll(workspaceScroll)).padding(if (tab in setOf(3, 4)) 0.dp else 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     if (state.selection == null && tab !in setOf(3, 5)) {
@@ -534,7 +538,7 @@ fun GitHubWorkspaceScreen(
         }
         if (engineeringReviewOpen && commandContext != null) {
             Dialog(onDismissRequest = { engineeringReviewOpen = false }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-                Scaffold(topBar = { TopAppBar(title = { Text("Review changes") }, navigationIcon = { IconButton(onClick = { engineeringReviewOpen = false }) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back to AI programmer") } }) }) { inset ->
+                Scaffold(modifier = Modifier.fillMaxSize().imePadding(), topBar = { TopAppBar(title = { Text("Review changes") }, navigationIcon = { IconButton(onClick = { engineeringReviewOpen = false }) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back to AI programmer") } }) }) { inset ->
                     Column(Modifier.fillMaxSize().padding(inset)) {
                         dev.chungjungsoo.gptmobile.presentation.ui.workspace.GitHubReviewPanel(model = commitReview, programmerContext = commandContext)
                     }

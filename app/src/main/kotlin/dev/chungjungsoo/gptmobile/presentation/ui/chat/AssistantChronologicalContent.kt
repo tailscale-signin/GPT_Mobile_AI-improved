@@ -8,21 +8,17 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.repeatOnLifecycle
 import dev.chungjungsoo.gptmobile.data.agent.displayResult
 import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem
 import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType
@@ -115,16 +111,11 @@ internal fun AssistantChronologicalContent(
         }
     )
     Column(Modifier.fillMaxWidth().padding(12.dp)) {
-        if (showExecutionTrace || isLoading) {
+        if (showExecutionTrace || isLoading && !LocalChatProgressInHeader.current) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    if (isLoading) {
-                        GenerationStatusText(toolEvents, items)
-                        LinearProgressIndicator(
-                            Modifier.fillMaxWidth(),
-                            color = MaterialTheme.colorScheme.primary,
-                            trackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
-                        )
+                    if (isLoading && !LocalChatProgressInHeader.current) {
+                        ChatGenerationProgress(toolEvents, items)
                     } else {
                         androidx.compose.foundation.layout.Spacer(Modifier.fillMaxWidth())
                     }
@@ -234,45 +225,3 @@ internal fun AssistantChronologicalContent(
 }
 
 internal fun isContextDiagnostic(value: String): Boolean = value.startsWith("Context estimate:", true) || value.startsWith("Context:", true) || value.startsWith("[telemetry]", true)
-
-@Composable
-private fun GenerationStatusText(toolEvents: List<ToolEvent>, timeline: List<AssistantTimelineItem>) {
-    var dots by remember { mutableIntStateOf(1) }
-    var phase by remember { mutableIntStateOf(0) }
-    val lifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
-    LaunchedEffect(lifecycle) {
-        lifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
-            var ticks = 0
-            while (true) {
-                delay(500)
-                dots = dots % 3 + 1
-                ticks++
-                if (ticks % 10 == 0) phase++
-            }
-        }
-    }
-
-    val runningTool = toolEvents.lastOrNull {
-        it.status == dev.chungjungsoo.gptmobile.data.database.entity.ToolEventStatus.RUNNING ||
-            it.status == dev.chungjungsoo.gptmobile.data.database.entity.ToolEventStatus.PENDING
-    }
-    // Refresh from actual activity every five seconds, rather than inventing work phases.
-    val activity = timeline.lastOrNull { it.type == AssistantTimelineItemType.TEXT || it.type == AssistantTimelineItemType.THINKING }
-    val checkpoint = timeline.lastOrNull { it.statusSummary }?.content
-        ?: timeline.lastOrNull { it.progressCheckpoint && it.modelAuthored }?.content
-    val base = remember(phase, runningTool?.toolName, activity?.type, checkpoint) {
-        runningTool?.let { smartToolVerb(it.toolName) } ?: checkpoint ?: when (activity?.type) {
-            AssistantTimelineItemType.TEXT -> "Writing"
-            AssistantTimelineItemType.THINKING -> "Thinking"
-            else -> checkpoint?.trim()?.takeIf { it.isNotEmpty() }?.split(Regex("\\s+"))?.take(12)?.joinToString(" ") ?: "Preparing response"
-        }
-    }
-    val suffix = ".".repeat(dots)
-
-    Text(
-        text = base.removeSuffix("...").removeSuffix(".") + suffix,
-        style = MaterialTheme.typography.labelSmall,
-        color = MaterialTheme.colorScheme.primary,
-        modifier = Modifier.padding(bottom = 8.dp)
-    )
-}

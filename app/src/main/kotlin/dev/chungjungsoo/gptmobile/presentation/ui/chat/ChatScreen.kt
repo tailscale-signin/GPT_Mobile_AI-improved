@@ -98,7 +98,6 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
@@ -167,7 +166,38 @@ fun ChatScreen(
     onReviewEvidenceAccess: () -> Unit = {},
     onOpenConversation: (Int, Boolean) -> Unit = { _, _ -> },
     onInspectContext: ((Int, String) -> Unit)? = null,
-    showTopBar: Boolean = true
+    showTopBar: Boolean = true,
+    allowResearchPanels: Boolean = true
+) {
+    ConversationViewport { viewportWidth, viewportHeight ->
+        ChatScreenContent(
+            chatViewModel = chatViewModel,
+            onBackAction = onBackAction,
+            onNavigateToLocalModels = onNavigateToLocalModels,
+            onReviewEvidenceAccess = onReviewEvidenceAccess,
+            onOpenConversation = onOpenConversation,
+            onInspectContext = onInspectContext,
+            showTopBar = showTopBar,
+            allowResearchPanels = allowResearchPanels,
+            viewportWidth = viewportWidth,
+            viewportHeight = viewportHeight
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ChatScreenContent(
+    chatViewModel: ChatViewModel = hiltViewModel(),
+    onBackAction: () -> Unit,
+    onNavigateToLocalModels: () -> Unit = {},
+    onReviewEvidenceAccess: () -> Unit = {},
+    onOpenConversation: (Int, Boolean) -> Unit = { _, _ -> },
+    onInspectContext: ((Int, String) -> Unit)? = null,
+    showTopBar: Boolean = true,
+    allowResearchPanels: Boolean,
+    viewportWidth: Dp,
+    viewportHeight: Dp
 ) {
     val chatRoom by chatViewModel.chatRoom.collectAsStateWithLifecycle()
     val featureSettings by chatViewModel.featureSettings.collectAsStateWithLifecycle()
@@ -241,15 +271,13 @@ fun ChatScreen(
             onDismiss = chatViewModel::dismissFreeToolConsent
         )
     }
-    val configuration = LocalConfiguration.current
-    val screenWidthDp = configuration.screenWidthDp.dp
     val focusManager = LocalFocusManager.current
     androidx.compose.runtime.DisposableEffect(focusManager) {
         onDispose { focusManager.clearFocus(force = true) }
     }
     val systemChatMargin = 16.dp
-    val maximumUserChatBubbleWidth = (screenWidthDp - systemChatMargin) * 0.8F
-    val maximumOpponentChatBubbleWidth = screenWidthDp - systemChatMargin
+    val maximumUserChatBubbleWidth = (viewportWidth - systemChatMargin).coerceAtLeast(0.dp) * 0.8F
+    val maximumOpponentChatBubbleWidth = (viewportWidth - systemChatMargin).coerceAtLeast(0.dp)
     val hasOlderHistory by chatViewModel.olderHistoryAvailable.collectAsStateWithLifecycle()
     val groupedMessages by chatViewModel.groupedMessages.collectAsStateWithLifecycle()
     val academicGateways by chatViewModel.academicGateways.collectAsStateWithLifecycle()
@@ -353,6 +381,7 @@ fun ChatScreen(
     val chatPlatformModels by chatViewModel.chatPlatformModels.collectAsStateWithLifecycle()
     val availableChatTools by chatViewModel.availableChatTools.collectAsStateWithLifecycle()
     val chatToolConfig by chatViewModel.chatToolConfig.collectAsStateWithLifecycle()
+    val showResearchPanels = researchPanelsVisible(allowResearchPanels, chatToolConfig)
     val downloadedLocalModels by chatViewModel.downloadedLocalModels.collectAsStateWithLifecycle()
     val debugMode by chatViewModel.debugMode.collectAsStateWithLifecycle()
     val debugMemorySources by chatViewModel.debugMemorySources.collectAsStateWithLifecycle()
@@ -675,8 +704,8 @@ fun ChatScreen(
                         }
                     }
                     .chatMessageBackdrop(
-                        topFadeStart = if (featureSettings.edgeFades) (innerPadding.calculateTopPadding() + 16.dp - configuration.screenHeightDp.dp * 0.05f).coerceAtLeast(0.dp) else 0.dp,
-                        topFade = if (featureSettings.edgeFades) (innerPadding.calculateTopPadding() + 48.dp - configuration.screenHeightDp.dp * 0.05f).coerceAtLeast(0.dp) else 0.dp,
+                        topFadeStart = if (featureSettings.edgeFades) (innerPadding.calculateTopPadding() + 16.dp - viewportHeight * 0.05f).coerceAtLeast(0.dp) else 0.dp,
+                        topFade = if (featureSettings.edgeFades) (innerPadding.calculateTopPadding() + 48.dp - viewportHeight * 0.05f).coerceAtLeast(0.dp) else 0.dp,
                         // Content continues behind the composer. Fade it from the top edge
                         // of the input surface to transparent halfway through the bar.
                         bottomFadeStartFromBottom = if (featureSettings.edgeFades && !inspectingCombinedSource) composerHeight else 0.dp,
@@ -792,7 +821,7 @@ fun ChatScreen(
                         onActionClick = { prompt -> chatViewModel.sendPromptResponse(prompt) }
                     )
                     val researchExecution = researchExecutions.values.lastOrNull { it.accepted.chatId == chatRoom.id && it.accepted.originatingUserMessageId == message.id && it.accepted.targetSources > 0 }
-                    researchExecution?.let { execution ->
+                    researchExecution?.takeIf { showResearchPanels }?.let { execution ->
                         ResearchAttemptProgressCard(
                             execution = execution,
                             onStop = { chatViewModel.stopResearchAttempt(execution.accepted.rootWorkId) },
@@ -806,7 +835,7 @@ fun ChatScreen(
                     val chatResearch = researchSessions.values.filter { session ->
                         session.chatId == chatRoom.id && (session.turnId.substringAfterLast(':').toIntOrNull() ?: agentRunsById[session.runId]?.userMessageId) == message.id
                     }
-                    if (chatResearch.isNotEmpty() && researchExecution == null) {
+                    if (showResearchPanels && chatResearch.isNotEmpty() && researchExecution == null) {
                         val turnRuns = agentRunsById.values.filter { it.chatId == chatRoom.id && it.userMessageId == message.id }
                         val turnRow = groupedMessages.assistantMessages.getOrNull(index).orEmpty()
                         val selectedUid = inspectedCombinedProfileUid.takeIf { inspectedCombinedTurn == chatMessagePairKey(message, index) }
@@ -890,7 +919,7 @@ fun ChatScreen(
                     .onSizeChanged { composerHeightPx = it.height }
             ) {
                 Column(Modifier.navigationBarsPadding()) {
-                    chatToolConfig.research?.takeIf { it.researchToggle && it.depth > 0 }?.let { selection ->
+                    chatToolConfig.research?.takeIf { showResearchPanels }?.let { selection ->
                         val profileUid = activePlatformUids.firstOrNull().orEmpty()
                         val target = selection.applyTo(featureSettings.delegationFor(profileUid)).deepResearch.maxPages
                         androidx.compose.material3.AssistChip(

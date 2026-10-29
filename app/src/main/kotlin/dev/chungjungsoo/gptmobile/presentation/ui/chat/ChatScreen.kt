@@ -378,6 +378,7 @@ private fun ChatScreenContent(
     val chatPlatformModels by chatViewModel.chatPlatformModels.collectAsStateWithLifecycle()
     val availableChatTools by chatViewModel.availableChatTools.collectAsStateWithLifecycle()
     val chatToolConfig by chatViewModel.chatToolConfig.collectAsStateWithLifecycle()
+    val showResearchPanels = chatToolConfig.github == null && chatToolConfig.research?.let { it.researchToggle && it.depth > 0 } == true
     val downloadedLocalModels by chatViewModel.downloadedLocalModels.collectAsStateWithLifecycle()
     val debugMode by chatViewModel.debugMode.collectAsStateWithLifecycle()
     val debugMemorySources by chatViewModel.debugMemorySources.collectAsStateWithLifecycle()
@@ -817,7 +818,7 @@ private fun ChatScreenContent(
                         onActionClick = { prompt -> chatViewModel.sendPromptResponse(prompt) }
                     )
                     val researchExecution = researchExecutions.values.lastOrNull { it.accepted.chatId == chatRoom.id && it.accepted.originatingUserMessageId == message.id && it.accepted.targetSources > 0 }
-                    researchExecution?.let { execution ->
+                    researchExecution?.takeIf { showResearchPanels }?.let { execution ->
                         ResearchAttemptProgressCard(
                             execution = execution,
                             onStop = { chatViewModel.stopResearchAttempt(execution.accepted.rootWorkId) },
@@ -831,7 +832,7 @@ private fun ChatScreenContent(
                     val chatResearch = researchSessions.values.filter { session ->
                         session.chatId == chatRoom.id && (session.turnId.substringAfterLast(':').toIntOrNull() ?: agentRunsById[session.runId]?.userMessageId) == message.id
                     }
-                    if (chatResearch.isNotEmpty() && researchExecution == null) {
+                    if (showResearchPanels && chatResearch.isNotEmpty() && researchExecution == null) {
                         val turnRuns = agentRunsById.values.filter { it.chatId == chatRoom.id && it.userMessageId == message.id }
                         val turnRow = groupedMessages.assistantMessages.getOrNull(index).orEmpty()
                         val selectedUid = inspectedCombinedProfileUid.takeIf { inspectedCombinedTurn == chatMessagePairKey(message, index) }

@@ -2,6 +2,7 @@ package dev.chungjungsoo.gptmobile.presentation.ui.workspace
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -23,6 +24,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
@@ -40,36 +42,67 @@ internal fun GitHubChatApprovalCard(model: GitHubReviewViewModel, onCommitted: (
         return
     }
     val proposal = review ?: return
+    var showDetails by remember(snapshot.taskId, snapshot.patchDigest) { mutableStateOf(false) }
     var editPath by remember(snapshot.taskId) { mutableStateOf<String?>(null) }
     var search by remember(snapshot.taskId, editPath) { mutableStateOf("") }
     var replacement by remember(snapshot.taskId, editPath) { mutableStateOf("") }
-    Card(Modifier.fillMaxWidth().padding(horizontal = 12.dp).testTag("github_chat_approval")) {
-        Column(Modifier.fillMaxWidth().heightIn(max = 300.dp).verticalScroll(rememberScrollState()).padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Review proposed changes", style = MaterialTheme.typography.titleMedium)
-            Text("${proposal.owner}/${proposal.repo} · ${proposal.branch}")
-            Text("Base ${proposal.head.take(12)} · ${snapshot.commitMessage.lineSequence().firstOrNull().orEmpty()}")
-            proposal.files.filter { it.changed }.forEach { file ->
-                Text(file.path, style = MaterialTheme.typography.labelLarge)
-                val diff = remember(file) { inlinePatchPreview(file.before, file.after, file.delete) }
-                SelectionContainer { Text(diff, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall) }
-                if (!file.delete) TextButton(enabled = !busy, onClick = { editPath = file.path }) { Text("Edit Inline") }
-            }
-            if (editPath != null) {
-                Text("Edit proposed text in $editPath")
-                OutlinedTextField(search, { search = it }, label = { Text("Exact text to replace") }, maxLines = 4, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(replacement, { replacement = it }, label = { Text("Replacement") }, maxLines = 4, modifier = Modifier.fillMaxWidth())
-                Button(enabled = !busy && search.isNotBlank() && search != replacement, onClick = {
-                    model.editAndRestage(snapshot.taskId, requireNotNull(editPath), search, replacement)
-                }) { Text("Validate edited patch") }
-                TextButton(onClick = { editPath = null }) { Text("Cancel edit") }
-            } else {
-                Button(enabled = !busy, onClick = { model.approveCommit(snapshot.taskId, snapshot.patchDigest, onCommitted) }) { Text("Approve & Commit") }
-                TextButton(enabled = !busy, onClick = { model.rejectCommit(snapshot.taskId) }) { Text("Reject") }
+    dev.chungjungsoo.gptmobile.presentation.common.AppGlassSurface(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp).testTag("github_chat_approval"),
+        shape = MaterialTheme.shapes.large
+    ) {
+        Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text("Review proposed changes", style = MaterialTheme.typography.titleSmall)
+            Text(
+                compactApprovalSummary(proposal.files.count { it.changed }, proposal.branch, snapshot.commitMessage),
+                style = MaterialTheme.typography.bodySmall,
+                maxLines = 4,
+                overflow = TextOverflow.Ellipsis
+            )
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Button(enabled = !busy, onClick = { model.approveCommit(snapshot.taskId, snapshot.patchDigest, onCommitted) }, modifier = Modifier.weight(1f)) { Text("Commit", maxLines = 1) }
+                TextButton(enabled = !busy, onClick = { showDetails = true }, modifier = Modifier.weight(1f)) { Text("Details", maxLines = 1) }
+                TextButton(enabled = !busy, onClick = { model.rejectCommit(snapshot.taskId) }, modifier = Modifier.weight(1f)) { Text("Reject", maxLines = 1) }
             }
             if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
-            if (notice.isNotBlank()) Text(notice, style = MaterialTheme.typography.bodySmall)
+            if (notice.isNotBlank()) Text(notice, style = MaterialTheme.typography.labelSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
     }
+    if (showDetails) androidx.compose.ui.window.Dialog(onDismissRequest = { showDetails = false }, properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
+        Card(Modifier.fillMaxWidth().padding(horizontal = 12.dp).testTag("github_approval_details")) {
+            Column(Modifier.fillMaxWidth().heightIn(max = 300.dp).verticalScroll(rememberScrollState()).padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Proposed changes", style = MaterialTheme.typography.titleMedium)
+                TextButton(onClick = { showDetails = false }) { Text("Close details") }
+                Text("${proposal.owner}/${proposal.repo} · ${proposal.branch}")
+                Text("Base ${proposal.head.take(12)} · ${snapshot.commitMessage.lineSequence().firstOrNull().orEmpty()}")
+                proposal.files.filter { it.changed }.forEach { file ->
+                    Text(file.path, style = MaterialTheme.typography.labelLarge)
+                    val diff = remember(file) { inlinePatchPreview(file.before, file.after, file.delete) }
+                    SelectionContainer { Text(diff, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall) }
+                    if (!file.delete) TextButton(enabled = !busy, onClick = { editPath = file.path }) { Text("Edit Inline") }
+                }
+                if (editPath != null) {
+                    Text("Edit proposed text in $editPath")
+                    OutlinedTextField(search, { search = it }, label = { Text("Exact text to replace") }, maxLines = 4, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(replacement, { replacement = it }, label = { Text("Replacement") }, maxLines = 4, modifier = Modifier.fillMaxWidth())
+                    Button(enabled = !busy && search.isNotBlank() && search != replacement, onClick = {
+                        model.editAndRestage(snapshot.taskId, requireNotNull(editPath), search, replacement)
+                    }) { Text("Validate edited patch") }
+                    TextButton(onClick = { editPath = null }) { Text("Cancel edit") }
+                } else {
+                    Button(enabled = !busy, onClick = { model.approveCommit(snapshot.taskId, snapshot.patchDigest, onCommitted) }) { Text("Approve & Commit") }
+                    TextButton(enabled = !busy, onClick = { model.rejectCommit(snapshot.taskId) }) { Text("Reject") }
+                }
+                if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
+                if (notice.isNotBlank()) Text(notice, style = MaterialTheme.typography.bodySmall)
+            }
+        }
+    }
+}
+
+internal fun compactApprovalSummary(fileCount: Int, branch: String, commitMessage: String): String {
+    val intent = commitMessage.lineSequence().firstOrNull().orEmpty().split(Regex("[.!?]")).first().trim().take(160).trimEnd('.', '!', '?')
+    val target = branch.replace(Regex("[.!?]"), " ").take(60)
+    return "$fileCount changed ${if (fileCount == 1) "file" else "files"} on $target. ${intent.ifBlank { "Review and commit this proposal" }}."
 }
 
 internal fun inlinePatchPreview(before: String, after: String, delete: Boolean): String {

@@ -103,7 +103,7 @@ class GitHubCheckWatchRepository @Inject constructor(
         val head = requireNotNull(pullHead ?: runHead).also { require(it.matches(Regex("[a-fA-F0-9]{40}"))) }
         mutex.withLock {
             val existing = workspace.dao.get(id)?.let(::decode)
-            require(existing != null || workspace.dao.forChat(chatId).filter { it.kind == "github_checks" }.mapNotNull(::decode).count { !it.terminal } < 20) { "Stop an existing check watch before adding another (20 active watches per chat)." }
+            require(existing?.terminal == false || workspace.dao.forChat(chatId).filter { it.kind == "github_checks" }.mapNotNull(::decode).count { !it.terminal } < 20) { "Stop an existing check watch before adding another (20 active watches per chat)." }
             if (existing == null || existing.terminal || existing.headSha != head) save(initial.copy(headSha = head))
             val work = OneTimeWorkRequestBuilder<GitHubCheckWatchWorker>()
                 .setInputData(workDataOf("watch_id" to id))

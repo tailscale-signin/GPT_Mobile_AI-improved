@@ -154,6 +154,7 @@ class GitHubTool(
                                     add(JsonPrimitive("list_workflow_jobs"))
                                     add(JsonPrimitive("list_workflow_artifacts"))
                                     add(JsonPrimitive("get_job_logs"))
+                                    add(JsonPrimitive("watch_checks"))
                                     add(JsonPrimitive("dispatch_workflow"))
                                     add(JsonPrimitive("rerun_workflow"))
                                     add(JsonPrimitive("rerun_failed_jobs"))
@@ -167,7 +168,7 @@ class GitHubTool(
                             )
                         }
                     )
-                    listOf("run_id", "job_id", "release_id", "page").forEach { name ->
+                    listOf("run_id", "job_id", "release_id", "page", "pr_number").forEach { name ->
                         put(
                             name,
                             buildJsonObject {

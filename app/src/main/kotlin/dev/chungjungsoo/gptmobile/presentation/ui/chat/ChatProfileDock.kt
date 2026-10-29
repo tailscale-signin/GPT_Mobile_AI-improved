@@ -47,14 +47,15 @@ internal fun ChatProfileDock(
     responseLabels: Map<String, String> = emptyMap(),
     combinedLabel: String? = null,
     combinedWaiting: Boolean = false,
-    showStatus: Boolean = true
+    showStatus: Boolean = true,
+    showContainer: Boolean = true
 ) {
     val colors = MaterialTheme.colorScheme
     Surface(
-        color = colors.surfaceContainerLow,
+        color = if (showContainer) colors.surfaceContainerLow else androidx.compose.ui.graphics.Color.Transparent,
         contentColor = colors.onSurface,
-        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
-        border = BorderStroke(1.dp, colors.primary.copy(alpha = 0.3f)),
+        shape = if (showContainer) RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp) else androidx.compose.ui.graphics.RectangleShape,
+        border = if (showContainer) BorderStroke(1.dp, colors.primary.copy(alpha = 0.3f)) else null,
         modifier = Modifier.fillMaxWidth().testTag("chat_profile_dock")
     ) {
         Row(

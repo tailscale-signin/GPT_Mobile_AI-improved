@@ -1,19 +1,13 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.setting
 
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavType
@@ -22,6 +16,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRunStatus
+import dev.chungjungsoo.gptmobile.data.database.entity.effectiveTimeline
 import dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext
 import dev.chungjungsoo.gptmobile.presentation.ui.chat.ChatScreen
 
@@ -65,38 +60,50 @@ internal fun GitHubChatConversation(
                         registerExit(null)
                     }
                 }
-                ChatScreen(
-                    chatViewModel = model,
-                    onBackAction = onBack,
-                    onOpenConversation = { id, _ -> onOpenConversation(id) },
-                    onReviewEvidenceAccess = onReviewEvidenceAccess,
-                    onNavigateToLocalModels = onNavigateToLocalModels,
-                    showTopBar = false
-                )
+                androidx.compose.runtime.CompositionLocalProvider(dev.chungjungsoo.gptmobile.presentation.ui.chat.LocalChatProgressInHeader provides true) {
+                    ChatScreen(
+                        chatViewModel = model,
+                        onBackAction = onBack,
+                        onOpenConversation = { id, _ -> onOpenConversation(id) },
+                        onReviewEvidenceAccess = onReviewEvidenceAccess,
+                        onNavigateToLocalModels = onNavigateToLocalModels,
+                        showTopBar = false,
+                        allowResearchPanels = false
+                    )
+                }
             }
         }
     }
 }
 
 internal fun GitHubProgrammerState.progressDescription(): String {
-    if (approvals.isNotEmpty() || runs.any { it.status.startsWith("WAITING_") }) return activityLabel()
+    if (approvals.isNotEmpty()) return "Needs your approval"
+    if (runs.any { it.status.startsWith("WAITING_") }) return "Waiting"
     val activeIds = runs.filter { it.status !in GITHUB_TERMINAL_RUN_STATUSES }.mapTo(hashSetOf()) { it.runId }
-    val event = events.lastOrNull { it.runId in activeIds && it.status in setOf("RUNNING", "PENDING", "STARTED") }
-    return event?.modelToolName?.ifBlank { event.toolName }?.substringBefore("__")?.replace('_', ' ')
-        ?.let { "Working · $it" } ?: activityLabel()
+    if (activeIds.isEmpty()) return activityLabel()
+    return dev.chungjungsoo.gptmobile.presentation.ui.chat.generationActivityLabel(
+        events.filter { it.runId in activeIds },
+        messages.lastOrNull { it.currentRunId in activeIds }?.effectiveTimeline().orEmpty()
+    )
 }
 
-/** Outside every tab's scroll container and above the tabs, including with the keyboard open. */
+/** Pinned under the repository title on every workspace tab. */
 @Composable
 internal fun GitHubChatProgress(workspace: GitHubWorkspaceState, state: GitHubProgrammerState) {
-    val active = workspace.busy || state.submitting || state.pending.any { !it.paused } || state.runs.any { it.status !in GITHUB_TERMINAL_RUN_STATUSES }
-    Column(Modifier.fillMaxWidth().testTag("github_chat_progress").padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text(
-            if (workspace.busy) "Loading GitHub workspace…" else state.progressDescription(),
-            style = MaterialTheme.typography.labelMedium,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis
-        )
-        if (active) LinearProgressIndicator(Modifier.fillMaxWidth())
-    }
+    val activeRuns = state.runs.filter { it.status !in GITHUB_TERMINAL_RUN_STATUSES }
+    val activeIds = activeRuns.mapTo(hashSetOf()) { it.runId }
+    val active = workspace.busy || state.submitting || state.pending.any { !it.paused } || activeRuns.isNotEmpty()
+    val waiting = state.approvals.isNotEmpty() || activeRuns.any { it.status.startsWith("WAITING_") }
+    val timeline = state.messages.lastOrNull { it.currentRunId in activeIds }?.effectiveTimeline().orEmpty()
+    dev.chungjungsoo.gptmobile.presentation.ui.chat.ChatGenerationProgress(
+        toolEvents = state.events.filter { it.runId in activeIds },
+        timeline = timeline,
+        modifier = Modifier.fillMaxWidth().testTag("github_chat_progress").padding(horizontal = 16.dp, vertical = 8.dp),
+        active = active,
+        statusOverride = when {
+            workspace.busy -> "Loading GitHub workspace"
+            waiting || !active -> state.progressDescription()
+            else -> null
+        }
+    )
 }

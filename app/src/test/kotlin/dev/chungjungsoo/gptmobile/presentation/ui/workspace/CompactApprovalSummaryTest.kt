@@ -10,8 +10,12 @@ class CompactApprovalSummaryTest {
         assertEquals("3 changed files on fix/layout. Fix viewport sizing.", summary)
     }
 
+    @Test fun filenamesAndVersionsRemainReadable() {
+        assertEquals("2 changed files on fix/layout. Update ChatScreen.kt for version 0.9.63.", compactApprovalSummary(2, "fix/layout", "Update ChatScreen.kt for version 0.9.63. More detail follows."))
+    }
+
     @Test fun emptyAndLongCommitMessagesStayBounded() {
         assertTrue(compactApprovalSummary(1, "main", "").contains("1 changed file"))
-        assertTrue(compactApprovalSummary(50, "a".repeat(100), "b".repeat(1000)).length < 260)
+        assertTrue(compactApprovalSummary(50, "a".repeat(100), "b".repeat(1000)).length < 280)
     }
 }

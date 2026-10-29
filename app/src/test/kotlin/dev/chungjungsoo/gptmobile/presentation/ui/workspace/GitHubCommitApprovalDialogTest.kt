@@ -6,7 +6,6 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
-import androidx.compose.ui.test.performScrollTo
 import dev.chungjungsoo.gptmobile.data.agent.tool.EngineeringRunRow
 import dev.chungjungsoo.gptmobile.data.agent.tool.EngineeringTaskRow
 import io.mockk.every
@@ -24,7 +23,7 @@ import org.robolectric.annotation.Config
 class GitHubCommitApprovalDialogTest {
     @get:Rule val compose = createComposeRule()
 
-    @Test fun inlineCardShowsDiffAndApprovesTheFrozenDigest() {
+    @Test fun inlineCardOpensDetailsWithoutApprovalAndCommitsTheFrozenDigest() {
         val model = mockk<GitHubReviewViewModel>(relaxed = true)
         val run = EngineeringRunRow("task", "github", "[]", "frozen-digest", "Fix answer", 0, "main")
         every { model.pendingEngineeringTask } returns MutableStateFlow("task")
@@ -34,8 +33,13 @@ class GitHubCommitApprovalDialogTest {
         every { model.notice } returns MutableStateFlow("")
         compose.setContent { MaterialTheme { GitHubChatApprovalCard(model) {} } }
         compose.onNodeWithText("Review proposed changes").assertIsDisplayed()
+        compose.onNodeWithText("@@ changed text @@\n- 41\n+ 42").assertDoesNotExist()
+        compose.onNodeWithText("Details").performClick()
         compose.onNodeWithText("@@ changed text @@\n- 41\n+ 42").assertIsDisplayed()
-        compose.onNodeWithText("Approve & Commit").performScrollTo().performClick()
+        verify(exactly = 0) { model.approveCommit(any(), any(), any()) }
+        compose.onNodeWithText("Close").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithText("Commit").performClick()
         verify(exactly = 1) { model.approveCommit("task", "frozen-digest", any()) }
         verify(exactly = 0) { model.rejectCommit(any()) }
     }

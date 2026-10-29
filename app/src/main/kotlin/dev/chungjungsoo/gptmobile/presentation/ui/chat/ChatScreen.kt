@@ -166,7 +166,8 @@ fun ChatScreen(
     onReviewEvidenceAccess: () -> Unit = {},
     onOpenConversation: (Int, Boolean) -> Unit = { _, _ -> },
     onInspectContext: ((Int, String) -> Unit)? = null,
-    showTopBar: Boolean = true
+    showTopBar: Boolean = true,
+    allowResearchPanels: Boolean = true
 ) {
     ConversationViewport { viewportWidth, viewportHeight ->
         ChatScreenContent(
@@ -177,6 +178,7 @@ fun ChatScreen(
             onOpenConversation = onOpenConversation,
             onInspectContext = onInspectContext,
             showTopBar = showTopBar,
+            allowResearchPanels = allowResearchPanels,
             viewportWidth = viewportWidth,
             viewportHeight = viewportHeight
         )
@@ -193,6 +195,7 @@ private fun ChatScreenContent(
     onOpenConversation: (Int, Boolean) -> Unit = { _, _ -> },
     onInspectContext: ((Int, String) -> Unit)? = null,
     showTopBar: Boolean = true,
+    allowResearchPanels: Boolean,
     viewportWidth: Dp,
     viewportHeight: Dp
 ) {
@@ -378,7 +381,7 @@ private fun ChatScreenContent(
     val chatPlatformModels by chatViewModel.chatPlatformModels.collectAsStateWithLifecycle()
     val availableChatTools by chatViewModel.availableChatTools.collectAsStateWithLifecycle()
     val chatToolConfig by chatViewModel.chatToolConfig.collectAsStateWithLifecycle()
-    val showResearchPanels = chatToolConfig.github == null && chatToolConfig.research?.let { it.researchToggle && it.depth > 0 } == true
+    val showResearchPanels = researchPanelsVisible(allowResearchPanels, chatToolConfig)
     val downloadedLocalModels by chatViewModel.downloadedLocalModels.collectAsStateWithLifecycle()
     val debugMode by chatViewModel.debugMode.collectAsStateWithLifecycle()
     val debugMemorySources by chatViewModel.debugMemorySources.collectAsStateWithLifecycle()
@@ -916,7 +919,7 @@ private fun ChatScreenContent(
                     .onSizeChanged { composerHeightPx = it.height }
             ) {
                 Column(Modifier.navigationBarsPadding()) {
-                    chatToolConfig.research?.takeIf { it.researchToggle && it.depth > 0 }?.let { selection ->
+                    chatToolConfig.research?.takeIf { showResearchPanels }?.let { selection ->
                         val profileUid = activePlatformUids.firstOrNull().orEmpty()
                         val target = selection.applyTo(featureSettings.delegationFor(profileUid)).deepResearch.maxPages
                         androidx.compose.material3.AssistChip(

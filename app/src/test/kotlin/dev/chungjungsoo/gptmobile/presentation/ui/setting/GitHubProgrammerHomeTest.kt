@@ -59,6 +59,14 @@ class GitHubProgrammerHomeTest {
         assertEquals("Waiting", GitHubProgrammerState(runs = listOf(run.copy(status = "WAITING_PROVIDER_LIMIT")), events = listOf(event)).progressDescription())
     }
 
+    @Test fun headerUsesChatActivityResolverAndIgnoresCompletedRunTools() {
+        val active = AgentRun("active", 1, 2, 3, "local", "CUSTOM", "model", "RUNNING")
+        val event = dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent("event", "active", 1, "call", "github", "GitHub", "github_read", "github_read__github_api", "{}", null, null, "RUNNING")
+        val stale = event.copy(eventId = "old", runId = "completed", toolName = "github_write")
+        val state = GitHubProgrammerState(runs = listOf(active, active.copy(runId = "completed", status = "COMPLETED")), events = listOf(event, stale))
+        assertEquals(dev.chungjungsoo.gptmobile.presentation.ui.chat.generationActivityLabel(listOf(event), emptyList()), state.progressDescription())
+    }
+
     @Test fun fixedProgressStaysVisibleWhileConversationScrolls() {
         compose.setContent {
             MaterialTheme {
@@ -73,7 +81,7 @@ class GitHubProgrammerHomeTest {
         compose.onNodeWithTag("github_test_messages").performScrollToIndex(99)
         compose.onNodeWithText("Message 99").assertIsDisplayed()
         compose.onNodeWithTag("github_chat_progress").assertIsDisplayed()
-        compose.onNodeWithText("Working").assertIsDisplayed()
+        compose.onNodeWithText("Preparing response", substring = true).assertIsDisplayed()
     }
 
     @Test fun commandShortcutsUseTheConversationComposerAndProfileChoice() {

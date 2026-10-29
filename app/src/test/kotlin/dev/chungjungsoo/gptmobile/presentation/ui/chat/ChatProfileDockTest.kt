@@ -46,6 +46,17 @@ class ChatProfileDockTest {
         compose.onNodeWithTag("dock_profile_combined").performClick().assertIsSelected()
     }
 
+    @Test fun githubTabsRemainSelectableWithoutOuterContainer() {
+        var selected by mutableStateOf<String?>("chat")
+        compose.setContent {
+            MaterialTheme {
+                ChatProfileDock(listOf("chat", "pr"), mapOf("chat" to "Chat", "pr" to "PR"), selected, emptySet(), emptySet(), false, false, { selected = it }, null, showStatus = false, showContainer = false)
+            }
+        }
+        compose.onNodeWithTag("dock_profile_pr").performClick().assertIsSelected()
+        compose.onNodeWithTag("dock_profile_chat").performClick().assertIsSelected()
+    }
+
     @Test fun combinedTabWaitsForContributorsThenRespondsWhenSynthesisStarts() {
         var waiting by mutableStateOf(true)
         compose.setContent {

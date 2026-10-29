@@ -2,15 +2,17 @@ package dev.chungjungsoo.gptmobile.presentation.navigation
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.BoxWithConstraintsScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Chat
 import androidx.compose.material.icons.rounded.GridView
@@ -65,7 +67,7 @@ internal fun AppNavigationShell(navController: NavHostController, route: String?
     }
     // The shell owns IME space; Compose consumption makes child imePadding a no-op.
     // Screens retain ownership of system bars through their Scaffold/top bars.
-    BoxWithConstraints(Modifier.fillMaxSize().imePadding()) {
+    AppNavigationViewport {
         val rail = selected != null && maxWidth >= 600.dp
         Row(Modifier.fillMaxSize()) {
             if (rail) {
@@ -87,4 +89,10 @@ internal fun AppNavigationShell(navController: NavHostController, route: String?
             }
         }
     }
+}
+
+/** Window inset consumption is inherited by every screen, including nested chat composables. */
+@Composable
+internal fun AppNavigationViewport(imeInsets: WindowInsets = WindowInsets.ime, content: @Composable BoxWithConstraintsScope.() -> Unit) {
+    BoxWithConstraints(Modifier.fillMaxSize().windowInsetsPadding(imeInsets), content = content)
 }

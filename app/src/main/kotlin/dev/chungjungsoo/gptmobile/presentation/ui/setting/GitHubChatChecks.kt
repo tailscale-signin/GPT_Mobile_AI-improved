@@ -89,7 +89,7 @@ internal fun GitHubChatChecks(chatId: Int, model: GitHubChatChecksViewModel = hi
                         HorizontalDivider()
                         Text("Merge: ${health.state.lowercase().replace('_', ' ')}", style = MaterialTheme.typography.labelLarge)
                         Text(health.detail, style = MaterialTheme.typography.bodySmall)
-                        Text("Review: ${health.review.lowercase().replace('_', ' ')} · ${health.requiredChecks} observed required checks", style = MaterialTheme.typography.bodySmall)
+                        Text("Review: ${health.review.lowercase().replace('_', ' ')} · ${health.requiredChecks?.toString() ?: "Unknown"} observed required checks", style = MaterialTheme.typography.bodySmall)
                         health.failingChecks.take(3).forEach { Text("Failed: $it", style = MaterialTheme.typography.bodySmall) }
                     }
                     Text("Checked ${DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(watch.updatedAt))}", style = MaterialTheme.typography.labelSmall)

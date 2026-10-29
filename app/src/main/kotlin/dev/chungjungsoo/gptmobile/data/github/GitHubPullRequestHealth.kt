@@ -16,7 +16,7 @@ internal data class GitHubPullRequestHealth(
     val headSha: String = "",
     val baseSha: String = "",
     val review: String = "UNKNOWN",
-    val requiredChecks: Int = 0,
+    val requiredChecks: Int? = null,
     val failingChecks: List<String> = emptyList(),
     val observedAt: Long = System.currentTimeMillis()
 ) {
@@ -60,11 +60,14 @@ internal fun gitHubPullRequestHealth(response: JsonObject, expectedHead: String)
     if (!health.baseSha.matches(Regex("[a-fA-F0-9]{40}"))) return health.copy(detail = "PR base revision is unavailable.")
     if (health.headSha != expectedHead) return health.copy(state = "STALE", detail = "The PR head changed; refresh before continuing.")
     if (pr.text("state") != "OPEN") return health.copy(state = "CLOSED", detail = "This pull request is no longer open.")
-    if (pr.flag("isDraft") != false) return health.copy(state = "DRAFT", detail = "Mark the pull request ready for review before merging.")
     val merge = pr.text("mergeStateStatus")
-    if (pr.text("mergeable") == "CONFLICTING" || merge == "DIRTY") return health.copy(state = "CONFLICTS", detail = "Resolve merge conflicts and validate the updated branch.")
-    if (merge == "BEHIND") return health.copy(state = "BEHIND", detail = "The branch is behind its base. Update it and rerun validation.")
-    if (health.review in setOf("REVIEW_REQUIRED", "CHANGES_REQUESTED")) return health.copy(state = "REVIEW_REQUIRED", detail = "GitHub requires review: ${health.review.lowercase().replace('_', ' ')}.")
+    val blocker = when {
+        pr.flag("isDraft") != false -> "DRAFT" to "Mark the pull request ready for review before merging."
+        pr.text("mergeable") == "CONFLICTING" || merge == "DIRTY" -> "CONFLICTS" to "Resolve merge conflicts and validate the updated branch."
+        merge == "BEHIND" -> "BEHIND" to "The branch is behind its base. Update it and rerun validation."
+        health.review in setOf("REVIEW_REQUIRED", "CHANGES_REQUESTED") -> "REVIEW_REQUIRED" to "GitHub requires review: ${health.review.lowercase().replace('_', ' ')}."
+        else -> null
+    }
     val commits = pr.obj("commits")?.get("nodes") as? JsonArray
     val commit = (commits?.singleOrNull() as? JsonObject)?.obj("commit")
     if (commit?.text("oid") != expectedHead) return health.copy(detail = "Check evidence is missing or belongs to another revision.")
@@ -82,6 +85,7 @@ internal fun gitHubPullRequestHealth(response: JsonObject, expectedHead: String)
             it.text("state") in setOf("ERROR", "FAILURE")
     }.map { (it.text("name") ?: it.text("context") ?: "Unnamed check").take(160) }
     val result = health.copy(requiredChecks = checks.count { it.flag("isRequired") == true }, failingChecks = failed.take(10))
+    if (blocker != null) return result.copy(state = blocker.first, detail = blocker.second)
     if (failed.isNotEmpty()) return result.copy(state = "FAILED", detail = "Fix failing checks before merging.")
     val passed = checks.all {
         when (it.text("__typename")) {

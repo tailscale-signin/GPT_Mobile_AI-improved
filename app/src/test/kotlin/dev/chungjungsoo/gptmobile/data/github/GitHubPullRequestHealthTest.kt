@@ -37,7 +37,10 @@ class GitHubPullRequestHealthTest {
         for (review in listOf("REVIEW_REQUIRED", "CHANGES_REQUESTED", "UNKNOWN")) {
             assertFalse(review, gitHubPullRequestHealth(response(review = review), head).eligible)
         }
-        assertFalse(gitHubPullRequestHealth(response(draft = true), head).eligible)
+        val draft = gitHubPullRequestHealth(response(draft = true), head)
+        assertFalse(draft.eligible)
+        assertEquals(1, draft.requiredChecks)
+        assertEquals(null, gitHubPullRequestHealth(JsonObject(emptyMap()), head).requiredChecks)
     }
 
     @Test fun onlyCompleteCurrentEvidenceCanBecomeEligible() {

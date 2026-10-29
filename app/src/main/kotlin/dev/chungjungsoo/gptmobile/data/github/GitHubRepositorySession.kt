@@ -459,14 +459,37 @@ internal class GitHubRepositorySession(
         require(snapshot()?.commitSha == context.commitSha) { "Select the intended task revision before staging a patch." }
         val expected = args.s("expected_head_sha").ifBlank { context.commitSha }
         require(expected == context.commitSha) { "Patch expected head must equal the pinned task commit." }
-        val edits = args["edits"] as? JsonArray ?: error("edits is required.")
+        require(args.s("branch").isBlank() || args.s("branch") == context.ref) { "Patch branch must match the selected task branch." }
+        val compound = "target_file" in args || "search_snippet" in args || "replacement_snippet" in args
+        require(!compound || "edits" !in args) { "Use either a target_file replacement or edits, not both." }
+        val edits = if (compound) {
+            val path = args.s("target_file").also { GitHubWorkspaceClient.filePath(it) }
+            val search = args["search_snippet"]?.jsonPrimitive?.takeIf { it.isString }?.content ?: error("search_snippet is required.")
+            val replacement = args["replacement_snippet"]?.jsonPrimitive?.takeIf { it.isString }?.content ?: error("replacement_snippet is required.")
+            require(search.isNotBlank() && search != replacement) { "Supply a non-empty exact anchor and a changed replacement." }
+            JsonArray(
+                listOf(
+                    buildJsonObject {
+                        put("path", path)
+                        put("old_text", search)
+                        put("new_text", replacement)
+                    }
+                )
+            )
+        } else {
+            args["edits"] as? JsonArray ?: error("Supply edits or target_file, search_snippet and replacement_snippet.")
+        }
+        require(edits.size in 1..20) { "Supply 1–20 exact edits." }
         val entries = tree(context)["tree"]!!.jsonArray.map { it.jsonObject }.associateBy { it.s("path") }
         val originals = edits.map { it.jsonObject.s("path") }.distinct().associateWith { path ->
             val entry = entries[path] ?: error("Patch path does not exist in the pinned tree: $path")
             require(entry.s("mode") in setOf("100644", "100755")) { "Patch may only replace regular text blobs." }
             entry.s("sha") to blob(context, entry).s("content")
         }
-        val files = GitHubPatchStager.apply(originals, edits)
+        // Compound inspection reads the complete immutable blob internally. The model
+        // does not need to spend additional turns assembling file ranges or blob IDs.
+        val pinnedEdits = if (compound) JsonArray(edits.map { edit -> JsonObject(edit.jsonObject + ("expected_blob_sha" to JsonPrimitive(originals.getValue(edit.jsonObject.s("path")).first))) }) else edits
+        val files = GitHubPatchStager.apply(originals, pinnedEdits)
         val id = GitHubRepositoryStateStore.digest(scope + context.commitSha + files.toString())
         val preview = JsonArray(
             files.map { row ->
@@ -506,6 +529,8 @@ internal class GitHubRepositorySession(
             put("preview", preview)
             put("files_changed", files.size)
             put("committed", false)
+            put("branch", context.ref)
+            put("next_action", "Submit this stage with github_commit using stage_id, branch, expected_head_sha and message. The exact patch will appear for approval in chat; do not repeat source reads.")
         }
     }
 

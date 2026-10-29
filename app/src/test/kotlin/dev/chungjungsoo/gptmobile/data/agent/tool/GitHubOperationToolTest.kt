@@ -64,6 +64,9 @@ class GitHubOperationToolTest {
         val mixed = read.execute("mixed", JsonObject(cursor + ("commit_sha" to JsonPrimitive(sha))))
         assertEquals("INVALID_ARGUMENTS", mixed.errorCode)
         assertFalse(mixed.dispatched)
+        val correction = (mixed.content as ToolResultContent.Json).value.jsonObject.getValue("correction_call").jsonObject
+        assertEquals(cursor, correction.getValue("arguments"))
+        assertEquals("github_read", correction.getValue("tool").jsonPrimitive.content)
         clock = 29 * 60_000L
         val expired = read.execute("expired", cursor)
         assertEquals("SAVED_VIEW_UNAVAILABLE", expired.errorCode)

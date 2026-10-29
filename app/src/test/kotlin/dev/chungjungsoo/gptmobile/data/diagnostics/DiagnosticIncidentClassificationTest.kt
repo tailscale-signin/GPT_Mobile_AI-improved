@@ -6,6 +6,15 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class DiagnosticIncidentClassificationTest {
+    @Test fun platformCleanupIsNotConfusedWithApplicationFailures() {
+        assertFalse(classifyDiagnostic("E", "Android", "E/ImeBackDispatcher(123): Ime callback not found. Ignoring unregisterReceivedCallback. callbackId: 42").actionable)
+        assertFalse(classifyDiagnostic("W", "Android", "W/InteractionJankMonitor(123): Initializing without READ_DEVICE_CONFIG permission. enabled=false, interval=1").actionable)
+        assertTrue(classifyDiagnostic("E", "Android", "E/ImeBackDispatcher(123): Failed to open input connection").actionable)
+        val disconnected = classifyDiagnostic("W", "MCP", "Health · state=UNREACHABLE · failures=10 · error=Failed to connect")
+        assertEquals("mcp_connectivity", disconnected.category)
+        assertTrue(disconnected.actionable)
+    }
+
     @Test fun isolatedHighRefreshMissesRemainSamplesWhileStallsRemainActionable() {
         val sparse = classifyDiagnostic("I", "Rendering", "FRAME_TIMING · frames=824 · jankFrames=1 · maxMs=15.597008 · stallsOver100Ms=0 · droppedSamples=0")
         assertFalse(sparse.actionable)

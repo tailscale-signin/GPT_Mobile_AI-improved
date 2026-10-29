@@ -166,7 +166,16 @@ class GitHubProgrammerViewModel @Inject constructor(
                 }
                 val prepare = connection?.connectionUid?.let { it in features.githubPrepareIndex } == true
                 val context = if (connection != null && selected != null && workspace.headSha.isNotBlank() && uid != null) {
-                    GitHubConversationContext(connection.connectionUid, selected.owner, selected.repo, selected.ref, workspace.headSha, uid, prepare, autoApproveTools = true)
+                    GitHubConversationContext(
+                        connection.connectionUid, selected.owner, selected.repo, selected.ref, workspace.headSha, uid, prepare, autoApproveTools = true,
+                        stagedFileCount = (workspace.staged.map { it.path } + workspace.editorDrafts.keys).distinct().size + if (workspace.patchStage != null) 1 else 0,
+                        recentCommits = workspace.commits.take(3).map { row ->
+                            val sha = (row["sha"] as? kotlinx.serialization.json.JsonPrimitive)?.content.orEmpty()
+                            val message = ((row["commit"] as? kotlinx.serialization.json.JsonObject)?.get("message") as? kotlinx.serialization.json.JsonPrimitive)?.content.orEmpty()
+                            "${sha.take(12)} ${message.lineSequence().firstOrNull().orEmpty().take(180)}"
+                        },
+                        observedAtMillis = workspace.observedAt
+                    )
                 } else {
                     null
                 }
@@ -253,7 +262,7 @@ class GitHubProgrammerViewModel @Inject constructor(
 
     fun bind(workspace: GitHubWorkspaceState) {
         val current = destination.value
-        if (current?.connection?.connectionUid != workspace.connection?.connectionUid || current?.selection != workspace.selection || current?.headSha != workspace.headSha) destination.value = workspace
+        if (current?.connection?.connectionUid != workspace.connection?.connectionUid || current?.selection != workspace.selection || current?.headSha != workspace.headSha || current?.commits != workspace.commits || current?.staged != workspace.staged || current?.editorDrafts != workspace.editorDrafts || current?.patchStage != workspace.patchStage) destination.value = workspace
     }
 
     fun selectProfile(uid: String?) {
@@ -333,6 +342,12 @@ class GitHubProgrammerViewModel @Inject constructor(
                 mutable.update { it.copy(submitting = false) }
             }
         }
+    }
+
+    fun continueAfterCommit(sha: String) {
+        require(sha.matches(Regex("[a-fA-F0-9]{40}")))
+        mutable.update { state -> state.copy(context = state.context?.copy(commitSha = sha, stagedFileCount = 0, recentCommits = emptyList(), observedAtMillis = System.currentTimeMillis())) }
+        send("Commit $sha was approved and published. Continue from the saved task using this exact commit. Subscribe with github_watch_checks when CI is pending; do not repeat the commit.") {}
     }
 
     private suspend fun withContextMain(action: () -> Unit) = kotlinx.coroutines.withContext(Dispatchers.Main) { action() }

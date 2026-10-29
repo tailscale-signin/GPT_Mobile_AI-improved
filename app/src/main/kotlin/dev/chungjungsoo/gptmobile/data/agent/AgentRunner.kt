@@ -361,7 +361,7 @@ class AgentRunner(
             }
         }
 
-        val deferredResults = deferredToolResults(deferredCalls, hostSuppressedIds, perToolSuppressedIds)
+        val deferredResults = deferredToolResults(deferredCalls, hostSuppressedIds, perToolSuppressedIds, exchanges)
         deferredCalls.zip(deferredResults).forEach { (call, result) -> checkpoint?.complete(call, result) }
         val canReadOtherSources = hostSuppressedIds.isNotEmpty() || deferredCalls.any { it.callId in perToolSuppressedIds && it.name in executableToolByName }
         // Give a scoped read one round to choose another source, then stop
@@ -400,7 +400,7 @@ class AgentRunner(
         return SearchRoundContext(names, successful)
     }
 
-    private fun deferredToolResults(calls: List<ProviderEvent.ToolCall>, hostSuppressedIds: Set<String>, perToolSuppressedIds: Set<String>): List<AgentToolResult> = calls.map { call ->
+    private fun deferredToolResults(calls: List<ProviderEvent.ToolCall>, hostSuppressedIds: Set<String>, perToolSuppressedIds: Set<String>, exchanges: List<AgentToolExchange>): List<AgentToolResult> = calls.map { call ->
         val message = if (call.callId in hostSuppressedIds) {
             "This website failed repeatedly and is paused for this response. read_url remains available for other hosts; choose another source."
         } else if (call.callId in perToolSuppressedIds) {
@@ -413,6 +413,7 @@ class AgentRunner(
         } else {
             FINAL_RESPONSE_INSTRUCTION
         }
+        if (call.callId in perToolSuppressedIds) GitHubReplayRecovery.repeated(call, exchanges, message)?.let { return@map it }
         AgentToolResult(call.callId, ToolResultContent.Text(message), isError = true, dispatched = false, errorCode = "NOT_DISPATCHED")
     }
 

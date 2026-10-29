@@ -69,6 +69,8 @@ internal object ToolExchangeCompactor {
                 when {
                     duplicate -> result.copy(content = ToolResultContent.Text(DUPLICATE_RESULT))
                     resultBudgets[index] == 0 -> result.copy(content = ToolResultContent.Text(OMITTED_RESULT))
+                    GitHubReplayRecovery.envelope(result.content) != null ->
+                        if (raw.length <= maxChars) result else result.copy(content = GitHubReplayRecovery.compact(result.content, maxChars) ?: result.content)
                     result.isError && exchangeIndex < exchanges.lastIndex ->
                         result.copy(content = ToolResultContent.Text(compactText(raw, minOf(maxChars, 480))))
                     raw.length <= maxChars -> result

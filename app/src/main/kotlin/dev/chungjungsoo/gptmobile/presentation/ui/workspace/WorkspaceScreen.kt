@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -37,7 +38,6 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
@@ -49,6 +49,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chungjungsoo.gptmobile.data.accounting.ModelPrice
 import dev.chungjungsoo.gptmobile.data.agent.recoveryResult
 import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkOutcome
@@ -67,34 +68,34 @@ import kotlinx.serialization.json.jsonPrimitive
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun WorkspaceScreen(onBack: () -> Unit, onChat: (Int) -> Unit, initialChat: Int = 0, initialTab: String = "Tasks", initialRun: String = "", model: WorkspaceViewModel = hiltViewModel()) {
-    val records by model.records.collectAsState()
-    val requestReceipts by model.requestReceipts.collectAsState()
+    val records by model.records.collectAsStateWithLifecycle()
+    val requestReceipts by model.requestReceipts.collectAsStateWithLifecycle()
     LaunchedEffect(initialRun) { model.inspectedRun.value = initialRun }
-    val runs by model.runs.collectAsState()
-    val benchmarkHistory by model.benchmarks.history.collectAsState()
-    val evaluating by model.evaluating.collectAsState()
-    val pending by model.pending.collectAsState()
-    val approvals by model.approvals.collectAsState()
-    val chats by model.chats.collectAsState()
-    val selectedChat by model.chatId.collectAsState()
-    val events by model.events.collectAsState()
-    val comparison by model.comparison.collectAsState()
-    val notice by model.notice.collectAsState()
-    val inputs by model.interactions.pending.collectAsState()
+    val runs by model.runs.collectAsStateWithLifecycle()
+    val benchmarkHistory by model.benchmarks.history.collectAsStateWithLifecycle()
+    val evaluating by model.evaluating.collectAsStateWithLifecycle()
+    val pending by model.pending.collectAsStateWithLifecycle()
+    val approvals by model.approvals.collectAsStateWithLifecycle()
+    val chats by model.chats.collectAsStateWithLifecycle()
+    val selectedChat by model.chatId.collectAsStateWithLifecycle()
+    val events by model.events.collectAsStateWithLifecycle()
+    val comparison by model.comparison.collectAsStateWithLifecycle()
+    val notice by model.notice.collectAsStateWithLifecycle()
+    val inputs by model.interactions.pending.collectAsStateWithLifecycle()
     var tab by rememberSaveable(initialTab) { mutableStateOf(initialTab.takeIf { it in WorkspaceTabs } ?: WorkspaceTabs.first()) }
     var selectedContext by remember { mutableStateOf<WorkspaceRecord?>(null) }
     var editingRecipe by remember { mutableStateOf<WorkspaceRecord?>(null) }
     var createRecipe by remember { mutableStateOf(false) }
     var evidenceEdit by remember { mutableStateOf<dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent?>(null) }
-    LaunchedEffect(initialChat, chats) { if (initialChat > 0) model.chatId.value = initialChat }
+    LaunchedEffect(initialChat) { if (initialChat > 0) model.chatId.value = initialChat }
     inputs.firstOrNull()?.let { dev.chungjungsoo.gptmobile.presentation.ui.chat.McpInputDialog(it) { _, value -> model.interactions.respond(it.id, value) } }
     Scaffold(topBar = { TopAppBar(title = { Text("Workspaces") }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") } }) }) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
             WorkspaceNavigation(selectedTab = tab, onSelect = { tab = it })
             notice?.let { TextButton(onClick = { model.notice.value = null }) { Text(it) } }
             if (tab in setOf("Context", "Evidence", "Branches", "Recipes")) {
-                Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    chats.forEach { chat -> FilterChip(selectedChat == chat.id, { model.chatId.value = chat.id }, label = { Text(chat.title.take(35)) }) }
+                LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(chats, key = { it.id }) { chat -> FilterChip(selectedChat == chat.id, { model.chatId.value = chat.id }, label = { Text(chat.title.take(35)) }) }
                 }
             }
             when (tab) {
@@ -185,11 +186,12 @@ fun WorkspaceScreen(onBack: () -> Unit, onChat: (Int) -> Unit, initialChat: Int 
                                     TextButton(onClick = { model.delete(entry) }) { Text("Unpin") }
                                 }
                             }
-                            items(events.sortedByDescending { it.startedAt }, key = { it.eventId }) { event ->
+                            items(remember(events) { events.sortedByDescending { it.startedAt } }, key = { it.eventId }) { event ->
+                                val result = remember(event) { event.recoveryResult() }
                                 WorkspaceCard("${event.toolName} · ${event.status}") {
                                     Text(Date((event.completedAt ?: event.startedAt ?: 0) * if ((event.startedAt ?: 0) < 100000000000L) 1000 else 1).toString(), style = MaterialTheme.typography.labelSmall)
-                                    SelectionContainer { Text((event.recoveryResult() ?: event.error ?: "No retained result").take(5000)) }
-                                    if (event.recoveryResult()?.length ?: 0 > 5000) Text("Preview truncated; full retained result remains in the conversation tool trace.")
+                                    SelectionContainer { Text((result ?: event.error ?: "No retained result").take(5000)) }
+                                    if ((result?.length ?: 0) > 5000) Text("Preview truncated; full retained result remains in the conversation tool trace.")
                                     TextButton(onClick = { evidenceEdit = event }) { Text("Pin excerpt & source") }
                                     if (event.isError) TextButton(onClick = { model.draft("Continue the interrupted research using retained evidence. Revisit only failed read-only sources; do not repeat completed writes. Failed tool: ${event.toolName}", onChat) }) { Text("Continue from evidence") }
                                 }
@@ -397,7 +399,7 @@ internal fun WorkspaceCard(title: String, content: @Composable ColumnScope.() ->
 @Composable
 private fun RecipeEditor(model: WorkspaceViewModel, entry: WorkspaceRecord?, dismiss: () -> Unit) {
     val old = remember(entry) { entry?.let { model.workspace.json.decodeFromString<TaskRecipe>(it.payload) } }
-    val profiles by model.profiles.collectAsState()
+    val profiles by model.profiles.collectAsStateWithLifecycle()
     var title by remember { mutableStateOf(entry?.title.orEmpty()) }
     var prompt by remember { mutableStateOf(old?.prompt ?: "Summarize the documents in this project. Cite retained sources and identify unresolved questions.") }
     var format by remember { mutableStateOf(old?.outputFormat ?: "A concise, sourced brief") }
@@ -437,9 +439,9 @@ private fun RecipeEditor(model: WorkspaceViewModel, entry: WorkspaceRecord?, dis
 
 @Composable
 private fun BudgetPanel(model: WorkspaceViewModel) {
-    val features by model.features.collectAsState()
-    val profiles by model.profiles.collectAsState()
-    val spending by model.spending.collectAsState()
+    val features by model.features.collectAsStateWithLifecycle()
+    val profiles by model.profiles.collectAsStateWithLifecycle()
+    val spending by model.spending.collectAsStateWithLifecycle()
     var currency by remember(features.spendBudget.currency) { mutableStateOf(features.spendBudget.currency) }
     var turn by remember(features.spendBudget.perTurnMicros) { mutableStateOf((features.spendBudget.perTurnMicros / 1000000.0).toString()) }
     var daily by remember(features.spendBudget.perDayMicros) { mutableStateOf((features.spendBudget.perDayMicros / 1000000.0).toString()) }

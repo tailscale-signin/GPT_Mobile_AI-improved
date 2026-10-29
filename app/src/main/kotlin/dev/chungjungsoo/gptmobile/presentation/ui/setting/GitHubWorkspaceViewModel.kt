@@ -349,6 +349,11 @@ class GitHubWorkspaceViewModel @Inject constructor(
         loadHeadAndDirectory()
     }
 
+    fun acceptPublishedCommit(sha: String) {
+        require(sha.matches(Regex("[a-fA-F0-9]{40}")))
+        _state.update { it.copy(headSha = sha, snapshot = null, commits = emptyList(), observedAt = System.currentTimeMillis(), activityLoaded = false, directoryLoaded = false, pullsLoaded = false, ciDigest = null) }
+    }
+
     private suspend fun loadHeadAndDirectory() {
         val selected = requireNotNull(_state.value.selection)
         val result = api(
@@ -360,6 +365,20 @@ class GitHubWorkspaceViewModel @Inject constructor(
         ).jsonObject
         val sha = result.text("commit_sha")
         check(sha.isNotBlank()) { "Missing branch head." }
+        val recentCommits = try {
+            api(
+                "list_commits",
+                buildJsonObject {
+                    put("commit_sha", sha)
+                    put("per_page", 3)
+                }
+            ).jsonObject["items"]?.jsonArray.orEmpty().map { it.jsonObject }.take(3)
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            emptyList()
+        }
+        _state.update { it.copy(commits = recentCommits) }
         _state.update { it.copy(headSha = sha, file = null, snapshot = result["snapshot"] as? JsonObject, indexStatus = result["index"] as? JsonObject, observedAt = System.currentTimeMillis(), directoryLoaded = false, activityLoaded = false, pullsLoaded = false, searchResult = null, ciDigest = null, changedFiles = null, pullPackage = null, pullDetail = null) }
     }
 

@@ -323,6 +323,35 @@ class GitHubPersistentEvidenceTest {
         assertTrue(result["has_more"]!!.jsonPrimitive.booleanOrNull == true)
     }
 
+    @Test fun compoundPatchReadsPinnedBlobAndRejectsAmbiguousOrMixedEdits() = runTest {
+        var writes = 0
+        var blobReads = 0
+        val client = session(GitHubRepositoryStateStore(), request = { path ->
+            when {
+                "/commits/" in path -> commit(head, headTree)
+                "/git/trees/" in path -> tree(listOf(item("A.kt", sha(1), 100)))
+                else -> {
+                    blobReads++
+                    blob(sha(1), "fun answer() = 41\n// duplicate duplicate\n")
+                }
+            }
+        }, write = { _, _ ->
+            writes++
+            buildJsonObject {}
+        })
+        fun patch(search: String) = args("target_file" to JsonPrimitive("A.kt"), "search_snippet" to JsonPrimitive(search), "replacement_snippet" to JsonPrimitive("42"))
+        val staged = client.execute("stage_patch", "owner", "repo", patch("41")).jsonObject
+        assertEquals(1, blobReads)
+        assertEquals(0, writes)
+        assertEquals(head, staged["expected_head_sha"]!!.jsonPrimitive.content)
+        assertEquals(false, staged["committed"]!!.jsonPrimitive.booleanOrNull)
+        assertTrue(staged["preview"].toString().contains("42"))
+        assertTrue(runCatching { client.execute("stage_patch", "owner", "repo", patch("duplicate")) }.isFailure)
+        assertTrue(runCatching { client.execute("stage_patch", "owner", "repo", JsonObject(patch("41") + ("edits" to JsonArray(emptyList())))) }.isFailure)
+        assertTrue(runCatching { client.execute("stage_patch", "owner", "repo", JsonObject(patch("41") + ("branch" to JsonPrimitive("other")))) }.isFailure)
+        assertEquals(0, writes)
+    }
+
     @Test fun stagedExactPatchPersistsOriginalBlobAndCommitsOnceAcrossRestart() = runTest {
         val dir = Files.createTempDirectory("github-stage").toFile()
         var writes = 0

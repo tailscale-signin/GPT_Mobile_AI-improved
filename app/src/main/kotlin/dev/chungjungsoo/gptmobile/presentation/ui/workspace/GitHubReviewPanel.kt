@@ -89,7 +89,7 @@ class GitHubReviewViewModel @Inject constructor(private val connections: ToolCon
     }
     private suspend fun refreshEngineeringTasksNow() {
         val scope = programmerScope.value
-        val tasks = engineering.recent().filter { task -> scope == null || (task.repositoryOwner.equals(scope.owner, true) && task.repositoryName.equals(scope.repo, true) && engineering.run(task.taskId)?.connectionUid == scope.connectionUid) }
+        val tasks = engineering.recent().filter { task -> scope == null || (task.repositoryOwner.equals(scope.owner, true) && task.repositoryName.equals(scope.repo, true) && task.workingBranch == scope.ref && engineering.run(task.taskId)?.connectionUid == scope.connectionUid) }
         if (programmerScope.value == scope) engineeringTasks.value = tasks
     }
     fun refreshEngineeringTasks() = action { refreshEngineeringTasksNow() }
@@ -265,7 +265,7 @@ class GitHubReviewViewModel @Inject constructor(private val connections: ToolCon
         val scope = programmerScope.value
         val task = engineering.recent().single { it.taskId == taskId }
         val run = requireNotNull(engineering.run(taskId))
-        require(scope == null || (run.connectionUid == scope.connectionUid && task.repositoryOwner.equals(scope.owner, true) && task.repositoryName.equals(scope.repo, true))) { "This proposal belongs to another workspace." }
+        require(scope == null || (run.connectionUid == scope.connectionUid && task.repositoryOwner.equals(scope.owner, true) && task.repositoryName.equals(scope.repo, true) && task.workingBranch == scope.ref)) { "This proposal belongs to another workspace." }
         require(scope != null || review.value?.files?.none { it.changed } != false || selectedEngineeringRun.value?.taskId == taskId) { "Save or discard the current proposal before reviewing a saved task." }
         val files = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
             dev.chungjungsoo.gptmobile.data.agent.tool.GitHubEngineeringAuthorization.files(run.patchJson).map { GitHubFileProposal(it.path, it.before, it.after, it.delete) }
@@ -289,6 +289,49 @@ class GitHubReviewViewModel @Inject constructor(private val connections: ToolCon
         } finally {
             busy.value = false
         }
+    }
+    suspend fun observeWorkspaceApproval(scope: dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext) {
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            engineering.observeChanges().collect {
+                try {
+                    refreshEngineeringTasksNow()
+                    refreshWorkspaceApproval(scope)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    notice.value = "Saved GitHub review is temporarily unavailable. The patch has not been approved or repeated."
+                }
+            }
+        }
+    }
+    fun rejectCommit(taskId: String) = action {
+        engineering.cancel(taskId)
+        dismissedCommitTasks += taskId
+        pendingEngineeringTask.value = null
+        refreshEngineeringTasksNow()
+        notice.value = "Patch rejected. No commit was sent."
+    }
+    fun restageEditedCommit(taskId: String) = action {
+        val old = requireNotNull(engineering.run(taskId))
+        val proposal = requireNotNull(review.value)
+        val files = proposal.files.filter { it.changed }.map { dev.chungjungsoo.gptmobile.data.agent.tool.EngineeringFilePatch(it.path, it.before, it.after, it.delete) }
+        val replacement = engineering.prepare(proposal.connectionUid, proposal.owner, proposal.repo, proposal.branch, proposal.head, files, old.commitMessage)
+        engineering.cancel(taskId)
+        dismissedCommitTasks += taskId
+        reviewEngineeringNow(replacement)
+        pendingEngineeringTask.value = replacement
+        notice.value = "Edited patch validated. Review the new diff and approve to commit."
+    }
+    fun editAndRestage(taskId: String, path: String, search: String, replacement: String) {
+        if (busy.value) return
+        val file = review.value?.files?.singleOrNull { it.path == path } ?: return
+        val at = file.after.indexOf(search)
+        if (search.isEmpty() || at < 0 || file.after.indexOf(search, at + 1) >= 0) {
+            notice.value = "The edit must match exactly one location in the proposed text."
+            return
+        }
+        edit(path, file.after.replaceRange(at, at + search.length, replacement))
+        restageEditedCommit(taskId)
     }
     fun requestEngineeringApproval(taskId: String) = action {
         require(selectedEngineeringRun.value?.taskId == taskId && review.value != null) { "Open and review the saved patch first." }

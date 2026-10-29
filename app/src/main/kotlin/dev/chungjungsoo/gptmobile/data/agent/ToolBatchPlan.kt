@@ -6,7 +6,8 @@ internal data class ToolBatchPlan(
     val perToolSuppressedIds: Set<String>,
     val hostSuppressedIds: Set<String>,
     val disabledNames: Set<String>,
-    val acceptedByName: Map<String, Int>
+    val acceptedByName: Map<String, Int>,
+    val unavailableIds: Set<String> = emptySet()
 )
 
 /** Pure dispatch planning, separated from the suspending execution/UI coordinator. */
@@ -22,6 +23,7 @@ internal fun planToolBatch(
     val executable = mutableListOf<ProviderEvent.ToolCall>()
     val deferred = mutableListOf<ProviderEvent.ToolCall>()
     val suppressed = mutableSetOf<String>()
+    val unavailable = mutableSetOf<String>()
     val hostSuppressed = mutableSetOf<String>()
     val disabled = mutableSetOf<String>()
     val accepted = mutableMapOf<String, Int>()
@@ -34,7 +36,7 @@ internal fun planToolBatch(
             index >= remaining -> deferred += call
             call.name !in availableNames -> {
                 deferred += call
-                suppressed += call.callId
+                unavailable += call.callId
             }
             scope(call) in blockedScopes -> {
                 deferred += call
@@ -51,7 +53,7 @@ internal fun planToolBatch(
             }
         }
     }
-    return ToolBatchPlan(executable, deferred, suppressed, hostSuppressed, disabled, accepted)
+    return ToolBatchPlan(executable, deferred, suppressed, hostSuppressed, disabled, accepted, unavailable)
 }
 
 /** Reading independent pages is useful research, not a repeated invocation loop. */
@@ -67,4 +69,11 @@ internal fun toolRepeatKey(call: ProviderEvent.ToolCall): String {
     }
     val hash = java.security.MessageDigest.getInstance("SHA-256").digest(canonical(call.arguments).toByteArray())
     return call.name + (if (github) "|operation=" else ":") + hash.joinToString("") { "%02x".format(it) }
+}
+
+/** Accept only an unambiguous bare alias for an already-authorized read capability. */
+internal fun resolveGitHubReadAlias(call: ProviderEvent.ToolCall, availableNames: Set<String>): ProviderEvent.ToolCall {
+    if (call.name in availableNames || call.name !in setOf("github_context", "github_read", "github_search")) return call
+    val canonical = availableNames.singleOrNull { it.startsWith(call.name + "__") } ?: return call
+    return call.copy(name = canonical)
 }

@@ -125,7 +125,7 @@ class OpenAIResponsesAdapter @Inject constructor(
                         }
                     },
                     stream = true,
-                    instructions = platform.systemPrompt?.takeIf { it.isNotBlank() },
+                    instructions = toolRoundSystemPrompt(platform.systemPrompt, tools.isNotEmpty())?.takeIf { it.isNotBlank() },
                     temperature = if (platform.reasoning) null else platform.temperature,
                     topP = if (platform.reasoning) null else platform.topP,
                     reasoning = if (platform.reasoning && constraints.allowReasoning) ReasoningConfig(effort = "medium", summary = "auto") else null,
@@ -218,7 +218,10 @@ class OpenAICompatibleAdapter @Inject constructor(
         coerceInputValues = true
     }
 
-    suspend fun openSession(turns: List<ConversationTurn>, platform: PlatformV2, constraints: RequestConstraints = RequestConstraints()): AgentProviderSession {
+    suspend fun openSession(turns: List<ConversationTurn>, platform: PlatformV2, constraints: RequestConstraints = RequestConstraints()): AgentProviderSession =
+        openSession(turns, platform, constraints, promptToolBridge = false)
+
+    private suspend fun openSession(turns: List<ConversationTurn>, platform: PlatformV2, constraints: RequestConstraints, promptToolBridge: Boolean): AgentProviderSession {
         if (platform.compatibleType == ClientType.FREE &&
             constraints.allowTools &&
             !platform.disableAllTools &&
@@ -253,7 +256,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                         }
                     }
                 }
-                openSession(bridgeTurns, platform.copy(systemPrompt = platform.systemPrompt.orEmpty() + instruction), constraints.copy(allowTools = false))
+                openSession(bridgeTurns, platform.copy(systemPrompt = platform.systemPrompt.orEmpty() + instruction), constraints.copy(allowTools = false), promptToolBridge = true)
             }
         }
         if (platform.compatibleType == ClientType.NVIDIA &&
@@ -269,6 +272,7 @@ class OpenAICompatibleAdapter @Inject constructor(
         val candidateKeys = ApiCredentialRotator.keysForNewRequest(platform.providerConnectionUid ?: platform.uid, platform.token)
         val keyIndexCounter = AtomicInteger(0)
         var capturedGatewayJobId: String? = null
+        var clientToolsAdvertised = false
         val gatewayPerformanceHeaders = if (platform.compatibleType == ClientType.LLAMA) {
             attachmentEncoder.gatewayPerformanceHeaders()
         } else {
@@ -522,8 +526,23 @@ class OpenAICompatibleAdapter @Inject constructor(
                 exchanges: List<AgentToolExchange>
             ): Flow<ProviderEvent> = flow {
                 require(constraints.allowTools || tools.isEmpty()) { "Tools are disabled for this request." }
+                if (tools.isNotEmpty()) clientToolsAdvertised = true
+                val gatewayToolsAllowed = isLlama &&
+                    constraints.allowTools &&
+                    constraints.allowGatewayLocalTools &&
+                    constraints.requestRole != "reviewer" &&
+                    !platform.disableAllTools &&
+                    !platform.disableLocalTools &&
+                    !clientToolsAdvertised &&
+                    exchanges.isEmpty()
                 val toolImages = if (platform.compatibleType == ClientType.GROQ || platform.compatibleType == ClientType.NVIDIA && NvidiaModelCapabilities.forModel(platform.model).supportsImages != true) emptyList() else attachmentEncoder.toolMedia(exchanges)
-                val baseMessages = initialMessages + exchanges.flatMap { it.toChatMessages() } + toolImages.map { media ->
+                val roundMessages = if (tools.isEmpty() && !promptToolBridge && !gatewayToolsAllowed) {
+                    listOf(ChatMessage(OpenAIRole.SYSTEM, listOf(OpenAITextContent(requireNotNull(toolRoundSystemPrompt(platform.systemPrompt, false)))))) +
+                        initialMessages.filterNot { it.role == OpenAIRole.SYSTEM }
+                } else {
+                    initialMessages
+                }
+                val baseMessages = roundMessages + exchanges.flatMap { it.toChatMessages() } + toolImages.map { media ->
                     ChatMessage(
                         OpenAIRole.USER,
                         listOf(
@@ -546,7 +565,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                 val llamaGatewayHeaders = if (isLlama) {
                     gatewayPerformanceHeaders +
                         capturedGatewayJobId?.let { mapOf("X-Gateway-Job-ID" to it) }.orEmpty() +
-                        if (requestTools.isNullOrEmpty()) emptyMap() else mapOf("X-Gateway-Allow-Local-Tools" to "false")
+                        mapOf("X-Gateway-Allow-Local-Tools" to gatewayToolsAllowed.toString())
                 } else {
                     emptyMap()
                 }
@@ -716,7 +735,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                     var currentRequestMessages = baseMessages
 
                     while (true) {
-                        val requestConfig = delegatedLlamaRequestConfig(config, isLlama, effectiveOutputTokens, constraints).copy(captureGenerationReceipt = constraints.combined != null || constraints.requestRole == "synthesis")
+                        val requestConfig = delegatedLlamaRequestConfig(config, isLlama, effectiveOutputTokens, constraints.copy(allowGatewayLocalTools = gatewayToolsAllowed)).copy(captureGenerationReceipt = constraints.combined != null || constraints.requestRole == "synthesis")
                         val request = ChatCompletionRequest(
                             model = platform.model,
                             messages = currentRequestMessages,
@@ -731,7 +750,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                             seed = effectiveSeed,
                             stop = effectiveStop,
                             tools = requestTools,
-                            toolChoice = if (platform.disableAllTools) "none" else null,
+                            toolChoice = if (platform.disableAllTools || requestTools.isNullOrEmpty() && !gatewayToolsAllowed) "none" else null,
                             provider = parsedRouting,
                             reasoning = if (isOpenRouter || config.freeProvider == dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.KILO) {
                                 if (platform.reasoning && constraints.allowReasoning) OpenRouterReasoning(effort = "medium") else OpenRouterReasoning(enabled = false)
@@ -1101,7 +1120,7 @@ class AnthropicMessagesAdapter @Inject constructor(
                     } + mediaMessages,
                     maxTokens = effectiveOutputTokens,
                     stream = platform.stream,
-                    systemPrompt = platform.systemPrompt,
+                    systemPrompt = toolRoundSystemPrompt(platform.systemPrompt, tools.isNotEmpty()),
                     temperature = if (allowSampling) platform.temperature else null,
                     topP = if (allowSampling) platform.topP else null,
                     thinking = thinkingPolicy.config?.let { config ->
@@ -1338,7 +1357,7 @@ class GeminiAdapter @Inject constructor(
                         topP = platform.topP,
                         thinkingConfig = if (platform.reasoning && constraints.allowReasoning) GoogleThinkingConfig(includeThoughts = true) else null
                     ),
-                    systemInstruction = platform.systemPrompt?.takeIf { it.isNotBlank() }?.let { prompt ->
+                    systemInstruction = toolRoundSystemPrompt(platform.systemPrompt, tools.isNotEmpty())?.takeIf { it.isNotBlank() }?.let { prompt ->
                         Content(parts = listOf(Part.text(prompt)))
                     },
                     safetySettings = platform.googleSafetySettings(),

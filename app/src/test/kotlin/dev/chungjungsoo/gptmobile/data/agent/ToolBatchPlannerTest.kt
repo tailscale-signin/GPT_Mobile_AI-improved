@@ -33,4 +33,25 @@ class ToolBatchPlannerTest {
         assertEquals(setOf("0"), plan.hostSuppressedIds)
         assertTrue(plan.disabledNames.isEmpty())
     }
+
+    @Test fun unavailableNamesAreNotReportedAsRepeatLimits() {
+        val call = ProviderEvent.ToolCall("first", "github_read_file", JsonObject(emptyMap()))
+        val plan = planToolBatch(listOf(call), 10, setOf("github_read__github_api"), emptyMap(), emptySet(), 24) { it.name }
+        assertTrue(plan.executable.isEmpty())
+        assertTrue(plan.perToolSuppressedIds.isEmpty())
+        assertEquals(setOf("first"), plan.unavailableIds)
+        assertTrue(plan.acceptedByName.isEmpty())
+    }
+
+    @Test fun bareReadAliasResolvesOnlyToOneAuthorizedCapability() {
+        val call = ProviderEvent.ToolCall("read", "github_search", JsonObject(emptyMap()))
+        assertEquals("github_search__github_api", resolveGitHubReadAlias(call, setOf("github_search__github_api")).name)
+        assertEquals(call, resolveGitHubReadAlias(call, emptySet()))
+        assertEquals(call, resolveGitHubReadAlias(call, setOf("github_search__one", "github_search__two")))
+        assertEquals(call, resolveGitHubReadAlias(call, setOf("github_search", "github_search__one")))
+        val foreign = call.copy(name = "github_search__removed")
+        assertEquals(foreign, resolveGitHubReadAlias(foreign, setOf("github_search__github_api")))
+        val mutation = call.copy(name = "github_write")
+        assertEquals(mutation, resolveGitHubReadAlias(mutation, setOf("github_write__github_api")))
+    }
 }

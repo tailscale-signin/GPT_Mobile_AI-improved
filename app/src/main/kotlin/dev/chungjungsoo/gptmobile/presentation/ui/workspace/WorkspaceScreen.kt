@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.workspace
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -8,11 +9,13 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
@@ -24,8 +27,11 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.material3.Slider
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
+import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -36,8 +42,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import dev.chungjungsoo.gptmobile.data.accounting.ModelPrice
@@ -72,7 +81,7 @@ fun WorkspaceScreen(onBack: () -> Unit, onChat: (Int) -> Unit, initialChat: Int 
     val comparison by model.comparison.collectAsState()
     val notice by model.notice.collectAsState()
     val inputs by model.interactions.pending.collectAsState()
-    var tab by remember { mutableStateOf(initialTab) }
+    var tab by rememberSaveable(initialTab) { mutableStateOf(initialTab.takeIf { it in WorkspaceTabs } ?: WorkspaceTabs.first()) }
     var selectedContext by remember { mutableStateOf<WorkspaceRecord?>(null) }
     var editingRecipe by remember { mutableStateOf<WorkspaceRecord?>(null) }
     var createRecipe by remember { mutableStateOf(false) }
@@ -81,31 +90,7 @@ fun WorkspaceScreen(onBack: () -> Unit, onChat: (Int) -> Unit, initialChat: Int 
     inputs.firstOrNull()?.let { dev.chungjungsoo.gptmobile.presentation.ui.chat.McpInputDialog(it) { _, value -> model.interactions.respond(it.id, value) } }
     Scaffold(topBar = { TopAppBar(title = { Text("Workspaces") }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") } }) }) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
-            Surface(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 6.dp),
-                shape = RoundedCornerShape(20.dp),
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                tonalElevation = 2.dp
-            ) {
-                Row(
-                    modifier = Modifier
-                        .horizontalScroll(rememberScrollState())
-                        .padding(horizontal = 12.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    listOf("Tasks", "Context", "Evidence", "Branches", "Recipes", "Models", "Budgets", "GitHub", "Plugins").forEach { name ->
-                        FilterChip(
-                            selected = tab == name,
-                            onClick = { tab = name },
-                            label = { Text(name, style = MaterialTheme.typography.labelLarge) },
-                            shape = RoundedCornerShape(12.dp)
-                        )
-                    }
-                }
-            }
+            WorkspaceNavigation(selectedTab = tab, onSelect = { tab = it })
             notice?.let { TextButton(onClick = { model.notice.value = null }) { Text(it) } }
             if (tab in setOf("Context", "Evidence", "Branches", "Recipes")) {
                 Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -356,6 +341,46 @@ fun WorkspaceScreen(onBack: () -> Unit, onChat: (Int) -> Unit, initialChat: Int 
                 evidenceEdit = null
             }) { Text("Pin") }
         }, dismissButton = { TextButton(onClick = { evidenceEdit = null }) { Text("Cancel") } })
+    }
+}
+
+private val WorkspaceTabs = listOf("Tasks", "Context", "Evidence", "Branches", "Recipes", "Models", "Budgets", "GitHub", "Plugins")
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun WorkspaceNavigation(selectedTab: String, onSelect: (String) -> Unit) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 6.dp),
+        shape = RoundedCornerShape(20.dp),
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        tonalElevation = 2.dp
+    ) {
+        // Material tabs expose selection to accessibility services and scroll the active tab into view.
+        ScrollableTabRow(
+            selectedTabIndex = WorkspaceTabs.indexOf(selectedTab).coerceAtLeast(0),
+            containerColor = Color.Transparent,
+            edgePadding = 8.dp,
+            indicator = {},
+            divider = {}
+        ) {
+            WorkspaceTabs.forEach { name ->
+                val selected = selectedTab == name
+                Tab(
+                    selected = selected,
+                    onClick = { onSelect(name) },
+                    modifier = Modifier
+                        .padding(horizontal = 4.dp, vertical = 6.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(if (selected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
+                        .heightIn(min = 48.dp),
+                    selectedContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    unselectedContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    text = { Text(name, style = MaterialTheme.typography.labelLarge) }
+                )
+            }
+        }
     }
 }
 

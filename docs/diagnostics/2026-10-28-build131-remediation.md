@@ -87,4 +87,3 @@ engineering task database is not available to this editor.
 - Physical ASUS rendering, external MCP reachability, desktop stream stability
   and local inference qualification remain unverified. No all-green or device
   recovery claim is made. CI must validate the published head.
-

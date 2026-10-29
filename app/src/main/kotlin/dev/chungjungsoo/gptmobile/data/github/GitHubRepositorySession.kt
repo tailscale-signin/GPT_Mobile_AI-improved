@@ -268,13 +268,13 @@ internal class GitHubRepositorySession(
         var readDeadline = false
         var incompleteSymbols = false
         val hits = mutableListOf<JsonObject>()
-        while (next < all.size && next - cursor < 2000 && hits.size < 20) {
+        while (next < all.size && (mode == "paths" || next - cursor < 2000) && hits.size < 20) {
             kotlinx.coroutines.currentCoroutineContext().ensureActive()
             if ((System.nanoTime() - startedNanos) / 1_000_000 >= 12_000) break
             val item = all[next]
             if (mode == "paths") {
                 next++
-                if (item.s("path").contains(query, true)) {
+                if (query == "*" || item.s("path").contains(query, true)) {
                     hits += buildJsonObject {
                         put("path", item["path"]!!)
                         put("sha", item["sha"]!!)

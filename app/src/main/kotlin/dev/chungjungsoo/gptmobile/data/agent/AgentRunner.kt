@@ -34,7 +34,7 @@ data class AgentRunLimits(
     val finalResponseToolCallReserve: Int = 0,
     /** Maximum replay budget for prior tool exchanges sent on each provider round. */
     val maxReplayTokens: Int = 4_000,
-    /** Maximum budget retained from any one consumed tool result on later rounds. */
+    /** Per-result replay budget when the full evidence exceeds a provider round's allowance. */
     val maxReplayResultTokens: Int = 512,
     val maxObservedToolCalls: Int = 256,
     val maxToolCallsPerRound: Int = 32,
@@ -652,10 +652,14 @@ class AgentRunner(
             if (call.callId !in publishedCallIds) emit(AgentRunEvent.ToolFinished(call, result))
         }
         // Retain bounded observations on ingress, including trace/retained payloads.
+        val retentionBudget = limits.maxRetainedEvidenceTokens.coerceIn(1024, 32_000)
+        val observations = exchanges + AgentToolExchange(calls, allResults.map { it.copy(traceContent = null, retainedContent = null) })
         val retained = ToolExchangeCompactor.compact(
-            exchanges + AgentToolExchange(calls, allResults.map { it.copy(traceContent = null, retainedContent = null) }),
-            limits.maxRetainedEvidenceTokens.coerceIn(1024, 32_000),
-            limits.maxReplayResultTokens.coerceIn(64, 2048)
+            observations,
+            retentionBudget,
+            // Preserve complete evidence while it fits the retained budget.
+            // Provider replay still enforces its independent, smaller allowance.
+            if (ToolExchangeCompactor.estimateTokens(observations) <= retentionBudget) retentionBudget else limits.maxReplayResultTokens.coerceIn(64, 2048)
         )
         exchanges.clear()
         exchanges.addAll(retained)

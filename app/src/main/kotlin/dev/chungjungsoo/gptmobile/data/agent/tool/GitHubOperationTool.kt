@@ -25,18 +25,28 @@ internal class GitHubOperationTool(
     override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
         if ("view_cursor" in arguments) {
             if (arguments.size != 1) {
+                val evidence = (arguments["evidence_id"] as? JsonPrimitive)?.takeIf { it.isString && it.content.isNotBlank() }
+                val restoreEvidence = operation == "github_read" && evidence != null && (arguments["view_cursor"] as? JsonPrimitive)?.content?.contains(':') != true
+                val corrected = if (restoreEvidence) {
+                    buildJsonObject {
+                        put("evidence_id", requireNotNull(evidence))
+                        listOf("owner", "repo").forEach { key -> arguments[key]?.let { put(key, it) } }
+                    }
+                } else {
+                    buildJsonObject { put("view_cursor", arguments.getValue("view_cursor")) }
+                }
                 return AgentToolResult(
                     callId,
                     ToolResultContent.Json(
                         buildJsonObject {
                             put("schema", "github.arguments.v1")
                             put("operation", operation)
-                            put("message", "Use only view_cursor. Repository, commit and range fields belong to a new read, not a saved page. Nothing was dispatched.")
+                            put("message", if (restoreEvidence) "evidence_id and view_cursor are different handles. Reopen source evidence with evidence_id alone, without an invented cursor. Nothing was dispatched." else "Use only view_cursor. Repository, commit and range fields belong to a new read, not a saved page. Nothing was dispatched.")
                             put(
                                 "correction_call",
                                 buildJsonObject {
                                     put("tool", definition.name)
-                                    put("arguments", buildJsonObject { put("view_cursor", arguments.getValue("view_cursor")) })
+                                    put("arguments", corrected)
                                 }
                             )
                         }
@@ -420,8 +430,8 @@ internal class GitHubOperationTool(
             }
             val description = when (operation) {
                 "github_context" -> "Resolve and pin the selected repository; check status, index, changes, efficiency or capabilities. action=capabilities inspects remote write permissions. A compact read-only schema selection does not prove write tools are disabled: discover github_write for edits. Changes requires base_sha; PR files use github_pr context with include_files=true."
-                "github_search" -> "Search pinned code and symbols locally. Supply a non-blank query (1-200 characters). Follow index_cursor with the same query until complete."
-                "github_read" -> "Read exact source ranges or a saved evidence_id at a pinned commit."
+                "github_search" -> "Search pinned code and symbols locally. In mode=paths, query is a case-insensitive substring; query=* lists paths. Supply a non-blank query (1-200 characters). Follow index_cursor with the same query until complete."
+                "github_read" -> "Read exact source ranges or reopen a saved evidence_id at a pinned commit. Use evidence_id without view_cursor; numeric cursors are invalid."
                 "github_stage_patch" -> "Inspect and stage one exact replacement in a single call using target_file, search_snippet and replacement_snippet. Reads the complete pinned blob internally; rejects ambiguous anchors. Alternatively supply SHA-checked edits. Returns a bounded preview and stage_id; no commit occurs."
                 "github_commit" -> "Create a working branch or commit a validated stage_id with head checks."
                 "github_write" -> "Stage up to 20 UTF-8 file creations, replacements or deletions for exact user approval and one atomic commit on a working branch. Supply expected_head_sha and expected_blob_sha for existing files. Replacements require content; deletions require delete=true and no content. Never write to the default branch."
@@ -429,7 +439,7 @@ internal class GitHubOperationTool(
                 "github_ci" -> "List workflows and runs, inspect run/job status, artifacts and parsed failure logs, or explicitly dispatch/rerun/cancel a workflow."
                 "github_watch_checks" -> "Subscribe once to background CI updates for pr_number and/or run_id in this saved chat. Pins the current head and posts native chat status updates without model polling turns. A moved PR head requires a new subscription."
                 else -> "Check release readiness or explicitly publish the selected release."
-            } + " Supply owner and repo together or omit both. Expand retained results with view_cursor."
+            } + " Supply owner and repo together or omit both. Follow continuation_call.arguments exactly to expand paged results with view_cursor."
             return AgentToolDefinition(
                 modelName,
                 description,

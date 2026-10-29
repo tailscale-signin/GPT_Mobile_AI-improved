@@ -20,8 +20,10 @@ class ReliabilityV2PrGateTest(unittest.TestCase):
                 self.assertEqual((48, 110), gate.check_pr(ref))
                 validator.assert_called_once_with(require_done=True)
 
-    def test_other_prs_must_preserve_scope_without_claiming_v2_done(self):
+    def test_other_refs_must_preserve_scope_without_claiming_v2_done(self):
         for ref in (
+            "main",
+            "refs/heads/gh-readonly-queue/main/pr-759",
             "fix/reliability-post-merge-audit-2026-10-13",
             "fix/reliability-v2-completion-ci-gate-2026-10-13",
             "feat/research-engine",
@@ -50,7 +52,7 @@ class ReliabilityV2PrGateTest(unittest.TestCase):
         gate_job = source.split("\n  reliability_v2_completion:\n", 1)[1].split("\n  validate:\n", 1)[0]
         self.assertIn("name: Unified Reliability v2 completion gate", gate_job)
         self.assertIn("scripts/check_unified_reliability_pr.py", gate_job)
-        self.assertIn("HEAD_REF: ${{ github.event.pull_request.head.ref }}", gate_job)
+        self.assertIn("HEAD_REF: ${{ github.event.pull_request.head.ref || github.event.merge_group.head_ref || github.ref_name }}", gate_job)
         self.assertNotIn("pull_request.draft ==", gate_job)
         self.assertNotIn("if: github.event.pull_request.draft", gate_job)
 

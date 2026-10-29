@@ -31,8 +31,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Enforce v2 completion independently of draft status
         env:
-          # Data-only env prevents branch-name script injection.
-          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          # Keep branch names in data and support PR, merge queue, push and manual runs.
+          HEAD_REF: ${{ github.event.pull_request.head.ref || github.event.merge_group.head_ref || github.ref_name }}
         run: python3 scripts/check_unified_reliability_pr.py --head-ref "$HEAD_REF"
 
   validate:

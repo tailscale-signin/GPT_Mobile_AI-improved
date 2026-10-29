@@ -410,6 +410,7 @@ internal class GitHubOperationTool(
                     properties["include_patches"] = field("boolean")
                     properties["include_files"] = field("boolean")
                     properties["include_checks"] = field("boolean")
+                    properties["include_health"] = field("boolean")
                 }
                 "github_ci" -> {
                     properties["action"] = choice("failure", "workflows", "runs", "run", "jobs", "logs", "artifacts", "dispatch", "rerun", "cancel")

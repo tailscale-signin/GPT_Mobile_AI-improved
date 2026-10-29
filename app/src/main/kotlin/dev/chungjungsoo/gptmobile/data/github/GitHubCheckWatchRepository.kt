@@ -55,7 +55,8 @@ internal data class GitHubCheckWatch(
     val updatedAt: Long = startedAt,
     val status: String = "RUNNING",
     val detail: String = "Watching GitHub checks in the background.",
-    val retryAt: Long = 0
+    val retryAt: Long = 0,
+    val health: GitHubPullRequestHealth? = null
 ) {
     val terminal: Boolean get() = status !in setOf("RUNNING", "UNKNOWN", "NONE", "RETRYING")
 }
@@ -121,6 +122,22 @@ class GitHubCheckWatchRepository @Inject constructor(
         }
     }
 
+    internal suspend fun refresh(id: String) {
+        val watch = workspace.dao.get(id)?.let(::decode) ?: return
+        // Terminal watches are restarted through the same credential and chat checks.
+        subscribe(
+            watch.connectionUid,
+            watch.profileUid,
+            watch.chatId,
+            buildJsonObject {
+                put("owner", watch.owner)
+                put("repo", watch.repo)
+                watch.pullNumber?.let { put("pr_number", it) }
+                watch.runId?.let { put("run_id", it) }
+            }
+        )
+    }
+
     internal suspend fun cancel(id: String) = mutex.withLock {
         workspace.dao.get(id)?.let(::decode)?.let { save(it.copy(status = "CANCELLED", detail = "Watching stopped.", updatedAt = System.currentTimeMillis())) }
         WorkManager.getInstance(context).cancelUniqueWork(id)
@@ -168,10 +185,12 @@ class GitHubCheckWatchRepository @Inject constructor(
             return watch.copy(status = result, detail = "Workflow ${watch.runId}: ${run["conclusion"]?.jsonPrimitive?.contentOrNull ?: "in progress"} · ${watch.headSha.take(12)}", retryAt = 0)
         }
         val runs = mutableListOf<kotlinx.serialization.json.JsonElement>()
-        var total = 0
+        var total = -1
         for (page in 1..10) {
             val checks = Json.parseToJsonElement(api.request("$root/commits/${watch.headSha}/check-runs?per_page=100&page=$page")).jsonObject
-            total = checks["total_count"]?.jsonPrimitive?.content?.toIntOrNull() ?: -1
+            val pageTotal = checks["total_count"]?.jsonPrimitive?.content?.toIntOrNull() ?: -1
+            if (pageTotal < 0 || total >= 0 && total != pageTotal) return watch.copy(status = "UNKNOWN", detail = "Check inventory changed during pagination; refreshing.")
+            total = pageTotal
             val rows = checks["check_runs"]?.jsonArray.orEmpty()
             runs += rows
             if (rows.size < 100 || runs.size >= total) break
@@ -184,7 +203,19 @@ class GitHubCheckWatchRepository @Inject constructor(
             },
             statuses
         )
-        return watch.copy(status = summary, detail = "PR #${watch.pullNumber}: $summary · ${watch.headSha.take(12)}. Observed checks only; merge rules still apply.", retryAt = 0)
+        val health = try {
+            gitHubPullRequestHealth(Json.parseToJsonElement(api.pullRequestHealth(watch.owner, watch.repo, requireNotNull(watch.pullNumber).toInt())).jsonObject, watch.headSha)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            GitHubPullRequestHealth(detail = "Merge rules unavailable. Check repository access and refresh.")
+        }
+        // Re-read the mutable PR after fetching checks so a concurrent push cannot produce a green card.
+        val after = Json.parseToJsonElement(api.request("$root/pulls/${watch.pullNumber}")).jsonObject
+        if (after["head"]?.jsonObject?.get("sha")?.jsonPrimitive?.content != watch.headSha) {
+            return watch.copy(status = "STALE", detail = "PR head changed while checks were loading. Refresh this watch.", health = null)
+        }
+        return watch.copy(status = summary, detail = "PR #${watch.pullNumber} · ${watch.headSha.take(12)}", retryAt = 0, health = health)
     }
 }
 

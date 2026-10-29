@@ -1,20 +1,21 @@
-## Description
+## Problem and resulting behavior
 
-Provide a brief summary of the changes introduced in this pull request.
+Explain the concrete trigger and what the user sees after this change.
 
-## Type of Change
+## Scope and dependencies
 
-- [ ] Bug fix (non-breaking change fixing an issue)
-- [ ] New feature (non-breaking change adding functionality)
-- [ ] Refactor / Code quality improvement
-- [ ] CI/CD / Build / Infrastructure update
-- [ ] Documentation update
-- [ ] Other (please describe):
+Base branch / parent PR (if stacked):
+Affected subsystems:
 
-## Checklist
+## Validation evidence
 
-- [ ] My code follows the code style and architecture of this project.
-- [ ] I have performed a self-review of my own code.
-- [ ] I have commented my code where necessary, particularly in complex or subtle areas.
-- [ ] My changes pass local tests and lint checks (`./gradlew testDebugUnitTest`).
-- [ ] Any dependent changes have been merged and published in downstream modules.
+List commands or CI links, tested commit SHA, results, and checks not run.
+Include a regression for the defect. UI changes need compact-screen / keyboard / accessibility review.
+OAuth and gateway changes need token expiry, denial and no-replay coverage.
+
+## Merge readiness
+
+- [ ] Required verification succeeded for the current revision.
+- [ ] Relevant emulator/device/security checks were reviewed.
+- [ ] GitHub merge eligibility, branch currency and approvals were refreshed.
+- [ ] No unknown, cancelled, missing or skipped required check is treated as success.

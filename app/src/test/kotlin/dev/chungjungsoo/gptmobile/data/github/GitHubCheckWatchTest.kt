@@ -32,6 +32,7 @@ class GitHubCheckWatchTest {
 
     @Test fun emptyChecksNeverReportSuccess() = runTest {
         val api = object : GitHubEngineeringApi({ "token" }) {
+            override suspend fun pullRequestHealth(owner: String, repo: String, number: Int): String = "{}"
             override suspend fun request(path: String, method: String, body: JSONObject?): String = when {
                 "/pulls/" in path -> """{"head":{"sha":"$head"}}"""
                 "/check-runs" in path -> """{"total_count":0,"check_runs":[]}"""
@@ -41,6 +42,22 @@ class GitHubCheckWatchTest {
         val result = repository().inspect(watch, api)
         assertEquals("NONE", result.status)
         assertFalse(result.terminal)
+    }
+
+    @Test fun headMovedDuringCheckLoadingCannotProducePassedCard() = runTest {
+        var reads = 0
+        val api = object : GitHubEngineeringApi({ "token" }) {
+            override suspend fun pullRequestHealth(owner: String, repo: String, number: Int): String = "{}"
+            override suspend fun request(path: String, method: String, body: JSONObject?): String = when {
+                "/pulls/" in path -> {
+                    reads++
+                    """{"head":{"sha":"${if (reads == 1) head else "b".repeat(40)}"}}"""
+                }
+                "/check-runs" in path -> """{"total_count":1,"check_runs":[{"id":1,"status":"completed","conclusion":"success"}]}"""
+                else -> """{"total_count":0,"state":"pending","statuses":[]}"""
+            }
+        }
+        assertEquals("STALE", repository().inspect(watch, api).status)
     }
 
     @Test fun incompleteOrSkippedWorkflowCannotBecomePassed() {

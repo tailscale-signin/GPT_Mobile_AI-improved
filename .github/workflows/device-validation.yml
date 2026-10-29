@@ -211,6 +211,7 @@ jobs:
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: always()
         with:
+          retention-days: 14
           name: physical-device-evidence
           path: |
             device-evidence/

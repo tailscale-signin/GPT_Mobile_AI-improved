@@ -574,8 +574,25 @@ class GitHubWorkspaceClient(
         val total = pr["changed_files"]?.jsonPrimitive?.content?.toIntOrNull() ?: files.size
         val checks = if (includeChecks) compactChecks(request("$root/commits/${segment(head)}/check-runs?per_page=30&page=$checkPage").jsonObject, checkPage) else null
         val patches = args["include_patches"]?.jsonPrimitive?.booleanOrNull == true
+        val health = if (args["include_health"]?.jsonPrimitive?.booleanOrNull == true) {
+            val parts = root.removePrefix("/repos/").split('/')
+            gitHubPullRequestHealth(
+                graphQl(
+                    gitHubPullRequestHealthQuery,
+                    buildJsonObject {
+                        put("owner", parts[0])
+                        put("repo", parts[1])
+                        put("number", number)
+                    }
+                ),
+                head
+            )
+        } else {
+            null
+        }
         return buildJsonObject {
             put("pull_request", project(pr, "number", "title", "state", "draft", "merged", "mergeable", "mergeable_state", "html_url", "changed_files", "additions", "deletions", "head", "base"))
+            health?.let { put("merge_health", json.encodeToJsonElement(GitHubPullRequestHealth.serializer(), it)) }
             put("expected_head", head)
             put("files_total", total)
             put("files_included", includeFiles)
@@ -825,24 +842,27 @@ class GitHubWorkspaceClient(
                 )
             }
             else -> {
-                check(pr["draft"]?.jsonPrimitive?.booleanOrNull != true) { "Mark the draft ready before merging." }
-                val checks = request("$root/commits/$expected/check-runs?per_page=100").jsonObject
-                val rows = checks["check_runs"]?.jsonArray.orEmpty().toMutableList()
-                val total = checks["total_count"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0
-                require(total <= 1000) { "PR check inventory exceeds the merge verification budget." }
-                var page = 2
-                while (rows.size < total && page <= 10) {
-                    val more = request("$root/commits/$expected/check-runs?per_page=100&page=$page").jsonObject
-                    check(more["total_count"]?.jsonPrimitive?.content?.toIntOrNull() == total) { "Check inventory changed; refresh before merging." }
-                    val entries = more["check_runs"]?.jsonArray.orEmpty()
-                    if (entries.isEmpty()) break
-                    rows += entries
-                    page++
-                }
-                check(total == rows.size) { "Checks are incomplete. Review all checks before merging." }
-                check(rows.isNotEmpty() && rows.all { it.jsonObject["status"]?.jsonPrimitive?.content == "completed" && it.jsonObject["conclusion"]?.jsonPrimitive?.content in setOf("success", "neutral", "skipped") }) { "Pull request checks are not fully green." }
-                val status = request("$root/commits/$expected/status").jsonObject
-                check(status["total_count"]?.jsonPrimitive?.content == "0" || status["state"]?.jsonPrimitive?.content == "success") { "Commit status checks are not green." }
+                val parts = root.removePrefix("/repos/").split('/')
+                val health = gitHubPullRequestHealth(
+                    graphQl(
+                        gitHubPullRequestHealthQuery,
+                        buildJsonObject {
+                            put("owner", parts[0])
+                            put("repo", parts[1])
+                            put("number", number)
+                        }
+                    ),
+                    expected
+                )
+                check(health.eligible) { health.detail }
+                val latest = request("$root/pulls/$number").jsonObject
+                check(
+                    latest["head"]?.jsonObject?.get("sha")?.jsonPrimitive?.content == expected &&
+                        latest["base"]?.jsonObject?.get("sha")?.jsonPrimitive?.content == health.baseSha &&
+                        latest["state"]?.jsonPrimitive?.content == "open" &&
+                        latest["draft"]?.jsonPrimitive?.booleanOrNull == false &&
+                        latest["mergeable_state"]?.jsonPrimitive?.content == "clean"
+                ) { "Pull request eligibility changed. Refresh before merging." }
                 val method = args["merge_method"]?.jsonPrimitive?.content ?: "squash"
                 require(method in setOf("squash", "merge", "rebase"))
                 request(
@@ -1299,9 +1319,11 @@ class GitHubWorkspaceClient(
         val head = run?.get("head_sha")?.jsonPrimitive?.content.orEmpty().ifBlank { resolvedJob["head_sha"]?.jsonPrimitive?.content.orEmpty() }
         require(expectedHead.isBlank() || expectedHead == head) { "CI evidence belongs to a different commit." }
         val log = GitHubCiLogReader(client, token, scheduler, responseCache, requestPriority, authenticationRejected).read("$root/actions/jobs/$resolvedJobId/logs", resolvedJob["status"]?.jsonPrimitive?.content == "completed")
-        val lines = log.text.split('\n')
+        val safeLog = dev.chungjungsoo.gptmobile.data.diagnostics.redactLogMessage(log.text).let { if (token.isNotBlank()) it.replace(token, "[REDACTED]") else it }
+        val lines = safeLog.split('\n')
         val failure = Regex("error|failed|failure|exception|fatal|traceback|exit code", RegexOption.IGNORE_CASE)
-        val positions = lines.indices.filter { failure.containsMatchIn(lines[it]) }.takeLast(60)
+        val allPositions = lines.indices.filter { failure.containsMatchIn(lines[it]) }
+        val positions = (allPositions.take(40) + allPositions.takeLast(20)).distinct().sorted()
         val requestedStart = args["start_line"]?.jsonPrimitive?.content?.toIntOrNull()
         val requestedEnd = args["end_line"]?.jsonPrimitive?.content?.toIntOrNull()
         if (requestedStart != null) require(requestedStart >= 1 && (requestedEnd ?: requestedStart + 99) >= requestedStart && (requestedEnd ?: requestedStart + 99) - requestedStart < 2000)
@@ -1333,6 +1355,18 @@ class GitHubWorkspaceClient(
             put("truncated", !log.complete)
             put("total_lines", lines.size)
             put("failure_lines", JsonArray(positions.map { JsonPrimitive(it + 1) }))
+            put("first_failure", allPositions.firstOrNull()?.let { JsonPrimitive(lines[it].take(1200)) } ?: JsonNull)
+            put(
+                "failure_groups",
+                JsonArray(
+                    allPositions.map { lines[it].take(500) }.groupingBy { it }.eachCount().entries.take(30).map { (message, count) ->
+                        buildJsonObject {
+                            put("message", message)
+                            put("count", count)
+                        }
+                    }
+                )
+            )
             put("excerpts", JsonArray(excerpts))
             put("evidence_id", GitHubRepositoryStateStore.digest(root + jobId + head + log.text))
             put(

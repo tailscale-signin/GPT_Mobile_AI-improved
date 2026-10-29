@@ -29,6 +29,7 @@ import dev.chungjungsoo.gptmobile.data.research.feature.researchResponseBlocks
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 import dev.chungjungsoo.gptmobile.presentation.ui.thinking.ThinkingParser
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 
 internal data class PreparedAssistantDisplay(val thinking: String = "", val citationText: String = "", val response: String = "")

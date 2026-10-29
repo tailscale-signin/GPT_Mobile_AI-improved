@@ -81,8 +81,30 @@ fun WorkspaceScreen(onBack: () -> Unit, onChat: (Int) -> Unit, initialChat: Int 
     inputs.firstOrNull()?.let { dev.chungjungsoo.gptmobile.presentation.ui.chat.McpInputDialog(it) { _, value -> model.interactions.respond(it.id, value) } }
     Scaffold(topBar = { TopAppBar(title = { Text("Workspaces") }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") } }) }) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
-            Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf("Tasks", "Context", "Evidence", "Branches", "Recipes", "Models", "Budgets", "GitHub", "Plugins").forEach { name -> FilterChip(tab == name, { tab = name }, label = { Text(name) }) }
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 6.dp),
+                shape = RoundedCornerShape(20.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                tonalElevation = 2.dp
+            ) {
+                Row(
+                    modifier = Modifier
+                        .horizontalScroll(rememberScrollState())
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    listOf("Tasks", "Context", "Evidence", "Branches", "Recipes", "Models", "Budgets", "GitHub", "Plugins").forEach { name ->
+                        FilterChip(
+                            selected = tab == name,
+                            onClick = { tab = name },
+                            label = { Text(name, style = MaterialTheme.typography.labelLarge) },
+                            shape = RoundedCornerShape(12.dp)
+                        )
+                    }
+                }
             }
             notice?.let { TextButton(onClick = { model.notice.value = null }) { Text(it) } }
             if (tab in setOf("Context", "Evidence", "Branches", "Recipes")) {

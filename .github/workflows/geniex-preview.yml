@@ -30,7 +30,9 @@ jobs:
   preview:
     runs-on: ubuntu-latest
     # Independent compile/test/package stages, plus setup and artifact audits.
-    timeout-minutes: 150
+    # The arm64 GenieX QAIRT package includes a large libQnnHtpPrepare payload;
+    # keep the job bounded while allowing cold-run ApkFlinger packaging to finish.
+    timeout-minutes: 210
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
@@ -93,9 +95,11 @@ jobs:
       # ApkFlinger uses the common pool, independently of --max-workers. Serialize
       # native-library compression so simultaneous byte buffers cannot exhaust the heap.
       # This phase can legitimately outlast compilation on a cold runner; the previous
-      # 25-minute bound terminated Gradle during active packaging without an error.
+      # 25- and 45-minute bounds terminated Gradle during active packaging without an
+      # error after AAPT2 had completed. Keep this as one bounded, independently
+      # auditable stage rather than weakening the native stack checks below.
       - name: Package the minified GenieX APK in a fresh process
-        timeout-minutes: 45
+        timeout-minutes: 90
         shell: bash
         run: |
           set -o pipefail

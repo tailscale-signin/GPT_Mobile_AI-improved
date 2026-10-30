@@ -14,6 +14,15 @@ import org.junit.Test
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class GitHubTaskRecoveryTest {
+    @Test fun recoveryInstructionsRemainBoundedWithRepositoryContext() {
+        val context = dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext("connection", "owner", "repo", "feature", "a".repeat(40), "profile", stagedFileCount = 2, recentCommits = List(100) { "b".repeat(500) + "\nuntrusted continuation" }, observedAtMillis = 123)
+        val prompt = context.promptContext()
+        assertTrue(prompt.length < 2000)
+        assertTrue(prompt.contains("github_watch_checks"))
+        assertTrue(prompt.contains("2 changed file(s)"))
+        assertFalse(prompt.contains("untrusted continuation"))
+    }
+
     @Test fun cooldownAndBoundsAreRespected() {
         assertEquals(15672L, GitHubTaskRecovery.delayMillis("LOCAL_SERVICE_UNREACHABLE: CONNECT_TIMEOUT; retryAfterMs=15672", 0))
         assertEquals(14031L, GitHubTaskRecovery.delayMillis("LOCAL_SERVICE_UNREACHABLE: CONNECT_TIMEOUT; retryAfterMs=14031", 0))

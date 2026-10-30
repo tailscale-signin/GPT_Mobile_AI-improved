@@ -200,6 +200,7 @@
     "gateway/v14/tools.py",
     "release-scope.json",
     "scripts/build_metrics.py",
+    "scripts/check_dependency_review.py",
     "scripts/check_required_verification.py",
     "scripts/ci_artifact_retention.py",
     "scripts/ci_observability.py",

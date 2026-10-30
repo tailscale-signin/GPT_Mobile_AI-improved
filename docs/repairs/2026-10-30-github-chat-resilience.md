@@ -32,3 +32,11 @@ The supplied schema-6 diagnostics identify app 0.9.63.0 (131), commit e69abe9919
 ## Publication follow-up
 
 The user authorized final review, PR publication, merge after green checks, and signed publication. The release candidate is 0.9.64.0 (132), based on the last published 0.9.63.0 commit af348e0a4c556bf7cb212b8455a83deacbefbe67; its explicit scope also includes the already merged PRs #760–#763. Final review added regression cases ensuring cooldown values containing 403 or 429 are not mistaken for HTTP authentication/rate-limit failures. CI and release results must be reconciled against the final head before merge or publication.
+
+## CI follow-up
+
+PR #764 head dfb1654d completed 5,484 Android unit tests: 5,478 passed, four skipped and two failed. The failures exposed overly broad write-alias normalization and a workspace prompt exceeding its existing 2,000-character fixture budget. Canonical write names are again required, while the explicit PR alias remains supported; the task instructions are shortened without dropping recovery or check-watch guidance. Existing assertions remain intact, with additional compact-context coverage.
+
+The UI APK audit measured AgentRunner.executeLoop at 19,822 DEX code units against the unchanged exclusive 16,383-unit limit. Failure recovery is extracted into a separate non-inline coroutine with per-run recovery state; the next APK audit must verify the resulting compiled size. No size threshold was changed. CI also returned HTTP 403 from dependency review for the version-only build-file change. The dependency selector now proves that only the two literal app version fields changed and all other bytes are identical before classifying this as no dependency change; all other manifest edits still require the advisory API and fail closed on API errors. Regression cases cover dependency edits, added build logic, computed/duplicate version fields and file creation/deletion.
+
+Local follow-up: 234 host tests and 71 focused Kotlin tests passed, including the original ToolBatchPlanner assertions, task recovery, and compact context. Full Android and DEX verification must pass again on the updated head before merge.

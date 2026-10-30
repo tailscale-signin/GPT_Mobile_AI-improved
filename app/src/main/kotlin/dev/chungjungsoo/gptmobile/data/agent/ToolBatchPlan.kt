@@ -78,7 +78,7 @@ internal fun resolveGitHubReadAlias(call: ProviderEvent.ToolCall, availableNames
         "github_pull_request", "github_pull_request__github_api" -> "github_pr"
         else -> call.name
     }
-    if (requested !in dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.names) return call
+    if (requested !in setOf("github_context", "github_read", "github_search", "github_pr")) return call
     val canonical = availableNames.singleOrNull { it == requested || it.startsWith(requested + "__") } ?: return call
     return call.copy(name = canonical)
 }

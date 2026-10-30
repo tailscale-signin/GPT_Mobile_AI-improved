@@ -87,11 +87,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.key.isCtrlPressed
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -104,7 +109,10 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.vectorResource
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.isTraversalGroup
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -1524,7 +1532,7 @@ internal fun ChatMessagePair(
                                             useful?.let { onCombinedProfileClick(it.uid) }
                                         }) { Text(stringResource(R.string.audit_view_replies)) }
                                     }
-                                    if (isSourceResponse && combinedSynthesisIndex >= 0 && (assistantContent.isNotBlank() || selectedSourceReader != null)) TextButton(onClick = { onUseCombinedReply(messageIndex, selectedProfile!!.uid) }, enabled = isIdle && canUseChat) { Text("Use reply") }
+                                    if (isSourceResponse && combinedSynthesisIndex >= 0 && (assistantContent.isNotBlank() || selectedSourceReader != null)) TextButton(onClick = { selectedProfile?.let { onUseCombinedReply(messageIndex, it.uid) } }, enabled = isIdle && canUseChat) { Text("Use reply") }
                                 }
                             }
                         }
@@ -2029,7 +2037,24 @@ fun ChatInputBox(
     val scope = rememberCoroutineScope()
     val chatInputLineLimits = TextFieldLineLimits.MultiLine(maxHeightInLines = 5)
     val hasQuestionText = inputState.text.isNotEmpty()
+    val inputFocus = remember { androidx.compose.ui.focus.FocusRequester() }
+    val haptic = dev.chungjungsoo.gptmobile.presentation.common.rememberAppHaptic()
+    var composerNotice by remember { mutableStateOf("") }
+    val sendAction = {
+        if (chatEnabled && sendButtonEnabled && (inputState.text.isNotEmpty() || selectedAttachments.isNotEmpty())) {
+            haptic(dev.chungjungsoo.gptmobile.presentation.common.AppHaptic.CONFIRMATION)
+            composerNotice = "Sending message"
+            onSendButtonClick()
+        }
+    }
     var attachmentMenu by remember { mutableStateOf(false) }
+    LaunchedEffect(composerNotice) {
+        if (composerNotice.isNotEmpty()) {
+            kotlinx.coroutines.delay(2000)
+            composerNotice = ""
+        }
+    }
+    LaunchedEffect(isRunning) { if (isRunning) composerNotice = "Response in progress" }
 
     val filePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
@@ -2051,7 +2076,7 @@ fun ChatInputBox(
             .padding(horizontal = 16.dp, vertical = 8.dp)
     ) {
         Surface(
-            modifier = Modifier.fillMaxWidth().glassBackdrop(inputShape, opacity = CHAT_INPUT_OPACITY, force = true).testTag("chat_input_glass"),
+            modifier = Modifier.fillMaxWidth().semantics { isTraversalGroup = true }.glassBackdrop(inputShape, opacity = CHAT_INPUT_OPACITY, force = true).testTag("chat_input_glass"),
             shape = inputShape,
             color = if (hasGlassBackdrop(force = true)) Color.Transparent else inputTokens.background,
             contentColor = inputTokens.foreground,
@@ -2060,6 +2085,8 @@ fun ChatInputBox(
             shadowElevation = 0.dp
         ) {
             Column {
+                ChatMemoryStatus()
+                if (composerNotice.isNotEmpty()) Text(composerNotice, style = MaterialTheme.typography.labelSmall, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
                 if (selectedAttachments.isNotEmpty()) {
                     FileThumbnailRow(
                         selectedAttachments = selectedAttachments,
@@ -2069,7 +2096,14 @@ fun ChatInputBox(
                 }
                 BasicTextField(
                     state = inputState,
-                    modifier = Modifier.fillMaxWidth().onFocusChanged { onComposerFocusChanged(it.isFocused) },
+                    modifier = Modifier.fillMaxWidth().focusRequester(inputFocus).semantics { contentDescription = "Message input" }.onPreviewKeyEvent {
+                        if (it.isCtrlPressed && it.key == androidx.compose.ui.input.key.Key.Enter) {
+                            if (it.type == androidx.compose.ui.input.key.KeyEventType.KeyUp) sendAction()
+                            true
+                        } else {
+                            false
+                        }
+                    }.onFocusChanged { onComposerFocusChanged(it.isFocused) },
                     enabled = chatEnabled,
                     textStyle = mergedStyle,
                     cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
@@ -2122,7 +2156,7 @@ fun ChatInputBox(
                             FilledIconButton(
                                 colors = IconButtonDefaults.filledIconButtonColors(containerColor = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary),
                                 enabled = chatEnabled && sendButtonEnabled && (hasQuestionText || selectedAttachments.isNotEmpty()),
-                                onClick = onSendButtonClick,
+                                onClick = sendAction,
                                 modifier = Modifier.testTag("chat_send")
                             ) {
                                 Icon(

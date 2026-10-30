@@ -8,6 +8,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.BuiltInAgentTool
 import dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder
 import dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryContext
 import dev.chungjungsoo.gptmobile.data.github.GitHubWorkspaceClient
+import dev.chungjungsoo.gptmobile.data.github.normalizeGitHubWorkflowSelector
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.request.get
@@ -181,7 +182,7 @@ class GitHubTool(
                         "workflow_id",
                         buildJsonObject {
                             put("type", "string")
-                            put("description", "Workflow ID or filename, such as release-build.yml. Used by dispatch_workflow and optionally publish_release/release_status.")
+                            put("description", "Discovered workflow ID, filename or .github/workflows/release-build.yml path. Used by dispatch_workflow and optionally publish_release/release_status.")
                         }
                     )
                     put(
@@ -817,6 +818,29 @@ class GitHubTool(
         require(page in 1..1000) { "Page must be between 1 and 1000." }
         val pagination = "?per_page=30&page=$page"
         val write = action in setOf("dispatch_workflow", "rerun_workflow", "rerun_failed_jobs", "cancel_workflow")
+        if (action == "dispatch_workflow" && arguments["workflow_id"]?.jsonPrimitive?.content.isNullOrBlank()) {
+            val discovery = handleWorkflowAction(callId, "list_workflows", arguments)
+            if (discovery.isError) return discovery
+            return AgentToolResult(
+                callId,
+                ToolResultContent.Json(
+                    buildJsonObject {
+                        put("message", "Select an explicit workflow_id and ref from discovery before dispatching. No workflow was started.")
+                        put(
+                            "discovery",
+                            when (val content = discovery.content) {
+                                is ToolResultContent.Json -> content.value
+                                is ToolResultContent.Text -> jsonParser.parseToJsonElement(content.text)
+                                else -> JsonPrimitive("Use github_ci action=workflows.")
+                            }
+                        )
+                    }
+                ),
+                true,
+                errorCode = "WORKFLOW_SELECTION_REQUIRED",
+                dispatched = false
+            )
+        }
         val path = when (action) {
             "list_workflows" -> "/workflows$pagination"
             "get_workflow_run" -> "/runs/${positiveId("run_id")}"
@@ -824,8 +848,7 @@ class GitHubTool(
             "list_workflow_artifacts" -> "/runs/${positiveId("run_id")}/artifacts$pagination"
             "get_job_logs" -> "/jobs/${positiveId("job_id")}/logs"
             "dispatch_workflow" -> {
-                val workflow = arguments["workflow_id"]?.jsonPrimitive?.content.orEmpty()
-                require(Regex("[A-Za-z0-9_.-]+").matches(workflow)) { "A workflow ID or filename is required." }
+                val workflow = normalizeGitHubWorkflowSelector(arguments["workflow_id"]?.jsonPrimitive?.content.orEmpty())
                 "/workflows/$workflow/dispatches"
             }
             "rerun_workflow" -> "/runs/${positiveId("run_id")}/rerun"
@@ -862,7 +885,7 @@ class GitHubTool(
                 } else if (action == "get_job_logs") {
                     text
                 } else {
-                    compactWorkflowPayload(action, text)
+                    compactWorkflowPayload(action, text, page)
                 }
             )
         } else if (write) {
@@ -872,7 +895,7 @@ class GitHubTool(
         }
     }
 
-    private fun compactWorkflowPayload(action: String, text: String): String {
+    private fun compactWorkflowPayload(action: String, text: String, page: Int): String {
         val parsed = runCatching { jsonParser.parseToJsonElement(text) }.getOrNull() ?: return truncate(text, MAX_OUTPUT_CHARS)
         if (parsed !is JsonObject) return truncate(text, MAX_OUTPUT_CHARS)
 
@@ -880,6 +903,11 @@ class GitHubTool(
             val values = parsed[key]?.jsonArray ?: JsonArray(emptyList())
             return buildJsonObject {
                 put("total_count", parsed["total_count"] ?: JsonPrimitive(values.size))
+                put("page", page)
+                val total = parsed["total_count"]?.jsonPrimitive?.intOrNull
+                val hasMore = if (total != null) page * 30 < total else values.size == 30
+                put("has_more", hasMore)
+                if (hasMore) put("continuation", buildJsonObject { put("page", page + 1) })
                 put(
                     key,
                     buildJsonArray {

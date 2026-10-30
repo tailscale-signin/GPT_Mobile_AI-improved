@@ -19918,6 +19918,8 @@ def v12_enforce_request_budget(payload):
 
 
 def v12_isolated_delegate(runtime_perf):
+    if runtime_perf.get("github_client_owned"):
+        return True
     if runtime_perf.get("request_role") in {"reviewer", "follow_up", "synthesis", "follow_up_synthesis"}:
         return True
     return bool(runtime_perf.get("delegated_worker", False)) and (

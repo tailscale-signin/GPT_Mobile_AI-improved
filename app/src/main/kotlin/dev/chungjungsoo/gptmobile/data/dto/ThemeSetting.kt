@@ -13,8 +13,33 @@ data class ThemeSetting(
     val recoveryWarning: String? = null,
     val activeProfileId: String? = null,
     val overlayMaterial: String = "glass",
-    val overlayBlur: String = "auto"
+    val overlayBlur: String = "auto",
+    val textScale: Float = 1f,
+    val adaptiveAnswerText: Boolean = true,
+    val hapticsEnabled: Boolean = true,
+    val hapticStrength: Float = 0.5f,
+    val themeHistory: List<ThemeSnapshot> = emptyList()
 )
+
+@Serializable
+data class ThemeSnapshot(
+    val mode: ThemeMode,
+    val dynamic: DynamicTheme,
+    val primary: Long?,
+    val palette: CustomThemePalette?,
+    val savedAt: Long = 0L
+)
+
+fun ThemeSetting.snapshot() = ThemeSnapshot(themeMode, dynamicTheme, customPrimaryArgb, customPalette, System.currentTimeMillis())
+
+fun ThemeSetting.recordPrevious(previous: ThemeSetting): ThemeSetting {
+    val changed = themeMode != previous.themeMode || dynamicTheme != previous.dynamicTheme || customPalette != previous.customPalette || customPrimaryArgb != previous.customPrimaryArgb
+    return copy(
+        textScale = textScale.takeIf { it.isFinite() }?.coerceIn(1f, 1.5f) ?: 1f,
+        hapticStrength = hapticStrength.takeIf { it.isFinite() }?.coerceIn(0.1f, 1f) ?: 0.5f,
+        themeHistory = if (changed && themeHistory == previous.themeHistory) (previous.themeHistory + previous.snapshot()).takeLast(10) else themeHistory.takeLast(10)
+    )
+}
 
 @Serializable
 data class CustomThemePalette(

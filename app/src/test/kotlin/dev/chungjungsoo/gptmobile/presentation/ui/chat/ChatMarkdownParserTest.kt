@@ -8,6 +8,24 @@ import org.junit.Test
 @org.junit.runner.RunWith(org.robolectric.RobolectricTestRunner::class)
 @org.robolectric.annotation.Config(sdk = [34], application = android.app.Application::class)
 class ChatMarkdownParserTest {
+    @Test fun canceledLargeParseDoesNotPopulateCacheAndMemoryTrimDropsDerivedEntries() {
+        val source = "Long plain text. ".repeat(2000)
+        var checks = 0
+        val failure = runCatching {
+            parseChatMarkdown(source, checkActive = {
+                checks++
+                if (checks == 3) throw kotlinx.coroutines.CancellationException("renderer disposed")
+            })
+        }.exceptionOrNull()
+        assertTrue(failure is kotlinx.coroutines.CancellationException)
+        val first = parseChatMarkdown(source)
+        org.junit.Assert.assertSame(first, parseChatMarkdown(source))
+        clearChatMarkdownParseCache()
+        val restored = parseChatMarkdown(source)
+        assertEquals(first, restored)
+        org.junit.Assert.assertNotSame(first, restored)
+    }
+
     @Test
     fun parseChatMarkdown_inlineMathAndDisplayMath_supportedDelimiters() {
         val parsed = parseChatMarkdown(

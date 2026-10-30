@@ -36,7 +36,7 @@ jobs:
         run: python3 scripts/check_unified_reliability_pr.py --head-ref "$HEAD_REF"
 
   validate:
-    name: Unit tests and Android lint
+    name: Unit tests, heap checks and review APK
     runs-on: ubuntu-latest
     # Leave time for diagnostics after the individually bounded validation steps.
     timeout-minutes: 125
@@ -76,7 +76,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          python3 scripts/gradle_retry.py -- :app:testDebugUnitTest :app:jacocoTestReport --no-daemon --info 2>&1 | tee test.log || (echo "=== TEST FAILURE LOG ===" && tail -n 100 test.log && exit 1)
+          python3 scripts/build_metrics.py --label unit-tests --output build/reports/profile/unit-metrics.json -- python3 scripts/gradle_retry.py -- :app:testDebugUnitTest :app:jacocoTestReport --no-daemon --info 2>&1 | tee test.log || (echo "=== TEST FAILURE LOG ===" && tail -n 100 test.log && exit 1)
           python3 scripts/check_jacoco_coverage.py app/build/reports/jacoco/jacocoTestReport/jacocoTestReport.xml
 
       - name: Upload generated statistics schema and reports
@@ -96,15 +96,6 @@ jobs:
       - name: Verify exported Room schemas
         if: always()
         run: python3 scripts/check_room_schemas.py
-
-      - name: Run Android Lint
-        id: android_lint
-        # The expanded app's cold local lint pass took 19m29s; retain useful headroom.
-        timeout-minutes: 30
-        shell: bash
-        run: |
-          set -o pipefail
-          python3 scripts/gradle_retry.py -- :app:lintDebug --no-daemon --info 2>&1 | tee lint.log || (echo "=== LINT FAILURE LOG ===" && tail -n 100 lint.log && exit 1)
 
       - name: Verify recovery and exports with a 256 MiB Java heap
         id: heap_recovery
@@ -136,7 +127,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          python3 scripts/gradle_retry.py -- :app:assembleDebug --no-daemon 2>&1 | tee apk.log
+          python3 scripts/build_metrics.py --label review-apk --output build/reports/profile/review-metrics.json -- python3 scripts/gradle_retry.py -- :app:assembleDebug --no-daemon 2>&1 | tee apk.log
           python3 scripts/check_local_runtime_apk.py app/build/outputs/apk/debug/*.apk
           python3 scripts/check_no_telemetry.py app/build/outputs/apk/debug/*.apk
           for apk in app/build/outputs/apk/debug/*.apk; do
@@ -188,6 +179,7 @@ jobs:
             apk.log
             app/build/test-results/heapRecovery/*.xml
             app/build/reports/reliability-ui/*.png
+            build/reports/profile/*-metrics.json
           if-no-files-found: ignore
           retention-days: 7
 
@@ -195,7 +187,6 @@ jobs:
         if: always()
         env:
           UNIT_TEST_OUTCOME: ${{ steps.unit_tests.outcome }}
-          ANDROID_LINT_OUTCOME: ${{ steps.android_lint.outcome }}
           HEAP_RECOVERY_OUTCOME: ${{ steps.heap_recovery.outcome }}
           REVIEW_APK_OUTCOME: ${{ steps.review_apk.outcome }}
         run: |
@@ -205,10 +196,45 @@ jobs:
             echo "| Validation | Result |"
             echo "| --- | --- |"
             printf '| Unit tests and coverage | %s |\n' "${UNIT_TEST_OUTCOME:-not run}"
-            printf '| Android lint | %s |\n' "${ANDROID_LINT_OUTCOME:-not run}"
             printf '| 256 MiB recovery and export gate | %s |\n' "${HEAP_RECOVERY_OUTCOME:-not run}"
             printf '| APK build and runtime verification | %s |\n' "${REVIEW_APK_OUTCOME:-not run}"
           } >> "$GITHUB_STEP_SUMMARY"
+
+  android_lint:
+    name: Android lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: ./.github/actions/setup-android
+
+      - name: Install Vulkan shader headers for Android GGUF backend
+        timeout-minutes: 8
+        run: |
+          trap 'echo "::error::Android native dependency installation failed or timed out. Retry after checking the Ubuntu package mirror and dpkg lock."' ERR
+          apt_options=(-o Acquire::Retries=2 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 -o DPkg::Lock::Timeout=60)
+          sudo timeout --kill-after=15s 180s apt-get "${apt_options[@]}" update
+          sudo env DEBIAN_FRONTEND=noninteractive timeout --kill-after=15s 180s apt-get "${apt_options[@]}" install --no-install-recommends -y glslc libvulkan-dev spirv-headers
+
+      - name: Run Android Lint
+        id: android_lint
+        # The expanded app's cold local lint pass took 19m29s; retain useful headroom.
+        timeout-minutes: 45
+        shell: bash
+        run: |
+          set -o pipefail
+          python3 scripts/gradle_retry.py -- :app:lintDebug --no-daemon --info 2>&1 | tee lint.log || (echo "=== LINT FAILURE LOG ===" && tail -n 100 lint.log && exit 1)
+
+      - name: Retain lint diagnostics
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: android-lint-reports
+          path: |
+            lint.log
+            app/build/reports/lint-results-debug.*
+          if-no-files-found: ignore
+          retention-days: 14
 
   contracts:
     name: Repository and gateway contracts
@@ -286,7 +312,7 @@ jobs:
   required_verification:
     name: Required verification
     if: always()
-    needs: [reliability_v2_completion, validate, contracts, format]
+    needs: [reliability_v2_completion, validate, android_lint, contracts, format]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

@@ -536,7 +536,7 @@ class SettingRepositoryImpl @Inject constructor(
                 savedProfiles = currentThemes.savedProfiles,
                 activeProfileId = currentThemes.activeProfileId,
                 overlayMaterial = currentThemes.overlayMaterial,
-                overlayBlur = currentThemes.overlayBlur
+                overlayBlur = currentThemes.overlayBlur, textScale = currentThemes.textScale, adaptiveAnswerText = currentThemes.adaptiveAnswerText, hapticsEnabled = currentThemes.hapticsEnabled, hapticStrength = currentThemes.hapticStrength, themeHistory = currentThemes.themeHistory
             ),
             platforms = currentPlatforms.map { p ->
                 PlatformBackupDto(
@@ -577,7 +577,7 @@ class SettingRepositoryImpl @Inject constructor(
         backup.theme?.let { themeDto ->
             val dynamicTheme = if (themeDto.dynamicTheme) DynamicTheme.ON else DynamicTheme.OFF
             val themeMode = ThemeMode.getByValue(themeDto.themeMode) ?: ThemeMode.SYSTEM
-            updateThemes(ThemeSetting(dynamicTheme = dynamicTheme, themeMode = themeMode, customPrimaryArgb = themeDto.customPrimaryArgb, customPalette = themeDto.customPalette, savedProfiles = themeDto.savedProfiles, activeProfileId = themeDto.activeProfileId, overlayMaterial = themeDto.overlayMaterial, overlayBlur = themeDto.overlayBlur))
+            updateThemes(ThemeSetting(dynamicTheme = dynamicTheme, themeMode = themeMode, customPrimaryArgb = themeDto.customPrimaryArgb, customPalette = themeDto.customPalette, savedProfiles = themeDto.savedProfiles, activeProfileId = themeDto.activeProfileId, overlayMaterial = themeDto.overlayMaterial, overlayBlur = themeDto.overlayBlur, textScale = themeDto.textScale, adaptiveAnswerText = themeDto.adaptiveAnswerText, hapticsEnabled = themeDto.hapticsEnabled, hapticStrength = themeDto.hapticStrength, themeHistory = themeDto.themeHistory))
         }
 
         if (backup.favoriteGroups.isNotEmpty()) {

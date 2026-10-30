@@ -11,6 +11,12 @@ import kotlin.math.min
 
 internal data class ContrastCheck(val role: String, val ratio: Double, val minimum: Double = 4.5) {
     val passes: Boolean get() = ratio >= minimum
+    val level: String get() = when {
+        !passes -> "Below AA"
+        minimum == 3.0 -> "Pass (non-text)"
+        ratio >= 7.0 -> "AAA"
+        else -> "AA"
+    }
 }
 
 /** Alpha is blended before measuring WCAG relative luminance. */

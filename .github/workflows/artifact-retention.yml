@@ -1,0 +1,54 @@
+name: Artifact retention
+on:
+  workflow_dispatch:
+    inputs:
+      apply:
+        type: boolean
+        description: 'Delete eligible artifacts after fresh inventory and identity checks (default previews only)'
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: artifact-retention
+  cancel-in-progress: false
+jobs:
+  preview:
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && !inputs.apply
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - run: python3 scripts/ci_artifact_retention.py
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: artifact-retention-plan
+          path: artifact-retention-plan.json
+          retention-days: 7
+  cleanup:
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && inputs.apply
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    permissions:
+      contents: read
+      actions: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - run: python3 scripts/ci_artifact_retention.py --apply
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: artifact-retention-result
+          path: artifact-retention-plan.json
+          retention-days: 7
+          if-no-files-found: warn

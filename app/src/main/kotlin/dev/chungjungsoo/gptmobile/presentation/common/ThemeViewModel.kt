@@ -78,6 +78,18 @@ class ThemeViewModel @Inject constructor(private val settingRepository: SettingR
         viewModelScope.launch { persistTheme { it.copy(savedProfiles = it.savedProfiles.filterNot { profile -> profile.name == name }) } }
     }
 
+    fun updateAccessibility(textScale: Float? = null, enabled: Boolean? = null, strength: Float? = null, adaptiveAnswers: Boolean? = null) {
+        viewModelScope.launch { persistTheme { it.copy(adaptiveAnswerText = adaptiveAnswers ?: it.adaptiveAnswerText, textScale = textScale ?: it.textScale, hapticsEnabled = enabled ?: it.hapticsEnabled, hapticStrength = strength ?: it.hapticStrength) } }
+    }
+
+    fun restoreTheme(snapshot: dev.chungjungsoo.gptmobile.data.dto.ThemeSnapshot) {
+        viewModelScope.launch { persistTheme { it.copy(themeMode = snapshot.mode, dynamicTheme = snapshot.dynamic, customPalette = snapshot.palette, customPrimaryArgb = snapshot.primary, activeProfileId = "custom") } }
+    }
+
+    fun clearThemeHistory() {
+        viewModelScope.launch { persistTheme { it.copy(themeHistory = emptyList()) } }
+    }
+
     private suspend fun persistTheme(transform: (ThemeSetting) -> ThemeSetting) {
         themeMutex.withLock {
             val updated = settingRepository.mutateThemes(transform)

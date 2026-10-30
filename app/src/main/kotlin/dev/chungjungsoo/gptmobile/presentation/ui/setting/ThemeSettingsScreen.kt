@@ -230,7 +230,7 @@ fun ThemeSettingsScreen(onDismiss: () -> Unit, asDialog: Boolean = true, initial
                                             }
                                             item {
                                                 TextButton(onClick = { readability = !readability }) { Text(if (checks.all { it.passes }) androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_a659977d52) else androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_3fc7b61ec2, (checks.count { !it.passes }).toString())) }
-                                                if (readability) checks.forEach { Text("${it.role}: %.2f / %.1f".format(it.ratio, it.minimum)) }
+                                                if (readability) checks.forEach { Text("${it.role}: %.2f · ${it.level}".format(it.ratio)) }
                                                 if (checks.any { !it.passes }) {
                                                     TextButton(onClick = {
                                                         suggestionUndo = kotlinx.serialization.json.Json.encodeToString(CustomThemePalette.serializer(), palette)
@@ -269,6 +269,7 @@ fun ThemeSettingsScreen(onDismiss: () -> Unit, asDialog: Boolean = true, initial
                                                 dev.chungjungsoo.gptmobile.presentation.common.GlassMaterialPreview()
                                             }
                                         }
+                                        item { AccessibilitySettingsPanel() }
                                         item { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_appearance_mode_3a6b5), style = MaterialTheme.typography.titleMedium) }
                                         item { FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) { ThemeMode.entries.forEach { mode -> FilterChip(selected = draft.mode == mode, onClick = { editor.edit { it.copy(mode = mode) } }, label = { Text(mode.name.lowercase().replaceFirstChar { it.uppercase() }) }) } } }
                                         item {

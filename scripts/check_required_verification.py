@@ -5,7 +5,7 @@ import os
 import sys
 from pathlib import Path
 
-EXPECTED_JOBS = {'reliability_v2_completion', 'validate', 'contracts', 'format'}
+EXPECTED_JOBS = {'reliability_v2_completion', 'validate', 'android_lint', 'contracts', 'format'}
 
 
 def failures(needs):

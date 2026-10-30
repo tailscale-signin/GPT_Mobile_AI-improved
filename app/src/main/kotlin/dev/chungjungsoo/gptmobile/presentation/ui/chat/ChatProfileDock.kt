@@ -7,6 +7,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
@@ -108,12 +109,13 @@ internal fun ChatProfileDock(
                     shape = RoundedCornerShape(18.dp),
                     border = BorderStroke(if (active) 2.dp else 1.dp, if (active) colors.primary else colors.secondary.copy(alpha = 0.4f)),
                     modifier = Modifier
+                        .heightIn(min = 48.dp)
                         .testTag("dock_profile_" + (uid ?: "combined"))
                         .semantics {
                             selected = active
                             stateDescription = status
                         }
-                        .combinedClickable(role = Role.Tab, onClick = { onSelect(uid) }, onLongClick = uid?.takeIf { onPause != null }?.let { { onPause?.invoke(it) } })
+                        .combinedClickable(role = Role.Tab, onLongClickLabel = "Pause or resume profile", onClick = { onSelect(uid) }, onLongClick = uid?.takeIf { onPause != null }?.let { { onPause?.invoke(it) } })
                 ) {
                     Row(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                         if (running) CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp, color = colors.primary)

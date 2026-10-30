@@ -173,7 +173,7 @@ private fun DocumentViewport(
                             }
                         )
                     }
-                    ChatMarkdown(content = display, contentIdentity = "$identity:$index:${block.digest}", wording = presentation, outputTrace = outputTrace?.copy(partId = "${outputTrace.partId}:block:$index:${block.digest}"), proseColor = proseColor, streaming = false, modifier = Modifier.padding(vertical = 8.dp), minimumPendingHeight = viewport, onContentDrawn = onVisiblePage)
+                    ChatMarkdown(adaptiveAnswerLength = if (count == 1) display.length else 1200, content = display, contentIdentity = "$identity:$index:${block.digest}", wording = presentation, outputTrace = outputTrace?.copy(partId = "${outputTrace.partId}:block:$index:${block.digest}"), proseColor = proseColor, streaming = false, modifier = Modifier.padding(vertical = 8.dp), minimumPendingHeight = viewport, onContentDrawn = onVisiblePage)
                     articleCards(block.text)
                 }
                 loaded.failed -> Text("This part of the saved answer could not be opened.", color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(vertical = 12.dp))

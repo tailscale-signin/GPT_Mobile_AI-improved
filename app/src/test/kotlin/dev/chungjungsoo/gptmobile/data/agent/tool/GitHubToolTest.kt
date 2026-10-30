@@ -22,6 +22,40 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubToolTest {
+    @Test fun workflowPathsNormalizeAndMissingSelectionOnlyDiscovers() = runTest {
+        val requests = mutableListOf<String>()
+        val http = HttpClient(
+            MockEngine { request ->
+                requests += "${request.method.value} ${request.url.encodedPath}"
+                when (request.url.encodedPath) {
+                    "/repos/owner/repo/actions/workflows" -> respond("""{"total_count":31,"workflows":[{"id":1,"path":".github/workflows/build.yml"}]}""")
+                    "/repos/owner/repo/actions/workflows/build.yml/dispatches" -> respond("", HttpStatusCode.NoContent)
+                    else -> error("Unexpected workflow path")
+                }
+            }
+        )
+        try {
+            val tool = GitHubTool("token", http)
+            val common = buildJsonObject {
+                put("owner", "owner")
+                put("repo", "repo")
+                put("ref", "work")
+                put("action", "dispatch_workflow")
+            }
+            val missing = tool.execute("missing", common)
+            assertEquals("WORKFLOW_SELECTION_REQUIRED", missing.errorCode)
+            assertFalse(requests.any { it.startsWith("POST") })
+            val selected = tool.execute("selected", kotlinx.serialization.json.JsonObject(common + ("workflow_id" to kotlinx.serialization.json.JsonPrimitive(".github/workflows/build.yml"))))
+            assertFalse(selected.isError)
+            assertEquals(1, requests.count { it.startsWith("POST") })
+            for (path in listOf("../build.yml", ".github/workflows/../build.yml", "/build.yml", ".")) {
+                assertTrue(runCatching { dev.chungjungsoo.gptmobile.data.github.normalizeGitHubWorkflowSelector(path) }.isFailure)
+            }
+        } finally {
+            http.close()
+        }
+    }
+
     @Test fun existingBranchIsReconciledWithoutUpdatingOrSelectingIt() = runTest {
         val base = "a".repeat(40)
         val existing = "b".repeat(40)

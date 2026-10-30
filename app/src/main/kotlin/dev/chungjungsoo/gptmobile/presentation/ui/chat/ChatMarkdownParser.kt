@@ -12,7 +12,7 @@ private const val MAX_FENCE_INDENT = 3
  */
 private val markdownParseCache = object : LruCache<String, ParsedChatMarkdown>(2 * 1024 * 1024) {
     override fun sizeOf(key: String, value: ParsedChatMarkdown): Int =
-        (key.length.toLong() * 4 + value.inlineMath.sumOf { it.tex.length.toLong() * 2 }).coerceIn(1, Int.MAX_VALUE.toLong()).toInt()
+        (key.length.toLong() * 4 + value.inlineMath.sumOf { (it.tex.length.toLong() + it.placeholder.length) * 2 + 64 } + value.sourceRuns.size * 48L + value.blocks.size * 48L).coerceIn(1, Int.MAX_VALUE.toLong()).toInt()
 }
 
 data class ParsedChatMarkdown(
@@ -32,7 +32,10 @@ data class InlineMathToken(
     val tex: String
 )
 
-fun parseChatMarkdown(content: String, cacheResult: Boolean = true): ParsedChatMarkdown {
+internal fun clearChatMarkdownParseCache() = markdownParseCache.evictAll()
+
+fun parseChatMarkdown(content: String, cacheResult: Boolean = true, checkActive: () -> Unit = {}): ParsedChatMarkdown {
+    checkActive()
     if (cacheResult) markdownParseCache.get(content)?.let { return it }
 
     val blocks = mutableListOf<ChatMarkdownBlock>()
@@ -43,6 +46,7 @@ fun parseChatMarkdown(content: String, cacheResult: Boolean = true): ParsedChatM
     var index = 0
 
     while (index < content.length) {
+        if (index % 1024 == 0) checkActive()
         val fence = detectFenceDelimiter(content, index)
         if (fence != null && isFenceStart(content, index)) {
             val fenceEnd = findFenceBlockEnd(content, index, fence)
@@ -66,7 +70,7 @@ fun parseChatMarkdown(content: String, cacheResult: Boolean = true): ParsedChatM
 
         val displayMath = detectDisplayMath(content, index)
         if (displayMath != null) {
-            flushMarkdownBuffer(markdownBuffer, blocks, inlineMath, bufferSourceStart, sourceRuns)
+            flushMarkdownBuffer(markdownBuffer, blocks, inlineMath, bufferSourceStart, sourceRuns, checkActive)
             blocks += ChatMarkdownBlock.DisplayMath(displayMath.tex)
             index = displayMath.endExclusive
             bufferSourceStart = index
@@ -77,8 +81,9 @@ fun parseChatMarkdown(content: String, cacheResult: Boolean = true): ParsedChatM
         index++
     }
 
-    flushMarkdownBuffer(markdownBuffer, blocks, inlineMath, bufferSourceStart, sourceRuns)
+    flushMarkdownBuffer(markdownBuffer, blocks, inlineMath, bufferSourceStart, sourceRuns, checkActive)
     val parsed = ParsedChatMarkdown(blocks = blocks, inlineMath = inlineMath, sourceRuns = sourceRuns)
+    checkActive()
     if (cacheResult && content.length <= 128 * 1024) markdownParseCache.put(content, parsed)
     return parsed
 }
@@ -95,7 +100,8 @@ private fun flushMarkdownBuffer(
     blocks: MutableList<ChatMarkdownBlock>,
     inlineMath: MutableList<InlineMathToken>,
     sourceStart: Int,
-    sourceRuns: MutableList<MarkdownSourceRun>
+    sourceRuns: MutableList<MarkdownSourceRun>,
+    checkActive: () -> Unit
 ) {
     if (markdownBuffer.isEmpty()) return
 
@@ -104,6 +110,7 @@ private fun flushMarkdownBuffer(
         content = markdownBuffer.toString(),
         startingIndex = inlineMath.size,
         tokens = inlineMath,
+        checkActive = checkActive,
         onCopied = { start, end, transformedStart ->
             copiedRuns += MarkdownSourceRun(blocks.size, sourceStart + start, sourceStart + end, transformedStart)
         }
@@ -119,6 +126,7 @@ private fun replaceInlineMath(
     content: String,
     startingIndex: Int,
     tokens: MutableList<InlineMathToken>,
+    checkActive: () -> Unit,
     onCopied: (Int, Int, Int) -> Unit
 ): String {
     val output = StringBuilder()
@@ -141,6 +149,7 @@ private fun replaceInlineMath(
     var index = 0
 
     while (index < content.length) {
+        if (index % 1024 == 0) checkActive()
         val fence = detectFenceDelimiter(content, index)
         if (fence != null && isFenceStart(content, index)) {
             val fenceEnd = findFenceBlockEnd(content, index, fence)

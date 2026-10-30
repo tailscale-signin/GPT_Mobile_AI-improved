@@ -12,6 +12,26 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubCheckWatchTest {
+    @Test fun mergedPullStopsPollingBeforeFetchingChecks() = runTest {
+        val paths = mutableListOf<String>()
+        val api = object : GitHubEngineeringApi({ "token" }) {
+            override suspend fun request(path: String, method: String, body: JSONObject?): String {
+                paths += path
+                return """{"state":"closed","merged":true,"head":{"sha":"$head"}}"""
+            }
+        }
+        val result = repository().inspect(watch, api)
+        assertEquals("MERGED", result.status)
+        assertTrue(result.terminal)
+        assertEquals(1, paths.size)
+    }
+
+    @Test fun closedPullDoesNotStopAnExplicitWorkflowRunWatch() {
+        val closed = Json.parseToJsonElement("""{"state":"closed","merged":false,"merged_at":null}""").jsonObject
+        assertEquals("CLOSED", closedPullRequestWatch(watch, closed)?.status)
+        assertEquals(null, closedPullRequestWatch(watch.copy(runId = 42), closed))
+    }
+
     private val head = "a".repeat(40)
     private val watch = GitHubCheckWatch("watch", 1, "connection", "profile", "owner", "repo", 758, null, head, 1)
     private fun repository() = GitHubCheckWatchRepository(mockk(relaxed = true), mockk(), mockk(), mockk(), mockk(), mockk())

@@ -1,4 +1,4 @@
-# Local gateway 14.2.0
+# Local gateway 14.3.0
 
 `gateway.py` is the stable launcher for v14. Install the complete reviewed package, including `manifest-v14.json`, the `v14/` package, the retained v13 runtime and transport modules, `gateway_multisearch.py`, `gateway_security.py`, and the pinned requirements. See [V14_UPGRADE.md](V14_UPGRADE.md) for installation, validation, upgrades and rollback. `gateway_v13.py` is a retained compatibility runtime, not the current launcher.
 
@@ -39,3 +39,5 @@ To update dependencies, edit `requirements.in`, resolve in a clean environment, 
 Install the complete v14 package on the server, validate its manifest, then restart using `gateway.py`. The historical `gateway_v12.1.py` launcher still loads v12. Each new delegated generation sends an `X-Gateway-Attempt-ID`; reconnects within that attempt retain it, while retries and output repairs receive new IDs. Singleflight now includes the attempt ID, completion budget, reasoning configuration, and tool policy, so a failed 768-token completion cannot be replayed as the next inference or a larger repair.
 
 The app sends worker isolation headers even when reasoning is enabled. Reviewer requests have no tool catalog and explicitly disable gateway-local tools. Page crawling is app-owned; reviewers assess completed delegate evidence only. External Perplexity authentication failures and MCP initialization 404s still require correcting the configured key or endpoint; the app stops automatic repeated attempts and reports those configuration errors.
+
+GitHub-focused routing, bounded immutable reads and new diagnostics are documented in [GITHUB_UPGRADE_14_3.md](GITHUB_UPGRADE_14_3.md).

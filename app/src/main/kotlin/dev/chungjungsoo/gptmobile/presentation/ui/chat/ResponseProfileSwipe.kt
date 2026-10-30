@@ -23,12 +23,14 @@ internal fun Modifier.responseProfileSwipe(count: Int, selected: Int, select: (I
     if (count < 2) return this
     val callback = rememberUpdatedState(select)
     val index = rememberUpdatedState(selected)
+    val haptic = dev.chungjungsoo.gptmobile.presentation.common.rememberAppHaptic()
     val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
     val threshold = with(LocalDensity.current) { 56.dp.toPx() }
     val next = stringResource(R.string.audit_next_profile)
     val previous = stringResource(R.string.audit_previous_profile)
     fun move(direction: Int): Boolean = adjacentResponseIndex(index.value, count, direction)?.let {
         callback.value(it)
+        haptic(dev.chungjungsoo.gptmobile.presentation.common.AppHaptic.NAVIGATION)
         true
     } ?: false
     return semantics {

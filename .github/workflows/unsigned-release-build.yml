@@ -81,11 +81,11 @@ jobs:
       - name: Shrink release code in a separate process
         run: |
           # Release the compiler/R8 analysis heap before packaging all ABI splits.
-          ./gradlew :app:minifyReleaseWithR8 --no-daemon --max-workers=1 --console=plain --stacktrace -Pkotlin.compiler.execution.strategy=in-process '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -Dfile.encoding=UTF-8'
+          python3 scripts/build_metrics.py --label minifyReleaseWithR8 --output build/reports/profile/minifyReleaseWithR8-metrics.json -- ./gradlew :app:minifyReleaseWithR8 --no-daemon --max-workers=1 --console=plain --stacktrace --profile -Pkotlin.compiler.execution.strategy=in-process '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -Dfile.encoding=UTF-8'
 
       - name: Build optimized release APKs
         run: |
-          ./gradlew :app:assembleRelease --no-daemon --max-workers=1 --console=plain --stacktrace -Pkotlin.compiler.execution.strategy=in-process '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -Dfile.encoding=UTF-8'
+          python3 scripts/build_metrics.py --label assembleRelease --output build/reports/profile/assembleRelease-metrics.json -- ./gradlew :app:assembleRelease --no-daemon --max-workers=1 --console=plain --stacktrace --profile -Pkotlin.compiler.execution.strategy=in-process '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -Dfile.encoding=UTF-8'
           python3 scripts/check_local_runtime_apk.py app/build/outputs/apk/release/*-unsigned.apk
           python3 scripts/check_no_telemetry.py app/build/outputs/apk/release/*-unsigned.apk
           python3 scripts/check_apk_size.py app/build/outputs/apk/release --build-type release --report release-apk-size-report.json
@@ -95,7 +95,7 @@ jobs:
       - name: Build optimized release bundle
         run: |
           rm -rf app/build/intermediates/shrunk_resources_proto_format/release/minifyReleaseWithR8
-          ./gradlew :app:bundleRelease -PenableAbiSplits=false --no-daemon --max-workers=1 --console=plain --stacktrace -Pkotlin.compiler.execution.strategy=in-process '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -Dfile.encoding=UTF-8'
+          python3 scripts/build_metrics.py --label bundleRelease --output build/reports/profile/bundleRelease-metrics.json -- ./gradlew :app:bundleRelease -PenableAbiSplits=false --no-daemon --max-workers=1 --console=plain --stacktrace --profile -Pkotlin.compiler.execution.strategy=in-process '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -Dfile.encoding=UTF-8'
           python3 scripts/check_mediapipe_jni.py app/build/outputs/bundle/release/*.aab
           python3 scripts/check_objectbox_jni.py app/build/outputs/bundle/release/*.aab
           python3 scripts/check_play_bundle.py app/build/outputs/bundle/release/*.aab
@@ -128,3 +128,14 @@ jobs:
           name: unsigned-apk-size-${{ github.sha }}
           path: release-apk-size-report.json
           if-no-files-found: ignore
+
+      - name: Retain release performance and shrinker reports
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: release-performance
+          path: |
+            build/reports/profile/
+            app/build/outputs/mapping/release/
+          if-no-files-found: ignore
+          retention-days: 14

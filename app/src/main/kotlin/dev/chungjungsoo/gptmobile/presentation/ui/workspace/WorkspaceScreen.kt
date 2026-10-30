@@ -260,7 +260,12 @@ fun WorkspaceScreen(onBack: () -> Unit, onChat: (Int) -> Unit, initialChat: Int 
                                 WorkspaceCard(entry.title) {
                                     Text("${result.engine} · ${result.passedGuards}/${result.totalGuards} extraction, privacy, language and scope guards")
                                     result.samples.forEach { sample -> Text("${sample.facts} facts · ${sample.correctRetrievals}/${sample.queries} exact-code recall · p95 ${"%.2f".format(sample.p95RecallMillis)} ms · client PSS ${sample.clientPssKiB / 1024} MiB") }
-                                    Text("Synthetic lexical fixtures; does not establish semantic paraphrase quality.", style = MaterialTheme.typography.bodySmall)
+                                    result.meaning?.let { meaning ->
+                                        Text("Meaning: ${meaning.correct}/${meaning.queries} correct · precision ${"%.0f".format(meaning.precision * 100)}% · recall ${"%.0f".format(meaning.recall * 100)}%")
+                                        Text("Abstention ${meaning.abstentionsCorrect}/${meaning.abstentionQueries} · policy violations ${meaning.policyViolations} · semantic queries ${meaning.semanticQueries}/${meaning.queries}")
+                                        Text("Meaning p50 ${"%.2f".format(meaning.p50Millis)} ms · p95 ${"%.2f".format(meaning.p95Millis)} ms · ${meaning.promptTokens} total prompt tokens")
+                                    }
+                                    Text("Synthetic examples; confirm behavior on your device before relying on the 90% target.", style = MaterialTheme.typography.bodySmall)
                                 }
                             }
                             val eligible = benchmarkHistory.filter { it.finished && !it.canceled && it.samples.isNotEmpty() }.sortedByDescending { it.startedAt }.distinctBy { it.profileUid to it.mode }

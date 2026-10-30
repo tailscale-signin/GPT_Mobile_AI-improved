@@ -46,7 +46,8 @@ class WorkspaceViewModel @Inject constructor(
     private val resolver: AgentToolResolver,
     private val mcp: McpClientManager,
     private val connections: ToolConnectionRepository,
-    private val scheduler: RecipeScheduler
+    private val scheduler: RecipeScheduler,
+    private val semanticMemory: dev.chungjungsoo.gptmobile.data.memory.LocalSemanticMemory
 ) : ViewModel() {
     val inspectedRun = MutableStateFlow("")
 
@@ -140,9 +141,9 @@ class WorkspaceViewModel @Inject constructor(
         action {
             try {
                 notice.value = "Running local memory fixtures…"
-                val result = dev.chungjungsoo.gptmobile.data.rag.MemoryQualitySuite.run()
+                val result = dev.chungjungsoo.gptmobile.data.rag.MemoryQualitySuite.run(semanticMemory::scoreSynthetic)
                 workspace.dao.save(WorkspaceRecord(UUID.randomUUID().toString(), "memory_benchmark", "Memory corpus v${result.corpusVersion}", workspace.json.encodeToString(result)))
-                notice.value = "Memory fixture evaluation completed. Native encoder/device integration is a separate instrumented gate."
+                notice.value = "Memory evaluation completed. Results include semantic availability and synthetic meaning accuracy."
             } finally {
                 evaluating.value = false
             }

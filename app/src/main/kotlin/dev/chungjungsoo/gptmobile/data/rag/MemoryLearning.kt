@@ -41,7 +41,9 @@ internal object MemoryLearning {
         KnowledgeEntity(text.lowercase(Locale.ROOT), text, "OBSERVATION")
     )
 
-    fun extract(text: String, sensitivity: Int): List<KnowledgeFact> = statements(text).flatMap { statement ->
+    fun meaning(text: String): MemoryMeaning? = MemoryMeaningPolicy.extract(text)
+
+    fun extract(text: String, sensitivity: Int, meaningEnabled: Boolean = true): List<KnowledgeFact> = statements(text).flatMap { statement ->
         val request = explicit.matchEntire(statement)
         val value = request?.groupValues?.get(1) ?: statement
         val graph = KnowledgeGraphEngine()
@@ -69,6 +71,18 @@ internal object MemoryLearning {
                 facts += KnowledgeFact(KnowledgeEntity("user", "User", "PERSON"), KnowledgeRelation("user", relation, name.lowercase(Locale.ROOT), context = statement), KnowledgeEntity(name.lowercase(Locale.ROOT), name, "FACT"))
             }
         }
+        val meaning = if (meaningEnabled) meaning(value) else null
+        // Existing goals/constraints already receive meaning from their source context.
+        // Do not duplicate them or bypass the sensitivity gate for bare wants/needs.
+        val needsEpisode = meaning != null && (meaning.kind != "INTENT" || (facts.isEmpty() && (sensitivity > 50 || request != null)))
+        if (needsEpisode) {
+            val normalized = value.lowercase(Locale.ROOT)
+            facts += KnowledgeFact(
+                KnowledgeEntity("user", "User", "PERSON"),
+                KnowledgeRelation("user", "MEMORY_EPISODE", normalized, context = statement),
+                KnowledgeEntity(normalized, value, "EPISODE")
+            )
+        }
         if (request != null && facts.isEmpty()) facts += observation(value)
         facts.map { it.copy(relation = it.relation.copy(context = statement)) }
     }.filter { MemoryCapturePolicy.accepts(it, sensitivity) }
@@ -88,9 +102,15 @@ internal object MemoryLearning {
                 "goal" -> "GOAL"
                 "constraint" -> "CONSTRAINT"
                 "interest" -> "INTERESTED_IN"
+                "intent", "decision", "requirement", "failure", "correction" -> "MEMORY_EPISODE"
                 else -> return@mapNotNull null
             }
-            val fact = observation(original).let { it.copy(relation = it.relation.copy(relationType = relation)) }
+            val fact = observation(original).let {
+                it.copy(
+                    relation = it.relation.copy(relationType = relation),
+                    target = if (relation == "MEMORY_EPISODE") it.target.copy(type = "EPISODE", attributes = mapOf("memoryKind" to kind.uppercase(Locale.ROOT))) else it.target
+                )
+            }
             fact.takeIf { MemoryCapturePolicy.accepts(it, sensitivity) }
         }.distinctBy { it.target.id }
     }

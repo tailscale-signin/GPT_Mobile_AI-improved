@@ -43,7 +43,7 @@ internal object MemoryEnrichmentContract {
             val quote = (observation["quote"] as? JsonPrimitive)?.takeIf { it.isString }?.content ?: return null
             val kind = (observation["kind"] as? JsonPrimitive)?.takeIf { it.isString }?.content ?: return null
             if (quote.isBlank() || !quotes.add(quote) || source != null && quote !in source) return null
-            if (kind !in setOf("preference", "profile", "project", "goal", "constraint", "interest")) return null
+            if (kind !in setOf("preference", "profile", "project", "goal", "constraint", "interest", "intent", "decision", "requirement", "failure", "correction")) return null
         }
         return root
     }

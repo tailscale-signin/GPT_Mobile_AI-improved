@@ -29,3 +29,8 @@ GPT Mobile AI (Improved) is a Kotlin Android application for chatting with cloud
 - **MCP Integration:** Standardized tool structure in `mcp/tools/manifest.json`, `mcp/resources/manifest.json`, and triple-verification mechanism.
 - **Android targets:** application ID `dev.melo.gptmobile.improved`, min SDK 31, compile/target SDK 36, arm64-v8a and x86_64 ABIs.
 - **Build/release:** Gradle Kotlin DSL, R8/resource shrinking, ABI splits plus universal APK, and Room schema export (`app/schemas/`). Version `0.9.5.6` (versionCode 58).
+
+
+## Memory intelligence audit (29 October 2026)
+
+The current memory architecture includes an encrypted fact vault, on-device Universal Sentence Encoder vectors, lexical/semantic ranking on dispatched turns, a Room graph index, and correction/scope/privacy controls. The source audit in [`docs/MEMORY_IMPROVEMENTS.md`](docs/MEMORY_IMPROVEMENTS.md) identifies the remaining design gap: explicit conversational intent, decision/rationale, requirement/failure, and correction episode modeling; graph-aware hybrid retrieval; and consistent evidence between read-only preview and dispatched recall. The proposed implementation is staged behind synthetic golden evaluation, preserves the local-first vault as authority, and makes no unverified 90% accuracy claim.

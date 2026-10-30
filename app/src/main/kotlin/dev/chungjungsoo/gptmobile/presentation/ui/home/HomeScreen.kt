@@ -1731,7 +1731,7 @@ fun FavoriteDetailDialog(
                             .verticalScroll(rememberScrollState())
                             .padding(20.dp)
                     ) {
-                        ChatMarkdown(content = message.content)
+                        ChatMarkdown(content = message.content, adaptiveAnswerLength = message.content.length.takeIf { message.platformType != null })
                     }
                 }
             }

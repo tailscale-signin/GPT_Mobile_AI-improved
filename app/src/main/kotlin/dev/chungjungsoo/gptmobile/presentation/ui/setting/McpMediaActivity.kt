@@ -4,15 +4,12 @@ import android.graphics.BitmapFactory
 import android.media.MediaPlayer
 import android.os.Bundle
 import androidx.activity.compose.setContent
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.presentation.theme.GPTMobileTheme
 import java.io.File
@@ -35,7 +32,7 @@ class McpMediaActivity : dev.chungjungsoo.gptmobile.presentation.ui.main.Protect
                     TextButton(onClick = ::finish) { Text("Back") }
                     when {
                         !safe || !file.exists() -> Text("This temporary media result has expired.")
-                        image != null -> Image(image.asImageBitmap(), "Media returned by the MCP tool", Modifier.fillMaxWidth())
+                        image != null -> ZoomableMediaImage(image)
                         file.extension in setOf("mp3", "wav", "ogg") -> TextButton(onClick = {
                             runCatching {
                                 if (player == null) {

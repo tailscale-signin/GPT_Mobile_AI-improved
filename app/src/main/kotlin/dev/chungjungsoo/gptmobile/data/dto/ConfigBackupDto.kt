@@ -22,7 +22,12 @@ data class ThemeBackupDto(
     val savedProfiles: List<SavedThemeProfile> = emptyList(),
     val activeProfileId: String? = null,
     val overlayMaterial: String = "glass",
-    val overlayBlur: String = "auto"
+    val overlayBlur: String = "auto",
+    val textScale: Float = 1f,
+    val adaptiveAnswerText: Boolean = true,
+    val hapticsEnabled: Boolean = true,
+    val hapticStrength: Float = 0.5f,
+    val themeHistory: List<dev.chungjungsoo.gptmobile.data.dto.ThemeSnapshot> = emptyList()
 )
 
 @Serializable

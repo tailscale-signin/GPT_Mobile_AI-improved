@@ -38,7 +38,7 @@ fun ThemeSettingProvider(
             LocalCustomPalette provides customPalette,
             LocalOverlayMaterial provides overlayMaterial,
             LocalOverlayBlur provides overlayBlur,
-            content = content
+            content = { AccessibilityProvider(this) { content() } }
         )
     }
 }

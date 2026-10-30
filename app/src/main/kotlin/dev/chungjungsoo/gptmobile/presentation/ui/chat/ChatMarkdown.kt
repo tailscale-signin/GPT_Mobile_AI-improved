@@ -47,6 +47,9 @@ import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.Placeholder
 import androidx.compose.ui.text.PlaceholderVerticalAlign
@@ -85,7 +88,6 @@ import dev.snipme.highlights.model.ColorHighlight
 import dev.snipme.highlights.model.SyntaxLanguage
 import dev.snipme.highlights.model.SyntaxThemes
 import java.util.*
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.currentCoroutineContext
@@ -98,7 +100,6 @@ import kotlinx.coroutines.flow.sample
 import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeoutOrNull
 import org.intellij.markdown.IElementType
 import org.intellij.markdown.MarkdownTokenTypes
 
@@ -144,9 +145,32 @@ private data class PreparedChatMarkdown(
     val contentDigest: String? = null
 )
 
-@OptIn(FlowPreview::class)
 @Composable
 fun ChatMarkdown(
+    content: String,
+    contentIdentity: Any = content,
+    memoryValues: List<String> = emptyList(),
+    highlightSentence: String? = null,
+    highlightProgress: Float = 0f,
+    streaming: Boolean = false,
+    animateStreaming: Boolean = true,
+    proseColor: Color? = null,
+    provenance: MarkdownProvenancePresentation? = null,
+    wording: CombinedWordingPresentation? = null,
+    outputTrace: dev.chungjungsoo.gptmobile.data.diagnostics.OutputTraceOwner? = null,
+    modifier: Modifier = Modifier,
+    minimumPendingHeight: Dp = 0.dp,
+    onContentDrawn: (() -> Unit)? = null,
+    adaptiveAnswerLength: Int? = null
+) {
+    AdaptiveAnswerTypography(content, adaptiveAnswerLength) {
+        ChatMarkdownContent(content = content, contentIdentity = contentIdentity, memoryValues = memoryValues, highlightSentence = highlightSentence, highlightProgress = highlightProgress, streaming = streaming, animateStreaming = animateStreaming, proseColor = proseColor, provenance = provenance, wording = wording, outputTrace = outputTrace, modifier = modifier, minimumPendingHeight = minimumPendingHeight, onContentDrawn = onContentDrawn)
+    }
+}
+
+@OptIn(FlowPreview::class)
+@Composable
+private fun ChatMarkdownContent(
     content: String,
     contentIdentity: Any = content,
     memoryValues: List<String> = emptyList(),
@@ -166,13 +190,18 @@ fun ChatMarkdown(
     val clipboardContext = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
     val interactionOwner = remember(contentIdentity) { MarkdownInteractionOwner() }
-    DisposableEffect(interactionOwner) { onDispose { interactionOwner.dispose() } }
+    DisposableEffect(interactionOwner) {
+        val resources = dev.chungjungsoo.gptmobile.util.LifecycleResources()
+        resources.acquire("markdown_interactions") { interactionOwner.dispose() }
+        onDispose { resources.close() }
+    }
     val displayMathNonce = remember(contentIdentity) { UUID.randomUUID().toString().replace("-", "") }
     var attributionSelection by remember(contentIdentity) { mutableStateOf<Pair<String, Set<String>>?>(null) }
     attributionSelection?.let { (passage, owners) ->
         wording?.let { CombinedOriginalSourceDialog(passage, owners, it) { attributionSelection = null } }
     }
     var rendered by remember(contentIdentity) { mutableStateOf(PreparedChatMarkdown()) }
+    var formattingProgress by remember(contentIdentity) { mutableStateOf("") }
     var formattingFailed by remember(contentIdentity) { mutableStateOf(false) }
     var formattingAttempt by remember(contentIdentity) { mutableIntStateOf(0) }
     var lastTraceAt by remember(contentIdentity) { mutableLongStateOf(0L) }
@@ -195,51 +224,52 @@ fun ChatMarkdown(
             // from the unsampled branch in the same composition identity.
             !request.streaming || latestRequest.value.streaming
         }.prepareConflatedRender { request ->
-            val prepared = try {
-                withTimeoutOrNull(30_000L) {
-                    withContext(Dispatchers.Default) {
-                        CombinedOperationTrace.measure("markdown_prepare", CombinedOperationOwner(runId = request.outputTrace?.runId, blockId = request.outputTrace?.partId)) {
-                            val visibleSource = dev.chungjungsoo.gptmobile.data.conversation.ConversationSubject.withoutMetadata(request.content)
-                            val renderContext = currentCoroutineContext()
-                            val parsed = parseChatMarkdown(visibleSource, cacheResult = !request.streaming, checkActive = { renderContext.ensureActive() })
-                            // Rendering is sampled above; completed passage mappings can colour live output.
-                            // Shared, invalid and unknown source declarations remain neutral.
-                            val wantsWording = request.wording != null
-                            val mapped = if (request.provenance != null || wantsWording) {
-                                buildMappedMarkdown(request.content, visibleSource, parsed, displayMathNonce)
-                            } else {
-                                null
-                            }
-                            val combined = mapped?.first ?: buildCombinedMarkdown(parsed.blocks, displayMathNonce)
-                            val profileSpans = if (request.provenance != null && mapped != null) {
-                                mapped.second.exclusiveSpans(request.content, combined, request.provenance.validated, request.provenance.corpusDigest, request.provenance.policyRevision)
-                            } else if (wantsWording && mapped != null) {
-                                mapped.second.wordingSpans(request.content, combined, requireNotNull(request.wording).sources, request.wording.passages, request.wording.fullAnswer, includeShared = true)
-                            } else {
-                                emptyList()
-                            }
-                            if (wantsWording && !request.streaming && CombinedAttributionDiagnostics.changed("mapping:${request.outputTrace?.runId}:$contentIdentity", dev.chungjungsoo.gptmobile.data.research.researchHash(request.content + profileSpans))) {
-                                val zeroReason = when {
-                                    profileSpans.isNotEmpty() -> "NONE"
-                                    request.content.isBlank() -> "EMPTY_RENDER_INPUT"
-                                    request.wording?.sources.isNullOrEmpty() -> "NO_CONTRIBUTOR_HEADERS"
-                                    mapped?.second?.runs.isNullOrEmpty() -> "NO_VERBATIM_MARKDOWN_RUNS"
-                                    request.wording?.sources.orEmpty().all { it.content.isBlank() } && request.wording?.passages.isNullOrEmpty() -> "SOURCE_MAP_UNAVAILABLE"
-                                    else -> "NO_CONSERVATIVE_LINK_MATCH"
-                                }
-                                dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("CombinedPalette", "DISPLAY_SPAN_MAPPING · run=${request.outputTrace?.runId.orEmpty()} · part=${request.outputTrace?.partId.orEmpty()} · contentIdentityDigest=${dev.chungjungsoo.gptmobile.data.research.researchHash(contentIdentity.toString())} · bodyDigest=${dev.chungjungsoo.gptmobile.data.research.researchHash(request.content)} · parser=$ATTRIBUTION_MARKDOWN_PARSER_VERSION · zeroLinkReason=$zeroReason · uniqueSpans=${profileSpans.count { it.profileUids.size == 1 }} · sharedSpans=${profileSpans.count { it.profileUids.size > 1 }} · linkedCharacters=${profileSpans.sumOf { it.end - it.start }} · represented=${profileSpans.flatMap { it.profileUids }.distinct().take(32)} · palette=PERSISTED_PROFILE_HUE · factualVerification=false")
-                            }
-                            PreparedChatMarkdown(parsed, combined, memoryHighlightRanges(combined, request.memoryValues), ProfileSpanIndex(profileSpans), dev.chungjungsoo.gptmobile.data.research.researchHash(request.content))
+            val prepared = recoverChatRender(
+                request.content.length,
+                request.streaming,
+                stillCurrent = { request.streaming || latestRequest.value == request },
+                progress = { formattingProgress = it }
+            ) {
+                withContext(Dispatchers.Default) {
+                    CombinedOperationTrace.measure("markdown_prepare", CombinedOperationOwner(runId = request.outputTrace?.runId, blockId = request.outputTrace?.partId)) {
+                        val visibleSource = dev.chungjungsoo.gptmobile.data.conversation.ConversationSubject.withoutMetadata(request.content)
+                        val renderContext = currentCoroutineContext()
+                        val parsed = parseChatMarkdown(visibleSource, cacheResult = !request.streaming, checkActive = { renderContext.ensureActive() })
+                        // Rendering is sampled above; completed passage mappings can colour live output.
+                        // Shared, invalid and unknown source declarations remain neutral.
+                        val wantsWording = request.wording != null
+                        val mapped = if (request.provenance != null || wantsWording) {
+                            buildMappedMarkdown(request.content, visibleSource, parsed, displayMathNonce)
+                        } else {
+                            null
                         }
+                        val combined = mapped?.first ?: buildCombinedMarkdown(parsed.blocks, displayMathNonce)
+                        val profileSpans = if (request.provenance != null && mapped != null) {
+                            mapped.second.exclusiveSpans(request.content, combined, request.provenance.validated, request.provenance.corpusDigest, request.provenance.policyRevision)
+                        } else if (wantsWording && mapped != null) {
+                            mapped.second.wordingSpans(request.content, combined, requireNotNull(request.wording).sources, request.wording.passages, request.wording.fullAnswer, includeShared = true)
+                        } else {
+                            emptyList()
+                        }
+                        if (wantsWording && !request.streaming && CombinedAttributionDiagnostics.changed("mapping:${request.outputTrace?.runId}:$contentIdentity", dev.chungjungsoo.gptmobile.data.research.researchHash(request.content + profileSpans))) {
+                            val zeroReason = when {
+                                profileSpans.isNotEmpty() -> "NONE"
+                                request.content.isBlank() -> "EMPTY_RENDER_INPUT"
+                                request.wording?.sources.isNullOrEmpty() -> "NO_CONTRIBUTOR_HEADERS"
+                                mapped?.second?.runs.isNullOrEmpty() -> "NO_VERBATIM_MARKDOWN_RUNS"
+                                request.wording?.sources.orEmpty().all { it.content.isBlank() } && request.wording?.passages.isNullOrEmpty() -> "SOURCE_MAP_UNAVAILABLE"
+                                else -> "NO_CONSERVATIVE_LINK_MATCH"
+                            }
+                            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("CombinedPalette", "DISPLAY_SPAN_MAPPING · run=${request.outputTrace?.runId.orEmpty()} · part=${request.outputTrace?.partId.orEmpty()} · contentIdentityDigest=${dev.chungjungsoo.gptmobile.data.research.researchHash(contentIdentity.toString())} · bodyDigest=${dev.chungjungsoo.gptmobile.data.research.researchHash(request.content)} · parser=$ATTRIBUTION_MARKDOWN_PARSER_VERSION · zeroLinkReason=$zeroReason · uniqueSpans=${profileSpans.count { it.profileUids.size == 1 }} · sharedSpans=${profileSpans.count { it.profileUids.size > 1 }} · linkedCharacters=${profileSpans.sumOf { it.end - it.start }} · represented=${profileSpans.flatMap { it.profileUids }.distinct().take(32)} · palette=PERSISTED_PROFILE_HUE · factualVerification=false")
+                        }
+                        PreparedChatMarkdown(parsed, combined, memoryHighlightRanges(combined, request.memoryValues), ProfileSpanIndex(profileSpans), dev.chungjungsoo.gptmobile.data.research.researchHash(request.content))
                     }
                 }
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (_: Exception) {
-                null
             }
             request to prepared
         }.collect { (request, prepared) ->
+            if (latestRequest.value != request && (prepared == null || !latestRequest.value.streaming)) return@collect
+            formattingProgress = ""
             formattingFailed = prepared == null
             if (prepared == null) return@collect
             rendered = prepared
@@ -613,7 +643,7 @@ fun ChatMarkdown(
             var parserTimedOut by remember(contentIdentity, renderedDigest) { mutableStateOf(false) }
             LaunchedEffect(awaitingContent, renderedDigest) {
                 if (awaitingContent) {
-                    delay(30_000L)
+                    delay(renderBudget(content.length).timeoutMs)
                     parserTimedOut = true
                 } else {
                     parserTimedOut = false
@@ -628,34 +658,45 @@ fun ChatMarkdown(
                     Column(modifier) {
                         Text(
                             dev.chungjungsoo.gptmobile.data.conversation.ConversationSubject.withoutMetadata(content),
+                            style = answerBodyStyle(),
                             modifier = Modifier.drawWithContent {
                                 drawContent()
                                 if (content.isNotBlank()) onContentDrawn?.invoke()
                             }
                         )
+                        Text("Formatting unavailable. Your response is preserved.", modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
                         TextButton(onClick = { formattingAttempt++ }) { Text(stringResource(R.string.chat_retry_formatting)) }
                     }
                 } else {
-                    Markdown(
-                        markdownState = markdownState,
-                        inlineContent = markdownInlineContent(inlineContent),
-                        annotator = annotator,
-                        components = components,
-                        typography = chatMarkdownTypography(),
-                        animations = animations,
-                        modifier = modifier.layout { measurable, constraints ->
-                            val measured = CombinedOperationTrace.measure("text_measure", layoutOwner) { measurable.measure(constraints) }
-                            layout(measured.width, measured.height) {
-                                CombinedOperationTrace.measure("text_layout", layoutOwner) { measured.placeRelative(0, 0) }
-                            }
-                        }.drawWithContent {
-                            drawContent()
-                            if (interactionOwner.accepts(renderedDigest) && !awaitingContent && parserState is MarkdownParseState.Success && combinedMarkdown.isNotBlank()) {
-                                onContentDrawn?.invoke()
-                                if (outputTrace != null && firstDrawn.compareAndSet(false, true)) dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.record(outputTrace.runId, dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.FIRST_VISIBLE_TEXT, fence = outputTrace.fence)
-                            }
+                    Column {
+                        if (awaitingContent && formattingProgress.isNotEmpty()) {
+                            Text(
+                                "$formattingProgress · ${content.length} characters received",
+                                style = MaterialTheme.typography.labelSmall,
+                                modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }
+                            )
                         }
-                    )
+                        Markdown(
+                            markdownState = markdownState,
+                            inlineContent = markdownInlineContent(inlineContent),
+                            annotator = annotator,
+                            components = components,
+                            typography = chatMarkdownTypography(),
+                            animations = animations,
+                            modifier = modifier.layout { measurable, constraints ->
+                                val measured = CombinedOperationTrace.measure("text_measure", layoutOwner) { measurable.measure(constraints) }
+                                layout(measured.width, measured.height) {
+                                    CombinedOperationTrace.measure("text_layout", layoutOwner) { measured.placeRelative(0, 0) }
+                                }
+                            }.drawWithContent {
+                                drawContent()
+                                if (interactionOwner.accepts(renderedDigest) && !awaitingContent && parserState is MarkdownParseState.Success && combinedMarkdown.isNotBlank()) {
+                                    onContentDrawn?.invoke()
+                                    if (outputTrace != null && firstDrawn.compareAndSet(false, true)) dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.record(outputTrace.runId, dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.FIRST_VISIBLE_TEXT, fence = outputTrace.fence)
+                                }
+                            }
+                        )
+                    }
                 }
             }
         }
@@ -948,6 +989,13 @@ private fun createDisplayMathPlaceholder(
 ): String = "\uE000$DISPLAY_MATH_PLACEHOLDER_PREFIX${nonce}_$index$DISPLAY_MATH_PLACEHOLDER_SUFFIX\uE001"
 
 @Composable
+private fun answerBodyStyle(): TextStyle {
+    val base = MaterialTheme.typography.bodyMedium
+    val scale = LocalAnswerTextScale.current
+    return base.copy(fontSize = base.fontSize * scale, lineHeight = base.lineHeight * scale)
+}
+
+@Composable
 private fun chatMarkdownTypography() = markdownTypography(
     h1 = MaterialTheme.typography.headlineMedium,
     h2 = MaterialTheme.typography.headlineSmall,
@@ -955,11 +1003,11 @@ private fun chatMarkdownTypography() = markdownTypography(
     h4 = MaterialTheme.typography.titleMedium,
     h5 = MaterialTheme.typography.titleSmall,
     h6 = MaterialTheme.typography.labelLarge,
-    text = MaterialTheme.typography.bodyMedium,
-    paragraph = MaterialTheme.typography.bodyMedium,
-    ordered = MaterialTheme.typography.bodyMedium,
-    bullet = MaterialTheme.typography.bodyMedium,
-    list = MaterialTheme.typography.bodyMedium
+    text = answerBodyStyle(),
+    paragraph = answerBodyStyle(),
+    ordered = answerBodyStyle(),
+    bullet = answerBodyStyle(),
+    list = answerBodyStyle()
 )
 
 @Composable

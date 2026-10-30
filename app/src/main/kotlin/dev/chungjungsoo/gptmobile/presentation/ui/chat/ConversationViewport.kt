@@ -15,6 +15,6 @@ import androidx.compose.ui.unit.Dp
 @Composable
 internal fun ConversationViewport(content: @Composable (width: Dp, height: Dp) -> Unit) {
     BoxWithConstraints(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))) {
-        content(maxWidth, maxHeight)
+        androidx.compose.runtime.CompositionLocalProvider(LocalAnswerPane provides AnswerPane(maxWidth.value, maxHeight.value)) { content(maxWidth, maxHeight) }
     }
 }

@@ -9,6 +9,7 @@ import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import dev.chungjungsoo.gptmobile.data.assist.advanceAssistEpoch
+import dev.chungjungsoo.gptmobile.data.dto.recordPrevious
 import dev.chungjungsoo.gptmobile.data.dto.withStableProfileIds
 import dev.chungjungsoo.gptmobile.data.model.ApiType
 import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
@@ -98,12 +99,23 @@ class SettingDataSourceImpl @Inject constructor(
                 rows.mapNotNull { row -> runCatching { json.decodeFromString<dev.chungjungsoo.gptmobile.data.dto.SavedThemeProfile>(row.toString()) }.onFailure { malformed = true }.getOrNull() }
             }.onFailure { malformed = true }.getOrDefault(emptyList())
         }.orEmpty()
+        val history = pref[stringPreferencesKey("theme_history")]?.let { raw ->
+            runCatching {
+                val rows = json.parseToJsonElement(raw) as kotlinx.serialization.json.JsonArray
+                rows.takeLast(10).mapNotNull { row -> runCatching { json.decodeFromString<dev.chungjungsoo.gptmobile.data.dto.ThemeSnapshot>(row.toString()) }.onFailure { malformed = true }.getOrNull() }
+            }.onFailure { malformed = true }.getOrDefault(emptyList())
+        }.orEmpty()
         return dev.chungjungsoo.gptmobile.data.dto.ThemeSetting(
             dynamicTheme = pref[dynamicThemeKey]?.let { DynamicTheme.entries.getOrNull(it) } ?: DynamicTheme.OFF,
             themeMode = pref[themeModeKey]?.let { ThemeMode.entries.getOrNull(it) } ?: ThemeMode.DARK,
             customPrimaryArgb = pref[customPrimaryArgbKey],
             customPalette = palette,
             savedProfiles = profiles,
+            textScale = pref[floatPreferencesKey("accessibility_text_scale")]?.takeIf { it.isFinite() }?.coerceIn(1f, 1.5f) ?: 1f,
+            adaptiveAnswerText = pref[booleanPreferencesKey("adaptive_answer_text")] ?: true,
+            hapticsEnabled = pref[booleanPreferencesKey("accessibility_haptics")] ?: true,
+            hapticStrength = pref[floatPreferencesKey("accessibility_haptic_strength")]?.takeIf { it.isFinite() }?.coerceIn(0.1f, 1f) ?: 0.5f,
+            themeHistory = history,
             activeProfileId = pref[stringPreferencesKey("active_theme_profile_id")],
             overlayMaterial = pref[stringPreferencesKey("overlay_material")]?.takeIf { it in setOf("glass", "solid") } ?: "glass",
             overlayBlur = pref[stringPreferencesKey("overlay_blur")]?.takeIf { it in setOf("auto", "off") } ?: "auto",
@@ -121,8 +133,14 @@ class SettingDataSourceImpl @Inject constructor(
             if (previous.recoveryWarning != null) {
                 pref[savedThemeProfilesKey]?.let { pref[stringPreferencesKey("saved_theme_profiles_recovery")] = it }
                 pref[customPaletteKey]?.let { pref[stringPreferencesKey("custom_theme_palette_recovery")] = it }
+                pref[stringPreferencesKey("theme_history")]?.let { pref[stringPreferencesKey("theme_history_recovery")] = it }
             }
-            val next = transform(previous).copy(recoveryWarning = null).withStableProfileIds()
+            val next = transform(previous).copy(recoveryWarning = null).recordPrevious(previous).withStableProfileIds()
+            pref[booleanPreferencesKey("adaptive_answer_text")] = next.adaptiveAnswerText
+            pref[floatPreferencesKey("accessibility_text_scale")] = next.textScale
+            pref[booleanPreferencesKey("accessibility_haptics")] = next.hapticsEnabled
+            pref[floatPreferencesKey("accessibility_haptic_strength")] = next.hapticStrength
+            pref[stringPreferencesKey("theme_history")] = json.encodeToString(next.themeHistory)
             pref[dynamicThemeKey] = next.dynamicTheme.ordinal
             pref[themeModeKey] = next.themeMode.ordinal
             next.customPrimaryArgb?.let { pref[customPrimaryArgbKey] = it } ?: pref.remove(customPrimaryArgbKey)

@@ -84,6 +84,11 @@ internal object LegacyBackupConverter {
                     activeProfileId?.let { values["active_theme_profile_id"] = BackupValue("string", it) }
                     values["overlay_material"] = BackupValue("string", if (ui != null) ui.overlayMaterial else theme!!.overlayMaterial)
                     values["overlay_blur"] = BackupValue("string", if (ui != null) ui.overlayBlur else theme!!.overlayBlur)
+                    values["accessibility_text_scale"] = BackupValue("float", (if (ui != null) ui.textScale else theme!!.textScale).toString())
+                    values["adaptive_answer_text"] = BackupValue("boolean", (if (ui != null) ui.adaptiveAnswerText else theme!!.adaptiveAnswerText).toString())
+                    values["accessibility_haptics"] = BackupValue("boolean", (if (ui != null) ui.hapticsEnabled else theme!!.hapticsEnabled).toString())
+                    values["accessibility_haptic_strength"] = BackupValue("float", (if (ui != null) ui.hapticStrength else theme!!.hapticStrength).toString())
+                    values["theme_history"] = BackupValue("string", json.encodeToString(if (ui != null) ui.themeHistory else theme!!.themeHistory))
                     ui?.let {
                         values["debug_mode"] = BackupValue("boolean", it.debugMode.toString())
                         values["local_runtime_backend"] = BackupValue("string", it.localRuntimeBackend)

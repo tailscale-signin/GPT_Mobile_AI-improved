@@ -71,9 +71,14 @@ internal fun toolRepeatKey(call: ProviderEvent.ToolCall): String {
     return call.name + (if (github) "|operation=" else ":") + hash.joinToString("") { "%02x".format(it) }
 }
 
-/** Accept only an unambiguous bare alias for an already-authorized read capability. */
+/** Accept only an unambiguous alias for an already-authorized capability; never expand grants. */
 internal fun resolveGitHubReadAlias(call: ProviderEvent.ToolCall, availableNames: Set<String>): ProviderEvent.ToolCall {
-    if (call.name in availableNames || call.name !in setOf("github_context", "github_read", "github_search")) return call
-    val canonical = availableNames.singleOrNull { it.startsWith(call.name + "__") } ?: return call
+    if (call.name in availableNames) return call
+    val requested = when (call.name) {
+        "github_pull_request", "github_pull_request__github_api" -> "github_pr"
+        else -> call.name
+    }
+    if (requested !in setOf("github_context", "github_read", "github_search", "github_pr")) return call
+    val canonical = availableNames.singleOrNull { it == requested || it.startsWith(requested + "__") } ?: return call
     return call.copy(name = canonical)
 }

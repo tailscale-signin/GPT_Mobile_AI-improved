@@ -43,6 +43,7 @@ data class AgentRunLimits(
     val maxGeneratedCharacters: Int = 0,
     val detectRepetition: Boolean = false,
     val researchAcquisition: Boolean = false,
+    val githubTask: Boolean = false,
     val combined: CombinedExecutionContext? = null
 ) {
     companion object {
@@ -107,8 +108,7 @@ class AgentRunner(
         var toolCallCount = initialToolCallCount
         var toolMayHaveExecuted = initialToolMayHaveExecuted
         var retriedWithoutTools = initialRetriedWithoutTools
-        var roundRecoveryAttempted = false
-        var protocolRecoveryAttempted = false
+        val recoveryState = RoundRecoveryState()
         var emptyAnswerRecoveryAttempted = false
         var finalResponseRequested = false
         var roundLimitFinalizationAttempted = false
@@ -204,42 +204,15 @@ class AgentRunner(
                 emit(failed(round.failure ?: "Tools are unavailable for this model."))
                 return
             }
-            val roundFailure = round.failure
-            if (roundFailure != null) {
-                if (round.providerLimit != null) {
-                    emit(AgentRunEvent.Provider(ProviderEvent.Failed(roundFailure, round.progressDeadline, round.errorCode, round.failureTransportComplete, round.providerLimit)))
-                    return
-                }
-                val protocolFailure = round.errorCode == "TOOL_PROTOCOL_INVALID_FRAME" ||
-                    listOf(
-                        "Tool arguments were not valid JSON",
-                        "incomplete function call",
-                        "unparsed tool-call markup",
-                        "before completing the tool call"
-                    ).any { roundFailure.contains(it, ignoreCase = true) }
-                if (protocolFailure) {
-                    if (limits.combined?.requested?.singlePass != true && !protocolRecoveryAttempted && !round.textEmitted && !session.handlesToolsInternally) {
-                        protocolRecoveryAttempted = true
-                        exposedDefinitions = exposedDefinitions.map { definition ->
-                            definition.copy(description = definition.description + " Protocol repair: call this capability only with its native function-call frame and valid JSON arguments. Never print tool-call markup as assistant text.")
-                        }
-                        emit(AgentRunEvent.Notice(if (exposedDefinitions.isEmpty()) "The provider attempted a tool call with tools disabled. Requesting a text answer once; no tool action was dispatched." else "The provider returned an invalid tool frame. Retrying its authorized call once.", persistent = false))
-                        continue
-                    }
-                    emit(AgentRunEvent.Provider(ProviderEvent.Failed(roundFailure, round.progressDeadline, errorCode = "TOOL_PROTOCOL_INVALID_FRAME")))
-                    return
-                }
-                if (limits.combined?.requested?.singlePass != true && !roundRecoveryAttempted && !round.textEmitted && !session.handlesToolsInternally && recoverableRoundFailure(roundFailure, exchanges.isNotEmpty() || round.calls.isNotEmpty())) {
-                    roundRecoveryAttempted = true
-                    exposedDefinitions = emptyList()
+            if (round.failure != null) {
+                val recovery = recoverFailedRound(round, session, exposedDefinitions, finalResponseRequested, exchanges.isNotEmpty() || round.calls.isNotEmpty(), recoveryState) ?: return
+                exposedDefinitions = recovery.definitions
+                if (recovery.restoreRound) rounds--
+                if (recovery.finalize) {
                     executableToolByName = emptyMap()
                     finalResponseRequested = true
-                    emit(AgentRunEvent.Notice("The provider interrupted this round. Finishing once with the results already collected.", persistent = false))
-                    kotlinx.coroutines.delay(1000)
-                    continue
                 }
-                emit(AgentRunEvent.Provider(ProviderEvent.Failed(roundFailure, round.progressDeadline, round.errorCode, round.failureTransportComplete, round.providerLimit)))
-                return
+                continue
             }
             val resolvedCalls = round.calls.map { resolveGitHubReadAlias(it, executableToolByName.keys) }
             resolvedCalls.forEach { emit(AgentRunEvent.Provider(it)) }
@@ -248,10 +221,16 @@ class AgentRunner(
                 if (round.completed && !round.textEmitted) {
                     if (limits.combined?.requested?.singlePass != true && !emptyAnswerRecoveryAttempted && !session.handlesToolsInternally && !finalResponseRequested) {
                         emptyAnswerRecoveryAttempted = true
-                        finalResponseRequested = true
-                        exposedDefinitions = emptyList()
-                        executableToolByName = emptyMap()
-                        emit(AgentRunEvent.Notice("The model returned no visible answer. Finalizing once with tools disabled and the results already collected.", persistent = false))
+                        if (limits.githubTask) {
+                            rounds--
+                            exposedDefinitions = exposedDefinitions.map { it.copy(description = it.description + " The previous round was empty. Continue the unfinished task using retained results, or return the verified final outcome.") }
+                            emit(AgentRunEvent.Notice("The provider returned an empty round. Resuming the GitHub task with its tools and saved results.", persistent = false))
+                        } else {
+                            finalResponseRequested = true
+                            exposedDefinitions = emptyList()
+                            executableToolByName = emptyMap()
+                            emit(AgentRunEvent.Notice("The model returned no visible answer. Finalizing once with tools disabled and the results already collected.", persistent = false))
+                        }
                         continue
                     }
                     emit(AgentRunEvent.Provider(ProviderEvent.Failed("The model returned no visible answer after finalization. No completed tool action was repeated. Please retry or choose another model.", transportComplete = round.completed)))
@@ -286,6 +265,79 @@ class AgentRunner(
             unproductiveDiscoveryRounds = completed.batch.discoveryRounds
             finalResponseRequested = completed.batch.finalResponseRequested
         }
+    }
+
+    private class RoundRecoveryState {
+        var roundRecoveryAttempted = false
+        var protocolRecoveryAttempted = false
+        var githubRecoveries = 0
+        var githubOutputRepairAttempted = false
+    }
+
+    private data class RoundRecovery(val definitions: List<AgentToolDefinition>, val restoreRound: Boolean, val finalize: Boolean)
+
+    private suspend fun kotlinx.coroutines.flow.FlowCollector<AgentRunEvent>.recoverFailedRound(
+        round: RoundResult,
+        session: AgentProviderSession,
+        definitions: List<AgentToolDefinition>,
+        finalResponseRequested: Boolean,
+        hasToolWork: Boolean,
+        state: RoundRecoveryState
+    ): RoundRecovery? {
+        val roundFailure = requireNotNull(round.failure)
+        var exposedDefinitions = definitions
+        var finalize = false
+        if (round.providerLimit != null) {
+            emit(AgentRunEvent.Provider(ProviderEvent.Failed(roundFailure, round.progressDeadline, round.errorCode, round.failureTransportComplete, round.providerLimit)))
+            return null
+        }
+        val protocolFailure = round.errorCode == "TOOL_PROTOCOL_INVALID_FRAME" ||
+            listOf(
+                "Tool arguments were not valid JSON",
+                "incomplete function call",
+                "unparsed tool-call markup",
+                "before completing the tool call"
+            ).any { roundFailure.contains(it, ignoreCase = true) }
+        if (protocolFailure) {
+            if (limits.combined?.requested?.singlePass != true && !state.protocolRecoveryAttempted && (!round.textEmitted || limits.githubTask) && !session.handlesToolsInternally) {
+                state.protocolRecoveryAttempted = true
+
+                exposedDefinitions = exposedDefinitions.map { definition ->
+                    definition.copy(description = definition.description + " Protocol repair: call this capability only with its native function-call frame and valid JSON arguments. Never print tool-call markup as assistant text.")
+                }
+                emit(AgentRunEvent.Notice(if (exposedDefinitions.isEmpty()) "The provider attempted a tool call with tools disabled. Requesting a text answer once; no tool action was dispatched." else "The provider returned an invalid tool frame. Retrying its authorized call once.", persistent = false))
+                return RoundRecovery(exposedDefinitions, limits.githubTask, finalize)
+            }
+            emit(AgentRunEvent.Provider(ProviderEvent.Failed(roundFailure, round.progressDeadline, errorCode = "TOOL_PROTOCOL_INVALID_FRAME")))
+            return null
+        }
+        if (limits.githubTask && !session.handlesToolsInternally && !finalResponseRequested) {
+            if (!state.githubOutputRepairAttempted && dev.chungjungsoo.gptmobile.data.agent.tool.isProviderOutputLimitFailure(roundFailure)) {
+                state.githubOutputRepairAttempted = true
+
+                exposedDefinitions = exposedDefinitions.map { it.copy(description = it.description + " The previous round reached its output limit. Continue unfinished work with a concise valid function call using retained receipts; do not repeat completed mutations.") }
+                emit(AgentRunEvent.Notice("The provider reached its output limit. Repairing the unfinished GitHub round once with its tools and completed results retained.", persistent = false))
+                return RoundRecovery(exposedDefinitions, limits.githubTask, finalize)
+            }
+            val recoveryDelay = GitHubTaskRecovery.delayMillis(roundFailure, state.githubRecoveries)
+            if (recoveryDelay != null) {
+                state.githubRecoveries++
+
+                emit(AgentRunEvent.Notice("Waiting for the GitHub chat provider; resuming the saved task in ${(recoveryDelay + 999) / 1000}s (${state.githubRecoveries}/${GitHubTaskRecovery.MAX_RECOVERIES}). Completed tool actions are retained.", persistent = false))
+                kotlinx.coroutines.delay(recoveryDelay)
+                return RoundRecovery(exposedDefinitions, limits.githubTask, finalize)
+            }
+        }
+        if (!limits.githubTask && limits.combined?.requested?.singlePass != true && !state.roundRecoveryAttempted && !round.textEmitted && !session.handlesToolsInternally && recoverableRoundFailure(roundFailure, hasToolWork)) {
+            state.roundRecoveryAttempted = true
+            exposedDefinitions = emptyList()
+            finalize = true
+            emit(AgentRunEvent.Notice("The provider interrupted this round. Finishing once with the results already collected.", persistent = false))
+            kotlinx.coroutines.delay(1000)
+            return RoundRecovery(exposedDefinitions, limits.githubTask, finalize)
+        }
+        emit(AgentRunEvent.Provider(ProviderEvent.Failed(roundFailure, round.progressDeadline, round.errorCode, round.failureTransportComplete, round.providerLimit)))
+        return null
     }
 
     private data class ToolRoundCompletion(

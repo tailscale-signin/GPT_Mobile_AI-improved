@@ -21,14 +21,14 @@ internal class ResearchConnectivityGate(private val now: () -> Long = { System.n
 
     @Synchronized fun available(host: String? = null): Boolean {
         expire()
-        if (healthy(host)) return true
+        if (dnsIndependent(host) || healthy(host)) return true
         return now() >= blockedUntil && probeLease == null
     }
 
     /** Zero means an ordinary request; a positive token owns the single recovery probe. */
     @Synchronized fun acquire(host: String? = null): Long? {
         expire()
-        if (healthy(host) || failedHosts.size < 2 && blockedUntil == 0L) return 0L
+        if (dnsIndependent(host) || healthy(host) || failedHosts.size < 2 && blockedUntil == 0L) return 0L
         if (now() < blockedUntil || probeLease != null) return null
         return (++leaseSequence).also {
             probeLease = it
@@ -66,6 +66,7 @@ internal class ResearchConnectivityGate(private val now: () -> Long = { System.n
     }
 
     @Synchronized fun failed(host: String, error: Throwable) {
+        if (dnsIndependent(host)) return
         if (generateSequence(error) { it.cause }.take(16).none { it is UnknownHostException }) return
         val key = host.lowercase().trim().removeSuffix(".")
         if (key.isEmpty()) return
@@ -78,6 +79,15 @@ internal class ResearchConnectivityGate(private val now: () -> Long = { System.n
             blockedUntil = time + backoff
             backoff = (backoff * 2).coerceAtMost(120_000L)
         }
+    }
+
+    /** Literal endpoints (including LAN/Tailscale IPs) do not depend on public DNS. */
+    private fun dnsIndependent(host: String?): Boolean {
+        val value = host?.trim()?.removePrefix("[")?.removeSuffix("]") ?: return false
+        if (value.equals("localhost", true)) return true
+        if (':' in value) return value.matches(Regex("[0-9a-fA-F:.]+"))
+        val parts = value.split('.')
+        return parts.size == 4 && parts.all { part -> part.isNotEmpty() && part.all(Char::isDigit) && part.toIntOrNull() in 0..255 }
     }
 
     private fun healthy(host: String?): Boolean = host?.lowercase()?.trim()?.removeSuffix(".")?.let { key ->

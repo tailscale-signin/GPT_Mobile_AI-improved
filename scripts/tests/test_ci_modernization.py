@@ -113,6 +113,17 @@ class DependencyReviewTest(unittest.TestCase):
         self.assertFalse(review.dependency_manifest('app/src/Test.kt'))
 
 
+    def test_version_only_edit_requires_identical_remaining_build_script(self):
+        review = module('check_dependency_review')
+        before = '        versionCode = 131\n        versionName = "0.9.63.0"\ndependencies { implementation("safe:lib:1") }\n'
+        after = before.replace('131', '132').replace('0.9.63.0', '0.9.64.0')
+        self.assertTrue(review.only_app_version_changed('app/build.gradle.kts', before, after))
+        for changed in (after.replace('safe:lib:1', 'safe:lib:2'), after + 'apply(from="new.gradle")\n', after.replace('132', 'computeVersion()'), after + '        versionCode = 999\n'):
+            self.assertFalse(review.only_app_version_changed('app/build.gradle.kts', before, changed))
+        self.assertFalse(review.only_app_version_changed('other/build.gradle.kts', before, after))
+        self.assertFalse(review.only_app_version_changed('app/build.gradle.kts', '', after))
+        self.assertFalse(review.only_app_version_changed('app/build.gradle.kts', before, ''))
+
     def test_removed_advisories_do_not_block_but_added_high_risk_does(self):
         review = module('check_dependency_review')
         rows = [{'change_type': 'removed', 'vulnerabilities': [{'severity': 'critical'}]},

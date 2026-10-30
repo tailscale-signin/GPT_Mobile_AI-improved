@@ -1,4 +1,35 @@
-# GPT Mobile AI 0.9.63.0 (build 131) — candidate
+# GPT Mobile AI 0.9.64.0 (build 132)
+
+GitHub chat now retains authorized tools and completed results while recovering from transient provider failures, malformed tool frames and empty or output-limited rounds. Recovery respects cooldowns and stops with a concrete blocker after bounded attempts. Successful mutations are not automatically replayed.
+
+- Retry transient GitHub read failures; preserve cancellation, authentication and mutation safeguards.
+- Add paginated PR listing, resolve the GitHub pull-request alias, and prioritize explicitly requested authorized schemas, including staging and memory.
+- Request strong supported reasoning and increase the automatic output allowance within context and profile caps. The requested effort cannot guarantee a model's actual computation.
+- Keep literal LAN, Tailscale, IPv6 and localhost endpoints usable during unrelated public DNS cooldowns.
+- Include the already merged compact approvals and viewport corrections, meaning-aware memory improvements, adaptive answer typography, gateway reliability, CI observability, and GitHub workflow discovery improvements from PRs #760–#763.
+
+## Qualification and remaining limitations
+
+- Unified Reliability v2 is not complete; its remaining acceptance cases are not represented as passed.
+- Physical-device performance and a production baseline profile remain unqualified until measured on a reference device.
+- Android GPU qualification requires compatible-device receipts for actual offload, prefill, decode, repeated requests and cancel/recovery; host tests do not establish those results.
+- Repeated physical NPU/GPU schema completion, reduced warm inspection latency, calibrated memory admission and Full-run performance remain device acceptance gates. The app does not infer runtime-effective settings from requested or SDK-applied values.
+- Qwen demo backend availability and live authenticated LLM7 generation are not established by deterministic tests.
+- Optional runtime extraction remains a staged packaging project. The measured payload inventory and APK code compression do not extract plugins or remove native runtimes.
+- Exact recovered France/Portugal wording and report fields, and the earlier benchmark export round-trip, do not establish a complete conversation replay; the later 16-run benchmark export remains unavailable.
+- Live GitHub sign-in, private-repository access and credential-refresh acceptance remain unverified in this diagnostic audit; public browser sign-in requires the registered broker deployment.
+- The October 28 export still requires physical-device performance replay; fixing the identified filesDir calls does not establish that the 748 ms frame stalls are resolved.
+- Provider HTTP 403s, Android-app GitHub token endpoint permissions, private local/MCP server reachability and the remote MCP discovery timeout require service, credential or device-route verification.
+- The ASUS framework finalizer SecurityException is outside application control. Host and emulator checks do not qualify the affected vendor firmware.
+- Live Android sign-in, authenticated App-token read/write and refresh acceptance remain unverified and are not claimed as qualified by this release.
+- Browser PKCE requires its broker and verified HTTPS callback deployment.
+- The October 30 GitHub chat diagnostic scenarios still require live provider and physical-device replay; automated tests do not establish private server availability or uninterrupted execution through permanent outages.
+
+## Validation
+
+Local repository checks and 65 focused Kotlin regression tests passed with infrastructure boundary stubs. Full Android unit tests, lint, emulator acceptance and security checks are required in CI for this candidate. Publication is gated on successful checks for the exact merged commit, release signing, and artifact identity verification. Host test results do not qualify a physical device.
+
+# GPT Mobile AI 0.9.63.0 (build 131)
 
 - Clean up GitHub Workspace with outlined buttons, icons, a solid background and collapsed operation history.
 - Automatically authorize scoped workspace repository tools. Present one commit popup with its branch and file-change bullets; approval validates the immutable patch and continues the saved task.

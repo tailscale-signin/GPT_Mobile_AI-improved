@@ -277,7 +277,7 @@ class LiteRtLmAdapter(
                 if (requestedOutputLimit != outputLimit) {
                     send(ProviderEvent.Notice("Local reply budget: $outputLimit tokens, reserving room for instructions, history and tool results in this export's $resolvedMaxTokens-token context."))
                 }
-                val thinkingEnabled = constraints.finalResponseSchemaJson == null && platform.reasoning && constraints.allowReasoning && metadata?.thinking != false
+                val thinkingEnabled = constraints.finalResponseSchemaJson == null && (platform.reasoning || constraints.maximizeReasoning) && constraints.allowReasoning && metadata?.thinking != false
 
                 suspend fun planToolContext(): PreparedLocalToolContext? {
                     val intent = if (LocalContextPlanner.isToolFollowUp(latestUserText)) turns.dropLast(1).takeLast(6).lastOrNull { !LocalContextPlanner.isToolFollowUp(it.userMessage.effectiveContent()) }?.userMessage?.effectiveContent().orEmpty() else ""

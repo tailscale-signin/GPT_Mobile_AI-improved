@@ -5,6 +5,7 @@ data class RequestConstraints(
     val maxOutputTokens: Int? = null,
     val allowTools: Boolean = true,
     val allowReasoning: Boolean = true,
+    val maximizeReasoning: Boolean = false,
     val allowGatewayLocalTools: Boolean = false,
     val requestRole: String? = null,
     val attemptId: String? = null,

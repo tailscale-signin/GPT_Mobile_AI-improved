@@ -3546,7 +3546,17 @@ class ChatRepositoryImpl(
         // configured work-round allowance is reached.
         val effectiveMaxTools = chatToolConfig?.combined?.let {
             dev.chungjungsoo.gptmobile.data.agent.CombinedPolicyResolver.toolCallLimit(it, platform.maxToolCalls, chatToolConfig.maxToolCalls)
-        } ?: minOf(chatToolConfig?.maxToolCalls ?: platform.maxToolCalls, platform.maxToolCalls, if (chatToolConfig?.research?.researchToggle == true) 64 else 24).coerceAtLeast(1)
+        } ?: minOf(
+            chatToolConfig?.maxToolCalls ?: platform.maxToolCalls,
+            platform.maxToolCalls,
+            if (chatToolConfig?.github != null) {
+                Int.MAX_VALUE
+            } else if (chatToolConfig?.research?.researchToggle == true) {
+                64
+            } else {
+                24
+            }
+        ).coerceAtLeast(1)
         val customRunner = agentRunnerForPlatform(
             platform = platform,
             runOverride = effectiveMaxTools,
@@ -3566,7 +3576,13 @@ class ChatRepositoryImpl(
             openRouterModelRepository?.peekModels()
         }
         val advertisedLimits = dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterCatalogLimits.forRequest(platform.compatibleType.name, platform.apiUrl, platform.model, platform.openRouterRouting)
-        val profileBudget = budgetSettings.copy(contextTokens = minOf(budgetSettings.contextTokens, budgetSettings.profileContextCeilings[platform.uid] ?: Int.MAX_VALUE, advertisedLimits?.context ?: Int.MAX_VALUE, dev.chungjungsoo.gptmobile.data.agent.provider.ProviderRouteCapacity.context(platform) ?: Int.MAX_VALUE))
+        val profileBudget = budgetSettings.copy(contextTokens = minOf(budgetSettings.contextTokens, budgetSettings.profileContextCeilings[platform.uid] ?: Int.MAX_VALUE, advertisedLimits?.context ?: Int.MAX_VALUE, dev.chungjungsoo.gptmobile.data.agent.provider.ProviderRouteCapacity.context(platform) ?: Int.MAX_VALUE)).let { budget ->
+            if (chatToolConfig?.github != null) {
+                budget.copy(outputTokens = dev.chungjungsoo.gptmobile.data.agent.provider.GitHubReasoningPolicy.outputBudget(budget.contextTokens, budget.outputTokens, platform.maxTokens))
+            } else {
+                budget
+            }
+        }
         if (advertisedLimits != null) AppLogRecorder.record("Context", "MODEL_CATALOG_LIMITS · context=${advertisedLimits.context ?: "unknown"} · output=${advertisedLimits.output ?: "unknown"} · source=public_catalog · serverConfirmed=false")
         val limits = stage?.writerRequestPlan?.let { plan ->
             profileBudget.copy(contextTokens = minOf(profileBudget.contextTokens, plan.contextTokens ?: Int.MAX_VALUE), outputTokens = plan.effectiveOutputTokens)
@@ -3999,6 +4015,7 @@ class ChatRepositoryImpl(
             maxOutputTokens = resolvedOutputCap,
             allowTools = !editorialPass,
             allowReasoning = !editorialPass,
+            maximizeReasoning = chatToolConfig?.github != null,
             allowGatewayLocalTools = false,
             combined = chatToolConfig?.combined
         )
@@ -4220,7 +4237,11 @@ class ChatRepositoryImpl(
             }
         }
         var continuationTrigger = dev.chungjungsoo.gptmobile.data.agent.ContinuationTrigger.RESTORED_DRAFT
-        val continuedSession = if (frozenResume?.deliveryProtocol == "PASSAGES_V3") {
+        val continuedSession = if (chatToolConfig?.github != null) {
+            // GitHub recovery is owned by AgentRunner. Text-only continuation would drop
+            // tool access and turn an interrupted engineering task into a premature answer.
+            firstSession
+        } else if (frozenResume?.deliveryProtocol == "PASSAGES_V3") {
             recordRecovery(firstSession, frozenResume, frozenResume.liveRevisionId(runId), true, { multipassFinalTurns.get() ?: contextPlan.turns }, "structured_output_continuation", chatToolConfig?.combined)
         } else {
             dev.chungjungsoo.gptmobile.data.agent.OutputLimitRecoverySession(
@@ -4565,6 +4586,7 @@ class ChatRepositoryImpl(
         val agentEvents = dev.chungjungsoo.gptmobile.data.agent.AgentRunner(
             customRunner.limits.copy(
                 contextTokens = limits.contextTokens,
+                githubTask = chatToolConfig?.github != null,
                 runTimeoutMillis = minOf(customRunner.limits.runTimeoutMillis, budgetSettings.generationTimeoutMinutes.takeIf { it > 0 }?.toLong()?.times(60_000) ?: Long.MAX_VALUE),
                 maxGeneratedCharacters = budgetSettings.responseCharacterLimit,
                 detectRepetition = budgetSettings.repetitionGuardEnabled,

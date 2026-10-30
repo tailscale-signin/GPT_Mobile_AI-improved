@@ -14,6 +14,31 @@ import org.junit.Test
 class ProgressiveToolCatalogTest {
     private val tools = (1..80).map { AgentToolDefinition("task_$it", "Task $it", JsonObject(emptyMap())) }
 
+    @Test fun explicitPrAliasMemoryAndStagingDiscoveryLoadAuthorizedSchemas() = runTest {
+        val github = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.names.map {
+            dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.definition(it, it + "__github_api")
+        }
+        val memory = AgentToolDefinition("memory", "Search authorized memory", JsonObject(emptyMap()))
+        val definitions = github + memory
+        val catalog = ProgressiveToolCatalog(definitions, "Review GitHub repository workflows and releases")
+        val result = catalog.execute(
+            "load",
+            JsonObject(mapOf("names" to kotlinx.serialization.json.JsonArray(listOf("github_pull_request", "memory", "github_stage_patch").map(::JsonPrimitive))))
+        )
+        val names = catalog.selected(definitions).map { it.name }
+        assertTrue("github_pr__github_api" in names)
+        assertTrue("github_stage_patch__github_api" in names)
+        assertTrue("memory" in names)
+        assertFalse(result.isError)
+        assertTrue(catalog.selected(definitions).sumOf { ProgressiveToolCatalog.schemaTokens(it) } <= ProgressiveToolCatalog.MAX_SCHEMA_TOKEN_ALLOWANCE)
+        val restricted = ProgressiveToolCatalog(listOf(memory), "GitHub")
+        restricted.execute("no-grant", JsonObject(mapOf("names" to kotlinx.serialization.json.JsonArray(listOf(JsonPrimitive("github_stage_patch"))))))
+        assertFalse(restricted.selected(definitions).any { it.name.startsWith("github_stage_patch") })
+        val alias = ProviderEvent.ToolCall("p", "github_pull_request", JsonObject(mapOf("action" to JsonPrimitive("list"))))
+        assertEquals("github_pr__github_api", resolveGitHubReadAlias(alias, names.toSet()).name)
+        assertEquals(alias, resolveGitHubReadAlias(alias, emptySet()))
+    }
+
     @Test fun emptyDiscoveryReturnsReadOnlyInventory() = runTest {
         val catalog = ProgressiveToolCatalog(tools, "list all tools")
         val before = catalog.selected(tools)

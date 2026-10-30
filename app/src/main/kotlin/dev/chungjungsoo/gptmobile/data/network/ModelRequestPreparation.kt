@@ -54,9 +54,13 @@ internal class ModelRequestPreparation(client: NetworkClient) {
         // Read the actual serialized value as the final authority, not a profile DTO's default.
         val original = Json.parseToJsonElement(payload) as JsonObject
         val reasoning = if (config.providerType == "LLAMA") {
-            val needsControl = !config.allowReasoning || config.reasoningMode != dev.chungjungsoo.gptmobile.data.context.ReasoningMode.AUTO
+            val needsControl = config.maximizeReasoning || !config.allowReasoning || config.reasoningMode != dev.chungjungsoo.gptmobile.data.context.ReasoningMode.AUTO
             val control = if (needsControl && discovered != null) llama.reasoningControl(config, model, discovered) else null
-            dev.chungjungsoo.gptmobile.data.context.ReasoningPolicy.resolve(config.reasoningMode, config.allowReasoning, control)
+            if (config.maximizeReasoning && config.allowReasoning) {
+                dev.chungjungsoo.gptmobile.data.context.ReasoningPolicy.strongestSupported(true, control)
+            } else {
+                dev.chungjungsoo.gptmobile.data.context.ReasoningPolicy.resolve(config.reasoningMode, config.allowReasoning, control)
+            }
         } else {
             null
         }

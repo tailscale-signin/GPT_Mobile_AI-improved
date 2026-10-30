@@ -126,9 +126,13 @@ class OpenAIResponsesAdapter @Inject constructor(
                     },
                     stream = true,
                     instructions = toolRoundSystemPrompt(platform.systemPrompt, tools.isNotEmpty(), constraints)?.takeIf { it.isNotBlank() },
-                    temperature = if (platform.reasoning) null else platform.temperature,
-                    topP = if (platform.reasoning) null else platform.topP,
-                    reasoning = if (platform.reasoning && constraints.allowReasoning) ReasoningConfig(effort = "medium", summary = "auto") else null,
+                    temperature = if (platform.reasoning || constraints.maximizeReasoning && GitHubReasoningPolicy.openAiEffort(platform.model) != null) null else platform.temperature,
+                    topP = if (platform.reasoning || constraints.maximizeReasoning && GitHubReasoningPolicy.openAiEffort(platform.model) != null) null else platform.topP,
+                    reasoning = if (constraints.allowReasoning && (platform.reasoning || constraints.maximizeReasoning && GitHubReasoningPolicy.openAiEffort(platform.model) != null)) {
+                        ReasoningConfig(effort = if (constraints.maximizeReasoning) GitHubReasoningPolicy.openAiEffort(platform.model) ?: "high" else "medium", summary = "auto")
+                    } else {
+                        null
+                    },
                     previousResponseId = previousResponseId,
                     tools = tools.takeIf { it.isNotEmpty() }?.map { definition ->
                         ResponseFunctionTool(definition.name, definition.description, definition.inputSchema)
@@ -588,6 +592,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                         permissionRevision = constraints.permissionRevision,
                         requireKnownCapacity = constraints.requireKnownCapacity,
                         reasoningMode = llamaReasoning,
+                        maximizeReasoning = constraints.maximizeReasoning,
                         allowReasoning = constraints.allowReasoning,
                         token = activeKey.takeIf { it.isNotBlank() && (platform.compatibleType != ClientType.FREE || dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.requireFor(platform).acceptsUserToken) },
                         queueScope = constraints.queueScope ?: constraints.combined?.rootBudgetId ?: constraints.attemptId,
@@ -622,14 +627,20 @@ class OpenAICompatibleAdapter @Inject constructor(
                                     requestedOutputTokens = constraints.maxOutputTokens,
                                     effectiveOutputTokens = effectiveOutputTokens,
                                     reasoningEffort = if (platform.model.contains("gpt-oss", true)) {
-                                        if (platform.reasoning && constraints.allowReasoning) "medium" else "low"
+                                        if (constraints.allowReasoning && (platform.reasoning || constraints.maximizeReasoning)) {
+                                            if (constraints.maximizeReasoning) "high" else "medium"
+                                        } else {
+                                            "low"
+                                        }
                                     } else {
                                         null
                                     }
                                 )
                             )
                         }
-                        val request = createGroqChatCompletionRequest(baseMessages, platform.copy(reasoning = platform.reasoning && constraints.allowReasoning)).copy(tools = requestTools, maxCompletionTokens = effectiveOutputTokens)
+                        val request = createGroqChatCompletionRequest(baseMessages, platform.copy(reasoning = (platform.reasoning || constraints.maximizeReasoning) && constraints.allowReasoning)).let { request ->
+                            request.copy(tools = requestTools, maxCompletionTokens = effectiveOutputTokens, reasoningEffort = if (constraints.maximizeReasoning && constraints.allowReasoning && platform.model.contains("gpt-oss", true)) "high" else request.reasoningEffort)
+                        }
                         val assembler = ChatCompletionsEventAssembler()
                         val reasoningParser = GroqReasoningParser()
                         var terminalReceived = false
@@ -754,7 +765,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                             toolChoice = if (platform.disableAllTools || requestTools.isNullOrEmpty() && !gatewayToolsAllowed) "none" else null,
                             provider = parsedRouting,
                             reasoning = if (isOpenRouter || config.freeProvider == dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.KILO) {
-                                if (platform.reasoning && constraints.allowReasoning) OpenRouterReasoning(effort = "medium") else OpenRouterReasoning(enabled = false)
+                                if ((platform.reasoning || constraints.maximizeReasoning) && constraints.allowReasoning) OpenRouterReasoning(effort = if (constraints.maximizeReasoning) "high" else "medium") else OpenRouterReasoning(enabled = false)
                             } else {
                                 null
                             },
@@ -762,9 +773,9 @@ class OpenAICompatibleAdapter @Inject constructor(
                             options = parsedOllamaOptions
                         ).let { baseRequest ->
                             if (isNvidia) {
-                                NvidiaRequestPolicy.prepare(baseRequest, platform.reasoning, constraints.allowReasoning)
+                                NvidiaRequestPolicy.prepare(baseRequest, platform.reasoning || constraints.maximizeReasoning, constraints.allowReasoning)
                             } else if (config.freeProvider == dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.BLOCKRUN && platform.model == "nvidia/nemotron-3.5-lightning") {
-                                baseRequest.copy(chatTemplateKwargs = kotlinx.serialization.json.JsonObject(mapOf("enable_thinking" to JsonPrimitive(platform.reasoning && constraints.allowReasoning))))
+                                baseRequest.copy(chatTemplateKwargs = kotlinx.serialization.json.JsonObject(mapOf("enable_thinking" to JsonPrimitive((platform.reasoning || constraints.maximizeReasoning) && constraints.allowReasoning))))
                             } else {
                                 baseRequest
                             }
@@ -1079,7 +1090,7 @@ class AnthropicMessagesAdapter @Inject constructor(
                 require(constraints.allowTools || tools.isEmpty()) { "Tools are disabled for this request." }
                 val thinkingPolicy = anthropicThinkingPolicy(
                     model = platform.model,
-                    reasoningEnabled = platform.reasoning && constraints.allowReasoning && (constraints.outputLimit(platform.maxTokens) ?: 16000) > 1024,
+                    reasoningEnabled = (platform.reasoning || constraints.maximizeReasoning) && constraints.allowReasoning && (constraints.outputLimit(platform.maxTokens) ?: 16000) > 1024,
                     hasTools = tools.isNotEmpty()
                 )
                 val isThinkingActive = thinkingPolicy.config?.type?.let { it != "disabled" } == true
@@ -1125,7 +1136,7 @@ class AnthropicMessagesAdapter @Inject constructor(
                     temperature = if (allowSampling) platform.temperature else null,
                     topP = if (allowSampling) platform.topP else null,
                     thinking = thinkingPolicy.config?.let { config ->
-                        if (config.budgetTokens != null) config.copy(budgetTokens = minOf(config.budgetTokens, effectiveOutputTokens - 1)) else config
+                        if (config.budgetTokens != null) config.copy(budgetTokens = minOf(if (constraints.maximizeReasoning) GitHubReasoningPolicy.manualThinkingBudget(effectiveOutputTokens) else config.budgetTokens, effectiveOutputTokens - 1)) else config
                     },
                     tools = tools.takeIf { it.isNotEmpty() }?.map { definition ->
                         AnthropicTool(definition.name, definition.description, definition.inputSchema)
@@ -1356,7 +1367,7 @@ class GeminiAdapter @Inject constructor(
                         maxOutputTokens = effectiveOutputTokens,
                         temperature = platform.temperature,
                         topP = platform.topP,
-                        thinkingConfig = if (platform.reasoning && constraints.allowReasoning) GoogleThinkingConfig(includeThoughts = true) else null
+                        thinkingConfig = if ((platform.reasoning || constraints.maximizeReasoning) && constraints.allowReasoning) GoogleThinkingConfig(includeThoughts = true) else null
                     ),
                     systemInstruction = toolRoundSystemPrompt(platform.systemPrompt, tools.isNotEmpty(), constraints)?.takeIf { it.isNotBlank() }?.let { prompt ->
                         Content(parts = listOf(Part.text(prompt)))

@@ -2,6 +2,9 @@ package dev.chungjungsoo.gptmobile.data.github
 
 import java.util.Base64
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
@@ -157,6 +160,42 @@ internal class GitHubRepositorySession(
             JsonObject(args + ("commit_sha" to JsonPrimitive(head)))
         } else {
             args
+        }
+        if (action == "recovery_context") {
+            val retained = requireNotNull(snapshot()) { "No retained task exists in this scope." }
+            require(retained.owner.equals(owner, true) && retained.repo.equals(repo, true))
+            val page = args.s("page").ifBlank { "1" }.toInt().also { require(it in 1..1000) }
+            val handles = retained.evidenceHandles.drop((page - 1) * 16).take(16)
+            val evidence = handles.map { id ->
+                val saved = store.read(scope, "evidence:$id")
+                buildJsonObject {
+                    put("evidence_id", id)
+                    put("available", saved != null)
+                    saved?.let {
+                        put("commit_sha", it["commit_sha"] ?: JsonNull)
+                        put("tree_sha", it["tree_sha"] ?: JsonNull)
+                        put("ranges", it["ranges"] ?: JsonArray(emptyList()))
+                        put("files", JsonArray(it["items"]?.jsonArray.orEmpty().map { item -> JsonObject(item.jsonObject.filterKeys { key -> key in setOf("path", "sha", "start_line", "end_line", "total_lines") }) }))
+                    }
+                }
+            }
+            val stageId = args.s("stage_id").ifBlank { retained.stagedPatchId.orEmpty() }
+            val stage = stageId.takeIf { it.isNotBlank() }?.let { store.read(scope, "stage:$it") }
+            return buildJsonObject {
+                put("commit_sha", retained.commitSha)
+                put("branch", retained.ref)
+                put("evidence", JsonArray(evidence))
+                put("page", page)
+                put("has_more", page * 16 < retained.evidenceHandles.size)
+                put("total_retained_evidence", retained.evidenceHandles.size)
+                put("retention_note", "Bounded task-local evidence inventory; expired records are marked unavailable. Use read_recovery_context for the conversation action ledger.")
+                put("stage_id", stageId)
+                put("stage_available", stage != null)
+                stage?.let {
+                    put("stage", JsonObject(it.filterKeys { key -> key != "files" }))
+                    put("staged_files", JsonArray(it["files"]?.jsonArray.orEmpty().map { file -> JsonObject(file.jsonObject.filterKeys { key -> key in setOf("path", "expected_blob_sha", "delete") }) }))
+                }
+            }
         }
         val context = resolve(owner, repo, requested, action in setOf("resolve_context", "task_context"))
         return when (action) {
@@ -317,6 +356,7 @@ internal class GitHubRepositorySession(
         val extension = args.s("file_extension").removePrefix(".").lowercase(java.util.Locale.ROOT)
         require(extension.isEmpty() || extension.matches(Regex("[a-z0-9]+"))) { "file_extension must be a single extension such as kt or .kt." }
         val batchSize = args.s("batch_size").ifBlank { "1000" }.toInt().also { require(it in 1..1000) }
+        val maxNewBlobs = args.s("max_new_blobs").ifBlank { "16" }.toInt().also { require(it in 1..32) }
         val searchId = GitHubRepositoryStateStore.digest(listOf(context.commitSha, query, mode, args.s("path_prefix"), extension, options.json().toString()).joinToString("\u0000"))
         require(args.s("search_id").isBlank() || args.s("search_id") == searchId) { "Search parameters changed. Start at index_cursor=0 without search_id, or use the exact continuation." }
         val all = data["tree"]!!.jsonArray.map { it.jsonObject }.filter { item ->
@@ -327,7 +367,7 @@ internal class GitHubRepositorySession(
                 (extension.isEmpty() || item.s("path").substringAfterLast('.', "").equals(extension, true))
         }.distinctBy { it.s("path") }.sortedBy { it.s("path") }
         val cursor = args.s("index_cursor").ifBlank { "0" }.toInt().also { require(it in 0..all.size) }
-        val cacheKey = "search-page-v2:$searchId:$cursor:$batchSize"
+        val cacheKey = "search-page-v3:$searchId:$cursor:$batchSize:$maxNewBlobs"
         store.read(scope, cacheKey)?.let { cached ->
             return JsonObject(cached + mapOf("cache_hit" to JsonPrimitive(true), "new_blobs" to JsonPrimitive(0)))
         }
@@ -341,7 +381,9 @@ internal class GitHubRepositorySession(
         var incompleteSymbols = false
         var truncatedMatches = false
         val hits = mutableListOf<JsonObject>()
-        while (next < all.size && (mode == "paths" || next - cursor < batchSize) && hits.size < 20) {
+        val prefetched = mutableMapOf<String, Result<JsonObject?>>()
+        val hitLimit = if (mode == "paths") 100 else 20
+        while (next < all.size && (mode == "paths" || next - cursor < batchSize) && hits.size < hitLimit) {
             kotlinx.coroutines.currentCoroutineContext().ensureActive()
             if ((System.nanoTime() - startedNanos) / 1_000_000 >= 12_000) break
             val item = all[next]
@@ -356,17 +398,37 @@ internal class GitHubRepositorySession(
                 continue
             }
             val cached = store.read(blobScope(context), "blob:${item.s("sha")}")
-            if (cached == null && fetched >= 4) break
+            if (cached == null && item.s("sha") !in prefetched && fetched >= maxNewBlobs) break
             next++
             if ((item["size"]?.jsonPrimitive?.longOrNull ?: 0) > MAX_BLOB_BYTES) {
                 skipped++
                 continue
             }
             val content = try {
-                if (cached == null) fetched++
-                val retained = cached ?: kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                    kotlinx.coroutines.withTimeoutOrNull(8_000) { blob(context, item) }
+                if (cached == null && item.s("sha") !in prefetched) {
+                    val candidates = all.subList(next - 1, minOf(all.size, cursor + batchSize)).asSequence()
+                        .take(4).filter { (it["size"]?.jsonPrimitive?.longOrNull ?: 0) <= MAX_BLOB_BYTES }
+                        .distinctBy { it.s("sha") }.filter { it.s("sha") !in prefetched }
+                        .take(maxNewBlobs - fetched).toList()
+                        .filter { store.read(blobScope(context), "blob:${it.s("sha")}") == null }
+                    fetched += candidates.size
+                    val remainingMs = (12_000 - (System.nanoTime() - startedNanos) / 1_000_000).coerceIn(1, 8_000)
+                    coroutineScope {
+                        candidates.map { entry ->
+                            async(kotlinx.coroutines.Dispatchers.IO) {
+                                val result = try {
+                                    Result.success(kotlinx.coroutines.withTimeoutOrNull(remainingMs) { blob(context, entry) })
+                                } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                                    throw cancelled
+                                } catch (failure: Exception) {
+                                    Result.failure(failure)
+                                }
+                                entry.s("sha") to result
+                            }
+                        }.awaitAll().forEach { (sha, result) -> prefetched[sha] = result }
+                    }
                 }
+                val retained = prefetched.remove(item.s("sha"))?.getOrThrow() ?: cached ?: store.read(blobScope(context), "blob:${item.s("sha")}")
                 if (retained == null) {
                     next--
                     readDeadline = true
@@ -478,6 +540,18 @@ internal class GitHubRepositorySession(
             put("returned", hits.size)
             put("scanned_files", next - cursor)
             put("new_blobs", fetched)
+            put("max_new_blobs", maxNewBlobs)
+            put("batch_size", batchSize)
+            put(
+                "stop_reason",
+                when {
+                    next == all.size -> "traversal_complete"
+                    readDeadline || (System.nanoTime() - startedNanos) / 1_000_000 >= 12_000 -> "time_budget"
+                    hits.size >= hitLimit -> "result_limit"
+                    next - cursor >= batchSize -> "candidate_limit"
+                    else -> "download_budget"
+                }
+            )
             put("total_candidate_files", all.size)
             put("skipped_files", skipped)
             put("symbols_incomplete", incompleteSymbols)
@@ -498,6 +572,7 @@ internal class GitHubRepositorySession(
                         put("file_extension", extension)
                         put("search_id", searchId)
                         put("batch_size", batchSize)
+                        put("max_new_blobs", maxNewBlobs)
                         options.json().forEach { (key, value) -> put(key, value) }
                     }
                 )
@@ -548,6 +623,7 @@ internal class GitHubRepositorySession(
             buildJsonObject {
                 put("path", path)
                 put("sha", entry["sha"]!!)
+                put("expected_blob_sha", entry["sha"]!!)
                 put("commit_sha", context.commitSha)
                 put("start_line", start)
                 put("end_line", minOf(end, lines.size))

@@ -75,9 +75,9 @@
     "v14/results.py": "2a7c79fd6f8e038e902d6eba979905d072befc87ab8b18a72904e44728685cca",
     "v14/operations.py": "8dfcd5dd06824cfd25c1a34a6bde479950d0d22f4b95b745f22ab1729ece0690",
     "tests/test_gateway_v14_upgrade.py": "bef58f5db4c39dc72c702cefd5b7c3dfd126327045bb98b77d938cc120d74e4c",
-    "v14/github.py": "033f8906319f93b8805347a109ebe32ca9c58c2bea0d2fcbb52f3927002d8ef3",
+    "v14/github.py": "92db017b1088f4575e2e78c61ca3ad4b5ac2370b7917308bdd9c780a42326955",
     "GITHUB_UPGRADE_14_3.md": "522fc58c8caa9d48670cec2cb7b8e08d76c024a9886f01716e76c55f880e04a8",
-    "tests/test_gateway_v14_github.py": "5f22b02fe966e2c5d2ca30cf5e2fdba4e80f6eaa858aa13d3fcb6f73030a107c"
+    "tests/test_gateway_v14_github.py": "b8fa8be9e0ac09c5fd35bc0c45cf184f676166fc2cc8aa649fe7c5f161e07646"
   },
   "sourceDescription": "sourceCommit identifies the reviewed main baseline; file hashes identify the GitHub 14.3 upgrade overlay."
 }

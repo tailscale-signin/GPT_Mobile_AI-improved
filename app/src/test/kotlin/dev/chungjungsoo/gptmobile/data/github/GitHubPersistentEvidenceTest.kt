@@ -25,6 +25,44 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubPersistentEvidenceTest {
+    private val fetchCounterLock = Any()
+
+    @Test fun recoveryInventoriesRetainedPathsAndBlobIdentitiesWithoutRemoteReads() = runTest {
+        var requests = 0
+        val client = session(GitHubRepositoryStateStore(), request = { path ->
+            requests++
+            when {
+                "/commits/" in path -> commit(head, headTree)
+                "/git/trees/" in path -> tree(listOf(item("A.kt", sha(1), 20)))
+                else -> blob(sha(1), "one\ntwo\nthree\nfour\nfive\nsix")
+            }
+        })
+        val read = client.execute(
+            "read_ranges",
+            "owner",
+            "repo",
+            args(
+                "ranges" to JsonArray(
+                    listOf(
+                        buildJsonObject {
+                            put("path", "A.kt")
+                            put("start_line", 1)
+                            put("end_line", 5)
+                        }
+                    )
+                )
+            )
+        )
+        val before = requests
+        val recovery = client.execute("recovery_context", "owner", "repo", args()).jsonObject
+        assertEquals(before, requests)
+        val evidence = recovery["evidence"]!!.jsonArray.single().jsonObject
+        assertEquals(read.jsonObject["evidence_id"], evidence["evidence_id"])
+        assertEquals("A.kt", evidence["files"]!!.jsonArray.single().jsonObject["path"]!!.jsonPrimitive.content)
+        assertEquals(sha(1), evidence["files"]!!.jsonArray.single().jsonObject["sha"]!!.jsonPrimitive.content)
+        assertFalse(recovery.toString().contains("one\ntwo"))
+    }
+
     @Test fun enrichedSearchPinsFiltersAndStableMatchIdentityAcrossPages() = runTest {
         val entries = (1..6).map { item("src/File$it.kt", sha(it), 60) } + item("src/Ignored.java", sha(20), 60)
         val client = session(GitHubRepositoryStateStore(), request = { path ->
@@ -68,7 +106,7 @@ class GitHubPersistentEvidenceTest {
                 "/commits/" in path -> commit(head, headTree)
                 "/git/trees/" in path -> tree(entries)
                 else -> {
-                    blobReads++
+                    synchronized(fetchCounterLock) { blobReads++ }
                     blob(path.substringAfterLast('/'), "name: Build\non: [push, workflow_dispatch]\njobs:\n  test:\n    runs-on: ubuntu-latest")
                 }
             }
@@ -92,7 +130,7 @@ class GitHubPersistentEvidenceTest {
                 "/commits/" in path -> commit(head, headTree)
                 "/git/trees/" in path -> tree(entries + entries.first())
                 else -> {
-                    fetched++
+                    synchronized(fetchCounterLock) { fetched++ }
                     blob(path.substringAfterLast('/'), "fun target() = 1")
                 }
             }
@@ -151,7 +189,7 @@ class GitHubPersistentEvidenceTest {
     }
 
     @Test fun wildcardPathListingUsesExactContinuationWithoutDuplicatingEntries() = runTest {
-        val entries = (0 until 25).map { item("src/File${it.toString().padStart(2, '0')}.kt", sha(it + 1), 30) }
+        val entries = (0 until 125).map { item("src/File${it.toString().padStart(2, '0')}.kt", sha(it + 1), 30) }
         val client = session(GitHubRepositoryStateStore(), request = { path ->
             when {
                 "/commits/" in path -> commit(head, headTree)
@@ -160,10 +198,10 @@ class GitHubPersistentEvidenceTest {
             }
         })
         val first = client.execute("search_repository", "owner", "repo", args("query" to JsonPrimitive("*"), "mode" to JsonPrimitive("paths"))).jsonObject
-        assertEquals(20, first.getValue("items").jsonArray.size)
+        assertEquals(100, first.getValue("items").jsonArray.size)
         val second = client.execute("search_repository", "owner", "repo", first.getValue("continuation").jsonObject).jsonObject
         val paths = (first.getValue("items").jsonArray + second.getValue("items").jsonArray).map { it.jsonObject.getValue("path").jsonPrimitive.content }
-        assertEquals(25, paths.distinct().size)
+        assertEquals(125, paths.distinct().size)
         assertFalse(second.getValue("has_more").jsonPrimitive.booleanOrNull == true)
     }
 
@@ -176,7 +214,7 @@ class GitHubPersistentEvidenceTest {
                 "/commits/" in path -> commit(head, headTree)
                 "/git/trees/" in path -> tree(listOf(item("src/Target.kt", sha(1), 30)))
                 else -> {
-                    fetched++
+                    synchronized(fetchCounterLock) { fetched++ }
                     if (slow) kotlinx.coroutines.delay(20_000)
                     blob(sha(1), "fun findMe() = 1")
                 }
@@ -424,7 +462,7 @@ class GitHubPersistentEvidenceTest {
                 "/commits/" in path -> commit(head, headTree)
                 "/git/trees/" in path -> tree(entries)
                 "/git/blobs/" in path -> {
-                    blobs++
+                    synchronized(fetchCounterLock) { blobs++ }
                     blob(path.substringAfterLast('/'), "val ordinary = 1\n")
                 }
                 else -> error(path)
@@ -432,7 +470,7 @@ class GitHubPersistentEvidenceTest {
         }
         val client = session(GitHubRepositoryStateStore(), request = fetch)
         val first = client.execute("search_repository", "owner", "repo", args("query" to JsonPrimitive("missing"), "path_prefix" to JsonPrimitive("src/"))).jsonObject
-        assertEquals(4, blobs)
+        assertEquals(16, blobs)
         assertTrue(first["has_more"]!!.jsonPrimitive.booleanOrNull == true)
         assertFalse(first["complete"]!!.jsonPrimitive.booleanOrNull == true)
         val continuation = first["continuation"]!!.jsonObject
@@ -454,14 +492,14 @@ class GitHubPersistentEvidenceTest {
                 "/commits/" in path -> commit(head, headTree)
                 "/git/trees/" in path -> tree((1..100).map { item("binary$it", sha(it), 1) })
                 else -> {
-                    blobs++
+                    synchronized(fetchCounterLock) { blobs++ }
                     blob(path.substringAfterLast('/'), "\u0000")
                 }
             }
         })
         val result = client.execute("search_repository", "owner", "repo", args("query" to JsonPrimitive("absent"))).jsonObject
-        assertEquals(4, blobs)
-        assertEquals(4, result["skipped_files"]!!.jsonPrimitive.intOrNull)
+        assertEquals(16, blobs)
+        assertEquals(16, result["skipped_files"]!!.jsonPrimitive.intOrNull)
         assertTrue(result["has_more"]!!.jsonPrimitive.booleanOrNull == true)
     }
 
@@ -473,7 +511,7 @@ class GitHubPersistentEvidenceTest {
                 "/commits/" in path -> commit(head, headTree)
                 "/git/trees/" in path -> tree(listOf(item("A.kt", sha(1), 100)))
                 else -> {
-                    blobReads++
+                    synchronized(fetchCounterLock) { blobReads++ }
                     blob(sha(1), "fun answer() = 41\n// duplicate duplicate\n")
                 }
             }

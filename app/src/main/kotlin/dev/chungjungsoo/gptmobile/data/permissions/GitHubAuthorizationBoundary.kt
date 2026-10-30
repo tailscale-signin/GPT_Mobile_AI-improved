@@ -32,7 +32,7 @@ internal object GitHubAuthorizationBoundary {
             action in setOf(
                 "read_saved_result", "search_repositories", "search_issues", "search_code", "get_file_contents",
                 "get_issue", "get_pull_request", "list_pull_requests", "list_workflow_runs", "list_workflows",
-                "get_workflow_run", "list_workflow_jobs", "list_workflow_artifacts", "get_job_logs"
+                "get_workflow_run", "list_workflow_jobs", "get_workflow_job", "list_workflow_artifacts", "get_job_logs"
             )
     }
 

@@ -35,6 +35,15 @@ class GitHubGatewayTests(unittest.TestCase):
         self.assertEqual(1, stats['successRate'])
         self.assertTrue(stats['usageComplete'])
 
+    def test_issue_operation_returns_to_client_without_gateway_execution(self):
+        payload = {'tools': [{'function': {'name': 'github_issue__github_api'}}]}
+        seen = []
+        runtime = SimpleNamespace(process_chat_payload=lambda payload, *args: (seen.append(payload) or 200, {}))
+        install_github_fast_path(runtime)
+        runtime.process_chat_payload(payload)
+        self.assertTrue(seen[0]['_gateway_performance']['github_client_owned'])
+        self.assertEqual(payload['tools'], seen[0]['tools'])
+
     def test_keywords_do_not_enable_native_routing_and_missing_usage_is_unknown(self):
         self.assertFalse(native_github_request({'messages': [{'content': 'github_write__github_api'}]}))
         self.assertFalse(native_github_request({'tools': [{'function': {'name': 'github_admin_unknown'}}]}))

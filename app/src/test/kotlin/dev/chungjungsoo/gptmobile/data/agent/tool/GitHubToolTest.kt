@@ -22,6 +22,140 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubToolTest {
+    @Test fun selectedWorkspaceBranchCannotBeDeletedBeforeTaskHydration() = runTest {
+        var requests = 0
+        val http = HttpClient(
+            MockEngine {
+                requests++
+                error("must not dispatch")
+            }
+        )
+        try {
+            val tool = GitHubTool("token", http, repositoryContext = GitHubRepositoryContext("o", "r", "working"))
+            val result = tool.execute(
+                "delete",
+                buildJsonObject {
+                    put("action", "delete_branch")
+                    put("branch", "working")
+                    put("expected_head_sha", "a".repeat(40))
+                }
+            )
+            assertTrue(result.isError)
+            assertEquals(0, requests)
+        } finally {
+            http.close()
+        }
+    }
+
+    @Test fun workflowRunPagesPreserveFiltersAndExposeTheUpstreamSearchCeiling() = runTest {
+        val http = HttpClient(
+            MockEngine { request ->
+                assertEquals("/repos/o/r/actions/workflows/codeql.yml/runs", request.url.encodedPath)
+                assertEquals("failure", request.url.parameters["status"])
+                assertEquals("100", request.url.parameters["per_page"])
+                assertEquals(">=2026-01-01", request.url.parameters["created"])
+                respond("""{"total_count":1200,"workflow_runs":[{"id":7,"workflow_id":9,"run_attempt":2,"head_sha":"abc","artifacts_url":"https://api.github.com/artifacts"}]}""")
+            }
+        )
+        try {
+            val tool = GitHubTool("token", http)
+            fun arguments(page: Int) = buildJsonObject {
+                put("action", "list_workflow_runs")
+                put("owner", "o")
+                put("repo", "r")
+                put("workflow_id", ".github/workflows/codeql.yml")
+                put("status", "failure")
+                put("created", ">=2026-01-01")
+                put("page", page)
+            }
+            val first = Json.parseToJsonElement((tool.execute("first", arguments(1)).content as ToolResultContent.Text).text).jsonObject
+            assertEquals("2", first["continuation"]!!.jsonObject["page"]!!.jsonPrimitive.content)
+            assertEquals("failure", first["continuation"]!!.jsonObject["status"]!!.jsonPrimitive.content)
+            assertEquals("2", first["workflow_runs"]!!.jsonArray.single().jsonObject["run_attempt"]!!.jsonPrimitive.content)
+            val last = Json.parseToJsonElement((tool.execute("last", arguments(10)).content as ToolResultContent.Text).text).jsonObject
+            assertEquals("false", last["has_more"].toString())
+            assertEquals("true", last["history_truncated"].toString())
+            assertEquals("false", last["history_complete"].toString())
+        } finally {
+            http.close()
+        }
+    }
+
+    @Test fun unfilteredWorkflowHistoryCanContinueBeyondOneThousandRuns() = runTest {
+        val http = HttpClient(
+            MockEngine { request ->
+                assertEquals("11", request.url.parameters["page"])
+                respond("""{"total_count":20793,"workflow_runs":[]}""")
+            }
+        )
+        try {
+            val result = GitHubTool("token", http).execute(
+                "page",
+                buildJsonObject {
+                    put("action", "list_workflow_runs")
+                    put("owner", "o")
+                    put("repo", "r")
+                    put("page", 11)
+                }
+            )
+            val data = Json.parseToJsonElement((result.content as ToolResultContent.Text).text).jsonObject
+            assertEquals("12", data["continuation"]!!.jsonObject["page"]!!.jsonPrimitive.content)
+            assertEquals("false", data["history_truncated"].toString())
+        } finally {
+            http.close()
+        }
+    }
+
+    @Test fun workflowJobsRetainStepFailuresAndDirectJobLookupIsReadOnly() = runTest {
+        val job = """{"id":3,"run_id":7,"steps":[{"name":"Compile","conclusion":"failure","number":2}],"runner_name":"runner"}"""
+        val http = HttpClient(
+            MockEngine { request ->
+                respond(
+                    when (request.url.encodedPath) {
+                        "/repos/o/r/actions/runs/7/jobs" -> """{"total_count":1,"jobs":[$job]}"""
+                        "/repos/o/r/actions/jobs/3" -> job
+                        else -> error("Unexpected job endpoint")
+                    }
+                )
+            }
+        )
+        try {
+            val tool = GitHubTool("token", http)
+            val common = buildJsonObject {
+                put("owner", "o")
+                put("repo", "r")
+                put("run_id", 7)
+                put("job_id", 3)
+            }
+            val jobs = tool.execute("jobs", kotlinx.serialization.json.JsonObject(common + ("action" to kotlinx.serialization.json.JsonPrimitive("list_workflow_jobs"))))
+            val result = Json.parseToJsonElement((jobs.content as ToolResultContent.Text).text).jsonObject
+            assertEquals("failure", result["jobs"]!!.jsonArray.single().jsonObject["steps"]!!.jsonArray.single().jsonObject["conclusion"]!!.jsonPrimitive.content)
+            val direct = tool.execute("job", kotlinx.serialization.json.JsonObject(common + ("action" to kotlinx.serialization.json.JsonPrimitive("get_workflow_job"))))
+            assertFalse(direct.isError)
+            assertTrue(
+                dev.chungjungsoo.gptmobile.data.permissions.GitHubAuthorizationBoundary.isReplayableRead(
+                    "github_ci",
+                    buildJsonObject {
+                        put("action", "jobs")
+                        put("job_id", 3)
+                    }
+                )
+            )
+            assertEquals(
+                "get_workflow_job",
+                GitHubOperationTool.nativeArguments(
+                    "github_ci",
+                    buildJsonObject {
+                        put("action", "jobs")
+                        put("job_id", 3)
+                    }
+                )!!["action"]!!.jsonPrimitive.content
+            )
+        } finally {
+            http.close()
+        }
+    }
+
     @Test fun workflowPathsNormalizeAndMissingSelectionOnlyDiscovers() = runTest {
         val requests = mutableListOf<String>()
         val http = HttpClient(

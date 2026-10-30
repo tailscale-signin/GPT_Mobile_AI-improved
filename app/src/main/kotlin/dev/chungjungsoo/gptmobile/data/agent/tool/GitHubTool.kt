@@ -32,6 +32,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.yield
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
@@ -153,6 +154,7 @@ class GitHubTool(
                                     add(JsonPrimitive("list_workflows"))
                                     add(JsonPrimitive("get_workflow_run"))
                                     add(JsonPrimitive("list_workflow_jobs"))
+                                    add(JsonPrimitive("get_workflow_job"))
                                     add(JsonPrimitive("list_workflow_artifacts"))
                                     add(JsonPrimitive("get_job_logs"))
                                     add(JsonPrimitive("watch_checks"))
@@ -495,6 +497,13 @@ class GitHubTool(
 
         return try {
             if (action in GitHubWorkspaceClient.actions) {
+                if (action == "delete_branch") {
+                    (workspaceClient.taskContext() ?: repositoryContext)?.let { selected ->
+                        val sameRepo = arguments["owner"]?.jsonPrimitive?.content.orEmpty().equals(selected.owner, true) &&
+                            arguments["repo"]?.jsonPrimitive?.content.orEmpty().equals(selected.repo, true)
+                        require(!sameRepo || arguments["branch"]?.jsonPrimitive?.content != selected.ref) { "Cannot delete the selected workspace branch. Select another branch first." }
+                    }
+                }
                 if (action == "commit_files") {
                     (workspaceClient.taskContext() ?: repositoryContext)?.let { selected ->
                         val sameRepo = arguments["owner"]?.jsonPrimitive?.content.orEmpty().equals(selected.owner, true) &&
@@ -515,7 +524,7 @@ class GitHubTool(
                 "get_pull_request" -> handleGetPullRequest(callId, arguments)
                 "list_pull_requests" -> handleListPullRequests(callId, arguments)
                 "list_workflow_runs" -> handleListWorkflowRuns(callId, arguments)
-                "list_workflows", "get_workflow_run", "list_workflow_jobs", "list_workflow_artifacts", "get_job_logs", "dispatch_workflow", "rerun_workflow", "rerun_failed_jobs", "cancel_workflow" -> handleWorkflowAction(callId, action, arguments)
+                "list_workflows", "get_workflow_run", "list_workflow_jobs", "get_workflow_job", "list_workflow_artifacts", "get_job_logs", "dispatch_workflow", "rerun_workflow", "rerun_failed_jobs", "cancel_workflow" -> handleWorkflowAction(callId, action, arguments)
                 "create_branch" -> handleCreateBranch(callId, arguments)
                 "create_issue_comment" -> handleIssueComment(callId, arguments)
                 "update_file" -> {
@@ -538,7 +547,8 @@ class GitHubTool(
             return errorResult(callId, "Parameter 'query' is required for action 'search_repositories'.")
         }
         val encodedQuery = URLEncoder.encode(query, StandardCharsets.UTF_8.name())
-        val url = "$BASE_URL/search/repositories?q=$encodedQuery&per_page=10"
+        val page = (arguments["page"]?.jsonPrimitive?.intOrNull ?: 1).also { require(it in 1..34) }
+        val url = "$BASE_URL/search/repositories?q=$encodedQuery&per_page=30&page=$page"
         val response = getGitHubApi(url)
         val text = response.bodyAsText()
 
@@ -549,14 +559,30 @@ class GitHubTool(
         val json = jsonParser.parseToJsonElement(text).jsonObject
         val items = json["items"]?.jsonArray ?: JsonArray(emptyList())
         val summary = buildJsonObject {
-            put("total_count", json["total_count"] ?: JsonPrimitive(0))
+            put("total_count", json["total_count"] ?: JsonNull)
+            put("incomplete_results", json["incomplete_results"] ?: JsonNull)
+            put("page", page)
+            val more = page * 30 < minOf(json["total_count"]?.jsonPrimitive?.intOrNull ?: 0, 1000)
+            put("has_more", more)
+            put("search_limit", 1000)
+            if (more) {
+                put(
+                    "continuation",
+                    buildJsonObject {
+                        put("action", "search_repositories")
+                        put("query", query)
+                        put("page", page + 1)
+                    }
+                )
+            }
             put(
                 "items",
                 buildJsonArray {
-                    items.take(10).forEach { item ->
+                    items.forEach { item ->
                         val obj = item.jsonObject
                         add(
                             buildJsonObject {
+                                listOf("id", "node_id", "owner", "fork", "forks_count", "default_branch", "languages_url", "updated_at", "pushed_at", "visibility", "archived").forEach { key -> obj[key]?.let { put(key, it) } }
                                 put("full_name", obj["full_name"] ?: JsonPrimitive(""))
                                 put("description", obj["description"] ?: JsonPrimitive(""))
                                 put("stargazers_count", obj["stargazers_count"] ?: JsonPrimitive(0))
@@ -775,30 +801,52 @@ class GitHubTool(
         if (owner.isEmpty() || repo.isEmpty()) {
             return errorResult(callId, "Parameters 'owner' and 'repo' are required.")
         }
-        val branch = arguments["branch"]?.jsonPrimitive?.content?.trim()
-        val query = branch
-            ?.takeIf(String::isNotBlank)
-            ?.let { "?branch=${URLEncoder.encode(it, StandardCharsets.UTF_8.name())}&per_page=20" }
-            ?: "?per_page=20"
-        val response = getGitHubApi("$BASE_URL/repos/$owner/$repo/actions/runs$query")
+        val page = arguments["page"]?.jsonPrimitive?.intOrNull ?: 1
+        val perPage = arguments["per_page"]?.jsonPrimitive?.intOrNull ?: 100
+        require(page in 1..1000 && perPage in 1..100) { "page must be 1–1000 and per_page 1–100." }
+        val filters = listOf("branch", "status", "actor", "event", "created", "head_sha").mapNotNull { key ->
+            arguments[key]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }?.let { key to it }
+        }.toMap().toMutableMap()
+        arguments["commit_sha"]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }?.let { filters["head_sha"] = it }
+        val workflow = arguments["workflow_id"]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }
+        val route = if (workflow == null) "runs" else "workflows/${normalizeGitHubWorkflowSelector(workflow)}/runs"
+        val query = buildList {
+            add("per_page=$perPage")
+            add("page=$page")
+            filters.forEach { (key, value) -> add("$key=${GitHubWorkspaceClient.segment(value)}") }
+        }.joinToString("&")
+        val response = getGitHubApi("$BASE_URL/repos/${GitHubWorkspaceClient.segment(owner)}/${GitHubWorkspaceClient.segment(repo)}/actions/$route?$query")
         val text = response.bodyAsText()
         if (!response.status.isSuccess()) {
             return errorResult(callId, "GitHub API returned HTTP ${response.status.value}: ${truncate(text, 500)}")
         }
         val json = jsonParser.parseToJsonElement(text).jsonObject
         val runs = json["workflow_runs"]?.jsonArray ?: JsonArray(emptyList())
+        val total = json["total_count"]?.jsonPrimitive?.intOrNull
+        val searchLimit = if (filters.isNotEmpty()) 1000 else Int.MAX_VALUE
+        val more = if (total != null) page * perPage < minOf(total, searchLimit) else runs.size == perPage && page * perPage < searchLimit
         val compact = buildJsonObject {
-            put("total_count", json["total_count"] ?: JsonPrimitive(runs.size))
+            put("total_count", json["total_count"] ?: JsonNull)
+            put("page", page)
+            put("per_page", perPage)
+            put("returned", runs.size)
+            put("has_more", more)
+            put("history_truncated", total == null || total > searchLimit)
+            put("traversal_complete", !more)
+            put("history_complete", page == 1 && !more && total != null && runs.size == total && total <= searchLimit)
+            put("completion_note", "This response contains one page. Consuming the final page alone does not prove earlier pages were read; use the resumable history collector for an audited total.")
+            if (filters.isNotEmpty()) {
+                put("search_limit", 1000)
+                put("limit_note", "GitHub caps filtered run searches at 1,000 results. Narrow created to smaller date ranges for complete history.")
+            }
+            if (more) put("continuation", JsonObject(arguments + mapOf("action" to JsonPrimitive("list_workflow_runs"), "page" to JsonPrimitive(page + 1), "per_page" to JsonPrimitive(perPage))))
             put(
                 "workflow_runs",
                 buildJsonArray {
-                    runs.take(20).forEach { item ->
+                    runs.forEach { item ->
                         add(
                             buildJsonObject {
-                                listOf(
-                                    "id", "name", "event", "status", "conclusion", "head_branch",
-                                    "head_sha", "run_number", "created_at", "updated_at", "html_url"
-                                ).forEach { key -> item.jsonObject[key]?.let { put(key, it) } }
+                                listOf("id", "workflow_id", "name", "path", "display_title", "event", "status", "conclusion", "head_branch", "head_sha", "run_number", "run_attempt", "actor", "triggering_actor", "head_commit", "run_started_at", "created_at", "updated_at", "html_url", "jobs_url", "logs_url", "artifacts_url").forEach { key -> item.jsonObject[key]?.let { put(key, it) } }
                             }
                         )
                     }
@@ -845,6 +893,7 @@ class GitHubTool(
             "list_workflows" -> "/workflows$pagination"
             "get_workflow_run" -> "/runs/${positiveId("run_id")}"
             "list_workflow_jobs" -> "/runs/${positiveId("run_id")}/jobs$pagination"
+            "get_workflow_job" -> "/jobs/${positiveId("job_id")}"
             "list_workflow_artifacts" -> "/runs/${positiveId("run_id")}/artifacts$pagination"
             "get_job_logs" -> "/jobs/${positiveId("job_id")}/logs"
             "dispatch_workflow" -> {
@@ -931,16 +980,17 @@ class GitHubTool(
             "get_workflow_run" -> buildJsonObject {
                 listOf(
                     "id", "name", "event", "status", "conclusion", "head_branch", "head_sha",
-                    "run_number", "run_attempt", "created_at", "updated_at", "html_url"
+                    "workflow_id", "path", "run_number", "run_attempt", "run_started_at", "created_at", "updated_at", "html_url", "jobs_url", "logs_url", "artifacts_url"
                 ).forEach { field -> parsed[field]?.let { put(field, it) } }
             }.toString()
+            "get_workflow_job" -> parsed.toString()
             "list_workflow_jobs" -> projectedArray(
                 "jobs",
-                listOf("id", "name", "status", "conclusion", "started_at", "completed_at", "html_url")
+                listOf("id", "run_id", "head_sha", "name", "status", "conclusion", "started_at", "completed_at", "steps", "runner_name", "runner_group_name", "labels", "html_url")
             ).toString()
             "list_workflow_artifacts" -> projectedArray(
                 "artifacts",
-                listOf("id", "name", "size_in_bytes", "expired", "created_at", "expires_at", "archive_download_url")
+                listOf("id", "name", "size_in_bytes", "expired", "created_at", "expires_at", "digest", "workflow_run", "archive_download_url")
             ).toString()
             else -> truncate(text, MAX_OUTPUT_CHARS)
         }
@@ -1056,6 +1106,11 @@ class GitHubTool(
                 buildJsonObject {
                     put("branch", branch)
                     put("receipt", receipt)
+                    put("head_sha", receipt["object"]?.jsonObject?.get("sha") ?: JsonNull)
+                    put("expected_head_sha", receipt["object"]?.jsonObject?.get("sha") ?: JsonNull)
+                    put("base_sha", sha)
+                    put("receipt_verified", receipt["object"]?.jsonObject?.get("sha")?.jsonPrimitive?.content == sha && receipt["ref"]?.jsonPrimitive?.content == "refs/heads/$branch")
+                    put("created", true)
                     put("upstream_completed", true)
                     selection?.let { put("context", it) } ?: put("context_refresh_required", true)
                 }.toString()
@@ -1139,7 +1194,25 @@ class GitHubTool(
         )
         val text = response.bodyAsText()
         return if (response.status.isSuccess()) {
-            successResult(callId, truncate(text, MAX_OUTPUT_CHARS))
+            val pr = jsonParser.parseToJsonElement(text).jsonObject
+            successResult(
+                callId,
+                buildJsonObject {
+                    put("pull_request", pr)
+                    put("upstream_completed", true)
+                    put("readiness", "not_observed")
+                    put(
+                        "continuation",
+                        buildJsonObject {
+                            put("action", "pr_context")
+                            put("pull_number", pr["number"] ?: JsonNull)
+                            put("expected_head_sha", pr["head"]?.jsonObject?.get("sha") ?: JsonNull)
+                            put("include_checks", true)
+                            put("include_health", true)
+                        }
+                    )
+                }.toString()
+            )
         } else {
             classifyGitHubHttpFailure(callId, "create_pull_request", arguments, response, text)
         }
@@ -1299,6 +1372,7 @@ class GitHubTool(
     }
 
     private fun requiredGitHubPermission(action: String): String = when (action) {
+        "create_issue", "update_issue" -> "Issues: write"
         "create_pull_request", "update_pull_request", "mark_ready_for_review", "submit_pull_request_review", "create_pull_request_review", "reply_pull_request_comment" -> "Pull requests: write"
         "create_issue_comment" -> "Issues: write or Pull requests: write"
         "dispatch_workflow", "rerun_workflow", "rerun_failed_jobs", "cancel_workflow" -> "Actions: write"

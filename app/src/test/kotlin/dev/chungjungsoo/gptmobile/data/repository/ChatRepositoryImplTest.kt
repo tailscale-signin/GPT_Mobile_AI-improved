@@ -827,6 +827,8 @@ class ChatRepositoryImplTest {
         facts.setEnabled(true)
         facts.updateSettings(facts.state.value.settings.copy(allowCloudRecall = true))
         facts.prepareTurn("I prefer Kotlin", 1, 1)
+        val expectedMemoryPrefix = dev.chungjungsoo.gptmobile.data.rag.FactRecall(facts.state.value.facts).prefix()
+        assertTrue(expectedMemoryPrefix.isNotBlank())
         val api = FakeGroqAPI(emptyFlow())
         val cloud = createRepository(groqAPI = api, factVault = facts)
         val cloudStates = cloud.completeChat(
@@ -837,6 +839,8 @@ class ChatRepositoryImplTest {
         ).toList()
         val system = api.lastRequest!!.messages.first()
         assertEquals(dev.chungjungsoo.gptmobile.data.dto.openai.common.Role.SYSTEM, system.role)
+        val systemText = system.content.orEmpty().filterIsInstance<dev.chungjungsoo.gptmobile.data.dto.openai.common.TextContent>().joinToString("") { it.text }
+        assertTrue(systemText.startsWith(expectedMemoryPrefix))
         assertTrue(system.content.toString().contains("Kotlin"))
         assertTrue(system.content.toString().contains("Base instructions"))
         assertEquals(1, cloudStates.filterIsInstance<ApiState.MemoryRecalled>().single().facts.size)
@@ -849,7 +853,7 @@ class ChatRepositoryImplTest {
             platform = localPlatform(),
             runId = "memory-local"
         ).toList()
-        assertTrue(runtime.createConversationCalls.single().systemPrompt.orEmpty().startsWith("Saved local facts"))
+        assertTrue(runtime.createConversationCalls.single().systemPrompt.orEmpty().startsWith(expectedMemoryPrefix))
         assertTrue(runtime.createConversationCalls.single().systemPrompt.orEmpty().contains("Kotlin"))
     }
 

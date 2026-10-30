@@ -1,8 +1,10 @@
 # Memory intelligence: repository audit and design
 
-Audit date: 29 October 2026  
-Repository: `tailscale-signin/GPT_Mobile_AI-improved`  
-Audited base: `main` at `76ef0be9f09dd10cda8768db7d7d6b7a16c77d55`  
+Audit date: 29 October 2026
+
+Repository: `tailscale-signin/GPT_Mobile_AI-improved`
+
+Audited base: `main` at `76ef0be9f09dd10cda8768db7d7d6b7a16c77d55`
 Status: source audit complete; this document proposes the next implementation sequence. No retrieval-accuracy result is claimed.
 
 ## Executive finding

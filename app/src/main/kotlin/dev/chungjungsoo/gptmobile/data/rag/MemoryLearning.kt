@@ -49,14 +49,6 @@ internal object MemoryLearning {
         val graph = KnowledgeGraphEngine()
         graph.extractAndStoreFromText(value, sensitivity)
         val facts = graph.getAllEntities().flatMap { graph.querySubgraph(it.id, 1) }.toMutableList()
-        if (meaningEnabled && meaning(value) != null) {
-            val normalized = value.lowercase(Locale.ROOT)
-            facts += KnowledgeFact(
-                KnowledgeEntity("user", "User", "PERSON"),
-                KnowledgeRelation("user", "MEMORY_EPISODE", normalized, context = statement),
-                KnowledgeEntity(normalized, value, "EPISODE")
-            )
-        }
         val target = "([^.!?;\\n]{1,250})"
         val patterns = listOf(
             Regex("(?iu)^(?:my name is|call me) $target$") to "NAMED",
@@ -78,6 +70,18 @@ internal object MemoryLearning {
             pattern.matchEntire(value)?.groupValues?.get(1)?.trim()?.takeIf { it.isNotEmpty() && !Regex("(?i)\\b(?:not|never|maybe|if)\\b").containsMatchIn(it) }?.let { name ->
                 facts += KnowledgeFact(KnowledgeEntity("user", "User", "PERSON"), KnowledgeRelation("user", relation, name.lowercase(Locale.ROOT), context = statement), KnowledgeEntity(name.lowercase(Locale.ROOT), name, "FACT"))
             }
+        }
+        val meaning = if (meaningEnabled) meaning(value) else null
+        // Existing goals/constraints already receive meaning from their source context.
+        // Do not duplicate them or bypass the sensitivity gate for bare wants/needs.
+        val needsEpisode = meaning != null && (meaning.kind != "INTENT" || (facts.isEmpty() && (sensitivity > 50 || request != null)))
+        if (needsEpisode) {
+            val normalized = value.lowercase(Locale.ROOT)
+            facts += KnowledgeFact(
+                KnowledgeEntity("user", "User", "PERSON"),
+                KnowledgeRelation("user", "MEMORY_EPISODE", normalized, context = statement),
+                KnowledgeEntity(normalized, value, "EPISODE")
+            )
         }
         if (request != null && facts.isEmpty()) facts += observation(value)
         facts.map { it.copy(relation = it.relation.copy(context = statement)) }

@@ -38,6 +38,16 @@ class MemoryMeaningBehaviorTest {
         assertFalse(MemoryLearning.extract(text, 75, false).any { it.relation.relationType == "MEMORY_EPISODE" })
     }
 
+    @Test fun intentPreservesGoalSensitivityAndDoesNotDuplicateExistingFacts() {
+        val text = "I want a new workstation"
+        assertTrue(MemoryLearning.extract(text, 50).isEmpty())
+        val goal = MemoryLearning.extract(text, 100).single()
+        assertEquals("GOAL", goal.relation.relationType)
+        assertEquals("INTENT", MemoryLearning.meaning(goal.relation.context)?.kind)
+        assertTrue(MemoryLearning.extract("Remember that $text", 50).isNotEmpty())
+        assertEquals(1, MemoryLearning.extract("I need an offline workstation", 50).size)
+    }
+
     @Test fun correctionsLinkOnlyOneOlderSubjectInSameScope() {
         val original = fact("a", "The toolbar should appear at the top").let { it.copy(fact = it.fact.copy(relation = it.fact.relation.copy(relationType = "MEMORY_EPISODE")), sourceMessageId = 1) }
         val correction = MemoryLearning.meaning("Actually, the toolbar should appear at the bottom")

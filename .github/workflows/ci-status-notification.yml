@@ -1,0 +1,31 @@
+name: CI status notification
+
+on:
+  workflow_run:
+    workflows: [PR Validation]
+    types: [completed]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-status-${{ github.event.workflow_run.id }}-${{ github.event.workflow_run.run_attempt }}
+  cancel-in-progress: false
+
+jobs:
+  notify:
+    # This job handles secrets: execute only the trusted default-branch script,
+    # never the triggering head's code or artifacts.
+    if: vars.CI_STATUS_WEBHOOK_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - name: Deliver signed completion event
+        env:
+          CI_STATUS_WEBHOOK_URL: ${{ secrets.CI_STATUS_WEBHOOK_URL }}
+          CI_STATUS_WEBHOOK_SECRET: ${{ secrets.CI_STATUS_WEBHOOK_SECRET }}
+        run: python3 scripts/notify_ci_status.py

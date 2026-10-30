@@ -6,8 +6,8 @@ break discovery. This inventory reflects the modernization branch, not the propo
 
 `PR Validation` runs for every pull request (including stacked feature PRs), main push,
 merge group and manual dispatch. Its `Required verification` job always runs and requires
-all four producer jobs to succeed: reliability completion, Android tests/lint/APK,
-repository/gateway contracts and changed Kotlin formatting. No path-filtered workflow is
+all five producer jobs to succeed: reliability completion, Android tests/heap/APK,
+Android lint, repository/gateway contracts and changed Kotlin formatting. No path-filtered workflow is
 used as that aggregate gate. Parallelism is between independent jobs; Gradle worker limits
 remain bounded. Permissions default to contents:read; publishing jobs declare scoped writes.
 
@@ -52,3 +52,20 @@ health 30 days). Check cancellation, timeout, first failure and current SHA befo
 Main/release publishing workflows serialize and avoid cancellation; pull-request verification
 cancels superseded runs. Legacy targeted workflows remain to preserve hardware and release
 coverage until replacements have equivalent measured evidence.
+
+## GitHub reliability additions
+
+`pr-validation.yml` runs Android lint independently from unit tests, heap recovery
+and APK verification; both remain required by the aggregate gate. Existing cache
+isolation and bounded worker memory remain in force. Release workflows retain
+local Gradle `--profile` and shrinker reports for 14 days; they do not upload build
+scans. Compare repeated equivalent builds before claiming improvements.
+
+`ci-status-notification.yml` is an optional completion webhook, disabled unless
+repository variable `CI_STATUS_WEBHOOK_ENABLED=true`. Configure repository secrets
+`CI_STATUS_WEBHOOK_URL` (HTTPS) and `CI_STATUS_WEBHOOK_SECRET` to enable it. The
+receiver verifies HMAC-SHA256 over the exact request bytes with
+`X-Hub-Signature-256`, and deduplicates `X-CI-Delivery` (repo/run/attempt). The
+trusted default-branch script sends only status, SHA and the GitHub run URL;
+never triggering-branch code, source, logs or tokens. Redirects and automatic
+retries are disabled. Nothing is sent until the owner configures a destination.

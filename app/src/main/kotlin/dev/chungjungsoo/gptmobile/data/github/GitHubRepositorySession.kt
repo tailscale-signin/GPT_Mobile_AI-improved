@@ -259,16 +259,33 @@ internal class GitHubRepositorySession(
         val mode = args.s("mode").ifBlank { "literal" }
         require(mode in setOf("literal", "definitions", "references", "paths", "tests"))
         val data = tree(context)
-        val all = data["tree"]!!.jsonArray.map { it.jsonObject }.filter { item -> item.s("type") == "blob" && (mode != "tests" || item.s("path").contains("test", true)) && (args.s("path_prefix").isBlank() || item.s("path").startsWith(args.s("path_prefix"))) }.sortedBy { it.s("path") }
+        val extension = args.s("file_extension").removePrefix(".").lowercase(java.util.Locale.ROOT)
+        require(extension.isEmpty() || extension.matches(Regex("[a-z0-9]+"))) { "file_extension must be a single extension such as kt or .kt." }
+        val batchSize = args.s("batch_size").ifBlank { "1000" }.toInt().also { require(it in 1..1000) }
+        val searchId = GitHubRepositoryStateStore.digest(listOf(context.commitSha, query, mode, args.s("path_prefix"), extension).joinToString("\u0000"))
+        require(args.s("search_id").isBlank() || args.s("search_id") == searchId) { "Search parameters changed. Start at index_cursor=0 without search_id, or use the exact continuation." }
+        val all = data["tree"]!!.jsonArray.map { it.jsonObject }.filter { item ->
+            item.s("type") == "blob" &&
+                (mode != "tests" || item.s("path").contains("test", true)) &&
+                (args.s("path_prefix").isBlank() || item.s("path").startsWith(args.s("path_prefix"))) &&
+                (extension.isEmpty() || item.s("path").substringAfterLast('.', "").equals(extension, true))
+        }.distinctBy { it.s("path") }.sortedBy { it.s("path") }
         val cursor = args.s("index_cursor").ifBlank { "0" }.toInt().also { require(it in 0..all.size) }
+        val cacheKey = "search-page:$searchId:$cursor:$batchSize"
+        store.read(scope, cacheKey)?.let { cached ->
+            return JsonObject(cached + mapOf("cache_hit" to JsonPrimitive(true), "new_blobs" to JsonPrimitive(0)))
+        }
+        val priorCoverage = if (cursor == 0) buildJsonObject { put("from_start", true) } else store.read(scope, "search-coverage:$searchId:$cursor")
+        val fromStart = priorCoverage?.get("from_start")?.jsonPrimitive?.booleanOrNull == true
         var next = cursor
         var fetched = 0
         var skipped = 0
         val startedNanos = System.nanoTime()
         var readDeadline = false
         var incompleteSymbols = false
+        var truncatedMatches = false
         val hits = mutableListOf<JsonObject>()
-        while (next < all.size && (mode == "paths" || next - cursor < 2000) && hits.size < 20) {
+        while (next < all.size && (mode == "paths" || next - cursor < batchSize) && hits.size < 20) {
             kotlinx.coroutines.currentCoroutineContext().ensureActive()
             if ((System.nanoTime() - startedNanos) / 1_000_000 >= 12_000) break
             val item = all[next]
@@ -326,17 +343,47 @@ internal class GitHubRepositorySession(
                 } else {
                     null
                 }
-            }.take(10).toList()
+            }.take(11).toList()
+            if (matches.size > 10) truncatedMatches = true
             if (matches.isNotEmpty()) {
                 hits += buildJsonObject {
                     put("path", item["path"]!!)
                     put("sha", item["sha"]!!)
-                    put("matches", JsonArray(matches))
+                    put("matches", JsonArray(matches.take(10)))
+                    put("matches_truncated", matches.size > 10)
                 }
             }
         }
-        return buildJsonObject {
+        val totalSkipped = skipped + (priorCoverage?.get("skipped")?.jsonPrimitive?.intOrNull ?: 0)
+        val anyIncompleteSymbols = incompleteSymbols || priorCoverage?.get("symbols_incomplete")?.jsonPrimitive?.booleanOrNull == true
+        val anyTruncatedMatches = truncatedMatches || priorCoverage?.get("matches_truncated")?.jsonPrimitive?.booleanOrNull == true
+        val treeComplete = data["truncated"]?.jsonPrimitive?.booleanOrNull != true
+        if (next > cursor) {
+            store.write(
+                scope,
+                "search-coverage:$searchId:$next",
+                buildJsonObject {
+                    put("from_start", fromStart)
+                    put("skipped", totalSkipped)
+                    put("symbols_incomplete", anyIncompleteSymbols)
+                    put("matches_truncated", anyTruncatedMatches)
+                }
+            )
+        }
+        val result = buildJsonObject {
             put("query", query)
+            put("search_id", searchId)
+            put("cache_hit", false)
+            put("file_extension", extension)
+            put("path_prefix", args.s("path_prefix"))
+            put("interval_start", cursor)
+            put("interval_end", next)
+            put("tree_complete", treeComplete)
+            put("page_complete", skipped == 0 && !incompleteSymbols && !readDeadline)
+            put("traversal_complete", next == all.size)
+            put("coverage_from_start", fromStart)
+            put("total_skipped_files", totalSkipped)
+            put("matches_complete", fromStart && next == all.size && treeComplete && totalSkipped == 0 && !anyIncompleteSymbols && !anyTruncatedMatches)
             put("mode", mode)
             put("commit_sha", context.commitSha)
             put("tree_sha", context.treeSha)
@@ -349,8 +396,8 @@ internal class GitHubRepositorySession(
             put("symbols_incomplete", incompleteSymbols)
             put("read_deadline_reached", readDeadline)
             put("has_more", next < all.size)
-            put("complete", next == all.size && cursor == 0 && skipped == 0 && !incompleteSymbols && data["truncated"]?.jsonPrimitive?.booleanOrNull != true)
-            put("coverage", "Query coverage is limited to the scanned interval and retained lexical positions.")
+            put("complete", next == all.size && fromStart && totalSkipped == 0 && !anyIncompleteSymbols && treeComplete)
+            put("coverage", "complete describes file coverage across this continuation chain. Each file has at most ten match previews; inspect matches_complete and read matching files for all occurrences.")
             if (next < all.size) {
                 put(
                     "continuation",
@@ -361,10 +408,25 @@ internal class GitHubRepositorySession(
                         put("query", query)
                         put("mode", mode)
                         put("path_prefix", args.s("path_prefix"))
+                        put("file_extension", extension)
+                        put("search_id", searchId)
+                        put("batch_size", batchSize)
                     }
                 )
             }
         }
+        // Do not freeze a transport timeout into a permanent empty cached page.
+        if (!readDeadline && next > cursor) {
+            store.write(scope, cacheKey, result)
+            val evicted = mutableListOf<String>()
+            store.update(scope, "search-page-keys") { old ->
+                val retained = old?.get("keys")?.jsonArray.orEmpty().map { it.jsonPrimitive.content }.filter { it != cacheKey } + cacheKey
+                evicted += retained.dropLast(64)
+                buildJsonObject { put("keys", JsonArray(retained.takeLast(64).map(::JsonPrimitive))) }
+            }
+            evicted.forEach { store.remove(scope, it) }
+        }
+        return result
     }
 
     private suspend fun read(context: GitHubTaskSnapshot, args: JsonObject): JsonObject {

@@ -178,7 +178,7 @@ class RuntimeTests(unittest.TestCase):
             else:
                 self.assertEqual(cap[key],value)
         self.assertFalse(cap['auth']['apiKeyRequired'])
-        self.assertEqual(cap['gatewayVersion'],'14.2.0')
+        self.assertEqual(cap['gatewayVersion'],'14.3.0')
         self.assertEqual(cap['memory']['authority'],'client')
         self.assertFalse(cap['features']['mcpFacade'])
         self.assertEqual(cap['contracts']['toolArguments'], ['gptmobile.tool-arguments.v1'])
@@ -214,7 +214,7 @@ class RuntimeTests(unittest.TestCase):
 
     def test_distribution_detects_missing_companion(self):
         root=Path(__file__).resolve().parents[1]
-        self.assertEqual(validate_package(root)['version'],'14.2.0')
+        self.assertEqual(validate_package(root)['version'],'14.3.0')
         with tempfile.TemporaryDirectory() as target:
             # A running package owns a byte-range lock on Windows. Distribution
             # validation copies only immutable manifest files, never live state.

@@ -17,8 +17,12 @@ def bound_result(value,maximum):
             if depth>64 or visited>100000: raise ToolViewCapacity('TOOL_VIEW_CAPACITY: result structure exceeds receipt traversal bound')
             if isinstance(current,dict):
                 for key,item in current.items():
-                    if key in {'nextCursor','next_cursor','cursor','endCursor','view_cursor','continuation'} and isinstance(item,str) and item:
-                        if len(item)>4096: raise ToolViewCapacity('TOOL_VIEW_CAPACITY: continuation exceeds safe receipt limit')
+                    if key in {'nextCursor','next_cursor','cursor','endCursor','view_cursor','continuation','search_id','index_cursor','next_index_cursor'} and isinstance(item,(str,int)) and not isinstance(item,bool) and item != '':
+                        if len(str(item))>4096: raise ToolViewCapacity('TOOL_VIEW_CAPACITY: continuation exceeds safe receipt limit')
+                        continuations.append({'key':key,'value':item})
+                    if (key == 'continuation_call' or key == 'correction_call' or key == 'continuation' or key.endswith('_continuation')) and isinstance(item,dict):
+                        encoded=json.dumps(item,ensure_ascii=False,separators=(',',':'))
+                        if len(encoded)>16384: raise ToolViewCapacity('TOOL_VIEW_CAPACITY: structured continuation exceeds receipt bound')
                         continuations.append({'key':key,'value':item})
                     if key.lower() in {'sha','head_sha','base_sha','blob_sha','tree_sha','commit_sha'} and isinstance(item,str): identities.append({'key':key,'value':item})
                     pending.append((item,depth+1))
@@ -33,7 +37,7 @@ def bound_result(value,maximum):
         identities.extend({'key':'sha','value':match.group()} for match in re.finditer(r'\b[0-9a-fA-F]{40}(?:[0-9a-fA-F]{24})?\b',text))
     envelope={'schema':'gateway.bounded-result.v1','complete':False,'truncated':True,
               'source_sha256':hashlib.sha256(text.encode()).hexdigest(),'source_characters':len(text),
-              'continuations':list({(x['key'],x['value']):x for x in continuations}.values()),
+              'continuations':list({(x['key'],json.dumps(x['value'],sort_keys=True)):x for x in continuations}.values()),
               'identities':list({(x['key'],x['value']):x for x in identities}.values()),
               'coverage':'partial model view; full result retained in the turn checkpoint','excerpt':''}
     def render():return json.dumps(envelope,ensure_ascii=False,separators=(',',':'))

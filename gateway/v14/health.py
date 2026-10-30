@@ -32,6 +32,10 @@ def diagnostics(runtime, state):
     result = readiness(runtime, state)
     result['catalogue'] = dict(getattr(getattr(runtime, 'gateway_catalogue', None), 'health', {}))
     result['schemaRejections'] = dict(getattr(runtime, 'gateway_schema_rejections', {}))
+    performance = getattr(runtime, 'gateway_github_performance', None)
+    reads = getattr(runtime, 'gateway_github_reads', None)
+    result['github'] = {'modelRounds': performance.snapshot() if performance else {},
+                        'immutableReads': reads.snapshot() if reads else {}}
     result['schemaMetrics'] = dict(getattr(runtime, 'gateway_schema_metrics', {}))
     result['sqliteVersion'] = sqlite3.sqlite_version
     result['journalSchemaVersion'] = SCHEMA_VERSION

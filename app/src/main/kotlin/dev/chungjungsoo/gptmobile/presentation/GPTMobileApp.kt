@@ -233,6 +233,7 @@ class GPTMobileApp :
         }
         applicationScope.launch { readiness.get().trim() }
         dev.chungjungsoo.gptmobile.data.github.GitHubSessionCaches.clear()
+        dev.chungjungsoo.gptmobile.presentation.ui.chat.clearChatRenderingCaches()
         val hasActiveRuns = runCatching {
             startupDependencies().agentRunCoordinator().activeRuns.value.isNotEmpty()
         }.getOrDefault(false)

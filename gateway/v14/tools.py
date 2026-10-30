@@ -8,7 +8,8 @@ import threading
 from gateway_security import current_device
 from v14.actions import ActionLedger, ActionReplay, ExternalOutcomeUnknown, current_gateway_job_id, current_gateway_tool_call_id, logical_action_id
 from v14.contracts import SchemaValidationError, validate_arguments, validate_schema, compile_schema, model_schema
-from v14.operations import MUTATION, MUTABLE_READ, operation_class, select_equivalent
+from v14.github import ImmutableGitHubReads
+from v14.operations import IMMUTABLE_READ, MUTATION, MUTABLE_READ, operation_class, select_equivalent
 
 
 class CatalogBindingError(ValueError):
@@ -18,6 +19,8 @@ class CatalogBindingError(ValueError):
 def install_exact_routing(runtime):
     ledger = ActionLedger(runtime)
     runtime.gateway_action_ledger = ledger
+    immutable_reads = ImmutableGitHubReads()
+    runtime.gateway_github_reads = immutable_reads
     original_catalog = runtime.get_all_mcp_tools
     compiled = {}
     admitted = {}
@@ -112,8 +115,19 @@ def install_exact_routing(runtime):
         if decision is not None:
             raise ExternalOutcomeUnknown('Prior gateway action state is not replayable')
         try:
-            result = runtime.mcp_call(meta['server'], 'tools/call', {'name': meta['tool'], 'arguments': arguments},
-                                      progress_callback=progress_callback, cancel_event=cancel_event)
+            def invoke():
+                # Recheck connection revision after queueing, immediately before I/O.
+                if revision(runtime.load_mcp_config()) != config_revision:
+                    raise CatalogBindingError('Connection revision changed before tool I/O')
+                return runtime.mcp_call(meta['server'], 'tools/call', {'name': meta['tool'], 'arguments': arguments},
+                                        progress_callback=progress_callback, cancel_event=cancel_event)
+            if kind == IMMUTABLE_READ and principal_id != 'unowned':
+                cache_key = immutable_reads.key(principal_id, binding, arguments)
+                result = immutable_reads.execute(cache_key, invoke, cancel_event)
+                if revision(runtime.load_mcp_config()) != config_revision:
+                    raise CatalogBindingError('Connection revision changed while reading')
+            else:
+                result = invoke()
         except BaseException:
             ledger.uncertain(principal_id, job_id, action_id)
             raise

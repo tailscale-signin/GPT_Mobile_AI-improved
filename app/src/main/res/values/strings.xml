@@ -1175,4 +1175,5 @@
     <string name="provider_wait_saved">Paused: provider limit. Your work is saved and eligibility will be checked again after the cooldown.</string>
     <string name="github_chat_title">GitHub Chat</string>
     <string name="github_chat_description">Work on a repository with one AI profile</string>
+    <string name="chat_retry_formatting">Retry formatting</string>
 </resources>

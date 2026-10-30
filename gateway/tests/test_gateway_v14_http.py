@@ -100,6 +100,17 @@ class LiveHTTPTests(unittest.TestCase):
                     saved = requests.get(base+'/gateway/jobs/'+result.headers['X-Gateway-Job-ID']+'/result', timeout=4)
                     self.assertEqual(saved.status_code, 200)
                     self.assertIn('Live HTTP reply', saved.text)
+                    github = requests.post(base+'/v1/chat/completions', headers=headers, timeout=10, json={
+                        'model': 'fixture', 'stream': False,
+                        'messages': [{'role': 'user', 'content': 'Continue'}], 'max_tokens': 128,
+                        'tools': [{'type': 'function', 'function': {'name': 'github_ci__github_api',
+                                   'parameters': {'type': 'object', 'properties': {}}}}]})
+                    self.assertEqual(200, github.status_code, github.text)
+                    stats = requests.get(base+'/gateway/admin/status', timeout=4).json()['github']
+                    self.assertEqual(1, stats['modelRounds']['counts']['requests'])
+                    self.assertEqual(1, stats['modelRounds']['counts']['catalogDiscoverySkipped'])
+                    self.assertEqual(0, stats['modelRounds']['counts']['active'])
+                    self.assertEqual(0, stats['immutableReads']['automaticRetries'])
                 finally:
                     process.terminate()
                     try:

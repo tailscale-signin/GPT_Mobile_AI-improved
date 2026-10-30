@@ -1524,7 +1524,7 @@ internal fun ChatMessagePair(
                                             useful?.let { onCombinedProfileClick(it.uid) }
                                         }) { Text(stringResource(R.string.audit_view_replies)) }
                                     }
-                                    if (isSourceResponse && combinedSynthesisIndex >= 0 && (assistantContent.isNotBlank() || selectedSourceReader != null)) TextButton(onClick = { onUseCombinedReply(messageIndex, selectedProfile!!.uid) }, enabled = isIdle && canUseChat) { Text("Use reply") }
+                                    if (isSourceResponse && combinedSynthesisIndex >= 0 && (assistantContent.isNotBlank() || selectedSourceReader != null)) TextButton(onClick = { selectedProfile?.let { onUseCombinedReply(messageIndex, it.uid) } }, enabled = isIdle && canUseChat) { Text("Use reply") }
                                 }
                             }
                         }

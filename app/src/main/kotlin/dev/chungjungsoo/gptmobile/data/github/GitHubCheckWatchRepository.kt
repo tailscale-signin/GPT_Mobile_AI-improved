@@ -31,6 +31,7 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
@@ -175,8 +176,10 @@ class GitHubCheckWatchRepository @Inject constructor(
     internal suspend fun inspect(watch: GitHubCheckWatch, api: GitHubEngineeringApi): GitHubCheckWatch {
         val root = GitHubEngineeringApi.root(watch.owner, watch.repo)
         if (watch.pullNumber != null) {
-            val current = Json.parseToJsonElement(api.request("$root/pulls/${watch.pullNumber}")).jsonObject["head"]?.jsonObject?.get("sha")?.jsonPrimitive?.content
+            val pull = Json.parseToJsonElement(api.request("$root/pulls/${watch.pullNumber}")).jsonObject
+            val current = pull["head"]?.jsonObject?.get("sha")?.jsonPrimitive?.content
             if (current != watch.headSha) return watch.copy(status = "STALE", detail = "PR head changed. This watch is attached to ${watch.headSha.take(12)}; start a new watch for the new revision.")
+            closedPullRequestWatch(watch, pull)?.let { return it }
         }
         if (watch.runId != null) {
             val run = Json.parseToJsonElement(api.request("$root/actions/runs/${watch.runId}")).jsonObject
@@ -215,6 +218,7 @@ class GitHubCheckWatchRepository @Inject constructor(
         if (after["head"]?.jsonObject?.get("sha")?.jsonPrimitive?.content != watch.headSha) {
             return watch.copy(status = "STALE", detail = "PR head changed while checks were loading. Refresh this watch.", health = null)
         }
+        closedPullRequestWatch(watch, after)?.let { return it }
         return watch.copy(status = summary, detail = "PR #${watch.pullNumber} · ${watch.headSha.take(12)}", retryAt = 0, health = health)
     }
 }
@@ -225,4 +229,13 @@ internal fun workflowWatchStatus(run: JsonObject): String = when {
     run["conclusion"]?.jsonPrimitive?.contentOrNull in setOf("neutral", "skipped") -> "SKIPPED"
     run["conclusion"]?.jsonPrimitive?.contentOrNull in setOf("failure", "cancelled", "timed_out", "action_required", "startup_failure", "stale") -> "FAILED"
     else -> "UNKNOWN"
+}
+
+/** A PR subscription ends when the PR closes; an explicit run subscription remains independent. */
+internal fun closedPullRequestWatch(watch: GitHubCheckWatch, pull: JsonObject): GitHubCheckWatch? {
+    if (watch.runId != null || pull["state"]?.jsonPrimitive?.contentOrNull != "closed") return null
+    val merged = pull["merged"]?.jsonPrimitive?.booleanOrNull == true || pull["merged_at"]?.jsonPrimitive?.contentOrNull != null
+    val state = if (merged) "MERGED" else "CLOSED"
+    val detail = if (merged) "Pull request merged. Background watching is complete." else "Pull request closed. Background watching stopped."
+    return watch.copy(status = state, detail = detail, retryAt = 0, health = GitHubPullRequestHealth(state = state, detail = detail, headSha = watch.headSha))
 }

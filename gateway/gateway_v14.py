@@ -25,6 +25,7 @@ from v14.actions import IdempotencyConflict, IdempotencyExpired
 from v14.events import replay_snapshot
 from v14.memory import apply_client_recall
 from v14.tools import install_exact_routing
+from v14.github import install_github_fast_path
 from v14.catalog import install_catalog_cache
 from v14.browser import BOOTSTRAP_PATH, install_browser_proxy
 from v14.service import ServiceState, LoadGuard
@@ -55,6 +56,7 @@ install_catalog_cache(runtime)
 install_exact_routing(runtime)
 install_mcp_resilience(runtime)
 install_browser_proxy(runtime, config)
+install_github_fast_path(runtime)
 service = ServiceState(config.max_workers)
 service.install(runtime)
 app = FastAPI(title="Private Gateway v14", version=VERSION, lifespan=service.lifespan(runtime, config.shutdown_grace),
@@ -138,7 +140,8 @@ def capabilities():
                    "features": dict(result["features"], keyFreePrivateAccess=True, deterministicSearch=True,
                                     structuredSearch=True, terminalStateProtection=True, memory_novelty_filter=False, structuredEvidence=False, mcpFacade=False,
                                     modernMcp=False, clientMemoryAuthority=True, packageValidation=True,
-                                    validatedToolArguments=True,
+                                    validatedToolArguments=True, githubClientOwnedFastPath=True,
+                                    githubImmutableReadCache=True, githubPerformanceMetrics=True,
                                     loopbackBrowserCsrf=config.mode == "loopback", boundedAdmission=True,
                                     versionedJournal=True, mcpCircuitBreakers=True, supervisedShutdown=True)})
     return result

@@ -33,6 +33,30 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubOperationToolTest {
+    @Test fun invalidWritePathsAndDuplicatesNeverReachBackend() = runBlocking {
+        val backend = Backend()
+        val tool = GitHubOperationTool("github_write", backend, "write-paths")
+        for (files in listOf(
+            """[{"content":"x"}]""",
+            """[{"path":"","content":"x"}]""",
+            """[{"path":"../x","content":"x"}]""",
+            """[{"path":"/app/x","content":"x"}]""",
+            """[{"path":"a.kt","content":"x"},{"path":"a.kt","content":"y"}]"""
+        )) {
+            val result = tool.execute("bad", args("""{"branch":"fix/test","expected_head_sha":"${"a".repeat(40)}","message":"Update","files":$files}"""))
+            assertTrue(result.isError)
+            assertFalse(result.dispatched)
+        }
+        assertTrue(backend.calls.isEmpty())
+    }
+
+    @Test fun ciDefaultsToDiscoveryAndPreservesPageContinuation() = runBlocking {
+        val backend = Backend()
+        val tool = GitHubOperationTool("github_ci", backend, "workflow-pages")
+        tool.execute("discover", args("{}"))
+        assertEquals("list_workflows", backend.calls.single()["action"]?.jsonPrimitive?.content)
+    }
+
     @Test fun evidenceHandleWithInventedNumericCursorReturnsActionableCorrection() = runBlocking {
         val backend = Backend()
         val operation = GitHubOperationTool("github_read", backend, "read-validation")

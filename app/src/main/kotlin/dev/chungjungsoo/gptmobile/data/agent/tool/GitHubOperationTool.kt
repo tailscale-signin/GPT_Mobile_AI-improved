@@ -77,7 +77,7 @@ internal class GitHubOperationTool(
                 dispatched = false
             )
         }
-        if (operation in setOf("github_context", "github_write", "github_search", "github_read", "github_pr", "github_commit", "github_stage_patch")) {
+        if (operation in setOf("github_context", "github_write", "github_search", "github_read", "github_pr", "github_commit", "github_stage_patch", "github_ci")) {
             val errors = ToolArgumentValidator.errors(arguments, definition.inputSchema)
             if (errors.isNotEmpty()) {
                 return AgentToolResult(
@@ -88,6 +88,19 @@ internal class GitHubOperationTool(
                     dispatched = false
                 )
             }
+        }
+        if (operation == "github_write") {
+            val paths = mutableSetOf<String>()
+            val invalid = (arguments["files"] as? JsonArray).orEmpty().mapIndexedNotNull { index, raw ->
+                val path = ((raw as? JsonObject)?.get("path") as? JsonPrimitive)?.content.orEmpty()
+                val failure = runCatching { dev.chungjungsoo.gptmobile.data.github.GitHubWorkspaceClient.filePath(path) }.exceptionOrNull()
+                when {
+                    failure != null -> "files[$index].path: ${failure.message}"
+                    !paths.add(path) -> "files[$index].path duplicates another change: $path"
+                    else -> null
+                }
+            }
+            if (invalid.isNotEmpty()) return AgentToolResult(callId, ToolResultContent.Text(invalid.joinToString("; ") + ". No files were staged."), true, errorCode = "INVALID_ARGUMENTS", dispatched = false)
         }
         if (operation == "github_context" && (arguments["action"] as? JsonPrimitive)?.content == "changes") {
             val base = (arguments["base_sha"] as? JsonPrimitive)?.takeIf { it.isString }?.content
@@ -202,7 +215,8 @@ internal class GitHubOperationTool(
                     else -> return null
                 }
                 "github_ci" -> when (requested) {
-                    "", "failure" -> "ci_failure_digest"
+                    "" -> "list_workflows"
+                    "failure" -> "ci_failure_digest"
                     "workflows" -> "list_workflows"
                     "runs" -> "list_workflow_runs"
                     "run" -> "get_workflow_run"
@@ -275,6 +289,14 @@ internal class GitHubOperationTool(
                     }
                     properties["mode"] = choice("literal", "definitions", "references", "paths", "tests")
                     properties["index_cursor"] = field("integer")
+                    properties["search_id"] = field("string")
+                    properties["file_extension"] = field("string")
+                    properties["batch_size"] = buildJsonObject {
+                        put("type", "integer")
+                        put("minimum", 1)
+                        put("maximum", 1000)
+                        put("description", "Maximum candidate files examined per page; network and byte budgets still apply.")
+                    }
                     properties["page"] = field("integer")
                 }
                 "github_read" -> {
@@ -431,13 +453,13 @@ internal class GitHubOperationTool(
             }
             val description = when (operation) {
                 "github_context" -> "Resolve and pin the selected repository; check status, index, changes, efficiency or capabilities. action=capabilities inspects remote write permissions. A compact read-only schema selection does not prove write tools are disabled: discover github_write for edits. Changes requires base_sha; PR files use github_pr context with include_files=true."
-                "github_search" -> "Search pinned code and symbols locally. In mode=paths, query is a case-insensitive substring; query=* lists paths. Supply a non-blank query (1-200 characters). Follow index_cursor with the same query until complete."
+                "github_search" -> "Search pinned code and symbols with path_prefix and file_extension filters. mode=paths uses tree metadata only; query=* lists paths. Follow the exact continuation_call (including commit_sha and search_id) until has_more=false. Check page_complete and tree_complete; skipped files and match previews are not exhaustive results. batch_size bounds cached scans, not network calls."
                 "github_read" -> "Read exact source ranges or reopen a saved evidence_id at a pinned commit. Use evidence_id without view_cursor; numeric cursors are invalid."
                 "github_stage_patch" -> "Inspect and stage one exact replacement in a single call using target_file, search_snippet and replacement_snippet. Reads the complete pinned blob internally; rejects ambiguous anchors. Alternatively supply SHA-checked edits. Returns a bounded preview and stage_id; no commit occurs."
                 "github_commit" -> "Create a working branch or commit a validated stage_id with head checks."
-                "github_write" -> "Stage up to 20 UTF-8 file creations, replacements or deletions for exact user approval and one atomic commit on a working branch. Supply expected_head_sha and expected_blob_sha for existing files. Replacements require content; deletions require delete=true and no content. Never write to the default branch."
+                "github_write" -> "Every files item requires a repository-relative path (for example app/src/main/kotlin/.../MainActivity.kt), never an absolute path or directory. Stage up to 20 UTF-8 file creations, replacements or deletions for exact user approval and one atomic commit on a working branch. Supply expected_head_sha and expected_blob_sha for existing files. Replacements require content; deletions require delete=true and no content. Never write to the default branch."
                 "github_pr" -> "Read PR files, checks and review threads; explicitly post inline review comments, reply to review comments, update/comment/create, or merge after all checks pass. Writes require the current expected head SHA."
-                "github_ci" -> "List workflows and runs, inspect run/job status, artifacts and parsed failure logs, or explicitly dispatch/rerun/cancel a workflow."
+                "github_ci" -> "Discover workflows by default, then inspect runs, jobs, artifacts and failures. Dispatch requires an explicit discovered workflow_id (numeric ID, filename or .github/workflows/file.yml) and ref; never guess a workflow or dispatch all workflows. Follow continuation_call for further pages."
                 "github_watch_checks" -> "Subscribe once to background CI updates for pr_number and/or run_id in this saved chat. Pins the current head and posts native chat status updates without model polling turns. A moved PR head requires a new subscription."
                 else -> "Check release readiness or explicitly publish the selected release."
             } + " Supply owner and repo together or omit both. Follow continuation_call.arguments exactly to expand paged results with view_cursor."

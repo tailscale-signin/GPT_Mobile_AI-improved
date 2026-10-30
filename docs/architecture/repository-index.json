@@ -38,6 +38,7 @@
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubResponseCache.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSearchQuery.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSessionCaches.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubWorkflowSelector.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubWorkspaceClient.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubWorkspaceDraftStore.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubWorkspaceStore.kt",
@@ -294,6 +295,7 @@
       "entry_files": [
         ".github/workflows/audit-workspace.yml",
         ".github/workflows/build-apk.yml",
+        ".github/workflows/ci-status-notification.yml",
         ".github/workflows/codeql.yml",
         ".github/workflows/crawler-contracts.yml",
         ".github/workflows/debug-build.yml",

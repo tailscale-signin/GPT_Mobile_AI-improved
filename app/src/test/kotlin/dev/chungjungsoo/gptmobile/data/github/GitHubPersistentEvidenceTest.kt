@@ -25,6 +25,56 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubPersistentEvidenceTest {
+    @Test fun filteredSearchCachesPagesAndRejectsChangedContinuationIdentity() = runTest {
+        var fetched = 0
+        val entries = (0 until 7).map { item("src/File$it.kt", sha(it + 1), 30) } + item("src/Other.py", sha(99), 30)
+        val client = session(GitHubRepositoryStateStore(), request = { path ->
+            when {
+                "/commits/" in path -> commit(head, headTree)
+                "/git/trees/" in path -> tree(entries + entries.first())
+                else -> {
+                    fetched++
+                    blob(path.substringAfterLast('/'), "fun target() = 1")
+                }
+            }
+        })
+        val request = args("query" to JsonPrimitive("target"), "file_extension" to JsonPrimitive(".kt"), "path_prefix" to JsonPrimitive("src/"), "batch_size" to JsonPrimitive(3))
+        val first = client.execute("search_repository", "owner", "repo", request).jsonObject
+        assertEquals(7, first.getValue("total_candidate_files").jsonPrimitive.intOrNull)
+        assertEquals(3, fetched)
+        val cached = client.execute("search_repository", "owner", "repo", request).jsonObject
+        assertTrue(cached.getValue("cache_hit").jsonPrimitive.booleanOrNull == true)
+        assertEquals(3, fetched)
+        val continuation = first.getValue("continuation").jsonObject
+        val changed = JsonObject(continuation + ("query" to JsonPrimitive("different")))
+        assertTrue(runCatching { client.execute("search_repository", "owner", "repo", changed) }.isFailure)
+        var page = first
+        val found = mutableSetOf<String>()
+        while (true) {
+            page.getValue("items").jsonArray.forEach { found += it.jsonObject.getValue("path").jsonPrimitive.content }
+            if (page.getValue("has_more").jsonPrimitive.booleanOrNull != true) break
+            page = client.execute("search_repository", "owner", "repo", page.getValue("continuation").jsonObject).jsonObject
+        }
+        assertEquals(7, found.size)
+        assertEquals(7, fetched)
+        assertTrue(page.getValue("complete").jsonPrimitive.booleanOrNull == true)
+        assertTrue(page.getValue("matches_complete").jsonPrimitive.booleanOrNull == true)
+    }
+
+    @Test fun matchPreviewLimitNeverClaimsAllOccurrencesWereReturned() = runTest {
+        val client = session(GitHubRepositoryStateStore(), request = { path ->
+            when {
+                "/commits/" in path -> commit(head, headTree)
+                "/git/trees/" in path -> tree(listOf(item("src/A.kt", sha(1), 100)))
+                else -> blob(sha(1), List(20) { "target" }.joinToString("\n"))
+            }
+        })
+        val page = client.execute("search_repository", "owner", "repo", args("query" to JsonPrimitive("target"))).jsonObject
+        assertTrue(page.getValue("complete").jsonPrimitive.booleanOrNull == true)
+        assertFalse(page.getValue("matches_complete").jsonPrimitive.booleanOrNull == true)
+        assertEquals(10, page.getValue("items").jsonArray.single().jsonObject.getValue("matches").jsonArray.size)
+    }
+
     @Test fun pathSearchFindsFilesBeyondTheContentScanWindowWithoutFetchingBlobs() = runTest {
         val entries = (0 until 2100).map { item("src/File${it.toString().padStart(4, '0')}.kt", sha(it + 1), 30) } +
             item("z/scripts/target.py", sha(3000), 30)

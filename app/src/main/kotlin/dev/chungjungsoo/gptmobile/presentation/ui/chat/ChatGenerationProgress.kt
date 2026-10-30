@@ -14,6 +14,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.repeatOnLifecycle
@@ -37,7 +41,7 @@ internal fun ChatGenerationProgress(
         if (active) {
             GenerationStatusText(toolEvents, timeline, statusOverride)
             LinearProgressIndicator(
-                Modifier.fillMaxWidth(),
+                Modifier.fillMaxWidth().clearAndSetSemantics { },
                 color = MaterialTheme.colorScheme.primary,
                 trackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
             )
@@ -75,7 +79,11 @@ private fun GenerationStatusText(toolEvents: List<ToolEvent>, timeline: List<Ass
         overflow = TextOverflow.Ellipsis,
         style = MaterialTheme.typography.labelSmall,
         color = MaterialTheme.colorScheme.primary,
-        modifier = Modifier.padding(bottom = 8.dp)
+        modifier = Modifier.padding(bottom = 8.dp).clearAndSetSemantics {
+            // Announce activity changes once, not every animated punctuation tick.
+            contentDescription = base
+            liveRegion = LiveRegionMode.Polite
+        }
     )
 }
 

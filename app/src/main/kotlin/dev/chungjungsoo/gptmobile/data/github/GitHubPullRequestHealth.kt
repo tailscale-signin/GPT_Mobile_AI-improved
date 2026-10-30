@@ -59,6 +59,7 @@ internal fun gitHubPullRequestHealth(response: JsonObject, expectedHead: String)
     )
     if (!health.baseSha.matches(Regex("[a-fA-F0-9]{40}"))) return health.copy(detail = "PR base revision is unavailable.")
     if (health.headSha != expectedHead) return health.copy(state = "STALE", detail = "The PR head changed; refresh before continuing.")
+    if (pr.text("state") == "MERGED") return health.copy(state = "MERGED", detail = "This pull request has been merged.")
     if (pr.text("state") != "OPEN") return health.copy(state = "CLOSED", detail = "This pull request is no longer open.")
     val merge = pr.text("mergeStateStatus")
     val blocker = when {

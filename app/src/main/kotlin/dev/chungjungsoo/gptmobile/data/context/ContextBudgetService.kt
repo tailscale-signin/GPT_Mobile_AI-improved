@@ -16,7 +16,7 @@ enum class ToolOmissionReason { NOT_NEEDED, USER_DISABLED, UNSUPPORTED, CONTEXT_
 
 /** Conservative byte-based estimates. Provider-reported counts remain the accounting authority. */
 object ContextBudgetService {
-    fun estimate(text: String): Int = ((text.toByteArray(Charsets.UTF_8).size.toLong() + 2) / 3).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+    fun estimate(text: String): Int = TextTokenEstimate.estimate(text)
 
     /** Combined's frozen history is required input, so ordinary history-window eviction is forbidden. */
     fun planFullInput(turns: List<ConversationTurn>, system: String, settings: TokenBudgetSettings): ContextPlan {

@@ -107,7 +107,31 @@ Retain the proposed 90% target as a minimum overall correct-retrieval rate on a 
 6. **Prompt integration:** Serialize a compact evidence packet with source, time, status, and uncertainty; apply the same privacy and token-budget gates to every AI profile.
 7. **Rollout:** Enable for synthetic and opt-in local replay first; inspect aggregate privacy-safe metrics, then gradually enable by profile/settings. Keep a one-tap disable/rebuild path.
 
-The existing memory tests and quality suite are useful foundations, but they do not currently substantiate the 90% semantic-retrieval target. Add behavior tests for paraphrases, intent/rationale, contradictions, abstention, and the read-only preview contract before enabling the new path by default.
+## Implementation status
+
+Branch `feat/memory-intelligence-2026-10-29` now implements the following:
+
+| Component | Implemented behavior |
+| --- | --- |
+| Meaning model | Optional encrypted `MemoryMeaning` fields for intent, decision, requirement, failure, correction, explicit rationale, subject, source quote and correction links. Legacy records remain readable without a Room migration. |
+| Capture | Conservative deterministic cues; questions, quotations, hypotheses, code and credentials remain excluded. The optional local helper can classify exact source statements with unfamiliar wording, but such interpretations require review. |
+| Corrections | Match only one older episode with the same explicit subject and scope. Ambiguous or unlinked corrections require review. Approval supersedes the prior record and preserves its identity; delayed or unrelated instructions do not silently replace it. |
+| Current and historical recall | Superseded records stay out of current answers. Explicit history questions can retrieve them, labelled `SUPERSEDED`. Deleted records and unstructured old-value arrays never enter prompt context. |
+| Hybrid retrieval | Dense and lexical scores use the same selection policy. Bounded graph expansion adds authorized neighbours by explicit entity/subject or correction link, excludes the User hub, and cannot outrank direct matches. |
+| Eligibility | Preview, dispatch, revalidation and evaluation share review, retention, validity, source-message, same-chat, cloud and local-only gates. Project and branch scope remain enforced by the existing scope resolver. |
+| Semantic cache | Per-record AES-GCM encrypted vectors, authenticated by model asset hash, preprocessing version, scope and record fingerprint. Atomic writes, invalid-cache recovery and deletion pruning; no plaintext vectors or queries on disk. Sixteen ephemeral query vectors bound repeated work. |
+| Preview and dispatch | Background preview can prepare semantic recall. Send uses the same policy and attempts semantic recall within its existing wait budget; lexical results survive a timeout or native failure. Stale vector fingerprints cannot score changed records. |
+| Context | Compact named JSON fields carry provenance, time, kind, stated reason and correction status under the existing token budget. Current user instructions take precedence. |
+| Controls | Memory settings include “Remember decisions and intentions”; existing semantic, capture, review, privacy, clear and rebuild controls continue to apply. |
+| Evaluation | Workspace memory evaluation now includes 14 fictional meaning/abstention/policy cases alongside the 4K/16K lexical scaling fixture. It reports precision, recall, exact correct retrieval, abstention, policy violations, semantic availability, p50/p95 time and prompt tokens. Native scoring is optional and explicitly counted; unavailable native execution cannot be presented as semantic success. |
+
+### Verification and release limits
+
+Validation performed for this branch: **22 focused JVM tests passed**, compiling the actual pure Kotlin memory sources with the serialization compiler plugin; **212 repository host tests passed**, along with regex/resource/provenance checks and ktlint. These host fixtures do not represent Android instrumentation execution.
+
+The pure Kotlin core, serialization and encryption tests can run independently of Android. Additional repository lifecycle tests exercise reviewed corrections, historical revalidation, deletion, and cloud/local-only gates. Ktlint and the repository host checks are also run for this change.
+
+A full Android Gradle run still requires SDK 37 / build tools 37.0.0 and the configured native toolchain. Device execution of the encoder and the new evaluation corpus is a release gate. The 14-case suite is a smoke corpus, not sufficient evidence of 90% production accuracy; expand it with opt-in local representative examples before claiming that target. No user history is uploaded or read by the synthetic evaluation.
 
 ## Connected-memory boundary
 

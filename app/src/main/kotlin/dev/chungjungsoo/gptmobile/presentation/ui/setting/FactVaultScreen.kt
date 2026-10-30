@@ -402,6 +402,7 @@ fun FactVaultScreen(viewModel: FactVaultViewModel, onBack: () -> Unit, onOpenCon
                                         TextButton(onClick = { tab = "Topics" }) { Text("View recurring interests") }
                                     }
                                     "Recall" -> {
+                                        VaultToggle("Remember decisions and intentions", settings.meaningAwareMemory, !busy) { viewModel.updateSettings(settings.copy(meaningAwareMemory = it)) }
                                         VaultToggle("Match meaning on this device", settings.semanticRecall, !busy) { viewModel.updateSettings(settings.copy(semanticRecall = it)) }
                                         VaultToggle("Prioritize relevant pinned memories", settings.alwaysRecallPinned, !busy) { viewModel.updateSettings(settings.copy(alwaysRecallPinned = it)) }
                                         VaultToggle("Prioritize recent information", settings.rankByRecency, !busy) { viewModel.updateSettings(settings.copy(rankByRecency = it)) }

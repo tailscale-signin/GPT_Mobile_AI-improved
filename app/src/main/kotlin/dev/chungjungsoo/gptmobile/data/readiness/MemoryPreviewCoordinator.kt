@@ -19,7 +19,7 @@ class MemoryPreviewCoordinator @Inject constructor(
     @dev.chungjungsoo.gptmobile.di.ReadinessScope private val scope: CoroutineScope
 ) {
     private data class Key(val chat: Int, val profile: String, val text: String, val local: Boolean, val localOnly: Boolean, val history: String)
-    private data class Preview(val key: Key, val revision: Long, val snapshot: dev.chungjungsoo.gptmobile.data.rag.FactVaultSnapshot, val boundary: dev.chungjungsoo.gptmobile.data.knowledge.MemoryScope, val recall: FactRecall)
+    private data class Preview(val key: Key, val revision: Long, val snapshot: dev.chungjungsoo.gptmobile.data.rag.FactVaultSnapshot, val boundary: dev.chungjungsoo.gptmobile.data.knowledge.MemoryScope, val recall: FactRecall, val semanticAttempted: Boolean = false)
     private var revision = 0L
     private var job: Job? = null
     private var preview: Preview? = null
@@ -47,10 +47,14 @@ class MemoryPreviewCoordinator @Inject constructor(
             try {
                 kotlinx.coroutines.delay(300)
                 val boundary = vault.scopeForChat(chat)
-                val result = vault.recallReadOnly(text, chat, isLocal = local, includeLocalOnly = localOnly, previousContext = history)
+                val lexical = vault.recallReadOnly(text, chat, isLocal = local, includeLocalOnly = localOnly, previousContext = history)
+                synchronized(this@MemoryPreviewCoordinator) {
+                    if (revision == expected && vault.state.value == snapshot) preview = Preview(key, expected, snapshot, boundary, lexical)
+                }
+                val result = vault.recallReadOnly(text, chat, isLocal = local, includeLocalOnly = localOnly, previousContext = history, useSemantic = true)
                 val currentBoundary = vault.scopeForChat(chat)
                 synchronized(this@MemoryPreviewCoordinator) {
-                    if (revision == expected && vault.state.value == snapshot && boundary == currentBoundary) preview = Preview(key, expected, snapshot, boundary, result)
+                    if (revision == expected && vault.state.value == snapshot && boundary == currentBoundary) preview = Preview(key, expected, snapshot, boundary, result, semanticAttempted = true)
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled
@@ -61,18 +65,22 @@ class MemoryPreviewCoordinator @Inject constructor(
     internal suspend fun submitted(chat: Int, profile: String, text: String, messageId: Int, local: Boolean, localOnly: Boolean, history: String, budgetMillis: Long): FactRecall {
         val ready = synchronized(this) { preview?.takeIf { it.key == Key(chat, profile, text, local, localOnly, history) && it.revision == revision && it.snapshot == vault.state.value } }
         if (budgetMillis <= 0) return FactRecall()
+        val fallback = java.util.concurrent.atomic.AtomicReference(FactRecall())
         // Producer is not a child of Send: timeout does not join native/DB cleanup.
         val lookup = scope.async(start = CoroutineStart.LAZY) {
-            if (ready != null && ready.boundary == vault.scopeForChat(chat)) ready.recall else vault.recallReadOnly(text, chat, messageId, local, localOnly, history)
+            val usable = ready?.takeIf { it.boundary == vault.scopeForChat(chat) }
+            val lexical = usable?.recall ?: vault.recallReadOnly(text, chat, messageId, local, localOnly, history)
+            fallback.set(lexical)
+            if (usable?.semanticAttempted == true) lexical else vault.recallReadOnly(text, chat, messageId, local, localOnly, history, useSemantic = true)
         }
         return try {
-            withTimeoutOrNull(budgetMillis) { lookup.await() } ?: FactRecall()
+            withTimeoutOrNull(budgetMillis) { lookup.await() } ?: fallback.get()
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: Exception) {
-            FactRecall()
+            fallback.get()
         } catch (_: LinkageError) {
-            FactRecall()
+            fallback.get()
         } finally {
             lookup.cancel()
         }

@@ -41,12 +41,22 @@ internal object MemoryLearning {
         KnowledgeEntity(text.lowercase(Locale.ROOT), text, "OBSERVATION")
     )
 
-    fun extract(text: String, sensitivity: Int): List<KnowledgeFact> = statements(text).flatMap { statement ->
+    fun meaning(text: String): MemoryMeaning? = MemoryMeaningPolicy.extract(text)
+
+    fun extract(text: String, sensitivity: Int, meaningEnabled: Boolean = true): List<KnowledgeFact> = statements(text).flatMap { statement ->
         val request = explicit.matchEntire(statement)
         val value = request?.groupValues?.get(1) ?: statement
         val graph = KnowledgeGraphEngine()
         graph.extractAndStoreFromText(value, sensitivity)
         val facts = graph.getAllEntities().flatMap { graph.querySubgraph(it.id, 1) }.toMutableList()
+        if (meaningEnabled && meaning(value) != null) {
+            val normalized = value.lowercase(Locale.ROOT)
+            facts += KnowledgeFact(
+                KnowledgeEntity("user", "User", "PERSON"),
+                KnowledgeRelation("user", "MEMORY_EPISODE", normalized, context = statement),
+                KnowledgeEntity(normalized, value, "EPISODE")
+            )
+        }
         val target = "([^.!?;\\n]{1,250})"
         val patterns = listOf(
             Regex("(?iu)^(?:my name is|call me) $target$") to "NAMED",
@@ -88,9 +98,15 @@ internal object MemoryLearning {
                 "goal" -> "GOAL"
                 "constraint" -> "CONSTRAINT"
                 "interest" -> "INTERESTED_IN"
+                "intent", "decision", "requirement", "failure", "correction" -> "MEMORY_EPISODE"
                 else -> return@mapNotNull null
             }
-            val fact = observation(original).let { it.copy(relation = it.relation.copy(relationType = relation)) }
+            val fact = observation(original).let {
+                it.copy(
+                    relation = it.relation.copy(relationType = relation),
+                    target = if (relation == "MEMORY_EPISODE") it.target.copy(type = "EPISODE", attributes = mapOf("memoryKind" to kind.uppercase(Locale.ROOT))) else it.target
+                )
+            }
             fact.takeIf { MemoryCapturePolicy.accepts(it, sensitivity) }
         }.distinctBy { it.target.id }
     }

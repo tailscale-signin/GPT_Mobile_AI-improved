@@ -172,6 +172,7 @@ internal class GitHubRepositorySession(
             }
             "index_status" -> indexStatus(context)
             "build_index" -> buildIndex(context, args)
+            "workflow_catalog" -> workflowCatalog(context, args)
             "search_repository" -> search(context, args)
             "read_ranges" -> read(context, args)
             "stage_patch" -> stage(context, args)
@@ -253,25 +254,80 @@ internal class GitHubRepositorySession(
         return result
     }
 
+    private suspend fun workflowCatalog(context: GitHubTaskSnapshot, args: JsonObject): JsonObject {
+        val tree = tree(context)
+        val workflows = tree["tree"]!!.jsonArray.map { it.jsonObject }.filter {
+            it.s("type") == "blob" &&
+                it.s("path").startsWith(".github/workflows/") &&
+                it.s("path").substringAfter(".github/workflows/").let { name -> '/' !in name && (name.endsWith(".yml") || name.endsWith(".yaml")) }
+        }.distinctBy { it.s("path") }.sortedBy { it.s("path") }
+        val cursor = args.s("index_cursor").ifBlank { "0" }.toInt().also { require(it in 0..workflows.size) }
+        val selected = workflows.drop(cursor).take(4)
+        val rows = selected.map { file ->
+            val key = "workflow-metadata-v1:${file.s("sha")}"
+            val retained = store.read(blobScope(context), key)
+            val metadata = retained ?: try {
+                val source = blob(context, file).s("content")
+                withContext(Dispatchers.Default) { GitHubWorkflowMetadata.parse(source) }.also { store.write(blobScope(context), key, it) }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (invalid: IllegalArgumentException) {
+                buildJsonObject {
+                    put("metadata_available", false)
+                    put("reason", "Definition exceeds supported metadata limits; inspect its source.")
+                }
+            }
+            buildJsonObject {
+                put("path", file.s("path"))
+                put("workflow_id", file.s("path").substringAfterLast('/'))
+                put("blob_sha", file.s("sha"))
+                put("cache_hit", retained != null)
+                put("definition", metadata)
+            }
+        }
+        val next = cursor + selected.size
+        return buildJsonObject {
+            put("commit_sha", context.commitSha)
+            put("workflows", JsonArray(rows))
+            put("total_count", workflows.size)
+            put("tree_complete", tree["truncated"]?.jsonPrimitive?.booleanOrNull != true)
+            put("has_more", next < workflows.size)
+            if (next < workflows.size) {
+                put(
+                    "continuation",
+                    buildJsonObject {
+                        put("action", "workflow_catalog")
+                        put("commit_sha", context.commitSha)
+                        put("index_cursor", next)
+                    }
+                )
+            }
+        }
+    }
+
+    private class SearchPageDeadline : RuntimeException()
+
     private suspend fun search(context: GitHubTaskSnapshot, args: JsonObject): JsonObject {
         val query = args.s("query")
         require(query.isNotBlank() && query.length <= 200) { "Search requires a non-blank query of at most 200 characters." }
         val mode = args.s("mode").ifBlank { "literal" }
         require(mode in setOf("literal", "definitions", "references", "paths", "tests"))
         val data = tree(context)
+        val options = GitHubSearchOptions.from(args)
         val extension = args.s("file_extension").removePrefix(".").lowercase(java.util.Locale.ROOT)
         require(extension.isEmpty() || extension.matches(Regex("[a-z0-9]+"))) { "file_extension must be a single extension such as kt or .kt." }
         val batchSize = args.s("batch_size").ifBlank { "1000" }.toInt().also { require(it in 1..1000) }
-        val searchId = GitHubRepositoryStateStore.digest(listOf(context.commitSha, query, mode, args.s("path_prefix"), extension).joinToString("\u0000"))
+        val searchId = GitHubRepositoryStateStore.digest(listOf(context.commitSha, query, mode, args.s("path_prefix"), extension, options.json().toString()).joinToString("\u0000"))
         require(args.s("search_id").isBlank() || args.s("search_id") == searchId) { "Search parameters changed. Start at index_cursor=0 without search_id, or use the exact continuation." }
         val all = data["tree"]!!.jsonArray.map { it.jsonObject }.filter { item ->
             item.s("type") == "blob" &&
                 (mode != "tests" || item.s("path").contains("test", true)) &&
                 (args.s("path_prefix").isBlank() || item.s("path").startsWith(args.s("path_prefix"))) &&
+                (options.suffix.isEmpty() || item.s("path").endsWith(options.suffix)) &&
                 (extension.isEmpty() || item.s("path").substringAfterLast('.', "").equals(extension, true))
         }.distinctBy { it.s("path") }.sortedBy { it.s("path") }
         val cursor = args.s("index_cursor").ifBlank { "0" }.toInt().also { require(it in 0..all.size) }
-        val cacheKey = "search-page:$searchId:$cursor:$batchSize"
+        val cacheKey = "search-page-v2:$searchId:$cursor:$batchSize"
         store.read(scope, cacheKey)?.let { cached ->
             return JsonObject(cached + mapOf("cache_hit" to JsonPrimitive(true), "new_blobs" to JsonPrimitive(0)))
         }
@@ -291,7 +347,7 @@ internal class GitHubRepositorySession(
             val item = all[next]
             if (mode == "paths") {
                 next++
-                if (query == "*" || item.s("path").contains(query, true)) {
+                if (query == "*" || options.score(item.s("path"), query) > 0) {
                     hits += buildJsonObject {
                         put("path", item["path"]!!)
                         put("sha", item["sha"]!!)
@@ -327,23 +383,52 @@ internal class GitHubRepositorySession(
                 continue
             }
             val text = content.s("content")
+            val sourceLines = text.lines()
+            if (sourceLines.size !in options.minLines..options.maxLines) continue
             val lexical = content["index"]?.jsonObject
             val lines = if (mode in setOf("definitions", "references")) {
                 if (lexical?.get("${mode}_complete")?.jsonPrimitive?.booleanOrNull != true) incompleteSymbols = true
-                lexical?.get(mode)?.jsonArray.orEmpty().map { it.jsonObject }.filter { it.s("name") == query }.mapNotNull { it["line"]?.jsonPrimitive?.intOrNull }.toSet()
+                lexical?.get(mode)?.jsonArray.orEmpty().map { it.jsonObject }.filter { if (options.fuzzy) options.score(it.s("name"), query) > 0 else it.s("name").equals(query, ignoreCase = !options.caseSensitive) }.mapNotNull { it["line"]?.jsonPrimitive?.intOrNull }.toSet()
             } else {
                 emptySet()
             }
-            val matches = text.lineSequence().mapIndexedNotNull { index, line ->
-                if (if (mode in setOf("definitions", "references")) index + 1 in lines else line.contains(query, true)) {
-                    buildJsonObject {
+            val matches = mutableListOf<JsonObject>()
+            for ((index, line) in sourceLines.withIndex()) {
+                kotlinx.coroutines.currentCoroutineContext().ensureActive()
+                if ((System.nanoTime() - startedNanos) / 1_000_000 >= 12_000) {
+                    // Revisit this file rather than silently dropping its remaining lines.
+                    next--
+                    readDeadline = true
+                    break
+                }
+                val confidence = if (mode in setOf("definitions", "references")) {
+                    if (index + 1 in lines) 1.0 else 0.0
+                } else {
+                    try {
+                        val active = kotlinx.coroutines.currentCoroutineContext()
+                        options.score(line, query) {
+                            active.ensureActive()
+                            if ((System.nanoTime() - startedNanos) / 1_000_000 >= 12_000) throw SearchPageDeadline()
+                        }
+                    } catch (_: SearchPageDeadline) {
+                        next--
+                        readDeadline = true
+                        break
+                    }
+                }
+                if (confidence > 0) {
+                    matches += buildJsonObject {
                         put("line", index + 1)
                         put("text", utf8Prefix(line, 500))
+                        put("confidence", confidence)
+                        put("confidence_kind", "text_similarity_not_semantic_probability")
+                        put("result_id", GitHubRepositoryStateStore.digest(context.commitSha + item.s("path") + ":" + (index + 1)))
+                        put("context", GitHubSearchContext.extract(sourceLines, index + 1, options.contextLines))
                     }
-                } else {
-                    null
                 }
-            }.take(11).toList()
+                if (matches.size == 11) break
+            }
+            if (readDeadline) break
             if (matches.size > 10) truncatedMatches = true
             if (matches.isNotEmpty()) {
                 hits += buildJsonObject {
@@ -351,6 +436,7 @@ internal class GitHubRepositorySession(
                     put("sha", item["sha"]!!)
                     put("matches", JsonArray(matches.take(10)))
                     put("matches_truncated", matches.size > 10)
+                    put("related_files", GitHubSearchContext.related(item.s("path"), all.map { it.s("path") }))
                 }
             }
         }
@@ -372,6 +458,7 @@ internal class GitHubRepositorySession(
         }
         val result = buildJsonObject {
             put("query", query)
+            put("filters", options.json())
             put("search_id", searchId)
             put("cache_hit", false)
             put("file_extension", extension)
@@ -411,6 +498,7 @@ internal class GitHubRepositorySession(
                         put("file_extension", extension)
                         put("search_id", searchId)
                         put("batch_size", batchSize)
+                        options.json().forEach { (key, value) -> put(key, value) }
                     }
                 )
             }

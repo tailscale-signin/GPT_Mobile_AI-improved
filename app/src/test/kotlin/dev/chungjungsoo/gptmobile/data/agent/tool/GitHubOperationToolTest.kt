@@ -57,6 +57,22 @@ class GitHubOperationToolTest {
         assertEquals("list_workflows", backend.calls.single()["action"]?.jsonPrimitive?.content)
     }
 
+    @Test fun workflowDefinitionContinuationRetainsFacadeActionAndPinnedRevision() = runBlocking {
+        val backend = Backend().apply {
+            body = args("""{"workflows":[],"has_more":true,"continuation":{"action":"workflow_catalog","commit_sha":"$sha","index_cursor":4}}""")
+        }
+        val tool = GitHubOperationTool("github_ci", backend, "workflow-definitions")
+        val first = tool.execute("first", args("""{"action":"definitions","ref":"main"}"""))
+        assertEquals("workflow_catalog", backend.calls.single().getValue("action").jsonPrimitive.content)
+        val next = continuation(result(first))
+        valid("github_ci", next)
+        assertEquals("definitions", next.getValue("action").jsonPrimitive.content)
+        assertEquals(sha, next.getValue("commit_sha").jsonPrimitive.content)
+        assertEquals("4", next.getValue("index_cursor").jsonPrimitive.content)
+        tool.execute("next", next)
+        assertEquals("workflow_catalog", backend.calls.last().getValue("action").jsonPrimitive.content)
+    }
+
     @Test fun evidenceHandleWithInventedNumericCursorReturnsActionableCorrection() = runBlocking {
         val backend = Backend()
         val operation = GitHubOperationTool("github_read", backend, "read-validation")

@@ -10,8 +10,8 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalWindowInfo
 
 internal data class AnswerPane(val widthDp: Float = 360f, val heightDp: Float = 640f)
 internal val LocalAnswerPane = staticCompositionLocalOf<AnswerPane?> { null }
@@ -24,9 +24,9 @@ internal fun AdaptiveAnswerTypography(source: String, answerLength: Int?, conten
         CompositionLocalProvider(LocalAnswerTextScale provides 1f, content = content)
         return
     }
-    val config = LocalConfiguration.current
-    val pane = LocalAnswerPane.current ?: AnswerPane(config.screenWidthDp.toFloat(), config.screenHeightDp.toFloat())
     val density = LocalDensity.current
+    val window = LocalWindowInfo.current.containerSize
+    val pane = LocalAnswerPane.current ?: with(density) { AnswerPane(window.width.toDp().value, window.height.toDp().value) }
     val body = MaterialTheme.typography.bodyMedium
     BoxWithConstraints(Modifier.fillMaxWidth()) {
         // Tables, code and formulas retain their layout; prose uses the full answer's

@@ -23,7 +23,7 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
     }
     private val requiredCapabilities = if (Regex("(?i)\\b(research|search|sources|papers|studies|latest|news|verify|article|citations)\\b").containsMatchIn(task)) setOf(AgentToolCapability.WEB_SEARCH, AgentToolCapability.PAGE_READER) else emptySet()
     private val omissions = mutableMapOf<String, String>()
-    private val active = (window(taskRequired + ranked(task).filter { initialNames == null || it.name in initialNames }).map { it.name } + taskRequired.map { it.name }).toMutableSet()
+    private val active = window(taskRequired + ranked(task).filter { initialNames == null || it.name in initialNames }).map { it.name }.toMutableSet()
     private val discovered = active.toMutableSet()
 
     // A catalog lives for one run: repeated discovery should not refetch the same cold source.
@@ -81,7 +81,7 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
 
     override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
         val query = (arguments["query"] as? JsonPrimitive)?.content.orEmpty().take(4096)
-        val names = (arguments["names"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.content }.take(12)
+        val names = (arguments["names"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.content }.take(12).map(::resolveName)
         if (acquireCold != null) {
             // Cache only successful acquisitions. Offline or empty catalogs remain retryable.
             // Never suspend while holding the selection monitor.
@@ -102,7 +102,7 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
 
     private fun selectResult(callId: String, arguments: JsonObject): AgentToolResult = synchronized(this) {
         val query = (arguments["query"] as? JsonPrimitive)?.content.orEmpty().take(4096)
-        val names = (arguments["names"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.content }.take(12)
+        val names = (arguments["names"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.content }.take(12).map(::resolveName)
         if (query.isBlank() && names.isEmpty()) {
             return@synchronized AgentToolResult(
                 callId,
@@ -130,7 +130,7 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
                 dispatched = false
             )
         }
-        val exact = candidates.values.firstOrNull { it.name.equals(query.trim(), ignoreCase = true) }
+        val exact = candidates[resolveName(query.trim())]
         // Discovery may reveal repository intent after an ordinary first message.
         // This raises only the schema window; runtime context and grants still apply.
         if (advancedTask(query) || names.any { it in candidates && it.contains("github", true) } || exact?.name?.contains("github", true) == true) advanced = true
@@ -142,7 +142,7 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
         }
         val explicit = names.mapNotNull(candidates::get) + listOfNotNull(exact)
         val retained = ranked(taskText).filter { it.name in active }
-        val selected = (taskRequired + window(taskRequired + pinned + explicit + found + retained + active.mapNotNull(candidates::get))).distinctBy { it.name }
+        val selected = (window(explicit + pinned + found + taskRequired + retained + active.mapNotNull(candidates::get))).distinctBy { it.name }
         active.clear()
         active.addAll(selected.map { it.name })
         val admitted = found.filter { it.name in active }
@@ -161,7 +161,8 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
             )
             put("schema_budget_excluded", JsonArray(found.filterNot { it.name in active }.map { JsonPrimitive(it.name) }))
             put("schema_token_allowance", schemaAllowance)
-            put("selection_policy", "Current-task capabilities remain available; discovery requests replace lower-priority schemas. Availability still requires the next request's context admission. Executable permissions are unchanged.")
+            put("selection_policy", "Explicitly requested capabilities receive priority; other authorized capabilities remain discoverable. Availability still requires the next request's context admission. Executable permissions are unchanged.")
+            put("availability_note", "Unknown names are not in the authorized catalog. Enable/configure the relevant connection or permission before discovery; schema admission alone cannot grant access.")
             put("unknown_names", JsonArray(names.filterNot(candidates::containsKey).map(::JsonPrimitive)))
             put("authorized_tool_count", candidates.size)
             put("remaining_tool_count", candidates.size - discovered.size)
@@ -171,6 +172,16 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
             if (previousActive == active) put("next_step", "No new schemas became available. Use an advertised tool or produce a partial answer; do not repeat this identical discovery.")
         }
         AgentToolResult(callId, ToolResultContent.Json(result), false, dispatched = false)
+    }
+
+    @Synchronized
+    private fun resolveName(name: String): String {
+        candidates.keys.firstOrNull { it.equals(name, true) }?.let { return it }
+        val canonical = when (name.lowercase()) {
+            "github_pull_request", "github_pull_request__github_api" -> "github_pr"
+            else -> name
+        }
+        return candidates.keys.singleOrNull { it == canonical || it.startsWith(canonical + "__") } ?: name
     }
 
     private fun window(ordered: List<AgentToolDefinition>): List<AgentToolDefinition> {

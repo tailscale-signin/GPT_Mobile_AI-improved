@@ -1595,70 +1595,75 @@ class GitHubWorkspaceClient(
             scheduler.recordCacheHit()
             return cached.value
         }
-        return scheduler.execute(if (method == HttpMethod.Get && immutablePath(path)) cacheKey else null, priority = requestPriority) {
-            check(!authenticationRejected.get()) { "GitHub authentication was rejected (HTTP 401). Reconnect the GitHub account before retrying any operation." }
-            if (path != "/rate_limit") rateLimits.requireAvailable(if (path.startsWith("/search/")) "search" else "core")
-            scheduler.recordRequest()
-            val response = client.request("https://api.github.com$path") {
-                this.method = method
-                header(HttpHeaders.Accept, "application/vnd.github+json")
-                header(HttpHeaders.UserAgent, "GPT-Mobile-App")
-                header("X-GitHub-Api-Version", API_VERSION)
-                if (token.isNotBlank()) header(HttpHeaders.Authorization, "Bearer $token")
-                cached?.etag?.takeIf { it.isNotBlank() }?.let { header(HttpHeaders.IfNoneMatch, it) }
-                if (body != null) {
-                    contentType(ContentType.Application.Json)
-                    setBody(body.toString())
+        return GitHubReadRetry.run(readOnly = method == HttpMethod.Get) {
+            scheduler.execute(if (method == HttpMethod.Get && immutablePath(path)) cacheKey else null, priority = requestPriority) {
+                check(!authenticationRejected.get()) { "GitHub authentication was rejected (HTTP 401). Reconnect the GitHub account before retrying any operation." }
+                if (path != "/rate_limit") rateLimits.requireAvailable(if (path.startsWith("/search/")) "search" else "core")
+                scheduler.recordRequest()
+                val response = client.request("https://api.github.com$path") {
+                    this.method = method
+                    header(HttpHeaders.Accept, "application/vnd.github+json")
+                    header(HttpHeaders.UserAgent, "GPT-Mobile-App")
+                    header("X-GitHub-Api-Version", API_VERSION)
+                    if (token.isNotBlank()) header(HttpHeaders.Authorization, "Bearer $token")
+                    cached?.etag?.takeIf { it.isNotBlank() }?.let { header(HttpHeaders.IfNoneMatch, it) }
+                    if (body != null) {
+                        contentType(ContentType.Application.Json)
+                        setBody(body.toString())
+                    }
                 }
-            }
-            rateLimits.record(response.headers, response.status.value)
-            if (response.status.value == 304 && cached != null) {
-                responseCache.put(cacheKey, cached.etag, cached.value)
-                scheduler.recordCacheHit()
-                return@execute cached.value
-            }
+                rateLimits.record(response.headers, response.status.value)
+                if (response.status.value == 304 && cached != null) {
+                    responseCache.put(cacheKey, cached.etag, cached.value)
+                    scheduler.recordCacheHit()
+                    return@execute cached.value
+                }
 
-            val text = response.bodyAsText()
-            scheduler.recordBytes(text.encodeToByteArray().size.toLong())
-            if (!response.status.isSuccess()) {
-                if (response.status.value in setOf(401, 403)) responseCache.clear()
-                if (response.status.value == 401) authenticationRejected.set(true)
-                val githubMessage = runCatching {
-                    json.parseToJsonElement(text).jsonObject["message"]?.jsonPrimitive?.content
-                }.getOrNull()?.takeIf { it.isNotBlank() }
-                if (response.status.value == 403 && githubMessage?.contains("secondary rate", true) == true) rateLimits.cooldown(response.headers["Retry-After"]?.toLongOrNull() ?: 60)
-                val details = buildList {
-                    githubMessage?.let { add("message=$it") }
-                    response.headers["X-RateLimit-Remaining"]?.let { add("rateLimitRemaining=$it") }
-                    response.headers["Retry-After"]?.let { add("retryAfter=$it") }
-                    response.headers["X-OAuth-Scopes"]?.takeIf { it.isNotBlank() }?.let { add("oauthScopes=$it") }
-                    response.headers["X-Accepted-OAuth-Scopes"]?.takeIf { it.isNotBlank() }?.let { add("acceptedOAuthScopes=$it") }
-                    response.headers["X-Accepted-GitHub-Permissions"]?.takeIf { it.isNotBlank() }?.let { add("acceptedGitHubPermissions=$it") }
-                    response.headers["X-GitHub-SSO"]?.takeIf { it.isNotBlank() }?.let { add("sso=$it") }
-                }.joinToString(" · ")
-                error(
-                    "GitHub HTTP ${response.status.value}" +
-                        (if (details.isBlank()) ". " else " · $details. ") +
-                        (
-                            if (response.status.value == 403 && path.contains("/actions/") && response.headers["X-RateLimit-Remaining"] != "0") {
-                                "Actions endpoint denied access. Check the GitHub App installation repository access and Actions: write permission, or the token workflow scope; also verify organization SSO and repository rules. Repository can_push alone does not grant Actions API access. "
-                            } else {
-                                ""
-                            }
-                            ) +
-                        requestHint(
-                            response.status.value,
-                            response.headers["Retry-After"],
-                            response.headers["X-RateLimit-Reset"],
-                            githubMessage,
-                            response.headers["X-RateLimit-Remaining"]
-                        )
-                )
+                val text = response.bodyAsText()
+                scheduler.recordBytes(text.encodeToByteArray().size.toLong())
+                if (GitHubReadRetry.transientStatus(response.status.value)) {
+                    throw GitHubReadRetry.HttpFailure(response.status.value, response.headers["Retry-After"])
+                }
+                if (!response.status.isSuccess()) {
+                    if (response.status.value in setOf(401, 403)) responseCache.clear()
+                    if (response.status.value == 401) authenticationRejected.set(true)
+                    val githubMessage = runCatching {
+                        json.parseToJsonElement(text).jsonObject["message"]?.jsonPrimitive?.content
+                    }.getOrNull()?.takeIf { it.isNotBlank() }
+                    if (response.status.value == 403 && githubMessage?.contains("secondary rate", true) == true) rateLimits.cooldown(response.headers["Retry-After"]?.toLongOrNull() ?: 60)
+                    val details = buildList {
+                        githubMessage?.let { add("message=$it") }
+                        response.headers["X-RateLimit-Remaining"]?.let { add("rateLimitRemaining=$it") }
+                        response.headers["Retry-After"]?.let { add("retryAfter=$it") }
+                        response.headers["X-OAuth-Scopes"]?.takeIf { it.isNotBlank() }?.let { add("oauthScopes=$it") }
+                        response.headers["X-Accepted-OAuth-Scopes"]?.takeIf { it.isNotBlank() }?.let { add("acceptedOAuthScopes=$it") }
+                        response.headers["X-Accepted-GitHub-Permissions"]?.takeIf { it.isNotBlank() }?.let { add("acceptedGitHubPermissions=$it") }
+                        response.headers["X-GitHub-SSO"]?.takeIf { it.isNotBlank() }?.let { add("sso=$it") }
+                    }.joinToString(" · ")
+                    error(
+                        "GitHub HTTP ${response.status.value}" +
+                            (if (details.isBlank()) ". " else " · $details. ") +
+                            (
+                                if (response.status.value == 403 && path.contains("/actions/") && response.headers["X-RateLimit-Remaining"] != "0") {
+                                    "Actions endpoint denied access. Check the GitHub App installation repository access and Actions: write permission, or the token workflow scope; also verify organization SSO and repository rules. Repository can_push alone does not grant Actions API access. "
+                                } else {
+                                    ""
+                                }
+                                ) +
+                            requestHint(
+                                response.status.value,
+                                response.headers["Retry-After"],
+                                response.headers["X-RateLimit-Reset"],
+                                githubMessage,
+                                response.headers["X-RateLimit-Remaining"]
+                            )
+                    )
+                }
+                val parsed = if (text.isBlank()) JsonObject(emptyMap()) else json.parseToJsonElement(text)
+                if (method != HttpMethod.Get) responseCache.invalidateMutable(path.substringBefore("/git/").substringBefore("/pulls/").substringBefore("/releases"))
+                if (cacheable) responseCache.put(cacheKey, response.headers[HttpHeaders.ETag], parsed, immutablePath(path))
+                parsed
             }
-            val parsed = if (text.isBlank()) JsonObject(emptyMap()) else json.parseToJsonElement(text)
-            if (method != HttpMethod.Get) responseCache.invalidateMutable(path.substringBefore("/git/").substringBefore("/pulls/").substringBefore("/releases"))
-            if (cacheable) responseCache.put(cacheKey, response.headers[HttpHeaders.ETag], parsed, immutablePath(path))
-            parsed
         }
     }
 

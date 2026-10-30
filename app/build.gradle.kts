@@ -145,8 +145,8 @@ extensions.configure<ApplicationExtension> {
         targetSdk = 37
         // Interim release: Play-ready artifact gates remain mandatory while full
         // Unified Reliability v2 milestone acceptance is still in progress.
-        versionCode = 131
-        versionName = "0.9.63.0"
+        versionCode = 132
+        versionName = "0.9.64.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {

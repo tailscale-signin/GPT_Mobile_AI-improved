@@ -178,6 +178,7 @@ internal class GitHubResultViews(
         if (operation == "github_pr") {
             values["action"] = JsonPrimitive(
                 when ((continuation["action"] as? JsonPrimitive)?.content) {
+                    "list_pull_requests" -> "list"
                     "get_pull_request_comments" -> "comments"
                     "pull_request_reviews" -> "reviews"
                     else -> "context"

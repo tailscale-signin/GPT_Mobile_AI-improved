@@ -21,6 +21,7 @@ data class ProviderRequestConfig(
     val requireKnownCapacity: Boolean = false,
     val reasoningMode: dev.chungjungsoo.gptmobile.data.context.ReasoningMode = dev.chungjungsoo.gptmobile.data.context.ReasoningMode.AUTO,
     val allowReasoning: Boolean = true,
+    val maximizeReasoning: Boolean = false,
     val intentionalAssistantPrefill: Boolean = false,
     val captureGenerationReceipt: Boolean = false,
     val continuationPrefixDigest: String? = null,

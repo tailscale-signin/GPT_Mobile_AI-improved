@@ -28,6 +28,9 @@ object ReasoningPolicy {
         return ReasoningDecision(requested, effective, control.parameter, templateProbeVerified = true)
     }
 
+    fun strongestSupported(allowed: Boolean, control: ReasoningTemplateControl?): ReasoningDecision =
+        resolve(if (allowed && control != null) ReasoningMode.ON else ReasoningMode.AUTO, allowed, control)
+
     fun apply(root: JsonObject, decision: ReasoningDecision): JsonObject {
         val kwargs = (root["chat_template_kwargs"] as? JsonObject).orEmpty().toMutableMap()
         kwargs.remove("thinking")

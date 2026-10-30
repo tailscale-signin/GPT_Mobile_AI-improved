@@ -43,6 +43,7 @@ data class AgentRunLimits(
     val maxGeneratedCharacters: Int = 0,
     val detectRepetition: Boolean = false,
     val researchAcquisition: Boolean = false,
+    val githubTask: Boolean = false,
     val combined: CombinedExecutionContext? = null
 ) {
     companion object {
@@ -109,6 +110,8 @@ class AgentRunner(
         var retriedWithoutTools = initialRetriedWithoutTools
         var roundRecoveryAttempted = false
         var protocolRecoveryAttempted = false
+        var githubRecoveries = 0
+        var githubOutputRepairAttempted = false
         var emptyAnswerRecoveryAttempted = false
         var finalResponseRequested = false
         var roundLimitFinalizationAttempted = false
@@ -218,8 +221,9 @@ class AgentRunner(
                         "before completing the tool call"
                     ).any { roundFailure.contains(it, ignoreCase = true) }
                 if (protocolFailure) {
-                    if (limits.combined?.requested?.singlePass != true && !protocolRecoveryAttempted && !round.textEmitted && !session.handlesToolsInternally) {
+                    if (limits.combined?.requested?.singlePass != true && !protocolRecoveryAttempted && (!round.textEmitted || limits.githubTask) && !session.handlesToolsInternally) {
                         protocolRecoveryAttempted = true
+                        if (limits.githubTask) rounds--
                         exposedDefinitions = exposedDefinitions.map { definition ->
                             definition.copy(description = definition.description + " Protocol repair: call this capability only with its native function-call frame and valid JSON arguments. Never print tool-call markup as assistant text.")
                         }
@@ -229,7 +233,24 @@ class AgentRunner(
                     emit(AgentRunEvent.Provider(ProviderEvent.Failed(roundFailure, round.progressDeadline, errorCode = "TOOL_PROTOCOL_INVALID_FRAME")))
                     return
                 }
-                if (limits.combined?.requested?.singlePass != true && !roundRecoveryAttempted && !round.textEmitted && !session.handlesToolsInternally && recoverableRoundFailure(roundFailure, exchanges.isNotEmpty() || round.calls.isNotEmpty())) {
+                if (limits.githubTask && !session.handlesToolsInternally && !finalResponseRequested) {
+                    if (!githubOutputRepairAttempted && dev.chungjungsoo.gptmobile.data.agent.tool.isProviderOutputLimitFailure(roundFailure)) {
+                        githubOutputRepairAttempted = true
+                        rounds--
+                        exposedDefinitions = exposedDefinitions.map { it.copy(description = it.description + " The previous round reached its output limit. Continue unfinished work with a concise valid function call using retained receipts; do not repeat completed mutations.") }
+                        emit(AgentRunEvent.Notice("The provider reached its output limit. Repairing the unfinished GitHub round once with its tools and completed results retained.", persistent = false))
+                        continue
+                    }
+                    val recoveryDelay = GitHubTaskRecovery.delayMillis(roundFailure, githubRecoveries)
+                    if (recoveryDelay != null) {
+                        githubRecoveries++
+                        rounds-- // Connectivity recovery does not consume a productive work round.
+                        emit(AgentRunEvent.Notice("Waiting for the GitHub chat provider; resuming the saved task in ${(recoveryDelay + 999) / 1000}s ($githubRecoveries/${GitHubTaskRecovery.MAX_RECOVERIES}). Completed tool actions are retained.", persistent = false))
+                        kotlinx.coroutines.delay(recoveryDelay)
+                        continue
+                    }
+                }
+                if (!limits.githubTask && limits.combined?.requested?.singlePass != true && !roundRecoveryAttempted && !round.textEmitted && !session.handlesToolsInternally && recoverableRoundFailure(roundFailure, exchanges.isNotEmpty() || round.calls.isNotEmpty())) {
                     roundRecoveryAttempted = true
                     exposedDefinitions = emptyList()
                     executableToolByName = emptyMap()
@@ -248,10 +269,16 @@ class AgentRunner(
                 if (round.completed && !round.textEmitted) {
                     if (limits.combined?.requested?.singlePass != true && !emptyAnswerRecoveryAttempted && !session.handlesToolsInternally && !finalResponseRequested) {
                         emptyAnswerRecoveryAttempted = true
-                        finalResponseRequested = true
-                        exposedDefinitions = emptyList()
-                        executableToolByName = emptyMap()
-                        emit(AgentRunEvent.Notice("The model returned no visible answer. Finalizing once with tools disabled and the results already collected.", persistent = false))
+                        if (limits.githubTask) {
+                            rounds--
+                            exposedDefinitions = exposedDefinitions.map { it.copy(description = it.description + " The previous round was empty. Continue the unfinished task using retained results, or return the verified final outcome.") }
+                            emit(AgentRunEvent.Notice("The provider returned an empty round. Resuming the GitHub task with its tools and saved results.", persistent = false))
+                        } else {
+                            finalResponseRequested = true
+                            exposedDefinitions = emptyList()
+                            executableToolByName = emptyMap()
+                            emit(AgentRunEvent.Notice("The model returned no visible answer. Finalizing once with tools disabled and the results already collected.", persistent = false))
+                        }
                         continue
                     }
                     emit(AgentRunEvent.Provider(ProviderEvent.Failed("The model returned no visible answer after finalization. No completed tool action was repeated. Please retry or choose another model.", transportComplete = round.completed)))

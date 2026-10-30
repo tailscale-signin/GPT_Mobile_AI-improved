@@ -33,6 +33,22 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubOperationToolTest {
+    @Test fun pullRequestListIsAdvertisedAndContextRequiresObservedNumber() = runBlocking {
+        val backend = Backend()
+        val tool = GitHubOperationTool("github_pr", backend, "pr-list")
+        val list = args("""{"action":"list","state":"open","page":2}""")
+        valid("github_pr", list)
+        tool.execute("list", list)
+        assertEquals("list_pull_requests", backend.calls.single().getValue("action").jsonPrimitive.content)
+        for (action in listOf("context", "comments", "reviews")) {
+            val result = tool.execute(action, args("""{"action":"$action"}"""))
+            assertTrue(result.isError)
+            assertFalse(result.dispatched)
+            assertTrue(result.content.toString().contains("action=list"))
+        }
+        assertEquals(1, backend.calls.size)
+    }
+
     @Test fun tagCreationContinuationInspectsWithoutRepeatingTheMutation() = runBlocking {
         val backend = Backend().apply {
             body = args("""{"upstream_completed":true,"continuation":{"action":"tag_context","tag_name":"v1"}}""")

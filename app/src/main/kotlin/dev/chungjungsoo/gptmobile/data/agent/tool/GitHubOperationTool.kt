@@ -129,6 +129,7 @@ internal class GitHubOperationTool(
         if (operation == "github_pr") {
             val action = (arguments["action"] as? JsonPrimitive)?.content.orEmpty().ifBlank { "context" }
             val requiredFields = when (action) {
+                "context", "comments", "reviews" -> listOf("pull_number")
                 "create" -> listOf("title", "head", "base")
                 "update", "merge" -> listOf("pull_number", "expected_head_sha")
                 "comment" -> listOf("pull_number", "body", "expected_head_sha")
@@ -156,7 +157,7 @@ internal class GitHubOperationTool(
             if (missing.isNotEmpty()) {
                 return AgentToolResult(
                     callId,
-                    ToolResultContent.Text("GitHub PR $action requires: " + missing.joinToString(", ") + ". Correct the request before retrying; nothing was dispatched."),
+                    ToolResultContent.Text("GitHub PR $action requires: " + missing.joinToString(", ") + ". For an unknown PR number, use github_pr action=list to discover pull requests, then retry with the observed pull_number. Nothing was dispatched."),
                     true,
                     errorCode = "INVALID_ARGUMENTS",
                     dispatched = false
@@ -226,6 +227,7 @@ internal class GitHubOperationTool(
                 }
                 "github_pr" -> when (requested) {
                     "", "context" -> "pr_context"
+                    "list" -> "list_pull_requests"
                     "comments" -> "get_pull_request_comments"
                     "reviews" -> "pull_request_reviews"
                     "create" -> "create_pull_request"
@@ -281,7 +283,7 @@ internal class GitHubOperationTool(
         }
 
         fun taskTools(task: String): Set<String> {
-            val text = task.lowercase(java.util.Locale.ROOT)
+            val text = task.lowercase(java.util.Locale.ROOT).replace("github_pull_request", "github_pr")
             val explicitlyNamed = names.filter { name ->
                 Regex("(?<![a-z0-9_])" + Regex.escape(name) + "(?:__[a-z0-9_-]+)?(?![a-z0-9_])").containsMatchIn(text)
             }
@@ -454,8 +456,9 @@ internal class GitHubOperationTool(
                     }
                 }
                 "github_pr" -> {
-                    properties["action"] = choice("context", "comments", "reviews", "create", "update", "comment", "reply", "review", "merge")
+                    properties["action"] = choice("list", "context", "comments", "reviews", "create", "update", "comment", "reply", "review", "merge")
                     properties["pull_number"] = field("integer")
+                    properties["state"] = choice("open", "closed", "all")
                     listOf("title", "body", "head", "base", "expected_head_sha", "expected_base_sha").forEach { properties[it] = field("string") }
                     properties["comment_id"] = field("integer")
                     properties["event"] = choice("APPROVE", "REQUEST_CHANGES", "COMMENT")
@@ -522,7 +525,7 @@ internal class GitHubOperationTool(
                 "github_stage_patch" -> "Inspect and stage one exact replacement in a single call using target_file, search_snippet and replacement_snippet. Reads the complete pinned blob internally; rejects ambiguous anchors. Alternatively supply SHA-checked edits. Returns a bounded preview and stage_id; no commit occurs."
                 "github_commit" -> "Create a working branch, commit a validated stage_id, or delete_branch with expected_head_sha after dependency inspection. Deletion blocks selected/default/protected branches, unmerged commits, open PRs and active runs. GitHub deletion is not an atomic SHA lease."
                 "github_write" -> "Every files item requires a repository-relative path (for example app/src/main/kotlin/.../MainActivity.kt), never an absolute path or directory. Stage up to 20 UTF-8 file creations, replacements or deletions for exact user approval and one atomic commit on a working branch. Supply expected_head_sha and expected_blob_sha for existing files. Replacements require content; deletions require delete=true and no content. Never write to the default branch."
-                "github_pr" -> "Read PR files, checks and review threads; explicitly post inline review comments, reply to review comments, update/comment/create, or merge after all checks pass. Writes require the current expected head SHA."
+                "github_pr" -> "Canonical pull-request tool (also known as github_pull_request). Use action=list to discover pull_number; context/comments/reviews require it. Read PR files, checks and review threads; explicitly post inline review comments, reply to review comments, update/comment/create, or merge after all checks pass. Writes require the current expected head SHA."
                 "github_ci" -> "Discover workflows, then inspect runs (100/page; status=failure filters), job steps (job_id), artifacts and failures. action=definitions reads cached, commit-pinned YAML outlines (triggers, inputs, dependencies, artifacts); follow every continuation and inspect parser warnings. Dispatch requires an explicit discovered workflow_id (numeric ID, filename or .github/workflows/file.yml) and ref; never guess a workflow or dispatch all workflows. Follow continuation_call for further pages."
                 "github_watch_checks" -> "Subscribe once to background CI updates for pr_number and/or run_id in this saved chat. Pins the current head and posts native chat status updates without model polling turns. A moved PR head requires a new subscription."
                 "github_issue" -> "Read complete issue metadata, comments or timeline history. Create or update with exact approval; update requires expected_updated_at from the issue. Timeline is not a full history of body edits."

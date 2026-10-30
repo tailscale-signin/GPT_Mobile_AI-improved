@@ -755,7 +755,9 @@ class GitHubTool(
         }
         val page = arguments["page"]?.jsonPrimitive?.intOrNull ?: 1
         require(page in 1..1000)
-        val response = getGitHubApi("$BASE_URL/repos/$owner/$repo/pulls?state=all&per_page=20&page=$page")
+        val state = arguments["state"]?.jsonPrimitive?.content ?: "all"
+        require(state in setOf("open", "closed", "all")) { "state must be open, closed or all." }
+        val response = getGitHubApi("$BASE_URL/repos/$owner/$repo/pulls?state=$state&per_page=20&page=$page")
         val text = response.bodyAsText()
         if (!response.status.isSuccess()) {
             return errorResult(callId, "GitHub API returned HTTP ${response.status.value}: ${truncate(text, 500)}")
@@ -771,7 +773,27 @@ class GitHubTool(
                 )
             }
         }
-        return successResult(callId, summary.toString())
+        return successResult(
+            callId,
+            buildJsonObject {
+                put("pull_requests", summary)
+                put("page", page)
+                put("per_page", 20)
+                put("has_more", items.size == 20 && page < 1000)
+                if (items.size == 20 && page < 1000) {
+                    put(
+                        "continuation",
+                        buildJsonObject {
+                            put("action", "list_pull_requests")
+                            put("owner", owner)
+                            put("repo", repo)
+                            put("state", state)
+                            put("page", page + 1)
+                        }
+                    )
+                }
+            }.toString()
+        )
     }
 
     private suspend fun handleGetPullRequest(callId: String, arguments: JsonObject): AgentToolResult {
@@ -1405,18 +1427,25 @@ class GitHubTool(
         }
     }
 
-    private suspend fun getGitHubApi(url: String): HttpResponse = scheduler.execute(null) {
-        check(!authenticationRejected.get()) { "GitHub authentication was rejected (HTTP 401). Reconnect the GitHub account before retrying any operation." }
-        rateLimits.requireAvailable(if (url.contains("/search/")) "search" else "core")
-        scheduler.recordRequest()
-        httpClient.get(url) {
-            header(HttpHeaders.Accept, "application/vnd.github+json")
-            header(HttpHeaders.UserAgent, "GPT-Mobile-App")
-            header("X-GitHub-Api-Version", GitHubWorkspaceClient.API_VERSION)
-            if (apiToken.isNotBlank()) header(HttpHeaders.Authorization, "Bearer $apiToken")
-        }.also {
-            rateLimits.record(it.headers, it.status.value)
-            if (it.status.value == 401) authenticationRejected.set(true)
+    private suspend fun getGitHubApi(url: String): HttpResponse = dev.chungjungsoo.gptmobile.data.github.GitHubReadRetry.run {
+        scheduler.execute(null) {
+            check(!authenticationRejected.get()) { "GitHub authentication was rejected (HTTP 401). Reconnect the GitHub account before retrying any operation." }
+            rateLimits.requireAvailable(if (url.contains("/search/")) "search" else "core")
+            scheduler.recordRequest()
+            httpClient.get(url) {
+                header(HttpHeaders.Accept, "application/vnd.github+json")
+                header(HttpHeaders.UserAgent, "GPT-Mobile-App")
+                header("X-GitHub-Api-Version", GitHubWorkspaceClient.API_VERSION)
+                if (apiToken.isNotBlank()) header(HttpHeaders.Authorization, "Bearer $apiToken")
+            }.also {
+                rateLimits.record(it.headers, it.status.value)
+                if (it.status.value == 401) authenticationRejected.set(true)
+                // Read the body within the retry boundary, including an interrupted HTTP/2 body.
+                it.bodyAsText()
+                if (dev.chungjungsoo.gptmobile.data.github.GitHubReadRetry.transientStatus(it.status.value)) {
+                    throw dev.chungjungsoo.gptmobile.data.github.GitHubReadRetry.HttpFailure(it.status.value, it.headers["Retry-After"])
+                }
+            }
         }
     }
 

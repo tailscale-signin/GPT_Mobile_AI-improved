@@ -1,11 +1,24 @@
 package dev.chungjungsoo.gptmobile.data.research.academic
 
 import java.net.UnknownHostException
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ResearchConnectivityGateTest {
+    @Test fun publicDnsOutageDoesNotSuppressLiteralLocalOrTailscaleEndpoints() {
+        val gate = ResearchConnectivityGate { 0L }
+        gate.failed("first.example", java.net.UnknownHostException())
+        gate.failed("second.example", java.net.UnknownHostException())
+        for (host in listOf("192.168.1.20", "100.80.0.2", "127.0.0.1", "localhost", "[::1]", "fd7a:115c:a1e0::1")) {
+            assertTrue(gate.available(host))
+            assertEquals(0L, gate.acquire(host))
+        }
+        assertFalse(gate.available("third.example"))
+        assertEquals(null, gate.acquire("third.example"))
+    }
+
     @Test fun distinctDnsFailuresOpenOneRecoveryWindow() {
         var now = 0L
         val gate = ResearchConnectivityGate { now }

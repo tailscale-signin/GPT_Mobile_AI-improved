@@ -77,6 +77,13 @@ jobs:
           # In-process Kotlin/KSP and R8 retain their analysis heap until Gradle exits.
           # Release it before ApkFlinger allocates its packaging buffers.
           ./gradlew :app:minifyNativeSmokeWithR8 -PnativeMemorySmoke=true --no-daemon --max-workers=1 --console=plain --stacktrace '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m'
+      - name: Run native release lint before packaging
+        run: |
+          # AGP's lint analysis also retains its heap until Gradle exits. On PR #761,
+          # assemble ran lint after R8's process exited, then ApkFlinger exhausted
+          # the 4 GiB heap reading native libraries. Preserve lint and release its
+          # analysis process before allocating the packaging buffers.
+          ./gradlew :app:lintVitalNativeSmoke -PnativeMemorySmoke=true --no-daemon --max-workers=1 --console=plain --stacktrace '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m'
       # ApkFlinger uses the common pool, independently of --max-workers. Serialize
       # native-library compression so simultaneous byte buffers cannot exhaust the heap.
       - name: Package the minified native test app in a fresh process

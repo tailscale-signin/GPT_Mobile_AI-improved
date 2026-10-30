@@ -1,11 +1,18 @@
 # Deep-test reliability implementation
 
-Repository: `tailscale-signin/GPT_Mobile_AI-improved`  
-Base: `main` at `76ef0be9f09dd10cda8768db7d7d6b7a16c77d55`  
+Repository: `tailscale-signin/GPT_Mobile_AI-improved`
+
+Base: `main` at `76ef0be9f09dd10cda8768db7d7d6b7a16c77d55`
 Working branch: `feature/deep-test-reliability-2026-10-29`
 
 Intent: improve GitHub workflow discovery, safe write validation, bounded search,
 chat rendering/lifecycle memory, accessibility, and measurable CI performance.
+
+Merge preparation (30 October 2026): PR #762 at `4e2e5267402de766ee3fb483500c62e269439c59`
+is updated with `main` at `066458ea69f5d7287e38d1b6b309a0a021ac5563`, including the
+merged memory implementation from #761. The merge is conflict-free. The diagnostic
+preflight failure was two trailing spaces in this document; they are removed.
+Validation must finish on the updated head before merging.
 
 ## Verified starting evidence
 

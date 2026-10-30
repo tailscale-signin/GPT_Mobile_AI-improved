@@ -26,7 +26,7 @@ data class SemanticMemoryStatus(val indexed: Int = 0, val total: Int = 0, val av
 
 /** No network client. All tokenization, embedding and HNSW queries execute on-device. */
 @Singleton
-class LocalSemanticMemory @Inject constructor(@ApplicationContext private val context: Context) {
+class LocalSemanticMemory @Inject constructor(@ApplicationContext private val context: Context, private val memoryCipher: dev.chungjungsoo.gptmobile.data.memory.v2.AndroidMemoryCipher = dev.chungjungsoo.gptmobile.data.memory.v2.AndroidMemoryCipher()) {
     // A limited-parallelism IO dispatcher does not guarantee thread affinity.
     // ObjectBox cached readers and native embedder lifecycle stay on this one owner thread.
     private val ownerDispatcher = Executors.newSingleThreadExecutor { work ->
@@ -37,6 +37,19 @@ class LocalSemanticMemory @Inject constructor(@ApplicationContext private val co
     private data class FactVector(val scope: String, val fingerprint: String, val vector: FloatArray)
     private val factVectors = linkedMapOf<String, FactVector>()
     private var legacyFactsPurged = false
+    private val queryVectors = linkedMapOf<String, FloatArray>()
+    private val vectorCache by lazy {
+        val digest = MessageDigest.getInstance("SHA-256")
+        context.assets.open("memory/universal_sentence_encoder.tflite").use { input ->
+            val buffer = ByteArray(8192)
+            while (true) {
+                val count = input.read(buffer)
+                if (count < 0) break
+                digest.update(buffer, 0, count)
+            }
+        }
+        MemoryVectorCache(File(context.noBackupFilesDir, "memory-fact-cache-v1"), memoryCipher, "meaning-v2:" + digest.digest().joinToString("") { "%02x".format(it) })
+    }
     private var embedder: TextEmbedder? = null
     private var embedderGeneration = 0
     private var lastReleaseReason = "first_use"
@@ -96,12 +109,16 @@ class LocalSemanticMemory @Inject constructor(@ApplicationContext private val co
                     legacyFactsPurged = true
                 }
                 val desired = facts.associateBy { it.id }
+                val keys = facts.associate { it.id to vectorCache.key(it.id, it.scope, fingerprint(it)) }
+                vectorCache.retain(keys.values.toSet())
                 factVectors.keys.retainAll(desired.keys)
                 val changed = facts.filter { factVectors[it.id]?.let { cached -> cached.fingerprint == fingerprint(it) && cached.scope == it.scope } != true }
                 val batch = changed.take(batchSize.coerceIn(1, 16384))
                 batch.forEach { fact ->
                     currentCoroutineContext().ensureActive()
-                    factVectors[fact.id] = FactVector(fact.scope, fingerprint(fact), embed(text(fact)))
+                    val key = keys.getValue(fact.id)
+                    val vector = vectorCache.read(key) ?: embed(text(fact)).also { vectorCache.write(key, it) }
+                    factVectors[fact.id] = FactVector(fact.scope, fingerprint(fact), vector)
                 }
                 val indexed = facts.size - changed.size + batch.size
                 _status.value = SemanticMemoryStatus(indexed, facts.size, detail = if (indexed == facts.size) "Ready · protected in-memory fact search" else "Search updating · $indexed of ${facts.size}")
@@ -115,15 +132,19 @@ class LocalSemanticMemory @Inject constructor(@ApplicationContext private val co
         }
     }
 
-    suspend fun search(query: String, scope: String, limit: Int = 80, includePersonal: Boolean = true, inheritedScopes: Set<String> = emptySet()): Map<String, Double> = withContext(ownerDispatcher) {
+    suspend fun search(query: String, scope: String, limit: Int = 80, includePersonal: Boolean = true, inheritedScopes: Set<String> = emptySet(), eligibleFacts: List<VaultFact>? = null): Map<String, Double> = withContext(ownerDispatcher) {
         mutex.withLock {
             if (retryDeferred()) return@withLock emptyMap()
             try {
                 if (query.isBlank()) return@withLock emptyMap()
                 if (!scope.startsWith("document:")) {
-                    val vector = embed(query)
+                    val eligible = eligibleFacts?.associate { it.id to fingerprint(it) }
+                    val vector = queryVectors[query] ?: embed(query).also {
+                        queryVectors[query] = it
+                        while (queryVectors.size > 16) queryVectors.remove(queryVectors.keys.first())
+                    }
                     val allowed = inheritedScopes + scope + if (includePersonal) setOf("personal") else emptySet()
-                    return@withLock factVectors.entries.filter { it.value.scope in allowed }.map { (id, record) ->
+                    return@withLock factVectors.entries.filter { it.value.scope in allowed && (eligible == null || eligible[it.key] == it.value.fingerprint) }.map { (id, record) ->
                         val dot = vector.indices.sumOf { vector[it].toDouble() * record.vector[it] }
                         val norm = kotlin.math.sqrt(vector.sumOf { it.toDouble() * it } * record.vector.sumOf { it.toDouble() * it })
                         id to if (norm > 0) (dot / norm).coerceIn(-1.0, 1.0) else 0.0
@@ -141,6 +162,30 @@ class LocalSemanticMemory @Inject constructor(@ApplicationContext private val co
             } catch (failure: LinkageError) {
                 unavailable(failure)
                 emptyMap()
+            }
+        }
+    }
+
+    /** Synthetic evaluation embeds only the supplied fictional corpus, without changing indexes. */
+    suspend fun scoreSynthetic(query: String, facts: List<VaultFact>): Map<String, Double>? = withContext(ownerDispatcher) {
+        mutex.withLock {
+            if (retryDeferred() || dev.chungjungsoo.gptmobile.data.localruntime.InferenceAdmission.isExclusiveBusy) return@withLock null
+            try {
+                val queryVector = embed(query)
+                facts.associate { fact ->
+                    currentCoroutineContext().ensureActive()
+                    val vector = embed(text(fact))
+                    val norm = kotlin.math.sqrt(queryVector.sumOf { it.toDouble() * it } * vector.sumOf { it.toDouble() * it })
+                    fact.id to if (norm > 0) queryVector.indices.sumOf { queryVector[it].toDouble() * vector[it] } / norm else 0.0
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                unavailable(failure)
+                null
+            } catch (failure: LinkageError) {
+                unavailable(failure)
+                null
             }
         }
     }
@@ -188,6 +233,8 @@ class LocalSemanticMemory @Inject constructor(@ApplicationContext private val co
     suspend fun clearFacts() = withContext(ownerDispatcher) {
         mutex.withLock {
             factVectors.clear()
+            queryVectors.clear()
+            clearEncryptedFactCache()
             if (store != null || File(context.noBackupFilesDir, "memory-vectors-use-qa-v1").exists()) {
                 val vectors = box()
                 vectors.remove(*vectors.all.filterNot { it.factId.startsWith("doc:") }.map { it.id }.toLongArray())
@@ -200,6 +247,8 @@ class LocalSemanticMemory @Inject constructor(@ApplicationContext private val co
     suspend fun clear() = withContext(ownerDispatcher) {
         mutex.withLock {
             factVectors.clear()
+            queryVectors.clear()
+            clearEncryptedFactCache()
             // Deletion failures must be visible; never report forgotten vectors as removed.
             if (store != null || File(context.noBackupFilesDir, "memory-vectors-use-qa-v1").exists()) box().removeAll()
             closeEmbedder("memory_cleared")
@@ -243,11 +292,12 @@ class LocalSemanticMemory @Inject constructor(@ApplicationContext private val co
         }
         retryAfter = if (schemaFailure) Long.MAX_VALUE else android.os.SystemClock.elapsedRealtime() + 60_000L
         runCatching { closeEmbedder("initialization_failure") }
-        AppLogRecorder.record("Memory", "SEMANTIC_ENGINE_FAILED · cause=${failure.javaClass.simpleName} · detail=${dev.chungjungsoo.gptmobile.data.security.DiagnosticRedactor.redact(failure.message.orEmpty()).take(240)}", "E")
+        AppLogRecorder.record("Memory", "SEMANTIC_ENGINE_FAILED · cause=${failure.javaClass.simpleName}", "E")
         _status.value = _status.value.copy(available = false, detail = "Semantic engine unavailable · exact and topic recall remain active")
     }
 
     private fun closeEmbedder(reason: String) {
+        queryVectors.clear()
         val engine = embedder ?: return
         try {
             engine.close()
@@ -261,8 +311,26 @@ class LocalSemanticMemory @Inject constructor(@ApplicationContext private val co
         }
     }
 
+    private fun clearEncryptedFactCache() {
+        File(context.noBackupFilesDir, "memory-fact-cache-v1").listFiles().orEmpty().forEach {
+            check(it.delete() || !it.exists()) { "Cannot remove cached memory vector." }
+        }
+    }
+
     private fun retryDeferred() = android.os.SystemClock.elapsedRealtime() < retryAfter
 
-    private fun text(fact: VaultFact) = "${fact.fact.entity.name} ${fact.fact.relation.relationType.lowercase().replace('_', ' ')} ${fact.fact.target.name}"
+    private fun text(fact: VaultFact): String {
+        val meaning = fact.meaning ?: return "${fact.fact.entity.name} ${fact.fact.relation.relationType.lowercase().replace('_', ' ')} ${fact.fact.target.name}"
+        return listOfNotNull(
+            fact.fact.entity.name,
+            fact.fact.relation.relationType.lowercase().replace('_', ' '),
+            fact.fact.target.name,
+            meaning.kind.lowercase().replace('_', ' '),
+            meaning.intent,
+            meaning.rationale,
+            meaning.expectedBehavior,
+            meaning.failure
+        ).joinToString(" ")
+    }
     private fun fingerprint(fact: VaultFact) = MessageDigest.getInstance("SHA-256").digest(text(fact).encodeToByteArray()).joinToString("") { "%02x".format(it) }
 }

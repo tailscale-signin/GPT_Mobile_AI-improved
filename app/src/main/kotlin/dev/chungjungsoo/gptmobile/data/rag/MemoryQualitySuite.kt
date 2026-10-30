@@ -12,11 +12,11 @@ import kotlinx.serialization.Serializable
 data class MemoryQualitySample(val facts: Int, val correctRetrievals: Int, val queries: Int, val p95RecallMillis: Double, val corpusBuildMillis: Double, val clientPssKiB: Long)
 
 @Serializable
-data class MemoryQualityReport(val corpusVersion: Int = 1, val engine: String = "Deterministic extraction + lexical recall", val passedGuards: Int, val totalGuards: Int, val samples: List<MemoryQualitySample>, val measuredAt: Long = System.currentTimeMillis())
+data class MemoryQualityReport(val corpusVersion: Int = 2, val engine: String = "Lexical scale benchmark + meaning evaluation", val passedGuards: Int, val totalGuards: Int, val samples: List<MemoryQualitySample>, val measuredAt: Long = System.currentTimeMillis(), val meaning: MeaningEvaluationReport? = null)
 
 /** Fixed synthetic data. Never reads or changes the user's vault, projects or semantic index. */
 object MemoryQualitySuite {
-    suspend fun run(): MemoryQualityReport = withContext(Dispatchers.Default) {
+    suspend fun run(score: (suspend (String, List<VaultFact>) -> Map<String, Double>?)? = null): MemoryQualityReport = withContext(Dispatchers.Default) {
         val guards = listOf(
             MemoryLearning.extract("My name is Morgan.", 70).any { it.relation.relationType == "NAMED" },
             MemoryLearning.extract("I live in Oslo.", 70).any { it.relation.relationType == "LOCATED_IN" },
@@ -45,6 +45,6 @@ object MemoryQualitySuite {
             }.sorted()
             MemoryQualitySample(count, correct, times.size, times[(times.size * 0.95).toInt().coerceAtMost(times.lastIndex)], build, android.os.Debug.getPss())
         }
-        MemoryQualityReport(passedGuards = guards.count { it }, totalGuards = guards.size, samples = samples)
+        MemoryQualityReport(passedGuards = guards.count { it }, totalGuards = guards.size, samples = samples, meaning = MemoryGoldenEvaluation.run(score))
     }
 }

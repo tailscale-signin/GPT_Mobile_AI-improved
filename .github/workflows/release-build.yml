@@ -168,12 +168,12 @@ jobs:
       - name: Shrink release code in a separate process
         run: |
           # Match the unsigned build: compiler/R8 and packaging use fresh heaps.
-          ./gradlew :app:minifyReleaseWithR8 --no-daemon --max-workers=1 --console=plain --stacktrace --profile '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -Dfile.encoding=UTF-8'
+          python3 scripts/build_metrics.py --label minifyReleaseWithR8 --output build/reports/profile/minifyReleaseWithR8-metrics.json -- ./gradlew :app:minifyReleaseWithR8 --no-daemon --max-workers=1 --console=plain --stacktrace --profile '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -Dfile.encoding=UTF-8'
       - name: Build release artifacts
         run: |
-          ./gradlew :app:assembleRelease --no-daemon --max-workers=1 --console=plain --stacktrace --profile '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -Dfile.encoding=UTF-8'
+          python3 scripts/build_metrics.py --label assembleRelease --output build/reports/profile/assembleRelease-metrics.json -- ./gradlew :app:assembleRelease --no-daemon --max-workers=1 --console=plain --stacktrace --profile '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -Dfile.encoding=UTF-8'
           rm -rf app/build/intermediates/shrunk_resources_proto_format/release/minifyReleaseWithR8
-          ./gradlew :app:bundleRelease -PenableAbiSplits=false --no-daemon --max-workers=1 --console=plain --stacktrace --profile '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -Dfile.encoding=UTF-8'
+          python3 scripts/build_metrics.py --label bundleRelease --output build/reports/profile/bundleRelease-metrics.json -- ./gradlew :app:bundleRelease -PenableAbiSplits=false --no-daemon --max-workers=1 --console=plain --stacktrace --profile '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -Dfile.encoding=UTF-8'
       - name: Sign and verify APKs and bundle
         env:
           EXPECTED_CERT_SHA256: ${{ vars.RELEASE_CERT_SHA256 }}

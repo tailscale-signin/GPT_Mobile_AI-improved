@@ -1,0 +1,52 @@
+name: CI observability
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+  pull-requests: read
+concurrency:
+  group: ci-observability
+  cancel-in-progress: false
+jobs:
+  report:
+    if: vars.CI_OBSERVABILITY_ENABLED == 'true' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: .ci-observer
+          key: ci-observer-v1-${{ github.repository_id }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: ci-observer-v1-${{ github.repository_id }}-
+      - name: Capture CI metrics and optional configured alerts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CI_STATUS_WEBHOOK_ENABLED: ${{ vars.CI_STATUS_WEBHOOK_ENABLED }}
+          CI_STATUS_CHANNELS: ${{ vars.CI_STATUS_CHANNELS }}
+          CI_STATUS_WEBHOOK_URL: ${{ secrets.CI_STATUS_WEBHOOK_URL }}
+          CI_STATUS_WEBHOOK_SECRET: ${{ secrets.CI_STATUS_WEBHOOK_SECRET }}
+        run: |
+          options=()
+          if [[ "$CI_STATUS_WEBHOOK_ENABLED" == true ]]; then options+=(--notify); fi
+          python3 scripts/ci_observability.py "${options[@]}"
+      # Save attempted deliveries even after a lost acknowledgement. The receiver
+      # must also deduplicate X-CI-Delivery because Actions cache persistence can fail.
+      - uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
+        if: always()
+        with:
+          path: .ci-observer
+          key: ci-observer-v1-${{ github.repository_id }}-${{ github.run_id }}-${{ github.run_attempt }}
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: ci-observability
+          path: ci-observability.json
+          retention-days: 7
+          if-no-files-found: warn

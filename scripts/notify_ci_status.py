@@ -31,12 +31,19 @@ def notification(event):
 
 
 def deliver(event, url, secret, opener=None):
+    delivery_id, body = notification(event)
+    return deliver_payload(delivery_id, json.loads(body), url, secret, opener)
+
+
+def deliver_payload(delivery_id, payload, url, secret, opener=None):
+    body = json.dumps(payload, sort_keys=True, separators=(',', ':')).encode()
+    if len(body) > 64 * 1024 or len(delivery_id) > 300:
+        raise ValueError('Notification exceeds delivery budget')
     parsed = urllib.parse.urlsplit(url)
     if parsed.scheme != 'https' or not parsed.hostname or parsed.username or parsed.password or parsed.fragment:
         raise ValueError('CI_STATUS_WEBHOOK_URL must be an HTTPS endpoint without userinfo or fragments')
     if not secret:
         raise ValueError('CI_STATUS_WEBHOOK_SECRET is required')
-    delivery_id, body = notification(event)
     signature = hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
     request = urllib.request.Request(url, data=body, method='POST', headers={
         'Content-Type': 'application/json', 'X-CI-Delivery': delivery_id,

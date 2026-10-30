@@ -36,8 +36,11 @@
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRepositoryStateStore.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRequestScheduler.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubResponseCache.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSearchContext.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSearchOptions.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSearchQuery.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSessionCaches.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubWorkflowMetadata.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubWorkflowSelector.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubWorkspaceClient.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubWorkspaceDraftStore.kt",
@@ -61,6 +64,7 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubPullRequestHealthTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRateLimitManagerTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSchedulerAndPaginationTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSearchEnhancementTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSessionCachesTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubWorkspaceClientTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubWorkspaceDraftStoreTest.kt"
@@ -293,8 +297,10 @@
         ".github/workflows"
       ],
       "entry_files": [
+        ".github/workflows/artifact-retention.yml",
         ".github/workflows/audit-workspace.yml",
         ".github/workflows/build-apk.yml",
+        ".github/workflows/ci-observability.yml",
         ".github/workflows/ci-status-notification.yml",
         ".github/workflows/codeql.yml",
         ".github/workflows/crawler-contracts.yml",

@@ -76,7 +76,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          python3 scripts/gradle_retry.py -- :app:testDebugUnitTest :app:jacocoTestReport --no-daemon --info 2>&1 | tee test.log || (echo "=== TEST FAILURE LOG ===" && tail -n 100 test.log && exit 1)
+          python3 scripts/build_metrics.py --label unit-tests --output build/reports/profile/unit-metrics.json -- python3 scripts/gradle_retry.py -- :app:testDebugUnitTest :app:jacocoTestReport --no-daemon --info 2>&1 | tee test.log || (echo "=== TEST FAILURE LOG ===" && tail -n 100 test.log && exit 1)
           python3 scripts/check_jacoco_coverage.py app/build/reports/jacoco/jacocoTestReport/jacocoTestReport.xml
 
       - name: Upload generated statistics schema and reports
@@ -127,7 +127,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          python3 scripts/gradle_retry.py -- :app:assembleDebug --no-daemon 2>&1 | tee apk.log
+          python3 scripts/build_metrics.py --label review-apk --output build/reports/profile/review-metrics.json -- python3 scripts/gradle_retry.py -- :app:assembleDebug --no-daemon 2>&1 | tee apk.log
           python3 scripts/check_local_runtime_apk.py app/build/outputs/apk/debug/*.apk
           python3 scripts/check_no_telemetry.py app/build/outputs/apk/debug/*.apk
           for apk in app/build/outputs/apk/debug/*.apk; do
@@ -179,6 +179,7 @@ jobs:
             apk.log
             app/build/test-results/heapRecovery/*.xml
             app/build/reports/reliability-ui/*.png
+            build/reports/profile/*-metrics.json
           if-no-files-found: ignore
           retention-days: 7
 

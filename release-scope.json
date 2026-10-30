@@ -34,6 +34,7 @@
   ],
   "allowedPaths": [
     ".github/workflows/README.md",
+    ".github/workflows/geniex-preview.yml",
     ".github/workflows/artifact-retention.yml",
     ".github/workflows/build-apk.yml",
     ".github/workflows/ci-observability.yml",
@@ -183,6 +184,7 @@
     "docs/engineering/github-tool-completeness-2026-10-30.md",
     "docs/engineering/viewport-ui-review-2026-10-29.md",
     "docs/repairs/2026-10-30-github-chat-resilience.md",
+    "docs/repairs/2026-10-21-geniex-packaging-ci.md",
     "gateway/GITHUB_UPGRADE_14_3.md",
     "gateway/README.md",
     "gateway/contracts/v14/capabilities.json",

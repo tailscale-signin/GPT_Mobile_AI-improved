@@ -33,6 +33,45 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubOperationToolTest {
+    @Test fun tagCreationContinuationInspectsWithoutRepeatingTheMutation() = runBlocking {
+        val backend = Backend().apply {
+            body = args("""{"upstream_completed":true,"continuation":{"action":"tag_context","tag_name":"v1"}}""")
+        }
+        val tool = GitHubOperationTool("github_release", backend, "tag-create")
+        val first = tool.execute("create", args("""{"action":"create_tag","tag_name":"v1","target_commitish":"$sha"}"""))
+        val next = continuation(result(first))
+        valid("github_release", next)
+        assertEquals("tag", next.getValue("action").jsonPrimitive.content)
+        tool.execute("read", next)
+        assertEquals(listOf("create_tag", "tag_context"), backend.calls.map { it.getValue("action").jsonPrimitive.content })
+    }
+
+    @Test fun issueCreationContinuationReadsContextWithoutRepeatingTheMutation() = runBlocking {
+        val backend = Backend().apply {
+            body = args("""{"upstream_completed":true,"continuation":{"action":"issue_context","issue_number":7}}""")
+        }
+        val tool = GitHubOperationTool("github_issue", backend, "issue-create")
+        val first = tool.execute("create", args("""{"action":"create","title":"Bug","body":"Description"}"""))
+        val next = continuation(result(first))
+        valid("github_issue", next)
+        assertEquals("context", next.getValue("action").jsonPrimitive.content)
+        tool.execute("read", next)
+        assertEquals(listOf("create_issue", "issue_context"), backend.calls.map { it.getValue("action").jsonPrimitive.content })
+    }
+
+    @Test fun commitHistoryContinuationPreservesPinnedTipAndReadAction() = runBlocking {
+        val backend = Backend().apply {
+            body = args("""{"items":[],"has_more":true,"continuation":{"action":"list_commits","ref":"$sha","commit_sha":"$sha","page":2}}""")
+        }
+        val tool = GitHubOperationTool("github_context", backend, "commit-pages")
+        val first = tool.execute("first", args("""{"action":"commits","ref":"main"}"""))
+        val next = continuation(result(first))
+        valid("github_context", next)
+        assertEquals("commits", next.getValue("action").jsonPrimitive.content)
+        assertEquals(sha, next.getValue("commit_sha").jsonPrimitive.content)
+        assertEquals(sha, next.getValue("ref").jsonPrimitive.content)
+    }
+
     @Test fun invalidWritePathsAndDuplicatesNeverReachBackend() = runBlocking {
         val backend = Backend()
         val tool = GitHubOperationTool("github_write", backend, "write-paths")

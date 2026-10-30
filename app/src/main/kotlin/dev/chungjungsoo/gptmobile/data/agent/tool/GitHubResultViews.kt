@@ -170,14 +170,28 @@ internal class GitHubResultViews(
         val values = (request - "view_cursor").toMutableMap()
         continuation.filterKeys { it in properties && it != "action" }.forEach { (key, value) -> values[key] = value }
         if (operation == "github_context") {
-            values["action"] = JsonPrimitive("changes")
+            val native = (continuation["action"] as? JsonPrimitive)?.content
+            val action = mapOf("changed_since" to "changes", "list_branches" to "branches", "branch_context" to "branch", "branch_dependencies" to "branch_dependencies", "list_commits" to "commits", "get_commit_detail" to "commit", "search_commits" to "commit_search", "recovery_context" to "recovery", "get_commit_status_summary" to "checks", "search_repositories" to "repositories")[native]
+            if (action != null) values["action"] = JsonPrimitive(action)
             continuation["base"]?.let { values["base_sha"] = it }
         }
         if (operation == "github_pr") {
             values["action"] = JsonPrimitive(
-                if ((continuation["action"] as? JsonPrimitive)?.content == "get_pull_request_comments") "comments" else "context"
+                when ((continuation["action"] as? JsonPrimitive)?.content) {
+                    "get_pull_request_comments" -> "comments"
+                    "pull_request_reviews" -> "reviews"
+                    else -> "context"
+                }
             )
             continuation["expected_head"]?.let { values["expected_head_sha"] = it }
+        }
+        if (operation == "github_issue") {
+            val action = mapOf("issue_context" to "context", "issue_comments" to "comments", "issue_events" to "history")[(continuation["action"] as? JsonPrimitive)?.content]
+            if (action != null) values["action"] = JsonPrimitive(action)
+        }
+        if (operation == "github_release") {
+            val action = mapOf("tag_context" to "tag", "list_tags" to "tags", "list_releases" to "list", "get_release_by_tag" to "detail")[(continuation["action"] as? JsonPrimitive)?.content]
+            if (action != null) values["action"] = JsonPrimitive(action)
         }
         if (operation == "github_read" && "path" in continuation) {
             val start = (continuation["start_line"] as? JsonPrimitive)?.intOrNull ?: 1

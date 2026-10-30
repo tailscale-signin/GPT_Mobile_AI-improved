@@ -1,6 +1,12 @@
 name: Workflow health
 on:
   workflow_dispatch:
+    inputs:
+      max_pages:
+        description: 'History pages (100 runs each; 1–1000, default 3)'
+        type: number
+        default: 3
+        required: true
   schedule:
     - cron: '20 8 * * 1'
 permissions:
@@ -12,7 +18,7 @@ concurrency:
 jobs:
   report:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -20,8 +26,10 @@ jobs:
       - name: Export historical CI health
         env:
           GH_TOKEN: ${{ github.token }}
-        run: python3 scripts/collect_workflow_health.py --repository "$GITHUB_REPOSITORY"
+          MAX_PAGES: ${{ inputs.max_pages || 3 }}
+        run: python3 scripts/collect_workflow_health.py --repository "$GITHUB_REPOSITORY" --max-pages "$MAX_PAGES"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
         with:
           name: workflow-health-${{ github.run_id }}
           path: workflow-health.json

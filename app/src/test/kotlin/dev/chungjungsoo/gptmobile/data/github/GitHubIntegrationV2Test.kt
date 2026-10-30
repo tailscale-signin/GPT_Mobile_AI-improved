@@ -313,6 +313,7 @@ class GitHubIntegrationV2Test {
                     put("repo", "repo")
                     put("tag_name", "v1.2.3")
                     put("target_commitish", "main")
+                    put("expected_head_sha", targetSha)
                 }
             ).jsonObject
 

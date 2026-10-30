@@ -8,7 +8,7 @@ import time
 
 NATIVE_TOOLS = frozenset({
     'github_context', 'github_search', 'github_read', 'github_pr', 'github_ci',
-    'github_watch_checks', 'github_stage_patch', 'github_commit', 'github_write', 'github_release',
+    'github_watch_checks', 'github_stage_patch', 'github_commit', 'github_write', 'github_release', 'github_issue',
 })
 
 

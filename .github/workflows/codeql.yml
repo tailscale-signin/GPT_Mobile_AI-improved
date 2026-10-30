@@ -3,6 +3,10 @@ name: "CodeQL Advanced"
 on:
   push:
     branches: [ "main" ]
+    paths-ignore:
+      - "README.md"
+      - "docs/**/*.md"
+      - "LICENSE"
   pull_request:
     branches: [ "main", "feat/unified-reliability-v2-2026-10-13" ]
     paths-ignore:
@@ -10,7 +14,8 @@ on:
       - "**.md"
       - "LICENSE"
       - ".idea/**"
-      - ".github/**"
+      - ".github/ISSUE_TEMPLATE/**"
+      - ".github/PULL_REQUEST_TEMPLATE*"
       - ".editorconfig"
       - "images/**"
       - "metadata/**"

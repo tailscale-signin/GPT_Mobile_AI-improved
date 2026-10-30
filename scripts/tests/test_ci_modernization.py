@@ -51,6 +51,47 @@ class WorkflowPolicyTest(unittest.TestCase):
 
 
 class WorkflowHealthTest(unittest.TestCase):
+    def test_same_named_workflows_keep_separate_identity(self):
+        health = module('collect_workflow_health')
+        result = health.summarize([{'id': 1, 'workflow_id': 10, 'name': 'build'},
+                                   {'id': 2, 'workflow_id': 20, 'name': 'build'}])
+        self.assertEqual([10, 20], [row['workflow_id'] for row in result])
+        self.assertEqual([1, 1], [row['runs'] for row in result])
+
+    def test_history_resume_deduplicates_without_claiming_partial_history_is_complete(self):
+        health = module('collect_workflow_health')
+        rows = [{'id': n, 'name': 'build', 'status': 'completed', 'conclusion': 'success'} for n in range(150, 0, -1)]
+        pages = {1: {'total_count': 150, 'workflow_runs': rows[:100]},
+                 2: {'total_count': 150, 'workflow_runs': rows[99:]}}
+        partial = health.collect(pages.__getitem__, 'o/r', 1)
+        self.assertFalse(partial['history_complete'])
+        self.assertEqual(2, partial['next_page'])
+        final = health.collect(pages.__getitem__, 'o/r', 1, partial)
+        self.assertTrue(final['history_complete'])
+        self.assertEqual(150, final['unique_runs'])
+        self.assertEqual(150, final['metrics'][0]['successes'])
+
+    def test_missing_runs_and_wrong_repository_never_report_complete(self):
+        health = module('collect_workflow_health')
+        partial = health.collect(lambda page: {'total_count': 20, 'workflow_runs': [{'id': 1, 'name': 'build'}]}, 'o/r')
+        self.assertTrue(partial['traversal_complete'])
+        self.assertFalse(partial['history_complete'])
+        with self.assertRaises(ValueError):
+            health.collect(lambda page: self.fail('must not fetch'), 'o/other', checkpoint=partial)
+
+    def test_page_failure_preserves_the_last_successful_checkpoint(self):
+        import copy
+        health = module('collect_workflow_health')
+        saved = []
+        def fetch(page):
+            if page == 2:
+                raise OSError('rate limited')
+            return {'total_count': 200, 'workflow_runs': [{'id': n, 'name': 'build'} for n in range(200, 100, -1)]}
+        with self.assertRaises(OSError):
+            health.collect(fetch, 'o/r', save=lambda state: saved.append(copy.deepcopy(state)))
+        self.assertEqual(2, saved[-1]['next_page'])
+        self.assertEqual(100, saved[-1]['unique_runs'])
+
     def test_pending_and_cancelled_are_not_successes(self):
         health = module('collect_workflow_health')
         rows = [{'name': 'build', 'status': 'in_progress'},

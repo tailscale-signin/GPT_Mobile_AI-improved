@@ -1,0 +1,701 @@
+{
+  "schema_version": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_sha": "6d31cafd74ee86e1ffbe27b76cadf74298c92a72",
+  "collected_at": "2026-10-30T15:12:17.430Z",
+  "first_page_total": 20793,
+  "pages_requested": 209,
+  "unique_runs": 20793,
+  "history_complete": true,
+  "workflow_ids": 45,
+  "duration_definition": "Successful runs: run_started_at to updated_at. Observed elapsed time includes post-processing; not billable CPU time.",
+  "workflows": [
+    {
+      "id": 349499388,
+      "name": "PR Validation",
+      "path": ".github/workflows/pr-validation.yml",
+      "total": 2453,
+      "success": 872,
+      "failure": 331,
+      "cancelled": 1250,
+      "skipped": 0,
+      "other": 0,
+      "median_success_observed_seconds": 371
+    },
+    {
+      "id": 349499384,
+      "name": "CodeQL Advanced",
+      "path": ".github/workflows/codeql.yml",
+      "total": 2438,
+      "success": 1025,
+      "failure": 369,
+      "cancelled": 1044,
+      "skipped": 0,
+      "other": 0,
+      "median_success_observed_seconds": 547
+    },
+    {
+      "id": 350931808,
+      "name": "Build Android APK",
+      "path": ".github/workflows/build-apk.yml",
+      "total": 2377,
+      "success": 1064,
+      "failure": 932,
+      "cancelled": 381,
+      "skipped": 0,
+      "other": 0,
+      "median_success_observed_seconds": 263
+    },
+    {
+      "id": 349499386,
+      "name": "Kotlin Lint Check",
+      "path": ".github/workflows/ktlint.yml",
+      "total": 2218,
+      "success": 1382,
+      "failure": 271,
+      "cancelled": 565,
+      "skipped": 0,
+      "other": 0,
+      "median_success_observed_seconds": 52
+    },
+    {
+      "id": 349499385,
+      "name": "Generate Debug Version",
+      "path": ".github/workflows/debug-build.yml",
+      "total": 2022,
+      "success": 1003,
+      "failure": 664,
+      "cancelled": 355,
+      "skipped": 0,
+      "other": 0,
+      "median_success_observed_seconds": 224
+    },
+    {
+      "id": 349499390,
+      "name": "Publish Signed Release",
+      "path": ".github/workflows/release-build.yml",
+      "total": 1560,
+      "success": 647,
+      "failure": 913,
+      "cancelled": 0,
+      "skipped": 0,
+      "other": 0,
+      "median_success_observed_seconds": 340
+    },
+    {
+      "id": 367408289,
+      "name": "Build Unsigned Release",
+      "path": ".github/workflows/unsigned-release-build.yml",
+      "total": 1529,
+      "success": 26,
+      "failure": 6,
+      "cancelled": 2,
+      "skipped": 1495,
+      "other": 0,
+      "median_success_observed_seconds": 980
+    },
+    {
+      "id": 352864912,
+      "name": "Remote diagnostics",
+      "path": ".github/workflows/remote-diagnostics.yml",
+      "total": 1015,
+      "success": 84,
+      "failure": 349,
+      "cancelled": 582,
+      "skipped": 0,
+      "other": 0,
+      "median_success_observed_seconds": 473
+    },
+    {
+      "id": 380967300,
+      "name": "UI Review APK",
+      "path": ".github/workflows/ui-review-apk.yml",
+      "total": 830,
+      "success": 225,
+      "failure": 45,
+      "cancelled": 560,
+      "skipped": 0,
+      "other": 0,
+      "median_success_observed_seconds": 1238
+    },
+    {
+      "id": 381626293,
+      "name": "Diagnostic audit validation",
+      "path": ".github/workflows/audit-workspace.yml",
+      "total": 797,
+      "success": 130,
+      "failure": 63,
+      "cancelled": 604,
+      "skipped": 0,
+      "other": 0,
+      "median_success_observed_seconds": 1824
+    },
+    {
+      "id": 382503276,
+      "name": "v0.9.50 Android acceptance",
+      "path": ".github/workflows/release-0950-acceptance.yml",
+      "total": 779,
+      "success": 230,
+      "failure": 43,
+      "cancelled": 506,
+      "skipped": 0,
+      "other": 0,
+      "median_success_observed_seconds": 1114
+    },
+    {
+      "id": 377706398,
+      "name": "Marketplace contracts",
+      "path": ".github/workflows/marketplace-contracts.yml",
+      "total": 562,
+      "success": 219,
+      "failure": 51,
+      "cancelled": 292,
+      "skipped": 0,
+      "other": 0,
+      "median_success_observed_seconds": 570
+    },
+    {
+      "id": 377009498,
+      "name": "Minified native memory smoke",
+      "path": ".github/workflows/native-memory-smoke.yml",
+      "total": 495,
+      "success": 118,
+      "failure": 35,
+      "cancelled": 342,
+      "skipped": 0,
+      "other": 0,
+      "median_success_observed_seconds": 1261
+    },
+    {
+      "id": 380807400,
+      "name": "GenieX preview validation",
+      "path": ".github/workflows/geniex-preview.yml",
+      "total": 486,
+      "success": 71,
+      "failure": 102,
+      "cancelled": 313,
+      "skipped": 0,
+      "other": 0,
+      "median_success_observed_seconds": 2050
+    },
+    {
+      "id": 382948753,
+      "name": "GGUF CPU native smoke",
+      "path": ".github/workflows/gguf-native-smoke.yml",
+      "total": 392,
+      "success": 176,
+      "failure": 5,
+      "cancelled": 211,
+      "skipped": 0,
+      "other": 0,
+      "median_success_observed_seconds": 156
+    },
+    {
+      "id": 360235175,
+      "name": "UI Improvements Validation",
+      "path": ".github/workflows/ui-improvements.yml",
+      "total": 376,
+      "success": 376,
+      "failure": 0,
+      "cancelled": 0,
+      "skipped": 0,
+      "other": 0,
+      "median_success_observed_seconds": 12
+    },
+    {
+      "id": 388008931,
+      "name": "GitHub build downloads",
+      "path": ".github/workflows/github-build-downloads.yml",
+      "total": 277,
+      "success": 76,
+      "failure": 14,
+      "cancelled": 187,
+      "skipped": 0,
+      "other": 0,
+      "median_success_observed_seconds": 690
+    },
+    {
+      "id": 380166993,
+      "name": "Gateway stability",
+      "path": ".github/workflows/gateway-stability.yml",
+      "total": 79,
+      "success": 68,
+      "failure": 11,
+      "cancelled": 0,
+      "skipped": 0,
+      "other": 0,
+      "median_success_observed_seconds": 65
+    },
+    {
+      "id": 388270853,
+      "name": "Post-merge correctness",
+      "path": ".github/workflows/post-merge-validation.yml",
+      "total": 48,
+      "success": 48,
+      "failure": 0,
+      "cancelled": 0,
+      "skipped": 0,
+      "other": 0,
+      "median_success_observed_seconds": 18
+    },
+    {
+      "id": 381517372,
+      "name": "Community Scoreboard",
+      "path": ".github/workflows/scoreboard.yml",
+      "total": 7,
+      "success": 5,
+      "failure": 0,
+      "cancelled": 0,
+      "skipped": 2,
+      "other": 0,
+      "median_success_observed_seconds": 12
+    },
+    {
+      "id": 353581182,
+      "name": ".github/workflows/apply-requested-ui.yml",
+      "path": ".github/workflows/apply-requested-ui.yml",
+      "total": 6,
+      "success": 0,
+      "failure": 6,
+      "cancelled": 0,
+      "skipped": 0,
+      "other": 0,
+      "median_success_observed_seconds": null
+    },
+    {
+      "id": 381170544,
+      "name": "UI renovation device checks",
+      "path": ".github/workflows/ui-renovation-validation.yml",
+      "total": 5,
+      "success": 1,
+      "failure": 4,
+      "cancelled": 0,
+      "skipped": 0,
+      "other": 0,
+      "median_success_observed_seconds": 528
+    },
+    {
+      "id": 388928786,
+      "name": "Crawler contracts",
+      "path": ".github/workflows/crawler-contracts.yml",
+      "total": 5,
+      "success": 5,
+      "failure": 0,
+      "cancelled": 0,
+      "skipped": 0,
+      "other": 0,
+      "median_success_observed_seconds": 20
+    },
+    {
+      "id": 353150195,
+      "name": ".github/workflows/update-agent-runner-tests.yml",
+      "path": ".github/workflows/update-agent-runner-tests.yml",
+      "total": 4,
+      "success": 0,
+      "failure": 4,
+      "cancelled": 0,
+      "skipped": 0,
+      "other": 0,
+      "median_success_observed_seconds": null
+    },
+    {
+      "id": 353170202,
+      "name": "Finalize OpenRouter picker wiring",
+      "path": ".github/workflows/validate-openrouter-picker.yml",
+      "total": 4,
+      "success": 0,
+      "failure": 4,
+      "cancelled": 0,
+      "skipped": 0,
+      "other": 0,
+      "median_success_observed_seconds": null
+    },
+    {
+      "id": 383529687,
+      "name": "Research Assist Workbench",
+      "path": ".github/workflows/research-assist-workbench.yml",
+      "total": 4,
+      "success": 2,
+      "failure": 2,
+      "cancelled": 0,
+      "skipped": 0,
+      "other": 0,
+      "median_success_observed_seconds": 871
+    },
+    {
+      "id": 356890239,
+      "name": "Release Pre-release (Auto-increment)",
+      "path": ".github/workflows/release-prerelease.yml",
+      "total": 3,
+      "success": 0,
+      "failure": 3,
+      "cancelled": 0,
+      "skipped": 0,
+      "other": 0,
+      "median_success_observed_seconds": null
+    },
+    {
+      "id": 353588826,
+      "name": ".github/workflows/apply-final-ui.yml",
+      "path": ".github/workflows/apply-final-ui.yml",
+      "total": 2,
+      "success": 0,
+      "failure": 2,
+      "cancelled": 0,
+      "skipped": 0,
+      "other": 0,
+      "median_success_observed_seconds": null
+    },
+    {
+      "id": 354332483,
+      "name": "Promote Latest Release",
+      "path": ".github/workflows/promote-latest-release.yml",
+      "total": 2,
+      "success": 2,
+      "failure": 0,
+      "cancelled": 0,
+      "skipped": 0,
+      "other": 0,
+      "median_success_observed_seconds": 46
+    },
+    {
+      "id": 356893071,
+      "name": "Release Full (Auto-increment 0.0.1)",
+      "path": ".github/workflows/release-full.yml",
+      "total": 2,
+      "success": 0,
+      "failure": 2,
+      "cancelled": 0,
+      "skipped": 0,
+      "other": 0,
+      "median_success_observed_seconds": null
+    },
+    {
+      "id": 381517775,
+      "name": "Health Connect implementation validation",
+      "path": ".github/workflows/health-connect-build.yml",
+      "total": 2,
+      "success": 1,
+      "failure": 1,
+      "cancelled": 0,
+      "skipped": 0,
+      "other": 0,
+      "median_success_observed_seconds": 1501
+    },
+    {
+      "id": 351967759,
+      "name": "Refactor Chungjungsoo to Melo",
+      "path": ".github/workflows/refactor-to-melo.yml",
+      "total": 1,
+      "success": 1,
+      "failure": 0,
+      "cancelled": 0,
+      "skipped": 0,
+      "other": 0,
+      "median_success_observed_seconds": 12
+    },
+    {
+      "id": 351994079,
+      "name": "Lossless Consolidation to Melo",
+      "path": ".github/workflows/consolidate-to-melo-lossless.yml",
+      "total": 1,
+      "success": 1,
+      "failure": 0,
+      "cancelled": 0,
+      "skipped": 0,
+      "other": 0,
+      "median_success_observed_seconds": 12
+    },
+    {
+      "id": 353135531,
+      "name": "Integrate MCP server picker",
+      "path": ".github/workflows/integrate-mcp-picker.yml",
+      "total": 1,
+      "success": 1,
+      "failure": 0,
+      "cancelled": 0,
+      "skipped": 0,
+      "other": 0,
+      "median_success_observed_seconds": 12
+    },
+    {
+      "id": 353135914,
+      "name": "Polish MCP picker integration",
+      "path": ".github/workflows/polish-mcp-picker.yml",
+      "total": 1,
+      "success": 1,
+      "failure": 0,
+      "cancelled": 0,
+      "skipped": 0,
+      "other": 0,
+      "median_success_observed_seconds": 11
+    },
+    {
+      "id": 353147756,
+      "name": "Restore AgentRunner regression tests",
+      "path": ".github/workflows/restore-agent-runner-tests.yml",
+      "total": 1,
+      "success": 1,
+      "failure": 0,
+      "cancelled": 0,
+      "skipped": 0,
+      "other": 0,
+      "median_success_observed_seconds": 12
+    },
+    {
+      "id": 353168088,
+      "name": "Wire OpenRouter model picker (one-shot)",
+      "path": ".github/workflows/wire-openrouter-model-picker.yml",
+      "total": 1,
+      "success": 1,
+      "failure": 0,
+      "cancelled": 0,
+      "skipped": 0,
+      "other": 0,
+      "median_success_observed_seconds": 10
+    },
+    {
+      "id": 353592301,
+      "name": "Apply UI source refinements",
+      "path": ".github/workflows/apply-ui-refinements.yml",
+      "total": 1,
+      "success": 1,
+      "failure": 0,
+      "cancelled": 0,
+      "skipped": 0,
+      "other": 0,
+      "median_success_observed_seconds": 9
+    },
+    {
+      "id": 375081042,
+      "name": "Reliability source snapshot",
+      "path": ".github/workflows/reliability-source-snapshot.yml",
+      "total": 1,
+      "success": 1,
+      "failure": 0,
+      "cancelled": 0,
+      "skipped": 0,
+      "other": 0,
+      "median_success_observed_seconds": 13
+    },
+    {
+      "id": 375094349,
+      "name": "Apply reliability fixes",
+      "path": ".github/workflows/apply-reliability-fixes.yml",
+      "total": 1,
+      "success": 1,
+      "failure": 0,
+      "cancelled": 0,
+      "skipped": 0,
+      "other": 0,
+      "median_success_observed_seconds": 21
+    },
+    {
+      "id": 375095810,
+      "name": "Reliability final checks",
+      "path": ".github/workflows/reliability-final-checks.yml",
+      "total": 1,
+      "success": 1,
+      "failure": 0,
+      "cancelled": 0,
+      "skipped": 0,
+      "other": 0,
+      "median_success_observed_seconds": 36
+    },
+    {
+      "id": 375098690,
+      "name": "Reconcile reliability with main",
+      "path": ".github/workflows/reconcile-reliability-main.yml",
+      "total": 1,
+      "success": 1,
+      "failure": 0,
+      "cancelled": 0,
+      "skipped": 0,
+      "other": 0,
+      "median_success_observed_seconds": 19
+    },
+    {
+      "id": 381501005,
+      "name": "Health Connect source snapshot",
+      "path": ".github/workflows/health-connect-source-snapshot.yml",
+      "total": 1,
+      "success": 1,
+      "failure": 0,
+      "cancelled": 0,
+      "skipped": 0,
+      "other": 0,
+      "median_success_observed_seconds": 9
+    },
+    {
+      "id": 383594052,
+      "name": "Apply native terminal ordering repair",
+      "path": ".github/workflows/research-native-terminal-fix.yml",
+      "total": 1,
+      "success": 1,
+      "failure": 0,
+      "cancelled": 0,
+      "skipped": 0,
+      "other": 0,
+      "median_success_observed_seconds": 14
+    },
+    {
+      "id": 401688889,
+      "name": "CI status notification",
+      "path": ".github/workflows/ci-status-notification.yml",
+      "total": 1,
+      "success": 0,
+      "failure": 0,
+      "cancelled": 0,
+      "skipped": 1,
+      "other": 0,
+      "median_success_observed_seconds": null
+    }
+  ],
+  "failure_samples": [
+    {
+      "id": 40992867085,
+      "workflow_id": 349499388,
+      "name": "PR Validation",
+      "path": ".github/workflows/pr-validation.yml",
+      "event": "pull_request",
+      "head_sha": "8654fe46e5f665bb180302c8465dae5e4762a0a6",
+      "head_branch": "feat/memory-intelligence-2026-10-29",
+      "run_attempt": 1,
+      "status": "completed",
+      "conclusion": "failure",
+      "run_started_at": "2026-10-30T02:38:31Z",
+      "created_at": "2026-10-30T02:38:31Z",
+      "updated_at": "2026-10-30T02:57:55Z",
+      "html_url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/40992867085",
+      "jobs": [
+        {
+          "id": 123859144951,
+          "name": "Unit tests and Android lint",
+          "conclusion": "failure",
+          "failed_steps": [
+            "Run Unit Tests & JaCoCo Coverage Report",
+            "Publish Test Results"
+          ]
+        },
+        {
+          "id": 123859145057,
+          "name": "Unified Reliability v2 completion gate",
+          "conclusion": "success",
+          "failed_steps": []
+        },
+        {
+          "id": 123859145106,
+          "name": "Changed Kotlin formatting",
+          "conclusion": "success",
+          "failed_steps": []
+        },
+        {
+          "id": 123859145327,
+          "name": "Repository and gateway contracts",
+          "conclusion": "success",
+          "failed_steps": []
+        },
+        {
+          "id": 123864880494,
+          "name": "Required verification",
+          "conclusion": "failure",
+          "failed_steps": [
+            "Require every expected job to succeed"
+          ]
+        }
+      ],
+      "observed_log_cause": "Two unit-test assertions: ChatRepositoryImplTest and FactVaultRepositoryTest (expected entity set omitted MEMORY_EPISODE)."
+    },
+    {
+      "id": 40965196229,
+      "workflow_id": 349499384,
+      "name": "CodeQL Advanced",
+      "path": ".github/workflows/codeql.yml",
+      "event": "pull_request",
+      "head_sha": "f3e8709f5344a462c7990fb7f8791c94c35596c9",
+      "head_branch": "fix/viewport-pane-insets-2026-10-29",
+      "run_attempt": 1,
+      "status": "completed",
+      "conclusion": "failure",
+      "run_started_at": "2026-10-29T22:21:09Z",
+      "created_at": "2026-10-29T22:21:09Z",
+      "updated_at": "2026-10-29T22:28:53Z",
+      "html_url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/40965196229",
+      "jobs": [
+        {
+          "id": 123767787881,
+          "name": "Analyze (java-kotlin)",
+          "conclusion": "failure",
+          "failed_steps": [
+            "Build for CodeQL"
+          ]
+        }
+      ],
+      "observed_log_cause": "Kotlin compilation: unresolved reference delay in AssistantChronologicalContent.kt."
+    },
+    {
+      "id": 39109834697,
+      "workflow_id": 350931808,
+      "name": "Build Android APK",
+      "path": ".github/workflows/build-apk.yml",
+      "event": "push",
+      "head_sha": "20cb01de4dd2faf114212596fc48c26c6fd9410a",
+      "head_branch": "main",
+      "run_attempt": 1,
+      "status": "completed",
+      "conclusion": "failure",
+      "run_started_at": "2026-10-18T08:01:09Z",
+      "created_at": "2026-10-18T08:01:09Z",
+      "updated_at": "2026-10-18T08:21:52Z",
+      "html_url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/39109834697",
+      "jobs": [
+        {
+          "id": 117623369410,
+          "name": "Build APK",
+          "conclusion": "failure",
+          "failed_steps": [
+            "Check measured APK size budgets"
+          ]
+        }
+      ],
+      "observed_log_cause": "APK size budget step reported passed=false for arm64-v8a, universal and x86_64 artifacts."
+    }
+  ],
+  "pull_requests": [
+    {
+      "number": 761,
+      "merged": true,
+      "merged_at": "2026-10-30T04:25:28Z",
+      "head_sha": "17f4e0ad079c0bd78cebb0bc3fcf761962a6c681",
+      "merge_sha": "066458ea69f5d7287e38d1b6b309a0a021ac5563",
+      "reported_files": 30,
+      "observed_files": 30,
+      "observed_patches": 30
+    },
+    {
+      "number": 762,
+      "merged": true,
+      "merged_at": "2026-10-30T11:40:39Z",
+      "head_sha": "cd5e41645273da9a3da9df9b2256295da0bceadf",
+      "merge_sha": "6d31cafd74ee86e1ffbe27b76cadf74298c92a72",
+      "reported_files": 94,
+      "observed_files": 94,
+      "observed_patches": 94
+    }
+  ],
+  "branches": {
+    "pages": 7,
+    "unique_count": 651,
+    "all_have_head_sha": true,
+    "main": {
+      "name": "main",
+      "commit": {
+        "sha": "6d31cafd74ee86e1ffbe27b76cadf74298c92a72",
+        "url": "https://api.github.com/repos/tailscale-signin/GPT_Mobile_AI-improved/commits/6d31cafd74ee86e1ffbe27b76cadf74298c92a72"
+      },
+      "protected": false
+    },
+    "rules_observation": "Connector does not allow the branch-rules endpoint; no conclusion about applicable rules.",
+    "includes_new_task_branch": true
+  }
+}

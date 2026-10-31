@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.agent
 
+import dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.toList
@@ -18,6 +19,28 @@ import org.junit.Test
 
 class ProgressiveToolCatalogTest {
     private val tools = (1..80).map { AgentToolDefinition("task_$it", "Task $it", JsonObject(emptyMap())) }
+
+    @Test fun githubActionGraphShowsAvailableAndMissingEvidenceWithoutGrantingTools() = runTest {
+        val write = GitHubOperationTool.definition("github_write", "github_write__github_api")
+        val pull = GitHubOperationTool.definition("github_pr", "github_pr__github_api")
+        val definitions = listOf(write, pull)
+        val catalog = ProgressiveToolCatalog(definitions, "Review and write")
+        val page = (catalog.execute("inventory", JsonObject(emptyMap())).content as ToolResultContent.Json).value.jsonObject
+        val rows = page.getValue("authorized_inventory").jsonArray.map { it.jsonObject }.associateBy { it.getValue("name").jsonPrimitive.content }
+        val writeLink = rows.getValue(write.name).getValue("workflow_links").jsonArray.single().jsonObject
+        assertEquals(JsonPrimitive("github_read__github_api"), writeLink["source_tool"])
+        assertEquals(JsonPrimitive(false), writeLink["source_available"])
+        assertEquals(JsonPrimitive("optional_evidence"), writeLink["relation"])
+        val prLinks = rows.getValue(pull.name).getValue("workflow_links").jsonArray.map { it.jsonObject }
+        assertTrue(prLinks.any { it["action"] == JsonPrimitive("review") && it["source_tool"] == JsonPrimitive(pull.name) && it["source_available"] == JsonPrimitive(true) })
+        assertFalse(catalog.selected(definitions).any { it.name == "github_read__github_api" })
+
+        val withoutLinks = ProgressiveToolCatalog(listOf(write.copy(workflowLinks = emptyList()), pull), "Review and write")
+        val otherPage = (withoutLinks.execute("inventory", JsonObject(emptyMap())).content as ToolResultContent.Json).value.jsonObject
+        assertTrue(page["inventory_version"] != otherPage["inventory_version"])
+        assertTrue(runCatching { AgentToolWorkflowLink("", "source", "read", "purpose") }.isFailure)
+        assertTrue(runCatching { write.copy(workflowLinks = write.workflowLinks + write.workflowLinks) }.isFailure)
+    }
 
     @Test fun inventoryExposesOnlyDeclaredDependenciesWithoutGrantingAccess() = runTest {
         val definition = AgentToolDefinition("writer", "Write", JsonObject(emptyMap()), dependsOn = setOf("reader", "missing"))

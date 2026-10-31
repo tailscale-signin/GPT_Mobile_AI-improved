@@ -129,6 +129,19 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
         return selectResult(callId, arguments)
     }
 
+    private fun workflowLinks(tool: AgentToolDefinition): JsonArray = JsonArray(
+        tool.workflowLinks.sortedWith(compareBy({ it.action }, { it.sourceTool }, { it.sourceAction }, { it.purpose })).map { link ->
+            buildJsonObject {
+                put("action", link.action)
+                put("source_tool", link.sourceTool)
+                put("source_action", link.sourceAction)
+                put("purpose", link.purpose)
+                put("source_available", link.sourceTool in candidates)
+                put("relation", "optional_evidence")
+            }
+        }
+    )
+
     private fun selectResult(callId: String, arguments: JsonObject): AgentToolResult = synchronized(this) {
         val query = (arguments["query"] as? JsonPrimitive)?.content.orEmpty().take(4096)
         val names = (arguments["names"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.content }.take(12).map(::resolveName)
@@ -143,6 +156,7 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
                             put("name", tool.name)
                             put("schema_fingerprint", fingerprint(tool.inputSchema.toString()))
                             put("dependencies", JsonArray(tool.dependsOn.sorted().map(::JsonPrimitive)))
+                            put("workflow_links", workflowLinks(tool))
                         }
                     }
                 ).toString()
@@ -183,9 +197,10 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
                                         }
                                         put("schema_fingerprint", schema)
                                         val dependencies = tool.dependsOn.sorted()
-                                        put("dependency_metadata", if (dependencies.isEmpty()) "not declared" else "declared")
+                                        put("dependency_metadata", if (dependencies.isEmpty() && tool.workflowLinks.isEmpty()) "not declared" else "declared")
                                         put("declared_dependencies", JsonArray(dependencies.map(::JsonPrimitive)))
                                         put("unavailable_dependencies", JsonArray(dependencies.filterNot(candidates::containsKey).map(::JsonPrimitive)))
+                                        put("workflow_links", workflowLinks(tool))
                                         omissions[tool.name]?.let { put("omission_reason", it) }
                                     }
                                 }
@@ -212,7 +227,7 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
                             )
                         }
                         put("permissions_changed", false)
-                        put("note", "Observations describe dispatched calls in this run, not a live probe or a guarantee of current health. Configured tools outside this authorized catalog are not executable.")
+                        put("note", "Observations describe dispatched calls in this run, not a live probe or a guarantee of current health. Workflow links are optional evidence relationships and never grant access. Tools outside this authorized catalog are not executable.")
                     }
                 ),
                 false,

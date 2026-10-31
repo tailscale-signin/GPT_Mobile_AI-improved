@@ -3,6 +3,7 @@ package dev.chungjungsoo.gptmobile.data.agent.tool
 import dev.chungjungsoo.gptmobile.data.agent.AgentTool
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
+import dev.chungjungsoo.gptmobile.data.agent.AgentToolWorkflowLink
 import dev.chungjungsoo.gptmobile.data.agent.ToolArgumentValidator
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import kotlinx.serialization.json.JsonArray
@@ -318,6 +319,23 @@ internal class GitHubOperationTool(
 
         fun definition(operation: String, modelName: String = operation): AgentToolDefinition {
             require(operation in names)
+            fun sourceName(source: String): String = if (source == operation) {
+                modelName
+            } else if ("__" in modelName) {
+                source + "__" + modelName.substringAfter("__")
+            } else {
+                source
+            }
+            fun link(action: String, source: String, sourceAction: String, purpose: String) = AgentToolWorkflowLink(action, sourceName(source), sourceAction, purpose)
+            val workflowLinks = when (operation) {
+                "github_write" -> listOf(link("commit", "github_read", "ranges", "Inspect existing file content and blob SHA before preparing a replacement."))
+                "github_stage_patch" -> listOf(link("default", "github_read", "ranges", "Inspect the pinned file before selecting an exact patch anchor."))
+                "github_commit" -> listOf(link("commit_staged_patch", "github_stage_patch", "default", "A staged or restored patch can provide the stage ID."))
+                "github_pr" -> listOf(link("review", "github_pr", "context", "Read the current PR head before submitting a review."), link("merge", "github_pr", "context", "Inspect current PR merge health before requesting a merge."), link("merge", "github_ci", "status", "Inspect current checks before requesting a merge."))
+                "github_ci" -> listOf(link("logs", "github_ci", "jobs", "Job listings can provide the job ID required for logs."))
+                "github_watch_checks" -> listOf(link("default", "github_pr", "context", "A PR context can identify the pull request and current head."), link("default", "github_ci", "runs", "Workflow runs can provide a run ID for a run-specific watch."))
+                else -> emptyList()
+            }
             fun field(type: String) = buildJsonObject { put("type", type) }
             fun integer(min: Int = 1, max: Int = Int.MAX_VALUE, description: String = "") = buildJsonObject {
                 put("type", "integer")
@@ -606,7 +624,8 @@ internal class GitHubOperationTool(
                     if (operation == "github_write") {
                         put("required", JsonArray(listOf("branch", "expected_head_sha", "message", "files").map(::JsonPrimitive)))
                     }
-                }
+                },
+                workflowLinks = workflowLinks
             )
         }
     }

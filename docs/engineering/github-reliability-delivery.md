@@ -44,8 +44,12 @@ fingerprint records change, not compatibility or a publisher version. Inventory
 can display the last dispatched outcome observed during this run; that observation
 is not an active health probe and does not assert present availability. Inventory
 can expose declared dependency edges and identify names outside the authorized
-catalog; an empty declaration is reported as unknown. Existing producers do not
-yet supply dependency metadata, so no relationships are guessed.
+catalog; an empty declaration is reported as unknown. GitHub tools also expose
+action-specific, optional evidence links for reading source, staging and
+committing, PR review and merge checks, CI job logs, and check watches. These
+links identify whether the referenced tool is authorized and never grant access
+or assert that another operation is mandatory. Inventory versions change when
+these relationships change.
 
 GenieX CI verifies its candidate index against actual paths, sizes, SHA-256,
 runtime, version and source revision and requires debug and minified APKs. This

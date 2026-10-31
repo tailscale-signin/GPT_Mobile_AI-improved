@@ -1,4 +1,4 @@
-# GPT Mobile AI (Improved)
+# GPT Mobile AI (Improved) - Tool Verification Test
 
 **Your AI chat, research and tools in one Android app.**
 

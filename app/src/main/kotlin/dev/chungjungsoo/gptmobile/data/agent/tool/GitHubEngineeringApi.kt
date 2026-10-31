@@ -3,6 +3,10 @@ package dev.chungjungsoo.gptmobile.data.agent.tool
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -52,7 +56,10 @@ internal open class GitHubEngineeringApi(private val token: suspend () -> String
             if (response.code !in 200..299) {
                 // Error text is inspected locally and bounded; never include response
                 // bodies, repository content or credentials in the exception/log.
-                val message = runCatching { JSONObject(response.peekBody(8192).string()).optString("message") }.getOrDefault("")
+                val message = runCatching {
+                    val payload = Json.parseToJsonElement(response.peekBody(8192).string()) as? JsonObject
+                    (payload?.get("message") as? JsonPrimitive)?.contentOrNull.orEmpty()
+                }.getOrDefault("")
                 throw engineeringApiFailure(
                     response.code,
                     response.header("Retry-After"),

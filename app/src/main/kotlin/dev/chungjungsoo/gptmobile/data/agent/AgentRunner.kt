@@ -436,7 +436,10 @@ class AgentRunner(
         // dependent actions after the answer has been returned to the model.
         val toolsForBatch = if (calls.any { it.name in questionNames }) executableToolByName.filterKeys { it in questionNames } else executableToolByName
         val batchAllowance = if (calls.any { it.name in questionNames }) minOf(1, remainingCalls) else remainingCalls
-        val plan = dependencyClosedPlan(planToolBatch(calls, batchAllowance, toolsForBatch.keys, toolCallsByName, blockedReadScopes, MAX_SAME_TOOL_CALLS_PER_RUN, restoredRetained, ::failureScope), planIntelligentBatch(calls, toolsForBatch), restoredRetained)
+        // Deferred mutations cannot become prerequisites of the decision that
+        // must be answered before those mutations may be planned.
+        val dependencyCalls = if (calls.any { it.name in questionNames }) calls.filter { it.name in questionNames } else calls
+        val plan = dependencyClosedPlan(planToolBatch(calls, batchAllowance, toolsForBatch.keys, toolCallsByName, blockedReadScopes, MAX_SAME_TOOL_CALLS_PER_RUN, restoredRetained, ::failureScope), planIntelligentBatch(dependencyCalls, toolsForBatch), restoredRetained)
         val executableCalls = plan.executable
         val deferredCalls = plan.deferred
         val perToolSuppressedIds = plan.perToolSuppressedIds
@@ -464,7 +467,7 @@ class AgentRunner(
                 emit(AgentRunEvent.ToolFinished(call, result))
             },
             progress = { emit(AgentRunEvent.BatchProgress(it)) },
-            plannedCalls = calls
+            plannedCalls = dependencyCalls
         )
         if (!finalResponseRequested && !retriedWithoutTools) {
             val update = admitDiscoveredTools(dynamicTools(), toolByName, executableToolByName, exposedDefinitions, initialSchemaTokens, consecutiveToolFailures, toolCallsByName, replayTokens, selectDefinitions) ?: return null

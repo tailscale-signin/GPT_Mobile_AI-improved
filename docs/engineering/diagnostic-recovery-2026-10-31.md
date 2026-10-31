@@ -1,10 +1,10 @@
 # Diagnostic recovery and GitHub integration
 
-Repository: `tailscale-signin/GPT_Mobile_AI-improved`  
-Working branch: `feat/github-operation-resilience-2026-10-31`  
-Stacked base: PR #767, `feat/github-verified-engineering-2026-10-31` at `a031208d08cf0179a41092df7a1db5be68d162df`  
-Additional integrated dependency: PR #766 at `65d4fca0d9a5093b4dcc55319308c058abb304e0`  
-Main baseline: PR #765, `9781b63c72bf3a2a4786ede07f0d9e094cd07db2`
+- Repository: `tailscale-signin/GPT_Mobile_AI-improved`
+- Working branch: `feat/github-operation-resilience-2026-10-31`
+- Integrated dependency: PR #767, merged into `main` at `be5d55930df8be6caad2380eea71b2f9a6bb0419`
+- Additional integrated dependency: PR #766 at `65d4fca0d9a5093b4dcc55319308c058abb304e0`
+- Main integration baseline: `be5d55930df8be6caad2380eea71b2f9a6bb0419`
 
 The supplied investigation covers 7,597 exported records from app commit `acca703a9f88e0391b753daa2052c95bc02305c6`. Its counts (36 errors, 76 warnings, 24 informational transport failures, 93 history compactions) describe that captured run. They are not measurements of this revision. Raw diagnostics, source prompts and private endpoint addresses are not checked into this repository.
 
@@ -70,3 +70,33 @@ The pinned header uses one line for activity, with ellipsis for long labels and 
 “Working in your repository” is plain aligned text without a card, border or background. Its title, summary and milestones use 50% opacity. A small animated three-dot cursor appears after the GitHub response while generation is active and disappears when generation stops. It is a presentation element and cannot enter saved, copied or exported answer text.
 
 For this addition, seven JVM behavior tests for profile eligibility/defaults/scope and activity presentation passed, and the canonical fast command passed 278 host tests. New Robolectric cases cover stable activity announcements during panning, the separate timer, progress removal on completion, and the generating cursor lifecycle. These Compose tests require Android CI and have not been executed locally. Physical-device visual/frame performance remains unmeasured. The current parent #767 is integrated through `cff38f846fbcea3efad887ae5f9215383306f8fd`, including its local adapter repair and main at `548521a3419021e95af8c3ac9e6c7f4656a527d9`.
+
+## Integration regression repairs
+
+Canonical and GenieX validation of `7a95f71fe55910fba74b8be9b94e8dcfa6c03a0c`
+exposed integration failures that the earlier host subsets did not cover. A decision
+could inherit a dependency on a deliberately deferred mutation in the same batch.
+Decision-stage dependency graphs now contain only the authorized decision calls;
+mutations remain undispatched until a later plan consumes the answer. The existing
+mixed decision/write behavior regression is retained.
+
+Bounded GitHub error bodies now use the shared Kotlin JSON parser, so permission
+and secondary-rate-limit classification is consistent in Android and JVM execution.
+Specific MCP, native, recovery and fatal diagnostic categories take priority over
+the informational transport fallback. New regression cases retain both component
+attribution and transport-warning coverage.
+
+Discovery regressions now verify the intended narrow initial inventory followed by
+explicit admission of the exact write/commit schemas, including long retained tasks
+and continuation. They still check conversation isolation and live revocation. The
+budget boundary test checks the structured reserve field name. The completed-job
+UI test checks the stable accessible activity label and its separate elapsed timer.
+The queued-authentication regression uses real coroutine time with bounded waiting
+instead of advancing a virtual admission timeout while HTTP completes on real IO.
+
+The repaired runner/GitHub host bundle passed 393 tests, including decision/write
+ordering, bounded HTTP error classification and queued authentication. The context,
+network and diagnostic host bundle passed 75 tests. The canonical fast command
+passed 278 host tests, and changed Kotlin passes ktlint 1.3.1. These host fixtures
+do not execute the Android resolver or Compose UI; the repaired head must pass the
+complete canonical, GenieX, packaged-runtime and emulator workflows before merge.

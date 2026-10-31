@@ -6,11 +6,14 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -18,6 +21,23 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ProgressiveToolCatalogTest {
+    @Test fun deferredWritesRemainDiscoverableWithTheirExactSchemasAfterLongRequests() = runTest {
+        val definitions = GitHubOperationTool.names.map {
+            GitHubOperationTool.definition(it, it + "__github_api")
+        }
+        val goal = "Inspect the GitHub repository.\n" + "Retained diagnostic observation. ".repeat(200) + "\nRepair the failures, commit the reviewed changes and push."
+        val writes = setOf("github_write__github_api", "github_commit__github_api")
+        for (task in listOf(goal, goal + "\nContinue the accepted task.")) {
+            val catalog = ProgressiveToolCatalog(definitions, task)
+            assertTrue(catalog.selected(definitions).none { it.name in writes })
+            val result = catalog.execute("discover", buildJsonObject { put("names", JsonArray(writes.map(::JsonPrimitive))) })
+            assertFalse(result.isError)
+            val selected = catalog.selected(definitions)
+            assertTrue(selected.map { it.name }.containsAll(writes))
+            writes.forEach { name -> assertEquals(definitions.single { it.name == name }, selected.single { it.name == name }) }
+        }
+    }
+
     private val tools = (1..80).map { AgentToolDefinition("task_$it", "Task $it", JsonObject(emptyMap())) }
 
     @Test fun healthSeparatesUnknownFromFailureAndExpiresObservationsWhenContractChanges() = runTest {

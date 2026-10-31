@@ -119,7 +119,9 @@ class ChatViewModel @Inject constructor(
     @dev.chungjungsoo.gptmobile.di.DefaultDispatcher private val messageGroupingDispatcher: kotlinx.coroutines.CoroutineDispatcher,
     private val memoryPreview: dev.chungjungsoo.gptmobile.data.readiness.MemoryPreviewCoordinator? = null,
     private val researchDatabase: dev.chungjungsoo.gptmobile.data.research.feature.ResearchDatabase? = null,
-    private val combinedCollectionDecisions: dev.chungjungsoo.gptmobile.data.agent.CombinedCollectionDecisionStore? = null
+    private val combinedCollectionDecisions: dev.chungjungsoo.gptmobile.data.agent.CombinedCollectionDecisionStore? = null,
+    private val gitHubDecisions: dev.chungjungsoo.gptmobile.data.github.GitHubChatDecisions? = null,
+    private val gitHubDecisionNotifications: dev.chungjungsoo.gptmobile.data.github.GitHubDecisionNotifications? = null
 ) : ViewModel() {
     private val diagnosticPrivacyOwner = java.util.UUID.randomUUID().toString()
     private val visibleHistoryTurns = MutableStateFlow(if (savedStateHandle.get<Int>("targetMessageId") != null) Int.MAX_VALUE else 40)
@@ -147,6 +149,53 @@ class ChatViewModel @Inject constructor(
     }
 
     val pendingMcpInput get() = mcpInteractions?.pending ?: MutableStateFlow(emptyList())
+    val githubDecisions get() = gitHubDecisions?.decisions ?: MutableStateFlow(emptyList())
+    val waitingGitHubDecisions get() = gitHubDecisions?.waiting ?: MutableStateFlow(emptySet())
+    suspend fun loadGitHubDecisions() {
+        try {
+            gitHubDecisions?.load()
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            _attachmentNotice.value = "Saved GitHub decisions could not be loaded. Retry after reopening this conversation."
+        }
+    }
+    fun answerGitHubDecision(id: String, option: Int?, answer: String?) {
+        viewModelScope.launch {
+            try {
+                val workspace = _chatToolConfig.value.github ?: return@launch
+                val result = gitHubDecisions?.respond(id, _chatRoom.value.id, dev.chungjungsoo.gptmobile.data.github.GitHubChatDecisions.workspaceKey(workspace), option, answer) ?: return@launch
+                if (result.accepted) {
+                    gitHubDecisionNotifications?.dismiss(id)
+                    if (!result.waiting) resumeGitHubDecision(id)
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                _attachmentNotice.value = "Your choice could not be saved. Please try again."
+            }
+        }
+    }
+    fun resumeGitHubDecision(id: String) {
+        val decision = gitHubDecisions?.decisions?.value?.firstOrNull { it.id == id && it.chatId == _chatRoom.value.id && !it.delivered && !it.cancelled } ?: return
+        val workspace = _chatToolConfig.value.github ?: return
+        if (decision.workspace != dev.chungjungsoo.gptmobile.data.github.GitHubChatDecisions.workspaceKey(workspace) || isGenerationBusy()) return
+        val turn = _groupedMessages.value.userMessages.indexOfFirst { it.id == decision.sourceMessageId }
+        val profile = enabledPlatformsInChat.indexOf(decision.profileUid)
+        if (turn >= 0 && profile >= 0) retryChat(turn, profile) else _attachmentNotice.value = "Your choice is saved. Open the original task and retry it to continue."
+    }
+    fun stopGitHubDecision(id: String) {
+        viewModelScope.launch {
+            try {
+                gitHubDecisions?.dismiss(id, _chatRoom.value.id)
+                gitHubDecisionNotifications?.dismiss(id)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                _attachmentNotice.value = "The stop decision could not be saved. Please try again."
+            }
+        }
+    }
     fun respondMcpInput(id: String, value: kotlinx.serialization.json.JsonObject?) {
         mcpInteractions?.respond(id, value)
     }
@@ -1785,11 +1834,13 @@ class ChatViewModel @Inject constructor(
         val runId = UUID.randomUUID().toString()
         val prior = dev.chungjungsoo.gptmobile.data.agent.resolveTaskRecovery(_groupedMessages.value.userMessages.take(turnIndex + 1))
         val sourceMessageId = prior?.sourceMessageId ?: userMessage.id
+        val recoveryAction = requestedRecovery ?: if (prior?.primaryOnly == true) dev.chungjungsoo.gptmobile.data.agent.TaskRecoveryAction.CONTINUE_PRIMARY_ONLY else dev.chungjungsoo.gptmobile.data.agent.TaskRecoveryAction.RETRY_FAILED_STAGE
         val recovery = dev.chungjungsoo.gptmobile.data.agent.TaskResumeDescriptor(
             "${userMessage.chatId}:$sourceMessageId",
             sourceMessageId,
             runId,
-            requestedRecovery ?: if (prior?.primaryOnly == true) dev.chungjungsoo.gptmobile.data.agent.TaskRecoveryAction.CONTINUE_PRIMARY_ONLY else dev.chungjungsoo.gptmobile.data.agent.TaskRecoveryAction.RETRY_FAILED_STAGE
+            recoveryAction,
+            allowUndispatchedBudgetRetry = recoveryAction == dev.chungjungsoo.gptmobile.data.agent.TaskRecoveryAction.RETRY_FAILED_STAGE
         )
         _loadingStates.update { states -> states.mapIndexed { index, state -> if (enabledPlatformsInChat.getOrNull(index) == ownerProfileUid) LoadingState.Loading else state } }
 

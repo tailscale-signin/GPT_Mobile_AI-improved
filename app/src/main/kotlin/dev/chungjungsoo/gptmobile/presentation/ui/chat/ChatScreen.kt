@@ -389,6 +389,12 @@ private fun ChatScreenContent(
     val chatPlatformModels by chatViewModel.chatPlatformModels.collectAsStateWithLifecycle()
     val availableChatTools by chatViewModel.availableChatTools.collectAsStateWithLifecycle()
     val chatToolConfig by chatViewModel.chatToolConfig.collectAsStateWithLifecycle()
+    val githubDecisions by chatViewModel.githubDecisions.collectAsStateWithLifecycle()
+    val githubWaiting by chatViewModel.waitingGitHubDecisions.collectAsStateWithLifecycle()
+    GitHubChatPresenceEffect(chatRoom.id.takeIf { chatToolConfig.github != null })
+    LaunchedEffect(chatRoom.id, chatToolConfig.github != null) { if (chatToolConfig.github != null) chatViewModel.loadGitHubDecisions() }
+    val githubDecisionScope = chatToolConfig.github?.let(dev.chungjungsoo.gptmobile.data.github.GitHubChatDecisions::workspaceKey)
+    val visibleGitHubDecisions = githubDecisions.filter { it.chatId == chatRoom.id && it.workspace == githubDecisionScope && !it.delivered }
     val showResearchPanels = researchPanelsVisible(allowResearchPanels, chatToolConfig)
     val downloadedLocalModels by chatViewModel.downloadedLocalModels.collectAsStateWithLifecycle()
     val debugMode by chatViewModel.debugMode.collectAsStateWithLifecycle()
@@ -888,6 +894,19 @@ private fun ChatScreenContent(
                                 }) { Text("Review setup") }
                             }
                         }
+                    }
+                }
+                if (chatToolConfig.github != null) {
+                    val activeMessage = groupedMessages.assistantMessages.flatten().lastOrNull { it.currentRunId in activeAgentRuns }
+                    if (activeMessage != null) {
+                        item(key = "github-live-progress") {
+                            val timeline = activeMessage.effectiveTimeline()
+                            GitHubLiveProgressCard(timeline.lastOrNull { it.statusSummary }?.content.orEmpty(), timeline.filter { it.progressCheckpoint }.map { it.content })
+                        }
+                    }
+                    items(visibleGitHubDecisions.size, key = { "github-decision-${visibleGitHubDecisions[it].id}" }) { index ->
+                        val decision = visibleGitHubDecisions[index]
+                        GitHubDecisionCard(decision, decision.id in githubWaiting, { option, answer -> chatViewModel.answerGitHubDecision(decision.id, option, answer) }, { chatViewModel.resumeGitHubDecision(decision.id) }, { chatViewModel.stopGitHubDecision(decision.id) })
                     }
                 }
                 items(pendingPrompts.size, key = { "queued-${pendingPrompts[it].id}" }) { index ->

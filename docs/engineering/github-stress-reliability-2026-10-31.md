@@ -103,3 +103,85 @@ conditions and device jank are not claimed resolved by source or host tests.
 - Full Android compilation, runner integration, lint and emulator checks must be
   evaluated in CI at the new head; results from the starting head are not evidence
   for this follow-up. The local JDK/SDK limitation recorded above still applies.
+
+### Explicit retry provenance checkpoint
+
+- Same repository, branch and base as above; follow-up starting head:
+  `8c2b00b7824a90a495dcaa24ff39f9760e0ac5a5`.
+- Review found that automatic provider research resumes also construct a
+  `RETRY_FAILED_STAGE` descriptor. Intent: persist an opt-in budget-retry flag only
+  for user retry controls, default old/automatic descriptors to false, and carry
+  that decision through recovery resolution. Text retry commands are explicit;
+  continue/writer-only actions do not reopen budget refusals.
+
+### GitHub chat interaction enhancement checkpoint
+
+- User-requested scope added while the follow-up was in progress: continuous
+  visible work, progress at least every ten seconds and at major milestones,
+  replacement of progress with the final answer, frequent consequential design
+  decisions through themed buttons, and decision notifications outside the active
+  GitHub conversation.
+- Implementation intent: use real execution events plus a bounded heartbeat;
+  keep public progress distinct from reasoning and final prose; wait for explicit
+  choices without default selection; persist decisions across interruption;
+  preserve independent native write approval and cancellation/resource controls.
+- Repository/base/branch remain unchanged; implementation starts from `8c2b00b`
+  plus the explicit-retry provenance changes recorded above.
+
+### Actual runtime and scheduling review (Phases 5 and 7)
+
+The requested target remains `fix/github-stress-reliability-2026-10-31`.
+References in the supplied notes to `test/benchmark-stress-20261031`/`3e0dde43`
+are historical evidence, not a request to overwrite that branch. The described
+`ai/GPTMobileAI.kt`, `workers/GenieX.kt`, and CoreAgent/MemoryAgent definitions are
+absent from this target; AGENTS.md is engineering guidance. Its dependencies are
+already newer than the proposed replacements. No purported percentage, coverage,
+latency, or memory baseline from those notes is treated as a measurement.
+
+| Requested area | Actual implementation and disposition |
+| --- | --- |
+| Async loading and streaming | `LocalRuntimeImpl`, `LocalEngineHolder`, `GgufRuntimeAdapter`, and the separate `src/geniex/.../GenieXRuntimeAdapter`; serialized native ownership, asynchronous loading, bounded event queues and context/output admission already exist. |
+| Worker fairness and timeout | `FairNativeLock` has root rotation, bounded visible bursts, aging and cancellable handoff. `LocalEngineHolder` limits its queue to 128 and admission to 180 seconds. Keep this scheduler rather than introduce a busy-spin worker pool. |
+| Outer admission saturation | `InferenceAdmission` could accumulate unbounded suspended requests while a benchmark holds resources. Now cap blocked waiting at 256, fail before dispatch, permit independent/nested work that can enter immediately, and free capacity on cancellation. |
+| GenieX lifecycle | Release a newly created handle if cancellation arrives during blocking creation or capability validation fails; publish only a validated active handle. Destroy an idle owned handle even if stop reports failure, retain original/suppressed errors, clear failed conversation construction, and clean media in non-cancellable IO. |
+| Fresh GitHub context and caching | Pinned repository session/cache identities, saved-view scope validation, bounded request joining, fairness and mutation journaling remain in use. Mutable state is refreshed before writes; unknown mutation outcomes must be reconciled, not blindly retried. |
+| Build size and dependencies | Existing ABI splits, ARM64 GenieX isolation, R8/resource shrinking and the version catalog remain authoritative. Do not downgrade current coroutines/Room or remove emulator support to claim an unmeasured APK reduction. |
+| Benchmarking | Existing `BenchmarkPerformance`, resource recorder, native segment receipts and comparison-identity gates measure cold/warm starts, prefill/decode, first text, cleanup, PSS and thermal state. Device targets in the request remain acceptance goals, not achieved results. |
+
+### GitHub interaction implementation and checks
+
+- A provider-independent five-second heartbeat and immediate tool milestones show
+  public activity. The model is prompted to report findings and ask consequential
+  design questions throughout feature development. Resource/permission limits and
+  explicit Stop remain effective.
+- Each model round starts fresh answer prose; previous prose becomes bounded
+  progress. Successful final publication removes progress/status entries while
+  retaining tool receipts. Interrupted/failed work retains its partial evidence.
+- `github_decide` exposes 2–4 themed button choices, an optional recommendation,
+  a custom answer and Stop. No choice is selected automatically. A question batch
+  cannot race repository writes. Its checkpoint remains queued during human input,
+  so interruption cannot classify a question as an uncertain external mutation.
+- Questions and answers are scoped to chat, original user message, profile and
+  workspace. Saved chats persist them through the existing protected state store;
+  temporary chats do not. Temporary-mode changes remove durable copies; deleting
+  a conversation removes questions and cancels their waiters.
+- Prompts outside the active GitHub chat produce private, conversation-linked
+  Android notifications when response notifications and OS permission allow them.
+  Design choices and native write approval remain separate.
+- Explicit budget retry now carries user provenance. Automatic/legacy recovery
+  descriptors cannot reopen an undispatched budget refusal by accident.
+- Local validation: 269 host tests; 55 focused JVM tests covering existing search,
+  pagination, retry/schema contracts plus decision persistence/replay/revocation,
+  native handle cleanup, starvation/handoff and resource admission. Compose,
+  runner integration, final-presentation tests and both Android runtime variants
+  require the exact-head CI run. Hardware benchmarks remain outstanding.
+
+### Additional build, memory, accounting and modularity scope
+
+The user's next request adds offline/cached model provisioning, configuration-cache
+verification, version-catalog consistency/update automation, lifecycle memory
+release, explicit hybrid routing, batch/accounting accuracy, bounded semantic
+recall/context compression, streaming recovery and a portable domain boundary.
+Continue from this checkpoint by inspecting the existing implementations and
+closing verified gaps; do not silently change provider destinations or duplicate
+existing batch, HNSW, compaction or stream-recovery systems.

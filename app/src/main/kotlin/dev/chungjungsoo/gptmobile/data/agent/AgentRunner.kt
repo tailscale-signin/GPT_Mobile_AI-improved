@@ -426,8 +426,12 @@ class AgentRunner(
         var toolCallCount = initialToolCallCount
         var finalResponseRequested = initialFinalResponseRequested
         var suppressedReadRounds = previousSuppressedReadRounds
-        val toolsForBatch = executableToolByName
-        val plan = planToolBatch(calls, remainingCalls, toolsForBatch.keys, toolCallsByName, blockedReadScopes, MAX_SAME_TOOL_CALLS_PER_RUN, restoredRetained, ::failureScope)
+        val questionNames = executableToolByName.values.filter { AgentToolCapability.USER_DECISION in it.definition.capabilities }.mapTo(hashSetOf()) { it.definition.name }
+        // A choice and a mutation in the same model batch must not race. Replan
+        // dependent actions after the answer has been returned to the model.
+        val toolsForBatch = if (calls.any { it.name in questionNames }) executableToolByName.filterKeys { it in questionNames } else executableToolByName
+        val batchAllowance = if (calls.any { it.name in questionNames }) minOf(1, remainingCalls) else remainingCalls
+        val plan = planToolBatch(calls, batchAllowance, toolsForBatch.keys, toolCallsByName, blockedReadScopes, MAX_SAME_TOOL_CALLS_PER_RUN, restoredRetained, ::failureScope)
         val executableCalls = plan.executable
         val deferredCalls = plan.deferred
         val perToolSuppressedIds = plan.perToolSuppressedIds
@@ -685,6 +689,7 @@ class AgentRunner(
         val repeatLimited = allResults.any { toolResultText(it).contains("reached the per-response repeat limit", ignoreCase = true) }
         val unavailableCallsOnly = noExecutableCalls && calls.isNotEmpty() && !canReadOtherSources
         val mustFinalize = unavailableCallsOnly ||
+            allResults.any { it.errorCode == "GITHUB_USER_STOP" } ||
             repeatedReadSuppression ||
             repeatedDiscoveryStalled ||
             roundLimitReached ||
@@ -692,7 +697,10 @@ class AgentRunner(
             outputBudgetExhausted ||
             toolCallBudgetExhausted ||
             (executionToolCallLimit < Int.MAX_VALUE && toolCallCount >= executionToolCallLimit)
-        if (unavailableCallsOnly) {
+        if (allResults.any { it.errorCode == "GITHUB_USER_STOP" }) {
+            finalResponseRequested = true
+            emit(AgentRunEvent.Notice("Stopped at your decision. Retained work is available for review.", persistent = true))
+        } else if (unavailableCallsOnly) {
             finalResponseRequested = true
             emit(AgentRunEvent.Notice(if (repeatLimited) "Repeated calls were stopped. Finishing with the findings already collected." else "Requested tools are unavailable for this response. Finishing with the findings already collected.", persistent = false))
         } else if (repeatedReadSuppression) {
@@ -1076,7 +1084,11 @@ class AgentRunner(
                                     } else {
                                         executeBounded(call, tools[call.name])
                                     }
-                                    val result = checkpoint?.execute(call) { dispatch() } ?: dispatch()
+                                    // A local question has its own durable answer. Keep its
+                                    // checkpoint queued while waiting, so process death cannot
+                                    // misclassify user input as an uncertain external write.
+                                    val interaction = AgentToolCapability.USER_DECISION in tools[call.name]?.definition?.capabilities.orEmpty()
+                                    val result = if (interaction) dispatch().also { checkpoint?.complete(call, it) } else checkpoint?.execute(call) { dispatch() } ?: dispatch()
                                     if (result.errorCode in ToolResultEnvelope.unknownOutcomeCodes && !replayableRead(call)) unknownOutcomes += signature
                                     call to result
                                 }

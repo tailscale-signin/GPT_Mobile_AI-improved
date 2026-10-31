@@ -156,6 +156,11 @@ internal suspend fun Flow<ApiState>.collectApiStateUpdates(
                     if (chunk.modelAuthored) buffer.publishIfDue(onUpdate) else buffer.publishNow(onUpdate)
                 }
 
+                ApiState.GitHubRoundStarted -> {
+                    buffer.beginGitHubRound()
+                    buffer.publishNow(onUpdate)
+                }
+
                 is ApiState.ActivitySummary -> {
                     buffer.updateActivitySummary(chunk)
                     buffer.publishNow(onUpdate)
@@ -230,6 +235,7 @@ internal suspend fun Flow<ApiState>.collectApiStateUpdates(
             !isCompletedSuccessfully && terminalError == null
         }.collect {}
     } finally {
+        if (isCompletedSuccessfully && terminalError == null && buffer.hasResponse) buffer.finishGitHubProgress()
         buffer.finishAssist(isCompletedSuccessfully, terminalError)
         buffer.flush(onUpdate)
     }
@@ -276,6 +282,7 @@ private class StreamingMessageBuffer(
     private val thoughts = StringBuilder()
     private val content = StringBuilder()
     private val timeline = mutableListOf<AssistantTimelineItem>()
+    private var githubProgress = false
     private var pendingTimelineIndex = -1
     private val pendingTimelineText = StringBuilder()
     val hasResponse: Boolean get() = dev.chungjungsoo.gptmobile.data.conversation.AnswerProjection.hasAnswer(content.toString())
@@ -328,6 +335,33 @@ private class StreamingMessageBuffer(
         val existing = timeline.indexOfFirst { it.statusSummary }
         if (existing < 0) timeline.add(0, item) else timeline[existing] = item
         timelineVersion++
+    }
+
+    fun beginGitHubRound() {
+        flushTimelineText()
+        githubProgress = true
+        for (index in timeline.indices) {
+            val item = timeline[index]
+            if (item.type == AssistantTimelineItemType.TEXT) {
+                timeline[index] = item.copy(type = AssistantTimelineItemType.NOTICE, content = item.content.take(4000), progressCheckpoint = true, modelAuthored = true)
+            }
+        }
+        content.setLength(0)
+        boundGitHubProgress()
+        timelineVersion++
+    }
+
+    fun finishGitHubProgress() {
+        if (!githubProgress) return
+        flushTimelineText()
+        timeline.removeAll { it.progressCheckpoint || it.statusSummary }
+        timelineVersion++
+    }
+
+    private fun boundGitHubProgress() {
+        if (!githubProgress) return
+        var excess = timeline.count { it.progressCheckpoint } - 48
+        if (excess > 0) timeline.removeAll { it.progressCheckpoint && excess-- > 0 }
     }
 
     fun appendDelegation(chunk: ApiState.DelegationText) {
@@ -384,15 +418,17 @@ private class StreamingMessageBuffer(
         flushTimelineText()
         val last = timeline.lastOrNull()
         if (modelAuthored && last?.progressCheckpoint == true && !last.statusSummary) {
-            timeline[timeline.lastIndex] = last.copy(content = (if (last.modelAuthored) last.content else "") + text, modelAuthored = true)
+            val combined = (if (last.modelAuthored) last.content else "") + text
+            timeline[timeline.lastIndex] = last.copy(content = if (githubProgress) combined.takeLast(4000) else combined, modelAuthored = true)
         } else {
             timeline += AssistantTimelineItem(
                 AssistantTimelineItemType.NOTICE,
-                content = text,
+                content = if (githubProgress) text.take(4000) else text,
                 progressCheckpoint = true,
                 modelAuthored = modelAuthored
             )
         }
+        boundGitHubProgress()
         timelineVersion += 1
     }
 

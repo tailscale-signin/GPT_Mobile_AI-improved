@@ -28,7 +28,9 @@ data class TaskResumeDescriptor(
     val generationId: String,
     val action: TaskRecoveryAction,
     @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
-    val continuationPrefixDigest: String? = null
+    val continuationPrefixDigest: String? = null,
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val allowUndispatchedBudgetRetry: Boolean = false
 ) {
     init {
         require(continuationPrefixDigest == null || continuationPrefixDigest.matches(Regex("[a-f0-9]{64}")))
@@ -39,10 +41,10 @@ internal fun resolveTaskRecovery(messages: List<MessageV2>, descriptor: TaskResu
     val latest = messages.lastOrNull() ?: return null
     val source = messages.firstOrNull { it.id == descriptor.sourceMessageId && it.chatId == latest.chatId && it.platformType == null } ?: return null
     if (descriptor.rootWorkId != "${source.chatId}:${source.id}" || TaskRecoveryAction.fromText(source.content) != null) return null
-    return ResolvedTaskRecovery(descriptor.action, source.id, source.content, descriptor.action == TaskRecoveryAction.CONTINUE_PRIMARY_ONLY)
+    return ResolvedTaskRecovery(descriptor.action, source.id, source.content, descriptor.action == TaskRecoveryAction.CONTINUE_PRIMARY_ONLY, descriptor.allowUndispatchedBudgetRetry && descriptor.action == TaskRecoveryAction.RETRY_FAILED_STAGE)
 }
 
-internal data class ResolvedTaskRecovery(val action: TaskRecoveryAction, val sourceMessageId: Int, val originalRequest: String, val primaryOnly: Boolean) {
+internal data class ResolvedTaskRecovery(val action: TaskRecoveryAction, val sourceMessageId: Int, val originalRequest: String, val primaryOnly: Boolean, val retryUndispatchedBudgetFailures: Boolean = false) {
     fun prompt(): String = "Original task and constraints:\n$originalRequest\n\n" +
         "Recovery action: ${action.name}. Continue unfinished work using the saved partial answer and evidence. " +
         "Do not search for the recovery command itself. Do not repeat completed tool actions; verify unknown action outcomes before retrying. " +
@@ -60,7 +62,7 @@ internal fun resolveTaskRecovery(messages: List<MessageV2>): ResolvedTaskRecover
         previous.drop(sourceIndex + 1).any {
             TaskRecoveryAction.fromText(it.content) == TaskRecoveryAction.CONTINUE_PRIMARY_ONLY
         }
-    return ResolvedTaskRecovery(action, source.id, source.content, primaryOnly)
+    return ResolvedTaskRecovery(action, source.id, source.content, primaryOnly, action == TaskRecoveryAction.RETRY_FAILED_STAGE)
 }
 
 /** Identity is derived only from this chat's persisted original message, never task text. */

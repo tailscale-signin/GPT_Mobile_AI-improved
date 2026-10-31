@@ -18,6 +18,7 @@ sealed class ApiState {
     data class AssistStatus(val status: dev.chungjungsoo.gptmobile.data.assist.AssistTaskState) : ApiState()
     data class TokenUsage(val inputTokens: Int?, val outputTokens: Int?, val totalTokens: Int?, val finishReason: String? = null, val outputAllowance: Int? = null) : ApiState()
     data object Loading : ApiState()
+    data object GitHubRoundStarted : ApiState()
     data class ProgressCheckpoint(val text: String, val modelAuthored: Boolean = false) : ApiState()
     data class ActivitySummary(val text: String, val modelAuthored: Boolean = false) : ApiState()
     data class DelegationText(val invocationId: String, val profileName: String, val text: String, val remote: Boolean) : ApiState()

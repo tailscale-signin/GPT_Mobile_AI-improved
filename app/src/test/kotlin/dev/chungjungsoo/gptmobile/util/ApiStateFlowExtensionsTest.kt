@@ -17,6 +17,53 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ApiStateFlowExtensionsTest {
+    @Test fun githubFinalAnswerReplacesEarlierProgressButKeepsToolReceipts() = runBlocking {
+        var answer = ""
+        var timeline = emptyList<AssistantTimelineItem>()
+        val result = flowOf(
+            ApiState.GitHubRoundStarted,
+            ApiState.ActivitySummary("Inspecting"),
+            ApiState.Success("I found the source and will edit it."),
+            ApiState.ToolCall(1),
+            ApiState.ProgressCheckpoint("Source inspected"),
+            ApiState.GitHubRoundStarted,
+            ApiState.Success("Implemented and verified the change."),
+            ApiState.Done
+        ).collectApiStateUpdates(onUpdate = { text, _, items ->
+            answer = text
+            timeline = items
+        })
+        assertEquals(ApiStateFlowOutcome.Completed, result)
+        assertEquals("Implemented and verified the change.", answer)
+        assertTrue(timeline.none { it.progressCheckpoint || it.statusSummary })
+        assertEquals(1, timeline.count { it.type == AssistantTimelineItemType.TOOL })
+        assertEquals(answer, timeline.filter { it.type == AssistantTimelineItemType.TEXT }.joinToString("") { it.content })
+    }
+
+    @Test fun githubFailureKeepsProgressAndTheCurrentPartialAnswer() = runBlocking {
+        var answer = ""
+        var timeline = emptyList<AssistantTimelineItem>()
+        val result = flowOf(ApiState.GitHubRoundStarted, ApiState.Success("Inspected sources"), ApiState.GitHubRoundStarted, ApiState.Success("Partial findings"), ApiState.Error("Transport interrupted"))
+            .collectApiStateUpdates(onUpdate = { text, _, items ->
+                answer = text
+                timeline = items
+            })
+        assertTrue(result is ApiStateFlowOutcome.Failed)
+        assertEquals("Partial findings", answer)
+        assertTrue(timeline.any { it.progressCheckpoint && it.content == "Inspected sources" })
+    }
+
+    @Test fun longGithubWorkKeepsABoundedProgressPresentation() = runBlocking {
+        var timeline = emptyList<AssistantTimelineItem>()
+        flow {
+            emit(ApiState.GitHubRoundStarted)
+            repeat(200) { emit(ApiState.ProgressCheckpoint("Step $it " + "x".repeat(5000))) }
+            emit(ApiState.Error("Stopped"))
+        }.collectApiStateUpdates(onUpdate = { _, _, items -> timeline = items })
+        assertEquals(48, timeline.count { it.progressCheckpoint })
+        assertTrue(timeline.filter { it.progressCheckpoint }.all { it.content.length <= 4000 })
+    }
+
     @Test fun typedProviderLimitSurvivesReducerWithoutLosingPartialOutput() = runBlocking {
         val limit = dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision("TEST", "p", "model", 1000L, "scope", "PROVIDER_RATE_LIMITED", true)
         var answer = ""

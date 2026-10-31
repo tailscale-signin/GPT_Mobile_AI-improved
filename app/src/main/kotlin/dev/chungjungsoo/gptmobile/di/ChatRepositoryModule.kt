@@ -89,7 +89,9 @@ object ChatRepositoryModule {
         localAssistPreparation: dev.chungjungsoo.gptmobile.data.assist.LocalAssistPreparation,
         memoryPreview: dev.chungjungsoo.gptmobile.data.readiness.MemoryPreviewCoordinator,
         combinedBudgets: dev.chungjungsoo.gptmobile.data.agent.CombinedTurnBudgetStore,
-        combinedDecisions: dev.chungjungsoo.gptmobile.data.agent.CombinedCollectionDecisionStore
+        combinedDecisions: dev.chungjungsoo.gptmobile.data.agent.CombinedCollectionDecisionStore,
+        gitHubDecisions: dev.chungjungsoo.gptmobile.data.github.GitHubChatDecisions,
+        gitHubDecisionNotifications: dev.chungjungsoo.gptmobile.data.github.GitHubDecisionNotifications
     ): ChatRepository = ChatRepositoryImpl(
         context = context,
         chatRoomV2Dao = chatRoomV2Dao,
@@ -131,6 +133,8 @@ object ChatRepositoryModule {
         localAssistPreparation = localAssistPreparation,
         memoryPreview = memoryPreview,
         combinedBudgets = combinedBudgets,
-        combinedDecisions = combinedDecisions
+        combinedDecisions = combinedDecisions,
+        gitHubDecisions = gitHubDecisions,
+        gitHubDecisionNotifications = gitHubDecisionNotifications
     )
 }

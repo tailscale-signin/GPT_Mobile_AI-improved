@@ -90,7 +90,9 @@ class AgentToolResolver @Inject constructor(
     private val gitHubRepositoryState: dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore? = null,
     private val engineeringController: GitHubEngineeringController? = null,
     private val gitHubPublicAuth: dev.chungjungsoo.gptmobile.data.github.GitHubPublicAuthCoordinator? = null,
-    private val gitHubCheckWatches: dev.chungjungsoo.gptmobile.data.github.GitHubCheckWatchRepository? = null
+    private val gitHubCheckWatches: dev.chungjungsoo.gptmobile.data.github.GitHubCheckWatchRepository? = null,
+    private val gitHubDecisions: dev.chungjungsoo.gptmobile.data.github.GitHubChatDecisions? = null,
+    private val gitHubDecisionNotifications: dev.chungjungsoo.gptmobile.data.github.GitHubDecisionNotifications? = null
 ) {
     suspend fun warmSelectedCatalogues(profileUid: String, limit: Int = 4) {
         val features = settingRepository.getFeatureSettings()
@@ -197,6 +199,25 @@ class AgentToolResolver @Inject constructor(
         )
 
         val resolved = mutableListOf<ResolvedAgentTool>()
+
+        val decisionWorkspace = chatToolConfig?.github
+        if (!disableLocal && chatToolConfig?.allToolsDisabled != true && platform?.enabled == true && decisionWorkspace?.mainProfileUid == profileUid && userMessage != null && userMessage.chatId > 0 && userMessage.id > 0 && gitHubDecisions != null) {
+            val tool = GitHubDecisionTool(
+                gitHubDecisions,
+                userMessage.chatId,
+                userMessage.id,
+                profileUid,
+                decisionWorkspace,
+                persistent = factVault?.scopeForChat(userMessage.chatId)?.isTemporary == false,
+                allowed = {
+                    val current = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }
+                    val selected = settingRepository.getFeatureSettings().conversationGitHub[userMessage.chatId]
+                    current?.enabled == true && !current.disableAllTools && !current.disableLocalTools && selected?.sameWorkspace(decisionWorkspace) == true
+                },
+                offered = { gitHubDecisionNotifications?.offered(it) }
+            )
+            resolved += ResolvedAgentTool(tool, null, "GitHub decisions", tool.definition.name, tool.definition.name)
+        }
 
         resolved += resolveHealthTools(profileUid, platform, featureSettings, chatToolConfig, disableLocal)
 
@@ -1168,6 +1189,9 @@ class AgentToolResolver @Inject constructor(
                     "Engineering review stores the exact patch. Use a saved conversation or open GitHub review explicitly."
                 }
                 val engineeringTaskId = engineeringController.prepareFromTool(actualConnection.connectionUid, root, args.toString())
+                userMessage?.takeIf { it.chatId > 0 && it.id > 0 }?.let {
+                    gitHubDecisionNotifications?.prompt("github-approval-$engineeringTaskId", it.chatId, it.id, "Your repository changes are ready for review and approval.")
+                }
                 kotlinx.serialization.json.buildJsonObject {
                     put("engineering_task_id", engineeringTaskId)
                     put("status", "AWAITING_APPROVAL")

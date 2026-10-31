@@ -255,7 +255,9 @@ class ChatRepositoryImpl(
     private val combinedBudgets: dev.chungjungsoo.gptmobile.data.agent.CombinedTurnBudgetStore =
         dev.chungjungsoo.gptmobile.data.agent.CombinedTurnBudgetStore(context),
     private val combinedDecisions: dev.chungjungsoo.gptmobile.data.agent.CombinedCollectionDecisionStore? = null,
-    private val freeToolConsents: dev.chungjungsoo.gptmobile.data.permissions.FreeModelToolConsentStore? = null
+    private val freeToolConsents: dev.chungjungsoo.gptmobile.data.permissions.FreeModelToolConsentStore? = null,
+    private val gitHubDecisions: dev.chungjungsoo.gptmobile.data.github.GitHubChatDecisions? = null,
+    private val gitHubDecisionNotifications: dev.chungjungsoo.gptmobile.data.github.GitHubDecisionNotifications? = null
 ) : ChatRepository {
     override suspend fun prepareCombinedTurn(
         execution: dev.chungjungsoo.gptmobile.data.agent.CombinedExecutionContext,
@@ -1744,9 +1746,11 @@ class ChatRepositoryImpl(
             val effectiveUserMessages = recovery.effectiveUserMessages
             val followUps = followUpInbox(this, platform, effectiveUserMessages.lastOrNull(), runId, chatToolConfig, effectiveUserMessages)
             val activity = AtomicReference("Preparing response")
+            val githubProgress = chatToolConfig?.github?.let { dev.chungjungsoo.gptmobile.data.github.GitHubChatProgress(taskRecovery?.originalRequest ?: effectiveUserMessages.lastOrNull()?.content.orEmpty()) }
             val traceSequences = java.util.concurrent.atomic.AtomicInteger()
             var delegatedTools = emptyList<ResolvedAgentTool>()
             suspend fun emitAll(states: Flow<ApiState>) = states.collect { state ->
+                githubProgress?.observe(state)
                 when (state) {
                     is ApiState.Success, is ApiState.CombinedAnswer -> activity.set("Writing response")
                     is ApiState.Thinking -> activity.set("Thinking")
@@ -1771,10 +1775,15 @@ class ChatRepositoryImpl(
                 send(state)
             }
             val statusJob = launch {
+                if (githubProgress != null) {
+                    // Independent of provider streaming and any other model invocation.
+                    githubProgress.updates().collect { send(it) }
+                    return@launch
+                }
                 var nextTick = (System.nanoTime() / 1_000_000L) + 5000L
                 while (isActive) {
                     delay((nextTick - (System.nanoTime() / 1_000_000L)).coerceAtLeast(1L))
-                    nextTick += 5000L
+                    nextTick = (System.nanoTime() / 1_000_000L) + dev.chungjungsoo.gptmobile.data.github.GitHubChatProgress.HEARTBEAT_MILLIS
                     val current = activity.get()
                     send(ApiState.ActivitySummary(current))
                     val summary = try {
@@ -2277,7 +2286,7 @@ class ChatRepositoryImpl(
                                 budgetSettings, limits, customRunner, delegationSettings, effectiveTools, exposedTools,
                                 resolvedTools, delegatedTools, trace, traceSequences, recalled, documentContext,
                                 localResearch, processingOwnership, reservedFinalToolCalls, followUps,
-                                retryUndispatchedBudgetFailures = taskRecovery?.action == dev.chungjungsoo.gptmobile.data.agent.TaskRecoveryAction.RETRY_FAILED_STAGE && chatToolConfig?.combined == null,
+                                retryUndispatchedBudgetFailures = taskRecovery?.retryUndispatchedBudgetFailures == true && chatToolConfig?.combined == null,
                                 previousAnswerWords = if (taskRecovery != null) {
                                     dev.chungjungsoo.gptmobile.data.agent.previousRecoveryAnswerWords(assistantMessages, platform.uid, taskRecovery.sourceMessageId, runId)
                                 } else {
@@ -4582,7 +4591,8 @@ class ChatRepositoryImpl(
         } else {
             null
         }
-        val advertisedSession = catalog?.let { groundedSession.withToolCatalog(it) } ?: groundedSession
+        val selectedSession = catalog?.let { groundedSession.withToolCatalog(it) } ?: groundedSession
+        val advertisedSession = if (chatToolConfig?.github != null) dev.chungjungsoo.gptmobile.data.github.GitHubProgressSession(selectedSession) { send(ApiState.GitHubRoundStarted) } else selectedSession
         val executableTools = if (catalog != null && runnerTools.none { it.definition.name == catalog.definition.name }) runnerTools + catalog else runnerTools
         if (catalog != null) AppLogRecorder.record("ToolCatalog", "PROGRESSIVE_CATALOG · authorized=${runnerTools.size} · initiallyAdvertised=${catalog.selected(executableTools.map { it.definition }).size} · discovery=true · permissionExpansion=false")
 
@@ -4605,7 +4615,7 @@ class ChatRepositoryImpl(
             healthCatalog = catalog,
             retryUndispatchedBudgetFailures = retryUndispatchedBudgetFailures
         ).run(advertisedSession, executableTools, dynamicTools = { effectiveTools.flatMap { it.dynamicTools?.invoke().orEmpty() }.map { it.tool } }, selectDefinitions = { definitions -> catalog?.selected(definitions) ?: definitions })
-        streamAgentEvents(agentEvents, platform, runId, resolvedTools.size, trace, chatToolConfig?.combined != null, resolvedOutputCap, dispatchAuthority).collect { send(it) }
+        streamAgentEvents(agentEvents, platform, runId, resolvedTools.size, trace, chatToolConfig?.combined != null, resolvedOutputCap, dispatchAuthority, githubChat = chatToolConfig?.github != null).collect { send(it) }
     }
 
     private suspend fun followUpInbox(
@@ -4659,7 +4669,8 @@ class ChatRepositoryImpl(
         trace: ToolTraceSession,
         retainGenerationReceipt: Boolean = false,
         outputAllowance: Int? = null,
-        dispatchAuthority: dev.chungjungsoo.gptmobile.data.context.RequestAuthorizationGuard
+        dispatchAuthority: dev.chungjungsoo.gptmobile.data.context.RequestAuthorizationGuard,
+        githubChat: Boolean = false
     ): Flow<ApiState> = flow {
         val editorialPass = runId.startsWith("combined-synthesis:")
         val capKey = dev.chungjungsoo.gptmobile.data.agent.CombinedWriterObservations.key(platform)
@@ -4736,7 +4747,7 @@ class ChatRepositoryImpl(
                             emit(ApiState.GatewayProgressChanged(providerProgress("response_started", "generating", "Writing the response…")))
                         }
                         progressParser.accept(providerEvent.text).forEach { (progress, text) ->
-                            if (progress) emit(ApiState.ProgressCheckpoint(text, modelAuthored = false)) else emit(ApiState.Success(text))
+                            if (progress) emit(ApiState.ProgressCheckpoint(text, modelAuthored = true)) else emit(ApiState.Success(text))
                         }
                     }
 
@@ -4830,20 +4841,24 @@ class ChatRepositoryImpl(
 
                     is ProviderEvent.ToolResult -> Unit
                     ProviderEvent.Completed -> progressParser.accept("", flush = true).forEach { (progress, text) ->
-                        if (progress) emit(ApiState.ProgressCheckpoint(text, modelAuthored = false)) else emit(ApiState.Success(text))
+                        if (progress) emit(ApiState.ProgressCheckpoint(text, modelAuthored = true)) else emit(ApiState.Success(text))
                     }
                 }
 
                 is AgentRunEvent.ToolStarted -> {
                     providerToolCalls += 1
                     if (!gatewayTelemetrySeen) {
-                        emit(ApiState.GatewayProgressChanged(providerProgress("tool_started", "executing_tools", "Running ${runEvent.call.name}…", runEvent.call.name, "running")))
+                        emit(ApiState.GatewayProgressChanged(providerProgress("tool_started", "executing_tools", if (runEvent.call.name == "github_decide") "Waiting for your feature decision" else "Running ${runEvent.call.name}…", runEvent.call.name, "running")))
                     }
                 }
 
                 is AgentRunEvent.ToolFinished -> {
                     trace.finish(runEvent.call, runEvent.result)?.let { emit(it) }
-                    progressTracker.complete(runEvent.call.callId, runEvent.call.name, runEvent.result.isError)?.let { emit(ApiState.ProgressCheckpoint(it)) }
+                    if (githubChat) {
+                        emit(ApiState.ProgressCheckpoint(dev.chungjungsoo.gptmobile.data.github.GitHubChatProgress.milestone(runEvent.call.name, runEvent.result.isError, runEvent.result.sharedResult)))
+                    } else {
+                        progressTracker.complete(runEvent.call.callId, runEvent.call.name, runEvent.result.isError)?.let { emit(ApiState.ProgressCheckpoint(it)) }
+                    }
                     if (!gatewayTelemetrySeen) {
                         if (runEvent.result.isError) providerToolFailures += 1 else providerUsefulToolCalls += 1
                         emit(
@@ -5658,6 +5673,7 @@ class ChatRepositoryImpl(
             val runs = agentRunDao.getReadableByChatId(updated.id)
             val decisionRoots = runs.mapNotNull { dev.chungjungsoo.gptmobile.data.agent.CombinedAcceptedTurn.context(it.synthesisSnapshot)?.rootBudgetId }.toSet() + combinedBudgets.rootsForConversation(updated.id)
             combinedDecisions?.setPersistent(decisionRoots, !enabled)
+            gitHubDecisions?.setPersistent(updated.id, !enabled)
             if (enabled) {
                 withContext(Dispatchers.IO) {
                     val filesDir = context.filesDir
@@ -5680,6 +5696,7 @@ class ChatRepositoryImpl(
     override suspend fun deleteChatsV2(chatRooms: List<ChatRoomV2>) = withContext(Dispatchers.IO) {
         factVault?.load()
         chatRooms.forEach { room ->
+            gitHubDecisions?.deleteChat(room.id)?.forEach { gitHubDecisionNotifications?.dismiss(it) }
             val runs = agentRunDao.getReadableByChatId(room.id)
             val decisionRoots = runs.mapNotNull { dev.chungjungsoo.gptmobile.data.agent.CombinedAcceptedTurn.context(it.synthesisSnapshot)?.rootBudgetId }.toSet() + combinedBudgets.rootsForConversation(room.id)
             combinedDecisions?.deleteRoots(decisionRoots)

@@ -129,6 +129,14 @@
       "upstreamAttempts": "Observable MCP calls and correlated Ktor sends (including request retries/redirects); gateway-internal retries remain unavailable unless explicitly reported"
     },
     {
+      "source": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubDecisionTool.kt",
+      "canonicalOwner": "Native github_decide, scoped to the selected conversation, task and profile",
+      "capture": "Shared admission and ObservedTool wrapper; local user wait has no external dispatch and is excluded from HTTP/provider execution statistics",
+      "outcome": "Durable explicit user answer or cancellation; no default selection and no GitHub write authorization",
+      "probe": "No automatic probe; user interaction only",
+      "configuration": "GitHub chat decision card with button and custom answers; respects active workspace and tool policy"
+    },
+    {
       "source": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubOperationTool.kt",
       "canonicalOwner": "ToolIdentity.of(facade operation name, connectionUid); the existing GitHub connection and credential scope remain the authority owner",
       "capture": "ToolExecutionBudget and ObservedTool after admission; retained-result cursor reads are marked sharedResult with dispatched=false and do not create upstream attempts",

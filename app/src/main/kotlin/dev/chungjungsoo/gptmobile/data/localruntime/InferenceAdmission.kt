@@ -58,12 +58,15 @@ internal sealed interface AdmissionOutcome {
 
 internal class AdmissionExpiredException(val request: ResourceRequest) : IllegalStateException("ADMISSION_EXPIRED: Resource wait reached the accepted task deadline; no provider request was dispatched.")
 
+internal class AdmissionCapacityException : IllegalStateException("ADMISSION_CAPACITY: The inference waiting queue is full. Retry after active work finishes; no provider request was dispatched.")
+
 /**
  * One process-owned resource scheduler. Isolated measurements exclude interfering work only
  * while a trial holds its lease. Interactive waiters have priority at the next trial boundary.
  * Queueing has no implicit provider timeout; only an explicit task deadline may expire it.
  */
 internal object InferenceAdmission {
+    internal const val MAX_WAITING = 256
     private val mutex = Mutex()
     private data class Held(val lease: ResourceLease, val request: ResourceRequest, val rootLeaseId: String)
     private data class Waiter(val id: String, val request: ResourceRequest, val rootLeaseId: String?, val sequence: Long)
@@ -125,6 +128,10 @@ internal object InferenceAdmission {
         val started = now()
         val waiter = mutex.withLock {
             Waiter(id, request, inherited?.rootLeaseId, sequence++).also {
+                // Bound suspended callers even while an isolated benchmark owns the
+                // resource. An independent or nested request that can enter now is
+                // still allowed; queue pressure must not prevent owner cleanup.
+                if (waiting.size >= MAX_WAITING && (blockers(it).isNotEmpty() || earlierConflict(it))) throw AdmissionCapacityException()
                 waiting[id] = it
                 signal()
             }

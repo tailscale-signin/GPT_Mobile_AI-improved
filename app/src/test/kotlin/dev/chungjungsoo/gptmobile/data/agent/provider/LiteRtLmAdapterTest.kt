@@ -1443,6 +1443,7 @@ class LiteRtLmAdapterTest {
             }
             val directory = dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog(listOf(lookup.definition), "Use lookup")
             val runtime = FakeLocalRuntime().apply {
+                deviceRamGb = 16L
                 capabilities = LocalModelCapabilities(contextTokens = 8192, backends = setOf("gpu"), tools = nativeSupport)
                 scriptedEvents = listOf(
                     listOf(LocalRuntimeEvent.TextDelta("""{"type":"tool_call","name":"discover_available_tools","arguments":{"names":["not_registered"]}}"""), LocalRuntimeEvent.Done),
@@ -1458,7 +1459,8 @@ class LiteRtLmAdapterTest {
                 advertisedTools = listOf(directory.definition)
             ).streamRound(emptyList(), emptyList()).toList()
 
-            assertEquals(1, calls)
+            assertEquals(8192, runtime.loadEngineCalls.single().maxTokens)
+            assertEquals("nativeSupport=$nativeSupport", 1, calls)
             assertTrue(runtime.createConversationCalls.first().tools.isEmpty())
             assertFalse(runtime.createConversationCalls.first().systemPrompt.orEmpty().contains("Look things up"))
             assertTrue(runtime.sendMessageCalls[1].contains("Existing registered tools remain available"))

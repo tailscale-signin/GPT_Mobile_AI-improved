@@ -113,3 +113,11 @@ schema. Android execution of this regression remains a current-head CI gate.
 The expanded context/network/diagnostic/bridge host bundle passed 101 tests,
 including the trusted-envelope discovery regression. Failed discovery keeps the
 existing registered schemas available for the following step.
+
+The discovery-to-execution adapter fixture uses a 16 GB device and asserts its
+8,192-token context. The default 8 GB fixture correctly caps context at 4,096;
+its 2 KiB evidence allowance compacts the second discovery after the first miss.
+A host probe of the real catalog, execution budget, envelope compaction and bridge
+confirmed that boundary and admission with a 4 KiB allowance. Production context
+and evidence ceilings remain unchanged. The complete PR diff also passes the
+audit's whitespace check after removing two trailing-space metadata lines.

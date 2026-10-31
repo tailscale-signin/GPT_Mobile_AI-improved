@@ -1,7 +1,7 @@
 # GitHub operation resilience
 
-Repository: `tailscale-signin/GPT_Mobile_AI-improved`  
-Base: `main` at `9781b63c72bf3a2a4786ede07f0d9e094cd07db2` (PR #765)  
+Repository: `tailscale-signin/GPT_Mobile_AI-improved`
+Base: `main` at `9781b63c72bf3a2a4786ede07f0d9e094cd07db2` (PR #765)
 Branch: `feat/github-operation-resilience-2026-10-31`
 
 The final change is stacked on PR #767 at `a031208d08cf0179a41092df7a1db5be68d162df` and integrates PR #766 through `65d4fca0d9a5093b4dcc55319308c058abb304e0`. The [diagnostic recovery ledger](diagnostic-recovery-2026-10-31.md) records all 20 investigation findings and the additional implementation.

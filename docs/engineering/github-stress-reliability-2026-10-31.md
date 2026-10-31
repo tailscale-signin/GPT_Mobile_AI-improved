@@ -317,3 +317,15 @@ Before publishing the batch repair, the remote branch advanced independently to
 `bcbe7b7f5e7f93847d3eba6cefb6fe2cb239dadd` (durable gateway engineering and
 intelligent read batches). That commit is preserved in full; the batch repair
 is applied as its descendant. Base `main` remains unchanged.
+
+Combined-head validation at `1f1b779a342896f27b78513db1329498b4a50309`
+compiled both Android variants and ran 5,693 GenieX tests: 5,687 passed,
+four skipped and two failed. Preserve the incoming intelligent whole-round DAG,
+but restore the legacy scheduler's bounded chunk boundary so cancellation cannot
+claim a later chunk before dispatch. A new regression also requires a cancelled
+intelligent worker to terminate its collector immediately rather than leave it
+waiting for a receipt. Hoist gateway job state into the workspace screen; the
+pinned progress component must render without constructing its own Hilt owner.
+Cover the plain header and a completed 25-hour gateway job, and baseline-align
+the gateway clock with its bounded status text. Repository/base/branch and PR
+#766 remain unchanged for this follow-up.

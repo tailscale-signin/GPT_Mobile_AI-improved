@@ -89,12 +89,7 @@ internal fun GitHubProgrammerState.progressDescription(): String {
 
 /** Pinned under the repository title on every workspace tab. */
 @Composable
-internal fun GitHubChatProgress(workspace: GitHubWorkspaceState, state: GitHubProgrammerState) {
-    val engineeringModel: dev.chungjungsoo.gptmobile.presentation.ui.chat.GatewayEngineeringViewModel = androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel()
-    val engineering by engineeringModel.state.collectAsStateWithLifecycle()
-    androidx.compose.runtime.LaunchedEffect(state.chatId) { state.chatId?.let(engineeringModel::bind) }
-    val engineeringJob = engineering.bindings.lastOrNull { it.chatId == state.chatId && it.job?.terminal == false }?.job
-
+internal fun GitHubChatProgress(workspace: GitHubWorkspaceState, state: GitHubProgrammerState, engineeringJob: dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringJob? = null) {
     val activeRuns = state.runs.filter { it.status !in GITHUB_TERMINAL_RUN_STATUSES }
     val activeIds = activeRuns.mapTo(hashSetOf()) { it.runId }
     val active = workspace.busy || state.submitting || state.pending.any { !it.paused } || activeRuns.isNotEmpty()

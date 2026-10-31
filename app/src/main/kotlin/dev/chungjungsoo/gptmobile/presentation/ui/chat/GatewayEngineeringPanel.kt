@@ -27,6 +27,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -149,8 +150,8 @@ internal fun EngineeringJobProgress(job: GatewayEngineeringJob, textSizeIncrease
     val seconds = (((job.finishedAt?.toLong() ?: (now / 1000)) - job.createdAt.toLong()).coerceAtLeast(0))
     val elapsed = "%02d:%02d:%02d".format(seconds / 3600, seconds / 60 % 60, seconds % 60)
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Text(job.message, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium.copy(fontSize = (MaterialTheme.typography.bodyMedium.fontSize.value + textSizeIncrease).sp))
-        Text(elapsed, Modifier.padding(start = 8.dp), style = MaterialTheme.typography.labelMedium)
+        Text(job.message, Modifier.weight(1f).alignByBaseline(), style = MaterialTheme.typography.bodyMedium.copy(fontSize = (MaterialTheme.typography.bodyMedium.fontSize.value + textSizeIncrease).sp), maxLines = 2, overflow = TextOverflow.Ellipsis)
+        Text(elapsed, Modifier.alignByBaseline().padding(start = 8.dp), style = MaterialTheme.typography.labelMedium, maxLines = 1)
     }
     LinearProgressIndicator(progress = { job.progress }, modifier = Modifier.fillMaxWidth())
     Text("${job.branch} · Milestone ${job.milestonesCompleted}/${job.milestonesTotal} · ${job.repairAttempts} repair attempts", style = MaterialTheme.typography.labelSmall)

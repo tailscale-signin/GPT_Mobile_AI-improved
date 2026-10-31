@@ -1,7 +1,10 @@
 package dev.chungjungsoo.gptmobile.data.agent
 
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -57,6 +60,29 @@ class IntelligentToolBatchTest {
         )
         assertEquals(listOf("read"), dispatched)
         assertTrue(results.drop(1).all { it.errorCode == "DEPENDENCY_FAILED" && !it.dispatched })
+    }
+
+    @Test fun cancelledWorkerStopsTheCollectorAndLeavesQueuedCallsUndispatched() = runTest {
+        val calls = listOf(call("interrupted"), call("queued"))
+        val dispatched = mutableListOf<String>()
+        try {
+            withTimeout(1_000) {
+                IntelligentToolBatch(AdaptiveBatchWindow(1)).execute(
+                    planIntelligentBatch(calls, mapOf("github_read" to tool("github_read"))),
+                    dispatch = {
+                        dispatched += it.callId
+                        throw CancellationException("Interrupted tool")
+                    },
+                    completed = { _, _ -> error("A cancelled operation has no completed receipt") },
+                    progress = {}
+                )
+            }
+            error("Expected cancellation")
+        } catch (cancelled: CancellationException) {
+            assertFalse("The collector must stop without waiting for its deadline", cancelled is TimeoutCancellationException)
+            assertEquals("Interrupted tool", cancelled.message)
+        }
+        assertEquals(listOf("interrupted"), dispatched)
     }
 
     @Test fun contextChangesAndUnknownOperationsAreBarriers() {

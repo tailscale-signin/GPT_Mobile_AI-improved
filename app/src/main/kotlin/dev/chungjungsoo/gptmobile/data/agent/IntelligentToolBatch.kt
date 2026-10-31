@@ -3,6 +3,8 @@ package dev.chungjungsoo.gptmobile.data.agent
 import dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool
 import dev.chungjungsoo.gptmobile.data.permissions.GitHubAuthorizationBoundary
 import dev.chungjungsoo.gptmobile.data.research.ResearchTimeouts
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
@@ -78,6 +80,7 @@ internal class IntelligentToolBatch(private val window: AdaptiveBatchWindow, pri
         completed: suspend (ProviderEvent.ToolCall, AgentToolResult) -> Unit,
         progress: suspend (ToolBatchProgress) -> Unit
     ): List<AgentToolResult> = coroutineScope {
+        val batchScope = this
         require(nodes.size <= 1024 && nodes.map { it.call.callId }.distinct().size == nodes.size)
         val ids = nodes.mapTo(hashSetOf()) { it.call.callId }
         val barriers = nodes.filterNot { it.parallelRead }.mapTo(hashSetOf()) { it.call.callId }
@@ -112,8 +115,15 @@ internal class IntelligentToolBatch(private val window: AdaptiveBatchWindow, pri
                     pending.remove(node)
                     active += node.call.callId
                     launch {
-                        val start = now()
-                        channel.send(Completion(node, dispatch(node.call), (now() - start).coerceAtLeast(0)))
+                        try {
+                            val start = now()
+                            channel.send(Completion(node, dispatch(node.call), (now() - start).coerceAtLeast(0)))
+                        } catch (cancelled: CancellationException) {
+                            // A child cancelling itself does not cancel a coroutineScope.
+                            // End the collector too; it cannot wait for this receipt.
+                            batchScope.cancel(cancelled)
+                            throw cancelled
+                        }
                     }
                     if (!node.parallelRead) break
                 }

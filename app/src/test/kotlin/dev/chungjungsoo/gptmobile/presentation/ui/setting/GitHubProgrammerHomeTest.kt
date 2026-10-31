@@ -108,6 +108,23 @@ class GitHubProgrammerHomeTest {
         output.outputStream().use { assertTrue(image.compress(Bitmap.CompressFormat.PNG, 100, it)) }
     }
 
+    @Test fun gatewayProgressAcceptsHoistedStateAndShowsTheFullElapsedDuration() {
+        val job = dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringJob(
+            id = "job", repository = "owner/repo", branch = "feature/programmer",
+            state = "COMPLETED", revision = 4, createdAt = 0.0, deadline = 100_000.0,
+            finishedAt = 90_061.0, message = "Reviewed changes and completed checks"
+        )
+        compose.setContent {
+            MaterialTheme {
+                Column(Modifier.width(320.dp)) {
+                    GitHubChatProgress(workspace, GitHubProgrammerState(), job)
+                }
+            }
+        }
+        compose.onNodeWithText(job.message).assertIsDisplayed()
+        compose.onNodeWithText("25:01:01").assertIsDisplayed()
+    }
+
     @Test fun compactLargeFontKeepsProfileAndIndexControlsInsideTheWorkspace() {
         var indexing by mutableStateOf(false)
         var preparations = 0

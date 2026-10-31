@@ -1094,8 +1094,14 @@ class AgentRunner(
                 dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it.name) != null || replayableRead(it)
             }
         if (!intelligent) {
-            val results = executeLegacyToolBatch(calls, tools, unknownOutcomes)
-            calls.zip(results).forEach { (call, result) -> completed(call, result) }
+            val results = mutableListOf<AgentToolResult>()
+            // Keep undispatched later chunks out of the cancellation race. The
+            // dependency-aware scheduler below still owns one complete DAG.
+            for (batch in calls.chunked(limits.maxToolCallsPerRound.coerceIn(1, 32))) {
+                val receipts = executeLegacyToolBatch(batch, tools, unknownOutcomes)
+                results += receipts
+                batch.zip(receipts).forEach { (call, result) -> completed(call, result) }
+            }
             return results
         }
         val admittedIds = calls.mapTo(hashSetOf()) { it.callId }

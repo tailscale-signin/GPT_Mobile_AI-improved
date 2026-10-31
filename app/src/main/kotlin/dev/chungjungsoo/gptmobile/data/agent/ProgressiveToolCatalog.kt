@@ -31,18 +31,31 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
     // A catalog lives for one run: repeated discovery should not refetch the same cold source.
     private val acquiredQueryKeys = mutableSetOf<String>()
     private val acquisitionMutex = Mutex()
-    private data class Observation(val schema: String, val failed: Boolean, val at: Long, val errorCode: String?)
+    private data class Observation(val contract: String, val outcome: String, val at: Long, val errorCode: String?, val succeeded: Int, val failed: Int, val unknown: Int)
     private val observations = mutableMapOf<String, Observation>()
 
+    private fun contractFingerprint(tool: AgentToolDefinition): String = fingerprint(tool.contractVersion.toString() + ":" + tool.inputSchema.toString())
+
     @Synchronized
-    internal fun recordObservation(name: String, result: AgentToolResult) {
+    internal fun recordObservation(name: String, result: AgentToolResult, observedAtEpochMillis: Long = System.currentTimeMillis()) {
         if (!result.dispatched || result.sharedResult) return
         val candidate = candidates[name] ?: return
+        val contract = contractFingerprint(candidate)
+        val previous = observations[name]?.takeIf { it.contract == contract }
+        val outcome = when {
+            result.errorCode in ToolResultEnvelope.unknownOutcomeCodes -> "unknown"
+            result.isError -> "failed"
+            else -> "succeeded"
+        }
+        fun count(old: Int?, matches: Boolean) = ((old ?: 0).toLong() + if (matches) 1 else 0).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
         observations[name] = Observation(
-            fingerprint(candidate.inputSchema.toString()),
-            result.isError,
-            System.currentTimeMillis(),
-            result.errorCode?.takeIf { it.matches(Regex("[A-Z0-9_]{1,64}")) }
+            contract,
+            outcome,
+            observedAtEpochMillis,
+            result.errorCode?.takeIf { it.matches(Regex("[A-Z0-9_]{1,64}")) },
+            count(previous?.succeeded, outcome == "succeeded"),
+            count(previous?.failed, outcome == "failed"),
+            count(previous?.unknown, outcome == "unknown")
         )
     }
     override val definition = AgentToolDefinition(
@@ -155,6 +168,7 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
                         buildJsonObject {
                             put("name", tool.name)
                             put("schema_fingerprint", fingerprint(tool.inputSchema.toString()))
+                            put("invocation_contract_version", tool.contractVersion.toString())
                             put("dependencies", JsonArray(tool.dependsOn.sorted().map(::JsonPrimitive)))
                             put("workflow_links", workflowLinks(tool))
                         }
@@ -177,7 +191,7 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
                                 items.map { tool ->
                                     buildJsonObject {
                                         val schema = fingerprint(tool.inputSchema.toString())
-                                        val observation = observations[tool.name]?.takeIf { it.schema == schema }
+                                        val observation = observations[tool.name]?.takeIf { it.contract == contractFingerprint(tool) }
                                         put("name", tool.name)
                                         put("description", tool.description.take(160))
                                         put("currently_advertised", tool.name in active)
@@ -185,17 +199,32 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
                                             "operational_status",
                                             if (observation == null) {
                                                 "not tested"
-                                            } else if (observation.failed) {
-                                                "last execution failed"
                                             } else {
-                                                "last execution succeeded"
+                                                "last execution ${observation.outcome}"
                                             }
                                         )
                                         observation?.let {
                                             put("observed_at_epoch_ms", it.at)
+                                            val now = System.currentTimeMillis()
+                                            put(
+                                                "observation_freshness",
+                                                if (it.at > now) {
+                                                    "clock changed"
+                                                } else if (now - it.at > 300_000) {
+                                                    "stale"
+                                                } else {
+                                                    "recent"
+                                                }
+                                            )
+                                            if (it.at <= now) put("observed_age_ms", now - it.at)
+                                            put("observed_success_count", it.succeeded)
+                                            put("observed_failure_count", it.failed)
+                                            put("observed_unknown_count", it.unknown)
                                             it.errorCode?.let { code -> put("observed_error_code", code) }
                                         }
                                         put("schema_fingerprint", schema)
+                                        put("invocation_contract_version", tool.contractVersion.toString())
+                                        put("invocation_contract_supported", tool.contractVersion.supported)
                                         val dependencies = tool.dependsOn.sorted()
                                         put("dependency_metadata", if (dependencies.isEmpty() && tool.workflowLinks.isEmpty()) "not declared" else "declared")
                                         put("declared_dependencies", JsonArray(dependencies.map(::JsonPrimitive)))

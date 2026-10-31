@@ -5,6 +5,7 @@ import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
@@ -24,6 +25,53 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(manifest = Config.NONE, sdk = [34])
 class ToolBatchCheckpointTest {
+    @Test fun backupOnlyCheckpointRestoresClaimsInsteadOfDispatchingThemAgain() = runBlocking {
+        val directory = kotlin.io.path.createTempDirectory("checkpoint-backup").toFile()
+        val file = File(directory, "batch.json")
+        try {
+            val call = ProviderEvent.ToolCall("one", "write", JsonObject(emptyMap()))
+            val journal = ToolBatchCheckpoint(file, "grant")
+            journal.enqueue(listOf(call))
+            journal.execute(call) { AgentToolResult(call.callId, ToolResultContent.Text("saved"), false) }
+            assertTrue(file.renameTo(File(file.path + ".bak")))
+            val restored = ToolBatchCheckpoint(file, "grant")
+            assertEquals(listOf(call), restored.pending())
+            assertEquals(ToolResultContent.Text("saved"), restored.execute(call) { error("must not dispatch") }.content)
+            assertEquals(1, restored.recoverySnapshot().completedCount)
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test fun concurrentInstancesKeepOneDispatchPerIdentityAndConsistentRecoveryCounts() = runBlocking {
+        val directory = kotlin.io.path.createTempDirectory("checkpoint-concurrent").toFile()
+        try {
+            val file = File(directory, "batch.json")
+            val writers = List(2) { ToolBatchCheckpoint(file, "grant") }
+            val calls = (1..64).map { ProviderEvent.ToolCall("call-$it", "write", JsonObject(emptyMap())) }
+            writers.first().enqueue(calls)
+            val counts = ConcurrentHashMap<String, Int>()
+            writers.flatMap { writer ->
+                calls.map { call ->
+                    async {
+                        writer.execute(call) {
+                            counts.compute(call.callId) { _, previous -> (previous ?: 0) + 1 }
+                            AgentToolResult(call.callId, ToolResultContent.Text("saved"), false)
+                        }
+                    }
+                }
+            }.awaitAll()
+            assertEquals(64, counts.size)
+            assertTrue(counts.values.all { it == 1 })
+            val snapshot = ToolBatchCheckpoint(file, "grant").recoverySnapshot()
+            assertEquals(64, snapshot.completedCount)
+            assertEquals(0, snapshot.unknownCount)
+            assertEquals(0, snapshot.queuedCount)
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
     @Test fun rejectedCallsDoNotConsumeRestoredBudgetButUncertainClaimsRemainUnknown() = runBlocking {
         val directory = kotlin.io.path.createTempDirectory("checkpoint-dispatch-accounting").toFile()
         val file = File(directory, "batch.json")
@@ -46,6 +94,9 @@ class ToolBatchCheckpointTest {
             assertEquals(setOf("rejected", "uncertain"), snapshot.pendingRetainedIds)
             assertEquals("MET", snapshot.objectiveStatus)
             assertEquals("NOT_CONFIGURED", restored.recoverySnapshot().objectiveStatus)
+            assertEquals(1, snapshot.unknownCount)
+            assertEquals(1, snapshot.rejectedCount)
+            assertEquals(0, snapshot.completedCount)
             val unknown = restored.execute(uncertain) { error("must reconcile") }
             assertEquals("TOOL_OUTCOME_UNKNOWN", unknown.errorCode)
             val encoded = Json.parseToJsonElement(ToolResultEnvelope.encode("write", unknown)).jsonObject
@@ -67,7 +118,7 @@ class ToolBatchCheckpointTest {
         val journal = ToolBatchCheckpoint(null, "grant")
         val rejected = ProviderEvent.ToolCall("rejected", "write", JsonObject(emptyMap()))
         val uncertain = ProviderEvent.ToolCall("uncertain", "write", JsonObject(emptyMap()))
-        val queued = ProviderEvent.ToolCall("queued", "write", JsonObject(emptyMap()))
+        val queued = ProviderEvent.ToolCall("queued", "write", buildJsonObject { put("path", "different-target") })
         journal.enqueue(listOf(rejected, uncertain, queued))
         journal.execute(rejected) { AgentToolResult(rejected.callId, ToolResultContent.Text("Invalid"), true, errorCode = "INVALID_ARGUMENTS", dispatched = false) }
         try {

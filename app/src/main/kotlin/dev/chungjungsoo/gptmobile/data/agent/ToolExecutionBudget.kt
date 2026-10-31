@@ -65,6 +65,7 @@ class ToolExecutionBudget(
 
         override suspend fun prepareExecution(callId: String, arguments: JsonObject): suspend () -> AgentToolResult {
             fun failure(message: String) = ToolResultEnvelope.error(callId, "BUDGET_EXHAUSTED", message)
+            AgentContractValidation.admission(definition, callId)?.let { rejected -> return { withBudgetState(rejected) } }
             val inherited = currentCoroutineContext()[CombinedToolDispatchScope]
             val activeRole = inherited?.context ?: currentCoroutineContext()[CombinedRunScope]?.context
             val boundContext = combined ?: limits.combined
@@ -191,11 +192,7 @@ class ToolExecutionBudget(
                     }
                     // A receipt with another call ID cannot establish this call's outcome,
                     // even if that unrelated receipt claims it was not dispatched.
-                    val result = if (observed.callId != callId) {
-                        ToolResultEnvelope.error(callId, "TOOL_RESULT_ID_MISMATCH", "The returned receipt belongs to another call. This action may have executed; reconcile its external state before retrying.", dispatched = true)
-                    } else {
-                        observed
-                    }
+                    val result = AgentContractValidation.receipt(callId, observed)
                     return result.also { raw ->
                         combinedResult = raw
                         if (!raw.dispatched) {

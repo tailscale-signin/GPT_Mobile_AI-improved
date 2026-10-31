@@ -129,12 +129,13 @@ class AgentRunner(
         var restoredDispatched = recovery?.pendingDispatchedIds.orEmpty()
         var restoredRetained = recovery?.pendingRetainedIds.orEmpty()
         if (restoredCalls.isNotEmpty() && recovery != null) {
-            AppLogRecorder.record("Recovery", "TOOL_BATCH_RESTORED · checkpointVersion=1 · pendingCalls=${restoredCalls.size} · previouslyDispatched=${restoredDispatched.size} · snapshotLoadMs=${recovery.loadMillis} · objectiveMs=${recovery.objectiveMillis ?: "none"} · objectiveStatus=${recovery.objectiveStatus} · measurement=checkpoint_load_only")
+            AppLogRecorder.record("Recovery", "TOOL_BATCH_RESTORED · checkpointVersion=1 · pendingCalls=${restoredCalls.size} · previouslyDispatched=${restoredDispatched.size} · completed=${recovery.completedCount} · failed=${recovery.failedCount} · uncertain=${recovery.unknownCount} · queued=${recovery.queuedCount} · rejected=${recovery.rejectedCount} · snapshotLoadMs=${recovery.loadMillis} · objectiveMs=${recovery.objectiveMillis ?: "none"} · objectiveStatus=${recovery.objectiveStatus} · measurement=checkpoint_load_only")
         }
         val executionToolCallLimit = ToolBudgetPolicy.executionLimit(limits)
         val toolCallsByName = mutableMapOf<String, Int>()
         val consecutiveToolFailures = mutableMapOf<String, Int>()
         val blockedReadScopes = mutableSetOf<String>()
+        val unknownOutcomes = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
 
         while (true) {
             if (executionToolCallLimit < Int.MAX_VALUE && toolCallCount >= executionToolCallLimit && restoredCalls.isEmpty()) {
@@ -272,7 +273,7 @@ class AgentRunner(
                 calls, toolByName, executableToolByName, exposedDefinitions, exchanges, dynamicTools, selectDefinitions,
                 initialSchemaTokens, replayTokens, toolCallsByName, consecutiveToolFailures, blockedReadScopes,
                 remainingCalls, toolCallCount, restoredDispatched, restoredRetained, roundLimitReached, finalResponseRequested,
-                retriedWithoutTools, executionToolCallLimit, suppressedReadRounds, unproductiveDiscoveryRounds
+                retriedWithoutTools, executionToolCallLimit, suppressedReadRounds, unproductiveDiscoveryRounds, unknownOutcomes
             ) ?: return
             executableToolByName = completed.tools
             exposedDefinitions = completed.definitions
@@ -405,7 +406,8 @@ class AgentRunner(
         retriedWithoutTools: Boolean,
         executionToolCallLimit: Int,
         previousSuppressedReadRounds: Int,
-        unproductiveDiscoveryRounds: Int
+        unproductiveDiscoveryRounds: Int,
+        unknownOutcomes: MutableSet<String>
     ): ToolRoundCompletion? {
         var executableToolByName = initialTools
         var exposedDefinitions = initialDefinitions
@@ -429,7 +431,7 @@ class AgentRunner(
         executableCalls.forEach { emit(AgentRunEvent.ToolStarted(it)) }
         val executedResults = mutableListOf<AgentToolResult>()
         for (batch in executableCalls.chunked(limits.maxToolCallsPerRound.coerceIn(1, 32))) {
-            val results = executeToolBatch(batch, toolsForBatch)
+            val results = executeToolBatch(batch, toolsForBatch, unknownOutcomes)
             executedResults += results
             batch.zip(results).forEach { (call, result) ->
                 healthCatalog?.recordObservation(call.name, result)
@@ -885,7 +887,13 @@ class AgentRunner(
                 )
             }
             // Include synchronous stream construction failures in the upstream boundary.
-            emitAll(session.streamRound(exposedDefinitions, replayExchanges.map { exchange -> exchange.copy(results = exchange.results.map { dev.chungjungsoo.gptmobile.data.assist.OptionalAssistArtifacts.ready(it) }) }).withAssistantTextMarkupGuard(successfulSearch || session.hasPreparedSearchEvidence, searchToolNames, allowControlJsonText = session.allowsControlJsonText))
+            val preparedExchanges = replayExchanges.map { exchange -> exchange.copy(results = exchange.results.map { dev.chungjungsoo.gptmobile.data.assist.OptionalAssistArtifacts.ready(it) }) }
+            val exchangeError = AgentContractValidation.exchangeError(preparedExchanges)
+            if (exchangeError != null) {
+                emit(ProviderEvent.Failed(exchangeError, errorCode = "TOOL_EXCHANGE_INVALID"))
+            } else {
+                emitAll(session.streamRound(exposedDefinitions, preparedExchanges).withAssistantTextMarkupGuard(successfulSearch || session.hasPreparedSearchEvidence, searchToolNames, allowControlJsonText = session.allowsControlJsonText))
+            }
         }.catch { error ->
             if (error is CancellationException || error is VirtualMachineError || error is ThreadDeath || error is IllegalStateException && error.message?.startsWith("DISPATCH_POLICY_CHANGED:") == true) throw error
             if (error is ToolBatchOversizeException) {
@@ -933,7 +941,7 @@ class AgentRunner(
                     }
                 }
 
-                is ProviderEvent.ToolResult -> emit(AgentRunEvent.ToolFinished(event.call, ToolObservationRetention.bound(event.result)))
+                is ProviderEvent.ToolResult -> emit(AgentRunEvent.ToolFinished(event.call, ToolObservationRetention.bound(AgentContractValidation.receipt(event.call.callId, event.result))))
 
                 is ProviderEvent.Failed -> {
                     failure = event.message
@@ -1037,7 +1045,7 @@ class AgentRunner(
         return newlyBlockedTools
     }
 
-    private suspend fun executeToolBatch(calls: List<ProviderEvent.ToolCall>, tools: Map<String, AgentTool>): List<AgentToolResult> {
+    private suspend fun executeToolBatch(calls: List<ProviderEvent.ToolCall>, tools: Map<String, AgentTool>, unknownOutcomes: MutableSet<String>): List<AgentToolResult> {
         val semaphore = Semaphore(limits.maxConcurrentTools.coerceIn(1, 32))
         val perTool = calls.map { it.name }.distinct().associateWith { Semaphore(1) }
         val order = calls.mapIndexed { index, call -> call.callId to index }.toMap()
@@ -1050,7 +1058,14 @@ class AgentRunner(
                         async {
                             perTool.getValue(call.name).withPermit {
                                 semaphore.withPermit {
-                                    val result = checkpoint?.execute(call) { executeBounded(call, tools[call.name]) } ?: executeBounded(call, tools[call.name])
+                                    val signature = call.name + ":" + dev.chungjungsoo.gptmobile.data.permissions.ScopedToolGrant.canonicalHash(call.arguments)
+                                    suspend fun dispatch(): AgentToolResult = if (signature in unknownOutcomes) {
+                                        ToolResultEnvelope.error(call.callId, "RECONCILIATION_REQUIRED", "An earlier identical operation has an unknown outcome. Reconcile it before requesting another write.")
+                                    } else {
+                                        executeBounded(call, tools[call.name])
+                                    }
+                                    val result = checkpoint?.execute(call) { dispatch() } ?: dispatch()
+                                    if (result.errorCode in ToolResultEnvelope.unknownOutcomeCodes && !replayableRead(call)) unknownOutcomes += signature
                                     call to result
                                 }
                             }
@@ -1093,10 +1108,17 @@ class AgentRunner(
             return AgentToolResult(
                 callId = call.callId,
                 content = ToolResultContent.Text("Tool '${call.name}' is not assigned to this profile."),
-                isError = true
+                isError = true,
+                errorCode = "TOOL_UNAVAILABLE",
+                dispatched = false
             )
         }
-
+        AgentContractValidation.admission(tool.definition, call.callId)?.let { return it }
+        if (!tool.managesExecutionBudget) {
+            val errors = ToolArgumentValidator.errors(call.arguments, tool.definition.inputSchema)
+            if (errors.isNotEmpty()) return ToolResultEnvelope.error(call.callId, "INVALID_ARGUMENTS", ToolArgumentValidator.repairMessage(tool.definition.name, errors, tool.definition.inputSchema))
+        }
+        val replayableRead = replayableRead(call)
         return try {
             val result = if (!tool.managesExecutionBudget && limits.toolTimeoutMillis < Long.MAX_VALUE) {
                 withTimeoutOrNull(limits.toolTimeoutMillis) {
@@ -1104,22 +1126,14 @@ class AgentRunner(
                 } ?: AgentToolResult(
                     callId = call.callId,
                     content = ToolResultContent.Text("Tool '${call.name}' timed out after ${limits.toolTimeoutMillis} ms."),
-                    isError = true
+                    isError = true,
+                    errorCode = if (replayableRead) "READ_DEADLINE" else "TIMEOUT_OUTCOME_UNKNOWN"
                 )
             } else {
                 tool.execute(call.callId, call.arguments)
             }
-            if (result.callId != call.callId) {
-                return AgentToolResult(
-                    callId = call.callId,
-                    content = ToolResultContent.Text("The tool returned a receipt for a different call. This operation may have executed; inspect its external state before retrying."),
-                    isError = true,
-                    errorCode = "TOOL_RESULT_ID_MISMATCH",
-                    // A mismatched receipt cannot prove that this call was not sent.
-                    dispatched = true
-                )
-            }
-            ToolObservationRetention.bound(if (tool.managesExecutionBudget) result else result.copy(content = boundContent(result.content)))
+            val receipt = AgentContractValidation.receipt(call.callId, result)
+            ToolObservationRetention.bound(if (tool.managesExecutionBudget) receipt else receipt.copy(content = boundContent(receipt.content)))
         } catch (error: CancellationException) {
             throw error
         } catch (error: dev.chungjungsoo.gptmobile.data.research.ResearchProviderDeferred) {
@@ -1128,10 +1142,15 @@ class AgentRunner(
             AgentToolResult(
                 callId = call.callId,
                 content = ToolResultContent.Text(error.message ?: "Tool '${call.name}' failed."),
-                isError = true
+                isError = true,
+                errorCode = if (replayableRead) "READ_FAILED" else "DISPATCH_OUTCOME_UNKNOWN"
             ).let { it.copy(content = boundContent(it.content)) }
         }
     }
+
+    private fun replayableRead(call: ProviderEvent.ToolCall): Boolean =
+        dev.chungjungsoo.gptmobile.data.permissions.GitHubAuthorizationBoundary.isReplayableRead(call.name, call.arguments) ||
+            dev.chungjungsoo.gptmobile.data.research.ResearchTimeouts.isAcademicRead(call.name)
 
     private fun boundContent(content: ToolResultContent): ToolResultContent = ToolObservationRetention.content(content, limits.maxToolOutputBytes.coerceIn(0, 256 * 1024))
 

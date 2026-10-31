@@ -20,6 +20,29 @@ import org.junit.Test
 class ProgressiveToolCatalogTest {
     private val tools = (1..80).map { AgentToolDefinition("task_$it", "Task $it", JsonObject(emptyMap())) }
 
+    @Test fun healthSeparatesUnknownFromFailureAndExpiresObservationsWhenContractChanges() = runTest {
+        var definition = tools.first()
+        val catalog = ProgressiveToolCatalog(listOf(definition), "tools", acquireCold = { _, _ -> listOf(definition) })
+        suspend fun page() = (catalog.execute("list", JsonObject(emptyMap())).content as ToolResultContent.Json).value.jsonObject
+        suspend fun row() = page().getValue("authorized_inventory").jsonArray.single().jsonObject
+        val result = AgentToolResult("one", ToolResultContent.Text("ok"), false)
+        catalog.recordObservation(definition.name, result)
+        catalog.recordObservation(definition.name, result.copy(callId = "two", isError = true, errorCode = "TIMEOUT_OUTCOME_UNKNOWN"), 1)
+        catalog.recordObservation(definition.name, result.copy(sharedResult = true))
+        val observed = row()
+        assertEquals(JsonPrimitive("last execution unknown"), observed["operational_status"])
+        assertEquals(JsonPrimitive("stale"), observed["observation_freshness"])
+        assertEquals(JsonPrimitive(1), observed["observed_success_count"])
+        assertEquals(JsonPrimitive(0), observed["observed_failure_count"])
+        assertEquals(JsonPrimitive(1), observed["observed_unknown_count"])
+        val version = page()["inventory_version"]
+        definition = definition.copy(contractVersion = AgentContractVersion(2, 0))
+        catalog.execute("refresh", JsonObject(mapOf("query" to JsonPrimitive(definition.name))))
+        assertTrue(version != page()["inventory_version"])
+        assertEquals(JsonPrimitive("not tested"), row()["operational_status"])
+        assertEquals(JsonPrimitive(false), row()["invocation_contract_supported"])
+    }
+
     @Test fun githubActionGraphShowsAvailableAndMissingEvidenceWithoutGrantingTools() = runTest {
         val write = GitHubOperationTool.definition("github_write", "github_write__github_api")
         val pull = GitHubOperationTool.definition("github_pr", "github_pr__github_api")

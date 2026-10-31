@@ -28,7 +28,12 @@ data class ToolBatchRecoverySnapshot(
     val pendingRetainedIds: Set<String>,
     val loadMillis: Long,
     val objectiveMillis: Long?,
-    val objectiveStatus: String
+    val objectiveStatus: String,
+    val completedCount: Int = 0,
+    val unknownCount: Int = 0,
+    val queuedCount: Int = 0,
+    val rejectedCount: Int = 0,
+    val failedCount: Int = 0
 )
 
 /** Durable dispatch receipts. A crash after dispatch is unknown, never permission to repeat a side effect. */
@@ -51,12 +56,14 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String) 
     }
     private var memory = State(binding)
     private fun read(): State {
-        val saved = file?.takeIf { it.isFile }?.let {
-            require(it.length() <= 32 * 1024 * 1024) { "Tool recovery journal exceeds capacity." }
+        val saved = file?.takeIf { it.isFile || File(it.path + ".bak").isFile }?.let {
+            require(maxOf(it.length(), File(it.path + ".bak").length()) <= 32 * 1024 * 1024) { "Tool recovery journal exceeds capacity." }
             json.decodeFromString<State>(AtomicFile(it).openRead().bufferedReader().use { stream -> stream.readText() })
         } ?: memory
         require(saved.schemaVersion == 1) { "Unsupported tool recovery checkpoint version." }
         require(saved.binding == binding) { "Tool recovery authorization changed." }
+        require(saved.entries.size <= 1024 && saved.pending.distinct().size == saved.pending.size && saved.pending.all(saved.entries::containsKey)) { "Tool recovery journal has invalid call identities." }
+        require(saved.entries.all { (id, entry) -> id.isNotBlank() && id == entry.call.id }) { "Tool recovery journal has inconsistent receipts." }
         return saved
     }
     private fun write(state: State) {
@@ -107,7 +114,12 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String) 
                 pendingRetainedIds = pendingRetainedIds,
                 loadMillis = elapsed,
                 objectiveMillis = objective?.maximumMillis,
-                objectiveStatus = objective?.assess(elapsed) ?: "NOT_CONFIGURED"
+                objectiveStatus = objective?.assess(elapsed) ?: "NOT_CONFIGURED",
+                completedCount = state.entries.values.count { it.result?.let { result -> !result.error && result.code !in ToolResultEnvelope.unknownOutcomeCodes } == true },
+                unknownCount = state.entries.values.count { it.started && it.result == null || it.result?.code in ToolResultEnvelope.unknownOutcomeCodes },
+                queuedCount = state.entries.values.count { !it.started && it.result == null },
+                rejectedCount = state.entries.values.count { it.result?.let { result -> result.error && !result.dispatched && result.code !in ToolResultEnvelope.unknownOutcomeCodes } == true },
+                failedCount = state.entries.values.count { it.result?.let { result -> result.error && result.dispatched && result.code !in ToolResultEnvelope.unknownOutcomeCodes } == true }
             )
         }
     }

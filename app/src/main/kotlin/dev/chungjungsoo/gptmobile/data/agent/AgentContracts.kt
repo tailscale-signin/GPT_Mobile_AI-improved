@@ -91,7 +91,8 @@ data class AgentToolDefinition(
     val modelVisible: Boolean = true,
     /** Declared tool-name dependencies are informational and never expand authorization. */
     val dependsOn: Set<String> = emptySet(),
-    val workflowLinks: List<AgentToolWorkflowLink> = emptyList()
+    val workflowLinks: List<AgentToolWorkflowLink> = emptyList(),
+    val contractVersion: AgentContractVersion = AgentContractVersion()
 ) {
     init {
         require(dependsOn.size <= 32 && dependsOn.all { it.isNotBlank() && it.length <= 160 && it != name }) {

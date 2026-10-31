@@ -7,6 +7,7 @@ import dev.chungjungsoo.gptmobile.data.agent.tool.McpOAuthClient
 import dev.chungjungsoo.gptmobile.data.agent.tool.McpOAuthClientTest
 import dev.chungjungsoo.gptmobile.data.agent.tool.McpOAuthCoordinator
 import dev.chungjungsoo.gptmobile.data.agent.tool.McpOAuthCredential
+import dev.chungjungsoo.gptmobile.data.database.dao.ToolConnectionDao
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionAuthType
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionType
@@ -23,6 +24,7 @@ import java.net.URI
 import java.net.URLDecoder
 import java.nio.charset.StandardCharsets
 import java.util.Locale
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -341,21 +343,37 @@ class ToolConnectionsViewModelTest {
     }
 
     @Test
-    fun `browser launch failure surfaces OAuth error`() = runTest {
-        val dao = FakeToolConnectionDao()
-        val vault = FakeSecretVault()
-        val networkClient = NetworkClient(CIO)
-        val manager = McpClientManager(networkClient())
-        val repository = ToolConnectionRepository(dao, vault)
-        val coordinator = McpOAuthCoordinator(McpOAuthClient(networkClient()), repository, vault, manager)
-        val viewModel = ToolConnectionsViewModel(dao, vault, coordinator, manager, fakeSettingRepository())
+    fun `browser launch failure survives an older refresh until explicit retry`() = runBlocking {
+        val refreshStarted = CompletableDeferred<Unit>()
+        val releaseRefresh = CompletableDeferred<Unit>()
+        val connection = ToolConnection("mcp", "MCP", "mcp", ToolConnectionType.MCP, "https://example.org/mcp", ToolConnectionAuthType.NONE, null, null)
+        val dao = object : ToolConnectionDao by FakeToolConnectionDao() {
+            override suspend fun listConnections(): List<ToolConnection> {
+                refreshStarted.complete(Unit)
+                releaseRefresh.await()
+                return listOf(connection)
+            }
+        }
+        val settings = fakeSettingRepository()
+        coEvery { settings.getFeatureSettings() } returns AppFeatureSettings(remoteMcpConnections = false)
+        val viewModel = ToolConnectionsViewModel(dao, FakeSecretVault(), mockk(relaxed = true), mockk(relaxed = true), settings)
+        try {
+            withTimeout(5000) { refreshStarted.await() }
+            viewModel.failOAuthLaunch()
+            assertFalse(viewModel.uiState.value.isOAuthBusy)
+            val error = "No browser is available for OAuth authorization."
+            assertEquals(error, viewModel.uiState.value.errorMessage)
 
-        viewModel.failOAuthLaunch()
+            releaseRefresh.complete(Unit)
+            val refreshed = withTimeout(5000) { viewModel.uiState.first { it.connections.any { item -> item.connectionUid == connection.connectionUid } } }
+            assertEquals(error, refreshed.errorMessage)
 
-        assertFalse(viewModel.uiState.value.isOAuthBusy)
-        assertTrue(viewModel.uiState.value.errorMessage!!.contains("browser"))
-        manager.closeAll()
-        networkClient().close()
+            viewModel.refresh()
+            assertNull(viewModel.uiState.value.errorMessage)
+        } finally {
+            releaseRefresh.complete(Unit)
+            viewModel.viewModelScope.cancel()
+        }
     }
 
     @Test

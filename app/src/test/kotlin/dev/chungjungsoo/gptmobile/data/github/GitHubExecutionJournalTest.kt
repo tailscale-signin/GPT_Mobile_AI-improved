@@ -26,6 +26,63 @@ class GitHubExecutionJournalTest {
     }
     private val receipt = buildJsonObject { put("sha", "b".repeat(40)) }
 
+    @Test fun queueRejectionDoesNotCreateAnUncertainWriteOrReplayAnEarlierReceipt() = runTest {
+        val journal = GitHubExecutionJournal(GitHubRepositoryStateStore(), "scope")
+        val scheduler = GitHubRequestScheduler(concurrency = 1, maxQueued = 0)
+        val entered = CompletableDeferred<Unit>()
+        val held = CompletableDeferred<Unit>()
+        val occupied = async {
+            scheduler.execute {
+                entered.complete(Unit)
+                held.await()
+            }
+        }
+        entered.await()
+        var writes = 0
+        journal.run("http.blob", arguments) { receipt }
+        val rejected = runCatching {
+            journal.run("http.commit", arguments, singleHttpRequest = true) {
+                scheduler.execute {
+                    writes++
+                    receipt
+                }
+            }
+        }.exceptionOrNull()
+        assertTrue(rejected is GitHubRequestScheduler.Capacity)
+        assertEquals(0, writes)
+        assertEquals("REJECTED", journal.context()["executions"]!!.jsonArray.last().jsonObject["status"]!!.jsonPrimitive.content)
+        held.complete(Unit)
+        occupied.await()
+        journal.run("http.blob", arguments) { error("An earlier completed mutation must not be repeated") }
+        val completed = journal.run("http.commit", arguments, singleHttpRequest = true) {
+            scheduler.execute {
+                writes++
+                receipt
+            }
+        }.jsonObject
+        assertEquals(1, writes)
+        assertEquals("2", completed["execution"]!!.jsonObject["attempt"]!!.jsonPrimitive.content)
+        assertEquals("COMPLETED", completed["execution"]!!.jsonObject["status"]!!.jsonPrimitive.content)
+    }
+
+    @Test fun capacityFailureInsideACompoundMutationStillRequiresReconciliation() = runTest {
+        val journal = GitHubExecutionJournal(GitHubRepositoryStateStore(), "scope")
+        var writes = 0
+        val failure = runCatching {
+            journal.run("commit_staged_patch", arguments) {
+                writes++
+                throw GitHubRequestScheduler.Capacity(sharedRead = false)
+            }
+        }.exceptionOrNull()
+        assertTrue(failure is GitHubRequestScheduler.Capacity)
+        val recovered = journal.run("commit_staged_patch", arguments) {
+            writes++
+            receipt
+        }.jsonObject
+        assertEquals("RECONCILE_REQUIRED", recovered["status"]!!.jsonPrimitive.content)
+        assertEquals(1, writes)
+    }
+
     @Test fun recoveryMetricsReportRetainedUncertaintyWithoutClaimingAnRto() = runTest {
         var clock = 1000L
         val journal = GitHubExecutionJournal(GitHubRepositoryStateStore(), "scope", now = { clock })

@@ -29,7 +29,7 @@ internal class GitHubExecutionJournal(
     private val scope: String,
     private val now: () -> Long = System::currentTimeMillis
 ) {
-    suspend fun run(action: String, arguments: JsonObject, block: suspend () -> JsonElement): JsonElement {
+    suspend fun run(action: String, arguments: JsonObject, singleHttpRequest: Boolean = false, block: suspend () -> JsonElement): JsonElement {
         val identity = GitHubRepositoryStateStore.digest("$scope|$action|${canonical(arguments)}")
         val claim = UUID.randomUUID().toString()
         val row = store.update(scope, "execution:$identity") { previous ->
@@ -87,7 +87,11 @@ internal class GitHubExecutionJournal(
                 // index could not be refreshed. Never downgrade it to uncertainty.
                 if (store.read(scope, "execution:$identity")?.text("status") == "RUNNING") {
                     try {
-                        finish(identity, claim, if (failure is GitHubRequestRejected || failure is GitHubRequestCircuit.Open) "REJECTED" else "RECONCILE_REQUIRED")
+                        val rejected = failure is GitHubRequestRejected ||
+                            failure is GitHubRequestCircuit.Open ||
+                            singleHttpRequest &&
+                            failure is GitHubRequestScheduler.Capacity
+                        finish(identity, claim, if (rejected) "REJECTED" else "RECONCILE_REQUIRED")
                     } catch (checkpointFailure: Throwable) {
                         failure.addSuppressed(checkpointFailure)
                     }

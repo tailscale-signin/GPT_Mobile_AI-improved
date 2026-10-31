@@ -18,6 +18,16 @@ class GitHubRequestScheduler(
     init {
         require(concurrency > 0 && maxQueued >= 0 && maxJoined >= 0 && maxPriorityBypasses >= 0)
     }
+
+    /** This particular HTTP request never entered its dispatch block. Earlier receipts still apply. */
+    class Capacity(val sharedRead: Boolean) :
+        IllegalStateException(
+            if (sharedRead) {
+                "GITHUB_WAITING_CAPACITY: shared-read waiters are full; consume the existing result before requesting it again."
+            } else {
+                "GITHUB_WAITING_CAPACITY: request queue is full; retry after current requests complete."
+            }
+        )
     private val circuit = GitHubRequestCircuit()
     private data class Waiter(val priority: Int, val sequence: Long, val ready: CompletableDeferred<Unit>, var bypasses: Int = 0)
     private val lock = Any()
@@ -41,7 +51,7 @@ class GitHubRequestScheduler(
                 inFlight[it]?.also {
                     if (waitingJoins >= maxJoined) {
                         rejected++
-                        error("GITHUB_WAITING_CAPACITY: shared-read waiters are full; consume the existing result before requesting it again.")
+                        throw Capacity(sharedRead = true)
                     }
                     waitingJoins++
                     owner = false
@@ -91,7 +101,7 @@ class GitHubRequestScheduler(
             } else {
                 if (queue.size >= maxQueued) {
                     rejected++
-                    error("GITHUB_WAITING_CAPACITY: request queue is full; retry after current requests complete.")
+                    throw Capacity(sharedRead = false)
                 }
                 Waiter(priority, ++sequence, CompletableDeferred()).also {
                     queue += it

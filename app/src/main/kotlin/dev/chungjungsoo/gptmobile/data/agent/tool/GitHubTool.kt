@@ -1382,6 +1382,11 @@ class GitHubTool(
     ): AgentToolResult {
         if (throwable is dev.chungjungsoo.gptmobile.data.github.GitHubExecutionBlocked) return executionResult(callId, throwable.checkpoint)
         val detail = throwable.localizedMessage ?: throwable.message ?: "Unknown error"
+        if (throwable is dev.chungjungsoo.gptmobile.data.github.GitHubRequestScheduler.Capacity) {
+            // A compound tool may already have completed earlier HTTP operations. Keep
+            // their receipts authoritative instead of marking the entire tool undispatched.
+            return AgentToolResult(callId, ToolResultContent.Text("$detail This HTTP request was not dispatched. Reconcile any earlier mutation receipts before continuing the operation."), true, errorCode = "GITHUB_WAITING_CAPACITY")
+        }
         if (detail.startsWith("GITHUB_UNEXPECTED_RESPONSE")) {
             return AgentToolResult(callId, ToolResultContent.Text(detail), true, errorCode = "GITHUB_UNEXPECTED_RESPONSE")
         }

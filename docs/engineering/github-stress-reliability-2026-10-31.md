@@ -30,6 +30,7 @@ Android task store and does not fabricate or resolve any prior mutation receipts
 | Result delivery | Preserve upstream error codes on saved pages and capacity receipts, preserve numeric JSON types, escape continuation pointers, stop fragment allocation at the retained-byte limit, and retain task/execution identifiers. | Saved error pages, Unicode reconstruction, large numeric scalars, escaped pointers. |
 | Capacity recovery | Offer a narrower immutable commit-summary read with the same starting file offset. A one-file summary that still exceeds capacity does not advertise a repeating recovery call. | Page-size conversion, pinned SHA, schema validity and loop prevention. |
 | Request scheduling | Bound waiting shared-read subscribers separately from the physical queue; release subscriber slots on cancellation; give old queued work a turn after bounded priority bypasses. Expose queue occupancy, high-water mark and capacity rejections. | 1,000 simultaneous identical reads, cancellation isolation, bounded priority bypasses and cancellation after permit transfer. |
+| Write admission recovery | Use a typed queue-capacity rejection, retain its error code, and record the individual undispatched HTTP write as rejected. Preserve earlier completed mutation receipts and keep compound-operation/lost-response failures uncertain. | A full queue sends no write; a later explicit attempt succeeds once without replaying an earlier mutation; compound failures remain fenced and the tool error does not erase earlier dispatch evidence. |
 | CI watches | Validate supplied watch identifiers before backend dispatch; re-read the PR head after fetching an explicitly paired workflow run. | Invalid/missing IDs, concurrent PR push, stable paired watch and independent run watch. |
 | Coding context | Discover static relative JavaScript/TypeScript imports and directory entry points against the pinned tree; cache repeated lexical import lookups; stop at the scan bound and disclose incomplete coverage; recognize common Python, JS/TS and JVM test names. | Relative paths, repository escape, root package wildcard, import stress and test naming. |
 
@@ -46,7 +47,14 @@ The temporary benchmark branch is outside this change and has not been deleted.
 - Standalone JVM compilation with Kotlin 2.4.20 and the repository's coroutine/JSON
   versions: all 9 tests in `GitHubRequestSchedulerStressTest`,
   `GitHubRequestCircuitTest` and `GitHubReadRetryPolicyTest` passed on JDK 17.
-- Added 20 behavioral regression tests covering the changes above.
+- A further 14 isolated JVM tests passed for commit summaries, result views and
+  code context using the production sources and verbatim extracted supporting
+  declarations/helpers. This is unit-level evidence, not Android integration.
+- All 13 execution-journal tests passed against the actual journal, state store
+  and scheduler with inert Android context/annotation/logging fixtures; Android
+  keystore access was deliberately unavailable. This covers the new queue rejection
+  and existing lost-response, restart, eviction and no-replay behavior.
+- Added 23 behavioral regression tests covering the changes above.
 - Full Android validation requires JDK 21 and Android SDK 37. This host has JDK 17
   and no Android SDK; the Gradle wrapper also cannot reach its distribution through
   the JVM network configuration. Full app compilation and unit tests are delegated

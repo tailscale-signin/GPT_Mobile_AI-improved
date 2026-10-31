@@ -29,6 +29,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -119,7 +120,7 @@ class GitHubWorkspaceClient(
     suspend fun taskSnapshot(): GitHubTaskSnapshot? = repositorySession.snapshot()
     suspend fun taskContext(): GitHubRepositoryContext? = repositorySession.context()
     internal suspend fun trackExecution(action: String, arguments: JsonObject, block: suspend () -> JsonElement): JsonObject =
-        executionJournal.run(action, arguments, block).jsonObject
+        executionJournal.run(action, arguments, block = block).jsonObject
 
     private data class ReleaseDispatchReceipt(val root: String, val workflowId: String, val sourceSha: String, val tagName: String, val correlationId: String)
 
@@ -1695,7 +1696,7 @@ class GitHubWorkspaceClient(
             put("invocation", currentCoroutineContext()[Invocation]?.identity.orEmpty())
             body?.let { put("body", it) }
         }
-        val result = executionJournal.run("http.${method.value}", identity) { requestUntracked(path, method, body, authenticated) }.jsonObject
+        val result = executionJournal.run("http.${method.value}", identity, singleHttpRequest = true) { requestUntracked(path, method, body, authenticated) }.jsonObject
         if (result["execution"]?.jsonObject?.get("status")?.jsonPrimitive?.content != "COMPLETED") {
             throw GitHubExecutionBlocked(result)
         }

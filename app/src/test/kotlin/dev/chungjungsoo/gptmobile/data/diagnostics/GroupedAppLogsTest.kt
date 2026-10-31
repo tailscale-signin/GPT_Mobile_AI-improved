@@ -4,6 +4,14 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class GroupedAppLogsTest {
+    @Test fun largeRepeatedGroupRetainsEveryOriginalEntry() {
+        val entries = (0 until 2000).map { index -> AppLogEntry(1000L + index, "I", "Model", "Waiting") }
+        val group = groupAppLogs(entries).single()
+        assertEquals(entries.size, group.repetitions)
+        assertEquals(entries, group.rawDetails)
+        assertEquals(entries.last().time, group.lastTime)
+    }
+
     @Test fun `consecutive repeats compress without losing count or last timestamp`() {
         val events = listOf(AppLogEntry(1000, "I", "Model", "Waiting"), AppLogEntry(1500, "I", "Model", "Waiting"), AppLogEntry(2000, "I", "Model", "Waiting"))
         val group = groupAppLogs(events).single()

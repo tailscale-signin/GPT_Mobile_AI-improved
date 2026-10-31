@@ -8,9 +8,18 @@ data class GroupedAppLog(
     val incidentIds: Set<String> = emptySet()
 )
 
+private class MutableLogGroup(entry: AppLogEntry, issueIds: Set<String>) {
+    var entry = entry
+    var lastTime = entry.time
+    val rawDetails = mutableListOf(entry)
+    val incidentIds = issueIds.toMutableSet()
+
+    fun snapshot() = GroupedAppLog(entry, lastTime, rawDetails.size, rawDetails.toList(), incidentIds.toSet())
+}
+
 /** Display compression and causal issue counts are separate; every captured record remains available. */
 internal fun groupAppLogs(entries: List<AppLogEntry>): List<GroupedAppLog> {
-    val grouped = mutableListOf<GroupedAppLog>()
+    val grouped = mutableListOf<MutableLogGroup>()
     val repeatedEvents = mutableMapOf<String, Int>()
     val causalGroups = mutableMapOf<String, Int>()
     val incidents = DiagnosticIncidentTracker()
@@ -38,14 +47,16 @@ internal fun groupAppLogs(entries: List<AppLogEntry>): List<GroupedAppLog> {
             entry.tag == previous.entry.tag &&
             if (eventKey != null) entry.time - previous.lastTime in 0..60_000 else !actionable && entry.time - previous.lastTime in 0..2000 && entry.message == previous.entry.message
         if (canGroup && previous != null) {
-            val display = if (previous.incidentIds.isEmpty() && actionable) entry else previous.entry
-            grouped[previousIndex] = previous.copy(entry = display, lastTime = maxOf(previous.lastTime, entry.time), repetitions = previous.repetitions + 1, rawDetails = previous.rawDetails + entry, incidentIds = previous.incidentIds + issueIds)
+            if (previous.incidentIds.isEmpty() && actionable) previous.entry = entry
+            previous.lastTime = maxOf(previous.lastTime, entry.time)
+            previous.rawDetails.add(entry)
+            previous.incidentIds.addAll(issueIds)
             causalGroups[association.id] = previousIndex
         } else {
             eventKey?.let { repeatedEvents[it] = grouped.size }
             causalGroups[association.id] = grouped.size
-            grouped.add(GroupedAppLog(entry, incidentIds = issueIds))
+            grouped.add(MutableLogGroup(entry, issueIds))
         }
     }
-    return grouped.sortedBy { it.lastTime }
+    return grouped.sortedBy { it.lastTime }.map { it.snapshot() }
 }

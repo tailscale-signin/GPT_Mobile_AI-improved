@@ -20,6 +20,23 @@ versions. Recovery context reports counts and age only for its latest 32 retaine
 execution records. Context load duration is not an end-to-end recovery time;
 an RTO has not been configured or established.
 
+Batch restoration now takes one mutex-protected snapshot of pending calls and
+dispatch accounting, so a concurrent checkpoint update cannot mix different
+versions of the batch. Known pre-dispatch rejections do not use an executable
+call slot; a claim without a saved receipt still counts as potentially sent.
+The runner records the measured checkpoint snapshot time and can accept an
+optional `CheckpointRestoreObjective` through `AgentRunLimits`. Its MET or
+EXCEEDED status applies only to checkpoint loading, not to provider availability,
+remote reconciliation or completion of the user's task. No default objective
+or device-level recovery guarantee is asserted.
+
+Write-schema feedback identifies missing file paths before showing the full
+schema and instructs the model to retrieve paths and SHAs rather than invent
+them. Mismatched receipts and interrupted writes remain unknown outcomes, and
+the same write is blocked until reconciliation. The diagnostics log view groups
+records off the main thread and composes a bounded visible list; device frame
+measurements are still needed to establish the effect on the observed stalls.
+
 Tool discovery serializes concurrent cold acquisitions and caches successful
 queries for the run. Inventory continuations carry a version derived from the
 authorized names and schemas; a changed inventory must be restarted. The schema
@@ -60,7 +77,7 @@ workflow definitions in source.
 | Commit and branch awareness | Pinned commit pagination exposes parent edges, unloaded parents, and explicitly heuristic message intent hints. Existing branch context, dependencies, compare and PR health expose multiple heads, conflicts and unknown policy. A page is not described as the entire commit graph. |
 | Output cache and cross-session guidance | Existing immutable blob, index, evidence, and search-page caches are keyed by credential/repository/revision and exact query options. Canonical output hashes support replay inspection. Fuzzy results do not substitute for exact source evidence. Persisted code/reference/import indexes supply examples across sessions; they do not train or fine-tune a model. |
 | Pre-commit feedback and generated tests | Native and engineering stages report added-text hygiene, credentials and merge conflicts with file/line codes. Related test/symbol context and behavior/boundary/recovery guidance support AI-generated tests. Compiler/lint/unit/CodeQL explicitly remain `NOT_RUN` until executed; no generated test is considered passing by construction. |
-| Semantic, pattern and reference discovery | Existing bounded fuzzy identifier search, definitions/references/import indexes and related source/test hints are retained. New `patterns` uses ordered literal segments separated by `*`, bounded to one line, without arbitrary regex evaluation. Search context supports up to 20 nearby lines within the result byte budget. These are explainable lexical/fuzzy tools, not embedding-based semantic or compiler analysis. |
+| Semantic, pattern and reference discovery | Existing bounded fuzzy identifier search, definitions/references/import indexes and related source/test hints are retained. New `patterns` uses ordered literal segments separated by `*`, bounded to one line, without arbitrary regex evaluation. Search context supports up to 100 nearby lines within the result byte budget. These are explainable lexical/fuzzy tools, not embedding-based semantic or compiler analysis. |
 | Inline editing and code review | Existing inline exact-snippet editing restages a new immutable patch and requires reapproval. A shared selectable diff now highlights headers, hunks, added and removed lines, retaining text prefixes for accessibility. Frozen approval snapshots remain immutable. Contextual help and repository test guidance accompany staging/planning. |
 | AI suggestions and refactoring | The existing model receives pinned multi-file, history, index, related-test and local validation evidence through the operation planner. Suggestions and refactoring recommendations remain model output that must be staged and tested. A separate learned pattern engine, automatic AST refactorer, or measured accuracy increase is not claimed. |
 

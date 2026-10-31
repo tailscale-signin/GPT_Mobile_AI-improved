@@ -101,6 +101,10 @@ fun GitHubWorkspaceScreen(
     LaunchedEffect(state.connection?.connectionUid, state.selection, state.headSha, state.commits, state.staged, state.editorDrafts, state.patchStage) { programmer.bind(state) }
     val commandContext = programmerState.context?.takeIf { it.connectionUid == connection.connectionUid && it.owner == state.selection?.owner && it.repo == state.selection?.repo && it.ref == state.selection?.ref }
     val visibleProgrammer = if (commandContext != null) programmerState else programmerState.copy(context = null, chatId = null, messages = emptyList(), runs = emptyList(), events = emptyList(), approvals = emptyList(), pending = emptyList(), draftLoaded = false)
+    val engineeringModel: dev.chungjungsoo.gptmobile.presentation.ui.chat.GatewayEngineeringViewModel = hiltViewModel()
+    val engineering by engineeringModel.state.collectAsStateWithLifecycle()
+    LaunchedEffect(visibleProgrammer.chatId) { visibleProgrammer.chatId?.let(engineeringModel::bind) }
+    val engineeringJob = engineering.bindings.lastOrNull { it.chatId == visibleProgrammer.chatId && it.job?.terminal == false }?.job
     LaunchedEffect(connection.connectionUid, initialProfileUid, initialChatId) {
         programmer.configureSession(initialProfileUid, initialChatId, newConversation)
     }
@@ -207,7 +211,7 @@ fun GitHubWorkspaceScreen(
                             }
                         }
                     )
-                    GitHubChatProgress(state, visibleProgrammer)
+                    GitHubChatProgress(state, visibleProgrammer, engineeringJob)
                 }
             },
             bottomBar = {}
@@ -369,7 +373,7 @@ fun GitHubWorkspaceScreen(
                                 }
                             }
                             5 -> {
-                                GitHubProgrammerSettings(state, visibleProgrammer, programmer::selectProfile, programmer::setPrepareIndex, viewModel::prepareCodeIndex)
+                                GitHubProgrammerSettings(state, visibleProgrammer, programmer::selectProfile, programmer::setPrepareIndex, viewModel::prepareCodeIndex, programmer::setProfileSettings)
                                 if (state.selection != null) {
                                     OutlinedTextField(branchName, { branchName = it }, label = { Text("New working branch") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                                     Button(onClick = {

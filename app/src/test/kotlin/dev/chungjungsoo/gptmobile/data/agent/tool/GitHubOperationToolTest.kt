@@ -33,6 +33,72 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubOperationToolTest {
+    @Test fun searchSavedPagesAcceptOnlyUnchangedSelectorsWithoutDispatch() = runBlocking {
+        val backend = Backend().also { it.body = JsonPrimitive("search evidence ".repeat(2000)) }
+        val tool = GitHubOperationTool("github_search", backend, "search-context", views = GitHubResultViews(pageBytes = 2048))
+        val request = args("""{"owner":"owner","repo":"repo","commit_sha":"$sha","query":"Target","mode":"definitions","path_prefix":"src/","index_cursor":0,"batch_size":100,"context_lines":4,"fuzzy_match":false}""")
+        var cursor = continuation(result(tool.execute("first", request)))
+        var pages = 0
+        while ("view_cursor" in cursor) {
+            val saved = tool.execute("page-${pages++}", JsonObject(cursor + request))
+            assertFalse(saved.isError)
+            assertFalse(saved.dispatched)
+            assertTrue(saved.sharedResult)
+            assertTrue(pages < 200)
+            val page = result(saved)
+            if (page["local_page_complete"] == JsonPrimitive(true)) break
+            cursor = continuation(page)
+        }
+        assertTrue(pages > 1)
+        for ((field, value) in listOf("query" to JsonPrimitive("Other"), "index_cursor" to JsonPrimitive(1), "context_lines" to JsonPrimitive(3), "mode" to JsonPrimitive("paths"), "unexpected" to JsonPrimitive(true))) {
+            val rejected = tool.execute("changed-$field", JsonObject(cursor + request + (field to value)))
+            assertEquals("INVALID_ARGUMENTS", rejected.errorCode)
+            assertFalse(rejected.dispatched)
+        }
+        assertEquals(1, backend.calls.size)
+    }
+
+    @Test fun savedReadRangesCannotBeChangedOrUsedToRepeatAWrite() = runBlocking {
+        val backend = Backend().also { it.body = JsonPrimitive("evidence ".repeat(2000)) }
+        val tool = GitHubOperationTool("github_read", backend, "range-context", views = GitHubResultViews(pageBytes = 2048))
+        val request = args("""{"ranges":[{"path":"A.kt","start_line":1,"end_line":3}]}""")
+        val cursor = continuation(result(tool.execute("first", request)))
+        assertFalse(tool.execute("same", JsonObject(cursor + request)).isError)
+        val changed = args("""{"ranges":[{"path":"B.kt","start_line":1,"end_line":3}]}""")
+        assertEquals("INVALID_ARGUMENTS", tool.execute("changed", JsonObject(cursor + changed)).errorCode)
+        assertEquals("INVALID_ARGUMENTS", tool.execute("write", JsonObject(cursor + ("files" to JsonArray(emptyList())))).errorCode)
+        assertEquals(1, backend.calls.size)
+    }
+
+    @Test fun invalidWatchIdentifiersAreRejectedBeforeBackendDispatch() = runBlocking {
+        val backend = Backend()
+        val tool = GitHubOperationTool("github_watch_checks", backend, "watch")
+        for (invalid in listOf("{}", "{\"run_id\":0}", "{\"pr_number\":-1}", "{\"run_id\":\"not-a-run\"}")) {
+            val rejected = tool.execute("invalid", args(invalid))
+            assertTrue(rejected.isError)
+            assertFalse(rejected.dispatched)
+            assertEquals("INVALID_ARGUMENTS", rejected.errorCode)
+        }
+        assertTrue(backend.calls.isEmpty())
+        tool.execute("valid", args("{\"run_id\":42}"))
+        assertEquals("watch_checks", backend.calls.single()["action"]!!.jsonPrimitive.content)
+    }
+
+    @Test fun commitDetailContinuationKeepsItsPageSizeAndPatchPreference() = runBlocking {
+        val backend = Backend().apply {
+            body = args("""{"continuation":{"action":"get_commit_detail","commit_sha":"$sha","ref":"$sha","page":2,"per_page":5,"include_patches":false}}""")
+        }
+        val tool = GitHubOperationTool("github_context", backend, "commit-pages")
+        val next = continuation(result(tool.execute("first", args("""{"action":"commit","ref":"main","per_page":5,"include_patches":false}"""))))
+        valid("github_context", next)
+        assertEquals(JsonPrimitive(5), next["per_page"])
+        assertEquals(JsonPrimitive(false), next["include_patches"])
+        assertEquals(JsonPrimitive(sha), next["commit_sha"])
+        tool.execute("next", next)
+        assertEquals(JsonPrimitive(2), backend.calls.last()["page"])
+        assertEquals(JsonPrimitive(5), backend.calls.last()["per_page"])
+    }
+
     @Test fun pullRequestListIsAdvertisedAndContextRequiresObservedNumber() = runBlocking {
         val backend = Backend()
         val tool = GitHubOperationTool("github_pr", backend, "pr-list")

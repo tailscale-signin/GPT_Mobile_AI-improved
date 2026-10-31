@@ -46,7 +46,7 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String) 
         fun restore(id: String) = AgentContractValidation.receipt(id, AgentToolResult(id, if (json) ToolResultContent.Json(Json.parseToJsonElement(body)) else ToolResultContent.Text(body), error, sharedResult = true, dispatched = dispatched, errorCode = code, toolCallBudgetExhausted = callLimit, outputBudgetExhausted = outputLimit))
     }
 
-    @Serializable private data class Entry(val call: Call, val started: Boolean = false, val result: Result? = null)
+    @Serializable private data class Entry(val call: Call, val started: Boolean = false, val result: Result? = null, val priorBudgetRejection: Result? = null)
 
     @Serializable private data class State(val binding: String, val schemaVersion: Int = 1, val pending: List<String> = emptyList(), val entries: Map<String, Entry> = emptyMap())
     private val mutex = file?.let { locks.computeIfAbsent(it.absolutePath) { Mutex() } } ?: Mutex()
@@ -98,6 +98,27 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String) 
         val state = read()
         state.pending.filterTo(mutableSetOf()) { state.entries.getValue(it).countsAsDispatched() }
     }
+
+    /** Only an explicit user retry may reopen a proven pre-dispatch budget rejection. */
+    suspend fun prepareExplicitBudgetRetry() = locked {
+        val state = read()
+        val entries = state.entries.toMutableMap()
+        state.pending.forEach { id ->
+            val entry = entries.getValue(id)
+            val result = entry.result ?: return@forEach
+            entries[id] = if (result.error && !result.dispatched && result.code == "BUDGET_EXHAUSTED") {
+                // Keep the old refusal for audit, but let ordinary admission decide
+                // whether this still-unexecuted call fits the current allowance.
+                entry.copy(started = false, result = null, priorBudgetRejection = result)
+            } else {
+                // These are attempt-local signals, not execution authority. The
+                // new budget is enforced on new work; the receipt stays retained.
+                entry.copy(result = result.copy(callLimit = false, outputLimit = false))
+            }
+        }
+        if (entries != state.entries) write(state.copy(entries = entries))
+    }
+
     suspend fun recoverySnapshot(objective: CheckpointRestoreObjective? = null): ToolBatchRecoverySnapshot {
         val started = System.nanoTime()
         return locked {
@@ -142,14 +163,14 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String) 
         require(entries.size <= 1024) { "Tool recovery call capacity reached before dispatch." }
         write(state.copy(pending = calls.map { it.callId }, entries = entries))
     }
-    suspend fun execute(call: ProviderEvent.ToolCall, dispatch: suspend () -> AgentToolResult): AgentToolResult {
+    suspend fun execute(call: ProviderEvent.ToolCall, replayableRead: Boolean = false, dispatch: suspend () -> AgentToolResult): AgentToolResult {
         val restored = locked {
             val state = read()
             val entry = requireNotNull(state.entries[call.callId])
             require(entry.call.event() == call)
             when {
                 entry.result != null -> entry.result.restore(call.callId)
-                entry.started -> AgentToolResult(call.callId, ToolResultContent.Text("Execution was interrupted after dispatch. Its outcome is unknown; inspect the external state before requesting a new operation. This call was not dispatched again."), true, sharedResult = true, errorCode = "TOOL_OUTCOME_UNKNOWN", dispatched = false)
+                entry.started && !replayableRead -> AgentToolResult(call.callId, ToolResultContent.Text("Execution was interrupted after dispatch. Its outcome is unknown; inspect the external state before requesting a new operation. This call was not dispatched again."), true, sharedResult = true, errorCode = "TOOL_OUTCOME_UNKNOWN", dispatched = false)
                 else -> {
                     write(state.copy(entries = state.entries + (call.callId to entry.copy(started = true))))
                     null

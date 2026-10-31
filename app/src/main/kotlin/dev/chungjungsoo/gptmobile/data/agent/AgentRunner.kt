@@ -60,7 +60,9 @@ data class AgentRunLimits(
 class AgentRunner(
     val limits: AgentRunLimits = AgentRunLimits(),
     private val checkpoint: ToolBatchCheckpoint? = null,
-    private val healthCatalog: ProgressiveToolCatalog? = null
+    private val healthCatalog: ProgressiveToolCatalog? = null,
+    private val retryUndispatchedBudgetFailures: Boolean = false,
+    private val onToolResult: ((ProviderEvent.ToolCall, AgentToolResult) -> Unit)? = null
 ) {
     fun run(session: AgentProviderSession, tools: List<AgentTool>, dynamicTools: () -> List<AgentTool> = { emptyList() }, selectDefinitions: (List<AgentToolDefinition>) -> List<AgentToolDefinition> = { it }): Flow<AgentRunEvent> = flow {
         if (tools.groupBy { it.definition.name }.any { it.value.size > 1 }) {
@@ -73,6 +75,7 @@ class AgentRunner(
         var exposedDefinitions = tools.map { it.definition }
         val exchanges = mutableListOf<AgentToolExchange>()
         var rounds = 0
+        if (retryUndispatchedBudgetFailures) checkpoint?.prepareExplicitBudgetRetry()
         val recovery = checkpoint?.recoverySnapshot(limits.checkpointRestoreObjective)
         var toolCallCount = recovery?.dispatchedCount ?: 0
         var toolMayHaveExecuted = (recovery?.dispatchedCount ?: 0) > 0
@@ -125,6 +128,7 @@ class AgentRunner(
         var unproductiveDiscoveryRounds = 0
         var suppressedReadRounds = 0
         var unsuccessfulGitHubRounds = 0
+        var finalizationToolRepairAttempted = false
         var restoredCalls = recovery?.pending.orEmpty()
         var restoredDispatched = recovery?.pendingDispatchedIds.orEmpty()
         var restoredRetained = recovery?.pendingRetainedIds.orEmpty()
@@ -225,6 +229,15 @@ class AgentRunner(
                     instructFinalResponse(exchanges)
                 }
                 continue
+            }
+            // A provider may ignore an empty tool catalog. Offer one correction,
+            // then stop instead of spending the observed-call ceiling on refusals.
+            if (finalResponseRequested && exposedDefinitions.isEmpty() && round.calls.isNotEmpty()) {
+                if (finalizationToolRepairAttempted) {
+                    emit(AgentRunEvent.Provider(ProviderEvent.Failed("The provider kept requesting tools after finalization. Completed results are retained; no additional action was dispatched.", errorCode = "FINAL_RESPONSE_REQUIRED")))
+                    return
+                }
+                finalizationToolRepairAttempted = true
             }
             val resolvedCalls = round.calls.map { resolveGitHubReadAlias(it, executableToolByName.keys) }
             resolvedCalls.forEach { emit(AgentRunEvent.Provider(it)) }
@@ -414,8 +427,12 @@ class AgentRunner(
         var toolCallCount = initialToolCallCount
         var finalResponseRequested = initialFinalResponseRequested
         var suppressedReadRounds = previousSuppressedReadRounds
-        val toolsForBatch = executableToolByName
-        val plan = planToolBatch(calls, remainingCalls, toolsForBatch.keys, toolCallsByName, blockedReadScopes, MAX_SAME_TOOL_CALLS_PER_RUN, restoredRetained, ::failureScope)
+        val questionNames = executableToolByName.values.filter { AgentToolCapability.USER_DECISION in it.definition.capabilities }.mapTo(hashSetOf()) { it.definition.name }
+        // A choice and a mutation in the same model batch must not race. Replan
+        // dependent actions after the answer has been returned to the model.
+        val toolsForBatch = if (calls.any { it.name in questionNames }) executableToolByName.filterKeys { it in questionNames } else executableToolByName
+        val batchAllowance = if (calls.any { it.name in questionNames }) minOf(1, remainingCalls) else remainingCalls
+        val plan = planToolBatch(calls, batchAllowance, toolsForBatch.keys, toolCallsByName, blockedReadScopes, MAX_SAME_TOOL_CALLS_PER_RUN, restoredRetained, ::failureScope)
         val executableCalls = plan.executable
         val deferredCalls = plan.deferred
         val perToolSuppressedIds = plan.perToolSuppressedIds
@@ -430,14 +447,21 @@ class AgentRunner(
         checkpoint?.enqueue(calls)
         executableCalls.forEach { emit(AgentRunEvent.ToolStarted(it)) }
         val executedResults = mutableListOf<AgentToolResult>()
-        for (batch in executableCalls.chunked(limits.maxToolCallsPerRound.coerceIn(1, 32))) {
-            val results = executeToolBatch(batch, toolsForBatch, unknownOutcomes)
-            executedResults += results
-            batch.zip(results).forEach { (call, result) ->
+        // Keep one graph for the entire admitted round: chunk boundaries must not
+        // erase dependencies or allow a write after an earlier failed read.
+        executedResults += executeToolBatch(
+            executableCalls,
+            toolsForBatch,
+            unknownOutcomes,
+            completed = { call, result ->
+                checkpoint?.complete(call, result)
                 healthCatalog?.recordObservation(call.name, result)
+                onToolResult?.invoke(call, result)
                 emit(AgentRunEvent.ToolFinished(call, result))
-            }
-        }
+            },
+            progress = { emit(AgentRunEvent.BatchProgress(it)) },
+            plannedCalls = calls
+        )
         if (!finalResponseRequested && !retriedWithoutTools) {
             val update = admitDiscoveredTools(dynamicTools(), toolByName, executableToolByName, exposedDefinitions, initialSchemaTokens, consecutiveToolFailures, toolCallsByName, replayTokens, selectDefinitions) ?: return null
             executableToolByName = update.tools
@@ -673,6 +697,7 @@ class AgentRunner(
         val repeatLimited = allResults.any { toolResultText(it).contains("reached the per-response repeat limit", ignoreCase = true) }
         val unavailableCallsOnly = noExecutableCalls && calls.isNotEmpty() && !canReadOtherSources
         val mustFinalize = unavailableCallsOnly ||
+            allResults.any { it.errorCode == "GITHUB_USER_STOP" } ||
             repeatedReadSuppression ||
             repeatedDiscoveryStalled ||
             roundLimitReached ||
@@ -680,7 +705,10 @@ class AgentRunner(
             outputBudgetExhausted ||
             toolCallBudgetExhausted ||
             (executionToolCallLimit < Int.MAX_VALUE && toolCallCount >= executionToolCallLimit)
-        if (unavailableCallsOnly) {
+        if (allResults.any { it.errorCode == "GITHUB_USER_STOP" }) {
+            finalResponseRequested = true
+            emit(AgentRunEvent.Notice("Stopped at your decision. Retained work is available for review.", persistent = true))
+        } else if (unavailableCallsOnly) {
             finalResponseRequested = true
             emit(AgentRunEvent.Notice(if (repeatLimited) "Repeated calls were stopped. Finishing with the findings already collected." else "Requested tools are unavailable for this response. Finishing with the findings already collected.", persistent = false))
         } else if (repeatedReadSuppression) {
@@ -759,10 +787,13 @@ class AgentRunner(
         }
 
         calls.zip(allResults).forEach { (call, result) ->
-            if (call.callId !in publishedCallIds) emit(AgentRunEvent.ToolFinished(call, result))
+            if (call.callId !in publishedCallIds) {
+                onToolResult?.invoke(call, result)
+                emit(AgentRunEvent.ToolFinished(call, result))
+            }
         }
         // Retain bounded observations on ingress, including trace/retained payloads.
-        val retentionBudget = limits.maxRetainedEvidenceTokens.coerceIn(1024, 32_000)
+        val retentionBudget = limits.maxRetainedEvidenceTokens.coerceIn(1024, if (limits.githubTask) 262_144 else 32_000)
         val observations = exchanges + AgentToolExchange(calls, allResults.map { it.copy(traceContent = null, retainedContent = null) })
         val retained = ToolExchangeCompactor.compact(
             observations,
@@ -941,7 +972,11 @@ class AgentRunner(
                     }
                 }
 
-                is ProviderEvent.ToolResult -> emit(AgentRunEvent.ToolFinished(event.call, ToolObservationRetention.bound(AgentContractValidation.receipt(event.call.callId, event.result))))
+                is ProviderEvent.ToolResult -> {
+                    val receipt = AgentContractValidation.receipt(event.call.callId, event.result)
+                    onToolResult?.invoke(event.call, receipt)
+                    emit(AgentRunEvent.ToolFinished(event.call, ToolObservationRetention.bound(receipt)))
+                }
 
                 is ProviderEvent.Failed -> {
                     failure = event.message
@@ -1045,7 +1080,57 @@ class AgentRunner(
         return newlyBlockedTools
     }
 
-    private suspend fun executeToolBatch(calls: List<ProviderEvent.ToolCall>, tools: Map<String, AgentTool>, unknownOutcomes: MutableSet<String>): List<AgentToolResult> {
+    private suspend fun executeToolBatch(
+        calls: List<ProviderEvent.ToolCall>,
+        tools: Map<String, AgentTool>,
+        unknownOutcomes: MutableSet<String>,
+        completed: suspend (ProviderEvent.ToolCall, AgentToolResult) -> Unit,
+        progress: suspend (ToolBatchProgress) -> Unit,
+        plannedCalls: List<ProviderEvent.ToolCall>
+    ): List<AgentToolResult> {
+        val intelligent = limits.githubTask ||
+            limits.researchAcquisition ||
+            calls.any {
+                dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it.name) != null || replayableRead(it)
+            }
+        if (!intelligent) {
+            val results = mutableListOf<AgentToolResult>()
+            // Keep undispatched later chunks out of the cancellation race. The
+            // dependency-aware scheduler below still owns one complete DAG.
+            for (batch in calls.chunked(limits.maxToolCallsPerRound.coerceIn(1, 32))) {
+                val receipts = executeLegacyToolBatch(batch, tools, unknownOutcomes)
+                results += receipts
+                batch.zip(receipts).forEach { (call, result) -> completed(call, result) }
+            }
+            return results
+        }
+        val admittedIds = calls.mapTo(hashSetOf()) { it.callId }
+        val fullPlan = planIntelligentBatch(plannedCalls, tools).filter { it.call.callId in admittedIds }
+        val blocked = fullPlan.filter { !admittedIds.containsAll(it.dependencies) }.mapTo(hashSetOf()) { it.call.callId }
+        val nodes = fullPlan.map { it.copy(dependencies = it.dependencies.intersect(admittedIds)) }
+        return IntelligentToolBatch(AdaptiveBatchWindow(limits.maxConcurrentTools)).execute(
+            nodes,
+            dispatch = { call ->
+                if (call.callId in blocked) {
+                    return@execute ToolResultEnvelope.error(call.callId, "DEPENDENCY_FAILED", "A prerequisite was deferred by admission. This operation was not dispatched; replan after the missing read completes.")
+                }
+                val signature = call.name + ":" + dev.chungjungsoo.gptmobile.data.permissions.ScopedToolGrant.canonicalHash(call.arguments)
+                suspend fun dispatch(): AgentToolResult = if (synchronized(unknownOutcomes) { signature in unknownOutcomes }) {
+                    ToolResultEnvelope.error(call.callId, "RECONCILIATION_REQUIRED", "An earlier identical operation has an unknown outcome. Reconcile it before requesting another write.")
+                } else {
+                    executeBounded(call, tools[call.name])
+                }
+                val interaction = AgentToolCapability.USER_DECISION in tools[call.name]?.definition?.capabilities.orEmpty()
+                val result = if (interaction) dispatch().also { checkpoint?.complete(call, it) } else checkpoint?.execute(call, replayableRead = replayableRead(call)) { dispatch() } ?: dispatch()
+                if (result.errorCode in ToolResultEnvelope.unknownOutcomeCodes && !replayableRead(call)) synchronized(unknownOutcomes) { unknownOutcomes += signature }
+                result
+            },
+            completed = completed,
+            progress = progress
+        )
+    }
+
+    private suspend fun executeLegacyToolBatch(calls: List<ProviderEvent.ToolCall>, tools: Map<String, AgentTool>, unknownOutcomes: MutableSet<String>): List<AgentToolResult> {
         val semaphore = Semaphore(limits.maxConcurrentTools.coerceIn(1, 32))
         val perTool = calls.map { it.name }.distinct().associateWith { Semaphore(1) }
         val order = calls.mapIndexed { index, call -> call.callId to index }.toMap()
@@ -1064,7 +1149,11 @@ class AgentRunner(
                                     } else {
                                         executeBounded(call, tools[call.name])
                                     }
-                                    val result = checkpoint?.execute(call) { dispatch() } ?: dispatch()
+                                    // A local question has its own durable answer. Keep its
+                                    // checkpoint queued while waiting, so process death cannot
+                                    // misclassify user input as an uncertain external write.
+                                    val interaction = AgentToolCapability.USER_DECISION in tools[call.name]?.definition?.capabilities.orEmpty()
+                                    val result = if (interaction) dispatch().also { checkpoint?.complete(call, it) } else checkpoint?.execute(call) { dispatch() } ?: dispatch()
                                     if (result.errorCode in ToolResultEnvelope.unknownOutcomeCodes && !replayableRead(call)) unknownOutcomes += signature
                                     call to result
                                 }
@@ -1120,19 +1209,28 @@ class AgentRunner(
         }
         val replayableRead = replayableRead(call)
         return try {
-            val result = if (!tool.managesExecutionBudget && limits.toolTimeoutMillis < Long.MAX_VALUE) {
-                withTimeoutOrNull(limits.toolTimeoutMillis) {
+            // A delegated child can have different data permissions. Capture only
+            // this call's authorized receipt, never its private intermediate calls.
+            val result = kotlinx.coroutines.withContext(
+                ToolReceiptObserver { observedCall, receipt ->
+                    if (observedCall == call) onToolResult?.invoke(call, receipt)
+                }
+            ) {
+                if (!tool.managesExecutionBudget && limits.toolTimeoutMillis < Long.MAX_VALUE) {
+                    withTimeoutOrNull(limits.toolTimeoutMillis) {
+                        tool.execute(call.callId, call.arguments)
+                    } ?: AgentToolResult(
+                        callId = call.callId,
+                        content = ToolResultContent.Text("Tool '${call.name}' timed out after ${limits.toolTimeoutMillis} ms."),
+                        isError = true,
+                        errorCode = if (replayableRead) "READ_DEADLINE" else "TIMEOUT_OUTCOME_UNKNOWN"
+                    )
+                } else {
                     tool.execute(call.callId, call.arguments)
-                } ?: AgentToolResult(
-                    callId = call.callId,
-                    content = ToolResultContent.Text("Tool '${call.name}' timed out after ${limits.toolTimeoutMillis} ms."),
-                    isError = true,
-                    errorCode = if (replayableRead) "READ_DEADLINE" else "TIMEOUT_OUTCOME_UNKNOWN"
-                )
-            } else {
-                tool.execute(call.callId, call.arguments)
+                }
             }
             val receipt = AgentContractValidation.receipt(call.callId, result)
+            onToolResult?.invoke(call, receipt)
             ToolObservationRetention.bound(if (tool.managesExecutionBudget) receipt else receipt.copy(content = boundContent(receipt.content)))
         } catch (error: CancellationException) {
             throw error

@@ -102,7 +102,7 @@ data class AgentToolDefinition(
     }
 }
 
-enum class AgentToolCapability { WEB_SEARCH, PAGE_READER }
+enum class AgentToolCapability { WEB_SEARCH, PAGE_READER, USER_DECISION }
 
 data class AgentToolResult(
     val callId: String,
@@ -197,6 +197,7 @@ interface AgentProviderSession {
 }
 
 sealed interface AgentRunEvent {
+    data class BatchProgress(val progress: ToolBatchProgress) : AgentRunEvent
     data class Provider(val event: ProviderEvent) : AgentRunEvent
     data class ToolStarted(val call: ProviderEvent.ToolCall) : AgentRunEvent
     data class ToolFinished(val call: ProviderEvent.ToolCall, val result: AgentToolResult) : AgentRunEvent

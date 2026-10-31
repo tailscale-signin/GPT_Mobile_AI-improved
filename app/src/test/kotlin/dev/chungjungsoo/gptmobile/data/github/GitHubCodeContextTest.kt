@@ -30,4 +30,43 @@ class GitHubCodeContextTest {
         assertTrue(context["edges"]!!.jsonArray.all { it.jsonObject["ambiguous"]!!.jsonPrimitive.content == "true" })
         assertFalse(context.toString().contains("compiler_resolution\":true"))
     }
+
+    @Test fun relativeScriptImportsResolveAgainstTheImportingDirectoryAtThePinnedRevision() {
+        val source = "src/views/Main.tsx"
+        val context = GitHubCodeContext.build(
+            mapOf(source to "import { value } from '../lib/value.js'\nexport { Widget } from './widgets'\nimport './setup'\nimport React from 'react'"),
+            listOf(source, "src/lib/value.ts", "src/views/widgets/index.tsx", "src/views/setup.ts", "elsewhere/setup.ts", "react.ts"),
+            "c".repeat(40)
+        )
+        assertEquals(
+            listOf("src/lib/value.ts", "src/views/widgets/index.tsx", "src/views/setup.ts"),
+            context["edges"]!!.jsonArray.map { it.jsonObject["to"]!!.jsonPrimitive.content }
+        )
+        assertEquals("1", context["unresolved_or_external_imports"]!!.jsonPrimitive.content)
+        assertEquals("c".repeat(40), context["commit_sha"]!!.jsonPrimitive.content)
+    }
+
+    @Test fun relativeImportsCannotEscapeTheRepositoryAndRootWildcardsWork() {
+        val context = GitHubCodeContext.build(
+            mapOf("A.ts" to "import '../outside'", "B.kt" to "import example.*"),
+            listOf("outside.ts", "example/Thing.kt"),
+            "a".repeat(40)
+        )
+        assertEquals("1", context["unresolved_or_external_imports"]!!.jsonPrimitive.content)
+        assertEquals("example/Thing.kt", context["edges"]!!.jsonArray.single().jsonObject["to"]!!.jsonPrimitive.content)
+    }
+
+    @Test fun importStressStopsAtTheDeclaredBoundAndReportsIncompleteCoverage() {
+        val sources = (1..100).associate { "src/$it.kt" to "import example.Thing\n".repeat(1000) }
+        val context = GitHubCodeContext.build(sources, listOf("example/Thing.kt"), "a".repeat(40))
+        assertEquals("512", context["imports_observed"]!!.jsonPrimitive.content)
+        assertEquals(64, context["edges"]!!.jsonArray.size)
+        assertEquals("true", context["source_scan_truncated"]!!.jsonPrimitive.content)
+        assertEquals("true", context["edges_bounded"]!!.jsonPrimitive.content)
+    }
+
+    @Test fun testCandidatesIncludeCommonScriptPythonAndJvmNamingConventions() {
+        val paths = listOf("test_value.py", "value_test.py", "value.test.ts", "value.spec.ts", "valueTests.kt", "unrelated.kt")
+        assertEquals(paths.take(5), GitHubSearchContext.related("value.py", paths).map { it.jsonPrimitive.content })
+    }
 }

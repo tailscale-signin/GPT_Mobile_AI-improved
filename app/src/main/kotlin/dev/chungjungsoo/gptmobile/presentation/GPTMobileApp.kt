@@ -121,8 +121,22 @@ class GPTMobileApp :
             StartupRecoveryGate.step("research-observer") {
                 withContext(Dispatchers.Main) {
                     androidx.lifecycle.ProcessLifecycleOwner.get().lifecycle.addObserver(object : androidx.lifecycle.DefaultLifecycleObserver {
+                        private var backgroundRelease: kotlinx.coroutines.Job? = null
                         override fun onStart(owner: androidx.lifecycle.LifecycleOwner) {
+                            backgroundRelease?.cancel()
                             dev.chungjungsoo.gptmobile.data.research.work.ResearchExaminationWorker.enqueue(this@GPTMobileApp)
+                        }
+                        override fun onStop(owner: androidx.lifecycle.LifecycleOwner) {
+                            backgroundRelease?.cancel()
+                            backgroundRelease = applicationScope.launch {
+                                delay(30_000L)
+                                StartupRecoveryGate.awaitReady()
+                                val startup = startupDependencies()
+                                if (AppForegroundTracker.isBackgrounded && startup.agentRunCoordinator().activeRuns.value.isEmpty() && !dev.chungjungsoo.gptmobile.data.localruntime.InferenceAdmission.isExclusiveBusy) {
+                                    semanticMemory.get().releaseWhenIdle(0L)
+                                    if (startup.settingRepository().getFeatureSettings().localIdleMinutes > 0) startup.localRuntime().unloadIfIdle(0L)
+                                }
+                            }
                         }
                     })
                 }
@@ -215,9 +229,11 @@ class GPTMobileApp :
             StartupRecoveryGate.awaitReady()
             while (isActive) {
                 delay(60_000L)
-                semanticMemory.get().releaseWhenIdle()
-                val idleMinutes = startupDependencies().settingRepository().getFeatureSettings().localIdleMinutes.coerceIn(0, 60)
-                if (idleMinutes > 0) startupDependencies().localRuntime().unloadIfIdle(idleMinutes * 60_000L)
+                val startup = startupDependencies()
+                val backgroundIdle = AppForegroundTracker.isBackgrounded && startup.agentRunCoordinator().activeRuns.value.isEmpty() && !dev.chungjungsoo.gptmobile.data.localruntime.InferenceAdmission.isExclusiveBusy
+                semanticMemory.get().releaseWhenIdle(if (backgroundIdle) 0L else 180_000L)
+                val idleMinutes = startup.settingRepository().getFeatureSettings().localIdleMinutes.coerceIn(0, 60)
+                if (idleMinutes > 0) startup.localRuntime().unloadIfIdle(if (backgroundIdle) 0L else idleMinutes * 60_000L)
             }
         }
 

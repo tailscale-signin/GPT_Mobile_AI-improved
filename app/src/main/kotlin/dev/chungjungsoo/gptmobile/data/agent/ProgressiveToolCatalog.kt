@@ -20,7 +20,8 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
     private val taskText = task
     private val candidates = definitions.filter { it.modelVisible }.associateBy { it.name }.toMutableMap()
     private val taskRequired = definitions.filter { definition ->
-        dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(definition.name) in
+        AgentToolCapability.USER_DECISION in definition.capabilities ||
+            dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(definition.name) in
             dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.taskTools(task)
     }
     private val requiredCapabilities = if (Regex("(?i)\\b(research|search|sources|papers|studies|latest|news|verify|article|citations)\\b").containsMatchIn(task)) setOf(AgentToolCapability.WEB_SEARCH, AgentToolCapability.PAGE_READER) else emptySet()

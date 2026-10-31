@@ -14,10 +14,16 @@ run_resources() {
     python3 scripts/check_qnn_provenance.py
 }
 
+# Provision explicitly before invoking Gradle. The verified cache works offline;
+# an air-gapped host can seed it with provision_memory_model.py --file PATH.
+case "$TASK" in
+    all|test|lint|build) python3 scripts/provision_memory_model.py ;;
+esac
+
 case "$TASK" in
     all)
         run_resources
-        "${GRADLE[@]}" :app:testDebugUnitTest :app:lintDebug assembleDebug
+        "${GRADLE[@]}" :core-domain:jvmTest :app:testDebugUnitTest :app:lintDebug assembleDebug
         python3 scripts/check_local_runtime_apk.py app/build/outputs/apk/debug/*.apk
         python3 scripts/check_no_telemetry.py app/build/outputs/apk/debug/*.apk
         ;;
@@ -25,7 +31,7 @@ case "$TASK" in
         run_resources
         ;;
     test)
-        "${GRADLE[@]}" :app:testDebugUnitTest
+        "${GRADLE[@]}" :core-domain:jvmTest :app:testDebugUnitTest
         ;;
     lint)
         "${GRADLE[@]}" :app:lintDebug

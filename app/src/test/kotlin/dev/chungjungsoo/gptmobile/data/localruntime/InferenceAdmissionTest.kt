@@ -79,6 +79,42 @@ class InferenceAdmissionTest {
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class ResourceAwareInferenceAdmissionTest {
     @Test
+    fun saturatedQueueRejectsBeforeDispatchAndCancellationFreesCapacity() = kotlinx.coroutines.test.runTest {
+        val release = CompletableDeferred<Unit>()
+        val entered = CompletableDeferred<Unit>()
+        val owner = launch {
+            InferenceAdmission.shared(ResourceRequest.local("owner")) {
+                entered.complete(Unit)
+                release.await()
+            }
+        }
+        entered.await()
+        val waiting = (1..InferenceAdmission.MAX_WAITING).map { index -> launch { InferenceAdmission.shared(ResourceRequest.local("queued-$index")) { } } }
+        runCurrent()
+        var dispatched = false
+        val failure = runCatching { InferenceAdmission.shared(ResourceRequest.local("overflow")) { dispatched = true } }.exceptionOrNull()
+        assertTrue(failure is AdmissionCapacityException)
+        assertFalse(dispatched)
+        org.junit.Assert.assertEquals(InferenceAdmission.MAX_WAITING, InferenceAdmission.blockers.value.size)
+        var independentRan = false
+        InferenceAdmission.shared(ResourceRequest.remote("independent", "other-endpoint")) { independentRan = true }
+        assertTrue(independentRan)
+        waiting.first().cancel()
+        waiting.first().join()
+        val replacement = launch { InferenceAdmission.shared(ResourceRequest.local("replacement")) { dispatched = true } }
+        runCurrent()
+        assertTrue(replacement.isActive)
+        assertFalse(dispatched)
+        release.complete(Unit)
+        owner.join()
+        waiting.forEach { it.join() }
+        replacement.join()
+        assertTrue(dispatched)
+        assertTrue(InferenceAdmission.blockers.value.isEmpty())
+        InferenceAdmission.benchmark { }
+    }
+
+    @Test
     fun queuedResearchSurvivesOldSixtySecondDeadlineAndRunsAtTrialBoundary() = kotlinx.coroutines.test.runTest {
         val release = CompletableDeferred<Unit>()
         val entered = CompletableDeferred<Unit>()

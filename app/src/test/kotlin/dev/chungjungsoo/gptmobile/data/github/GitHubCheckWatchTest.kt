@@ -80,6 +80,41 @@ class GitHubCheckWatchTest {
         assertEquals("STALE", repository().inspect(watch, api).status)
     }
 
+    @Test fun pairedPullAndRunWatchCannotPassAfterAConcurrentPush() = runTest {
+        var pullReads = 0
+        val api = object : GitHubEngineeringApi({ "token" }) {
+            override suspend fun request(path: String, method: String, body: JSONObject?): String = when {
+                "/pulls/" in path -> {
+                    pullReads++
+                    """{"head":{"sha":"${if (pullReads == 1) head else "b".repeat(40)}"}}"""
+                }
+                "/actions/runs/" in path -> """{"head_sha":"$head","status":"completed","conclusion":"success"}"""
+                else -> error("Unexpected request: $path")
+            }
+        }
+        assertEquals("STALE", repository().inspect(watch.copy(runId = 42), api).status)
+        assertEquals(2, pullReads)
+    }
+
+    @Test fun pairedRunPassesOnlyAfterTheSecondMatchingPullRead() = runTest {
+        val paths = mutableListOf<String>()
+        val api = object : GitHubEngineeringApi({ "token" }) {
+            override suspend fun request(path: String, method: String, body: JSONObject?): String {
+                paths += path
+                return if ("/pulls/" in path) {
+                    """{"head":{"sha":"$head"}}"""
+                } else {
+                    """{"head_sha":"$head","status":"completed","conclusion":"success"}"""
+                }
+            }
+        }
+        assertEquals("PASSED", repository().inspect(watch.copy(runId = 42), api).status)
+        assertEquals(listOf("/repos/owner/repo/pulls/758", "/repos/owner/repo/actions/runs/42", "/repos/owner/repo/pulls/758"), paths)
+        paths.clear()
+        assertEquals("PASSED", repository().inspect(watch.copy(pullNumber = null, runId = 42), api).status)
+        assertEquals(listOf("/repos/owner/repo/actions/runs/42"), paths)
+    }
+
     @Test fun incompleteOrSkippedWorkflowCannotBecomePassed() {
         fun status(raw: String) = workflowWatchStatus(Json.parseToJsonElement(raw).jsonObject)
         assertEquals("RUNNING", status("""{"status":"in_progress","conclusion":null}"""))

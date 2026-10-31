@@ -13,6 +13,8 @@ import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionAuthType
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionType
+import dev.chungjungsoo.gptmobile.data.github.GitHubChatPolicy
+import dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext
 import dev.chungjungsoo.gptmobile.data.memory.MemoryGraphRepository
 import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
 import dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig
@@ -90,7 +92,9 @@ class AgentToolResolver @Inject constructor(
     private val gitHubRepositoryState: dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore? = null,
     private val engineeringController: GitHubEngineeringController? = null,
     private val gitHubPublicAuth: dev.chungjungsoo.gptmobile.data.github.GitHubPublicAuthCoordinator? = null,
-    private val gitHubCheckWatches: dev.chungjungsoo.gptmobile.data.github.GitHubCheckWatchRepository? = null
+    private val gitHubCheckWatches: dev.chungjungsoo.gptmobile.data.github.GitHubCheckWatchRepository? = null,
+    private val gitHubDecisions: dev.chungjungsoo.gptmobile.data.github.GitHubChatDecisions? = null,
+    private val gitHubDecisionNotifications: dev.chungjungsoo.gptmobile.data.github.GitHubDecisionNotifications? = null
 ) {
     suspend fun warmSelectedCatalogues(profileUid: String, limit: Int = 4) {
         val features = settingRepository.getFeatureSettings()
@@ -146,7 +150,8 @@ class AgentToolResolver @Inject constructor(
         requestedModel: String? = null
     ): List<ResolvedAgentTool> {
         val platforms = settingRepository.fetchPlatformV2s()
-        val platform = platforms.firstOrNull { it.uid == profileUid }
+        val featureSettings = GitHubChatPolicy.features(settingRepository.getFeatureSettings(), profileUid, chatToolConfig?.github)
+        val platform = platforms.firstOrNull { it.uid == profileUid }?.let { GitHubChatPolicy.platform(it, featureSettings, chatToolConfig?.github) }
         // Keep registered identity checks separate from the actual model receiving tool data.
         val consentPlatform = platform?.copy(model = requestedModel?.trim()?.takeIf(String::isNotBlank) ?: platform.model)
 
@@ -162,7 +167,6 @@ class AgentToolResolver @Inject constructor(
         val freeProfile = consentPlatform?.let { it.compatibleType == ClientType.FREE || dev.chungjungsoo.gptmobile.data.permissions.ProviderPrivacyPolicy.forProfile(it) != null } == true
         val disableRemote = platform?.disableRemoteTools == true
         val disableLocal = platform?.disableLocalTools == true
-        val featureSettings = settingRepository.getFeatureSettings()
         val researchSelection = chatToolConfig?.research ?: dev.chungjungsoo.gptmobile.data.model.MultiSearchResearchSelection(depth = featureSettings.delegationFor(profileUid).strategy)
         fun paperAccess(features: AppFeatureSettings, current: PlatformV2?, selection: dev.chungjungsoo.gptmobile.data.model.MultiSearchResearchSelection): Boolean = if (examinationRunKey == null) {
             dev.chungjungsoo.gptmobile.data.model.academicUnlockReason(selection, features, profileUid, current?.disableRemoteTools == false && !current.disableAllTools) == null
@@ -178,75 +182,32 @@ class AgentToolResolver @Inject constructor(
         val connections = toolConnectionRepository.listConnections().filter { connection ->
             featureSettings.isToolPluginEnabledForProfile(profileUid, ToolServiceCatalog.forConnection(connection).id)
         }
-        val configuredNativeGitHubConnections = connections.filter { it.type == ToolConnectionType.GITHUB }
-        val nativeGitHubConnections = configuredNativeGitHubConnections.filter { connection ->
-            featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.GITHUB) &&
-                (chatToolConfig?.github?.connectionUid?.let { it == connection.connectionUid } != false) &&
-                featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.connection(connection.connectionUid))
-        }
-
-        // Baseline zero-config tools available out of the box to all models
-        val defaultWebSearch = WebSearchTool(
-            config = WebSearchProviderConfig(
-                provider = WebSearchProvider.AUTO,
-                bearerToken = "",
-                endpointUrl = "",
-                allowLocalSearch = false
-            ),
-            networkClient = networkClient
-        )
-
         val resolved = mutableListOf<ResolvedAgentTool>()
+
+        val decisionWorkspace = chatToolConfig?.github
+        if (!disableLocal && chatToolConfig?.allToolsDisabled != true && platform?.enabled == true && decisionWorkspace?.mainProfileUid == profileUid && userMessage != null && userMessage.chatId > 0 && userMessage.id > 0 && gitHubDecisions != null) {
+            val tool = GitHubDecisionTool(
+                gitHubDecisions,
+                userMessage.chatId,
+                userMessage.id,
+                profileUid,
+                decisionWorkspace,
+                persistent = factVault?.scopeForChat(userMessage.chatId)?.isTemporary == false,
+                allowed = {
+                    val live = settingRepository.getFeatureSettings()
+                    val current = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }?.let { GitHubChatPolicy.platform(it, live, decisionWorkspace) }
+                    val selected = live.conversationGitHub[userMessage.chatId]
+                    current?.enabled == true && !current.disableAllTools && !current.disableLocalTools && selected?.sameWorkspace(decisionWorkspace) == true
+                },
+                offered = { gitHubDecisionNotifications?.offered(it) }
+            )
+            resolved += ResolvedAgentTool(tool, null, "GitHub decisions", tool.definition.name, tool.definition.name)
+        }
 
         resolved += resolveHealthTools(profileUid, platform, featureSettings, chatToolConfig, disableLocal)
 
         if (!disableLocal) {
-            // Keep explicitly enabled delegation available in small on-device context windows.
-            if (
-                featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.MODEL_DELEGATION) &&
-                (chatToolConfig?.effectiveDelegation(featureSettings.delegationFor(profileUid)) ?: featureSettings.delegationFor(profileUid)).enabled &&
-                delegate != null &&
-                platform != null
-            ) {
-                val tool = ModelDelegationTool(
-                    platform,
-                    {
-                        val defaults = settingRepository.getFeatureSettings().delegationFor(profileUid)
-                        chatToolConfig?.effectiveDelegation(defaults) ?: defaults
-                    },
-                    { settingRepository.fetchPlatformV2s() },
-                    delegate
-                )
-                resolved += tool.resolved(null, "Model delegation", tool.definition.name)
-            }
-            if (
-                featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.LOCAL_MEMORY) &&
-                factVault != null &&
-                userMessage != null &&
-                platform != null
-            ) {
-                val memoryAvailable = try {
-                    factVault.load()
-                    factVault.state.value.enabled && !factVault.scopeForChat(userMessage.chatId).isTemporary
-                } catch (cancellation: CancellationException) {
-                    throw cancellation
-                } catch (_: Exception) {
-                    false
-                }
-                if (memoryAvailable) {
-                    val tool = UnifiedMemoryTool(factVault, memoryGraph, memoryDocuments, userMessage, (consentPlatform ?: platform).isPrivateDestination())
-                    resolved += tool.resolved(null, "Memory", tool.definition.name)
-                }
-            }
-            if (featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.CURRENT_DATE)) {
-                resolved += CurrentDateTool(java.time.Clock.system(runCatching { java.time.ZoneId.of(featureSettings.pluginExecution[ToolPluginId.CURRENT_DATE]?.timeZone.orEmpty()) }.getOrDefault(java.time.ZoneId.systemDefault()))).resolved(null, null, BuiltInAgentTool.CURRENT_DATE)
-            }
-            if (featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.CALCULATOR)) {
-                resolved += CalculatorTool(featureSettings.pluginExecution[ToolPluginId.CALCULATOR]?.decimalPlaces ?: 8).resolved(null, null, BuiltInAgentTool.CALCULATE_EXPRESSION)
-            }
-            if (featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.READ_FILES)) {
-                resolved += ReadFileSliceTool().resolved(null, null, BuiltInAgentTool.READ_FILE_SLICE)
-            }
+            resolved += resolveLocalBuiltIns(profileUid, platform, consentPlatform, featureSettings, chatToolConfig, userMessage, delegate)
         }
 
         if (!disableLocal && amazonHistory != null && amazonAccess != null && platform?.enabled == true && featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.AMAZON_FREE)) {
@@ -257,37 +218,7 @@ class AgentToolResolver @Inject constructor(
         resolved += resolveNativeMarketplace(profileUid, platform, featureSettings, chatToolConfig, disableLocal, disableRemote)
 
         if (!disableRemote) {
-            if (publicAirbnb != null && featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.AIRBNB)) {
-                resolved += nativeAirbnb(profileUid).resolved(null, "Airbnb", "airbnb")
-                    .copy(shareableReadOnly = true, canReuseResult = { pluginMediaAllowed(profileUid, ToolPluginId.AIRBNB) })
-            }
-            if (publicNews != null && featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.NEWS)) {
-                val config = (featureSettings.pluginExecution[ToolPluginId.NEWS] ?: PluginExecutionSettings()).normalized()
-                resolved += NewsTool(publicNews, { pluginMediaAllowed(profileUid, ToolPluginId.NEWS) }, { config.newsCountry to config.newsLanguage })
-                    .resolved(null, "News", "news").copy(shareableReadOnly = true, canReuseResult = { pluginMediaAllowed(profileUid, ToolPluginId.NEWS) })
-            }
-            if (amazonFreeProvider != null && platform?.enabled == true && featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.AMAZON_FREE)) {
-                resolved += resolveAmazonFree(profileUid, userMessage?.chatId, (featureSettings.pluginExecution[ToolPluginId.AMAZON_FREE] ?: PluginExecutionSettings()).normalized().amazonMarketplace)
-            }
-            if (featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.AMAZON_SEARCH)) {
-                connections.filter { it.type == ToolConnectionType.AMAZON_SERPAPI && featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.connection(it.connectionUid)) }
-                    .forEach { connection -> resolved += resolveAmazon(connection, featureSettings) }
-            }
-            if (featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.READ_URL)) {
-                resolved += ReadUrlTool(documentContext = documentContext).resolved(null, null, BuiltInAgentTool.READ_URL)
-            }
-            // Native GitHub is an integrated plugin. If an authenticated native
-            // connection exists but is disabled, do not silently replace it with
-            // anonymous GitHub access because that would bypass the plugin toggle.
-            if (featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.GITHUB)) {
-                if (configuredNativeGitHubConnections.isEmpty() && chatToolConfig?.github == null) {
-                    resolved += resolveGitHub(null, profileUid, userMessage)
-                }
-                nativeGitHubConnections.forEach { connection -> resolved += resolveGitHub(connection, profileUid, userMessage, chatToolConfig?.github) }
-            }
-            if (featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.WEB_SEARCH)) {
-                resolved += defaultWebSearch.resolved(null, null, WEB_SEARCH_TOOL)
-            }
+            resolved += resolveRemoteBuiltIns(profileUid, platform, featureSettings, chatToolConfig, userMessage, connections)
         }
 
         val bindings = toolConnectionRepository.listBindingsWithConnections(profileUid)
@@ -325,7 +256,7 @@ class AgentToolResolver @Inject constructor(
                     async {
                         val connection = requireNotNull(mcpBindings.first().connection)
                         try {
-                            resolveMcpTools(connection, mcpBindings, featureSettings, profileUid, cachedCataloguesOnly, userMessage) to null
+                            resolveMcpTools(connection, mcpBindings, featureSettings, profileUid, cachedCataloguesOnly, userMessage, chatToolConfig?.github) to null
                         } catch (error: CancellationException) {
                             throw error
                         } catch (error: Exception) {
@@ -486,9 +417,9 @@ class AgentToolResolver @Inject constructor(
         val discovered = java.util.concurrent.ConcurrentHashMap<String, ResolvedAgentTool>()
         val attemptedConnections = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
         val directory = dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog(finalized.map { it.tool.definition }, catalogTask, acquireCold = { query, names ->
-            val current = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }
+            val live = GitHubChatPolicy.features(settingRepository.getFeatureSettings(), profileUid, chatToolConfig?.github)
+            val current = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }?.let { GitHubChatPolicy.platform(it, live, chatToolConfig?.github) }
             check(current == platform && current?.enabled == true) { "Selected profile changed; retry discovery." }
-            val live = settingRepository.getFeatureSettings()
             check(live.remoteMcpConnections && !current.disableAllTools && !current.disableRemoteTools) { "Remote tools are disabled." }
             val currentBindings = toolConnectionRepository.listBindingsWithConnections(profileUid)
             val words = Regex("[\\p{L}\\p{N}]+").findAll(query.lowercase(java.util.Locale.ROOT)).map { it.value }.filter { it.length > 2 }.toSet() + if (isGitHubTask(query)) setOf("github", "git") else emptySet()
@@ -504,7 +435,7 @@ class AgentToolResolver @Inject constructor(
                     async {
                         val connection = requireNotNull(group.first().connection)
                         try {
-                            resolveMcpTools(connection, group, live, profileUid, userMessage = userMessage)
+                            resolveMcpTools(connection, group, live, profileUid, userMessage = userMessage, workspaceContext = chatToolConfig?.github)
                         } catch (cancelled: CancellationException) {
                             throw cancelled
                         } catch (_: Exception) {
@@ -517,7 +448,8 @@ class AgentToolResolver @Inject constructor(
                 }.awaitAll().flatten()
             }
             // Recheck after I/O. Old grants/credentials cannot publish tools to a newer turn authority.
-            check(settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid } == platform && settingRepository.getFeatureSettings() == live && toolConnectionRepository.listBindingsWithConnections(profileUid) == currentBindings) { "Tool permissions changed during discovery." }
+            val refreshed = GitHubChatPolicy.features(settingRepository.getFeatureSettings(), profileUid, chatToolConfig?.github)
+            check(settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }?.let { GitHubChatPolicy.platform(it, refreshed, chatToolConfig?.github) } == platform && refreshed == live && toolConnectionRepository.listBindingsWithConnections(profileUid) == currentBindings) { "Tool permissions changed during discovery." }
             val admitted = finalizeResolvedTools(loaded, profileUid, platform, live, currentBindings, chatToolConfig, freeProfile, disableRemote, disableLocal, onConnectionError, finalized.filter { it.nativeGitHub }, chatId = userMessage?.chatId, consentPlatform = consentPlatform)
             admitted.forEach { next ->
                 val previous = finalized.firstOrNull { it.modelToolName == next.modelToolName } ?: discovered[next.modelToolName]
@@ -527,6 +459,127 @@ class AgentToolResolver @Inject constructor(
             aggregateWebSearch(finalized + discovered.values).map { it.tool.definition }
         })
         return attachCrawlers(finalized, profileUid, platform, featureSettings, userMessage, chatToolConfig, consentPlatform) + ResolvedAgentTool(directory, null, "Authorized tool directory", directory.definition.name, directory.definition.name, dynamicTools = { finalized + discovered.values }, progressiveCatalog = directory)
+    }
+
+    /** Non-inline stages keep the packaged resolver below ART's large-method limit. */
+    private suspend fun resolveLocalBuiltIns(
+        profileUid: String,
+        platform: PlatformV2?,
+        consentPlatform: PlatformV2?,
+        featureSettings: AppFeatureSettings,
+        chatToolConfig: ChatMcpToolConfig?,
+        userMessage: MessageV2?,
+        delegate: (suspend (PlatformV2, String, Int) -> String)?
+    ): List<ResolvedAgentTool> {
+        val resolved = mutableListOf<ResolvedAgentTool>()
+        // Keep explicitly enabled delegation available in small on-device context windows.
+        if (
+            featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.MODEL_DELEGATION) &&
+            (chatToolConfig?.effectiveDelegation(featureSettings.delegationFor(profileUid)) ?: featureSettings.delegationFor(profileUid)).enabled &&
+            delegate != null &&
+            platform != null
+        ) {
+            val tool = ModelDelegationTool(
+                platform,
+                {
+                    val defaults = settingRepository.getFeatureSettings().delegationFor(profileUid)
+                    chatToolConfig?.effectiveDelegation(defaults) ?: defaults
+                },
+                { settingRepository.fetchPlatformV2s() },
+                generate = delegate,
+                hardware = { documentContext?.let { dev.chungjungsoo.gptmobile.data.localruntime.DeviceHardwareGovernor.inspectHardwareState(it) } ?: dev.chungjungsoo.gptmobile.data.localruntime.DeviceHardwareState() }
+            )
+            resolved += tool.resolved(null, "Model delegation", tool.definition.name)
+        }
+        if (
+            featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.LOCAL_MEMORY) &&
+            factVault != null &&
+            userMessage != null &&
+            platform != null
+        ) {
+            val memoryAvailable = try {
+                factVault.load()
+                factVault.state.value.enabled && !factVault.scopeForChat(userMessage.chatId).isTemporary
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (_: Exception) {
+                false
+            }
+            if (memoryAvailable) {
+                val tool = UnifiedMemoryTool(factVault, memoryGraph, memoryDocuments, userMessage, (consentPlatform ?: platform).isPrivateDestination())
+                resolved += tool.resolved(null, "Memory", tool.definition.name)
+            }
+        }
+        if (featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.CURRENT_DATE)) {
+            resolved += CurrentDateTool(java.time.Clock.system(runCatching { java.time.ZoneId.of(featureSettings.pluginExecution[ToolPluginId.CURRENT_DATE]?.timeZone.orEmpty()) }.getOrDefault(java.time.ZoneId.systemDefault()))).resolved(null, null, BuiltInAgentTool.CURRENT_DATE)
+        }
+        if (featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.CALCULATOR)) {
+            resolved += CalculatorTool(featureSettings.pluginExecution[ToolPluginId.CALCULATOR]?.decimalPlaces ?: 8).resolved(null, null, BuiltInAgentTool.CALCULATE_EXPRESSION)
+        }
+        if (featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.READ_FILES)) {
+            resolved += ReadFileSliceTool().resolved(null, null, BuiltInAgentTool.READ_FILE_SLICE)
+        }
+        return resolved
+    }
+
+    private suspend fun resolveRemoteBuiltIns(
+        profileUid: String,
+        platform: PlatformV2?,
+        featureSettings: AppFeatureSettings,
+        chatToolConfig: ChatMcpToolConfig?,
+        userMessage: MessageV2?,
+        connections: List<ToolConnection>
+    ): List<ResolvedAgentTool> {
+        val configuredNativeGitHubConnections = connections.filter { it.type == ToolConnectionType.GITHUB }
+        val nativeGitHubConnections = configuredNativeGitHubConnections.filter { connection ->
+            featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.GITHUB) &&
+                (chatToolConfig?.github?.connectionUid?.let { it == connection.connectionUid } != false) &&
+                featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.connection(connection.connectionUid))
+        }
+
+        val resolved = mutableListOf<ResolvedAgentTool>()
+        if (publicAirbnb != null && featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.AIRBNB)) {
+            resolved += nativeAirbnb(profileUid).resolved(null, "Airbnb", "airbnb")
+                .copy(shareableReadOnly = true, canReuseResult = { pluginMediaAllowed(profileUid, ToolPluginId.AIRBNB) })
+        }
+        if (publicNews != null && featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.NEWS)) {
+            val config = (featureSettings.pluginExecution[ToolPluginId.NEWS] ?: PluginExecutionSettings()).normalized()
+            resolved += NewsTool(publicNews, { pluginMediaAllowed(profileUid, ToolPluginId.NEWS) }, { config.newsCountry to config.newsLanguage })
+                .resolved(null, "News", "news").copy(shareableReadOnly = true, canReuseResult = { pluginMediaAllowed(profileUid, ToolPluginId.NEWS) })
+        }
+        if (amazonFreeProvider != null && platform?.enabled == true && featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.AMAZON_FREE)) {
+            resolved += resolveAmazonFree(profileUid, userMessage?.chatId, (featureSettings.pluginExecution[ToolPluginId.AMAZON_FREE] ?: PluginExecutionSettings()).normalized().amazonMarketplace)
+        }
+        if (featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.AMAZON_SEARCH)) {
+            connections.filter { it.type == ToolConnectionType.AMAZON_SERPAPI && featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.connection(it.connectionUid)) }
+                .forEach { connection -> resolved += resolveAmazon(connection, featureSettings) }
+        }
+        if (featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.READ_URL)) {
+            resolved += ReadUrlTool(documentContext = documentContext).resolved(null, null, BuiltInAgentTool.READ_URL)
+        }
+        // Native GitHub is an integrated plugin. If an authenticated native
+        // connection exists but is disabled, do not silently replace it with
+        // anonymous GitHub access because that would bypass the plugin toggle.
+        if (featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.GITHUB)) {
+            if (configuredNativeGitHubConnections.isEmpty() && chatToolConfig?.github == null) {
+                resolved += resolveGitHub(null, profileUid, userMessage)
+            }
+            nativeGitHubConnections.forEach { connection -> resolved += resolveGitHub(connection, profileUid, userMessage, chatToolConfig?.github) }
+        }
+        if (featureSettings.isToolPluginEnabledForProfile(profileUid, ToolPluginId.WEB_SEARCH)) {
+            // Baseline zero-config tools available out of the box to all models
+            val defaultWebSearch = WebSearchTool(
+                config = WebSearchProviderConfig(
+                    provider = WebSearchProvider.AUTO,
+                    bearerToken = "",
+                    endpointUrl = "",
+                    allowLocalSearch = false
+                ),
+                networkClient = networkClient
+            )
+            resolved += defaultWebSearch.resolved(null, null, WEB_SEARCH_TOOL)
+        }
+        return resolved
     }
 
     /** Keep the run-scoped reader and its live permission checks out of the resolution coroutine. */
@@ -571,7 +624,8 @@ class AgentToolResolver @Inject constructor(
         if (message == null || platform == null || platform.disableAllTools || platform.disableRemoteTools || chat?.allToolsDisabled == true || chat?.isToolEnabled(listOf("crawler", ToolPluginId.CRAWLERS)) == false || !features.isToolPluginEnabledForProfile(profileUid, ToolPluginId.CRAWLERS)) return tools
         val scope = dev.chungjungsoo.gptmobile.data.crawl.CrawlScope(profileUid, message.chatId, "${message.chatId}:${message.id}:${message.createdAt}", dev.chungjungsoo.gptmobile.data.crawl.crawlHash(features.toString() + platform.toString()), factVault?.scopeForChat(message.chatId)?.isTemporary == false)
         val attached = dev.chungjungsoo.gptmobile.data.crawl.CrawlerIntegration.attach(context, scope, features, tools) {
-            settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid } == platform && settingRepository.getFeatureSettings() == features
+            val live = GitHubChatPolicy.features(settingRepository.getFeatureSettings(), profileUid, chat?.github)
+            settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }?.let { GitHubChatPolicy.platform(it, live, chat?.github) } == platform && live == features
         }
         // Attachment replaces the native reader with a cache and introduces direct engines.
         // Guard the resulting surface too, before a derived URL reaches any of them.
@@ -765,8 +819,8 @@ class AgentToolResolver @Inject constructor(
                     val snapshot = bindings.filter { it.binding.connectionUid == resolved.connectionUid && it.binding.toolName == resolved.realToolName }
                     val previousCheck = resolved.canReuseResult
                     return@map resolved.copy(canReuseResult = {
-                        val current = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }
-                        val features = settingRepository.getFeatureSettings()
+                        val features = GitHubChatPolicy.features(settingRepository.getFeatureSettings(), profileUid, chatToolConfig?.github)
+                        val current = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }?.let { GitHubChatPolicy.platform(it, features, chatToolConfig?.github) }
                         current != null &&
                             platform != null &&
                             dev.chungjungsoo.gptmobile.data.agent.sameRecoveryDestination(platform, current) &&
@@ -789,7 +843,7 @@ class AgentToolResolver @Inject constructor(
                 if (!resolved.isAmazonProductTool()) return@map resolved
                 val plugin = if (resolved.modelToolName in AmazonNativeTool.names) ToolPluginId.AMAZON_FREE else ToolPluginId.AMAZON_SEARCH
                 resolved.copy(canReuseResult = {
-                    val current = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }
+                    val current = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }?.let { GitHubChatPolicy.platform(it, settingRepository.getFeatureSettings(), chatToolConfig?.github) }
                     val features = settingRepository.getFeatureSettings()
                     current?.enabled == true &&
                         !current.disableAllTools &&
@@ -805,7 +859,7 @@ class AgentToolResolver @Inject constructor(
                 val admittedNames = admittedBindings.map { it.binding.toolName }.toSet()
                 val previousCheck = resolved.canReuseResult
                 resolved.copy(canReuseResult = {
-                    val current = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }
+                    val current = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }?.let { GitHubChatPolicy.platform(it, settingRepository.getFeatureSettings(), chatToolConfig?.github) }
                     current != null &&
                         platform != null &&
                         dev.chungjungsoo.gptmobile.data.agent.sameRecoveryDestination(platform, current) &&
@@ -827,7 +881,7 @@ class AgentToolResolver @Inject constructor(
                 val id = resolved.connectionUid?.let { "$it:${resolved.realToolName}" } ?: resolved.realToolName
                 val previous = resolved.canReuseResult
                 val permitted: suspend () -> Boolean = {
-                    val current = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }
+                    val current = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }?.let { GitHubChatPolicy.platform(it, settingRepository.getFeatureSettings(), chatToolConfig?.github) }
                     current != null &&
                         current.enabled &&
                         dev.chungjungsoo.gptmobile.data.agent.sameRecoveryDestination(platform, current) &&
@@ -1161,13 +1215,16 @@ class AgentToolResolver @Inject constructor(
             }
         }.orEmpty()
 
-        val features = settingRepository.getFeatureSettings()
+        val features = GitHubChatPolicy.features(settingRepository.getFeatureSettings(), profileUid, workspaceContext)
         val engineeringPrepare: (suspend (String, JsonObject) -> JsonObject)? = if (actualConnection != null && engineeringController != null) {
             { root, args ->
                 require(userMessage?.chatId?.let { factVault?.scopeForChat(it)?.isTemporary != true } != false) {
                     "Engineering review stores the exact patch. Use a saved conversation or open GitHub review explicitly."
                 }
                 val engineeringTaskId = engineeringController.prepareFromTool(actualConnection.connectionUid, root, args.toString())
+                userMessage?.takeIf { it.chatId > 0 && it.id > 0 }?.let {
+                    gitHubDecisionNotifications?.prompt("github-approval-$engineeringTaskId", it.chatId, it.id, "Your repository changes are ready for review and approval.")
+                }
                 kotlinx.serialization.json.buildJsonObject {
                     put("engineering_task_id", engineeringTaskId)
                     put("status", "AWAITING_APPROVAL")
@@ -1196,12 +1253,12 @@ class AgentToolResolver @Inject constructor(
                 null
             }
         )
-        val admittedProfile = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }
+        val admittedProfile = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }?.let { GitHubChatPolicy.platform(it, features, workspaceContext) }
         // resolved() normally wraps telemetry immediately; this backend must stay
         // concrete until its compact operations have been expanded above.
         return tool.resolved(actualConnection?.connectionUid, actualConnection?.name, BuiltInAgentTool.GITHUB).copy(tool = tool, nativeGitHub = true, nativeGitHubAuthenticated = tool.hasCredential, canReuseResult = {
-            val current = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }
-            val live = settingRepository.getFeatureSettings()
+            val live = GitHubChatPolicy.features(settingRepository.getFeatureSettings(), profileUid, workspaceContext)
+            val current = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }?.let { GitHubChatPolicy.platform(it, live, workspaceContext) }
             val credentialUnchanged = if (actualConnection == null) {
                 true
             } else {
@@ -1343,7 +1400,8 @@ class AgentToolResolver @Inject constructor(
         features: AppFeatureSettings,
         profileUid: String,
         cachedOnly: Boolean = false,
-        userMessage: MessageV2? = null
+        userMessage: MessageV2? = null,
+        workspaceContext: GitHubConversationContext? = null
     ): List<ResolvedAgentTool> {
         val selectedNames = bindings.map { it.binding.toolName }.toSet()
         val remoteTools = if (cachedOnly) mcpClientManager.peekToolsForConnection(connection.connectionUid, connection.endpointUrl, connection.allowCleartext).orEmpty() else discoverMcpTools(connection)
@@ -1360,7 +1418,7 @@ class AgentToolResolver @Inject constructor(
                     config = { forceRefresh, rejectedHeader ->
                         val current = toolConnectionRepository.getConnection(connection.connectionUid)
                             ?: error("MCP connection was uninstalled.")
-                        val latest = settingRepository.getFeatureSettings()
+                        val latest = GitHubChatPolicy.features(settingRepository.getFeatureSettings(), profileUid, workspaceContext)
                         check(
                             latest.remoteMcpConnections &&
                                 latest.isToolPluginEnabledForProfile(profileUid, ToolPluginId.connection(current.connectionUid)) &&
@@ -1381,7 +1439,7 @@ class AgentToolResolver @Inject constructor(
                     metadata = if (dev.chungjungsoo.gptmobile.data.crawl.CrawlerCompanionGrant.recognizes(connection)) {
                         (
                             {
-                                check(settingRepository.getFeatureSettings() == features && toolConnectionRepository.getConnection(connection.connectionUid) == connection) { "Crawler authority changed" }
+                                check(GitHubChatPolicy.features(settingRepository.getFeatureSettings(), profileUid, workspaceContext) == features && toolConnectionRepository.getConnection(connection.connectionUid) == connection) { "Crawler authority changed" }
                                 val limit = (features.pluginExecution[ToolPluginId.CRAWLERS] ?: PluginExecutionSettings()).normalized().crawlerMaxPages * 6
                                 dev.chungjungsoo.gptmobile.data.crawl.CrawlerCompanionGrant.metadata(secretVault, connection, profileUid, userMessage, dev.chungjungsoo.gptmobile.data.crawl.crawlHash(features.toString()), userMessage?.let { factVault?.scopeForChat(it.chatId)?.isTemporary == false } == true, limit)
                             }
@@ -1406,11 +1464,12 @@ class AgentToolResolver @Inject constructor(
                     canReuseResult = if (remoteTool.name in connection.approvedReadTools.lines().map(String::trim)) {
                         (
                             {
-                                val currentProfile = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }
+                                val live = GitHubChatPolicy.features(settingRepository.getFeatureSettings(), profileUid, workspaceContext)
+                                val currentProfile = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }?.let { GitHubChatPolicy.platform(it, live, workspaceContext) }
                                 currentProfile?.enabled == true &&
                                     !currentProfile.disableAllTools &&
                                     !currentProfile.disableRemoteTools &&
-                                    settingRepository.getFeatureSettings() == features &&
+                                    live == features &&
                                     toolConnectionRepository.getConnection(connection.connectionUid) == connection &&
                                     recoveryBindingGrants(toolConnectionRepository.listBindingsWithConnections(profileUid).filter { it.binding.connectionUid == connection.connectionUid && it.binding.toolName == remoteTool.name }) == recoveryBindingGrants(bindings.filter { it.binding.toolName == remoteTool.name })
                             }

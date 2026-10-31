@@ -23,6 +23,12 @@ def check_text(text, path):
         for job in re.split(r'^  [\w-]+:\s*$', text.split('\njobs:', 1)[-1], flags=re.M)[1:]:
             if re.search(r'^    runs-on:', job, re.M) and not re.search(r'^    timeout-minutes:', job, re.M):
                 errors.append(f'{path}: runner job requires timeout-minutes')
+            manual_android = 'uses: android-actions/setup-android@' in job or 'android-device]' in job
+            if manual_android:
+                provision = job.find('python3 scripts/provision_memory_model.py')
+                build = re.search(r'(?m)^\s*(?:-\s*)?(?:run:\s*)?(?:\./gradlew\b|bash scripts/(?:run_gradle|validate)|python3 scripts/build_metrics)', job)
+                if provision < 0 or (build and provision > build.start()):
+                    errors.append(f'{path}: Android jobs must provision the verified memory model before Gradle')
     return errors
 
 

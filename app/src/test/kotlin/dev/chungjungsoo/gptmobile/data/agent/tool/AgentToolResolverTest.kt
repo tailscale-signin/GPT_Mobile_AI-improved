@@ -48,6 +48,55 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AgentToolResolverTest {
+    @Test fun githubOverrideEnablesSearchWithoutChangingOrdinaryProfileAndRevokesLive() = runBlocking {
+        val profile = PlatformV2(uid = "github-profile", name = "GitHub", disableAllTools = true, disableRemoteTools = true)
+        val workspace = dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext("github", "owner", "repo", "main", "a".repeat(40), profile.uid)
+        val settings = ResolverFakeSettingRepository(listOf(profile))
+        settings.features = settings.features.withToolPluginEnabled(ToolPluginId.WEB_SEARCH, false)
+        val resolver = resolver(settings = settings)
+        assertTrue(resolver.resolve(profile.uid).isEmpty())
+        val selected = dev.chungjungsoo.gptmobile.data.github.GitHubChatPolicy.tools(ChatMcpToolConfig(github = workspace), settings.features, profile.uid)
+        val search = resolver.resolve(profile.uid, selected).single { it.connectionUid == null && it.realToolName == "web_search" }
+        assertTrue(requireNotNull(search.canReuseResult).invoke())
+        settings.features = settings.features.copy(githubProfileOverrides = mapOf(profile.uid to dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride(webSearch = false)))
+        assertFalse(requireNotNull(search.canReuseResult).invoke())
+        assertTrue(resolver.resolve(profile.uid).isEmpty())
+    }
+
+    @Test fun githubOverrideSupportsColdMcpDiscoveryAndRevokesSavedReadAuthority() = runBlocking {
+        McpClientManagerTest.McpFixtureServer().use { server ->
+            val profile = PlatformV2(uid = "github-profile", name = "GitHub", disableAllTools = true, disableRemoteTools = true)
+            val workspace = dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext("github", "owner", "repo", "main", "a".repeat(40), profile.uid)
+            val settings = ResolverFakeSettingRepository(listOf(profile))
+            val connection = connection("selected-mcp", ToolConnectionType.MCP, server.url, authType = ToolConnectionAuthType.NONE, allowCleartext = true).copy(approvedReadTools = "echo")
+            val dao = ResolverFakeToolConnectionDao()
+            dao.bind(connection, binding(profile.uid, connection.connectionUid, "echo"))
+            val vault = ResolverFakeSecretVault()
+            val repository = ToolConnectionRepository(dao, vault)
+            val network = NetworkClient(CIO)
+            val manager = McpClientManager(network())
+            try {
+                val resolver = AgentToolResolver(repository, settings, vault, network, manager, McpOAuthCoordinator(McpOAuthClient(network()), repository, vault, manager), DeviceLocationTool(mockk(relaxed = true), mockk(relaxed = true)))
+                val selection = dev.chungjungsoo.gptmobile.data.github.GitHubChatPolicy.tools(ChatMcpToolConfig(enabledToolIds = setOf(connection.connectionUid), github = workspace), settings.features, profile.uid)
+                val message = dev.chungjungsoo.gptmobile.data.database.entity.MessageV2(id = 42, chatId = 7, content = "Use echo", platformType = null)
+                val available = resolver.resolve(profile.uid, selection, message, cachedCataloguesOnly = true)
+                assertFalse(available.any { it.realToolName == "echo" })
+                val directory = available.single { it.dynamicTools != null }
+                // Populate the initially cold connection deterministically before on-demand acquisition.
+                assertTrue(resolver.discoverMcpTools(connection, awaitCompletion = true).any { it.name == "echo" })
+                assertFalse(directory.tool.execute("discover", buildJsonObject { put("query", "echo") }).isError)
+                val discovered = requireNotNull(directory.dynamicTools).invoke().single { it.realToolName == "echo" }
+                assertTrue(requireNotNull(discovered.canReuseResult).invoke())
+                assertTrue(resolver.resolve(profile.uid).isEmpty())
+                settings.features = settings.features.withToolPluginEnabled(ToolPluginId.connection(connection.connectionUid), false)
+                assertFalse(requireNotNull(discovered.canReuseResult).invoke())
+                assertTrue(resolver.resolve(profile.uid).isEmpty())
+            } finally {
+                manager.closeAll()
+            }
+        }
+    }
+
     @Test fun personalToolGrantUsesRequestedModelAndRetainsTheRegisteredCredentialFence() = runBlocking {
         McpClientManagerTest.McpFixtureServer().use { server ->
             val registered = FreeAiProvider.OVHCLOUD.applyTo(PlatformV2(uid = "override-profile", name = "Free")).copy(model = "registered-model")

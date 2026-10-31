@@ -88,7 +88,7 @@ object ResilientStreamingClient {
             // provider's REQUEST_INVALID must not be replayed as if it were a network fault.
             // Keep retryable timeout/too-early/rate-limit responses on the transient path.
             val httpStatus = (value as? io.ktor.client.plugins.ResponseException)?.response?.status?.value
-                ?: Regex("""\\b(?:http\\s*)?(\\d{3})\\b""").find(message)?.groupValues?.get(1)?.toIntOrNull()
+                ?: Regex("""\b(?:http\s*)?(\d{3})\b""").find(message)?.groupValues?.get(1)?.toIntOrNull()
             if (httpStatus != null && httpStatus in setOf(408, 425, 429, 500, 502, 503, 504)) return true
             // A known HTTP status outside the transient allow-list is definitive. Do
             // this before the broad IOException fallback so HTTP 501/505 are not retried.

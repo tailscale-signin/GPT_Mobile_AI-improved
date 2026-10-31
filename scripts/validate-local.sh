@@ -5,6 +5,7 @@ cd "$(dirname "$0")/.."
 mode="${1:-full}"
 case "$mode" in fast|full) ;; *) echo 'Usage: bash scripts/validate-local.sh [fast|full]' >&2; exit 2 ;; esac
 python3 scripts/check_ci_policy.py
+python3 scripts/check_dependency_catalog.py
 python3 scripts/scan_secrets.py
 python3 -m unittest discover -s scripts/tests
 python3 scripts/check_android_regex.py

@@ -22,6 +22,28 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubToolTest {
+    @Test fun admissionCapacityKeepsAStableErrorCodeAndDoesNotEraseEarlierDispatchEvidence() = runTest {
+        val http = HttpClient(MockEngine { error("No network request should execute") })
+        try {
+            val tool = GitHubTool("token", http, watchChecks = { throw dev.chungjungsoo.gptmobile.data.github.GitHubRequestScheduler.Capacity(sharedRead = false) })
+            val result = tool.execute(
+                "capacity",
+                buildJsonObject {
+                    put("action", "watch_checks")
+                    put("owner", "o")
+                    put("repo", "r")
+                    put("run_id", 42)
+                }
+            )
+            assertTrue(result.isError)
+            assertEquals("GITHUB_WAITING_CAPACITY", result.errorCode)
+            assertTrue(result.dispatched)
+            assertTrue((result.content as ToolResultContent.Text).text.contains("earlier mutation receipts"))
+        } finally {
+            http.close()
+        }
+    }
+
     @Test fun selectedWorkspaceBranchCannotBeDeletedBeforeTaskHydration() = runTest {
         var requests = 0
         val http = HttpClient(

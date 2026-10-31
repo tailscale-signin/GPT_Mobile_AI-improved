@@ -51,6 +51,13 @@ class CompleteBackupSelectionTest {
         assertTrue(CompleteBackupGroup.HEALTH_DATA.sections.contains(CompleteBackupSection.HEALTH_DATA))
     }
 
+    @Test fun gitHubDraftsRequireEncryptionAndTheirToolConnections() {
+        val selection = CompleteBackupSelection(setOf(CompleteBackupSection.GITHUB_WORKSPACE)).normalized()
+        assertTrue(selection.requiresEncryption)
+        assertTrue(selection.includes(CompleteBackupSection.TOOLS))
+        assertFalse(selection.toggled(CompleteBackupSection.TOOLS, false).includes(CompleteBackupSection.GITHUB_WORKSPACE))
+    }
+
     @Test fun deselectingConversationsDeselectsAttachmentsAndHistory() {
         val selection = CompleteBackupSelection.ALL.toggled(CompleteBackupSection.CONVERSATIONS, false)
         assertFalse(selection.includes(CompleteBackupSection.ATTACHMENTS))

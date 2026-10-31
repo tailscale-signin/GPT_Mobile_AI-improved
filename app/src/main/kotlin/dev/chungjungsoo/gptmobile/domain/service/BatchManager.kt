@@ -6,8 +6,6 @@ import dev.chungjungsoo.gptmobile.domain.model.BatchConfig
 import dev.chungjungsoo.gptmobile.domain.model.BatchRequest
 import dev.chungjungsoo.gptmobile.domain.model.PlatformType
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.sync.Semaphore
-import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 
 class BatchManager(
@@ -40,49 +38,15 @@ class BatchManager(
         requests: List<BatchRequest>,
         onComplete: (List<BatchResult>) -> Unit
     ) {
-        val results = mutableListOf<BatchResult>()
-
-        // Process in parallel with concurrency limit
-        val semaphore = Semaphore(config.openRouter.maxConcurrentRequests)
-
-        requests.forEachIndexed { index, request ->
-            semaphore.withPermit {
-                try {
-                    val response = openRouterClient.processRequest(request)
-                    results.add(BatchResult.Success(index, response))
-                } catch (e: Exception) {
-                    if (e is kotlinx.coroutines.CancellationException) throw e
-                    results.add(BatchResult.Failure(index, e.message ?: "Unknown error"))
-                }
-            }
-        }
-
-        onComplete(results)
+        openRouterClient.processBatch(requests, onComplete)
     }
 
     private suspend fun processLlamaBatch(
         requests: List<BatchRequest>,
         onComplete: (List<BatchResult>) -> Unit
     ) {
-        val jsonlContent = requests.map { request ->
-            """{"prompt": "${escapeJson(request.prompt)}", "context": "", "n_tokens_to_predict": ${request.maxTokens}}"""
-        }.joinToString("\n")
-
-        try {
-            val response = llamaClient.batchProcess(jsonlContent)
-            val results = llamaClient.parseLlamaResponse(response, requests.size)
-            onComplete(results)
-        } catch (e: Exception) {
-            if (e is kotlinx.coroutines.CancellationException) throw e
-            onComplete(requests.indices.map { BatchResult.Failure(it, "Local batch failed. Retry with the selected local connection.") })
-        }
+        llamaClient.processBatch(requests, onComplete)
     }
-
-    private fun escapeJson(input: String): String = input.replace("\\", "\\\\")
-        .replace("\"", "\\\"")
-        .replace("\n", "\\n")
-        .replace("\r", "\\r")
-        .replace("\t", "\\t")
 }
 
 sealed class BatchResult {

@@ -190,6 +190,7 @@ class GitHubToolCompletenessTest {
         val http = HttpClient(
             MockEngine { request ->
                 assertEquals("/repos/o/r/commits/$sha", request.url.encodedPath)
+                assertEquals("30", request.url.parameters["per_page"])
                 respond("""{"sha":"$sha","files":[]}""")
             }
         )

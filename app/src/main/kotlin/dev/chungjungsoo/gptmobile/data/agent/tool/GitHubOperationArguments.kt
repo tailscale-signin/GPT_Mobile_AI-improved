@@ -17,6 +17,11 @@ internal object GitHubOperationArguments {
             if (key in args && text(key).toLongOrNull()?.let { it > 0 } != true) errors += "$key must be a positive integer ID returned by discovery"
         }
         when (operation) {
+            "github_watch_checks" -> {
+                positive("pr_number")
+                positive("run_id")
+                if ("pr_number" !in args && "run_id" !in args) errors += "provide pr_number or run_id from PR or workflow discovery"
+            }
             "github_read" -> {
                 if (text("evidence_id").isBlank() && (args["ranges"] as? JsonArray).isNullOrEmpty()) {
                     errors += "provide ranges=[{path, start_line, end_line}] or a retained evidence_id; discover exact paths with github_search mode=paths"

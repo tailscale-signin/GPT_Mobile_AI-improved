@@ -5,6 +5,11 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 
+/** Private run-scoped review observes execution receipts before any delivery or replay compaction. */
+internal class ToolReceiptObserver(val observe: (ProviderEvent.ToolCall, AgentToolResult) -> Unit) : kotlin.coroutines.AbstractCoroutineContextElement(Key) {
+    companion object Key : kotlin.coroutines.CoroutineContext.Key<ToolReceiptObserver>
+}
+
 /** Bound all three representations before they enter replay, trace persistence, or a UI event. */
 internal object ToolObservationRetention {
     fun bound(result: AgentToolResult, maxBytes: Int = 64 * 1024): AgentToolResult = result.copy(

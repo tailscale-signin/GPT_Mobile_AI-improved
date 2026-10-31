@@ -68,7 +68,7 @@ class GatewayAPIImpl @Inject constructor(
             "Invalid Gateway generation identifier."
         }
         val generationQuery = expectedGeneration?.let { "&generation=$it" }.orEmpty()
-        val endpoint = config.buildEndpoint("gateway/jobs/$jobId/events?after_sequence=$afterSequence$generationQuery")
+        val endpoint = config.buildEndpoint("gateway/jobs/$jobId/events?after_sequence=${afterSequence.coerceAtLeast(0)}$generationQuery")
         var lastSequence = afterSequence.coerceAtLeast(0)
         var activeGeneration: String? = null
         networkClient().prepareGet(endpoint) {
@@ -95,13 +95,20 @@ class GatewayAPIImpl @Inject constructor(
                     throw GatewayEventReplayException("Gateway returned an unreadable replay event.", failure)
                 }
                 val generation = progress.generation
+                if (progress.jobId != null && progress.jobId != jobId) {
+                    throw GatewayEventReplayException("Gateway replay belongs to a different job; retained output was not replaced.")
+                }
+                if (activeGeneration == null && expectedGeneration != null && generation != expectedGeneration && progress.generationChanged != true) {
+                    throw GatewayEventReplayException("Gateway replay did not confirm the saved generation or declare a generation change.")
+                }
                 if (generation != null && activeGeneration != null && generation != activeGeneration) {
                     throw GatewayEventReplayException("Gateway event generation changed during replay.")
                 }
                 if (generation != null) activeGeneration = generation
                 val sequence = progress.sequence
+                if (sequence != null && sequence < 0) throw GatewayEventReplayException("Gateway returned an invalid replay cursor.")
                 if (sequence != null && sequence <= lastSequence && progress.generationChanged != true) continue
-                if (sequence != null) lastSequence = maxOf(lastSequence, sequence)
+                if (sequence != null) lastSequence = if (progress.generationChanged == true) sequence else maxOf(lastSequence, sequence)
                 emit(progress)
             }
         }

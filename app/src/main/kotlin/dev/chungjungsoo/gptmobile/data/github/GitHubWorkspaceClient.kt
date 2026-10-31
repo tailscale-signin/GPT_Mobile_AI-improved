@@ -29,6 +29,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -119,7 +120,7 @@ class GitHubWorkspaceClient(
     suspend fun taskSnapshot(): GitHubTaskSnapshot? = repositorySession.snapshot()
     suspend fun taskContext(): GitHubRepositoryContext? = repositorySession.context()
     internal suspend fun trackExecution(action: String, arguments: JsonObject, block: suspend () -> JsonElement): JsonObject =
-        executionJournal.run(action, arguments, block).jsonObject
+        executionJournal.run(action, arguments, block = block).jsonObject
 
     private data class ReleaseDispatchReceipt(val root: String, val workflowId: String, val sourceSha: String, val tagName: String, val correlationId: String)
 
@@ -232,30 +233,10 @@ class GitHubWorkspaceClient(
             }
             "get_commit_detail" -> {
                 require(ref.isNotBlank()) { "commit_sha or ref is required." }
-                val result = request("$root/commits/${segment(ref)}?per_page=100&page=$page").jsonObject
-                buildJsonObject {
-                    put("sha", result["sha"] ?: JsonNull)
-                    put("commit", result["commit"] ?: JsonNull)
-                    put("stats", result["stats"] ?: JsonNull)
-                    listOf("parents", "author", "committer", "html_url").forEach { key -> result[key]?.let { put(key, it) } }
-                    val files = result["files"]?.jsonArray.orEmpty()
-                    put("files", JsonArray(files))
-                    put("page", page)
-                    put("files_returned", files.size)
-                    put("has_more", files.size == 100)
-                    put("files_truncated", files.size == 100)
-                    if (files.size == 100) {
-                        put(
-                            "continuation",
-                            buildJsonObject {
-                                put("action", "get_commit_detail")
-                                put("ref", result["sha"] ?: JsonPrimitive(ref))
-                                put("commit_sha", result["sha"] ?: JsonPrimitive(ref))
-                                put("page", page + 1)
-                            }
-                        )
-                    }
-                }
+                val perPage = args["per_page"]?.jsonPrimitive?.intOrNull ?: 30
+                require(perPage in 1..100) { "per_page must be between 1 and 100." }
+                val result = request("$root/commits/${segment(ref)}?per_page=$perPage&page=$page").jsonObject
+                GitHubCommitDetail.present(result, page, perPage, args["include_patches"]?.jsonPrimitive?.booleanOrNull == true)
             }
             "get_commit_status_summary" -> {
                 val target = request("$root/commits/${segment(ref.ifBlank { required("ref") })}").jsonObject["sha"]!!.jsonPrimitive.content
@@ -1715,7 +1696,7 @@ class GitHubWorkspaceClient(
             put("invocation", currentCoroutineContext()[Invocation]?.identity.orEmpty())
             body?.let { put("body", it) }
         }
-        val result = executionJournal.run("http.${method.value}", identity) { requestUntracked(path, method, body, authenticated) }.jsonObject
+        val result = executionJournal.run("http.${method.value}", identity, singleHttpRequest = true) { requestUntracked(path, method, body, authenticated) }.jsonObject
         if (result["execution"]?.jsonObject?.get("status")?.jsonPrimitive?.content != "COMPLETED") {
             throw GitHubExecutionBlocked(result)
         }

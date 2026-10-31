@@ -54,7 +54,9 @@ class CompleteBackupManager @Inject constructor(
     private val healthImportStore: dev.chungjungsoo.gptmobile.data.health.HealthConnectLocalImportStore =
         dev.chungjungsoo.gptmobile.data.health.HealthConnectLocalImportStore(context),
     private val researchBackup: dev.chungjungsoo.gptmobile.data.research.feature.ResearchBackup? = null,
-    private val walletLocal: dev.chungjungsoo.gptmobile.data.openrouter.account.OpenRouterWalletLocalStore? = null
+    private val walletLocal: dev.chungjungsoo.gptmobile.data.openrouter.account.OpenRouterWalletLocalStore? = null,
+    private val githubDecisions: dev.chungjungsoo.gptmobile.data.github.GitHubChatDecisions? = null,
+    private val githubNotifications: dev.chungjungsoo.gptmobile.data.github.GitHubDecisionNotifications? = null
 ) {
     private val mutex = Mutex()
     private val protectionMutex = Mutex()
@@ -215,7 +217,7 @@ class CompleteBackupManager @Inject constructor(
 
         val storage = files()
         val sources = linkedMapOf<String, File>()
-        val lockToolState = selected.includes(CompleteBackupSection.TOOLS)
+        val lockToolState = selected.includes(CompleteBackupSection.TOOLS) || selected.includes(CompleteBackupSection.CREDENTIALS)
         var toolPreferencesSnapshot: Map<String, BackupValue>? = null
         var conversationSettings: ConversationCombinedPortableSnapshot? = null
         var toolSecretsSnapshot: Map<String, String>? = null
@@ -314,6 +316,22 @@ class CompleteBackupManager @Inject constructor(
                     sources["tool-statistics.json"] = File(work, "tool-statistics.json").apply { writeText(toolStatistics.export()) }
                 }
             }
+            if (selected.includes(CompleteBackupSection.GITHUB_WORKSPACE)) {
+                val drafts = storage.collectGitHubDrafts()
+                drafts.forEach { (path, file) ->
+                    val reference = dev.chungjungsoo.gptmobile.data.github.GitHubWorkspaceDraftStore.portableKeyReference(file.name)
+                    val key = secretVault.read(reference) ?: secretVault.read(dev.chungjungsoo.gptmobile.data.github.GitHubWorkspaceDraftStore.KEY)
+                    require(key != null) { "GitHub draft encryption key is missing." }
+                    try {
+                        require(key.size == 32)
+                    } finally {
+                        key.fill(0)
+                    }
+                    val snapshot = File(work, path).apply { parentFile!!.mkdirs() }
+                    file.copyTo(snapshot, overwrite = true)
+                    sources[path] = snapshot
+                }
+            }
             if (selected.includes(CompleteBackupSection.TOOLS)) {
                 val pluginSnapshotDirectory = File(work, "plugin-snapshot").apply { check(mkdirs() || isDirectory) }
                 storage.collectPlugins().forEach { (archivePath, source) ->
@@ -328,6 +346,7 @@ class CompleteBackupManager @Inject constructor(
                 toolPreferencesSnapshot = preferences.read()
                 toolSecretsSnapshot = readSecrets(selected)
             }
+            if (toolSecretsSnapshot == null && selected.includes(CompleteBackupSection.CREDENTIALS)) toolSecretsSnapshot = readSecrets(selected)
         } finally {
             if (lockToolState) dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceMutations.mutex.unlock()
         }
@@ -342,6 +361,7 @@ class CompleteBackupManager @Inject constructor(
             },
             sharedPreferences = buildMap {
                 if (CompleteBackupSection.SETTINGS in selected.sections) putAll(preferences.readShared())
+                if (CompleteBackupSection.TOOLS in selected.sections) put("github_workspace", preferences.readSectionOwnedShared("github_workspace"))
                 if (CompleteBackupSection.STATISTICS in selected.sections) {
                     put(dev.chungjungsoo.gptmobile.data.backup.PROFILE_STATISTICS_PREFERENCES, preferences.readSectionOwnedShared(dev.chungjungsoo.gptmobile.data.backup.PROFILE_STATISTICS_PREFERENCES))
                 }
@@ -350,7 +370,8 @@ class CompleteBackupManager @Inject constructor(
             files = sources.mapValues { it.value.length() },
             sections = selected.sections.mapTo(linkedSetOf()) { it.name },
             protection = if (selected.includes(CompleteBackupSection.SETTINGS)) savedProtection().copy(password = "") else null,
-            conversationSettings = conversationSettings
+            conversationSettings = conversationSettings,
+            portableGitHubCredentials = selected.includes(CompleteBackupSection.CREDENTIALS) && githubCredentialReferences(database.toolConnectionDao().getAllConnections()).any { it in (toolSecretsSnapshot ?: emptyMap()) }
         )
 
         val archive = File(work, "archive.zip")
@@ -539,7 +560,12 @@ class CompleteBackupManager @Inject constructor(
         if (restoreSettings || restoreConversations) manifest.conversationSettings?.let(ConversationCombinedPortable::validate)
         val restoreSecrets = effective.requiresEncryption
         val currentGitHubSecrets = githubCredentialReferences(database.toolConnectionDao().getAllConnections())
-        var selectedSecrets = manifest.secrets.filterKeys { secretBelongsTo(it, effective) && it !in currentGitHubSecrets }
+        val portableGitHub = manifest.portableGitHubCredentials && effective.includes(CompleteBackupSection.CREDENTIALS)
+        require(!portableGitHub || encryptedArchive) { "GitHub API credentials require an encrypted backup." }
+        var selectedSecrets = manifest.secrets.filterKeys {
+            secretBelongsTo(it, effective) && (portableGitHub || (it !in currentGitHubSecrets && !it.startsWith("github-")))
+        }
+        if (portableGitHub) selectedSecrets = GitHubBackupCredentials.requireRevalidation(selectedSecrets)
         val restoreAttachments = CompleteBackupSection.ATTACHMENTS in effective.sections
         val restoreModels = CompleteBackupSection.LOCAL_MODELS in effective.sections
         val restoreDatabase = effective.sections.any(::isDatabaseSection) &&
@@ -565,6 +591,8 @@ class CompleteBackupManager @Inject constructor(
                     CompleteBackupSection.STATISTICS in effective.sections
                 } else if (path == "internal/health-connect/local-import-v1") {
                     CompleteBackupSection.HEALTH_DATA in effective.sections
+                } else if (CompleteBackupFiles.isGitHubDraftPath(path)) {
+                    effective.includes(CompleteBackupSection.GITHUB_WORKSPACE)
                 } else if (CompleteBackupFiles.isPluginPath(path)) {
                     effective.includes(CompleteBackupSection.TOOLS)
                 } else {
@@ -573,6 +601,22 @@ class CompleteBackupManager @Inject constructor(
                 }
             }
             .toSet()
+        if (effective.includes(CompleteBackupSection.GITHUB_WORKSPACE)) {
+            val draftKeys = selectedPaths.filter(CompleteBackupFiles::isGitHubDraftPath).associate { path ->
+                require(encryptedArchive) { "GitHub drafts require an encrypted backup." }
+                val reference = dev.chungjungsoo.gptmobile.data.github.GitHubWorkspaceDraftStore.portableKeyReference(path.substringAfterLast('/'))
+                val encoded = selectedSecrets[reference] ?: selectedSecrets[dev.chungjungsoo.gptmobile.data.github.GitHubWorkspaceDraftStore.KEY]
+                requireNotNull(encoded) { "GitHub draft encryption key is missing." }
+                val key = Base64.getDecoder().decode(encoded)
+                try {
+                    require(key.size == 32)
+                } finally {
+                    key.fill(0)
+                }
+                reference to encoded
+            }
+            selectedSecrets = selectedSecrets.filterKeys { !dev.chungjungsoo.gptmobile.data.github.GitHubWorkspaceDraftStore.isDraftKey(it) } + draftKeys
+        }
         val benchmarkImportJson = selectedPaths
             .firstOrNull { it == "internal/benchmark-results/benchmark-results.json" }
             ?.let { path -> File(staging, path).readText().also(benchmarkStore::validateBackupJson) }
@@ -602,10 +646,11 @@ class CompleteBackupManager @Inject constructor(
                 CompleteBackupDatabase.validate(source, database.openHelper.writableDatabase)
 
                 if (CompleteBackupSection.TOOLS in effective.sections) {
-                    // Older archives may contain GitHub credentials. Restoring metadata
-                    // must still require a fresh connection on this installation.
-                    val githubReferences = githubCredentialReferences(source)
-                    selectedSecrets = selectedSecrets.filterKeys { it !in githubReferences }
+                    // Old archives never opted into portable GitHub credentials.
+                    if (!portableGitHub) {
+                        val githubReferences = githubCredentialReferences(source)
+                        selectedSecrets = selectedSecrets.filterKeys { it !in githubReferences }
+                    }
                     clearMissingToolSecrets(source, selectedSecrets.keys)
                 }
 
@@ -630,7 +675,7 @@ class CompleteBackupManager @Inject constructor(
                 }
             }
 
-            val lockToolState = effective.includes(CompleteBackupSection.TOOLS)
+            val lockToolState = effective.includes(CompleteBackupSection.TOOLS) || effective.includes(CompleteBackupSection.CREDENTIALS)
             if (lockToolState) dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceMutations.mutex.lock()
             try {
                 dev.chungjungsoo.gptmobile.data.repository.CombinedSettingsSaveJournal.withExclusiveMutation {
@@ -641,6 +686,9 @@ class CompleteBackupManager @Inject constructor(
                         check(currentFeatures?.combinedSettingsJournal?.values?.none { !it.roomSettled } != false) { "Finish or recover the conversation settings save before restoring." }
                     }
                     val oldSecrets = if (restoreSecrets) readSecrets(effective, includeGitHubForRollback = true) else emptyMap()
+                    // Per-file keys preserve unrelated drafts on this installation. The
+                    // journal retains the complete previous key set for exact rollback.
+                    if (effective.includes(CompleteBackupSection.GITHUB_WORKSPACE)) selectedSecrets = oldSecrets.filterKeys { dev.chungjungsoo.gptmobile.data.github.GitHubWorkspaceDraftStore.isDraftKey(it) } + selectedSecrets
                     val protectedMemory = if (effective.includes(CompleteBackupSection.MEMORY)) memoryStore?.read() else null
                     val oldProtection = savedProtection()
                     val restoreTransactionId = UUID.randomUUID().toString()
@@ -704,12 +752,23 @@ class CompleteBackupManager @Inject constructor(
                                     )
                                     nextPreferences = nextPreferences + (ConversationCombinedPortable.FEATURE_KEY to BackupValue("string", combined))
                                 }
+                                nextPreferences = GitHubBackupPreferences.restore(
+                                    nextPreferences, oldPreferences, manifest.preferences,
+                                    manifest.conversationSettings,
+                                    restoringChats = restoreConversations && source != null,
+                                    restoreGlobal = restoreSettings || effective.includes(CompleteBackupSection.TOOLS),
+                                    existingChatIds = (database.chatRoomDao().getChatRooms() + database.chatRoomDao().getArchivedChatRooms()).map { it.id }.toSet(),
+                                    connections = database.toolConnectionDao().getAllConnections().map { it.connectionUid }.toSet(),
+                                    profiles = database.platformDao().getPlatforms().map { it.uid }.toSet()
+                                )
                                 val nextShared = if (restoreSettings) {
                                     manifest.sharedPreferences
                                 } else if (CompleteBackupSection.STATISTICS in effective.sections) {
                                     oldShared + (dev.chungjungsoo.gptmobile.data.backup.PROFILE_STATISTICS_PREFERENCES to manifest.sharedPreferences[dev.chungjungsoo.gptmobile.data.backup.PROFILE_STATISTICS_PREFERENCES].orEmpty())
                                 } else {
                                     oldShared
+                                }.let { shared ->
+                                    if (effective.includes(CompleteBackupSection.TOOLS) && "github_workspace" in manifest.sharedPreferences) shared + ("github_workspace" to manifest.sharedPreferences.getValue("github_workspace")) else shared
                                 }
                                 preferences.replace(nextPreferences, nextShared)
                             }
@@ -732,6 +791,10 @@ class CompleteBackupManager @Inject constructor(
                 }
             } finally {
                 if (lockToolState) dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceMutations.mutex.unlock()
+            }
+            if (effective.includes(CompleteBackupSection.CREDENTIALS) || effective.includes(CompleteBackupSection.TOOLS)) dev.chungjungsoo.gptmobile.data.github.GitHubSessionCaches.clear()
+            if (restoreConversations || effective.includes(CompleteBackupSection.TOOLS)) {
+                githubDecisions?.resetAfterRestore()?.forEach { githubNotifications?.dismiss(it) }
             }
             settings.invalidatePlatformCache()
         } finally {
@@ -984,7 +1047,7 @@ class CompleteBackupManager @Inject constructor(
                 database.toolConnectionDao().getAllConnections().mapNotNull { it.secretRef }
             ).filter { reference ->
             val rollbackCredential = includeGitHubForRollback && selection.includes(CompleteBackupSection.CREDENTIALS) && (reference in githubReferences || reference.startsWith("github-oauth-session-"))
-            rollbackCredential || (secretBelongsTo(reference, selection) && reference !in githubReferences)
+            rollbackCredential || secretBelongsTo(reference, selection)
         }
         val portableMemory = if (selection.includes(CompleteBackupSection.MEMORY)) memoryStore?.exportPortable().orEmpty() else emptyMap()
         return buildMap {
@@ -1004,7 +1067,7 @@ class CompleteBackupManager @Inject constructor(
     private fun githubCredentialReferences(connections: List<dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection>): Set<String> =
         connections.filter { connection ->
             connection.type == "GITHUB" || connection.marketplaceProviderId.orEmpty().contains("github", true) || dev.chungjungsoo.gptmobile.data.model.ToolServiceCatalog.forConnection(connection).id == dev.chungjungsoo.gptmobile.data.model.ToolPluginId.GITHUB
-        }.flatMap { connection -> listOfNotNull(connection.secretRef, "connection_${connection.connectionUid}", dev.chungjungsoo.gptmobile.data.security.EndpointSecrets.reference(connection.connectionUid)) }.toSet()
+        }.flatMap { connection -> listOfNotNull(connection.secretRef, "connection_${connection.connectionUid}", dev.chungjungsoo.gptmobile.data.security.EndpointSecrets.reference(connection.connectionUid), dev.chungjungsoo.gptmobile.data.github.GitHubPublicAuthCoordinator.sessionReference(connection.connectionUid), dev.chungjungsoo.gptmobile.data.github.GitHubPublicAuthCoordinator.bindingReference(connection.connectionUid)) }.toSet()
 
     private fun githubCredentialReferences(source: SupportSQLiteDatabase): Set<String> {
         val connections = source.query("SELECT connection_uid, name, alias, type, endpoint_url, secret_ref, marketplace_provider_id, marketplace_origin FROM tool_connections").use { rows ->
@@ -1023,9 +1086,11 @@ class CompleteBackupManager @Inject constructor(
     }
 
     private fun secretBelongsTo(reference: String, selection: CompleteBackupSelection): Boolean = when {
+        reference.startsWith("github-oauth-session-") || reference.startsWith("github-account-binding-") -> selection.includes(CompleteBackupSection.CREDENTIALS)
         reference.startsWith("github-") || reference.startsWith("mcp_oauth_pending_") -> false
+        dev.chungjungsoo.gptmobile.data.github.GitHubWorkspaceDraftStore.isDraftKey(reference) -> selection.includes(CompleteBackupSection.GITHUB_WORKSPACE)
         reference.startsWith("openrouter-management-") -> false
-        reference == dev.chungjungsoo.gptmobile.data.github.GitHubWorkspaceDraftStore.KEY || reference.startsWith("share-") || reference.startsWith(RestoreStoreJournal.PREFIX) -> false
+        reference.startsWith("share-") || reference.startsWith(RestoreStoreJournal.PREFIX) -> false
         reference.startsWith("memory-portable-") -> selection.includes(CompleteBackupSection.MEMORY)
         reference.startsWith("workspace-memory-") -> selection.includes(CompleteBackupSection.MEMORY)
         reference == BACKUP_PASSWORD_REF || reference == BACKUP_KEY_REF || reference.startsWith("backup-recovery-") -> false
@@ -1054,9 +1119,9 @@ class CompleteBackupManager @Inject constructor(
                 bytes.fill(0)
             }
         }
-        (secretVault.references().filter { secretBelongsTo(it, selection) }.toSet() - values.keys).forEach { secretVault.delete(it) }
+        (secretVault.references().filter { secretBelongsTo(it, selection) && !it.startsWith("github-account-binding-") }.toSet() - values.keys).forEach { secretVault.delete(it) }
         if (selection.includes(CompleteBackupSection.CREDENTIALS)) {
-            secretVault.references().filter { ((it.startsWith("github-") && !it.startsWith("github-account-binding-")) || it.startsWith("mcp_oauth_pending_")) && it !in values }.forEach { secretVault.delete(it) }
+            secretVault.references().filter { (it == dev.chungjungsoo.gptmobile.data.github.GitHubPublicAuthCoordinator.PENDING_REFERENCE || it.startsWith("mcp_oauth_pending_")) && it !in values }.forEach { secretVault.delete(it) }
         }
     }
 
@@ -1084,6 +1149,7 @@ class CompleteBackupManager @Inject constructor(
         CompleteBackupSection.AMAZON_DATA -> true
 
         CompleteBackupSection.CREDENTIALS,
+        CompleteBackupSection.GITHUB_WORKSPACE,
         CompleteBackupSection.ATTACHMENTS,
         CompleteBackupSection.MEMORY,
         CompleteBackupSection.HEALTH_DATA,
@@ -1133,6 +1199,7 @@ class CompleteBackupManager @Inject constructor(
         CompleteBackupSection.PLATFORMS -> "AI platforms"
         CompleteBackupSection.TOOLS -> "tool connections"
         CompleteBackupSection.CREDENTIALS -> "credentials"
+        CompleteBackupSection.GITHUB_WORKSPACE -> "GitHub workspace drafts"
         CompleteBackupSection.MEMORY -> "memory"
         CompleteBackupSection.LOCAL_MODELS -> "local models"
         CompleteBackupSection.ATTACHMENTS -> "attachments"

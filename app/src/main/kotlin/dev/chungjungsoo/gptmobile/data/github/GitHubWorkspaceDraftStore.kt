@@ -42,7 +42,7 @@ class GitHubWorkspaceDraftStore @Inject constructor(@ApplicationContext context:
             } catch (_: java.io.FileNotFoundException) {
                 return@withLock null
             }
-            val key = requireNotNull(vault.read(KEY)) { "Workspace draft key is unavailable; encrypted drafts are preserved." }
+            val key = requireNotNull(vault.read(portableKeyReference(atomic.baseFile.name)) ?: vault.read(KEY)) { "Workspace draft key is unavailable; encrypted drafts are preserved." }
             try {
                 require(bytes.size >= 28)
                 val cipher = Cipher.getInstance("AES/GCM/NoPadding")
@@ -62,7 +62,7 @@ class GitHubWorkspaceDraftStore @Inject constructor(@ApplicationContext context:
 
     suspend fun write(connection: String, value: String) = withContext(Dispatchers.IO) {
         mutex.withLock {
-            val key = vault.read(KEY) ?: ByteArray(32).also {
+            val key = vault.read(portableKeyReference(file(connection).baseFile.name)) ?: vault.read(KEY) ?: ByteArray(32).also {
                 SecureRandom().nextBytes(it)
                 vault.put(KEY, it)
             }
@@ -93,5 +93,11 @@ class GitHubWorkspaceDraftStore @Inject constructor(@ApplicationContext context:
 
     companion object {
         const val KEY = "workspace-draft-encryption-v1"
+        internal const val FILE_KEY_PREFIX = "workspace-draft-file-"
+        internal fun portableKeyReference(fileName: String): String {
+            require(fileName.matches(Regex("[a-f0-9]{64}\\.draft")))
+            return FILE_KEY_PREFIX + fileName.removeSuffix(".draft")
+        }
+        internal fun isDraftKey(reference: String): Boolean = reference == KEY || reference.startsWith(FILE_KEY_PREFIX)
     }
 }

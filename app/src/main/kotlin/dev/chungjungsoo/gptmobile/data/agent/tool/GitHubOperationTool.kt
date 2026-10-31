@@ -27,7 +27,7 @@ internal class GitHubOperationTool(
         if ("view_cursor" in arguments) {
             // Providers often carry repository/action defaults into a saved-page call.
             // Validate those against the retained read instead of forcing a model repair loop.
-            if (arguments.keys.any { it !in setOf("view_cursor", "owner", "repo", "commit_sha", "action") }) {
+            if (arguments.keys.any { it != "view_cursor" && it !in GitHubResultViews.SAVED_CONTEXT_KEYS }) {
                 val evidence = (arguments["evidence_id"] as? JsonPrimitive)?.takeIf { it.isString && it.content.isNotBlank() }
                 val restoreEvidence = operation == "github_read" && evidence != null && (arguments["view_cursor"] as? JsonPrimitive)?.content?.contains(':') != true
                 val corrected = if (restoreEvidence) {
@@ -80,7 +80,7 @@ internal class GitHubOperationTool(
                 dispatched = false
             )
         }
-        if (operation in setOf("github_context", "github_write", "github_search", "github_read", "github_pr", "github_commit", "github_stage_patch", "github_ci", "github_issue", "github_release")) {
+        if (operation in setOf("github_context", "github_write", "github_search", "github_read", "github_pr", "github_commit", "github_stage_patch", "github_ci", "github_watch_checks", "github_issue", "github_release")) {
             val errors = ToolArgumentValidator.errors(arguments, definition.inputSchema).ifEmpty {
                 GitHubOperationArguments.errors(operation, arguments)
             }
@@ -354,13 +354,12 @@ internal class GitHubOperationTool(
                     properties["ref"] = field("string")
                     properties["branch"] = field("string")
                     properties["query"] = field("string")
-                    properties["base_sha"] = buildJsonObject {
-                        put("type", "string")
-                        put("description", "Comparison base for changes.")
-                    }
+                    properties["base_sha"] = field("string")
                     properties["stage_id"] = field("string")
                     properties["refresh"] = field("boolean")
                     properties["page"] = field("integer")
+                    properties["per_page"] = integer(1, 100, "Commit files per page; default 30.")
+                    properties["include_patches"] = field("boolean")
                 }
                 "github_search" -> {
                     properties["path_prefix"] = field("string")
@@ -387,13 +386,13 @@ internal class GitHubOperationTool(
                         put("type", "integer")
                         put("minimum", 1)
                         put("maximum", 100)
-                        put("description", "Downloads per call; default 16, parallel 4.")
+                        put("description", "New blobs; default 16.")
                     }
                     properties["batch_size"] = buildJsonObject {
                         put("type", "integer")
                         put("minimum", 1)
                         put("maximum", 1000)
-                        put("description", "Candidate limit; network/byte budgets also apply.")
+                        put("description", "Candidate files; default 1000.")
                     }
                     properties["page"] = field("integer")
                 }
@@ -602,9 +601,9 @@ internal class GitHubOperationTool(
                 }
             }
             val description = when (operation) {
-                "github_context" -> "Inspect repository, branches/rules, commits, checks, evidence/stages. Changes requires base_sha."
-                "github_search" -> "Search pinned paths/code/tests/symbols. patterns: ordered literals joined by *. Fuzzy: one identifier. Inspect lexical coverage."
-                "github_read" -> "Read pinned ranges=[{path,start_line,end_line}] (1-based, <=2000 lines) or evidence_id. Use view_cursor alone for saved pages."
+                "github_context" -> "Inspect repo, branches, commits, checks, evidence. changes needs base_sha; commit returns 30 summaries. include_patches adds excerpts."
+                "github_search" -> "Search pinned code/paths. patterns: * between literals; fuzzy: one identifier. Check coverage."
+                "github_read" -> "Read pinned ranges (1-based, <=2000 lines) or evidence_id; saved pages use view_cursor alone."
                 "github_stage_patch" -> "Stage an exact replacement with target_file, search_snippet and replacement_snippet, or SHA-checked edits. Reads the pinned blob and rejects ambiguous anchors. Returns immutable version/stage_id and preserves publication receipts. Supply restore_stage_id alone to select a saved local patch at the same branch/base. Commit on a permitted working branch using its current expected_head_sha."
                 "github_commit" -> "Create a working branch, commit a validated stage_id, or delete_branch with expected_head_sha after dependency inspection. Deletion blocks selected/default/protected branches, unmerged commits, open PRs and active runs. GitHub deletion is not an atomic SHA lease."
                 "github_write" -> "Every files item requires a repository-relative path (for example app/src/main/kotlin/.../MainActivity.kt), never an absolute path or directory. Stage up to 20 UTF-8 file creations, replacements or deletions for exact user approval and one atomic commit on a working branch. Supply expected_head_sha and expected_blob_sha for existing files. Replacements require content; deletions require delete=true and no content. Never write to the default branch."
@@ -613,7 +612,7 @@ internal class GitHubOperationTool(
                 "github_watch_checks" -> "Subscribe once to background CI updates for pr_number and/or run_id in this saved chat. Pins the current head and posts native chat status updates without model polling turns. A moved PR head requires a new subscription."
                 "github_issue" -> "List issues (PRs excluded), or inspect issue_number with context/comments/history. An open_issue_count is not issue inspection. Create/update requires exact approval; update needs expected_updated_at. Timeline is not a full body-edit history."
                 else -> "Inspect release notes (detail), tags/annotations (tag), paginated tags/list, create_tag or explicitly publish the selected release."
-            } + " Owner+repo together or omitted. Follow continuation_call."
+            } + " Follow continuation_call. Pair owner+repo."
             return AgentToolDefinition(
                 modelName,
                 description,

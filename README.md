@@ -68,6 +68,14 @@ Open **Plugins/Tools** to manage integrated plugins and external connections. En
 | GitHub workspace | Browse repositories and files, edit changes, and work with branches, commits and pull requests | A connected GitHub account with the necessary repository permissions. |
 | External MCP tools | Connect compatible third-party tools and services | MCP is a standard way for an AI app to connect to tools. Each server has its own access and setup requirements. |
 
+In the GitHub workspace's settings, choose an AI profile and its separate GitHub
+chat preferences. Web search, GitHub tools, maximum context expansion and **Ultra
+Maximum** are enabled by default. Provider capacity and spending limits still
+apply. Design questions offer buttons and a custom answer; background prompts
+notify you when notifications are allowed. The header shows elapsed job time.
+Llama gateway final answers require a separate review of retained tool results;
+failed review keeps the answer unpublished and preserves the work for recovery.
+
 A marketplace listing is not proof that a service is configured, free, reachable or supported on your device. Tools can contact external services even when the chat model runs locally.
 
 ### Run compatible AI models on your phone
@@ -160,11 +168,22 @@ Technical guides include historical implementation notes and unfinished rollout 
 Use JDK 21, Android SDK platform 37, build tools 37.0.0 and the included Gradle wrapper. See [app configuration](app/build.gradle.kts) and [dependency versions](gradle/libs.versions.toml) for the current source settings.
 
 ```bash
-./gradlew :app:testDebugUnitTest
+# Downloads once into the SHA-256-addressed Gradle model cache; Gradle performs no weight downloads.
+python3 scripts/provision_memory_model.py
+# Offline provisioning can use --file /path/to/universal_sentence_encoder.tflite --offline.
+# Direct Gradle overrides remain supported: -PmemoryModelFile=/path/to/the/pinned/model.
+./gradlew :core-domain:jvmTest :app:testDebugUnitTest
 ./gradlew :app:lintDebug :app:assembleDebug
 python3 scripts/check_local_runtime_apk.py app/build/outputs/apk/debug/*.apk
 ./gradlew :app:assembleDebugAndroidTest
 ```
+
+For cached/offline model verification run `python3 scripts/provision_memory_model.py --offline`.
+`python3 scripts/check_model_configuration_cache.py` verifies cache reuse for model
+packaging and the portable accounting/routing module. Full Android configuration
+caching remains disabled because ObjectBox retains Gradle Project state; this does
+not disable the build artifact cache. Provision normal Gradle/SDK dependencies before
+an offline Android build.
 
 On Windows, use `gradlew.bat` in place of `./gradlew`. Device-required checks include:
 
@@ -184,3 +203,19 @@ The PC gateway is optional and updated separately from the Android app. Deploy t
 Based on [GPT Mobile](https://github.com/Taewan-P/gpt_mobile), with additional research, local-model, memory, tool and workflow features in this fork.
 
 Licensed under the **GNU General Public License v3.0**. See [LICENSE](LICENSE); upstream credits and third-party notices remain applicable.
+
+For an explicit memory-leak investigation, build the debug app with
+`-PleakDetection=true`. This enables the catalog-pinned LeakCanary 2.14 integration
+for destroyed activities, fragments, views, view models and services. It is omitted
+from ordinary debug runs and every release build so heap dumping does not distort
+runtime benchmarks. See [LeakCanary's setup](https://square.github.io/leakcanary/getting_started/).
+
+Complete backups can include GitHub connections and API/OAuth credentials under
+**API keys & connection secrets**, and saved editor/programmer drafts under
+**GitHub workspace drafts**. Both require encryption. Include **Settings & tools**,
+**Conversations**, and **AI platforms** to restore workspace/profile/chat mappings
+together. Settings-only imports match stable conversation identities. Restored
+GitHub OAuth sessions verify the account again; expired or revoked credentials may
+require reconnecting. Pending sign-ins, previous write approvals, execution claims,
+and response caches are deliberately not portable. Restoring drafts never commits
+or pushes them. Keep a password or the separate recovery key for another device.

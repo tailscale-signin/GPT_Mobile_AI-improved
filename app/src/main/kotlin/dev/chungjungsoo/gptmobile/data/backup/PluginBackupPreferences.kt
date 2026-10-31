@@ -31,7 +31,7 @@ internal object PluginBackupPreferences {
         // Restored chat/profile/connection IDs are not proof of the original account
         // binding. Re-select a GitHub workspace after restore; never attach its scope
         // to an unrelated room that happens to reuse a numeric ID.
-        val saved = JsonObject(original.filterKeys { it !in setOf("conversationGitHub", "githubMainProfiles", "githubPrepareIndex") })
+        val saved = JsonObject(original.filterKeys { it !in setOf("conversationGitHub", "githubMainProfiles", "githubPrepareIndex", "gatewayEngineeringJobs") })
         val sanitized = if (saved == original) preferences else preferences + (KEY to BackupValue("string", saved.toString()))
         if ("conversationResearch" !in saved && "deep_research" !in raw) return sanitized
         val states = JsonObject((saved["toolPluginStates"] as? JsonObject).orEmpty() + ("deep_research" to JsonPrimitive(false)))

@@ -80,6 +80,8 @@ jobs:
         with:
           packages: 'platforms;android-37.0 build-tools;37.0.0'
 
+      - name: Provision verified memory model outside Gradle
+        run: python3 scripts/provision_memory_model.py
       - name: Install Vulkan shader headers for Android GGUF backend
         timeout-minutes: 8
         run: |

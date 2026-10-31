@@ -25,6 +25,42 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(manifest = Config.NONE, sdk = [34])
 class ToolBatchCheckpointTest {
+    @Test fun explicitBudgetRetryReopensOnlyUndispatchedBudgetFailuresAndKeepsReceipts() = runBlocking {
+        val journal = ToolBatchCheckpoint(null, "retry")
+        val calls = listOf("budget", "completed", "uncertain", "invalid", "dispatched-budget").map { ProviderEvent.ToolCall(it, "write", JsonObject(emptyMap())) }
+        journal.enqueue(calls)
+        val receipts = listOf(
+            AgentToolResult("budget", ToolResultContent.Text("limit"), true, errorCode = "BUDGET_EXHAUSTED", dispatched = false, toolCallBudgetExhausted = true),
+            AgentToolResult("completed", ToolResultContent.Text("commit receipt"), false, toolCallBudgetExhausted = true),
+            AgentToolResult("uncertain", ToolResultContent.Text("reconcile"), true, errorCode = "TOOL_OUTCOME_UNKNOWN"),
+            AgentToolResult("invalid", ToolResultContent.Text("fix arguments"), true, errorCode = "INVALID_ARGUMENTS", dispatched = false),
+            AgentToolResult("dispatched-budget", ToolResultContent.Text("saved partial output"), true, errorCode = "BUDGET_EXHAUSTED", outputBudgetExhausted = true)
+        )
+        calls.zip(receipts).forEach { (call, result) -> journal.execute(call) { result } }
+        val before = journal.dispatchedCount()
+        assertEquals("BUDGET_EXHAUSTED", journal.execute(calls.first()) { error("Implicit resume must not retry") }.errorCode)
+        journal.prepareExplicitBudgetRetry()
+        val snapshot = journal.recoverySnapshot()
+        assertEquals(1, snapshot.queuedCount)
+        assertEquals(before, snapshot.dispatchedCount)
+        var newDispatches = 0
+        val restored = calls.map { call ->
+            journal.execute(call) {
+                newDispatches++
+                assertEquals("budget", call.callId)
+                AgentToolResult(call.callId, ToolResultContent.Text("newly admitted"), false)
+            }
+        }
+        assertEquals(1, newDispatches)
+        assertEquals("commit receipt", (restored[1].content as ToolResultContent.Text).text)
+        assertEquals("TOOL_OUTCOME_UNKNOWN", restored[2].errorCode)
+        assertEquals("INVALID_ARGUMENTS", restored[3].errorCode)
+        assertEquals("BUDGET_EXHAUSTED", restored[4].errorCode)
+        assertTrue(restored.none { it.toolCallBudgetExhausted || it.outputBudgetExhausted })
+        journal.prepareExplicitBudgetRetry()
+        calls.forEach { journal.execute(it) { error("Completed or uncertain work must never replay") } }
+    }
+
     @Test fun retainedUnknownReceiptCannotBeRestoredAsSuccess() = runBlocking {
         val call = ProviderEvent.ToolCall("one", "write", JsonObject(emptyMap()))
         val journal = ToolBatchCheckpoint(null, "grant")

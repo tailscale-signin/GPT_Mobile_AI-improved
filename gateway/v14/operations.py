@@ -3,7 +3,7 @@ import re
 IMMUTABLE_READ='immutable_read'
 MUTABLE_READ='mutable_read'
 MUTATION='mutation'
-_READS={'get_file_contents','get_commit','list_commits','list_branches','list_tags','get_pull_request','pull_request_read','list_pull_requests','search_pull_requests','get_issue','issue_read','list_issues','search_issues','search_code','search_repositories','get_repository','get_tree','get_blob','get_workflow','list_workflow_runs','get_workflow_run','get_workflow_run_logs','get_job_logs','list_releases','get_latest_release','get_release_by_tag','get_me','get_copilot_space','list_copilot_spaces'}
+_READS={'get_file_contents','get_commit','list_commits','list_branches','list_tags','get_pull_request','pull_request_read','list_pull_requests','search_pull_requests','get_issue','issue_read','list_issues','search_issues','search_code','search_repositories','get_repository','get_tree','get_blob','get_workflow','list_workflow_runs','get_workflow_run','get_workflow_run_logs','get_job_logs','list_releases','get_latest_release','get_release_by_tag','get_me','list_workflow_jobs','list_workflow_run_artifacts','get_workflow_job','get_copilot_space','list_copilot_spaces'}
 _IMMUTABLE={'get_file_contents','get_commit','get_tree','get_blob'}
 def operation_class(tool,arguments):
     if tool not in _READS: return MUTATION

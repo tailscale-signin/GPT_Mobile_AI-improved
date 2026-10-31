@@ -61,6 +61,10 @@ jobs:
         run: echo "::add-matcher::.github/gradle-problem-matcher.json"
         continue-on-error: true
 
+      - name: Verify model packaging and portable-domain configuration cache
+        timeout-minutes: 10
+        run: python3 scripts/check_model_configuration_cache.py
+
       # Cold compilation consumed about 15 minutes of the old 25-minute test
       # deadline. Bound compilation separately so the complete suite can finish.
       - name: Compile unit tests in a separate process
@@ -180,6 +184,8 @@ jobs:
             app/build/test-results/heapRecovery/*.xml
             app/build/reports/reliability-ui/*.png
             build/reports/profile/*-metrics.json
+            build/reports/configuration-cache-verification/*.log
+            core-domain/build/test-results/jvmTest/*.xml
           if-no-files-found: ignore
           retention-days: 7
 
@@ -262,6 +268,7 @@ jobs:
           python3 scripts/generate_architecture_index.py --check
           python3 scripts/check_unified_reliability_v2.py
           python3 scripts/check_android_regex.py
+          python3 scripts/check_dependency_catalog.py
           python3 -m unittest discover -s scripts/tests
           python3 scripts/test_gguf_prefill_governor.py
           bash scripts/validate.sh resources

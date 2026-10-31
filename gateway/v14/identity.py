@@ -75,15 +75,18 @@ class Admission:
         if path.startswith("/gateway/admin/") or path.startswith("/gateway/mcp/restart/") or path == "/gateway/tools/refresh":
             if not principal.local_admin:
                 return await deny("local_admin_required")
+        engineering_path = path.startswith("/gateway/engineering/")
+        if engineering_path and not principal.local_admin and "engineering" not in principal.scopes:
+            return await deny("engineering_scope_required")
         if self.config.mode == "trusted_proxy":
             public_reads = {"/models", "/gateway/capabilities", "/gateway/ready", "/gateway/live", "/gateway/v13", "/gateway/v14", "/gateway/connections", "/gateway/tools", "/gateway/session"}
             job_path = path == "/gateway/jobs" or path.startswith("/gateway/jobs/")
             if scope["method"] in {"GET", "HEAD"}:
-                if path not in public_reads and not job_path:
+                if path not in public_reads and not job_path and not engineering_path:
                     return await deny("remote_surface_not_admitted")
-            elif path != "/chat/completions" and not (job_path and path.endswith("/cancel") and scope["method"] == "POST"):
+            elif not engineering_path and path != "/chat/completions" and not (job_path and path.endswith("/cancel") and scope["method"] == "POST"):
                 return await deny("local_admin_required")
-        required = "jobs" if path.startswith("/gateway/jobs") else "tools" if path.startswith(("/gateway/tools", "/gateway/mcp", "/tools")) else "chat"
+        required = "engineering" if engineering_path and not principal.local_admin else "jobs" if path.startswith("/gateway/jobs") else "tools" if path.startswith(("/gateway/tools", "/gateway/mcp", "/tools")) else "chat"
         if required not in principal.scopes:
             return await deny("scope_not_granted")
         # The retained runtime can select PC tools automatically. A limited user

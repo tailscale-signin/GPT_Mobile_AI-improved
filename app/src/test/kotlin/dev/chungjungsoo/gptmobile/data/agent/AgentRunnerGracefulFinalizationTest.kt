@@ -10,6 +10,62 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AgentRunnerGracefulFinalizationTest {
+    @Test fun providerIgnoringFinalizationStopsAfterOneCorrectionAndNeverRepeatsBackendWork() = runBlocking {
+        var round = 0
+        var executions = 0
+        val exposed = mutableListOf<Int>()
+        val tool = object : AgentTool {
+            override val definition = AgentToolDefinition("github_read", "read", buildJsonObject {})
+            override suspend fun execute(callId: String, arguments: kotlinx.serialization.json.JsonObject): AgentToolResult {
+                executions++
+                return AgentToolResult(callId, ToolResultContent.Text("Retained source"), false, toolCallBudgetExhausted = true)
+            }
+        }
+        val session = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                exposed += tools.size
+                check(round < 5) { "Finalization loop was not bounded" }
+                emit(ProviderEvent.ToolCall("call-${round++}", "github_read", buildJsonObject {}))
+                emit(ProviderEvent.Completed)
+            }
+        }
+        val events = mutableListOf<AgentRunEvent>()
+        AgentRunner(AgentRunLimits(githubTask = true)).run(session, listOf(tool)).collect { events += it }
+        assertEquals(1, executions)
+        assertEquals(listOf(1, 0, 0), exposed)
+        val failure = events.filterIsInstance<AgentRunEvent.Provider>().map { it.event }.filterIsInstance<ProviderEvent.Failed>().single()
+        assertEquals("FINAL_RESPONSE_REQUIRED", failure.errorCode)
+    }
+
+    @Test fun sharedBudgetFinalizesWithSavedResultsEvenWhenRunnerDispatchCountIsZero() = runBlocking {
+        var round = 0
+        var executions = 0
+        val tool = object : AgentTool {
+            override val definition = AgentToolDefinition("github_search", "search", buildJsonObject {})
+            override suspend fun execute(callId: String, arguments: kotlinx.serialization.json.JsonObject): AgentToolResult {
+                executions++
+                return AgentToolResult(callId, ToolResultContent.Text("Saved page"), false, sharedResult = true, dispatched = false, toolCallBudgetExhausted = true)
+            }
+        }
+        val session = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                if (round++ == 0) {
+                    emit(ProviderEvent.ToolCall("saved", "github_search", buildJsonObject {}))
+                } else {
+                    assertTrue(tools.isEmpty())
+                    assertTrue(exchanges.toString().contains("Saved page"))
+                    emit(ProviderEvent.TextDelta("The retained page is available."))
+                }
+                emit(ProviderEvent.Completed)
+            }
+        }
+        val events = mutableListOf<AgentRunEvent>()
+        AgentRunner(AgentRunLimits(githubTask = true)).run(session, listOf(tool)).collect { events += it }
+        assertEquals(1, executions)
+        assertEquals(2, round)
+        assertFalse(events.any { it is AgentRunEvent.Provider && it.event is ProviderEvent.Failed })
+    }
+
     @Test fun missingCredentialToolIsExecutedOnceAndStaleCallsFinalizeWithoutStorms() = runBlocking {
         var round = 0
         var executions = 0

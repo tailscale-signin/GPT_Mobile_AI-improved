@@ -18,7 +18,8 @@ internal data class CompleteBackupManifest(
     val files: Map<String, Long> = emptyMap(),
     val sections: Set<String> = emptySet(),
     val protection: BackupProtection? = null,
-    val conversationSettings: ConversationCombinedPortableSnapshot? = null
+    val conversationSettings: ConversationCombinedPortableSnapshot? = null,
+    val portableGitHubCredentials: Boolean = false
 )
 
 @Serializable

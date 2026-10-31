@@ -1,101 +1,80 @@
 package dev.chungjungsoo.gptmobile.data.llama
 
+import dev.chungjungsoo.gptmobile.data.network.awaitBoundedText
 import dev.chungjungsoo.gptmobile.domain.model.BatchRequest
 import dev.chungjungsoo.gptmobile.domain.service.BatchResult
+import dev.chungjungsoo.gptmobile.domain.service.executeBoundedBatch
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 
-class LlamaBatchClient(
-    private val serverUrl: String = "http://localhost:8080",
-    private val apiKey: String? = null,
-    private val batchSize: Int = 50
-) {
+/** llama-server batches work through bounded /completion calls, not an invented /v1/batch route. */
+class LlamaBatchClient(private val serverUrl: String = "http://localhost:8080", private val apiKey: String? = null, private val batchSize: Int = 50) {
+    private val client = OkHttpClient.Builder().followRedirects(false).followSslRedirects(false).retryOnConnectionFailure(false)
+        .callTimeout(30, TimeUnit.SECONDS).connectTimeout(30, TimeUnit.SECONDS).readTimeout(30, TimeUnit.SECONDS).writeTimeout(30, TimeUnit.SECONDS).build()
 
-    private val client = OkHttpClient.Builder()
-        .connectTimeout(30000, TimeUnit.MILLISECONDS)
-        .readTimeout(30000, TimeUnit.MILLISECONDS)
-        .writeTimeout(30000, TimeUnit.MILLISECONDS)
-        .build()
-
-    suspend fun processBatch(
-        requests: List<BatchRequest>,
-        onComplete: (List<BatchResult>) -> Unit
-    ) = withContext(Dispatchers.IO) {
-        val jsonlContent = requests.map { request ->
-            """{"prompt": "${escapeJson(request.prompt)}", "context": "", "n_tokens_to_predict": ${request.maxTokens}}"""
-        }.joinToString("\n")
-
-        try {
-            val response = batchProcess(jsonlContent)
-            val results = parseLlamaResponse(response, requests.size)
-            onComplete(results)
-        } catch (e: Exception) {
-            if (e is kotlinx.coroutines.CancellationException) throw e
-            onComplete(requests.indices.map { BatchResult.Failure(it, "Local batch failed. Retry with the selected local connection.") })
-        }
+    suspend fun processBatch(requests: List<BatchRequest>, onComplete: (List<BatchResult>) -> Unit) = withContext(Dispatchers.IO) {
+        onComplete(executeBoundedBatch(requests, batchSize.coerceIn(1, 4), ::processRequest))
     }
 
-    suspend fun batchProcess(jsonlContent: String): String {
-        val requestBody = jsonlContent.toRequestBody(
-            "application/x-ndjson".toMediaTypeOrNull()
-        )
+    internal fun completionPayload(request: BatchRequest): String {
+        require(request.prompt.isNotBlank() && request.prompt.length <= 1_000_000)
+        require(request.maxTokens in 1..131_072 && request.temperature.isFinite() && request.temperature >= 0)
+        return JSONObject().put("prompt", request.prompt).put("n_predict", request.maxTokens).put("temperature", request.temperature.toDouble()).put("stream", false).toString()
+    }
 
-        val requestObj = Request.Builder()
-            .url("$serverUrl/v1/batch")
-            .post(requestBody)
-            .addHeader("Content-Type", "application/x-ndjson")
-            .apply {
-                apiKey?.let { addHeader("Authorization", "Bearer $it") }
-            }
-            .build()
+    private suspend fun processRequest(request: BatchRequest): String = try {
+        val call = Request.Builder().url("${serverUrl.trimEnd('/')}/completion")
+            .post(completionPayload(request).toRequestBody("application/json".toMediaType()))
+            .apply { apiKey?.takeIf { it.isNotBlank() }?.let { header("Authorization", "Bearer $it") } }.build()
+        val response = client.newCall(call).awaitBoundedText()
+        check(response.successful) { "Local batch request failed: HTTP ${response.code}" }
+        val json = JSONObject(response.text)
+        require(json.opt("content") is String && !json.has("error")) { "Local server did not return decoded completion text." }
+        json.getString("content")
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (_: Exception) {
+        // Keep the established local-only recovery contract and avoid exposing
+        // a configured URL or provider response through raw exception messages.
+        error("Local batch failed. Retry with the selected local connection.")
+    }
 
-        val response = client.newCall(requestObj).execute()
-
-        if (!response.isSuccessful) {
-            throw Exception("Llama.cpp batch API error: ${response.code} - ${response.body?.string()}")
+    /** Compatibility for saved JSONL jobs; each row still uses the selected local server. */
+    suspend fun batchProcess(jsonlContent: String): String = withContext(Dispatchers.IO) {
+        require(jsonlContent.length <= 8 * 1024 * 1024)
+        val rows = jsonlContent.lineSequence().filter { it.isNotBlank() }.take(1001).toList()
+        require(rows.size <= 1000)
+        val requests = rows.map { line ->
+            val row = JSONObject(line)
+            BatchRequest(listOf(row.optString("context", ""), row.getString("prompt")).filter { it.isNotBlank() }.joinToString("\n"), row.optInt("n_tokens_to_predict", 1024), row.optDouble("temperature", .7).toFloat())
         }
-
-        return response.body?.string() ?: ""
+        executeBoundedBatch(requests, batchSize.coerceIn(1, 4), ::processRequest).joinToString("\n") { result ->
+            when (result) {
+                is BatchResult.Success -> JSONObject().put("content", result.response).toString()
+                is BatchResult.Failure -> JSONObject().put("error", result.error).toString()
+            }
+        }
     }
 
     fun parseLlamaResponse(response: String, totalRequests: Int): List<BatchResult> {
-        val results = mutableListOf<BatchResult>()
-        val lines = response.split("\n").filter { it.isNotBlank() }
-
-        for ((index, line) in lines.withIndex()) {
+        require(totalRequests in 0..1000 && response.length <= 8 * 1024 * 1024)
+        val lines = response.lineSequence().filter { it.isNotBlank() }.take(totalRequests).toList()
+        return (0 until totalRequests).map { index ->
             try {
-                val jsonObject = JSONObject(line)
-                val tokenIds = jsonObject.optJSONArray("token_ids")
-                val text = if (tokenIds != null) {
-                    (0 until tokenIds.length()).joinToString("") { i ->
-                        Character.toString(tokenIds.getInt(i))
-                    }
-                } else {
-                    jsonObject.optString("content", "")
-                }
-                results.add(BatchResult.Success(index, text))
-            } catch (e: Exception) {
-                results.add(BatchResult.Failure(index, e.message ?: "Parse error"))
+                val row = JSONObject(lines.getOrNull(index) ?: error("No response received"))
+                require(!row.has("error")) { row.optString("error", "Local request failed") }
+                require(row.opt("content") is String) { "Token IDs require the server's model tokenizer; decoded text was not supplied." }
+                BatchResult.Success(index, row.getString("content"))
+            } catch (error: Exception) {
+                BatchResult.Failure(index, error.message ?: "Invalid local response")
             }
         }
-
-        while (results.size < totalRequests) {
-            val index = results.size
-            results.add(BatchResult.Failure(index, "No response for request $index"))
-        }
-
-        return results
     }
-
-    private fun escapeJson(input: String): String = input.replace("\\", "\\\\")
-        .replace("\"", "\\\"")
-        .replace("\n", "\\n")
-        .replace("\r", "\\r")
-        .replace("\t", "\\t")
 }

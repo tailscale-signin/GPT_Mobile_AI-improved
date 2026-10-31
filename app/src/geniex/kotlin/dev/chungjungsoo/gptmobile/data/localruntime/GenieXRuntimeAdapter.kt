@@ -22,6 +22,7 @@ import dev.chungjungsoo.gptmobile.data.localmodel.ArtifactRuntime
 import dev.chungjungsoo.gptmobile.data.localmodel.ModelArtifactManifest
 import java.io.File
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.buffer
@@ -68,6 +69,7 @@ internal class GenieXRuntimeAdapter(private val context: Context) : LocalRuntime
                 parts += VlmContent("image", file.absolutePath)
             } finally {
                 bitmap.recycle()
+                if (file !in mediaFiles) file.delete()
             }
         }
         return VlmChatMessage(role, parts)
@@ -129,36 +131,41 @@ internal class GenieXRuntimeAdapter(private val context: Context) : LocalRuntime
                 nThreads = spec.cpuThreads ?: 4,
                 nThreadsBatch = spec.cpuThreads ?: 4
             )
-            val next = if (vision) {
-                visionNative.create(
-                    VlmCreateInput(
-                        model_path = ModelArtifactManifest.safeFile(root, artifact.entryFile).path,
-                        mmproj_path = artifact.projectorFile?.let { ModelArtifactManifest.safeFile(root, it).path },
-                        config = modelConfig,
-                        runtime_id = if (qairt) "qairt" else "llama_cpp",
-                        compute_unit = spec.accelerator.lowercase(),
-                        vit_device_id = spec.visionAccelerator.lowercase()
-                    )
-                )
-            } else {
-                native.create(
-                    LlmCreateInput(
-                        model_path = ModelArtifactManifest.safeFile(root, artifact.entryFile).path,
-                        tokenizer_path = artifact.tokenizerFile?.let { ModelArtifactManifest.safeFile(root, it).path },
-                        config = modelConfig,
-                        runtime_id = if (qairt) "qairt" else "llama_cpp",
-                        compute_unit = spec.accelerator.lowercase()
-                    )
-                )
-            }
-            check(next != 0L) { "GenieX failed to create a model handle" }
-            if (vision && !visionNative.getCapabilities(next).supportsVision) {
-                visionNative.destroy(next)
-                error("The loaded native artifact rejected image input; no image was discarded")
-            }
-            handle = next
-            loaded = spec
-            manifest = artifact
+            adoptNativeHandle(
+                create = {
+                    if (vision) {
+                        visionNative.create(
+                            VlmCreateInput(
+                                model_path = ModelArtifactManifest.safeFile(root, artifact.entryFile).path,
+                                mmproj_path = artifact.projectorFile?.let { ModelArtifactManifest.safeFile(root, it).path },
+                                config = modelConfig,
+                                runtime_id = if (qairt) "qairt" else "llama_cpp",
+                                compute_unit = spec.accelerator.lowercase(),
+                                vit_device_id = spec.visionAccelerator.lowercase()
+                            )
+                        )
+                    } else {
+                        native.create(
+                            LlmCreateInput(
+                                model_path = ModelArtifactManifest.safeFile(root, artifact.entryFile).path,
+                                tokenizer_path = artifact.tokenizerFile?.let { ModelArtifactManifest.safeFile(root, it).path },
+                                config = modelConfig,
+                                runtime_id = if (qairt) "qairt" else "llama_cpp",
+                                compute_unit = spec.accelerator.lowercase()
+                            )
+                        )
+                    }
+                },
+                validate = { next ->
+                    check(!vision || visionNative.getCapabilities(next).supportsVision) { "The loaded native artifact rejected image input; no image was discarded" }
+                },
+                adopt = { next ->
+                    handle = next
+                    loaded = spec
+                    manifest = artifact
+                },
+                release = ::destroy
+            )
         } finally {
             guard.finished()
         }
@@ -172,18 +179,23 @@ internal class GenieXRuntimeAdapter(private val context: Context) : LocalRuntime
         require(config.maxOutputTokens != null && config.maxOutputTokens in 1..4096) { "Set a bounded output budget of 1–4096 tokens." }
         require(config.sampler.temperature > 0) { "This binding treats temperature zero as a runtime default, not greedy sampling. Choose a positive temperature." }
         closeConversation()
-        configuration = config
-        history.clear()
-        config.systemPrompt?.takeIf { it.isNotBlank() }?.let { history += ChatMessage("system", it) }
-        history += config.initialMessages.map { ChatMessage(if (it.role == LocalHistoryRole.USER) "user" else "assistant", it.text) }
-        if (vision) {
-            withContext(Dispatchers.IO) {
-                config.systemPrompt?.takeIf { it.isNotBlank() }?.let { visionHistory += mediaMessage("system", it, emptyList()) }
-                config.initialMessages.forEach {
-                    require(it.imageIds.isEmpty() || it.images.size == it.imageIds.size) { "History image bytes are unavailable" }
-                    visionHistory += mediaMessage(if (it.role == LocalHistoryRole.USER) "user" else "assistant", it.text, it.images)
+        try {
+            history.clear()
+            config.systemPrompt?.takeIf { it.isNotBlank() }?.let { history += ChatMessage("system", it) }
+            history += config.initialMessages.map { ChatMessage(if (it.role == LocalHistoryRole.USER) "user" else "assistant", it.text) }
+            if (vision) {
+                withContext(Dispatchers.IO) {
+                    config.systemPrompt?.takeIf { it.isNotBlank() }?.let { visionHistory += mediaMessage("system", it, emptyList()) }
+                    config.initialMessages.forEach {
+                        require(it.imageIds.isEmpty() || it.images.size == it.imageIds.size) { "History image bytes are unavailable" }
+                        visionHistory += mediaMessage(if (it.role == LocalHistoryRole.USER) "user" else "assistant", it.text, it.images)
+                    }
                 }
             }
+            configuration = config
+        } catch (error: Throwable) {
+            closeConversation()
+            throw error
         }
     }
 
@@ -292,21 +304,20 @@ internal class GenieXRuntimeAdapter(private val context: Context) : LocalRuntime
         configuration = null
         history.clear()
         visionHistory.clear()
-        withContext(Dispatchers.IO) {
+        withContext(NonCancellable + Dispatchers.IO) {
             mediaFiles.forEach { it.delete() }
             mediaFiles.clear()
             mediaDirectory.deleteRecursively()
         }
     }
-    override suspend fun unloadEngine() = withContext(Dispatchers.IO) {
+    override suspend fun unloadEngine() = withContext(NonCancellable + Dispatchers.IO) {
         closeConversation()
         val previous = handle
         handle = 0L
         loaded = null
         manifest = null
         if (previous != 0L) {
-            stop(previous)
-            destroy(previous)
+            releaseNativeHandle(previous, ::stop, ::destroy)
         }
         Unit
     }

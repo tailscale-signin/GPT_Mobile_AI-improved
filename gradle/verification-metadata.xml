@@ -7913,5 +7913,221 @@
             <sha256 value="f5794513bae292658d74e758225bdfa4a20f33b4db492e7223e9e4a4acf62f57" origin="Verified against Maven Central release metadata"/>
          </artifact>
       </component>
+      <component group="com.squareup.leakcanary" name="leakcanary-android" version="2.14">
+         <artifact name="leakcanary-android-2.14.aar">
+            <sha256 value="f24b5072d8319e191481861658a5bc3a4aeacec9be5c0b91d25ae4c437149daf" origin="Maven Central; LeakCanary 2.14 opt-in debug profiling"/>
+         </artifact>
+         <artifact name="leakcanary-android-2.14.module">
+            <sha256 value="f4e0139fa89bb8eb6e2f28be175db32a3dc425c66bb4d51b9a454f214021a815" origin="Maven Central; LeakCanary 2.14 opt-in debug profiling"/>
+         </artifact>
+         <artifact name="leakcanary-android-2.14.pom">
+            <sha256 value="ba7f5b807bdfba7f66a8be96c6c8cac8ca8254500e0cfe2045c64d4ac2825727" origin="Maven Central; LeakCanary 2.14 opt-in debug profiling"/>
+         </artifact>
+      </component>
+      <component group="com.squareup.leakcanary" name="leakcanary-android-core" version="2.14">
+         <artifact name="leakcanary-android-core-2.14.aar">
+            <sha256 value="204f16eb8620ec4aefa35b122afe977ace60d35f56376c07a3921cf9aa92127c" origin="Maven Central; LeakCanary 2.14 opt-in debug profiling"/>
+         </artifact>
+         <artifact name="leakcanary-android-core-2.14.module">
+            <sha256 value="704f95694d80e9b50ab44e2aa6dbd1dfb47ae5561040cdecd71f5f609bec96b3" origin="Maven Central; LeakCanary 2.14 opt-in debug profiling"/>
+         </artifact>
+         <artifact name="leakcanary-android-core-2.14.pom">
+            <sha256 value="fa4c51a850bfb98b363ffe89d3481144d7e2d18958000bbdd253e6f48dd82c42" origin="Maven Central; LeakCanary 2.14 opt-in debug profiling"/>
+         </artifact>
+      </component>
+      <component group="com.squareup.leakcanary" name="leakcanary-object-watcher-android" version="2.14">
+         <artifact name="leakcanary-object-watcher-android-2.14.aar">
+            <sha256 value="a5fa2035838b9b91dbe9e75e30285dbc3c7285d25c6bcd0d359c4c35584d18b6" origin="Maven Central; LeakCanary 2.14 opt-in debug profiling"/>
+         </artifact>
+         <artifact name="leakcanary-object-watcher-android-2.14.module">
+            <sha256 value="4b2af6473d45a4a90f673355e5a35ed914212c043bf0a8e5e53ca9ac140abc67" origin="Maven Central; LeakCanary 2.14 opt-in debug profiling"/>
+         </artifact>
+         <artifact name="leakcanary-object-watcher-android-2.14.pom">
+            <sha256 value="4f3e73bb5fb213bb468b153601a1646fe7b4d5062f3648e51142d30b1a4e4687" origin="Maven Central; LeakCanary 2.14 opt-in debug profiling"/>
+         </artifact>
+      </component>
+      <component group="com.squareup.leakcanary" name="plumber-android" version="2.14">
+         <artifact name="plumber-android-2.14.aar">
+            <sha256 value="deccc6849f6b84788f4fdbce5cc05c3d5a029aa365902cbb28426a21e3cdf7ac" origin="Maven Central; LeakCanary 2.14 opt-in debug profiling"/>
+         </artifact>
+         <artifact name="plumber-android-2.14.module">
+            <sha256 value="9efc4ccf3164cac22c93d8a86eefa04ad2a14205e28e05c66a79b0821dac90ba" origin="Maven Central; LeakCanary 2.14 opt-in debug profiling"/>
+         </artifact>
+         <artifact name="plumber-android-2.14.pom">
+            <sha256 value="9be1f6003b5be4345788a0ad13dba04902030af1797185c793955092fc7a54fd" origin="Maven Central; LeakCanary 2.14 opt-in debug profiling"/>
+         </artifact>
+      </component>
+      <component group="com.squareup.leakcanary" name="shark-android" version="2.14">
+         <artifact name="shark-android-2.14.jar">
+            <sha256 value="b79dfb05903e69018d598bb4da4f41e0f7732a585cb66a0a5ffb5b89d2076c72" origin="Maven Central; LeakCanary 2.14 opt-in debug profiling"/>
+         </artifact>
+         <artifact name="shark-android-2.14.module">
+            <sha256 value="d4ddd46980648563060903924200718e9a1d8a3268798d82d28a881db6ffeaa4" origin="Maven Central; LeakCanary 2.14 opt-in debug profiling"/>
+         </artifact>
+         <artifact name="shark-android-2.14.pom">
+            <sha256 value="ca80f2df49b1c348a32dc71b18b42b6f2b0dce226f4201be1698d9310100c360" origin="Maven Central; LeakCanary 2.14 opt-in debug profiling"/>
+         </artifact>
+      </component>
+      <component group="com.squareup.leakcanary" name="leakcanary-object-watcher-android-core" version="2.14">
+         <artifact name="leakcanary-object-watcher-android-core-2.14.aar">
+            <sha256 value="4a1b32588657ba960c09df1bff04c78872bde038565552da8bc148d69ae41cf2" origin="Maven Central; LeakCanary 2.14 opt-in debug profiling"/>
+         </artifact>
+         <artifact name="leakcanary-object-watcher-android-core-2.14.module">
+            <sha256 value="dcc59d25efc5a5c6ca33582116d53b03560d954338785847c018679a42d2152c" origin="Maven Central; LeakCanary 2.14 opt-in debug profiling"/>
+         </artifact>
+         <artifact name="leakcanary-object-watcher-android-core-2.14.pom">
+            <sha256 value="16b164299e908e97e426042a961c9d1a18d96880dcc76cb1a1a67fb28e3884c5" origin="Maven Central; LeakCanary 2.14 opt-in debug profiling"/>
+         </artifact>
+      </component>
+      <component group="com.squareup.leakcanary" name="leakcanary-object-watcher-android-androidx" version="2.14">
+         <artifact name="leakcanary-object-watcher-android-androidx-2.14.aar">
+            <sha256 value="d853a58f6f9bdbf574893f56cc9dabbde03ef55ae998d9be57b573fdb2289edb" origin="Maven Central; LeakCanary 2.14 opt-in debug profiling"/>
+         </artifact>
+         <artifact name="leakcanary-object-watcher-android-androidx-2.14.module">
+            <sha256 value="9d4d3e76039750512477f2fe49a6dadbd10e5ac524dd4389b31621412679cbba" origin="Maven Central; LeakCanary 2.14 opt-in debug profiling"/>
+         </artifact>
+         <artifact name="leakcanary-object-watcher-android-androidx-2.14.pom">
+            <sha256 value="3164588a4f32f34882a4c515e185aab3731de997f1a8b14cec94660fbd478b63" origin="Maven Central; LeakCanary 2.14 opt-in debug profiling"/>
+         </artifact>
+      </component>
+      <component group="com.squareup.leakcanary" name="leakcanary-object-watcher-android-support-fragments" version="2.14">
+         <artifact name="leakcanary-object-watcher-android-support-fragments-2.14.aar">
+            <sha256 value="32ef945b5a63c43772290867191a85030743f9401b83641d7a29a5c81b8fbb88" origin="Maven Central; LeakCanary 2.14 opt-in debug profiling"/>
+         </artifact>
+         <artifact name="leakcanary-object-watcher-android-support-fragments-2.14.module">
+            <sha256 value="9aa407190cf5fac4558cf6ae6f819207e0316ca6e4b198a3bbe162c66a73e463" origin="Maven Central; LeakCanary 2.14 opt-in debug profiling"/>
+         </artifact>
+         <artifact name="leakcanary-object-watcher-android-support-fragments-2.14.pom">
+            <sha256 value="e3e68e00050c69deb77a90761289a67611df3455db4773002635792cb9c7f380" origin="Maven Central; LeakCanary 2.14 opt-in debug profiling"/>
+         </artifact>
+      </component>
+      <component group="com.squareup.leakcanary" name="plumber-android-core" version="2.14">
+         <artifact name="plumber-android-core-2.14.aar">
+            <sha256 value="eb595ab5d7e4b1e9d9f8a7a654e8aed42e2cdec6a6ec69acfdc6d8f3b08967a6" origin="Maven Central; LeakCanary 2.14 opt-in debug profiling"/>
+         </artifact>
+         <artifact name="plumber-android-core-2.14.module">
+            <sha256 value="abd96e6d9ff9652b0db552581aa72fb1b43e6aebbd0df03d5d880abbd4b747d7" origin="Maven Central; LeakCanary 2.14 opt-in debug profiling"/>
+         </artifact>
+         <artifact name="plumber-android-core-2.14.pom">
+            <sha256 value="cd060756040b55734f17ce28b837d73b7425c85957ca06248b53597dea15f747" origin="Maven Central; LeakCanary 2.14 opt-in debug profiling"/>
+         </artifact>
+      </component>
+      <component group="com.squareup.leakcanary" name="shark" version="2.14">
+         <artifact name="shark-2.14.jar">
+            <sha256 value="ffadb874b3a4d4d0033afd302e37b26ade2b63d6e23f9bcd568f727304845f01" origin="Maven Central; LeakCanary 2.14 opt-in debug profiling"/>
+         </artifact>
+         <artifact name="shark-2.14.module">
+            <sha256 value="164cdd22c73320fbca801ad0a5a6496627c021298c6f3c6050e5fb31a3bf7ff4" origin="Maven Central; LeakCanary 2.14 opt-in debug profiling"/>
+         </artifact>
+         <artifact name="shark-2.14.pom">
+            <sha256 value="811e73c8467552a8dc35f87ac66bc8365c130da9452808aba7481d10eec9285a" origin="Maven Central; LeakCanary 2.14 opt-in debug profiling"/>
+         </artifact>
+      </component>
+      <component group="com.squareup.leakcanary" name="leakcanary-object-watcher" version="2.14">
+         <artifact name="leakcanary-object-watcher-2.14.jar">
+            <sha256 value="575a046bcc362916fa6f106373f393bacf5578f13640419a464b4c81d89e646e" origin="Maven Central; LeakCanary 2.14 opt-in debug profiling"/>
+         </artifact>
+         <artifact name="leakcanary-object-watcher-2.14.module">
+            <sha256 value="18a260cb9dca5524881a80ba2a87397a7c3bdf47c6944fc7bf2bc038e4edbdd4" origin="Maven Central; LeakCanary 2.14 opt-in debug profiling"/>
+         </artifact>
+         <artifact name="leakcanary-object-watcher-2.14.pom">
+            <sha256 value="80bcc68d470751cab192a3b4ca064f21de4334930a8386fde4fecc92fff0caf8" origin="Maven Central; LeakCanary 2.14 opt-in debug profiling"/>
+         </artifact>
+      </component>
+      <component group="com.squareup.leakcanary" name="leakcanary-android-utils" version="2.14">
+         <artifact name="leakcanary-android-utils-2.14.aar">
+            <sha256 value="a7f3288ad5099b0cfdb465f87547631986611c4796f08f07c7defad89749c607" origin="Maven Central; LeakCanary 2.14 opt-in debug profiling"/>
+         </artifact>
+         <artifact name="leakcanary-android-utils-2.14.module">
+            <sha256 value="afeb772f95cc8728a62f132b4a2ab0401164cea2e5260314297f08f18396a696" origin="Maven Central; LeakCanary 2.14 opt-in debug profiling"/>
+         </artifact>
+         <artifact name="leakcanary-android-utils-2.14.pom">
+            <sha256 value="0612510e09d5e0fece3f516cf642e3d97a84590dccc07ff6c5b912bd010f0c34" origin="Maven Central; LeakCanary 2.14 opt-in debug profiling"/>
+         </artifact>
+      </component>
+      <component group="com.squareup.curtains" name="curtains" version="1.2.4">
+         <artifact name="curtains-1.2.4.aar">
+            <sha256 value="7f53e22dad8df994cec6867943c6a757190d412c6a30bcc091d44d8cde15fa54" origin="Maven Central; LeakCanary 2.14 opt-in debug profiling"/>
+         </artifact>
+         <artifact name="curtains-1.2.4.module">
+            <sha256 value="0b1d5c37de8332db752e9f3dd192dc3fa712ebcce37a2876e652abc7d13169c9" origin="Maven Central; LeakCanary 2.14 opt-in debug profiling"/>
+         </artifact>
+         <artifact name="curtains-1.2.4.pom">
+            <sha256 value="be8d6ed6c0f55598f0fcdff0f41948371d5b6eeceb31c357677fc4e7e22ec1a2" origin="Maven Central; LeakCanary 2.14 opt-in debug profiling"/>
+         </artifact>
+      </component>
+      <component group="com.squareup.leakcanary" name="shark-log" version="2.14">
+         <artifact name="shark-log-2.14.jar">
+            <sha256 value="ba1011ae450664f7e8e37c5b6e5e01660b11456ddca8960b5cbe6df0e3f99926" origin="Maven Central; LeakCanary 2.14 opt-in debug profiling"/>
+         </artifact>
+         <artifact name="shark-log-2.14.module">
+            <sha256 value="52a8fef5c31eda7c6f7943ee9c9ef4cef2e448ea69a8857c213a96e074f966fc" origin="Maven Central; LeakCanary 2.14 opt-in debug profiling"/>
+         </artifact>
+         <artifact name="shark-log-2.14.pom">
+            <sha256 value="22592ce041f2f3fda4881b8485313a48f9e7674c16b709e51d021fc9bb88d7c1" origin="Maven Central; LeakCanary 2.14 opt-in debug profiling"/>
+         </artifact>
+      </component>
+      <component group="com.squareup.leakcanary" name="shark-graph" version="2.14">
+         <artifact name="shark-graph-2.14.jar">
+            <sha256 value="7596fc9caea47e95f6001f57098b66c64beaa968c1354ab6c0aa98dee901681b" origin="Maven Central; LeakCanary 2.14 opt-in debug profiling"/>
+         </artifact>
+         <artifact name="shark-graph-2.14.module">
+            <sha256 value="228d0b2b245ab443b721943e1f5280a8f0eddac6c548a36376d0563335603518" origin="Maven Central; LeakCanary 2.14 opt-in debug profiling"/>
+         </artifact>
+         <artifact name="shark-graph-2.14.pom">
+            <sha256 value="25495225640416dcb078cc299d3af139a660411ae84886bc56ddd609ee204d96" origin="Maven Central; LeakCanary 2.14 opt-in debug profiling"/>
+         </artifact>
+      </component>
+      <component group="com.squareup.okio" name="okio" version="2.2.2">
+         <artifact name="okio-2.2.2.jar">
+            <sha256 value="e58c97406a6bb1138893750299ac63c6aa04b38b6b49eae1bfcad1a63ef9ba1b" origin="Maven Central; LeakCanary 2.14 opt-in debug profiling"/>
+         </artifact>
+         <artifact name="okio-2.2.2.pom">
+            <sha256 value="fd621988f7f6957025735dc6dd090b00a20f3a3bb8d77ca79036077f629b140b" origin="Maven Central; LeakCanary 2.14 opt-in debug profiling"/>
+         </artifact>
+      </component>
+      <component group="com.squareup.leakcanary" name="shark-hprof" version="2.14">
+         <artifact name="shark-hprof-2.14.jar">
+            <sha256 value="8f19f11585b0fb34fb8cac021504208ed1c73dfe8cb1f69b2bdb0437bb1191fa" origin="Maven Central; LeakCanary 2.14 opt-in debug profiling"/>
+         </artifact>
+         <artifact name="shark-hprof-2.14.module">
+            <sha256 value="7e23b15eb1bcdeca51f267f1c4603d5ffe6fa191aac8a6ac68e7ead9eb4fe932" origin="Maven Central; LeakCanary 2.14 opt-in debug profiling"/>
+         </artifact>
+         <artifact name="shark-hprof-2.14.pom">
+            <sha256 value="fcec4033183b179d9834300d458a6d808d9f6a10b954f101d6309a355e5681d6" origin="Maven Central; LeakCanary 2.14 opt-in debug profiling"/>
+         </artifact>
+      </component>
+      <component group="org.jetbrains.kotlin" name="kotlin-scripting-common" version="2.4.20">
+         <artifact name="kotlin-scripting-common-2.4.20.pom">
+            <sha256 value="2cf95a3cad9078b1e6161d2b7ce11499dfeb64c89b755ef0a89b03808baf2bd5" origin="Maven Central artifact and SHA-1 sidecar; Kotlin Multiplatform JVM compiler"/>
+         </artifact>
+         <artifact name="kotlin-scripting-common-2.4.20.jar">
+            <sha256 value="3385f7f05984a6488809b015727eca9aeba7998dc5995d87b4ae5dc9c8d4124b" origin="Maven Central artifact and SHA-1 sidecar; Kotlin Multiplatform JVM compiler"/>
+         </artifact>
+      </component>
+      <component group="org.jetbrains.kotlin" name="kotlin-scripting-compiler-embeddable" version="2.4.20">
+         <artifact name="kotlin-scripting-compiler-embeddable-2.4.20.pom">
+            <sha256 value="54fe4af63adcc7cf4f567eb6722e05182f637443a26394fa2ef8ffb641906b35" origin="Maven Central artifact and SHA-1 sidecar; Kotlin Multiplatform JVM compiler"/>
+         </artifact>
+         <artifact name="kotlin-scripting-compiler-embeddable-2.4.20.jar">
+            <sha256 value="6eb8ce1d73b89107804b3bdf295791f52c0394cbe18bcdfb90103aee955ea1c5" origin="Maven Central artifact and SHA-1 sidecar; Kotlin Multiplatform JVM compiler"/>
+         </artifact>
+      </component>
+      <component group="org.jetbrains.kotlin" name="kotlin-scripting-compiler-impl-embeddable" version="2.4.20">
+         <artifact name="kotlin-scripting-compiler-impl-embeddable-2.4.20.pom">
+            <sha256 value="0fa989100bb54b94cea92212a9a1ceb43ef8d4786e2405b17a5dcd5900bc5afe" origin="Maven Central artifact and SHA-1 sidecar; Kotlin Multiplatform JVM compiler"/>
+         </artifact>
+         <artifact name="kotlin-scripting-compiler-impl-embeddable-2.4.20.jar">
+            <sha256 value="d895b182c4c7bdbd688efb360a897f2182774d91e6c57a7acbeb2dc8f13f5ff2" origin="Maven Central artifact and SHA-1 sidecar; Kotlin Multiplatform JVM compiler"/>
+         </artifact>
+      </component>
+      <component group="org.jetbrains.kotlin" name="kotlin-scripting-jvm" version="2.4.20">
+         <artifact name="kotlin-scripting-jvm-2.4.20.pom">
+            <sha256 value="e1c51997f4c5113b74f6fdb87ab9ac2008c6d19dd6cab0986170cfeab2b1fd90" origin="Maven Central artifact and SHA-1 sidecar; Kotlin Multiplatform JVM compiler"/>
+         </artifact>
+         <artifact name="kotlin-scripting-jvm-2.4.20.jar">
+            <sha256 value="2be43e56bdaf38db30f87347ad4f42e9cd69ca8433e579780143791933b01fac" origin="Maven Central artifact and SHA-1 sidecar; Kotlin Multiplatform JVM compiler"/>
+         </artifact>
+      </component>
    </components>
 </verification-metadata>

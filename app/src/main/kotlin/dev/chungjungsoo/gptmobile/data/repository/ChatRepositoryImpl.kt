@@ -255,7 +255,9 @@ class ChatRepositoryImpl(
     private val combinedBudgets: dev.chungjungsoo.gptmobile.data.agent.CombinedTurnBudgetStore =
         dev.chungjungsoo.gptmobile.data.agent.CombinedTurnBudgetStore(context),
     private val combinedDecisions: dev.chungjungsoo.gptmobile.data.agent.CombinedCollectionDecisionStore? = null,
-    private val freeToolConsents: dev.chungjungsoo.gptmobile.data.permissions.FreeModelToolConsentStore? = null
+    private val freeToolConsents: dev.chungjungsoo.gptmobile.data.permissions.FreeModelToolConsentStore? = null,
+    private val gitHubDecisions: dev.chungjungsoo.gptmobile.data.github.GitHubChatDecisions? = null,
+    private val gitHubDecisionNotifications: dev.chungjungsoo.gptmobile.data.github.GitHubDecisionNotifications? = null
 ) : ChatRepository {
     override suspend fun prepareCombinedTurn(
         execution: dev.chungjungsoo.gptmobile.data.agent.CombinedExecutionContext,
@@ -1472,6 +1474,7 @@ class ChatRepositoryImpl(
                         extractionFailed = true
                     }
                 }
+                is AgentRunEvent.BatchProgress -> onProgress(DelegateProgress(DelegateProgressKind.TOOL_ACTIVITY))
                 is AgentRunEvent.Notice -> Unit
             }
         }
@@ -1663,7 +1666,10 @@ class ChatRepositoryImpl(
         }
         val fence = dev.chungjungsoo.gptmobile.data.context.PreparationReplayFence()
         val completeHistory = assistantMessages.map { turn -> turn.map { resolveCombinedMessage(it) } }
-        emitAll(preparedCompleteChat(userMessages, completeHistory, platform, runId, chatToolConfig, fence, boundStage))
+        val features = settingRepository.getFeatureSettings()
+        val githubProfile = dev.chungjungsoo.gptmobile.data.github.GitHubChatPolicy.platform(platform, features, chatToolConfig?.github)
+        val githubTools = dev.chungjungsoo.gptmobile.data.github.GitHubChatPolicy.tools(chatToolConfig, features, platform.uid)
+        emitAll(preparedCompleteChat(userMessages, completeHistory, githubProfile, runId, githubTools, fence, boundStage))
     }.flowOn(Dispatchers.Default)
 
     /** Bind only from persisted originals and a sealed owner; a run-name prefix is not authority. */
@@ -1744,9 +1750,11 @@ class ChatRepositoryImpl(
             val effectiveUserMessages = recovery.effectiveUserMessages
             val followUps = followUpInbox(this, platform, effectiveUserMessages.lastOrNull(), runId, chatToolConfig, effectiveUserMessages)
             val activity = AtomicReference("Preparing response")
+            val githubProgress = chatToolConfig?.github?.let { dev.chungjungsoo.gptmobile.data.github.GitHubChatProgress(taskRecovery?.originalRequest ?: effectiveUserMessages.lastOrNull()?.content.orEmpty()) }
             val traceSequences = java.util.concurrent.atomic.AtomicInteger()
             var delegatedTools = emptyList<ResolvedAgentTool>()
             suspend fun emitAll(states: Flow<ApiState>) = states.collect { state ->
+                githubProgress?.observe(state)
                 when (state) {
                     is ApiState.Success, is ApiState.CombinedAnswer -> activity.set("Writing response")
                     is ApiState.Thinking -> activity.set("Thinking")
@@ -1771,10 +1779,15 @@ class ChatRepositoryImpl(
                 send(state)
             }
             val statusJob = launch {
+                if (githubProgress != null) {
+                    // Independent of provider streaming and any other model invocation.
+                    githubProgress.updates().collect { send(it) }
+                    return@launch
+                }
                 var nextTick = (System.nanoTime() / 1_000_000L) + 5000L
                 while (isActive) {
                     delay((nextTick - (System.nanoTime() / 1_000_000L)).coerceAtLeast(1L))
-                    nextTick += 5000L
+                    nextTick = (System.nanoTime() / 1_000_000L) + dev.chungjungsoo.gptmobile.data.github.GitHubChatProgress.HEARTBEAT_MILLIS
                     val current = activity.get()
                     send(ApiState.ActivitySummary(current))
                     val summary = try {
@@ -2277,6 +2290,7 @@ class ChatRepositoryImpl(
                                 budgetSettings, limits, customRunner, delegationSettings, effectiveTools, exposedTools,
                                 resolvedTools, delegatedTools, trace, traceSequences, recalled, documentContext,
                                 localResearch, processingOwnership, reservedFinalToolCalls, followUps,
+                                retryUndispatchedBudgetFailures = taskRecovery?.retryUndispatchedBudgetFailures == true && chatToolConfig?.combined == null,
                                 previousAnswerWords = if (taskRecovery != null) {
                                     dev.chungjungsoo.gptmobile.data.agent.previousRecoveryAnswerWords(assistantMessages, platform.uid, taskRecovery.sourceMessageId, runId)
                                 } else {
@@ -2895,12 +2909,19 @@ class ChatRepositoryImpl(
         // produce a grounded response.
         val reservedFinalToolCalls = if (localResearch) 1 else 0
         val toolBudgetLimits = customRunner.limits.copy(
+            maxObservedToolCalls = if (chatToolConfig?.github != null) 4096 else customRunner.limits.maxObservedToolCalls,
             githubTask = chatToolConfig?.github != null || toolPreparation.resolvedTools.any { it.isGitHubTool() } && dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.taskTools(input.taskRecovery?.originalRequest.orEmpty() + "\n" + input.effectiveUserMessages.lastOrNull()?.content.orEmpty()).isNotEmpty(),
-            maxToolCalls = if (chatToolConfig?.combined != null) effectiveMaxTools else minOf(effectiveMaxTools, 64),
+            maxToolCalls = if (chatToolConfig?.combined != null || chatToolConfig?.github != null) effectiveMaxTools else minOf(effectiveMaxTools, 64),
             combined = chatToolConfig?.combined,
             maxReplayTokens = minOf(customRunner.limits.maxReplayTokens, 4096),
             maxReplayResultTokens = minOf(customRunner.limits.maxReplayResultTokens, 1024),
-            maxToolOutputBytes = if (localResearch) maxOf(contextPlan.toolResultBytes, 256 * 1024) else contextPlan.toolResultBytes,
+            maxToolOutputBytes = if (chatToolConfig?.github != null) {
+                maxOf(contextPlan.toolResultBytes, 16 * 1024 * 1024)
+            } else if (localResearch) {
+                maxOf(contextPlan.toolResultBytes, 256 * 1024)
+            } else {
+                contextPlan.toolResultBytes
+            },
             finalResponseToolCallReserve = maxOf(customRunner.limits.finalResponseToolCallReserve, reservedFinalToolCalls)
         )
         AppLogRecorder.record(
@@ -2950,7 +2971,9 @@ class ChatRepositoryImpl(
         settings: dev.chungjungsoo.gptmobile.data.context.TokenBudgetSettings
     ): dev.chungjungsoo.gptmobile.data.context.ContextPlan {
         val frozenOutput = if (synthesisRun) kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.agent.CombinedWriterDispatchGuard]?.plan?.effectiveOutputTokens else null
-        val engineering = settingRepository.getFeatureSettings().engineeringProfiles[platform.uid]
+        val features = settingRepository.getFeatureSettings()
+        val github = turns.lastOrNull()?.userMessage?.chatId?.let { features.conversationGitHub[it] }
+        val engineering = dev.chungjungsoo.gptmobile.data.github.GitHubChatPolicy.features(features, platform.uid, github).engineeringProfiles[platform.uid]
         val task = turns.lastOrNull { it.isCurrentTurn }?.userMessage?.effectiveContent().orEmpty()
         val adaptiveSettings = if (engineering != null && combined == null && !synthesisRun) {
             dev.chungjungsoo.gptmobile.data.context.EngineeringAdaptivePolicy.budgets(engineering, task, settings)
@@ -3564,7 +3587,7 @@ class ChatRepositoryImpl(
             maxRoundsOverride = effectiveMaxTools,
             combined = chatToolConfig?.combined
         )
-        val runFeatures = settingRepository.getFeatureSettings()
+        val runFeatures = dev.chungjungsoo.gptmobile.data.github.GitHubChatPolicy.features(settingRepository.getFeatureSettings(), platform.uid, chatToolConfig?.github)
         val searchPolicy = dev.chungjungsoo.gptmobile.data.agent.tool.SearchMergePolicy(
             reuseIdenticalRequests = runFeatures.reuseSearchRequests,
             dedupeUrls = runFeatures.deduplicateSearch,
@@ -3986,6 +4009,7 @@ class ChatRepositoryImpl(
         processingOwnership: Int,
         reservedFinalToolCalls: Int,
         followUps: dev.chungjungsoo.gptmobile.data.queue.FollowUpInbox?,
+        retryUndispatchedBudgetFailures: Boolean = false,
         previousAnswerWords: Int = 0,
         recoveredAnswer: String = "",
         preparedAssistEvidence: Set<JsonObject> = emptySet(),
@@ -4027,6 +4051,7 @@ class ChatRepositoryImpl(
                 "Remote synthesis budget · ownership=$processingOwnership · requested=${requestedOutputTokens ?: -1} · profileCap=${platform.maxTokens} · effective=$resolvedOutputCap · exposedTools=${exposedTools.size} · selectedTools=${contextPlan.tools.size}"
             )
         }
+        val observedRequestContext = java.util.concurrent.atomic.AtomicReference<Int?>(null)
         suspend fun openPrimarySession(
             turns: List<dev.chungjungsoo.gptmobile.data.context.ConversationTurn>,
             kind: String = if (runId.startsWith("combined-synthesis:")) "synthesis" else "primary",
@@ -4087,6 +4112,11 @@ class ChatRepositoryImpl(
                 override val hasPreparedSearchEvidence: Boolean = preparedSearch
                 override fun streamRound(tools: List<dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition>, exchanges: List<dev.chungjungsoo.gptmobile.data.agent.AgentToolExchange>): Flow<ProviderEvent> =
                     raw.streamRound(tools, exchanges).map { event ->
+                        if (chatToolConfig?.github != null && platform.compatibleType == ClientType.LLAMA) {
+                            kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext]?.receipts?.lastOrNull()?.contextTokens?.takeIf { it > 0 }?.coerceAtMost(Int.MAX_VALUE.toLong())?.toInt()?.let { capacity ->
+                                observedRequestContext.updateAndGet { previous -> minOf(previous ?: Int.MAX_VALUE, capacity) }
+                            }
+                        }
                         if (event is ProviderEvent.Failed) {
                             runCatching { writerFailures.observe(platform, event.message) }
                             if (researchSessions?.sessions?.value?.get(runId)?.snapshot?.sources?.any { it.readable } == true) {
@@ -4580,7 +4610,39 @@ class ChatRepositoryImpl(
         } else {
             null
         }
-        val advertisedSession = catalog?.let { groundedSession.withToolCatalog(it) } ?: groundedSession
+        val selectedSession = catalog?.let { groundedSession.withToolCatalog(it) } ?: groundedSession
+        val reviewEvidence = if (chatToolConfig?.github != null && platform.compatibleType == ClientType.LLAMA) dev.chungjungsoo.gptmobile.data.github.GitHubReviewEvidence() else null
+        fun reviewOutputTokens(): Int = minOf(4096, minOf(limits.contextTokens, observedRequestContext.get() ?: Int.MAX_VALUE) / 8).coerceAtLeast(256)
+        fun reviewInputLimit(): Int = (minOf(limits.contextTokens, observedRequestContext.get() ?: Int.MAX_VALUE).toLong() - dev.chungjungsoo.gptmobile.data.context.TextTokenEstimate.estimate(requestPlatform.systemPrompt.orEmpty() + dev.chungjungsoo.gptmobile.data.github.GitHubReviewedSession.INSTRUCTION) - reviewOutputTokens() - 512).coerceIn(0, 1_048_576).toInt()
+        val reviewedSession = if (reviewEvidence != null) {
+            val reviewUser = requireNotNull(latestUser) { "GITHUB_REVIEW_REQUIRED: The original task is missing; no answer can be published." }
+            dev.chungjungsoo.gptmobile.data.github.GitHubReviewedSession(
+                selectedSession,
+                reviewEvidence,
+                reviewUser.content,
+                inputTokenLimit = reviewInputLimit(),
+                currentInputLimit = ::reviewInputLimit,
+                openReview = { prompt, kind ->
+                    openPrimarySession(
+                        listOf(ConversationTurn(reviewUser.copy(content = prompt, attachments = emptyList()), null, true)),
+                        kind = kind,
+                        textOnly = true,
+                        passOutputTokens = if (kind.endsWith("repair")) resolvedOutputCap else reviewOutputTokens(),
+                        extraInstruction = dev.chungjungsoo.gptmobile.data.github.GitHubReviewedSession.INSTRUCTION
+                    )
+                },
+                progress = { send(ApiState.ProgressCheckpoint(it)) },
+                guardDraft = dev.chungjungsoo.gptmobile.data.agent.GenerationSafety(budgetSettings.responseCharacterLimit, budgetSettings.repetitionGuardEnabled)::apply,
+                validatePublication = {
+                    dispatchAuthority.validate()
+                    check(validateSavedEvidence()) { "Saved evidence permission changed during review." }
+                    factVault?.validateRecall(recalled, reviewUser.chatId, platform.isPrivateDestination())
+                }
+            )
+        } else {
+            selectedSession
+        }
+        val advertisedSession = if (chatToolConfig?.github != null) dev.chungjungsoo.gptmobile.data.github.GitHubProgressSession(reviewedSession) { send(ApiState.GitHubRoundStarted) } else reviewedSession
         val executableTools = if (catalog != null && runnerTools.none { it.definition.name == catalog.definition.name }) runnerTools + catalog else runnerTools
         if (catalog != null) AppLogRecorder.record("ToolCatalog", "PROGRESSIVE_CATALOG · authorized=${runnerTools.size} · initiallyAdvertised=${catalog.selected(executableTools.map { it.definition }).size} · discovery=true · permissionExpansion=false")
 
@@ -4589,20 +4651,24 @@ class ChatRepositoryImpl(
                 contextTokens = limits.contextTokens,
                 githubTask = chatToolConfig?.github != null || effectiveTools.any { it.isGitHubTool() } && isGitHubTask(latestUser?.content.orEmpty()),
                 runTimeoutMillis = minOf(customRunner.limits.runTimeoutMillis, budgetSettings.generationTimeoutMinutes.takeIf { it > 0 }?.toLong()?.times(60_000) ?: Long.MAX_VALUE),
+                maxObservedToolCalls = if (chatToolConfig?.github != null) maxOf(customRunner.limits.maxObservedToolCalls, 4096) else customRunner.limits.maxObservedToolCalls,
+                maxRetainedEvidenceTokens = if (chatToolConfig?.github != null) minOf(limits.contextTokens / 3, 262_144) else customRunner.limits.maxRetainedEvidenceTokens,
                 maxGeneratedCharacters = budgetSettings.responseCharacterLimit,
                 detectRepetition = budgetSettings.repetitionGuardEnabled,
                 initialContextTokens = contextPlan.promptTokens,
                 finalResponseReserveTokens = minOf(contextPlan.outputTokens ?: 32768, limits.contextTokens / 4),
                 finalResponseToolCallReserve = maxOf(customRunner.limits.finalResponseToolCallReserve, reservedFinalToolCalls),
-                maxReplayTokens = dev.chungjungsoo.gptmobile.data.context.ReplayAllowance.tokens(limits.contextTokens, contextPlan.promptTokens, resolvedOutputCap ?: 4096, delegationSettings.primaryReplayTokens),
-                maxReplayResultTokens = delegationSettings.primaryReplayResultTokens
+                maxReplayTokens = dev.chungjungsoo.gptmobile.data.context.ReplayAllowance.tokens(limits.contextTokens, contextPlan.promptTokens, resolvedOutputCap ?: 4096, if (chatToolConfig?.github != null) minOf(limits.contextTokens / 3, 262_144) else delegationSettings.primaryReplayTokens),
+                maxReplayResultTokens = if (chatToolConfig?.github != null) minOf(limits.contextTokens / 16, 32_768).coerceAtLeast(64) else delegationSettings.primaryReplayResultTokens
             ),
             checkpoint = latestUser?.let { user ->
                 dev.chungjungsoo.gptmobile.data.agent.ToolBatchCheckpoint.forTurn(context.filesDir, user.chatId, "${user.chatId}:${user.id}:${platform.uid}:${dispatchAuthority.revision}", persistent = agentPersistenceDao.getChatRoom(user.chatId)?.isTemporary == false)
             },
-            healthCatalog = catalog
+            healthCatalog = catalog,
+            retryUndispatchedBudgetFailures = retryUndispatchedBudgetFailures,
+            onToolResult = reviewEvidence?.let { it::observe }
         ).run(advertisedSession, executableTools, dynamicTools = { effectiveTools.flatMap { it.dynamicTools?.invoke().orEmpty() }.map { it.tool } }, selectDefinitions = { definitions -> catalog?.selected(definitions) ?: definitions })
-        streamAgentEvents(agentEvents, platform, runId, resolvedTools.size, trace, chatToolConfig?.combined != null, resolvedOutputCap, dispatchAuthority).collect { send(it) }
+        streamAgentEvents(agentEvents, platform, runId, resolvedTools.size, trace, chatToolConfig?.combined != null, resolvedOutputCap, dispatchAuthority, githubChat = chatToolConfig?.github != null).collect { send(it) }
     }
 
     private suspend fun followUpInbox(
@@ -4621,7 +4687,7 @@ class ChatRepositoryImpl(
         if (chatToolConfig?.combined != null || runId.startsWith("combined-synthesis:")) return null
         var admittedCharacters = 0
         suspend fun allowance(): Int {
-            val budgets = settingRepository.getFeatureSettings().tokenBudget.normalized()
+            val budgets = dev.chungjungsoo.gptmobile.data.github.GitHubChatPolicy.features(settingRepository.getFeatureSettings(), platform.uid, chatToolConfig?.github).tokenBudget.normalized()
             val ceiling = minOf(budgets.contextTokens, budgets.profileContextCeilings[platform.uid] ?: Int.MAX_VALUE)
             val input = initialMessages.sumOf { dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.estimate(it.content) }
             val reserve = maxOf(platform.maxTokens ?: 2048, 2048) + 8000
@@ -4656,7 +4722,8 @@ class ChatRepositoryImpl(
         trace: ToolTraceSession,
         retainGenerationReceipt: Boolean = false,
         outputAllowance: Int? = null,
-        dispatchAuthority: dev.chungjungsoo.gptmobile.data.context.RequestAuthorizationGuard
+        dispatchAuthority: dev.chungjungsoo.gptmobile.data.context.RequestAuthorizationGuard,
+        githubChat: Boolean = false
     ): Flow<ApiState> = flow {
         val editorialPass = runId.startsWith("combined-synthesis:")
         val capKey = dev.chungjungsoo.gptmobile.data.agent.CombinedWriterObservations.key(platform)
@@ -4733,7 +4800,7 @@ class ChatRepositoryImpl(
                             emit(ApiState.GatewayProgressChanged(providerProgress("response_started", "generating", "Writing the response…")))
                         }
                         progressParser.accept(providerEvent.text).forEach { (progress, text) ->
-                            if (progress) emit(ApiState.ProgressCheckpoint(text, modelAuthored = false)) else emit(ApiState.Success(text))
+                            if (progress) emit(ApiState.ProgressCheckpoint(text, modelAuthored = true)) else emit(ApiState.Success(text))
                         }
                     }
 
@@ -4827,20 +4894,24 @@ class ChatRepositoryImpl(
 
                     is ProviderEvent.ToolResult -> Unit
                     ProviderEvent.Completed -> progressParser.accept("", flush = true).forEach { (progress, text) ->
-                        if (progress) emit(ApiState.ProgressCheckpoint(text, modelAuthored = false)) else emit(ApiState.Success(text))
+                        if (progress) emit(ApiState.ProgressCheckpoint(text, modelAuthored = true)) else emit(ApiState.Success(text))
                     }
                 }
 
                 is AgentRunEvent.ToolStarted -> {
                     providerToolCalls += 1
                     if (!gatewayTelemetrySeen) {
-                        emit(ApiState.GatewayProgressChanged(providerProgress("tool_started", "executing_tools", "Running ${runEvent.call.name}…", runEvent.call.name, "running")))
+                        emit(ApiState.GatewayProgressChanged(providerProgress("tool_started", "executing_tools", if (runEvent.call.name == "github_decide") "Waiting for your feature decision" else "Running ${runEvent.call.name}…", runEvent.call.name, "running")))
                     }
                 }
 
                 is AgentRunEvent.ToolFinished -> {
                     trace.finish(runEvent.call, runEvent.result)?.let { emit(it) }
-                    progressTracker.complete(runEvent.call.callId, runEvent.call.name, runEvent.result.isError)?.let { emit(ApiState.ProgressCheckpoint(it)) }
+                    if (githubChat) {
+                        emit(ApiState.ProgressCheckpoint(dev.chungjungsoo.gptmobile.data.github.GitHubChatProgress.milestone(runEvent.call.name, runEvent.result.isError, runEvent.result.sharedResult)))
+                    } else {
+                        progressTracker.complete(runEvent.call.callId, runEvent.call.name, runEvent.result.isError)?.let { emit(ApiState.ProgressCheckpoint(it)) }
+                    }
                     if (!gatewayTelemetrySeen) {
                         if (runEvent.result.isError) providerToolFailures += 1 else providerUsefulToolCalls += 1
                         emit(
@@ -4858,6 +4929,21 @@ class ChatRepositoryImpl(
                     }
                 }
 
+                is AgentRunEvent.BatchProgress -> {
+                    val batch = runEvent.progress
+                    // Native tools still execute on Android after gateway inference.
+                    // Gateway model telemetry must not hide their batch progress.
+                    emit(
+                        ApiState.GatewayProgressChanged(
+                            providerProgress(
+                                event = "batch_progress",
+                                stage = "executing_tools",
+                                message = batch.message,
+                                status = if (batch.completed == batch.total) "completed" else "running"
+                            ).copy(durationMs = batch.elapsedMillis)
+                        )
+                    )
+                }
                 is AgentRunEvent.Notice -> emit(ApiState.Notice(runEvent.message, runEvent.persistent, runEvent.researchDelivery))
             }
         }
@@ -5655,6 +5741,7 @@ class ChatRepositoryImpl(
             val runs = agentRunDao.getReadableByChatId(updated.id)
             val decisionRoots = runs.mapNotNull { dev.chungjungsoo.gptmobile.data.agent.CombinedAcceptedTurn.context(it.synthesisSnapshot)?.rootBudgetId }.toSet() + combinedBudgets.rootsForConversation(updated.id)
             combinedDecisions?.setPersistent(decisionRoots, !enabled)
+            gitHubDecisions?.setPersistent(updated.id, !enabled)
             if (enabled) {
                 withContext(Dispatchers.IO) {
                     val filesDir = context.filesDir
@@ -5677,6 +5764,7 @@ class ChatRepositoryImpl(
     override suspend fun deleteChatsV2(chatRooms: List<ChatRoomV2>) = withContext(Dispatchers.IO) {
         factVault?.load()
         chatRooms.forEach { room ->
+            gitHubDecisions?.deleteChat(room.id)?.forEach { gitHubDecisionNotifications?.dismiss(it) }
             val runs = agentRunDao.getReadableByChatId(room.id)
             val decisionRoots = runs.mapNotNull { dev.chungjungsoo.gptmobile.data.agent.CombinedAcceptedTurn.context(it.synthesisSnapshot)?.rootBudgetId }.toSet() + combinedBudgets.rootsForConversation(room.id)
             combinedDecisions?.deleteRoots(decisionRoots)

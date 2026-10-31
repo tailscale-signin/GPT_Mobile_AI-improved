@@ -20,6 +20,23 @@ class ModelDelegationToolTest {
     private val task = buildJsonObject { put("task", "Summarize this text") }
 
     @Test
+    fun hardwareFallbackUsesOnlyApprovedDestinationsAndFixedSelectionCanWait() = runTest {
+        val local = target.copy(uid = "on-device", compatibleType = ClientType.LITERT_LM, model = "local-fixture")
+        val unapproved = target.copy(uid = "unapproved")
+        val config = enabled.copy(targetProfileUid = local.uid, approvedWorkerUids = listOf(target.uid))
+        val hardware = { dev.chungjungsoo.gptmobile.data.localruntime.DeviceHardwareState(thermalState = dev.chungjungsoo.gptmobile.data.localruntime.DeviceThermalState.SEVERE) }
+        val dispatched = mutableListOf<String>()
+        val tool = ModelDelegationTool(source, { config }, { listOf(unapproved, local, target) }, hardware) { profile, _, _ ->
+            dispatched += profile.uid
+            "Done"
+        }
+        assertFalse(tool.execute("approved-fallback", task).isError)
+        assertEquals(listOf(target.uid), dispatched)
+        val fixed = ModelDelegationTool(source, { config.copy(fallbackToAnotherProfile = false) }, { listOf(local, target) }, hardware) { _, _, _ -> error("Fixed local destination must wait") }
+        assertTrue(fixed.execute("wait", task).isError)
+    }
+
+    @Test
     fun gitHubCapabilityRefusalAllowsDifferentEligibleHelper() = runTest {
         val fallback = target.copy(uid = "github-capable")
         val dispatched = mutableListOf<String>()

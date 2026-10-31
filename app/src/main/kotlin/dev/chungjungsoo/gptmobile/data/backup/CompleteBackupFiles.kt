@@ -16,6 +16,17 @@ internal class CompleteBackupFiles(
     private val roots = roots.mapValues { it.value.canonicalFile }
     private val excluded = setOf("datastore", "backup", "backups", "diagnostics", "amazon-product-media")
 
+    fun collectGitHubDrafts(): Map<String, File> = buildMap {
+        val root = pluginRoot?.let { File(it, "github-workspace-drafts") } ?: return@buildMap
+        var total = 0L
+        root.listFiles().orEmpty().filter { it.isFile && it.name.matches(Regex("[a-f0-9]{64}\\.draft")) }.forEach { file ->
+            require(file.canonicalFile == file.absoluteFile && file.length() in 28..8L * 1024 * 1024) { "Invalid encrypted GitHub draft." }
+            total += file.length()
+            require(total <= 64L * 1024 * 1024) { "GitHub drafts exceed the backup budget." }
+            put("internal/github-workspace-drafts/${file.name}", file)
+        }
+    }
+
     fun collectPlugins(): Map<String, File> = buildMap {
         val root = pluginRoot?.canonicalFile ?: return@buildMap
         val registry = File(root, "native-marketplace-v1.json")
@@ -55,6 +66,13 @@ internal class CompleteBackupFiles(
         CompleteBackupArchive.validatePath(path)
         require(path != "database.sqlite")
         val relative = path.substringAfter('/')
+        if (isGitHubDraftPath(path)) {
+            val root = requireNotNull(pluginRoot) { "GitHub draft storage is unavailable." }.canonicalFile
+            require(relative.matches(Regex("github-workspace-drafts/[a-f0-9]{64}\\.draft"))) { "Invalid GitHub draft path." }
+            return File(root, relative).also {
+                require(it.canonicalFile == it.absoluteFile && it.toPath().startsWith(root.toPath())) { "Invalid GitHub draft destination." }
+            }
+        }
         if (isPluginPath(path)) {
             val root = requireNotNull(pluginRoot) { "Plugin storage is unavailable." }.canonicalFile
             val suffix = relative.removePrefix("plugin-installations/")
@@ -178,6 +196,7 @@ internal class CompleteBackupFiles(
     private data class RestoreJournalEntry(val path: String, val existedBefore: Boolean, val started: Boolean)
 
     companion object {
+        fun isGitHubDraftPath(path: String): Boolean = path.startsWith("internal/github-workspace-drafts/")
         fun isPluginPath(path: String): Boolean = path.startsWith("internal/plugin-installations/")
     }
 }

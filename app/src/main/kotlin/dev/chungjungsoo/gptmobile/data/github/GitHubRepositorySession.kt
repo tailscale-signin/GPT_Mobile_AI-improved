@@ -383,34 +383,26 @@ internal class GitHubRepositorySession(
 
     private class SearchPageDeadline : RuntimeException()
 
-    private suspend fun search(context: GitHubTaskSnapshot, args: JsonObject): JsonObject {
-        val query = args.s("query")
-        require(query.isNotBlank() && query.length <= 200) { "Search requires a non-blank query of at most 200 characters." }
-        val mode = args.s("mode").ifBlank { "literal" }
-        require(mode in setOf("literal", "definitions", "references", "paths", "tests", "patterns"))
-        val data = tree(context)
-        val options = GitHubSearchOptions.from(args)
-        val extension = args.s("file_extension").removePrefix(".").lowercase(java.util.Locale.ROOT)
-        require(extension.isEmpty() || extension.matches(Regex("[a-z0-9]+"))) { "file_extension must be a single extension such as kt or .kt." }
-        val batchSize = args.s("batch_size").ifBlank { "1000" }.toInt().also { require(it in 1..1000) }
-        val maxNewBlobs = args.s("max_new_blobs").ifBlank { "16" }.toInt().also { require(it in 1..100) }
-        val searchId = GitHubRepositoryStateStore.digest(listOf(context.commitSha, query, mode, args.s("path_prefix"), extension, options.json().toString()).joinToString("\u0000"))
-        require(args.s("search_id").isBlank() || args.s("search_id") == searchId) { "Search parameters changed. Start at index_cursor=0 without search_id, or use the exact continuation." }
-        val all = data["tree"]!!.jsonArray.map { it.jsonObject }.filter { item ->
-            item.s("type") == "blob" &&
-                (mode != "tests" || item.s("path").contains("test", true)) &&
-                (args.s("path_prefix").isBlank() || item.s("path").startsWith(args.s("path_prefix"))) &&
-                (options.suffix.isEmpty() || item.s("path").endsWith(options.suffix)) &&
-                (extension.isEmpty() || item.s("path").substringAfterLast('.', "").equals(extension, true))
-        }.distinctBy { it.s("path") }.sortedBy { it.s("path") }
-        val cursor = args.s("index_cursor").ifBlank { "0" }.toInt().also { require(it in 0..all.size) }
-        val cacheKey = "search-page-v4:$searchId:$cursor:$batchSize:$maxNewBlobs"
-        store.read(scope, cacheKey)?.let { cached ->
-            return JsonObject(cached + mapOf("cache_hit" to JsonPrimitive(true), "new_blobs" to JsonPrimitive(0)))
-        }
-        val priorCoverage = if (cursor == 0) buildJsonObject { put("from_start", true) } else store.read(scope, "search-coverage:$searchId:$cursor")
-        val fromStart = priorCoverage?.get("from_start")?.jsonPrimitive?.booleanOrNull == true
-        var next = cursor
+    private data class SearchRequest(
+        val query: String,
+        val mode: String,
+        val options: GitHubSearchOptions,
+        val extension: String,
+        val pathPrefix: String,
+        val batchSize: Int,
+        val maxNewBlobs: Int,
+        val searchId: String,
+        val all: List<JsonObject>,
+        val cursor: Int,
+        val treeComplete: Boolean,
+        val priorCoverage: JsonObject?
+    ) {
+        val cacheKey get() = "search-page-v4:$searchId:$cursor:$batchSize:$maxNewBlobs"
+        val fromStart get() = priorCoverage?.get("from_start")?.jsonPrimitive?.booleanOrNull == true
+    }
+
+    private class SearchProgress(request: SearchRequest) {
+        var next = request.cursor
         var fetched = 0
         var skipped = 0
         val startedNanos = System.nanoTime()
@@ -420,15 +412,61 @@ internal class GitHubRepositorySession(
         val hits = mutableListOf<JsonObject>()
         val contextBudget = SearchContextBudget()
         val prefetched = mutableMapOf<String, Result<JsonObject?>>()
-        val hitLimit = if (mode == "paths") 100 else 20
-        while (next < all.size && (mode == "paths" || next - cursor < batchSize) && hits.size < hitLimit) {
+        val hitLimit = if (request.mode == "paths") 100 else 20
+        fun timedOut() = (System.nanoTime() - startedNanos) / 1_000_000 >= 12_000
+    }
+
+    private suspend fun search(context: GitHubTaskSnapshot, args: JsonObject): JsonObject {
+        require(args.s("query").isNotBlank() && args.s("query").length <= 200) { "Search requires a non-blank query of at most 200 characters." }
+        require(args.s("mode").ifBlank { "literal" } in setOf("literal", "definitions", "references", "paths", "tests", "patterns"))
+        val request = prepareSearch(context, args, tree(context))
+        store.read(scope, request.cacheKey)?.let { cached ->
+            return JsonObject(cached + mapOf("cache_hit" to JsonPrimitive(true), "new_blobs" to JsonPrimitive(0)))
+        }
+        val progress = SearchProgress(request)
+        scanSearch(context, request, progress)
+        val result = searchResult(context, request, progress)
+        retainSearchPage(request, progress, result)
+        return result
+    }
+
+    private suspend fun prepareSearch(context: GitHubTaskSnapshot, args: JsonObject, data: JsonObject): SearchRequest {
+        val query = args.s("query")
+        require(query.isNotBlank() && query.length <= 200) { "Search requires a non-blank query of at most 200 characters." }
+        val mode = args.s("mode").ifBlank { "literal" }
+        require(mode in setOf("literal", "definitions", "references", "paths", "tests", "patterns"))
+        val options = GitHubSearchOptions.from(args)
+        val extension = args.s("file_extension").removePrefix(".").lowercase(java.util.Locale.ROOT)
+        require(extension.isEmpty() || extension.matches(Regex("[a-z0-9]+"))) { "file_extension must be a single extension such as kt or .kt." }
+        val batchSize = args.s("batch_size").ifBlank { "1000" }.toInt().also { require(it in 1..1000) }
+        val maxNewBlobs = args.s("max_new_blobs").ifBlank { "16" }.toInt().also { require(it in 1..100) }
+        val pathPrefix = args.s("path_prefix")
+        val searchId = GitHubRepositoryStateStore.digest(listOf(context.commitSha, query, mode, pathPrefix, extension, options.json().toString()).joinToString("\u0000"))
+        require(args.s("search_id").isBlank() || args.s("search_id") == searchId) { "Search parameters changed. Start at index_cursor=0 without search_id, or use the exact continuation." }
+        val all = data["tree"]!!.jsonArray.map { it.jsonObject }.filter { item ->
+            item.s("type") == "blob" &&
+                (mode != "tests" || item.s("path").contains("test", true)) &&
+                (pathPrefix.isBlank() || item.s("path").startsWith(pathPrefix)) &&
+                (options.suffix.isEmpty() || item.s("path").endsWith(options.suffix)) &&
+                (extension.isEmpty() || item.s("path").substringAfterLast('.', "").equals(extension, true))
+        }.distinctBy { it.s("path") }.sortedBy { it.s("path") }
+        val cursor = args.s("index_cursor").ifBlank { "0" }.toInt().also { require(it in 0..all.size) }
+        val priorCoverage = if (cursor == 0) buildJsonObject { put("from_start", true) } else store.read(scope, "search-coverage:$searchId:$cursor")
+        return SearchRequest(query, mode, options, extension, pathPrefix, batchSize, maxNewBlobs, searchId, all, cursor, data["truncated"]?.jsonPrimitive?.booleanOrNull != true, priorCoverage)
+    }
+
+    private suspend fun scanSearch(context: GitHubTaskSnapshot, request: SearchRequest, progress: SearchProgress) {
+        val all = request.all
+        // Related-file discovery reuses one path list for the entire page.
+        val paths = all.map { it.s("path") }
+        while (progress.next < all.size && (request.mode == "paths" || progress.next - request.cursor < request.batchSize) && progress.hits.size < progress.hitLimit) {
             kotlinx.coroutines.currentCoroutineContext().ensureActive()
-            if ((System.nanoTime() - startedNanos) / 1_000_000 >= 12_000) break
-            val item = all[next]
-            if (mode == "paths") {
-                next++
-                if (query == "*" || options.score(item.s("path"), query) > 0) {
-                    hits += buildJsonObject {
+            if (progress.timedOut()) break
+            val item = all[progress.next]
+            if (request.mode == "paths") {
+                progress.next++
+                if (request.query == "*" || request.options.score(item.s("path"), request.query) > 0) {
+                    progress.hits += buildJsonObject {
                         put("path", item["path"]!!)
                         put("sha", item["sha"]!!)
                     }
@@ -436,81 +474,122 @@ internal class GitHubRepositorySession(
                 continue
             }
             val cached = store.read(blobScope(context), "blob:${item.s("sha")}")
-            if (cached == null && item.s("sha") !in prefetched && fetched >= maxNewBlobs) break
-            next++
-            if ((item["size"]?.jsonPrimitive?.longOrNull ?: 0) > MAX_BLOB_BYTES) {
-                skipped++
-                continue
-            }
-            val content = try {
-                if (cached == null && item.s("sha") !in prefetched) {
-                    val candidates = all.subList(next - 1, minOf(all.size, cursor + batchSize)).asSequence()
-                        .take(4).filter { (it["size"]?.jsonPrimitive?.longOrNull ?: 0) <= MAX_BLOB_BYTES }
-                        .distinctBy { it.s("sha") }.filter { it.s("sha") !in prefetched }
-                        .take(maxNewBlobs - fetched).toList()
-                        .filter { store.read(blobScope(context), "blob:${it.s("sha")}") == null }
-                    fetched += candidates.size
-                    val remainingMs = (12_000 - (System.nanoTime() - startedNanos) / 1_000_000).coerceIn(1, 8_000)
-                    prefetchSearchBlobs(context, candidates, remainingMs).forEach { (sha, result) -> prefetched[sha] = result }
-                }
-                val retained = prefetched.remove(item.s("sha"))?.getOrThrow() ?: cached ?: store.read(blobScope(context), "blob:${item.s("sha")}")
-                if (retained == null) {
-                    next--
-                    readDeadline = true
-                    break
-                }
-                retained
-            } catch (cancelled: kotlinx.coroutines.CancellationException) {
-                throw cancelled
-            } catch (_: IllegalArgumentException) {
-                skipped++
-                continue
-            } catch (_: java.nio.charset.CharacterCodingException) {
-                skipped++
-                continue
-            }
-            val match = matchSearchFile(context, item, content, options, mode, query, startedNanos, contextBudget)
-            incompleteSymbols = incompleteSymbols || match.incompleteSymbols
-            val matches = match.items
+            if (cached == null && item.s("sha") !in progress.prefetched && progress.fetched >= request.maxNewBlobs) break
+            progress.next++
+            val content = searchContent(context, request, progress, item, cached)
+            if (progress.readDeadline) break
+            if (content == null) continue
+            val match = matchSearchFile(context, item, content, request.options, request.mode, request.query, progress.startedNanos, progress.contextBudget)
+            progress.incompleteSymbols = progress.incompleteSymbols || match.incompleteSymbols
             if (match.deadlineReached) {
-                next--
-                readDeadline = true
+                progress.next--
+                progress.readDeadline = true
+                break
             }
-            if (readDeadline) break
-            if (matches.size > 10) truncatedMatches = true
+            val matches = match.items
+            if (matches.size > 10) progress.truncatedMatches = true
             if (matches.isNotEmpty()) {
-                hits += buildJsonObject {
+                progress.hits += buildJsonObject {
                     put("path", item["path"]!!)
                     put("sha", item["sha"]!!)
                     put("matches", JsonArray(matches.take(10)))
                     put("matches_truncated", matches.size > 10)
-                    put("related_files", GitHubSearchContext.related(item.s("path"), all.map { it.s("path") }))
+                    put("related_files", GitHubSearchContext.related(item.s("path"), paths))
                 }
             }
         }
-        val totalSkipped = skipped + (priorCoverage?.get("skipped")?.jsonPrimitive?.intOrNull ?: 0)
-        val anyIncompleteSymbols = incompleteSymbols || priorCoverage?.get("symbols_incomplete")?.jsonPrimitive?.booleanOrNull == true
-        val anyTruncatedMatches = truncatedMatches || priorCoverage?.get("matches_truncated")?.jsonPrimitive?.booleanOrNull == true
-        val treeComplete = data["truncated"]?.jsonPrimitive?.booleanOrNull != true
-        if (next > cursor) {
+    }
+
+    private suspend fun searchContent(context: GitHubTaskSnapshot, request: SearchRequest, progress: SearchProgress, item: JsonObject, cached: JsonObject?): JsonObject? {
+        if ((item["size"]?.jsonPrimitive?.longOrNull ?: 0) > MAX_BLOB_BYTES) {
+            progress.skipped++
+            return null
+        }
+        try {
+            if (cached == null && item.s("sha") !in progress.prefetched) {
+                val candidates = request.all.subList(progress.next - 1, minOf(request.all.size, request.cursor + request.batchSize)).asSequence()
+                    .take(4).filter { (it["size"]?.jsonPrimitive?.longOrNull ?: 0) <= MAX_BLOB_BYTES }
+                    .distinctBy { it.s("sha") }.filter { it.s("sha") !in progress.prefetched }
+                    .take(request.maxNewBlobs - progress.fetched).toList()
+                    .filter { store.read(blobScope(context), "blob:${it.s("sha")}") == null }
+                progress.fetched += candidates.size
+                val remainingMs = (12_000 - (System.nanoTime() - progress.startedNanos) / 1_000_000).coerceIn(1, 8_000)
+                prefetchSearchBlobs(context, candidates, remainingMs).forEach { (sha, result) -> progress.prefetched[sha] = result }
+            }
+            val retained = progress.prefetched.remove(item.s("sha"))?.getOrThrow() ?: cached ?: store.read(blobScope(context), "blob:${item.s("sha")}")
+            if (retained == null) {
+                progress.next--
+                progress.readDeadline = true
+            }
+            return retained
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (_: IllegalArgumentException) {
+            progress.skipped++
+        } catch (_: java.nio.charset.CharacterCodingException) {
+            progress.skipped++
+        }
+        return null
+    }
+
+    private suspend fun retainSearchPage(request: SearchRequest, progress: SearchProgress, result: JsonObject) {
+        if (progress.next > request.cursor) {
             store.write(
                 scope,
-                "search-coverage:$searchId:$next",
+                "search-coverage:${request.searchId}:${progress.next}",
                 buildJsonObject {
-                    put("from_start", fromStart)
-                    put("skipped", totalSkipped)
-                    put("symbols_incomplete", anyIncompleteSymbols)
-                    put("matches_truncated", anyTruncatedMatches)
+                    put("from_start", request.fromStart)
+                    put("skipped", result.getValue("total_skipped_files"))
+                    put("symbols_incomplete", progress.incompleteSymbols || request.priorCoverage?.get("symbols_incomplete")?.jsonPrimitive?.booleanOrNull == true)
+                    put("matches_truncated", progress.truncatedMatches || request.priorCoverage?.get("matches_truncated")?.jsonPrimitive?.booleanOrNull == true)
                 }
             )
         }
-        val result = buildJsonObject {
+        // Do not freeze a transport timeout into a permanent empty cached page.
+        if (!progress.readDeadline && progress.next > request.cursor) {
+            store.write(scope, request.cacheKey, result)
+            val evicted = mutableListOf<String>()
+            store.update(scope, "search-page-keys") { old ->
+                val retained = old?.get("keys")?.jsonArray.orEmpty().map { it.jsonPrimitive.content }.filter { it != request.cacheKey } + request.cacheKey
+                evicted += retained.dropLast(64)
+                buildJsonObject { put("keys", JsonArray(retained.takeLast(64).map(::JsonPrimitive))) }
+            }
+            evicted.forEach { store.remove(scope, it) }
+        }
+    }
+
+    private fun searchResult(context: GitHubTaskSnapshot, request: SearchRequest, progress: SearchProgress): JsonObject {
+        val query = request.query
+        val mode = request.mode
+        val options = request.options
+        val extension = request.extension
+        val batchSize = request.batchSize
+        val maxNewBlobs = request.maxNewBlobs
+        val searchId = request.searchId
+        val all = request.all
+        val cursor = request.cursor
+        val fromStart = request.fromStart
+        val treeComplete = request.treeComplete
+        val next = progress.next
+        val fetched = progress.fetched
+        val skipped = progress.skipped
+        val startedNanos = progress.startedNanos
+        val readDeadline = progress.readDeadline
+        val incompleteSymbols = progress.incompleteSymbols
+        val truncatedMatches = progress.truncatedMatches
+        val hits = progress.hits
+        val contextBudget = progress.contextBudget
+        val hitLimit = progress.hitLimit
+        val totalSkipped = skipped + (request.priorCoverage?.get("skipped")?.jsonPrimitive?.intOrNull ?: 0)
+        val anyIncompleteSymbols = incompleteSymbols || request.priorCoverage?.get("symbols_incomplete")?.jsonPrimitive?.booleanOrNull == true
+        val anyTruncatedMatches = truncatedMatches || request.priorCoverage?.get("matches_truncated")?.jsonPrimitive?.booleanOrNull == true
+        return buildJsonObject {
             put("query", query)
             put("filters", options.json())
             put("search_id", searchId)
             put("cache_hit", false)
             put("file_extension", extension)
-            put("path_prefix", args.s("path_prefix"))
+            put("path_prefix", request.pathPrefix)
             put("interval_start", cursor)
             put("interval_end", next)
             put("tree_complete", treeComplete)
@@ -557,7 +636,7 @@ internal class GitHubRepositorySession(
                         put("index_cursor", next)
                         put("query", query)
                         put("mode", mode)
-                        put("path_prefix", args.s("path_prefix"))
+                        put("path_prefix", request.pathPrefix)
                         put("file_extension", extension)
                         put("search_id", searchId)
                         put("batch_size", batchSize)
@@ -567,18 +646,6 @@ internal class GitHubRepositorySession(
                 )
             }
         }
-        // Do not freeze a transport timeout into a permanent empty cached page.
-        if (!readDeadline && next > cursor) {
-            store.write(scope, cacheKey, result)
-            val evicted = mutableListOf<String>()
-            store.update(scope, "search-page-keys") { old ->
-                val retained = old?.get("keys")?.jsonArray.orEmpty().map { it.jsonPrimitive.content }.filter { it != cacheKey } + cacheKey
-                evicted += retained.dropLast(64)
-                buildJsonObject { put("keys", JsonArray(retained.takeLast(64).map(::JsonPrimitive))) }
-            }
-            evicted.forEach { store.remove(scope, it) }
-        }
-        return result
     }
 
     /** Keep the search dispatch coroutine small enough for ART to compile. */
@@ -676,9 +743,8 @@ internal class GitHubRepositorySession(
         fun selectedEntry(path: String): JsonObject {
             GitHubWorkspaceClient.filePath(path)
             val entry = entries[path] ?: run {
-                val parent = path.substringBeforeLast('/', "")
-                val available = entries.values.filter { it.s("type") == "blob" && it.s("path").substringBeforeLast('/', "") == parent }.map { it.s("path") }.sorted().take(12)
-                error("Path is not in the pinned tree: $path. Use github_search mode=paths to discover exact paths." + if (available.isEmpty()) "" else " Available files in this directory: ${available.joinToString()}")
+                val available = GitHubSearchContext.missingPathCandidates(path, entries.values.filter { it.s("type") == "blob" }.map { it.s("path") })
+                throw IllegalArgumentException("Path is not in the pinned tree: $path. Use github_search mode=paths to discover exact paths." + if (available.isEmpty()) "" else " Candidate files in the pinned tree (verify before reading): ${available.joinToString()}")
             }
             require(entry.s("mode") in setOf("", "100644", "100755") && entry.s("type") == "blob") { "Only regular text files can be read." }
             return entry

@@ -10,6 +10,31 @@ import org.junit.Test
 class TaskRecoveryActionTest {
     private fun user(id: Int, text: String) = MessageV2(id = id, chatId = 1, content = text, platformType = null)
 
+    @Test fun onlyExplicitRetryDescriptorsCanReopenUndispatchedBudgetFailures() {
+        val messages = listOf(user(1, "Inspect the repository"))
+        val automatic = TaskResumeDescriptor("1:1", 1, "provider-resume:fixture", TaskRecoveryAction.RETRY_FAILED_STAGE)
+        assertFalse(resolveTaskRecovery(messages, automatic)!!.retryUndispatchedBudgetFailures)
+        val explicit = automatic.copy(generationId = "user-retry", allowUndispatchedBudgetRetry = true)
+        val encoded = kotlinx.serialization.json.Json.encodeToString(TaskResumeDescriptor.serializer(), explicit)
+        val restored = kotlinx.serialization.json.Json.decodeFromString(TaskResumeDescriptor.serializer(), encoded)
+        assertTrue(resolveTaskRecovery(messages, restored)!!.retryUndispatchedBudgetFailures)
+        for (action in TaskRecoveryAction.entries.filter { it != TaskRecoveryAction.RETRY_FAILED_STAGE }) {
+            assertFalse(resolveTaskRecovery(messages, restored.copy(action = action))!!.retryUndispatchedBudgetFailures)
+        }
+        val legacy = """{"rootWorkId":"1:1","sourceMessageId":1,"generationId":"old","action":"RETRY_FAILED_STAGE"}"""
+        assertFalse(resolveTaskRecovery(messages, kotlinx.serialization.json.Json.decodeFromString<TaskResumeDescriptor>(legacy))!!.retryUndispatchedBudgetFailures)
+    }
+
+    @Test fun textRetryCommandsReopenBudgetRefusalsButContinueCommandsDoNot() {
+        val original = user(1, "Inspect the repository")
+        for (command in listOf("retry", "Retry full", "retry failed stage", "try again")) {
+            assertTrue(resolveTaskRecovery(listOf(original, user(2, command)))!!.retryUndispatchedBudgetFailures)
+        }
+        for (command in listOf("continue", "retry writing", "proceed primary-only")) {
+            assertFalse(resolveTaskRecovery(listOf(original, user(2, command)))!!.retryUndispatchedBudgetFailures)
+        }
+    }
+
     @Test fun `persisted recovery chains retain objective and primary only mode`() {
         val task = "Write 3,000 words of French history in chronological order, with sources."
         val saved = listOf(user(1, task), user(3, "Retry full"), user(5, "Proceed primary-only"), user(7, "Continue!"))

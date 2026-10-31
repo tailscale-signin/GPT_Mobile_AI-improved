@@ -124,6 +124,40 @@ class NotificationManager @Inject constructor(
         notificationManager.cancel(NOTIFICATION_ID)
     }
 
+    fun showGitHubDecision(requestId: String, chatId: Int, messageId: Int, question: String) {
+        if (!androidx.core.app.NotificationManagerCompat.from(context).areNotificationsEnabled()) return
+        val id = decisionNotificationId(requestId)
+        val intent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            putExtra(EXTRA_CHAT_ROOM_ID, chatId)
+            putExtra(EXTRA_TARGET_MESSAGE_ID, messageId)
+            putExtra(MainActivity.EXTRA_NOTIFICATION_EVENT_ID, requestId)
+        }
+        val pending = PendingIntent.getActivity(context, id, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        notificationManager.notify(
+            id,
+            NotificationCompat.Builder(context, CHANNEL_ID)
+                .setSmallIcon(R.drawable.ic_ai_notification)
+                .setContentTitle("GitHub · Your decision is needed")
+                .setContentText(question.take(180))
+                .setStyle(NotificationCompat.BigTextStyle().bigText(question.take(400)))
+                .setSubText("Tap to choose in the conversation")
+                .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+                .setOnlyAlertOnce(true)
+                .setAutoCancel(true)
+                .setContentIntent(pending)
+                .build()
+        )
+    }
+
+    fun dismissGitHubDecision(requestId: String) {
+        notificationManager.cancel(decisionNotificationId(requestId))
+    }
+
+    private fun decisionNotificationId(requestId: String): Int = ("github-decision:$requestId".hashCode() and 0x3FFFFFFF) or 0x40000000
+
     companion object {
         const val CHANNEL_ID = "ai_assistant_channel"
         const val NOTIFICATION_ID = 1001

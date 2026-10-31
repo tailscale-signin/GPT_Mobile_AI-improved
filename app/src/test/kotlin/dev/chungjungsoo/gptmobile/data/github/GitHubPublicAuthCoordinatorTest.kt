@@ -160,6 +160,37 @@ class GitHubPublicAuthCoordinatorTest {
         }
     }
 
+    @Test fun restoredSessionChecksAccountBeforeReturningAccessAndRetainsRefreshExpiry() = runBlocking {
+        Fixture().use { f ->
+            val coordinator = f.coordinator()
+            coordinator.begin("github")
+            coordinator.complete(f.validCallback())
+            val original = requireNotNull(coordinator.session("github"))
+            assertTrue(requireNotNull(original.refreshExpiresAt) > f.now)
+            fun encoded(value: GitHubPublicAuthCoordinator.Session) = kotlinx.serialization.json.Json.encodeToString(GitHubPublicAuthCoordinator.Session.serializer(), value).toByteArray()
+            f.vault.put(GitHubPublicAuthCoordinator.sessionReference("github"), encoded(original.copy(verifyAfterRestore = true, account = original.account.copy(id = "2"))))
+            assertTrue(runCatching { coordinator.accessToken(f.connection) }.isFailure)
+            assertEquals(0, f.rotations)
+            f.vault.put(GitHubPublicAuthCoordinator.sessionReference("github"), encoded(original.copy(verifyAfterRestore = true)))
+            assertEquals("ghu_first", coordinator.accessToken(f.connection))
+            assertEquals(false, coordinator.session("github")?.verifyAfterRestore)
+        }
+    }
+
+    @Test fun expiredRestoredSessionRotatesOnceAndVerifiesTheNewCredential() = runBlocking {
+        Fixture().use { f ->
+            val coordinator = f.coordinator()
+            coordinator.begin("github")
+            coordinator.complete(f.validCallback())
+            val original = requireNotNull(coordinator.session("github"))
+            val encoded = kotlinx.serialization.json.Json.encodeToString(GitHubPublicAuthCoordinator.Session.serializer(), original.copy(verifyAfterRestore = true, expiresAt = f.now)).toByteArray()
+            f.vault.put(GitHubPublicAuthCoordinator.sessionReference("github"), encoded)
+            assertEquals("ghu_rotated", coordinator.accessToken(f.connection))
+            assertEquals(1, f.rotations)
+            assertEquals(false, coordinator.session("github")?.verifyAfterRestore)
+        }
+    }
+
     @Test fun processRestartCanCompletePendingSignInExactlyOnce() = runBlocking {
         Fixture().use { f ->
             f.coordinator().begin("github")

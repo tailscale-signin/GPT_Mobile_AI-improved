@@ -1425,8 +1425,50 @@ class LiteRtLmAdapterTest {
             advertisedTools = listOf(directory.definition)
         ).streamRound(emptyList(), emptyList()).toList()
 
-        assertEquals(listOf(directory.definition.name), runtime.createConversationCalls.single().tools.map { it.name })
+        val config = runtime.createConversationCalls.single()
+        assertTrue(config.tools.isEmpty())
+        assertTrue(config.systemPrompt.orEmpty().contains("Authorized local tools"))
+        assertTrue(config.systemPrompt.orEmpty().contains(directory.definition.name))
+        assertFalse(config.systemPrompt.orEmpty().contains("Look things up"))
         assertTrue(events.last() is ProviderEvent.Completed)
+    }
+
+    @Test
+    fun `catalog discovery admits and executes a later tool on native and prompt exports`() = runBlocking {
+        for (nativeSupport in listOf(true, false)) {
+            var calls = 0
+            val lookup = lookupTool { id, _ ->
+                calls++
+                AgentToolResult(id, ToolResultContent.Text("Verified observation"), false)
+            }
+            val directory = dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog(listOf(lookup.definition), "Use lookup")
+            val runtime = FakeLocalRuntime().apply {
+                capabilities = LocalModelCapabilities(contextTokens = 8192, backends = setOf("gpu"), tools = nativeSupport)
+                scriptedEvents = listOf(
+                    listOf(LocalRuntimeEvent.TextDelta("""{"type":"tool_call","name":"discover_available_tools","arguments":{"names":["not_registered"]}}"""), LocalRuntimeEvent.Done),
+                    listOf(LocalRuntimeEvent.TextDelta("""{"type":"tool_call","name":"discover_available_tools","arguments":{"names":["lookup"]}}"""), LocalRuntimeEvent.Done),
+                    listOf(LocalRuntimeEvent.TextDelta("""{"type":"tool_call","name":"lookup","arguments":{"query":"weather"}}"""), LocalRuntimeEvent.Done),
+                    listOf(LocalRuntimeEvent.TextDelta("Verified weather."), LocalRuntimeEvent.Done)
+                )
+            }
+            val events = adapter(runtime).openSession(
+                turns("Use tools to look up weather"),
+                localPlatform(),
+                listOf(lookup, directory),
+                advertisedTools = listOf(directory.definition)
+            ).streamRound(emptyList(), emptyList()).toList()
+
+            assertEquals(1, calls)
+            assertTrue(runtime.createConversationCalls.first().tools.isEmpty())
+            assertFalse(runtime.createConversationCalls.first().systemPrompt.orEmpty().contains("Look things up"))
+            assertTrue(runtime.sendMessageCalls[1].contains("Existing registered tools remain available"))
+            assertFalse(runtime.sendMessageCalls[1].contains("No tools are authorized or available"))
+            assertTrue(runtime.sendMessageCalls[2].contains("Look things up"))
+            assertTrue(runtime.sendMessageCalls[2].contains("\"parameters\""))
+            assertEquals(listOf(directory.definition.name, directory.definition.name, lookup.definition.name), events.filterIsInstance<ProviderEvent.ToolCall>().map { it.name })
+            assertEquals("Verified weather.", events.filterIsInstance<ProviderEvent.TextDelta>().joinToString("") { it.text })
+            assertEquals(ProviderEvent.Completed, events.last())
+        }
     }
 
     @Test

@@ -100,3 +100,16 @@ network and diagnostic host bundle passed 75 tests. The canonical fast command
 passed 278 host tests, and changed Kotlin passes ktlint 1.3.1. These host fixtures
 do not execute the Android resolver or Compose UI; the repaired head must pass the
 complete canonical, GenieX, packaged-runtime and emulator workflows before merge.
+
+Progressive discovery also reads its names from the successful trusted tool-result
+envelope's `data` object. Raw, failed and unrelated tool payloads cannot admit a new
+schema. Native runtime declarations are fixed for a conversation, so advertised
+discovery catalogs use the existing app-managed bridge on tool-capable exports too.
+Small fixed catalogs retain native callbacks. This preserves the upstream schema
+selection while admitting only authorized, context-checked discoveries on a later
+step. A new adapter regression discovers and executes a later tool on both native-
+capable and prompt-only export metadata; its initial prompt excludes that tool's
+schema. Android execution of this regression remains a current-head CI gate.
+The expanded context/network/diagnostic/bridge host bundle passed 101 tests,
+including the trusted-envelope discovery regression. Failed discovery keeps the
+existing registered schemas available for the following step.

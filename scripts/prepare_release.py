@@ -44,6 +44,33 @@ def notes(version, commits, base, since):
     return '\n'.join(lines)
 
 
+def rollback_plan(base, target, mainline=None):
+    """Bind a forward revert proposal to observed ancestry; never mutate a ref."""
+    if not all(re.fullmatch('[a-f0-9]{40}', sha) for sha in (base, target)):
+        raise ValueError('Rollback requires exact source and target revisions')
+    if git('rev-parse', 'HEAD') != base:
+        raise ValueError('Rollback source changed')
+    if subprocess.run(['git', 'merge-base', '--is-ancestor', target, base], capture_output=True).returncode != 0:
+        raise ValueError('Rollback target must be an ancestor of the source revision')
+    parents = git('rev-list', '--parents', '-n', '1', target).split()[1:]
+    if not parents:
+        raise ValueError('A root commit cannot be a release rollback target')
+    if len(parents) > 1:
+        if mainline is None or mainline not in range(1, len(parents) + 1):
+            raise ValueError('A merge rollback requires an explicitly reviewed parent number')
+    elif mainline is not None:
+        raise ValueError('Mainline is only valid for merge commits')
+    command = ['git', 'revert', '--no-edit']
+    if mainline is not None:
+        command += ['--mainline', str(mainline)]
+    command.append(target)
+    return {'schema_version': 1, 'mode': 'forward-revert-proposal', 'expected_head_sha': base,
+            'commit_sha': target, 'parent_shas': parents, 'mainline': mainline,
+            'review_command': command, 'automatic_remote_reset': False,
+            'qualification': 'NOT_RUN', 'published': False,
+            'note': 'Recheck the expected head, prepare the revert on a new branch, resolve conflicts, increment the release version, and qualify a new release. Published tags and refs are never rewritten.'}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--version', required=True)
@@ -51,8 +78,11 @@ def main():
     parser.add_argument('--expected-head', required=True)
     parser.add_argument('--since', help='A full commit SHA for the previous release')
     parser.add_argument('--rollback-commit', help='Record a forward-revert proposal for a full commit SHA')
+    parser.add_argument('--rollback-mainline', type=int, help='Reviewed parent number for a merge-commit rollback')
     parser.add_argument('--apply', action='store_true', help='Apply the local version and notes files for review')
     args = parser.parse_args()
+    if args.rollback_mainline is not None and args.rollback_commit is None:
+        parser.error('--rollback-mainline requires --rollback-commit')
     base = git('rev-parse', 'HEAD')
     if not re.fullmatch('[a-f0-9]{40}', args.expected_head) or base != args.expected_head:
         parser.error('Head changed; inspect the new revision before preparing this release')
@@ -82,10 +112,7 @@ def main():
             'commit_list_limit': 200, 'commit_list_may_be_truncated': len(commits) == 200,
             'published': False, 'rollback': None}
     if args.rollback_commit:
-        plan['rollback'] = {'mode': 'forward-revert-proposal', 'commit_sha': args.rollback_commit,
-                            'review_command': ['git', 'revert', '--no-edit', args.rollback_commit],
-                            'automatic_remote_reset': False,
-                            'note': 'Prepare the revert on a new branch, resolve conflicts, increment the release version, and qualify a new release. Published tags and refs are never rewritten.'}
+        plan['rollback'] = rollback_plan(base, args.rollback_commit, args.rollback_mainline)
     args.output.mkdir(parents=True, exist_ok=True)
     (args.output / 'plan.json').write_text(json.dumps(plan, indent=2) + '\n')
     (args.output / 'version.patch').write_text(''.join(difflib.unified_diff(source.splitlines(True), updated.splitlines(True), fromfile='a/app/build.gradle.kts', tofile='b/app/build.gradle.kts')))

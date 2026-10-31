@@ -10,6 +10,10 @@ on:
         type: string
         required: false
         description: Optional full SHA to include as a forward-revert proposal
+      rollback_mainline:
+        type: string
+        required: false
+        description: Explicit reviewed parent number when reverting a merge commit
 permissions:
   contents: read
 concurrency:
@@ -28,9 +32,11 @@ jobs:
         env:
           VERSION: ${{ inputs.version }}
           ROLLBACK_COMMIT: ${{ inputs.rollback_commit }}
+          ROLLBACK_MAINLINE: ${{ inputs.rollback_mainline }}
         run: |
           options=()
           if [[ -n "$ROLLBACK_COMMIT" ]]; then options+=(--rollback-commit "$ROLLBACK_COMMIT"); fi
+          if [[ -n "$ROLLBACK_MAINLINE" ]]; then options+=(--rollback-mainline "$ROLLBACK_MAINLINE"); fi
           python3 scripts/prepare_release.py --version "$VERSION" --expected-head "$GITHUB_SHA" "${options[@]}"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:

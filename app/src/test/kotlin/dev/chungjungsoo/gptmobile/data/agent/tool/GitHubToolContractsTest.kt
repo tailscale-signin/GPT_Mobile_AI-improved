@@ -394,6 +394,18 @@ class GitHubToolContractsTest {
         }
     }
 
+    @Test fun releaseExecutionAndReceiptSelectorsReachTheNativeBackend() = runTest {
+        val backend = Backend()
+        val tool = GitHubOperationTool("github_release", backend, "release-receipts")
+        assertFalse(tool.execute("publish", call("publish", """, "tag_name":"v1.2.3", "execution_id":"explicit-request", "ref":"work", "release_strategy":"workflow", "inputs":{"target":"preview"}""")).isError)
+        val publish = backend.calls.single()
+        assertEquals("publish_release", publish["action"]!!.jsonPrimitive.content)
+        assertEquals("explicit-request", publish["execution_id"]!!.jsonPrimitive.content)
+        assertEquals("work", publish["ref"]!!.jsonPrimitive.content)
+        assertFalse(tool.execute("receipt-status", call("status", """, "tag_name":"v1.2.3", "workflow_run_id":501""")).isError)
+        assertEquals(JsonPrimitive(501), backend.calls.last()["workflow_run_id"])
+    }
+
     private class Backend : AgentTool {
         override val definition = AgentToolDefinition("github", "Test backend", JsonObject(emptyMap()))
         val calls = mutableListOf<JsonObject>()

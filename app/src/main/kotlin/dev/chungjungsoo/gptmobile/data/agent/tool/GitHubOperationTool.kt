@@ -553,8 +553,16 @@ internal class GitHubOperationTool(
                     properties["run_id"] = field("integer")
                 }
                 "github_release" -> {
+                    properties["execution_id"] = buildJsonObject {
+                        put("type", "string")
+                        put("maxLength", 80)
+                        put("description", "Reuse for recovery; a separately requested publication needs a new ID after reconciling the earlier receipt.")
+                    }
                     properties["action"] = choice("status", "publish", "tags", "tag", "create_tag", "list", "detail")
-                    listOf("tag_name", "target_commitish", "name", "body", "workflow_id", "expected_head_sha").forEach { properties[it] = field("string") }
+                    listOf("tag_name", "target_commitish", "name", "body", "workflow_id", "expected_head_sha", "ref").forEach { properties[it] = field("string") }
+                    properties["workflow_run_id"] = integer(1, description = "Exact run ID from the accepted release dispatch receipt.")
+                    properties["inputs"] = field("object")
+                    properties["release_strategy"] = choice("auto", "workflow", "direct")
                     properties["draft"] = field("boolean")
                     properties["prerelease"] = field("boolean")
                     properties["page"] = field("integer")

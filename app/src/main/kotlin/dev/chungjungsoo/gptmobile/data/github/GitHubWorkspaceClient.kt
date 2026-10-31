@@ -113,9 +113,9 @@ class GitHubWorkspaceClient(
     private val repositorySession by lazy {
         GitHubRepositorySession(GitHubRepositoryStateStore.digest(token), connectionUid, conversationId, taskId, repositoryState, { request(it) }, { root, args -> commitFiles(root, args) })
     }
-    private val executionJournal by lazy {
-        GitHubExecutionJournal(repositoryState, listOf(GitHubRepositoryStateStore.digest(token), connectionUid, conversationId, taskId).joinToString(":"))
-    }
+    private val executionScope = listOf(GitHubRepositoryStateStore.digest(token), connectionUid, conversationId, taskId).joinToString(":")
+    private val releaseReceiptScope = listOf(GitHubRepositoryStateStore.digest(token), connectionUid, conversationId).joinToString(":")
+    private val executionJournal by lazy { GitHubExecutionJournal(repositoryState, executionScope) }
     suspend fun taskSnapshot(): GitHubTaskSnapshot? = repositorySession.snapshot()
     suspend fun taskContext(): GitHubRepositoryContext? = repositorySession.context()
     internal suspend fun trackExecution(action: String, arguments: JsonObject, block: suspend () -> JsonElement): JsonObject =
@@ -123,8 +123,8 @@ class GitHubWorkspaceClient(
 
     private data class ReleaseDispatchReceipt(val root: String, val workflowId: String, val sourceSha: String, val tagName: String, val correlationId: String)
 
-    // Only a run ID returned by our own accepted dispatch can prove the association.
-    // Restart/eviction loses that proof and must produce UNKNOWN, never a recent-run guess.
+    // Only a retained run ID from our own accepted dispatch proves association.
+    // A missing/evicted receipt remains UNKNOWN, never a recent-run guess.
     private val dispatchedRuns = java.util.concurrent.ConcurrentHashMap<Long, ReleaseDispatchReceipt>()
 
     private class Invocation(val identity: String) : AbstractCoroutineContextElement(Key) {
@@ -324,7 +324,12 @@ class GitHubWorkspaceClient(
             "create_issue", "update_issue" -> issueMutation(root, action, args)
             "create_release" -> createRelease(root, args)
             "update_release" -> updateRelease(root, args)
-            "publish_release" -> publishRelease(root, args)
+            "publish_release" -> {
+                val result = trackExecution("publish_release", args) { publishRelease(root, args) }
+                if (result["execution"]?.jsonObject?.get("status")?.jsonPrimitive?.content != "COMPLETED") throw GitHubExecutionBlocked(result)
+                restoreDispatchReceipt(root, result)
+                result
+            }
             "update_pull_request", "mark_ready_for_review", "submit_pull_request_review", "merge_pull_request", "create_pull_request_review", "reply_pull_request_comment" -> pullRequestLifecycle(root, action, args)
             "commit_files" -> commitFiles(root, args)
             else -> error("Unsupported workspace action: $action")
@@ -1259,6 +1264,9 @@ class GitHubWorkspaceClient(
                     .ifBlank { request(root).jsonObject["default_branch"]?.jsonPrimitive?.content.orEmpty() }
                 require(ref.isNotBlank()) { "Could not resolve a ref for the release workflow." }
                 val sourceSha = request("$root/commits/${segment(ref)}").jsonObject["sha"]?.jsonPrimitive?.content ?: error("Release source SHA unavailable.")
+                args["expected_head_sha"]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }?.let {
+                    require(it == sourceSha) { "Release source head changed; inspect and approve the current revision before publication." }
+                }
                 val dispatchTime = java.time.Instant.now().toString()
                 val correlationId = java.util.UUID.randomUUID().toString()
                 val versionPreflight = validateReleaseVersionHint(root, sourceSha, tagName)
@@ -1278,6 +1286,7 @@ class GitHubWorkspaceClient(
                 if (dispatchedRunId != null) {
                     if (dispatchedRuns.size >= 128) dispatchedRuns.clear()
                     dispatchedRuns[dispatchedRunId] = ReleaseDispatchReceipt(root, workflowId, sourceSha, tagName, correlationId)
+                    retainDispatchReceipt(dispatchedRunId, dispatchedRuns.getValue(dispatchedRunId))
                 }
                 responseCache.invalidateMutable(root)
                 return buildJsonObject {
@@ -1325,11 +1334,43 @@ class GitHubWorkspaceClient(
         }
     }
 
+    private suspend fun retainDispatchReceipt(runId: Long, receipt: ReleaseDispatchReceipt) {
+        repositoryState.write(
+            releaseReceiptScope,
+            "release-dispatch:$runId",
+            buildJsonObject {
+                put("schema_version", 1)
+                put("root", receipt.root)
+                put("workflow_id", receipt.workflowId)
+                put("source_sha", receipt.sourceSha)
+                put("tag_name", receipt.tagName)
+                put("correlation_id", receipt.correlationId)
+            }
+        )
+    }
+
+    private suspend fun readDispatchReceipt(runId: Long): ReleaseDispatchReceipt? {
+        val row = repositoryState.read(releaseReceiptScope, "release-dispatch:$runId") ?: return null
+        fun text(key: String) = row[key]?.jsonPrimitive?.content.orEmpty()
+        if (text("schema_version") != "1" || !Regex("[a-f0-9]{40}").matches(text("source_sha")) || text("workflow_id").toLongOrNull()?.let { it > 0 } != true || text("correlation_id").isBlank()) return null
+        return ReleaseDispatchReceipt(text("root"), text("workflow_id"), text("source_sha"), text("tag_name"), text("correlation_id"))
+    }
+
+    private suspend fun restoreDispatchReceipt(root: String, result: JsonObject) {
+        val data = result["dispatch_receipt"] as? JsonObject ?: return
+        fun text(key: String) = data[key]?.jsonPrimitive?.content.orEmpty()
+        val run = text("workflow_run_id").toLongOrNull()?.takeIf { it > 0 } ?: return
+        val receipt = ReleaseDispatchReceipt(root, text("workflow_id"), text("source_sha"), text("tag_name"), text("correlation_id"))
+        if (dispatchedRuns.size >= 128) dispatchedRuns.clear()
+        dispatchedRuns[run] = receipt
+        retainDispatchReceipt(run, receipt)
+    }
+
     private suspend fun releaseStatus(root: String, args: JsonObject): JsonObject {
         val tagName = args["tag_name"]?.jsonPrimitive?.content.orEmpty()
         require(tagName.isNotBlank()) { "tag_name is required for release_status." }
         val requestedRunId = args["workflow_run_id"]?.jsonPrimitive?.content?.toLongOrNull()
-        val receipt = requestedRunId?.let { dispatchedRuns[it] }
+        val receipt = requestedRunId?.let { dispatchedRuns[it] ?: readDispatchReceipt(it) }
         require(receipt == null || receipt.root.equals(root, ignoreCase = true) && receipt.tagName == tagName) { "This dispatch receipt belongs to a different repository or requested tag." }
         val release = findReleaseByTag(root, tagName)
         val workflowLookup = runCatching {

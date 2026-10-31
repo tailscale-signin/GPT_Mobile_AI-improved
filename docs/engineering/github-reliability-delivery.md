@@ -51,3 +51,11 @@ python3 scripts/prepare_release.py --version 0.9.65.0 --expected-head <observed-
 No 25–40% coding-accuracy gain, <5% flakiness, or release/device success is inferred
 from these features. Such claims require controlled measurements on qualified
 revisions and hardware.
+
+Release publication follows the same execution contract as CI dispatch: reuse
+`execution_id` for recovery; use a new ID only for a separately requested operation
+after reconciliation. A replay preserves the original dispatch time, correlation,
+and exact run receipt. Read-only release verification can recover a retained
+credential/connection/conversation-scoped association in a later turn; it still
+checks the requested repository, tag, workflow, event and source SHA. A matching
+branch or recently observed run never substitutes for a missing dispatch receipt.

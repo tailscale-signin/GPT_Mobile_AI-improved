@@ -447,15 +447,21 @@ class AgentRunner(
         checkpoint?.enqueue(calls)
         executableCalls.forEach { emit(AgentRunEvent.ToolStarted(it)) }
         val executedResults = mutableListOf<AgentToolResult>()
-        for (batch in executableCalls.chunked(limits.maxToolCallsPerRound.coerceIn(1, 32))) {
-            val results = executeToolBatch(batch, toolsForBatch, unknownOutcomes)
-            executedResults += results
-            batch.zip(results).forEach { (call, result) ->
+        // Keep one graph for the entire admitted round: chunk boundaries must not
+        // erase dependencies or allow a write after an earlier failed read.
+        executedResults += executeToolBatch(
+            executableCalls,
+            toolsForBatch,
+            unknownOutcomes,
+            completed = { call, result ->
+                checkpoint?.complete(call, result)
                 healthCatalog?.recordObservation(call.name, result)
                 onToolResult?.invoke(call, result)
                 emit(AgentRunEvent.ToolFinished(call, result))
-            }
-        }
+            },
+            progress = { emit(AgentRunEvent.BatchProgress(it)) },
+            plannedCalls = calls
+        )
         if (!finalResponseRequested && !retriedWithoutTools) {
             val update = admitDiscoveredTools(dynamicTools(), toolByName, executableToolByName, exposedDefinitions, initialSchemaTokens, consecutiveToolFailures, toolCallsByName, replayTokens, selectDefinitions) ?: return null
             executableToolByName = update.tools
@@ -1074,7 +1080,51 @@ class AgentRunner(
         return newlyBlockedTools
     }
 
-    private suspend fun executeToolBatch(calls: List<ProviderEvent.ToolCall>, tools: Map<String, AgentTool>, unknownOutcomes: MutableSet<String>): List<AgentToolResult> {
+    private suspend fun executeToolBatch(
+        calls: List<ProviderEvent.ToolCall>,
+        tools: Map<String, AgentTool>,
+        unknownOutcomes: MutableSet<String>,
+        completed: suspend (ProviderEvent.ToolCall, AgentToolResult) -> Unit,
+        progress: suspend (ToolBatchProgress) -> Unit,
+        plannedCalls: List<ProviderEvent.ToolCall>
+    ): List<AgentToolResult> {
+        val intelligent = limits.githubTask ||
+            limits.researchAcquisition ||
+            calls.any {
+                dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it.name) != null || replayableRead(it)
+            }
+        if (!intelligent) {
+            val results = executeLegacyToolBatch(calls, tools, unknownOutcomes)
+            calls.zip(results).forEach { (call, result) -> completed(call, result) }
+            return results
+        }
+        val admittedIds = calls.mapTo(hashSetOf()) { it.callId }
+        val fullPlan = planIntelligentBatch(plannedCalls, tools).filter { it.call.callId in admittedIds }
+        val blocked = fullPlan.filter { !admittedIds.containsAll(it.dependencies) }.mapTo(hashSetOf()) { it.call.callId }
+        val nodes = fullPlan.map { it.copy(dependencies = it.dependencies.intersect(admittedIds)) }
+        return IntelligentToolBatch(AdaptiveBatchWindow(limits.maxConcurrentTools)).execute(
+            nodes,
+            dispatch = { call ->
+                if (call.callId in blocked) {
+                    return@execute ToolResultEnvelope.error(call.callId, "DEPENDENCY_FAILED", "A prerequisite was deferred by admission. This operation was not dispatched; replan after the missing read completes.")
+                }
+                val signature = call.name + ":" + dev.chungjungsoo.gptmobile.data.permissions.ScopedToolGrant.canonicalHash(call.arguments)
+                suspend fun dispatch(): AgentToolResult = if (synchronized(unknownOutcomes) { signature in unknownOutcomes }) {
+                    ToolResultEnvelope.error(call.callId, "RECONCILIATION_REQUIRED", "An earlier identical operation has an unknown outcome. Reconcile it before requesting another write.")
+                } else {
+                    executeBounded(call, tools[call.name])
+                }
+                val interaction = AgentToolCapability.USER_DECISION in tools[call.name]?.definition?.capabilities.orEmpty()
+                val result = if (interaction) dispatch().also { checkpoint?.complete(call, it) } else checkpoint?.execute(call, replayableRead = replayableRead(call)) { dispatch() } ?: dispatch()
+                if (result.errorCode in ToolResultEnvelope.unknownOutcomeCodes && !replayableRead(call)) synchronized(unknownOutcomes) { unknownOutcomes += signature }
+                result
+            },
+            completed = completed,
+            progress = progress
+        )
+    }
+
+    private suspend fun executeLegacyToolBatch(calls: List<ProviderEvent.ToolCall>, tools: Map<String, AgentTool>, unknownOutcomes: MutableSet<String>): List<AgentToolResult> {
         val semaphore = Semaphore(limits.maxConcurrentTools.coerceIn(1, 32))
         val perTool = calls.map { it.name }.distinct().associateWith { Semaphore(1) }
         val order = calls.mapIndexed { index, call -> call.callId to index }.toMap()

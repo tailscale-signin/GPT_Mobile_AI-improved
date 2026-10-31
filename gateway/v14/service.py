@@ -119,7 +119,7 @@ class LoadGuard:
         self.active = 0  # ASGI event-loop owned; no await between check and increment.
 
     async def __call__(self, scope, receive, send):
-        if scope['type'] != 'http' or scope.get('method') != 'POST' or scope.get('path') not in {'/v1/chat/completions', '/chat/completions'}:
+        if scope['type'] != 'http' or scope.get('method') != 'POST' or (scope.get('path') not in {'/v1/chat/completions', '/chat/completions'} and not scope.get('path', '').removeprefix('/v1').startswith('/gateway/engineering/')):
             return await self.app(scope, receive, send)
         trace = uuid.uuid4().hex
         async def reject(code, status):

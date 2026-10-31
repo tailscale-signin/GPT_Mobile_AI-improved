@@ -48,8 +48,8 @@ class Config:
             if not isinstance(user, str) or not user or not isinstance(grant, dict) or not isinstance(grant.get("principalId"), str) or not grant["principalId"] or len(grant["principalId"]) > 128:
                 raise ValueError("Each trusted user requires an explicit principalId and scopes")
             scopes = grant.get("scopes", [])
-            if not isinstance(scopes, list) or not set(scopes) <= {"chat", "jobs", "tools"}:
-                raise ValueError("Trusted user scopes are chat, jobs, tools; admin is local only")
+            if not isinstance(scopes, list) or not set(scopes) <= {"chat", "jobs", "tools", "engineering"}:
+                raise ValueError("Trusted user scopes are chat, jobs, tools, engineering; admin is local only")
         return self
 
     @classmethod

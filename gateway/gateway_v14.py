@@ -26,12 +26,17 @@ from v14.events import replay_snapshot
 from v14.memory import apply_client_recall
 from v14.tools import install_exact_routing
 from v14.github import install_github_fast_path
+from v14.batch import install_batch
 from v14.catalog import install_catalog_cache
 from v14.browser import BOOTSTRAP_PATH, install_browser_proxy
 from v14.service import ServiceState, LoadGuard
 from v14.mcp import install_mcp_resilience
 from v14.health import readiness, diagnostics
 from v14.journal import backup_database
+from v14.engineering import EngineeringStore, EngineeringService, principal_authorized
+from gateway_security import device_store
+from v14.engineering_backend import GitHubEngineeringBackend
+from v14.engineering_routes import install_engineering_routes
 
 runtime.GATEWAY_VERSION = VERSION
 runtime.AUTO_MEMORY_RETRIEVE = False
@@ -57,12 +62,17 @@ install_exact_routing(runtime)
 install_mcp_resilience(runtime)
 install_browser_proxy(runtime, config)
 install_github_fast_path(runtime)
+install_batch(runtime)
 service = ServiceState(config.max_workers)
 service.install(runtime)
-app = FastAPI(title="Private Gateway v14", version=VERSION, lifespan=service.lifespan(runtime, config.shutdown_grace),
+engineering = EngineeringService(EngineeringStore(runtime), GitHubEngineeringBackend(runtime))
+engineering.authorized = lambda job: principal_authorized(config, job['principal'], device_store)
+engineering.backend.cancelled = lambda job_id: (engineering.store.get(job_id) or {}).get('state') == 'CANCELLED'
+app = FastAPI(title="Private Gateway v14", version=VERSION, lifespan=engineering.lifecycle(service.lifespan(runtime, config.shutdown_grace)),
               docs_url="/gateway/docs", openapi_url="/gateway/openapi.json")
 app.add_middleware(LoadGuard, config=config, state=service)
 app.add_middleware(Admission, config=config)
+install_engineering_routes(app, engineering)
 
 
 @app.post("/v1/chat/completions")
@@ -141,7 +151,9 @@ def capabilities():
                                     structuredSearch=True, terminalStateProtection=True, memory_novelty_filter=False, structuredEvidence=False, mcpFacade=False,
                                     modernMcp=False, clientMemoryAuthority=True, packageValidation=True,
                                     validatedToolArguments=True, githubClientOwnedFastPath=True,
-                                    githubImmutableReadCache=True, githubPerformanceMetrics=True,
+                                    githubImmutableReadCache=True, githubPerformanceMetrics=True, intelligentToolBatch=True,
+                                    batchDependencies=True, batchDurableReceipts=True, durableEngineeringJobs=True,
+                                    shaBoundMergeApproval=True, engineeringSupervisor=True,
                                     loopbackBrowserCsrf=config.mode == "loopback", boundedAdmission=True,
                                     versionedJournal=True, mcpCircuitBreakers=True, supervisedShutdown=True)})
     return result

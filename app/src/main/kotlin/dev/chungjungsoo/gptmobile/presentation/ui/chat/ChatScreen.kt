@@ -904,6 +904,9 @@ private fun ChatScreenContent(
                             GitHubLiveProgressCard(timeline.lastOrNull { it.statusSummary }?.content.orEmpty(), timeline.filter { it.progressCheckpoint }.map { it.content })
                         }
                     }
+                    chatToolConfig.github?.let { github ->
+                        item(key = "gateway-engineering-jobs") { GatewayEngineeringPanel(chatRoom.id, github) }
+                    }
                     items(visibleGitHubDecisions.size, key = { "github-decision-${visibleGitHubDecisions[it].id}" }) { index ->
                         val decision = visibleGitHubDecisions[index]
                         GitHubDecisionCard(decision, decision.id in githubWaiting, { option, answer -> chatViewModel.answerGitHubDecision(decision.id, option, answer) }, { chatViewModel.resumeGitHubDecision(decision.id) }, { chatViewModel.stopGitHubDecision(decision.id) })

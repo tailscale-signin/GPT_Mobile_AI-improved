@@ -23,6 +23,10 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github"
       ],
       "entry_files": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayEngineeringClient.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayEngineeringModels.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayEngineeringRepository.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayEngineeringSyncWorker.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubApkDownloadManager.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubApkFiles.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubBuildCatalog.kt",
@@ -70,6 +74,8 @@
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubWorkspaceClient.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubWorkspaceDraftStore.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubWorkspaceStore.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayEngineeringClientTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayEngineeringModelsTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubApkFilesTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubBuildCatalogTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCachePolicyTest.kt",

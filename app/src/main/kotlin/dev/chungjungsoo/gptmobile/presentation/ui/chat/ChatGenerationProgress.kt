@@ -41,10 +41,13 @@ internal fun ChatGenerationProgress(
     statusOverride: String? = null,
     textSizeIncrease: Int = 0,
     startedAtMillis: Long? = null,
-    completedAtMillis: Long? = null
+    completedAtMillis: Long? = null,
+    engineeringJob: dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringJob? = null
 ) {
     Column(modifier) {
-        if (active) {
+        if (engineeringJob != null) {
+            EngineeringJobProgress(engineeringJob, textSizeIncrease)
+        } else if (active) {
             GenerationStatusText(toolEvents, timeline, statusOverride, textSizeIncrease, startedAtMillis, null)
             LinearProgressIndicator(
                 Modifier.fillMaxWidth().clearAndSetSemantics { },

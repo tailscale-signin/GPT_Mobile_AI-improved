@@ -163,14 +163,14 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String) 
         require(entries.size <= 1024) { "Tool recovery call capacity reached before dispatch." }
         write(state.copy(pending = calls.map { it.callId }, entries = entries))
     }
-    suspend fun execute(call: ProviderEvent.ToolCall, dispatch: suspend () -> AgentToolResult): AgentToolResult {
+    suspend fun execute(call: ProviderEvent.ToolCall, replayableRead: Boolean = false, dispatch: suspend () -> AgentToolResult): AgentToolResult {
         val restored = locked {
             val state = read()
             val entry = requireNotNull(state.entries[call.callId])
             require(entry.call.event() == call)
             when {
                 entry.result != null -> entry.result.restore(call.callId)
-                entry.started -> AgentToolResult(call.callId, ToolResultContent.Text("Execution was interrupted after dispatch. Its outcome is unknown; inspect the external state before requesting a new operation. This call was not dispatched again."), true, sharedResult = true, errorCode = "TOOL_OUTCOME_UNKNOWN", dispatched = false)
+                entry.started && !replayableRead -> AgentToolResult(call.callId, ToolResultContent.Text("Execution was interrupted after dispatch. Its outcome is unknown; inspect the external state before requesting a new operation. This call was not dispatched again."), true, sharedResult = true, errorCode = "TOOL_OUTCOME_UNKNOWN", dispatched = false)
                 else -> {
                     write(state.copy(entries = state.entries + (call.callId to entry.copy(started = true))))
                     null

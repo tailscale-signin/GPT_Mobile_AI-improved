@@ -1474,6 +1474,7 @@ class ChatRepositoryImpl(
                         extractionFailed = true
                     }
                 }
+                is AgentRunEvent.BatchProgress -> onProgress(DelegateProgress(DelegateProgressKind.TOOL_ACTIVITY))
                 is AgentRunEvent.Notice -> Unit
             }
         }
@@ -4928,6 +4929,21 @@ class ChatRepositoryImpl(
                     }
                 }
 
+                is AgentRunEvent.BatchProgress -> {
+                    val batch = runEvent.progress
+                    // Native tools still execute on Android after gateway inference.
+                    // Gateway model telemetry must not hide their batch progress.
+                    emit(
+                        ApiState.GatewayProgressChanged(
+                            providerProgress(
+                                event = "batch_progress",
+                                stage = "executing_tools",
+                                message = batch.message,
+                                status = if (batch.completed == batch.total) "completed" else "running"
+                            ).copy(durationMs = batch.elapsedMillis)
+                        )
+                    )
+                }
                 is AgentRunEvent.Notice -> emit(ApiState.Notice(runEvent.message, runEvent.persistent, runEvent.researchDelivery))
             }
         }

@@ -41,3 +41,5 @@ Install the complete v14 package on the server, validate its manifest, then rest
 The app sends worker isolation headers even when reasoning is enabled. Reviewer requests have no tool catalog and explicitly disable gateway-local tools. Page crawling is app-owned; reviewers assess completed delegate evidence only. External Perplexity authentication failures and MCP initialization 404s still require correcting the configured key or endpoint; the app stops automatic repeated attempts and reports those configuration errors.
 
 GitHub-focused routing, bounded immutable reads and new diagnostics are documented in [GITHUB_UPGRADE_14_3.md](GITHUB_UPGRADE_14_3.md).
+
+App-launched engineering jobs that continue after Android closes, reconnectable updates, adaptive read batches, CI repair and exact-commit merge approval are documented in [INTELLIGENT_ENGINEERING.md](INTELLIGENT_ENGINEERING.md).

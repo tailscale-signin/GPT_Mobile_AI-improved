@@ -1,7 +1,12 @@
 package dev.chungjungsoo.gptmobile.data.backup
 
+import dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringBinding
+import dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringRequest
 import dev.chungjungsoo.gptmobile.data.model.ConversationCombinedSettings
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -34,5 +39,18 @@ class GitHubBackupPreferencesTest {
         assertFalse(missing.values.single().value.contains("owner"))
         val collision = GitHubBackupPreferences.restore(emptyMap(), emptyMap(), incoming, snapshot, false, true, setOf(12), setOf("github"), setOf("model"))
         assertFalse(collision.values.single().value.contains("owner"))
+    }
+
+    @Test fun engineeringRestoreMapsLocalChatButPreservesRemoteRequestIdentity() {
+        val binding = GatewayEngineeringBinding("model", "https://gateway/v1", GatewayEngineeringRequest("owner/repo", "feature/job", "main", "Fix CI", "local", chatId = 12, requestId = "stable"), principalId = "tailnet:owner")
+        val saved = JsonObject(Json.parseToJsonElement(incoming.values.single().value).jsonObject + ("gatewayEngineeringJobs" to JsonArray(listOf(Json.encodeToJsonElement(GatewayEngineeringBinding.serializer(), binding)))))
+        val current = prefs("""{"conversationIdentities":{"24":"identity","12":"different"}}""")
+        val restored = GitHubBackupPreferences.restore(current, current, prefs(saved.toString()), snapshot, false, true, setOf(12, 24), setOf("github"), setOf("model"))
+        val jobs = Json.parseToJsonElement(restored.values.single().value).jsonObject.getValue("gatewayEngineeringJobs").jsonArray
+        val resumed = Json.decodeFromJsonElement(GatewayEngineeringBinding.serializer(), jobs.single())
+        assertEquals(24, resumed.chatId)
+        assertEquals(12, resumed.request.chatId)
+        assertEquals(binding.request, resumed.request)
+        assertEquals(binding.principalId, resumed.principalId)
     }
 }

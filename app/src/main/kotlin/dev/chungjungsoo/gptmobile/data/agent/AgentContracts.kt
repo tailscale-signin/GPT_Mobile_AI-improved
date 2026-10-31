@@ -197,6 +197,7 @@ interface AgentProviderSession {
 }
 
 sealed interface AgentRunEvent {
+    data class BatchProgress(val progress: ToolBatchProgress) : AgentRunEvent
     data class Provider(val event: ProviderEvent) : AgentRunEvent
     data class ToolStarted(val call: ProviderEvent.ToolCall) : AgentRunEvent
     data class ToolFinished(val call: ProviderEvent.ToolCall, val result: AgentToolResult) : AgentRunEvent

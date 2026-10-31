@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.github
 
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -37,7 +38,7 @@ class GitHubSearchEnhancementTest {
         )
         assertNotEquals(options.json(), options.copy(caseSensitive = true).json())
         for (args in listOf(
-            buildJsonObject { put("context_lines", 6) },
+            buildJsonObject { put("context_lines", 101) },
             buildJsonObject {
                 put("min_lines", 20)
                 put("max_lines", 10)
@@ -56,6 +57,31 @@ class GitHubSearchEnhancementTest {
         assertTrue(runCatching { GitHubSearchOptions(fuzzy = true).score("anotherIdentifier", "target") { error("cancelled") } }.isFailure)
     }
 
+    @Test fun patternsUseOrderedLiteralsAndRespectCancellationAndLimits() {
+        val options = GitHubSearchOptions.from(
+            buildJsonObject {
+                put("mode", "patterns")
+                put("query", "fun *(")
+                put("context_lines", 20)
+            }
+        )
+        assertEquals(1.0, options.score("fun render(value: Int)", "fun *("), 0.001)
+        assertEquals(0.0, options.score("( value fun ", "fun *("), 0.001)
+        assertEquals(1.0, options.score("a[anything", "a[*"), 0.001)
+        assertTrue(runCatching { options.score("fun render()", "fun *(") { error("cancelled") } }.isFailure)
+        assertTrue(
+            runCatching {
+                GitHubSearchOptions.from(
+                    buildJsonObject {
+                        put("mode", "patterns")
+                        put("query", "***")
+                    }
+                )
+            }.isFailure
+        )
+        assertNotEquals(options.json(), options.copy(pattern = false).json())
+    }
+
     @Test fun contextCarriesExactExcerptAndLabelsHeuristicScope() {
         val lines = listOf("/** Adds one. */", "fun add(value: Int): Int = value + 1", "val result = add(2)")
         val context = GitHubSearchContext.extract(lines, 3, 1)
@@ -64,6 +90,31 @@ class GitHubSearchEnhancementTest {
         assertTrue(context.getValue("documentation").jsonPrimitive.content.contains("Adds one"))
         assertTrue(context.getValue("resolution").jsonPrimitive.content.contains("lexical"))
         assertEquals(1, GitHubSearchContext.related("src/Add.kt", listOf("src/Add.kt", "test/AddTest.kt", "test/AddTest.kt")).size)
+    }
+
+    @Test fun expandedContextIsBoundedAroundTheMatchAndReportsTruncation() {
+        val options = GitHubSearchOptions.from(
+            buildJsonObject {
+                put("query", "needle")
+                put("context_lines", 100)
+                put("fuzzy_threshold", 0.7)
+            }
+        )
+        assertEquals(100, options.contextLines)
+        val lines = (1..250).map { if (it == 125) "needle" else "é".repeat(100) }
+        val bounded = GitHubSearchContext.extract(lines, 125, 100, 1000)
+        val excerpt = bounded.getValue("excerpt").jsonPrimitive.content
+        assertTrue(excerpt.contains("needle"))
+        assertTrue(excerpt.toByteArray(Charsets.UTF_8).size <= 1000)
+        assertEquals("true", bounded.getValue("truncated").jsonPrimitive.content)
+        assertEquals("25", bounded.getValue("requested_start_line").jsonPrimitive.content)
+        assertEquals("225", bounded.getValue("requested_end_line").jsonPrimitive.content)
+        val noBudget = GitHubSearchContext.extract(lines, 125, 100, 0)
+        assertEquals("", noBudget.getValue("excerpt").jsonPrimitive.content)
+        assertEquals(JsonNull, noBudget.getValue("start_line"))
+        assertEquals(JsonNull, noBudget.getValue("end_line"))
+        assertEquals("0", noBudget.getValue("returned_line_count").jsonPrimitive.content)
+        assertEquals("true", noBudget.getValue("truncated").jsonPrimitive.content)
     }
 
     @Test fun workflowOutlineIgnoresExecutableBlockContent() {

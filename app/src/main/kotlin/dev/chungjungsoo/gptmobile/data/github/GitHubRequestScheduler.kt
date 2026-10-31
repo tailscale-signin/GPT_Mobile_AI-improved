@@ -8,6 +8,7 @@ import kotlinx.serialization.json.put
 
 /** Account-wide bounded, cancellable admission and immutable-request joining. */
 class GitHubRequestScheduler(private val concurrency: Int = 2, private val maxQueued: Int = 64) {
+    private val circuit = GitHubRequestCircuit()
     private data class Waiter(val priority: Int, val sequence: Long, val ready: CompletableDeferred<Unit>)
     private val lock = Any()
     private val queue = mutableListOf<Waiter>()
@@ -37,7 +38,16 @@ class GitHubRequestScheduler(private val concurrency: Int = 2, private val maxQu
         try {
             acquire(priority)
             try {
-                return block().also { shared?.complete(it) }
+                val permit = circuit.admit()
+                try {
+                    return block().also {
+                        circuit.succeeded(permit)
+                        shared?.complete(it)
+                    }
+                } catch (failure: Throwable) {
+                    circuit.failed(permit, failure)
+                    throw failure
+                }
             } finally {
                 release()
             }
@@ -97,6 +107,7 @@ class GitHubRequestScheduler(private val concurrency: Int = 2, private val maxQu
             put("cache_hits", cacheHits.get())
             put("active_requests", active)
             put("queued_requests", queue.size)
+            put("circuit", circuit.metrics())
         }
     }
 }

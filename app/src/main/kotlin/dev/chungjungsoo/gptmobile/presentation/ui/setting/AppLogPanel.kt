@@ -7,7 +7,10 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -18,12 +21,15 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -32,10 +38,20 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder
+import dev.chungjungsoo.gptmobile.data.diagnostics.GroupedAppLog
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
+private data class LogViewRequest(
+    val entries: List<dev.chungjungsoo.gptmobile.data.diagnostics.AppLogEntry>,
+    val errorsOnly: Boolean,
+    val selectedTag: String,
+    val query: String
+)
 
 @Composable
 internal fun AppLogPanel() {
@@ -49,6 +65,30 @@ internal fun AppLogPanel() {
     var selectedTag by rememberSaveable { mutableStateOf("All tags") }
     var structuredExport by rememberSaveable { mutableStateOf(true) }
     var frozen by remember { mutableStateOf<List<dev.chungjungsoo.gptmobile.data.diagnostics.AppLogEntry>?>(null) }
+    var visible by remember { mutableStateOf<List<GroupedAppLog>>(emptyList()) }
+    DisposableEffect(Unit) {
+        val leaveScreen = dev.chungjungsoo.gptmobile.data.diagnostics.FrameTimingRecorder.screen("Debug/Logs")
+        onDispose { leaveScreen() }
+    }
+    LaunchedEffect(Unit) {
+        var groupedEntries: List<dev.chungjungsoo.gptmobile.data.diagnostics.AppLogEntry>? = null
+        var grouped = emptyList<GroupedAppLog>()
+        // Keep the newest pending snapshot while one is being grouped, rather
+        // than restarting expensive parsing on every logging update.
+        snapshotFlow { LogViewRequest(frozen ?: entries, errorsOnly, selectedTag, query) }.conflate().collect { request ->
+            visible = withContext(Dispatchers.Default) {
+                if (groupedEntries !== request.entries) {
+                    grouped = dev.chungjungsoo.gptmobile.data.diagnostics.groupAppLogs(request.entries)
+                    groupedEntries = request.entries
+                }
+                grouped.filter {
+                    (!request.errorsOnly || it.incidentIds.isNotEmpty()) &&
+                        (request.selectedTag == "All tags" || it.entry.tag == request.selectedTag) &&
+                        (it.entry.tag + it.entry.message).contains(request.query, ignoreCase = true)
+                }.takeLast(100)
+            }
+        }
+    }
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer)) {
             Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -109,34 +149,30 @@ internal fun AppLogPanel() {
                 AppLogRecorder.clear()
             }) { Text("Clear logs") }
         }
-        val visible = dev.chungjungsoo.gptmobile.data.diagnostics.groupAppLogs(frozen ?: entries)
-            .filter {
-                (!errorsOnly || it.incidentIds.isNotEmpty()) &&
-                    (selectedTag == "All tags" || it.entry.tag == selectedTag) &&
-                    (it.entry.tag + it.entry.message).contains(query, ignoreCase = true)
-            }.takeLast(100)
         Text("${visible.sumOf { it.repetitions }} events · ${visible.flatMap { it.incidentIds }.distinct().size} issue groups · ${visible.size} rows · newest first", style = MaterialTheme.typography.labelMedium)
         Text("Records with the same incident or operation identity share one issue group. Similar messages may share a display row; expand it for every event. Missing causal identities remain separate.", style = MaterialTheme.typography.labelSmall)
         if (visible.isEmpty()) Text(if (enabled) "Waiting for matching app events…" else "Enable tracking to record a test session.")
-        visible.asReversed().forEach { group ->
-            val entry = group.entry
-            var expanded by remember(entry.time, entry.tag) { mutableStateOf(false) }
-            Card(Modifier.fillMaxWidth()) {
-                Column {
-                    Text(
-                        entry.line() + if (group.repetitions > 1) "\n× ${group.repetitions} · last ${java.time.Instant.ofEpochMilli(group.lastTime)}" else "",
-                        modifier = Modifier.padding(12.dp),
-                        fontFamily = FontFamily.Monospace,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = when (dev.chungjungsoo.gptmobile.data.diagnostics.classifyDiagnostic(entry.level, entry.tag, entry.message).severity) {
-                            "error", "critical" -> MaterialTheme.colorScheme.error
-                            "warning" -> MaterialTheme.colorScheme.tertiary
-                            else -> MaterialTheme.colorScheme.onSurface
+        LazyColumn(Modifier.fillMaxWidth().heightIn(max = 560.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            items(visible.asReversed()) { group ->
+                val entry = group.entry
+                var expanded by remember(entry.time, entry.tag) { mutableStateOf(false) }
+                Card(Modifier.fillMaxWidth()) {
+                    Column {
+                        Text(
+                            entry.line() + if (group.repetitions > 1) "\n× ${group.repetitions} · last ${java.time.Instant.ofEpochMilli(group.lastTime)}" else "",
+                            modifier = Modifier.padding(12.dp),
+                            fontFamily = FontFamily.Monospace,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = when (dev.chungjungsoo.gptmobile.data.diagnostics.classifyDiagnostic(entry.level, entry.tag, entry.message).severity) {
+                                "error", "critical" -> MaterialTheme.colorScheme.error
+                                "warning" -> MaterialTheme.colorScheme.tertiary
+                                else -> MaterialTheme.colorScheme.onSurface
+                            }
+                        )
+                        if (group.repetitions > 1) {
+                            TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "Hide Raw Details" else "Show Raw Details") }
+                            if (expanded) group.rawDetails.forEach { detail -> Text(detail.line(), modifier = Modifier.padding(12.dp), fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall) }
                         }
-                    )
-                    if (group.repetitions > 1) {
-                        TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "Hide Raw Details" else "Show Raw Details") }
-                        if (expanded) group.rawDetails.forEach { detail -> Text(detail.line(), modifier = Modifier.padding(12.dp), fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall) }
                     }
                 }
             }

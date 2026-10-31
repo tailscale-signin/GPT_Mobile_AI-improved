@@ -1,10 +1,16 @@
 package dev.chungjungsoo.gptmobile.data.agent
 
+import dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool
 import kotlinx.coroutines.async
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -13,6 +19,126 @@ import org.junit.Test
 
 class ProgressiveToolCatalogTest {
     private val tools = (1..80).map { AgentToolDefinition("task_$it", "Task $it", JsonObject(emptyMap())) }
+
+    @Test fun healthSeparatesUnknownFromFailureAndExpiresObservationsWhenContractChanges() = runTest {
+        var definition = tools.first()
+        val catalog = ProgressiveToolCatalog(listOf(definition), "tools", acquireCold = { _, _ -> listOf(definition) })
+        suspend fun page() = (catalog.execute("list", JsonObject(emptyMap())).content as ToolResultContent.Json).value.jsonObject
+        suspend fun row() = page().getValue("authorized_inventory").jsonArray.single().jsonObject
+        val result = AgentToolResult("one", ToolResultContent.Text("ok"), false)
+        catalog.recordObservation(definition.name, result)
+        catalog.recordObservation(definition.name, result.copy(callId = "two", isError = true, errorCode = "TIMEOUT_OUTCOME_UNKNOWN"), 1)
+        catalog.recordObservation(definition.name, result.copy(sharedResult = true))
+        val observed = row()
+        assertEquals(JsonPrimitive("last execution unknown"), observed["operational_status"])
+        assertEquals(JsonPrimitive("stale"), observed["observation_freshness"])
+        assertEquals(JsonPrimitive(1), observed["observed_success_count"])
+        assertEquals(JsonPrimitive(0), observed["observed_failure_count"])
+        assertEquals(JsonPrimitive(1), observed["observed_unknown_count"])
+        val version = page()["inventory_version"]
+        definition = definition.copy(contractVersion = AgentContractVersion(2, 0))
+        catalog.execute("refresh", JsonObject(mapOf("query" to JsonPrimitive(definition.name))))
+        assertTrue(version != page()["inventory_version"])
+        assertEquals(JsonPrimitive("not tested"), row()["operational_status"])
+        assertEquals(JsonPrimitive(false), row()["invocation_contract_supported"])
+    }
+
+    @Test fun githubActionGraphShowsAvailableAndMissingEvidenceWithoutGrantingTools() = runTest {
+        val write = GitHubOperationTool.definition("github_write", "github_write__github_api")
+        val pull = GitHubOperationTool.definition("github_pr", "github_pr__github_api")
+        val definitions = listOf(write, pull)
+        val catalog = ProgressiveToolCatalog(definitions, "Review and write")
+        val page = (catalog.execute("inventory", JsonObject(emptyMap())).content as ToolResultContent.Json).value.jsonObject
+        val rows = page.getValue("authorized_inventory").jsonArray.map { it.jsonObject }.associateBy { it.getValue("name").jsonPrimitive.content }
+        val writeLink = rows.getValue(write.name).getValue("workflow_links").jsonArray.single().jsonObject
+        assertEquals(JsonPrimitive("github_read__github_api"), writeLink["source_tool"])
+        assertEquals(JsonPrimitive(false), writeLink["source_available"])
+        assertEquals(JsonPrimitive("optional_evidence"), writeLink["relation"])
+        val prLinks = rows.getValue(pull.name).getValue("workflow_links").jsonArray.map { it.jsonObject }
+        assertTrue(prLinks.any { it["action"] == JsonPrimitive("review") && it["source_tool"] == JsonPrimitive(pull.name) && it["source_available"] == JsonPrimitive(true) })
+        assertFalse(catalog.selected(definitions).any { it.name == "github_read__github_api" })
+
+        val withoutLinks = ProgressiveToolCatalog(listOf(write.copy(workflowLinks = emptyList()), pull), "Review and write")
+        val otherPage = (withoutLinks.execute("inventory", JsonObject(emptyMap())).content as ToolResultContent.Json).value.jsonObject
+        assertTrue(page["inventory_version"] != otherPage["inventory_version"])
+        assertTrue(runCatching { AgentToolWorkflowLink("", "source", "read", "purpose") }.isFailure)
+        assertTrue(runCatching { write.copy(workflowLinks = write.workflowLinks + write.workflowLinks) }.isFailure)
+    }
+
+    @Test fun inventoryExposesOnlyDeclaredDependenciesWithoutGrantingAccess() = runTest {
+        val definition = AgentToolDefinition("writer", "Write", JsonObject(emptyMap()), dependsOn = setOf("reader", "missing"))
+        val reader = AgentToolDefinition("reader", "Read", JsonObject(emptyMap()))
+        val catalog = ProgressiveToolCatalog(listOf(definition, reader), "writer")
+        val page = (catalog.execute("list", JsonObject(emptyMap())).content as ToolResultContent.Json).value.jsonObject
+        val rows = page.getValue("authorized_inventory").jsonArray.map { it.jsonObject }.associateBy { it.getValue("name").jsonPrimitive.content }
+        assertEquals("declared", rows.getValue("writer").getValue("dependency_metadata").jsonPrimitive.content)
+        assertEquals(setOf("reader", "missing"), rows.getValue("writer").getValue("declared_dependencies").jsonArray.map { it.jsonPrimitive.content }.toSet())
+        assertEquals(listOf("missing"), rows.getValue("writer").getValue("unavailable_dependencies").jsonArray.map { it.jsonPrimitive.content })
+        assertEquals("not declared", rows.getValue("reader").getValue("dependency_metadata").jsonPrimitive.content)
+        assertFalse(catalog.selected(listOf(definition, reader)).any { it.name == "missing" })
+        assertTrue(runCatching { AgentToolDefinition("self", "Invalid", JsonObject(emptyMap()), dependsOn = setOf("self")) }.isFailure)
+        assertTrue(runCatching { AgentToolDefinition("many", "Invalid", JsonObject(emptyMap()), dependsOn = (1..33).map { "tool$it" }.toSet()) }.isFailure)
+    }
+
+    @Test fun runnerReportsOnlyObservedDispatchOutcomesInTheInventory() = runTest {
+        val definition = AgentToolDefinition("example", "Example tool", JsonObject(emptyMap()))
+        val tool = object : AgentTool {
+            override val definition = definition
+            override suspend fun execute(callId: String, arguments: JsonObject) = AgentToolResult(callId, ToolResultContent.Text("ok"), false)
+        }
+        val catalog = ProgressiveToolCatalog(listOf(definition), "example")
+        var round = 0
+        val session = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                if (round++ == 0) emit(ProviderEvent.ToolCall("one", "example", JsonObject(emptyMap()))) else emit(ProviderEvent.TextDelta("done"))
+                emit(ProviderEvent.Completed)
+            }
+        }
+        AgentRunner(healthCatalog = catalog).run(session, listOf(tool)).toList()
+        val result = (catalog.execute("list", JsonObject(emptyMap())).content as ToolResultContent.Json).value.jsonObject
+        val row = result.getValue("authorized_inventory").jsonArray.single().jsonObject
+        assertEquals("last execution succeeded", row.getValue("operational_status").jsonPrimitive.content)
+        catalog.recordObservation("example", AgentToolResult("two", ToolResultContent.Text("blocked"), true, dispatched = false))
+        val after = (catalog.execute("list", JsonObject(emptyMap())).content as ToolResultContent.Json).value.jsonObject
+        assertEquals("last execution succeeded", after.getValue("authorized_inventory").jsonArray.single().jsonObject.getValue("operational_status").jsonPrimitive.content)
+    }
+
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    @Test
+    fun concurrentIdenticalColdDiscoveryUsesOneSuccessfulAcquisition() = runTest {
+        val release = kotlinx.coroutines.CompletableDeferred<Unit>()
+        var count = 0
+        val tool = AgentToolDefinition("cold_tool", "Cold tool", JsonObject(emptyMap()))
+        val catalog = ProgressiveToolCatalog(emptyList(), "cold", acquireCold = { _, _ ->
+            count++
+            release.await()
+            listOf(tool)
+        })
+        val args = JsonObject(mapOf("query" to JsonPrimitive("cold_tool")))
+        val first = async { catalog.execute("first", args) }
+        val second = async { catalog.execute("second", args) }
+        runCurrent()
+        assertEquals(1, count)
+        release.complete(Unit)
+        assertFalse(first.await().isError)
+        assertFalse(second.await().isError)
+        assertEquals(1, count)
+    }
+
+    @Test fun inventoryContinuationRejectsAChangedCatalogAndCarriesContractFingerprints() = runTest {
+        val added = AgentToolDefinition("aaa_new", "New tool", JsonObject(emptyMap()))
+        val catalog = ProgressiveToolCatalog(tools.take(20), "tools", acquireCold = { query, _ -> if (query == "aaa_new") listOf(added) else emptyList() })
+        val first = (catalog.execute("inventory", JsonObject(emptyMap())).content as ToolResultContent.Json).value.jsonObject
+        assertEquals("1", first.getValue("contract_version").jsonPrimitive.content)
+        val continuation = first.getValue("continuation_call").jsonObject.getValue("arguments").jsonObject
+        assertTrue(continuation.containsKey("inventory_version"))
+        assertFalse(catalog.execute("next", continuation).isError)
+        catalog.execute("add", JsonObject(mapOf("query" to JsonPrimitive("aaa_new"))))
+        val stale = catalog.execute("stale", continuation)
+        assertTrue(stale.isError)
+        assertEquals("STALE_INVENTORY", stale.errorCode)
+        assertTrue(catalog.execute("unversioned", JsonObject(mapOf("inventory_cursor" to JsonPrimitive(12)))).isError)
+    }
 
     @Test fun explicitPrAliasMemoryAndStagingDiscoveryLoadAuthorizedSchemas() = runTest {
         val github = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.names.map {

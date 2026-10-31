@@ -6,6 +6,8 @@ on:
     paths:
       - 'scripts/gradle_retry.py'
       - 'scripts/tests/test_gradle_retry.py'
+      - 'scripts/artifact_manifest.py'
+      - 'scripts/tests/test_delivery_pipeline.py'
       - 'app/src/geniex/**'
       - 'app/src/litertOnly/**'
       - 'app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/localmodel/**'
@@ -60,14 +62,14 @@ jobs:
         run: |
           set -o pipefail
           mkdir -p build/geniex-validation
-          python3 scripts/gradle_retry.py -- -PgeniexRuntime=true :app:compileDebugUnitTestKotlin :app:compileDebugUnitTestJavaWithJavac --no-daemon --console=plain --stacktrace 2>&1 | tee build/geniex-validation/unit-compile.log
+          python3 scripts/build_metrics.py --label geniex-unit-compile --output build/geniex-validation/unit-compile-metrics.json -- python3 scripts/gradle_retry.py -- -PgeniexRuntime=true :app:compileDebugUnitTestKotlin :app:compileDebugUnitTestJavaWithJavac --no-daemon --console=plain --stacktrace --profile 2>&1 | tee build/geniex-validation/unit-compile.log
       - name: Run isolated preview unit tests
         timeout-minutes: 25
         shell: bash
         run: |
           set -o pipefail
           mkdir -p build/geniex-validation
-          python3 scripts/gradle_retry.py -- -PgeniexRuntime=true :app:testDebugUnitTest --no-daemon --console=plain --stacktrace 2>&1 | tee build/geniex-validation/unit.log
+          python3 scripts/build_metrics.py --label geniex-unit-tests --output build/geniex-validation/unit-metrics.json -- python3 scripts/gradle_retry.py -- -PgeniexRuntime=true :app:testDebugUnitTest --no-daemon --console=plain --stacktrace --profile 2>&1 | tee build/geniex-validation/unit.log
       - name: Save GenieX unit reports
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -82,7 +84,7 @@ jobs:
         run: |
           set -o pipefail
           mkdir -p build/geniex-validation
-          python3 scripts/gradle_retry.py -- -PgeniexRuntime=true :app:assembleDebug --no-daemon --console=plain --stacktrace 2>&1 | tee build/geniex-validation/debug.log
+          python3 scripts/build_metrics.py --label geniex-debug --output build/geniex-validation/debug-metrics.json -- python3 scripts/gradle_retry.py -- -PgeniexRuntime=true :app:assembleDebug --no-daemon --console=plain --stacktrace --profile 2>&1 | tee build/geniex-validation/debug.log
       - name: Validate release shrinker for the GenieX runtime
         timeout-minutes: 25
         shell: bash
@@ -91,9 +93,11 @@ jobs:
           mkdir -p build/geniex-validation
           # Match native-memory-smoke.yml: release compiler/KSP/R8 analysis
           # memory before ApkFlinger allocates its packaging buffers.
-          python3 scripts/gradle_retry.py -- -PgeniexRuntime=true -PnativeMemorySmoke=true :app:minifyNativeSmokeWithR8 --no-daemon --max-workers=1 --console=plain --info --stacktrace '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -Dfile.encoding=UTF-8' 2>&1 | tee build/geniex-validation/shrinker.log
-      # ApkFlinger uses the common pool, independently of --max-workers. Serialize
-      # native-library compression so simultaneous byte buffers cannot exhaust the heap.
+          python3 scripts/build_metrics.py --label geniex-shrinker --output build/geniex-validation/shrinker-metrics.json -- python3 scripts/gradle_retry.py -- -PgeniexRuntime=true -PnativeMemorySmoke=true :app:minifyNativeSmokeWithR8 --no-daemon --max-workers=1 --console=plain --info --stacktrace --profile '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -Dfile.encoding=UTF-8' 2>&1 | tee build/geniex-validation/shrinker.log
+      # ApkFlinger uses the common pool, independently of --max-workers. Keep the
+      # pool bounded, but retain two workers: a single common-pool worker left the
+      # completed shrinker blocked in packageNativeSmoke for the full 90-minute
+      # allowance on run 41180689148.
       # This phase can legitimately outlast compilation on a cold runner; the previous
       # 25- and 45-minute bounds terminated Gradle during active packaging without an
       # error after AAPT2 had completed. Keep this as one bounded, independently
@@ -104,7 +108,29 @@ jobs:
         run: |
           set -o pipefail
           mkdir -p build/geniex-validation
-          python3 scripts/gradle_retry.py -- -PgeniexRuntime=true -PnativeMemorySmoke=true :app:assembleNativeSmoke --no-daemon --max-workers=1 --console=plain --info --stacktrace '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -Djava.util.concurrent.ForkJoinPool.common.parallelism=1 -XX:+UseG1GC -Dfile.encoding=UTF-8' 2>&1 | tee build/geniex-validation/package.log
+          (
+            sleep 900
+            diagnostics=build/geniex-validation/package-watchdog.log
+            {
+              echo "GenieX packaging is still active after 15 minutes."
+              date -u '+captured_at=%Y-%m-%dT%H:%M:%SZ'
+              ps -eo pid=,ppid=,stat=,etime=,%cpu=,%mem=,rss=,comm= --sort=-%cpu | head -n 80
+              while read -r pid; do
+                [[ "$pid" =~ ^[0-9]+$ ]] || continue
+                echo "--- Gradle daemon $pid heap ---"
+                timeout 15s jcmd "$pid" GC.heap_info || true
+                echo "--- Gradle daemon $pid threads ---"
+                timeout 30s jcmd "$pid" Thread.print -l || true
+              done < <(jcmd -l | awk '/GradleDaemon/ {print $1}' | tail -n 2)
+            } > "$diagnostics" 2>&1
+          ) &
+          watchdog_pid=$!
+          cleanup_watchdog() {
+            kill "$watchdog_pid" 2>/dev/null || true
+            wait "$watchdog_pid" 2>/dev/null || true
+          }
+          trap cleanup_watchdog EXIT
+          python3 scripts/build_metrics.py --label geniex-package --output build/geniex-validation/package-metrics.json -- python3 scripts/gradle_retry.py -- -PgeniexRuntime=true -PnativeMemorySmoke=true :app:assembleNativeSmoke --no-daemon --max-workers=1 --console=plain --info --stacktrace --profile '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -Djava.util.concurrent.ForkJoinPool.common.parallelism=2 -XX:+UseG1GC -Dfile.encoding=UTF-8' 2>&1 | tee build/geniex-validation/package.log
       - name: Audit minified GenieX native stack
         run: |
           python3 scripts/check_local_runtime_apk.py --native-stack geniex app/build/outputs/apk/nativeSmoke/*.apk
@@ -115,14 +141,19 @@ jobs:
         run: |
           python3 scripts/check_local_runtime_apk.py --native-stack geniex app/build/outputs/apk/debug/*.apk
           python3 scripts/check_no_telemetry.py app/build/outputs/apk/debug/*.apk
+      - name: Index versioned GenieX candidates
+        run: python3 scripts/artifact_manifest.py --root app/build/outputs/apk --runtime geniex --output build/geniex-validation/artifact-index.json
+      - name: Verify GenieX candidate index
+        run: python3 scripts/artifact_manifest.py --verify --root app/build/outputs/apk --runtime geniex --output build/geniex-validation/artifact-index.json --require 'debug/*.apk' --require 'nativeSmoke/*.apk'
       - name: Save GenieX validation diagnostics
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          retention-days: 14
+          retention-days: 30
           name: geniex-validation-diagnostics
           path: |
             build/geniex-validation/
+            build/reports/profile/
             app/build/reports/dependency-verification/
           if-no-files-found: warn
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -130,6 +161,7 @@ jobs:
           retention-days: 14
           name: geniex-preview-debug
           path: |
+            build/geniex-validation/artifact-index.json
             app/build/outputs/apk/debug/*.apk
             app/build/outputs/apk/nativeSmoke/*.apk
             app/build/reports/geniex-maven-artifact.json

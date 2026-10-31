@@ -935,9 +935,12 @@ class AgentRunnerTest {
         }
         val events = AgentRunner(AgentRunLimits(maxRounds = 10, maxToolCalls = 12)).run(provider, listOf(read)).toList()
         assertEquals(4, executions)
-        val denied = events.filterIsInstance<AgentRunEvent.ToolFinished>().single { it.result.isError }
-        assertEquals("same-3", denied.call.callId)
-        assertFalse(denied.result.dispatched)
+        val reused = events.filterIsInstance<AgentRunEvent.ToolFinished>().single { it.call.callId == "same-3" }
+        assertFalse(reused.result.isError)
+        assertTrue(reused.result.sharedResult)
+        assertFalse(reused.result.dispatched)
+        assertTrue(reused.result.content.toString().contains("file content"))
+        assertFalse(events.filterIsInstance<AgentRunEvent.ToolFinished>().any { it.result.isError })
         assertTrue("github_read" in exposed[4])
         assertEquals(AgentRunEvent.Provider(ProviderEvent.Completed), events.last())
     }

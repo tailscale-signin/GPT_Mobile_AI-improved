@@ -19,12 +19,13 @@ object GitHubOperationPlanner {
         return buildJsonArray {
             add(step("resolve_context", "Pin this task to repository, connection, ref, commit and tree; reuse the saved snapshot."))
             add(step("search_repository", "Use the persistent lexical index and explicit continuation until relevant paths are covered."))
-            add(step("read_ranges", "Read required ranges and retain evidence handles, paths and immutable blob SHAs."))
+            add(step("read_ranges", "Load a bounded multi-file bundle concurrently, inspect its revision-bound import graph and related tests, and retain evidence handles and immutable blob SHAs. Lexical hints do not establish compiler resolution."))
             if (listOf("review", "pull request", "pr ").any(normalized::contains)) add(step("pr_context", "Page PR files and checks with expected_head so a moving PR cannot mix revisions."))
             if (listOf("debug", "failure", "ci", "build").any(normalized::contains)) add(step("ci_failure_digest", "Read the latest failed job at the selected branch and inspect failure context throughout the bounded log."))
             if (wantsWrite) {
                 add(step("branch_head", "Read the working-branch head immediately before preparing writes."))
                 add(step("stage_patch", "Stage exact anchored edits against the original blob SHA and inspect the bounded preview."))
+                add(step("validation", "Inspect added-text findings and related test-generation context. Add behavior, boundary and recovery regressions where warranted; run the repository lint, compiler, tests and static checks. NOT_RUN is not validation success."))
                 add(step("commit_staged_patch", "Commit the reviewed stage with its original expected_head_sha; never force-update."))
                 add(step("diff", "Inspect the resulting compare data and changed-file statistics."))
                 add(step("ci_failure_digest", "Inspect bounded full CI logs for late failures at the new commit, expanding relevant line ranges."))

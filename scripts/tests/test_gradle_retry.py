@@ -20,8 +20,23 @@ class GradleRetryTest(unittest.TestCase):
             ['Could not resolve dependency.', 'HTTP 401'],
             ['Could not GET resource.', 'HTTP 429', 'Compilation error'],
             ['Could not GET resource.', 'HTTP 429', '5216 tests completed, 1 failed'],
+            ["Plugin [id: 'io.objectbox', version: 'missing'] was not found", "Could not resolve plugin artifact"],
         ]:
             self.assertFalse(retry.retryable(lines))
+
+    def test_codeql_build_keeps_tasks_and_retries_only_transient_plugin_downloads(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            counter = root / 'count'
+            fake = root / 'gradlew'
+            fake.write_text('#!/bin/sh\n' +
+                            f'echo "$*" >> "{counter}"\n' +
+                            f'if [ "$(wc -l < "{counter}")" -eq 1 ]; then\n' +
+                            ' echo "Could not resolve plugin artifact. HTTP 503"\n exit 1\nfi\nexit 0\n')
+            fake.chmod(0o755)
+            arguments = [':app:clean', ':app:compileDebugKotlin', ':app:compileDebugJavaWithJavac', '--no-build-cache', '--rerun-tasks', '--info']
+            self.assertEqual(0, retry.run(arguments, delay_seconds=0, executable=str(fake)))
+            self.assertEqual([' '.join(arguments)] * 2, counter.read_text().splitlines())
 
     def test_real_process_recovers_once_and_preserves_arguments(self):
         with tempfile.TemporaryDirectory() as directory:

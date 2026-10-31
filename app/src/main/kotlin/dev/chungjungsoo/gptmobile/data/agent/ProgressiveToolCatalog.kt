@@ -1,6 +1,8 @@
 package dev.chungjungsoo.gptmobile.data.agent
 
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -28,6 +30,34 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
 
     // A catalog lives for one run: repeated discovery should not refetch the same cold source.
     private val acquiredQueryKeys = mutableSetOf<String>()
+    private val acquisitionMutex = Mutex()
+    private data class Observation(val contract: String, val outcome: String, val at: Long, val errorCode: String?, val succeeded: Int, val failed: Int, val unknown: Int)
+    private val observations = mutableMapOf<String, Observation>()
+
+    private fun contractFingerprint(tool: AgentToolDefinition): String = fingerprint(tool.contractVersion.toString() + ":" + tool.inputSchema.toString())
+
+    @Synchronized
+    internal fun recordObservation(name: String, result: AgentToolResult, observedAtEpochMillis: Long = System.currentTimeMillis()) {
+        if (!result.dispatched || result.sharedResult) return
+        val candidate = candidates[name] ?: return
+        val contract = contractFingerprint(candidate)
+        val previous = observations[name]?.takeIf { it.contract == contract }
+        val outcome = when {
+            result.errorCode in ToolResultEnvelope.unknownOutcomeCodes -> "unknown"
+            result.isError -> "failed"
+            else -> "succeeded"
+        }
+        fun count(old: Int?, matches: Boolean) = ((old ?: 0).toLong() + if (matches) 1 else 0).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+        observations[name] = Observation(
+            contract,
+            outcome,
+            observedAtEpochMillis,
+            result.errorCode?.takeIf { it.matches(Regex("[A-Z0-9_]{1,64}")) },
+            count(previous?.succeeded, outcome == "succeeded"),
+            count(previous?.failed, outcome == "failed"),
+            count(previous?.unknown, outcome == "unknown")
+        )
+    }
     override val definition = AgentToolDefinition(
         NAME,
         "List authorized tools with empty arguments, or search by task or exact names. Call this when the currently advertised tools cannot perform a task. Found tools become available next round. This cannot grant permissions or install tools.",
@@ -51,6 +81,15 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
                             put("items", buildJsonObject { put("type", "string") })
                         }
                     )
+                    put(
+                        "inventory_cursor",
+                        buildJsonObject {
+                            put("type", "integer")
+                            put("minimum", 0)
+                            put("maximum", Int.MAX_VALUE)
+                        }
+                    )
+                    put("inventory_version", buildJsonObject { put("type", "string") })
                 }
             )
             put("additionalProperties", false)
@@ -82,16 +121,19 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
     override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
         val query = (arguments["query"] as? JsonPrimitive)?.content.orEmpty().take(4096)
         val names = (arguments["names"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.content }.take(12).map(::resolveName)
-        if (acquireCold != null) {
+        if (("inventory_cursor" in arguments || "inventory_version" in arguments) && (query.isNotBlank() || names.isNotEmpty())) {
+            return AgentToolResult(callId, ToolResultContent.Text("Use inventory_cursor alone to continue the tool inventory; query/names start a separate discovery."), true, errorCode = "INVALID_ARGUMENTS", dispatched = false)
+        }
+        if (acquireCold != null && "inventory_cursor" !in arguments) {
             // Cache only successful acquisitions. Offline or empty catalogs remain retryable.
             // Never suspend while holding the selection monitor.
             val key = query.trim().lowercase(java.util.Locale.ROOT) + "|" + names.sorted().joinToString("|")
-            val alreadyFetched = synchronized(this) { key in acquiredQueryKeys }
-            if (!alreadyFetched) {
-                val acquired = acquireCold.invoke(query, names)
-                if (acquired.isNotEmpty()) {
-                    synchronized(this) {
-                        acquired.filter { it.modelVisible }.forEach { candidates[it.name] = it }
+            acquisitionMutex.withLock {
+                if (key !in acquiredQueryKeys) {
+                    val acquired = acquireCold.invoke(query, names).filter { it.modelVisible }
+                    if (acquired.isNotEmpty()) {
+                        synchronized(this) { acquired.forEach { candidates[it.name] = it } }
+                        if (acquiredQueryKeys.size >= 128) acquiredQueryKeys.clear()
                         acquiredQueryKeys += key
                     }
                 }
@@ -100,10 +142,45 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
         return selectResult(callId, arguments)
     }
 
+    private fun workflowLinks(tool: AgentToolDefinition): JsonArray = JsonArray(
+        tool.workflowLinks.sortedWith(compareBy({ it.action }, { it.sourceTool }, { it.sourceAction }, { it.purpose })).map { link ->
+            buildJsonObject {
+                put("action", link.action)
+                put("source_tool", link.sourceTool)
+                put("source_action", link.sourceAction)
+                put("purpose", link.purpose)
+                put("source_available", link.sourceTool in candidates)
+                put("relation", "optional_evidence")
+            }
+        }
+    )
+
     private fun selectResult(callId: String, arguments: JsonObject): AgentToolResult = synchronized(this) {
         val query = (arguments["query"] as? JsonPrimitive)?.content.orEmpty().take(4096)
         val names = (arguments["names"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.content }.take(12).map(::resolveName)
         if (query.isBlank() && names.isEmpty()) {
+            val inventory = candidates.values.sortedBy { it.name }
+            val cursor = (arguments["inventory_cursor"] as? JsonPrimitive)?.content?.toIntOrNull() ?: 0
+            if (cursor !in 0..inventory.size) return@synchronized AgentToolResult(callId, ToolResultContent.Text("Invalid inventory_cursor; use the exact continuation_call from the preceding inventory page."), true, errorCode = "INVALID_ARGUMENTS", dispatched = false)
+            val version = fingerprint(
+                JsonArray(
+                    inventory.map { tool ->
+                        buildJsonObject {
+                            put("name", tool.name)
+                            put("schema_fingerprint", fingerprint(tool.inputSchema.toString()))
+                            put("invocation_contract_version", tool.contractVersion.toString())
+                            put("dependencies", JsonArray(tool.dependsOn.sorted().map(::JsonPrimitive)))
+                            put("workflow_links", workflowLinks(tool))
+                        }
+                    }
+                ).toString()
+            )
+            val expectedVersion = (arguments["inventory_version"] as? JsonPrimitive)?.content
+            if ((cursor > 0 && expectedVersion == null) || (expectedVersion != null && expectedVersion != version)) {
+                return@synchronized AgentToolResult(callId, ToolResultContent.Text("Tool inventory changed or its version is missing; restart inventory at the first page."), true, errorCode = "STALE_INVENTORY", dispatched = false)
+            }
+            val items = inventory.drop(cursor).take(12)
+            val next = cursor + items.size
             return@synchronized AgentToolResult(
                 callId,
                 ToolResultContent.Json(
@@ -111,19 +188,75 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
                         put(
                             "authorized_inventory",
                             JsonArray(
-                                candidates.values.map { tool ->
+                                items.map { tool ->
                                     buildJsonObject {
+                                        val schema = fingerprint(tool.inputSchema.toString())
+                                        val observation = observations[tool.name]?.takeIf { it.contract == contractFingerprint(tool) }
                                         put("name", tool.name)
-                                        put("description", tool.description.take(240))
+                                        put("description", tool.description.take(160))
                                         put("currently_advertised", tool.name in active)
-                                        put("operational_status", "not tested")
+                                        put(
+                                            "operational_status",
+                                            if (observation == null) {
+                                                "not tested"
+                                            } else {
+                                                "last execution ${observation.outcome}"
+                                            }
+                                        )
+                                        observation?.let {
+                                            put("observed_at_epoch_ms", it.at)
+                                            val now = System.currentTimeMillis()
+                                            put(
+                                                "observation_freshness",
+                                                if (it.at > now) {
+                                                    "clock changed"
+                                                } else if (now - it.at > 300_000) {
+                                                    "stale"
+                                                } else {
+                                                    "recent"
+                                                }
+                                            )
+                                            if (it.at <= now) put("observed_age_ms", now - it.at)
+                                            put("observed_success_count", it.succeeded)
+                                            put("observed_failure_count", it.failed)
+                                            put("observed_unknown_count", it.unknown)
+                                            it.errorCode?.let { code -> put("observed_error_code", code) }
+                                        }
+                                        put("schema_fingerprint", schema)
+                                        put("invocation_contract_version", tool.contractVersion.toString())
+                                        put("invocation_contract_supported", tool.contractVersion.supported)
+                                        val dependencies = tool.dependsOn.sorted()
+                                        put("dependency_metadata", if (dependencies.isEmpty() && tool.workflowLinks.isEmpty()) "not declared" else "declared")
+                                        put("declared_dependencies", JsonArray(dependencies.map(::JsonPrimitive)))
+                                        put("unavailable_dependencies", JsonArray(dependencies.filterNot(candidates::containsKey).map(::JsonPrimitive)))
+                                        put("workflow_links", workflowLinks(tool))
                                         omissions[tool.name]?.let { put("omission_reason", it) }
                                     }
                                 }
                             )
                         )
+                        put("authorized_tool_count", inventory.size)
+                        put("inventory_version", version)
+                        put("contract_version", 1)
+                        put("returned", items.size)
+                        put("has_more", next < inventory.size)
+                        if (next < inventory.size) {
+                            put(
+                                "continuation_call",
+                                buildJsonObject {
+                                    put("tool", NAME)
+                                    put(
+                                        "arguments",
+                                        buildJsonObject {
+                                            put("inventory_cursor", next)
+                                            put("inventory_version", version)
+                                        }
+                                    )
+                                }
+                            )
+                        }
                         put("permissions_changed", false)
-                        put("note", "Configured tools outside this authorized catalog are not executable. Reachability and successful execution require a separate check.")
+                        put("note", "Observations describe dispatched calls in this run, not a live probe or a guarantee of current health. Workflow links are optional evidence relationships and never grant access. Tools outside this authorized catalog are not executable.")
                     }
                 ),
                 false,
@@ -228,6 +361,8 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
     }
 
     companion object {
+        private fun fingerprint(value: String): String = java.security.MessageDigest.getInstance("SHA-256")
+            .digest(value.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it.toInt() and 0xff) }
         const val NAME = "discover_available_tools"
         const val INITIAL_TOOLS = 8
         private val STOP_WORDS = setOf("the", "and", "for", "this", "that", "with", "please", "can", "could", "use", "help", "what", "how", "all", "work", "continue")

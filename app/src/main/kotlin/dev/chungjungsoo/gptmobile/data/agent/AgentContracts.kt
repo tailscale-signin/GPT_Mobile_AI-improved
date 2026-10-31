@@ -69,13 +69,38 @@ sealed interface ProviderEvent {
     data object Completed : ProviderEvent
 }
 
+/** An optional, action-specific evidence relationship; it never authorizes a call. */
+data class AgentToolWorkflowLink(
+    val action: String,
+    val sourceTool: String,
+    val sourceAction: String,
+    val purpose: String
+) {
+    init {
+        require(action.isNotBlank() && action.length <= 80 && sourceTool.isNotBlank() && sourceTool.length <= 160 && sourceAction.isNotBlank() && sourceAction.length <= 80 && purpose.isNotBlank() && purpose.length <= 200) {
+            "Workflow links require bounded, non-empty action, tool, source action, and purpose."
+        }
+    }
+}
+
 data class AgentToolDefinition(
     val name: String,
     val description: String,
     val inputSchema: JsonObject,
     val capabilities: Set<AgentToolCapability> = emptySet(),
-    val modelVisible: Boolean = true
-)
+    val modelVisible: Boolean = true,
+    /** Declared tool-name dependencies are informational and never expand authorization. */
+    val dependsOn: Set<String> = emptySet(),
+    val workflowLinks: List<AgentToolWorkflowLink> = emptyList(),
+    val contractVersion: AgentContractVersion = AgentContractVersion()
+) {
+    init {
+        require(dependsOn.size <= 32 && dependsOn.all { it.isNotBlank() && it.length <= 160 && it != name }) {
+            "Tool dependencies must contain at most 32 non-empty, distinct other tool names of at most 160 characters."
+        }
+        require(workflowLinks.size <= 32 && workflowLinks.distinct().size == workflowLinks.size) { "Workflow links must be distinct and limited to 32 per tool." }
+    }
+}
 
 enum class AgentToolCapability { WEB_SEARCH, PAGE_READER }
 

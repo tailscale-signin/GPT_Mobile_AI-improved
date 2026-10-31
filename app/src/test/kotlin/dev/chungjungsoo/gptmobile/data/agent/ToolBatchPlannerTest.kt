@@ -6,6 +6,14 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ToolBatchPlannerTest {
+    @Test fun retainedCallsAfterQueuedCallsDoNotIncreaseFreshDispatchCapacity() {
+        val calls = listOf("fresh-1", "fresh-2", "retained").map { ProviderEvent.ToolCall(it, "write", JsonObject(emptyMap())) }
+        val plan = planToolBatch(calls, 1, setOf("write"), emptyMap(), emptySet(), 24, setOf("retained")) { it.name }
+        assertEquals(listOf("fresh-1", "retained"), plan.executable.map { it.callId })
+        assertEquals(listOf("fresh-2"), plan.deferred.map { it.callId })
+        assertEquals(1, plan.acceptedByName["write"])
+    }
+
     @Test fun separateSourcesDoNotExhaustTheReaderRepeatLimit() {
         fun call(id: String, url: String) = ProviderEvent.ToolCall(id, "mcp__jina__read_url", kotlinx.serialization.json.buildJsonObject { put("url", kotlinx.serialization.json.JsonPrimitive(url)) })
         val first = call("1", "https://example.org/one")
@@ -28,8 +36,8 @@ class ToolBatchPlannerTest {
     @Test fun hostSuppressionDoesNotBlockIndependentEndpoints() {
         val calls = (0..2).map { ProviderEvent.ToolCall("$it", "read_url", JsonObject(emptyMap())) }
         val plan = planToolBatch(calls, 2, setOf("read_url"), emptyMap(), setOf("0"), 16) { it.callId }
-        assertEquals(listOf("1"), plan.executable.map { it.callId })
-        assertEquals(listOf("0", "2"), plan.deferred.map { it.callId })
+        assertEquals(listOf("1", "2"), plan.executable.map { it.callId })
+        assertEquals(listOf("0"), plan.deferred.map { it.callId })
         assertEquals(setOf("0"), plan.hostSuppressedIds)
         assertTrue(plan.disabledNames.isEmpty())
     }

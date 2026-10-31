@@ -101,3 +101,23 @@ requires the same runner/image/Java path/task identity. It does not establish a
 speed or size improvement until comparable reports exist. The command is public
 workflow configuration and must never contain inline secrets. Reports remain in
 the existing performance/validation artifacts.
+
+`apply-ui-pipeline.yml` is the configurable requested/final/production qualification
+entry point, with legacy/GenieX/both runtime selection and independent runtime jobs.
+Debug and unsigned release wrappers share `scripts/android_pipeline.py`; signed
+publication retains its existing identity and provenance gates. Final/production
+visual qualification requires a reviewed manifest under `docs/ui-baselines`.
+Requested candidates without one remain explicitly `NOT_QUALIFIED`. No reviewed
+baseline was supplied by this change. Candidate/visual/profile artifacts retain
+30 days; native stack and telemetry audits still run before qualification.
+
+`prepare-release.yml` creates a 90-day proposal artifact containing a forward
+version patch, commit-derived notes/changelog and optional forward-revert plan.
+It neither publishes a release nor rewrites tags. `artifact_manifest.py` supplies
+actual content digests and runtime/version/source tags for candidate search.
+
+Workflow health and opt-in observability reports evaluate versioned objectives
+from `.github/ci-objectives.json`. Availability excludes cancelled/skipped/neutral
+and pending runs; p95 uses successful wall durations. Low samples are not declared
+healthy, retry counts are not proof of test flakiness, and sampled queue capacity
+is not the account runner quota. These dashboards do not authorize merges.

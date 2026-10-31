@@ -18,6 +18,8 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 @Serializable
 data class GitHubTaskSnapshot(
@@ -35,14 +37,21 @@ data class GitHubTaskSnapshot(
     val updatedAt: Long = System.currentTimeMillis()
 )
 
-/** Credential-scoped encrypted durable state; temporary sessions use a private memory store. */
+/** Encrypted cache bodies and separate hashed publication fences; temporary sessions stay in memory. */
 @Singleton
-class GitHubRepositoryStateStore private constructor(private val directory: File?, private val vault: SecretVault?) {
+class GitHubRepositoryStateStore private constructor(private val directory: File?, private val vault: SecretVault?, private val publicationClaimLimit: Int = MAX_PUBLICATION_CLAIMS) {
     @Inject constructor(@ApplicationContext context: Context, vault: SecretVault) : this(File(context.noBackupFilesDir, "github-repository-state"), vault)
-    constructor(directory: File? = null) : this(directory, null)
+    constructor(directory: File? = null, publicationClaimLimit: Int = MAX_PUBLICATION_CLAIMS) : this(directory, null, publicationClaimLimit)
+    init {
+        require(publicationClaimLimit > 0)
+    }
     private val mutex = Mutex()
     private val values = LinkedHashMap<String, JsonObject>(16, 0.75f, true)
     private var memoryCharacters = 0
+
+    // Publication fences are authority, not cache. A pruned receipt must never
+    // turn the same execution into a new write. Markers contain only hashed IDs.
+    private val publicationClaims = HashSet<String>()
     private val json = Json {
         ignoreUnknownKeys = true
         encodeDefaults = true
@@ -52,7 +61,7 @@ class GitHubRepositoryStateStore private constructor(private val directory: File
     suspend fun contains(scope: String, key: String): Boolean = withContext(Dispatchers.IO) {
         mutex.withLock {
             val identity = "$scope:$key"
-            values.containsKey(identity) || directory?.let { File(it, digest(identity) + ".record") }?.let { it.isFile && it.length() in 1..MAX_RECORD_BYTES.toLong() } == true
+            values.containsKey(identity) || directory?.let { File(it, digest(identity) + ".record") }?.let { it.isFile && it.length() in 1..MAX_RECORD_BYTES.toLong() } == true || claimCheckpoint(identity, key) != null
         }
     }
 
@@ -74,10 +83,10 @@ class GitHubRepositoryStateStore private constructor(private val directory: File
     private suspend fun readLocked(scope: String, key: String): JsonObject? {
         val identity = "$scope:$key"
         values[identity]?.let { return it }
-        val file = directory?.let { File(it, digest(identity) + ".record") } ?: return null
-        if (!file.isFile || file.length() > MAX_RECORD_BYTES) return null
+        val file = directory?.let { File(it, digest(identity) + ".record") } ?: return claimCheckpoint(identity, key)
+        if (!file.isFile || file.length() > MAX_RECORD_BYTES) return claimCheckpoint(identity, key)
         val raw = file.readBytes()
-        val value = runCatching { json.parseToJsonElement(crypt(identity, raw, false).decodeToString()) as? JsonObject }.getOrNull() ?: return null
+        val value = runCatching { json.parseToJsonElement(crypt(identity, raw, false).decodeToString()) as? JsonObject }.getOrNull() ?: return claimCheckpoint(identity, key)
         remember(identity, value)
         file.setLastModified(System.currentTimeMillis())
         return value
@@ -87,6 +96,7 @@ class GitHubRepositoryStateStore private constructor(private val directory: File
         val identity = "$scope:$key"
         val plain = value.toString().encodeToByteArray()
         require(plain.size <= MAX_RECORD_BYTES - 28) { "GitHub state record exceeds its byte budget." }
+        retainPublicationClaim(identity, key)
         directory?.let { dir ->
             check(dir.isDirectory || dir.mkdirs())
             val target = File(dir, digest(identity) + ".record")
@@ -123,6 +133,36 @@ class GitHubRepositoryStateStore private constructor(private val directory: File
         Unit
     }
 
+    /** Cache cleanup removes bodies, never authority. Only explicit app-data erasure removes fences. */
+    private fun claimCheckpoint(identity: String, key: String): JsonObject? {
+        if (!CLAIM_KEY.matches(key)) return null
+        val id = digest(identity)
+        if (id !in publicationClaims && directory?.let { File(File(it, "publication-claims"), "$id.claim").isFile } != true) return null
+        return buildJsonObject {
+            put("schema_version", 1)
+            put("execution_id", key.removePrefix("execution:"))
+            put("status", "RECONCILE_REQUIRED")
+            put("receipt_available", false)
+            put("reason", "The publication fence remains, but its cached receipt is unavailable. Reconcile remote state; do not repeat this write.")
+        }
+    }
+
+    private fun retainPublicationClaim(identity: String, key: String) {
+        if (!CLAIM_KEY.matches(key)) return
+        val id = digest(identity)
+        if (id in publicationClaims) return
+        val marker = directory?.let { File(it, "publication-claims") }?.let { dir ->
+            check(dir.isDirectory || dir.mkdirs())
+            File(dir, "$id.claim")
+        }
+        if (marker?.isFile != true) {
+            val count = marker?.parentFile?.listFiles { file -> file.extension == "claim" }?.size ?: publicationClaims.size
+            check(count < publicationClaimLimit) { "GITHUB_PUBLICATION_CLAIM_CAPACITY: durable write-fence capacity reached. Read-only operations remain available; no new write was dispatched. Existing fences were not discarded." }
+            if (marker != null) check(marker.createNewFile()) { "Publication fence changed; reconcile the saved execution before retrying." }
+        }
+        publicationClaims += id
+    }
+
     private fun remember(identity: String, value: JsonObject) {
         memoryCharacters += value.toString().length - (values.put(identity, value)?.toString()?.length ?: 0)
         while (values.size > 256 || memoryCharacters > 24 * 1024 * 1024) memoryCharacters -= values.remove(values.keys.first())?.toString()?.length ?: 0
@@ -157,6 +197,8 @@ class GitHubRepositoryStateStore private constructor(private val directory: File
         const val MAX_RECORD_BYTES = 7 * 1024 * 1024
         const val MAX_DISK_BYTES = 48L * 1024 * 1024
         const val MAX_RECORDS = 1536
+        const val MAX_PUBLICATION_CLAIMS = 16_384
+        private val CLAIM_KEY = Regex("execution:[a-f0-9]{64}")
         private const val KEY = "github-repository-state-v1"
         fun digest(value: String): String = MessageDigest.getInstance("SHA-256").digest(value.encodeToByteArray()).joinToString("") { "%02x".format(it) }
     }

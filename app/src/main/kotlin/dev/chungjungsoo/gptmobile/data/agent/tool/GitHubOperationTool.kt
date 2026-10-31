@@ -3,6 +3,7 @@ package dev.chungjungsoo.gptmobile.data.agent.tool
 import dev.chungjungsoo.gptmobile.data.agent.AgentTool
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
+import dev.chungjungsoo.gptmobile.data.agent.AgentToolWorkflowLink
 import dev.chungjungsoo.gptmobile.data.agent.ToolArgumentValidator
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import kotlinx.serialization.json.JsonArray
@@ -24,7 +25,9 @@ internal class GitHubOperationTool(
 
     override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
         if ("view_cursor" in arguments) {
-            if (arguments.size != 1) {
+            // Providers often carry repository/action defaults into a saved-page call.
+            // Validate those against the retained read instead of forcing a model repair loop.
+            if (arguments.keys.any { it !in setOf("view_cursor", "owner", "repo", "commit_sha", "action") }) {
                 val evidence = (arguments["evidence_id"] as? JsonPrimitive)?.takeIf { it.isString && it.content.isNotBlank() }
                 val restoreEvidence = operation == "github_read" && evidence != null && (arguments["view_cursor"] as? JsonPrimitive)?.content?.contains(':') != true
                 val corrected = if (restoreEvidence) {
@@ -61,7 +64,7 @@ internal class GitHubOperationTool(
             if (!cursor.contains(':')) {
                 return AgentToolResult(callId, ToolResultContent.Text("Invalid saved-view cursor. Use the exact continuation_call arguments returned by the previous result. To read an evidence_id, omit view_cursor and provide evidence_id alone with the repository context."), true, errorCode = "INVALID_ARGUMENTS", dispatched = false)
             }
-            return views.read(scope, operation, definition.name, cursor, callId)
+            return views.read(scope, operation, definition.name, cursor, callId, JsonObject(arguments - "view_cursor"))
         }
         // Explicit repository overrides must be complete; both absent uses the pinned task context.
         val explicitOwner = (arguments["owner"] as? JsonPrimitive)?.content?.trim()
@@ -78,11 +81,13 @@ internal class GitHubOperationTool(
             )
         }
         if (operation in setOf("github_context", "github_write", "github_search", "github_read", "github_pr", "github_commit", "github_stage_patch", "github_ci", "github_issue", "github_release")) {
-            val errors = ToolArgumentValidator.errors(arguments, definition.inputSchema)
+            val errors = ToolArgumentValidator.errors(arguments, definition.inputSchema).ifEmpty {
+                GitHubOperationArguments.errors(operation, arguments)
+            }
             if (errors.isNotEmpty()) {
                 return AgentToolResult(
                     callId,
-                    ToolResultContent.Text("Invalid $operation arguments: " + errors.joinToString("; ") + ". Correct the fields before retrying; this request was not dispatched."),
+                    ToolResultContent.Text(ToolArgumentValidator.repairMessage(definition.name, errors, definition.inputSchema)),
                     true,
                     errorCode = "INVALID_ARGUMENTS",
                     dispatched = false
@@ -177,7 +182,8 @@ internal class GitHubOperationTool(
         } else {
             result
         }
-        return views.present(scope, operation, definition.name, paged, arguments)
+        val outputAllowance = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.agent.ToolOutputAllowance]?.bytes ?: 8 * 1024
+        return views.present(scope, operation, definition.name, paged, arguments, maxPageBytes = outputAllowance)
     }
 
     companion object {
@@ -216,7 +222,7 @@ internal class GitHubOperationTool(
                 "github_stage_patch" -> "stage_patch"
                 "github_watch_checks" -> "watch_checks"
                 "github_commit" -> when (requested) {
-                    "", "commit" -> "commit_staged_patch"
+                    "", "commit", "commit_staged_patch" -> "commit_staged_patch"
                     "branch" -> "create_branch"
                     "delete_branch" -> "delete_branch"
                     else -> return null
@@ -234,7 +240,7 @@ internal class GitHubOperationTool(
                     "update" -> "update_pull_request"
                     "comment" -> "create_issue_comment"
                     "reply" -> "reply_pull_request_comment"
-                    "review" -> "create_pull_request_review"
+                    "review" -> if ((args["comments"] as? JsonArray).isNullOrEmpty()) "submit_pull_request_review" else "create_pull_request_review"
                     "merge" -> "merge_pull_request"
                     else -> return null
                 }
@@ -245,12 +251,18 @@ internal class GitHubOperationTool(
                     "definitions" -> "workflow_catalog"
                     "runs" -> "list_workflow_runs"
                     "run" -> "get_workflow_run"
+                    "status" -> when {
+                        args["job_id"] != null -> "get_workflow_job"
+                        args["run_id"] != null -> "get_workflow_run"
+                        else -> "get_commit_status_summary"
+                    }
                     "jobs" -> if (args["job_id"] != null && args["run_id"] == null) "get_workflow_job" else "list_workflow_jobs"
                     "job" -> "get_workflow_job"
                     "logs" -> "get_job_logs"
                     "artifacts" -> "list_workflow_artifacts"
                     "dispatch" -> "dispatch_workflow"
-                    "rerun" -> "rerun_failed_jobs"
+                    "rerun", "rerun_failed_jobs" -> "rerun_failed_jobs"
+                    "rerun_all" -> "rerun_workflow"
                     "cancel" -> "cancel_workflow"
                     else -> return null
                 }
@@ -265,7 +277,9 @@ internal class GitHubOperationTool(
                     else -> return null
                 }
                 "github_issue" -> when (requested) {
-                    "", "context" -> "issue_context"
+                    "" -> if (args["issue_number"] == null) "list_issues" else "issue_context"
+                    "list" -> "list_issues"
+                    "context" -> "issue_context"
                     "comments" -> "issue_comments"
                     "history" -> "issue_events"
                     "create" -> "create_issue"
@@ -278,6 +292,7 @@ internal class GitHubOperationTool(
             if (action == "create_branch") args["from_branch"]?.let { translated["base"] = it }
             if (action == "changed_since") args["base_sha"]?.let { translated["base"] = it }
             if (action == "pr_context") args["expected_head_sha"]?.let { translated["expected_head"] = it }
+            if (action == "get_commit_status_summary" && args["ref"] == null) args["branch"]?.let { translated["ref"] = it }
             translated["action"] = JsonPrimitive(action)
             return JsonObject(translated)
         }
@@ -287,7 +302,8 @@ internal class GitHubOperationTool(
             val explicitlyNamed = names.filter { name ->
                 Regex("(?<![a-z0-9_])" + Regex.escape(name) + "(?:__[a-z0-9_-]+)?(?![a-z0-9_])").containsMatchIn(text)
             }
-            if (explicitlyNamed.isEmpty() && !isGitHubTask(text) && !Regex("\\b(code|source|ci|pr)\\b").containsMatchIn(text)) return emptySet()
+            val issueRequest = Regex("\\b(?:list|show|inspect|read|create|update|close|reopen|triage)\\s+(?:(?:the|all|open|closed|github|repository)\\s+)*issues?\\b|\\bissue\\s*#?\\d+\\b").containsMatchIn(text)
+            if (explicitlyNamed.isEmpty() && !isGitHubTask(text) && !issueRequest && !Regex("\\b(code|source|ci|pr)\\b").containsMatchIn(text)) return emptySet()
             val selected = linkedSetOf("github_context", "github_search", "github_read")
             selected += explicitlyNamed
             if (Regex("\\b(pr|pull request|review|merge)\\b").containsMatchIn(text)) selected += "github_pr"
@@ -295,7 +311,7 @@ internal class GitHubOperationTool(
             if (Regex("\\b(fix(?:es|ed|ing)?|repair(?:s|ed|ing)?|correct(?:ions?|ed|ing)?|patch(?:es|ed|ing)?|edit(?:s|ed|ing)?|changes?|implement(?:ation|ed|ing)?)\\b").containsMatchIn(text)) selected += "github_stage_patch"
             if (Regex("\\b(commit|committing|push|pushing|branch)\\b").containsMatchIn(text)) selected += "github_commit"
             if (Regex("\\b(write|writing|create files?|edit(?:s|ed|ing)?|modify|changes?|fix(?:es|ed|ing)?|repair(?:s|ed|ing)?|correct(?:ions?|ed|ing)?|add(?:ed|ing)?|updat(?:e|ed|ing)|delet(?:e|ed|ing)|remove files?|commit|committing|push|pushing|patch(?:es|ed|ing)?|implement(?:ation|ed|ing)?|apply changes)\\b").containsMatchIn(text)) selected += "github_write"
-            if ("issue" in text) selected += "github_issue"
+            if (Regex("\\bissues?\\b").containsMatchIn(text) || issueRequest) selected += "github_issue"
             if ("release" in text || "tag" in text) selected += "github_release"
             if (Regex("\\b(watch|monitor|subscribe|ci|checks)\\b").containsMatchIn(text)) selected += "github_watch_checks"
             return selected
@@ -303,7 +319,30 @@ internal class GitHubOperationTool(
 
         fun definition(operation: String, modelName: String = operation): AgentToolDefinition {
             require(operation in names)
+            fun sourceName(source: String): String = if (source == operation) {
+                modelName
+            } else if ("__" in modelName) {
+                source + "__" + modelName.substringAfter("__")
+            } else {
+                source
+            }
+            fun link(action: String, source: String, sourceAction: String, purpose: String) = AgentToolWorkflowLink(action, sourceName(source), sourceAction, purpose)
+            val workflowLinks = when (operation) {
+                "github_write" -> listOf(link("commit", "github_read", "ranges", "Inspect existing file content and blob SHA before preparing a replacement."))
+                "github_stage_patch" -> listOf(link("default", "github_read", "ranges", "Inspect the pinned file before selecting an exact patch anchor."))
+                "github_commit" -> listOf(link("commit_staged_patch", "github_stage_patch", "default", "A staged or restored patch can provide the stage ID."))
+                "github_pr" -> listOf(link("review", "github_pr", "context", "Read the current PR head before submitting a review."), link("merge", "github_pr", "context", "Inspect current PR merge health before requesting a merge."), link("merge", "github_ci", "status", "Inspect current checks before requesting a merge."))
+                "github_ci" -> listOf(link("logs", "github_ci", "jobs", "Job listings can provide the job ID required for logs."))
+                "github_watch_checks" -> listOf(link("default", "github_pr", "context", "A PR context can identify the pull request and current head."), link("default", "github_ci", "runs", "Workflow runs can provide a run ID for a run-specific watch."))
+                else -> emptyList()
+            }
             fun field(type: String) = buildJsonObject { put("type", type) }
+            fun integer(min: Int = 1, max: Int = Int.MAX_VALUE, description: String = "") = buildJsonObject {
+                put("type", "integer")
+                put("minimum", min)
+                put("maximum", max)
+                if (description.isNotBlank()) put("description", description)
+            }
             fun choice(vararg names: String) = buildJsonObject {
                 put("type", "string")
                 put("enum", JsonArray(names.map(::JsonPrimitive)))
@@ -330,7 +369,7 @@ internal class GitHubOperationTool(
                         put("minLength", 1)
                         put("maxLength", 200)
                     }
-                    properties["mode"] = choice("literal", "definitions", "references", "paths", "tests")
+                    properties["mode"] = choice("literal", "definitions", "references", "paths", "tests", "patterns")
                     properties["index_cursor"] = field("integer")
                     properties["search_id"] = field("string")
                     properties["file_extension"] = field("string")
@@ -342,11 +381,12 @@ internal class GitHubOperationTool(
                         put("minimum", 0.5)
                         put("maximum", 1.0)
                     }
-                    listOf("min_lines", "max_lines", "context_lines").forEach { properties[it] = field("integer") }
+                    listOf("min_lines", "max_lines").forEach { properties[it] = field("integer") }
+                    properties["context_lines"] = integer(0, 100)
                     properties["max_new_blobs"] = buildJsonObject {
                         put("type", "integer")
                         put("minimum", 1)
-                        put("maximum", 32)
+                        put("maximum", 100)
                         put("description", "Downloads per call; default 16, parallel 4.")
                     }
                     properties["batch_size"] = buildJsonObject {
@@ -358,9 +398,11 @@ internal class GitHubOperationTool(
                     properties["page"] = field("integer")
                 }
                 "github_read" -> {
+                    properties["action"] = choice("ranges")
                     properties["evidence_id"] = field("string")
                     properties["ranges"] = buildJsonObject {
                         put("type", "array")
+                        put("minItems", 1)
                         put("maxItems", 8)
                         put(
                             "items",
@@ -370,9 +412,9 @@ internal class GitHubOperationTool(
                                     "properties",
                                     buildJsonObject {
                                         put("path", field("string"))
-                                        put("start_line", field("integer"))
-                                        put("end_line", field("integer"))
-                                        put("start_offset", field("integer"))
+                                        put("start_line", integer())
+                                        put("end_line", integer())
+                                        put("start_offset", integer(0))
                                     }
                                 )
                                 put("required", JsonArray(listOf("path", "start_line", "end_line").map(::JsonPrimitive)))
@@ -382,6 +424,7 @@ internal class GitHubOperationTool(
                 }
                 "github_stage_patch" -> {
                     listOf("target_file", "search_snippet", "replacement_snippet").forEach { properties[it] = field("string") }
+                    properties["restore_stage_id"] = field("string")
                     properties["expected_head_sha"] = field("string")
                     properties["branch"] = field("string")
                     properties["edits"] = buildJsonObject {
@@ -404,7 +447,7 @@ internal class GitHubOperationTool(
                     }
                 }
                 "github_commit" -> {
-                    properties["action"] = choice("commit", "branch", "delete_branch")
+                    properties["action"] = choice("commit", "commit_staged_patch", "branch", "delete_branch")
                     listOf("stage_id", "branch", "message", "expected_head_sha", "from_branch").forEach { properties[it] = field("string") }
                 }
                 "github_write" -> {
@@ -425,7 +468,15 @@ internal class GitHubOperationTool(
                                 put(
                                     "properties",
                                     buildJsonObject {
-                                        listOf("path", "content", "expected_blob_sha").forEach { put(it, field("string")) }
+                                        put(
+                                            "path",
+                                            buildJsonObject {
+                                                put("type", "string")
+                                                put("minLength", 1)
+                                                put("description", "Required for every file: an observed repository-relative file path, never a directory or an inferred path.")
+                                            }
+                                        )
+                                        listOf("content", "expected_blob_sha").forEach { put(it, field("string")) }
                                         put("delete", field("boolean"))
                                     }
                                 )
@@ -494,9 +545,33 @@ internal class GitHubOperationTool(
                     properties["include_health"] = field("boolean")
                 }
                 "github_ci" -> {
-                    properties["action"] = choice("failure", "workflows", "definitions", "runs", "run", "jobs", "job", "logs", "artifacts", "dispatch", "rerun", "cancel")
-                    listOf("run_id", "job_id", "page", "index_cursor", "per_page").forEach { properties[it] = field("integer") }
+                    properties["action"] = choice("failure", "workflows", "definitions", "runs", "run", "status", "jobs", "job", "logs", "artifacts", "dispatch", "rerun", "rerun_failed_jobs", "rerun_all", "cancel")
+                    properties["execution_id"] = buildJsonObject {
+                        put("type", "string")
+                        put("maxLength", 80)
+                        put("description", "Reuse for recovery. Supply a new ID only for a separately requested execution after reconciling the previous receipt; never change it to retry a lost response.")
+                    }
+                    listOf("run_id", "job_id").forEach { key ->
+                        properties[key] = buildJsonObject {
+                            put("type", "integer")
+                            put("minimum", 1)
+                            put("description", if (key == "run_id") "Run ID from action=runs; different from workflow_id." else "Job ID from action=jobs; never a step number.")
+                        }
+                    }
+                    properties["page"] = integer(1, 1000)
+                    properties["index_cursor"] = integer(0)
+                    properties["per_page"] = integer(1, 100)
+                    properties["start_line"] = integer()
+                    properties["end_line"] = integer()
+                    properties["start_offset"] = integer(0)
+                    properties["expected_head_sha"] = field("string")
                     listOf("workflow_id", "branch", "ref", "status", "actor", "event", "created", "head_sha").forEach { properties[it] = field("string") }
+                    properties["workflow_id"] = buildJsonObject {
+                        put("type", JsonArray(listOf("string", "integer").map(::JsonPrimitive)))
+                        put("minimum", 1)
+                        put("minLength", 1)
+                        put("description", "Workflow ID or YAML filename from workflows; never a run ID.")
+                    }
                     properties["inputs"] = field("object")
                 }
                 "github_watch_checks" -> {
@@ -504,33 +579,41 @@ internal class GitHubOperationTool(
                     properties["run_id"] = field("integer")
                 }
                 "github_release" -> {
+                    properties["execution_id"] = buildJsonObject {
+                        put("type", "string")
+                        put("maxLength", 80)
+                        put("description", "Reuse for recovery; a separately requested publication needs a new ID after reconciling the earlier receipt.")
+                    }
                     properties["action"] = choice("status", "publish", "tags", "tag", "create_tag", "list", "detail")
-                    listOf("tag_name", "target_commitish", "name", "body", "workflow_id", "expected_head_sha").forEach { properties[it] = field("string") }
+                    listOf("tag_name", "target_commitish", "name", "body", "workflow_id", "expected_head_sha", "ref").forEach { properties[it] = field("string") }
+                    properties["workflow_run_id"] = integer(1, description = "Exact run ID from the accepted release dispatch receipt.")
+                    properties["inputs"] = field("object")
+                    properties["release_strategy"] = choice("auto", "workflow", "direct")
                     properties["draft"] = field("boolean")
                     properties["prerelease"] = field("boolean")
                     properties["page"] = field("integer")
                 }
                 "github_issue" -> {
-                    properties["action"] = choice("context", "comments", "history", "create", "update")
+                    properties["action"] = choice("list", "context", "comments", "history", "create", "update")
                     properties["issue_number"] = field("integer")
                     properties["page"] = field("integer")
                     listOf("title", "body", "expected_updated_at").forEach { properties[it] = field("string") }
-                    properties["state"] = choice("open", "closed")
+                    properties["state"] = choice("open", "closed", "all")
                 }
             }
             val description = when (operation) {
-                "github_context" -> "Inspect repository, branches/rules/dependencies, commits/search, checks or retained evidence/stages. Changes requires base_sha."
-                "github_search" -> "Pinned literal/definitions/references/paths/tests search. Paths uses tree only; *=all paths. Follow continuations; check coverage/skips. Fuzzy: one identifier, context: lexical."
-                "github_read" -> "Read pinned ranges or evidence_id. Use view_cursor only for saved pages."
-                "github_stage_patch" -> "Inspect and stage one exact replacement in a single call using target_file, search_snippet and replacement_snippet. Reads the complete pinned blob internally; rejects ambiguous anchors. Alternatively supply SHA-checked edits. Returns a bounded preview and stage_id; no commit occurs."
+                "github_context" -> "Inspect repository, branches/rules, commits, checks, evidence/stages. Changes requires base_sha."
+                "github_search" -> "Search pinned paths/code/tests/symbols. patterns: ordered literals joined by *. Fuzzy: one identifier. Inspect lexical coverage."
+                "github_read" -> "Read pinned ranges=[{path,start_line,end_line}] (1-based, <=2000 lines) or evidence_id. Use view_cursor alone for saved pages."
+                "github_stage_patch" -> "Stage an exact replacement with target_file, search_snippet and replacement_snippet, or SHA-checked edits. Reads the pinned blob and rejects ambiguous anchors. Returns immutable version/stage_id and preserves publication receipts. Supply restore_stage_id alone to select a saved local patch at the same branch/base. Commit on a permitted working branch using its current expected_head_sha."
                 "github_commit" -> "Create a working branch, commit a validated stage_id, or delete_branch with expected_head_sha after dependency inspection. Deletion blocks selected/default/protected branches, unmerged commits, open PRs and active runs. GitHub deletion is not an atomic SHA lease."
                 "github_write" -> "Every files item requires a repository-relative path (for example app/src/main/kotlin/.../MainActivity.kt), never an absolute path or directory. Stage up to 20 UTF-8 file creations, replacements or deletions for exact user approval and one atomic commit on a working branch. Supply expected_head_sha and expected_blob_sha for existing files. Replacements require content; deletions require delete=true and no content. Never write to the default branch."
                 "github_pr" -> "Canonical pull-request tool (also known as github_pull_request). Use action=list to discover pull_number; context/comments/reviews require it. Read PR files, checks and review threads; explicitly post inline review comments, reply to review comments, update/comment/create, or merge after all checks pass. Writes require the current expected head SHA."
-                "github_ci" -> "Discover workflows, then inspect runs (100/page; status=failure filters), job steps (job_id), artifacts and failures. action=definitions reads cached, commit-pinned YAML outlines (triggers, inputs, dependencies, artifacts); follow every continuation and inspect parser warnings. Dispatch requires an explicit discovered workflow_id (numeric ID, filename or .github/workflows/file.yml) and ref; never guess a workflow or dispatch all workflows. Follow continuation_call for further pages."
+                "github_ci" -> "Discover workflows, then runs (100/page), then jobs using run_id. job/logs require job_id; artifacts requires run_id. status inspects run_id/job_id or selected commit/ref checks. Empty collections are valid. definitions reads pinned YAML outlines. Logs use start_line/end_line/start_offset continuations. dispatch requires a discovered workflow_id and explicit ref; a run_id is not a workflow_id. rerun/rerun_failed_jobs retries failed jobs only; rerun_all retries the full completed run. Never cancel an active run to force a retry. Follow continuation_call exactly."
                 "github_watch_checks" -> "Subscribe once to background CI updates for pr_number and/or run_id in this saved chat. Pins the current head and posts native chat status updates without model polling turns. A moved PR head requires a new subscription."
-                "github_issue" -> "Read complete issue metadata, comments or timeline history. Create or update with exact approval; update requires expected_updated_at from the issue. Timeline is not a full history of body edits."
+                "github_issue" -> "List issues (PRs excluded), or inspect issue_number with context/comments/history. An open_issue_count is not issue inspection. Create/update requires exact approval; update needs expected_updated_at. Timeline is not a full body-edit history."
                 else -> "Inspect release notes (detail), tags/annotations (tag), paginated tags/list, create_tag or explicitly publish the selected release."
-            } + " Owner+repo together or omitted. Follow continuation_call exactly."
+            } + " Owner+repo together or omitted. Follow continuation_call."
             return AgentToolDefinition(
                 modelName,
                 description,
@@ -541,7 +624,8 @@ internal class GitHubOperationTool(
                     if (operation == "github_write") {
                         put("required", JsonArray(listOf("branch", "expected_head_sha", "message", "files").map(::JsonPrimitive)))
                     }
-                }
+                },
+                workflowLinks = workflowLinks
             )
         }
     }

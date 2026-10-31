@@ -129,6 +129,7 @@ class GlassBackdropInstrumentedTest {
             java.io.File(instrumentation.targetContext.filesDir, "glass-$name.png").outputStream().use {
                 check(pixels.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it))
             }
+            assertFixtureWindowIsActive()
             val y = pixels.height / 2
             val values = (pixels.width * 7 / 20 until pixels.width * 13 / 20).map { x ->
                 val color = pixels.getPixel(x, y)
@@ -172,9 +173,16 @@ class GlassBackdropInstrumentedTest {
         java.io.File(instrumentation.targetContext.filesDir, "glass-stacked.png").outputStream().use {
             check(pixels.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it))
         }
+        assertFixtureWindowIsActive()
         val center = pixels.getPixel(pixels.width / 2, pixels.height / 2)
         pixels.recycle()
         val greenOverBlue = (android.graphics.Color.green(center) - android.graphics.Color.blue(center)) / 255.0
         assertTrue("The child must sample its green parent, not the blue activity: green-blue=$greenOverBlue", greenOverBlue > 0.03)
+    }
+
+    private fun assertFixtureWindowIsActive() {
+        val instrumentation = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation()
+        val foregroundPackage = instrumentation.uiAutomation.rootInActiveWindow?.packageName?.toString()
+        assertEquals("A system/foreign window is obstructing the fixture; inspect the retained screenshot before diagnosing app pixels", instrumentation.targetContext.packageName, foregroundPackage)
     }
 }

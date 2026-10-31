@@ -44,6 +44,8 @@ data class AgentRunLimits(
     val detectRepetition: Boolean = false,
     val researchAcquisition: Boolean = false,
     val githubTask: Boolean = false,
+    /** Optional objective for reading a saved batch; this is not an end-to-end recovery target. */
+    val checkpointRestoreObjective: CheckpointRestoreObjective? = null,
     val combined: CombinedExecutionContext? = null
 ) {
     companion object {
@@ -57,7 +59,8 @@ data class AgentRunLimits(
 
 class AgentRunner(
     val limits: AgentRunLimits = AgentRunLimits(),
-    private val checkpoint: ToolBatchCheckpoint? = null
+    private val checkpoint: ToolBatchCheckpoint? = null,
+    private val healthCatalog: ProgressiveToolCatalog? = null
 ) {
     fun run(session: AgentProviderSession, tools: List<AgentTool>, dynamicTools: () -> List<AgentTool> = { emptyList() }, selectDefinitions: (List<AgentToolDefinition>) -> List<AgentToolDefinition> = { it }): Flow<AgentRunEvent> = flow {
         if (tools.groupBy { it.definition.name }.any { it.value.size > 1 }) {
@@ -70,16 +73,17 @@ class AgentRunner(
         var exposedDefinitions = tools.map { it.definition }
         val exchanges = mutableListOf<AgentToolExchange>()
         var rounds = 0
-        var toolCallCount = checkpoint?.dispatchedCount() ?: 0
-        var toolMayHaveExecuted = false
+        val recovery = checkpoint?.recoverySnapshot(limits.checkpointRestoreObjective)
+        var toolCallCount = recovery?.dispatchedCount ?: 0
+        var toolMayHaveExecuted = (recovery?.dispatchedCount ?: 0) > 0
         var retriedWithoutTools = false
 
         val finishedInTime = if (limits.runTimeoutMillis < Long.MAX_VALUE) {
             withTimeoutOrNull(limits.runTimeoutMillis) {
-                executeLoop(guardedSession, toolByName, executableToolByName, exposedDefinitions, exchanges, rounds, toolCallCount, toolMayHaveExecuted, retriedWithoutTools, dynamicTools, selectDefinitions)
+                executeLoop(guardedSession, toolByName, executableToolByName, exposedDefinitions, exchanges, rounds, toolCallCount, toolMayHaveExecuted, retriedWithoutTools, recovery, dynamicTools, selectDefinitions)
             }
         } else {
-            executeLoop(guardedSession, toolByName, executableToolByName, exposedDefinitions, exchanges, rounds, toolCallCount, toolMayHaveExecuted, retriedWithoutTools, dynamicTools, selectDefinitions)
+            executeLoop(guardedSession, toolByName, executableToolByName, exposedDefinitions, exchanges, rounds, toolCallCount, toolMayHaveExecuted, retriedWithoutTools, recovery, dynamicTools, selectDefinitions)
             true
         }
 
@@ -98,6 +102,7 @@ class AgentRunner(
         initialToolCallCount: Int,
         initialToolMayHaveExecuted: Boolean,
         initialRetriedWithoutTools: Boolean,
+        recovery: ToolBatchRecoverySnapshot?,
         dynamicTools: () -> List<AgentTool>,
         selectDefinitions: (List<AgentToolDefinition>) -> List<AgentToolDefinition>
     ) {
@@ -119,12 +124,18 @@ class AgentRunner(
         var batchRepairAttempted = false
         var unproductiveDiscoveryRounds = 0
         var suppressedReadRounds = 0
-        var restoredCalls = checkpoint?.pending().orEmpty()
-        var restoredDispatched = checkpoint?.pendingDispatchedCount() ?: 0
+        var unsuccessfulGitHubRounds = 0
+        var restoredCalls = recovery?.pending.orEmpty()
+        var restoredDispatched = recovery?.pendingDispatchedIds.orEmpty()
+        var restoredRetained = recovery?.pendingRetainedIds.orEmpty()
+        if (restoredCalls.isNotEmpty() && recovery != null) {
+            AppLogRecorder.record("Recovery", "TOOL_BATCH_RESTORED · checkpointVersion=1 · pendingCalls=${restoredCalls.size} · previouslyDispatched=${restoredDispatched.size} · completed=${recovery.completedCount} · failed=${recovery.failedCount} · uncertain=${recovery.unknownCount} · queued=${recovery.queuedCount} · rejected=${recovery.rejectedCount} · snapshotLoadMs=${recovery.loadMillis} · objectiveMs=${recovery.objectiveMillis ?: "none"} · objectiveStatus=${recovery.objectiveStatus} · measurement=checkpoint_load_only")
+        }
         val executionToolCallLimit = ToolBudgetPolicy.executionLimit(limits)
         val toolCallsByName = mutableMapOf<String, Int>()
         val consecutiveToolFailures = mutableMapOf<String, Int>()
         val blockedReadScopes = mutableSetOf<String>()
+        val unknownOutcomes = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
 
         while (true) {
             if (executionToolCallLimit < Int.MAX_VALUE && toolCallCount >= executionToolCallLimit && restoredCalls.isEmpty()) {
@@ -211,6 +222,7 @@ class AgentRunner(
                 if (recovery.finalize) {
                     executableToolByName = emptyMap()
                     finalResponseRequested = true
+                    instructFinalResponse(exchanges)
                 }
                 continue
             }
@@ -233,6 +245,14 @@ class AgentRunner(
                         }
                         continue
                     }
+                    if (limits.githubTask && limits.combined?.requested?.singlePass != true && !session.handlesToolsInternally && !finalResponseRequested) {
+                        finalResponseRequested = true
+                        exposedDefinitions = emptyList()
+                        executableToolByName = emptyMap()
+                        instructFinalResponse(exchanges)
+                        emit(AgentRunEvent.Notice("The GitHub provider returned another empty round. Generating a text answer from the saved operation results.", persistent = false))
+                        continue
+                    }
                     emit(AgentRunEvent.Provider(ProviderEvent.Failed("The model returned no visible answer after finalization. No completed tool action was repeated. Please retry or choose another model.", transportComplete = round.completed)))
                     return
                 }
@@ -247,23 +267,32 @@ class AgentRunner(
             val remainingCalls = if (executionToolCallLimit == Int.MAX_VALUE) {
                 calls.size
             } else {
-                (executionToolCallLimit - toolCallCount + restoredDispatched).coerceAtLeast(0)
+                (executionToolCallLimit - toolCallCount).coerceAtLeast(0)
             }
             val completed = processToolCalls(
                 calls, toolByName, executableToolByName, exposedDefinitions, exchanges, dynamicTools, selectDefinitions,
                 initialSchemaTokens, replayTokens, toolCallsByName, consecutiveToolFailures, blockedReadScopes,
-                remainingCalls, toolCallCount, restoredDispatched, roundLimitReached, finalResponseRequested,
-                retriedWithoutTools, executionToolCallLimit, suppressedReadRounds, unproductiveDiscoveryRounds
+                remainingCalls, toolCallCount, restoredDispatched, restoredRetained, roundLimitReached, finalResponseRequested,
+                retriedWithoutTools, executionToolCallLimit, suppressedReadRounds, unproductiveDiscoveryRounds, unknownOutcomes
             ) ?: return
             executableToolByName = completed.tools
             exposedDefinitions = completed.definitions
             toolCallCount = completed.toolCallCount
-            restoredDispatched = 0
+            restoredDispatched = emptySet()
+            restoredRetained = emptySet()
             toolMayHaveExecuted = toolMayHaveExecuted || completed.executedAny
             suppressedReadRounds = completed.suppressedReadRounds
             replayTokens = completed.batch.replayTokens
             unproductiveDiscoveryRounds = completed.batch.discoveryRounds
             finalResponseRequested = completed.batch.finalResponseRequested
+            unsuccessfulGitHubRounds = if (limits.githubTask && !completed.batch.hasSuccessfulResult) unsuccessfulGitHubRounds + 1 else 0
+            if (unsuccessfulGitHubRounds >= 3 && !finalResponseRequested && limits.combined?.requested?.singlePass != true) {
+                finalResponseRequested = true
+                exposedDefinitions = emptyList()
+                executableToolByName = emptyMap()
+                instructFinalResponse(exchanges)
+                emit(AgentRunEvent.Notice("GitHub operations failed for three consecutive rounds. Finishing with saved results and the remaining blockers.", persistent = false))
+            }
         }
     }
 
@@ -272,6 +301,7 @@ class AgentRunner(
         var protocolRecoveryAttempted = false
         var githubRecoveries = 0
         var githubOutputRepairAttempted = false
+        var githubProtocolFinalizationAttempted = false
     }
 
     private data class RoundRecovery(val definitions: List<AgentToolDefinition>, val restoreRound: Boolean, val finalize: Boolean)
@@ -307,6 +337,11 @@ class AgentRunner(
                 }
                 emit(AgentRunEvent.Notice(if (exposedDefinitions.isEmpty()) "The provider attempted a tool call with tools disabled. Requesting a text answer once; no tool action was dispatched." else "The provider returned an invalid tool frame. Retrying its authorized call once.", persistent = false))
                 return RoundRecovery(exposedDefinitions, limits.githubTask, finalize)
+            }
+            if (limits.githubTask && limits.combined?.requested?.singlePass != true && !session.handlesToolsInternally && hasToolWork && !finalResponseRequested && !state.githubProtocolFinalizationAttempted) {
+                state.githubProtocolFinalizationAttempted = true
+                emit(AgentRunEvent.Notice("The provider could not repair its tool format. Generating a text answer from completed GitHub operations; their actions will not be repeated.", persistent = false))
+                return RoundRecovery(emptyList(), restoreRound = true, finalize = true)
             }
             emit(AgentRunEvent.Provider(ProviderEvent.Failed(roundFailure, round.progressDeadline, errorCode = "TOOL_PROTOCOL_INVALID_FRAME")))
             return null
@@ -364,13 +399,15 @@ class AgentRunner(
         blockedReadScopes: MutableSet<String>,
         remainingCalls: Int,
         initialToolCallCount: Int,
-        restoredDispatched: Int,
+        restoredDispatched: Set<String>,
+        restoredRetained: Set<String>,
         roundLimitReached: Boolean,
         initialFinalResponseRequested: Boolean,
         retriedWithoutTools: Boolean,
         executionToolCallLimit: Int,
         previousSuppressedReadRounds: Int,
-        unproductiveDiscoveryRounds: Int
+        unproductiveDiscoveryRounds: Int,
+        unknownOutcomes: MutableSet<String>
     ): ToolRoundCompletion? {
         var executableToolByName = initialTools
         var exposedDefinitions = initialDefinitions
@@ -378,7 +415,7 @@ class AgentRunner(
         var finalResponseRequested = initialFinalResponseRequested
         var suppressedReadRounds = previousSuppressedReadRounds
         val toolsForBatch = executableToolByName
-        val plan = planToolBatch(calls, remainingCalls, toolsForBatch.keys, toolCallsByName, blockedReadScopes, MAX_SAME_TOOL_CALLS_PER_RUN, ::failureScope)
+        val plan = planToolBatch(calls, remainingCalls, toolsForBatch.keys, toolCallsByName, blockedReadScopes, MAX_SAME_TOOL_CALLS_PER_RUN, restoredRetained, ::failureScope)
         val executableCalls = plan.executable
         val deferredCalls = plan.deferred
         val perToolSuppressedIds = plan.perToolSuppressedIds
@@ -394,16 +431,21 @@ class AgentRunner(
         executableCalls.forEach { emit(AgentRunEvent.ToolStarted(it)) }
         val executedResults = mutableListOf<AgentToolResult>()
         for (batch in executableCalls.chunked(limits.maxToolCallsPerRound.coerceIn(1, 32))) {
-            val results = executeToolBatch(batch, toolsForBatch)
+            val results = executeToolBatch(batch, toolsForBatch, unknownOutcomes)
             executedResults += results
-            batch.zip(results).forEach { (call, result) -> emit(AgentRunEvent.ToolFinished(call, result)) }
+            batch.zip(results).forEach { (call, result) ->
+                healthCatalog?.recordObservation(call.name, result)
+                emit(AgentRunEvent.ToolFinished(call, result))
+            }
         }
         if (!finalResponseRequested && !retriedWithoutTools) {
             val update = admitDiscoveredTools(dynamicTools(), toolByName, executableToolByName, exposedDefinitions, initialSchemaTokens, consecutiveToolFailures, toolCallsByName, replayTokens, selectDefinitions) ?: return null
             executableToolByName = update.tools
             exposedDefinitions = update.definitions
         }
-        toolCallCount += (executableCalls.size - restoredDispatched).coerceAtLeast(0)
+        toolCallCount += executableCalls.zip(executedResults).count { (call, result) ->
+            result.dispatched && call.callId !in restoredDispatched
+        }
 
         val newlyBlockedTools = updateFailureCircuits(executableCalls, executedResults, consecutiveToolFailures, blockedReadScopes, ::failureScope)
         if (newlyBlockedTools.isNotEmpty()) {
@@ -433,7 +475,7 @@ class AgentRunner(
             exposedDefinitions = emptyList()
             executableToolByName = emptyMap()
         }
-        return ToolRoundCompletion(executableToolByName, exposedDefinitions, toolCallCount, executableCalls.isNotEmpty(), suppressedReadRounds, completedBatch)
+        return ToolRoundCompletion(executableToolByName, exposedDefinitions, toolCallCount, executedResults.any { it.dispatched }, suppressedReadRounds, completedBatch)
     }
 
     private fun failureScope(call: ProviderEvent.ToolCall): String {
@@ -466,7 +508,11 @@ class AgentRunner(
             )
         }
         val message = if (call.callId in hostSuppressedIds) {
-            "This website failed repeatedly and is paused for this response. read_url remains available for other hosts; choose another source."
+            if (dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(call.name) != null) {
+                "This exact GitHub request failed repeatedly and is paused for this response. Other GitHub operations remain available. Use the returned correction or retained evidence; do not repeat the failed arguments."
+            } else {
+                "This website failed repeatedly and is paused for this response. read_url remains available for other hosts; choose another source."
+            }
         } else if (call.callId in perToolSuppressedIds) {
             "This operation reached the per-response repeat limit. Use results already collected; do not repeat these arguments. " +
                 if (dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(call.name) in setOf("github_read", "github_search")) {
@@ -570,7 +616,7 @@ class AgentRunner(
         return ToolCatalogUpdate(executableToolByName + admitted.associateBy { it.definition.name }, (exposedDefinitions + admitted.map { it.definition }).distinctBy { it.name })
     }
 
-    private data class BatchCompletion(val replayTokens: Long, val discoveryRounds: Int, val finalResponseRequested: Boolean)
+    private data class BatchCompletion(val replayTokens: Long, val discoveryRounds: Int, val finalResponseRequested: Boolean, val hasSuccessfulResult: Boolean)
 
     /** Separate tool-result publication/finalization from the dispatch coroutine for ART compilation. */
     private suspend fun kotlinx.coroutines.flow.FlowCollector<AgentRunEvent>.finishBatch(
@@ -727,7 +773,7 @@ class AgentRunner(
         )
         exchanges.clear()
         exchanges.addAll(retained)
-        return BatchCompletion(replayTokens, unproductiveDiscoveryRounds, finalResponseRequested)
+        return BatchCompletion(replayTokens, unproductiveDiscoveryRounds, finalResponseRequested, allResults.any { !it.isError })
     }
 
     private data class RoundResult(
@@ -841,7 +887,13 @@ class AgentRunner(
                 )
             }
             // Include synchronous stream construction failures in the upstream boundary.
-            emitAll(session.streamRound(exposedDefinitions, replayExchanges.map { exchange -> exchange.copy(results = exchange.results.map { dev.chungjungsoo.gptmobile.data.assist.OptionalAssistArtifacts.ready(it) }) }).withAssistantTextMarkupGuard(successfulSearch || session.hasPreparedSearchEvidence, searchToolNames, allowControlJsonText = session.allowsControlJsonText))
+            val preparedExchanges = replayExchanges.map { exchange -> exchange.copy(results = exchange.results.map { dev.chungjungsoo.gptmobile.data.assist.OptionalAssistArtifacts.ready(it) }) }
+            val exchangeError = AgentContractValidation.exchangeError(preparedExchanges)
+            if (exchangeError != null) {
+                emit(ProviderEvent.Failed(exchangeError, errorCode = "TOOL_EXCHANGE_INVALID"))
+            } else {
+                emitAll(session.streamRound(exposedDefinitions, preparedExchanges).withAssistantTextMarkupGuard(successfulSearch || session.hasPreparedSearchEvidence, searchToolNames, allowControlJsonText = session.allowsControlJsonText))
+            }
         }.catch { error ->
             if (error is CancellationException || error is VirtualMachineError || error is ThreadDeath || error is IllegalStateException && error.message?.startsWith("DISPATCH_POLICY_CHANGED:") == true) throw error
             if (error is ToolBatchOversizeException) {
@@ -889,7 +941,7 @@ class AgentRunner(
                     }
                 }
 
-                is ProviderEvent.ToolResult -> emit(AgentRunEvent.ToolFinished(event.call, ToolObservationRetention.bound(event.result)))
+                is ProviderEvent.ToolResult -> emit(AgentRunEvent.ToolFinished(event.call, ToolObservationRetention.bound(AgentContractValidation.receipt(event.call.callId, event.result))))
 
                 is ProviderEvent.Failed -> {
                     failure = event.message
@@ -993,7 +1045,7 @@ class AgentRunner(
         return newlyBlockedTools
     }
 
-    private suspend fun executeToolBatch(calls: List<ProviderEvent.ToolCall>, tools: Map<String, AgentTool>): List<AgentToolResult> {
+    private suspend fun executeToolBatch(calls: List<ProviderEvent.ToolCall>, tools: Map<String, AgentTool>, unknownOutcomes: MutableSet<String>): List<AgentToolResult> {
         val semaphore = Semaphore(limits.maxConcurrentTools.coerceIn(1, 32))
         val perTool = calls.map { it.name }.distinct().associateWith { Semaphore(1) }
         val order = calls.mapIndexed { index, call -> call.callId to index }.toMap()
@@ -1006,7 +1058,14 @@ class AgentRunner(
                         async {
                             perTool.getValue(call.name).withPermit {
                                 semaphore.withPermit {
-                                    val result = checkpoint?.execute(call) { executeBounded(call, tools[call.name]) } ?: executeBounded(call, tools[call.name])
+                                    val signature = call.name + ":" + dev.chungjungsoo.gptmobile.data.permissions.ScopedToolGrant.canonicalHash(call.arguments)
+                                    suspend fun dispatch(): AgentToolResult = if (signature in unknownOutcomes) {
+                                        ToolResultEnvelope.error(call.callId, "RECONCILIATION_REQUIRED", "An earlier identical operation has an unknown outcome. Reconcile it before requesting another write.")
+                                    } else {
+                                        executeBounded(call, tools[call.name])
+                                    }
+                                    val result = checkpoint?.execute(call) { dispatch() } ?: dispatch()
+                                    if (result.errorCode in ToolResultEnvelope.unknownOutcomeCodes && !replayableRead(call)) unknownOutcomes += signature
                                     call to result
                                 }
                             }
@@ -1019,6 +1078,11 @@ class AgentRunner(
     }
 
     private fun appendInstruction(result: AgentToolResult, instruction: String): AgentToolResult {
+        GitHubReplayRecovery.envelope(result.content)?.let { envelope ->
+            val previous = (envelope["agent_instruction"] as? JsonPrimitive)?.content.orEmpty()
+            if (previous.contains(instruction)) return result
+            return result.copy(content = ToolResultContent.Json(kotlinx.serialization.json.JsonObject(envelope + ("agent_instruction" to JsonPrimitive(listOf(previous, instruction).filter { it.isNotBlank() }.joinToString("\n"))))))
+        }
         val existing = when (val content = result.content) {
             is ToolResultContent.Text -> content.text
             is ToolResultContent.Json -> Json.encodeToString(content.value)
@@ -1028,14 +1092,12 @@ class AgentRunner(
         return result.copy(content = ToolResultContent.Text("$existing\n\n$instruction"))
     }
 
-    private fun appendFinalResponseInstruction(result: AgentToolResult): AgentToolResult {
-        val existing = when (val content = result.content) {
-            is ToolResultContent.Text -> content.text
-            is ToolResultContent.Json -> Json.encodeToString(content.value)
-            is ToolResultContent.ResourceLinks -> Json.encodeToString(content.links.map { it.uri })
-        }
-        if (existing.contains(FINAL_RESPONSE_INSTRUCTION)) return result
-        return result.copy(content = ToolResultContent.Text("$existing\n\n$FINAL_RESPONSE_INSTRUCTION"))
+    private fun appendFinalResponseInstruction(result: AgentToolResult): AgentToolResult = appendInstruction(result, FINAL_RESPONSE_INSTRUCTION)
+
+    private fun instructFinalResponse(exchanges: MutableList<AgentToolExchange>) {
+        val previous = exchanges.lastOrNull() ?: return
+        val result = previous.results.lastOrNull() ?: return
+        exchanges[exchanges.lastIndex] = previous.copy(results = previous.results.dropLast(1) + appendInstruction(result, "Continue with a text answer and no further tool calls. Report verified outcomes from saved receipts, the concrete failure and any unfinished work. Do not claim changes were applied without a successful receipt or repeat a completed action."))
     }
 
     private suspend fun executeBounded(
@@ -1046,10 +1108,17 @@ class AgentRunner(
             return AgentToolResult(
                 callId = call.callId,
                 content = ToolResultContent.Text("Tool '${call.name}' is not assigned to this profile."),
-                isError = true
+                isError = true,
+                errorCode = "TOOL_UNAVAILABLE",
+                dispatched = false
             )
         }
-
+        AgentContractValidation.admission(tool.definition, call.callId)?.let { return it }
+        if (!tool.managesExecutionBudget) {
+            val errors = ToolArgumentValidator.errors(call.arguments, tool.definition.inputSchema)
+            if (errors.isNotEmpty()) return ToolResultEnvelope.error(call.callId, "INVALID_ARGUMENTS", ToolArgumentValidator.repairMessage(tool.definition.name, errors, tool.definition.inputSchema))
+        }
+        val replayableRead = replayableRead(call)
         return try {
             val result = if (!tool.managesExecutionBudget && limits.toolTimeoutMillis < Long.MAX_VALUE) {
                 withTimeoutOrNull(limits.toolTimeoutMillis) {
@@ -1057,12 +1126,14 @@ class AgentRunner(
                 } ?: AgentToolResult(
                     callId = call.callId,
                     content = ToolResultContent.Text("Tool '${call.name}' timed out after ${limits.toolTimeoutMillis} ms."),
-                    isError = true
+                    isError = true,
+                    errorCode = if (replayableRead) "READ_DEADLINE" else "TIMEOUT_OUTCOME_UNKNOWN"
                 )
             } else {
                 tool.execute(call.callId, call.arguments)
             }
-            ToolObservationRetention.bound(if (tool.managesExecutionBudget) result else result.copy(content = boundContent(result.content)))
+            val receipt = AgentContractValidation.receipt(call.callId, result)
+            ToolObservationRetention.bound(if (tool.managesExecutionBudget) receipt else receipt.copy(content = boundContent(receipt.content)))
         } catch (error: CancellationException) {
             throw error
         } catch (error: dev.chungjungsoo.gptmobile.data.research.ResearchProviderDeferred) {
@@ -1071,10 +1142,15 @@ class AgentRunner(
             AgentToolResult(
                 callId = call.callId,
                 content = ToolResultContent.Text(error.message ?: "Tool '${call.name}' failed."),
-                isError = true
+                isError = true,
+                errorCode = if (replayableRead) "READ_FAILED" else "DISPATCH_OUTCOME_UNKNOWN"
             ).let { it.copy(content = boundContent(it.content)) }
         }
     }
+
+    private fun replayableRead(call: ProviderEvent.ToolCall): Boolean =
+        dev.chungjungsoo.gptmobile.data.permissions.GitHubAuthorizationBoundary.isReplayableRead(call.name, call.arguments) ||
+            dev.chungjungsoo.gptmobile.data.research.ResearchTimeouts.isAcademicRead(call.name)
 
     private fun boundContent(content: ToolResultContent): ToolResultContent = ToolObservationRetention.content(content, limits.maxToolOutputBytes.coerceIn(0, 256 * 1024))
 

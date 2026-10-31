@@ -40,11 +40,12 @@ internal object ToolExchangeCompactor {
         var resultIndex = 0
         var remaining = hardBudget
 
-        // Reserve call metadata first so tool-call/result pairing is never broken.
-        exchanges.forEach { exchange ->
-            remaining -= exchange.calls.sumOf { ContextTokenEstimate.estimate(it.name + it.arguments.toString()) + 24 }
+        // Old call arguments must not consume every token before the newest
+        // result is admitted. hardBound removes older complete pairs when needed.
+        val metadataCost = exchanges.sumOf { exchange ->
+            exchange.calls.sumOf { ContextTokenEstimate.estimate(it.name + it.arguments.toString()).toLong() + 24 }
         }
-        remaining = remaining.coerceAtLeast(0)
+        remaining = (remaining - minOf(metadataCost, hardBudget / 2L).toInt()).coerceAtLeast(0)
 
         // Spend replay allowance newest-first. Once exhausted, older consumed
         // payloads become tiny placeholders instead of each receiving a minimum

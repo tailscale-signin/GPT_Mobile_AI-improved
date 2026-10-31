@@ -22,7 +22,7 @@ class ToolProgressAndBudgetTest {
         val parent = budget.bind(object : AgentTool {
             override val definition = AgentToolDefinition("research", "", buildJsonObject {})
             override val managesExecutionBudget = true
-            override suspend fun execute(callId: String, arguments: JsonObject) = child.execute("$callId:child", arguments)
+            override suspend fun execute(callId: String, arguments: JsonObject) = child.execute("$callId:child", arguments).copy(callId = callId)
         })
         val result = kotlinx.coroutines.withTimeout(1000) { parent.execute("parent", buildJsonObject {}) }
         assertFalse(result.isError)

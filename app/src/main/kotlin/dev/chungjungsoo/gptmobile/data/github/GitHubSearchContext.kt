@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.github
 
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -9,13 +10,53 @@ import kotlinx.serialization.json.put
 internal object GitHubSearchContext {
     private val declaration = Regex("\\b(class|interface|object|fun|def|function|struct|enum|trait)\\s+([A-Za-z_][A-Za-z_0-9]*)")
 
-    fun extract(lines: List<String>, line: Int, radius: Int) = buildJsonObject {
+    fun extract(lines: List<String>, line: Int, radius: Int, maxExcerptBytes: Int = 8192) = buildJsonObject {
+        require(lines.isNotEmpty() && line in 1..lines.size && radius in 0..100 && maxExcerptBytes >= 0)
         val at = (line - 1).coerceIn(0, lines.lastIndex.coerceAtLeast(0))
-        val start = (at - radius).coerceAtLeast(0)
-        val end = (at + radius + 1).coerceAtMost(lines.size)
-        put("start_line", start + 1)
-        put("end_line", end)
-        put("excerpt", lines.subList(start, end).joinToString("\n") { it.take(500) })
+        val requestedStart = (at - radius).coerceAtLeast(0)
+        val requestedEnd = (at + radius + 1).coerceAtMost(lines.size)
+        var start = at
+        var end = at
+        var used = 0
+        var lineTruncated = false
+        val excerpts = mutableMapOf<Int, String>()
+        fun add(index: Int): Boolean {
+            val separator = if (excerpts.isEmpty()) 0 else 1
+            val remaining = maxExcerptBytes - used - separator
+            if (remaining <= 0) return false
+            val value = GitHubRepositorySession.utf8Prefix(lines[index], minOf(500, remaining))
+            used += separator + value.toByteArray(Charsets.UTF_8).size
+            lineTruncated = lineTruncated || value != lines[index]
+            excerpts[index] = value
+            return true
+        }
+        if (add(at)) {
+            end = at + 1
+            while (start > requestedStart || end < requestedEnd) {
+                var added = false
+                if (start > requestedStart && add(start - 1)) {
+                    start--
+                    added = true
+                }
+                if (end < requestedEnd && add(end)) {
+                    end++
+                    added = true
+                }
+                if (!added) break
+            }
+        }
+        if (start == end) {
+            put("start_line", JsonNull)
+            put("end_line", JsonNull)
+        } else {
+            put("start_line", start + 1)
+            put("end_line", end)
+        }
+        put("returned_line_count", end - start)
+        put("requested_start_line", requestedStart + 1)
+        put("requested_end_line", requestedEnd)
+        put("excerpt", (start until end).joinToString("\n") { excerpts.getValue(it) })
+        put("truncated", start != requestedStart || end != requestedEnd || lineTruncated)
         put("resolution", "lexical_nearby_declaration; verify scope in source")
         val nearby = (at downTo (at - 80).coerceAtLeast(0)).firstNotNullOfOrNull { index ->
             declaration.find(lines[index].take(2000))?.let { index to it }

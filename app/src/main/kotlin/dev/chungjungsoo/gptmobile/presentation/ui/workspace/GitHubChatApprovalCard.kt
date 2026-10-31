@@ -37,7 +37,6 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogProperties
@@ -106,7 +105,7 @@ internal fun GitHubChatApprovalCard(model: GitHubReviewViewModel, onCommitted: (
                             items(files, key = { it.path }) { file ->
                                 Text(file.path, style = MaterialTheme.typography.labelLarge)
                                 val diff = remember(file) { inlinePatchPreview(file.before, file.after, file.delete) }
-                                SelectionContainer { Text(diff, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall) }
+                                GitHubCodeDiff(diff)
                                 if (!file.delete && editPath == null) TextButton(enabled = !busy, onClick = { editPath = file.path }) { Text("Edit inline") }
                             }
                         }

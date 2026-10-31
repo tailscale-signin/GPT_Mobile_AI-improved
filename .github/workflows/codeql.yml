@@ -86,15 +86,18 @@ jobs:
       with:
         languages: ${{ matrix.language }}
         build-mode: ${{ matrix.build-mode }}
+        dependency-caching: true
+        threads: 2
+        ram: 4096
 
     - if: matrix.build-mode == 'manual'
       name: Build for CodeQL
       env:
         GRADLE_OPTS: "-Dorg.gradle.caching=false -Dkotlin.incremental=false -Dkotlin.compiler.execution.strategy=in-process"
       run: |
-        ./gradlew :app:clean :app:compileDebugKotlin :app:compileDebugJavaWithJavac \
+        python3 scripts/build_metrics.py --label codeql-build --output build/reports/profile/codeql-metrics.json -- python3 scripts/gradle_retry.py -- :app:clean :app:compileDebugKotlin :app:compileDebugJavaWithJavac \
           -Dorg.gradle.jvmargs="-Xmx4096m -XX:MaxMetaspaceSize=1024m -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8" \
-          --no-daemon --no-build-cache --rerun-tasks --stacktrace
+          --no-daemon --no-build-cache --rerun-tasks --stacktrace --info --profile
 
     - name: Perform CodeQL Analysis
       uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4
@@ -108,9 +111,11 @@ jobs:
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       with:
         name: codeql-report-${{ matrix.language }}
-        path: results/*.sarif
+        path: |
+          results/*.sarif
+          build/reports/profile/
         if-no-files-found: ignore
-        retention-days: 7
+        retention-days: 30
 
     - name: Upload dependency verification failures
       if: failure()

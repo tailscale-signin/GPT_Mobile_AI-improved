@@ -21,6 +21,7 @@ internal object GitHubEngineeringAuthorization {
                 val existingLines = it.before.lineSequence().toHashSet()
                 val added = it.after.lineSequence().filter { line -> line !in existingLines }.joinToString("\n")
                 require(!Regex("(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----)").containsMatchIn(added)) { "Patch contains a credential; remove it before review" }
+                require(dev.chungjungsoo.gptmobile.data.github.GitHubPatchValidation.inspect(it.path, it.before, it.after)["status"] != kotlinx.serialization.json.JsonPrimitive("BLOCKED")) { "Patch contains unresolved merge markers; resolve them before review" }
                 put(
                     JSONObject().put("path", it.path).put("before", it.before).put("after", it.after).apply {
                         // Preserve the canonical representation and approvals of existing replacement jobs.

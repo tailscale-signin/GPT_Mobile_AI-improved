@@ -13,6 +13,29 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 
+/** An objective for loading a checkpoint, not for reconciling remote writes. */
+data class CheckpointRestoreObjective(val maximumMillis: Long) {
+    init {
+        require(maximumMillis > 0)
+    }
+    fun assess(elapsedMillis: Long): String = if (elapsedMillis.coerceAtLeast(0) <= maximumMillis) "MET" else "EXCEEDED"
+}
+
+data class ToolBatchRecoverySnapshot(
+    val pending: List<ProviderEvent.ToolCall>,
+    val dispatchedCount: Int,
+    val pendingDispatchedIds: Set<String>,
+    val pendingRetainedIds: Set<String>,
+    val loadMillis: Long,
+    val objectiveMillis: Long?,
+    val objectiveStatus: String,
+    val completedCount: Int = 0,
+    val unknownCount: Int = 0,
+    val queuedCount: Int = 0,
+    val rejectedCount: Int = 0,
+    val failedCount: Int = 0
+)
+
 /** Durable dispatch receipts. A crash after dispatch is unknown, never permission to repeat a side effect. */
 class ToolBatchCheckpoint(private val file: File?, private val binding: String) {
     @Serializable private data class Call(val id: String, val name: String, val arguments: JsonObject) {
@@ -20,12 +43,12 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String) 
     }
 
     @Serializable private data class Result(val body: String, val json: Boolean, val error: Boolean, val dispatched: Boolean, val code: String?, val callLimit: Boolean, val outputLimit: Boolean) {
-        fun restore(id: String) = AgentToolResult(id, if (json) ToolResultContent.Json(Json.parseToJsonElement(body)) else ToolResultContent.Text(body), error, sharedResult = true, dispatched = dispatched, errorCode = code, toolCallBudgetExhausted = callLimit, outputBudgetExhausted = outputLimit)
+        fun restore(id: String) = AgentContractValidation.receipt(id, AgentToolResult(id, if (json) ToolResultContent.Json(Json.parseToJsonElement(body)) else ToolResultContent.Text(body), error, sharedResult = true, dispatched = dispatched, errorCode = code, toolCallBudgetExhausted = callLimit, outputBudgetExhausted = outputLimit))
     }
 
     @Serializable private data class Entry(val call: Call, val started: Boolean = false, val result: Result? = null)
 
-    @Serializable private data class State(val binding: String, val pending: List<String> = emptyList(), val entries: Map<String, Entry> = emptyMap())
+    @Serializable private data class State(val binding: String, val schemaVersion: Int = 1, val pending: List<String> = emptyList(), val entries: Map<String, Entry> = emptyMap())
     private val mutex = file?.let { locks.computeIfAbsent(it.absolutePath) { Mutex() } } ?: Mutex()
     private val json = Json {
         encodeDefaults = true
@@ -33,11 +56,14 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String) 
     }
     private var memory = State(binding)
     private fun read(): State {
-        val saved = file?.takeIf { it.isFile }?.let {
-            require(it.length() <= 32 * 1024 * 1024) { "Tool recovery journal exceeds capacity." }
+        val saved = file?.takeIf { it.isFile || File(it.path + ".bak").isFile }?.let {
+            require(maxOf(it.length(), File(it.path + ".bak").length()) <= 32 * 1024 * 1024) { "Tool recovery journal exceeds capacity." }
             json.decodeFromString<State>(AtomicFile(it).openRead().bufferedReader().use { stream -> stream.readText() })
         } ?: memory
+        require(saved.schemaVersion == 1) { "Unsupported tool recovery checkpoint version." }
         require(saved.binding == binding) { "Tool recovery authorization changed." }
+        require(saved.entries.size <= 1024 && saved.pending.distinct().size == saved.pending.size && saved.pending.all(saved.entries::containsKey)) { "Tool recovery journal has invalid call identities." }
+        require(saved.entries.all { (id, entry) -> id.isNotBlank() && id == entry.call.id }) { "Tool recovery journal has inconsistent receipts." }
         return saved
     }
     private fun write(state: State) {
@@ -63,13 +89,50 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String) 
         val state = read()
         state.pending.map { state.entries.getValue(it).call.event() }
     }
-    suspend fun dispatchedCount(): Int = locked { read().entries.values.count { it.started } }
-    suspend fun pendingDispatchedCount(): Int = locked {
+
+    // A claimed call with no receipt may have executed. A saved pre-dispatch
+    // rejection, however, must not consume the executable-call budget on resume.
+    private fun Entry.countsAsDispatched(): Boolean = result?.dispatched ?: started
+    suspend fun dispatchedCount(): Int = locked { read().entries.values.count { it.countsAsDispatched() } }
+    suspend fun pendingDispatchedIds(): Set<String> = locked {
         val state = read()
-        state.pending.count { state.entries.getValue(it).started }
+        state.pending.filterTo(mutableSetOf()) { state.entries.getValue(it).countsAsDispatched() }
+    }
+    suspend fun recoverySnapshot(objective: CheckpointRestoreObjective? = null): ToolBatchRecoverySnapshot {
+        val started = System.nanoTime()
+        return locked {
+            val state = read()
+            val pending = state.pending.map { state.entries.getValue(it).call.event() }
+            val dispatchedCount = state.entries.values.count { it.countsAsDispatched() }
+            val pendingDispatchedIds = state.pending.filterTo(mutableSetOf()) { state.entries.getValue(it).countsAsDispatched() }
+            val pendingRetainedIds = state.pending.filterTo(mutableSetOf()) { state.entries.getValue(it).let { entry -> entry.started || entry.result != null } }
+            val elapsed = ((System.nanoTime() - started) / 1_000_000).coerceAtLeast(0)
+            ToolBatchRecoverySnapshot(
+                pending = pending,
+                dispatchedCount = dispatchedCount,
+                pendingDispatchedIds = pendingDispatchedIds,
+                pendingRetainedIds = pendingRetainedIds,
+                loadMillis = elapsed,
+                objectiveMillis = objective?.maximumMillis,
+                objectiveStatus = objective?.assess(elapsed) ?: "NOT_CONFIGURED",
+                completedCount = state.entries.values.count { it.result?.let { result -> !result.error && result.code !in ToolResultEnvelope.unknownOutcomeCodes } == true },
+                unknownCount = state.entries.values.count { it.started && it.result == null || it.result?.code in ToolResultEnvelope.unknownOutcomeCodes },
+                queuedCount = state.entries.values.count { !it.started && it.result == null },
+                rejectedCount = state.entries.values.count { it.result?.let { result -> result.error && !result.dispatched && result.code !in ToolResultEnvelope.unknownOutcomeCodes } == true },
+                failedCount = state.entries.values.count { it.result?.let { result -> result.error && result.dispatched && result.code !in ToolResultEnvelope.unknownOutcomeCodes } == true }
+            )
+        }
     }
     suspend fun enqueue(calls: List<ProviderEvent.ToolCall>) = locked {
         val state = read()
+        require(calls.map { it.callId }.distinct().size == calls.size) { "Duplicate tool call IDs cannot be checkpointed." }
+        val incoming = calls.map { it.callId }
+        require(
+            state.pending == incoming ||
+                state.pending.none { id ->
+                    state.entries.getValue(id).let { !it.started && it.result == null }
+                }
+        ) { "An earlier batch still has queued calls; restore it before starting another batch." }
         val entries = state.entries.toMutableMap()
         calls.forEach { call ->
             val row = Call(call.callId, call.name, call.arguments)
@@ -95,12 +158,18 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String) 
         }
         if (restored != null) return restored
         val result = dispatch()
-        withContext(NonCancellable) { complete(call, result) }
+        withContext(NonCancellable) { saveResult(call, result, claimed = true) }
         return result
     }
-    suspend fun complete(call: ProviderEvent.ToolCall, result: AgentToolResult) = locked {
+
+    suspend fun complete(call: ProviderEvent.ToolCall, result: AgentToolResult) = saveResult(call, result, claimed = false)
+
+    private suspend fun saveResult(call: ProviderEvent.ToolCall, result: AgentToolResult, claimed: Boolean) = locked {
         val state = read()
         val entry = requireNotNull(state.entries[call.callId])
+        require(entry.call.event() == call && result.callId == call.callId) { "Tool receipt does not match the checkpointed call." }
+        // A later deferred/suppressed replay must never replace the first receipt.
+        if (entry.result != null || (entry.started && !claimed)) return@locked
         // Replay is bounded separately from the authoritative Research/ToolEvent evidence stores.
         val retained = ToolExchangeCompactor.compact(listOf(AgentToolExchange(listOf(call), listOf(result.copy(traceContent = null, retainedContent = null)))), 4096, 4096).single().results.single()
         val content = retained.content
@@ -114,6 +183,9 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String) 
     }
     suspend fun finish() = locked {
         val state = read()
+        require(state.pending.none { id -> state.entries.getValue(id).let { !it.started && it.result == null } }) {
+            "Cannot finish while checkpointed calls remain queued."
+        }
         if (state.pending.isNotEmpty()) write(state.copy(pending = emptyList()))
     }
     companion object {

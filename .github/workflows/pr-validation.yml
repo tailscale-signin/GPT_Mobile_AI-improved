@@ -282,6 +282,7 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
       - name: Gateway and GitHub OAuth broker contracts
+        if: ${{ !cancelled() }}
         run: |
           python3 -m pip install --require-hashes -r gateway/requirements.txt
           python3 -m py_compile gateway/gateway*.py

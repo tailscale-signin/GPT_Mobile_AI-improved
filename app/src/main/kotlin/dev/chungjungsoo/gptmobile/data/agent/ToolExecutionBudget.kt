@@ -34,7 +34,11 @@ class ToolExecutionBudget(
     private val permits = Semaphore(limits.maxConcurrentTools.coerceAtLeast(1))
     private val executionLimit = ToolBudgetPolicy.executionLimit(limits)
     private val combinedMode = combined != null || limits.combined != null
-    private val separateResultAllowance = limits.researchAcquisition || combinedMode
+
+    // GitHub delivers bounded saved-view pages; a cumulative excerpt allowance
+    // must not stop traversal after three 8 KiB pages. The call ceiling,
+    // per-result bound and provider replay/context admission still apply.
+    private val separateResultAllowance = limits.researchAcquisition || combinedMode || limits.githubTask && limits.maxToolOutputBytes > 0
 
     fun canExecute(): Boolean = (separateResultAllowance || remainingBytes.get() > 0) && !callBudgetIsExhausted()
     fun remainingOutputBytes(): Int = if (separateResultAllowance) limits.maxToolOutputBytes.coerceAtLeast(0) else remainingBytes.get().coerceAtLeast(0)
@@ -61,6 +65,7 @@ class ToolExecutionBudget(
 
         override suspend fun prepareExecution(callId: String, arguments: JsonObject): suspend () -> AgentToolResult {
             fun failure(message: String) = ToolResultEnvelope.error(callId, "BUDGET_EXHAUSTED", message)
+            AgentContractValidation.admission(definition, callId)?.let { rejected -> return { withBudgetState(rejected) } }
             val inherited = currentCoroutineContext()[CombinedToolDispatchScope]
             val activeRole = inherited?.context ?: currentCoroutineContext()[CombinedRunScope]?.context
             val boundContext = combined ?: limits.combined
@@ -85,9 +90,7 @@ class ToolExecutionBudget(
             val invalid = ToolArgumentValidator.errors(arguments, tool.definition.inputSchema)
             if (invalid.isNotEmpty()) {
                 failures.computeIfAbsent(signature) { AtomicInteger() }.incrementAndGet()
-                val message = invalid.joinToString("; ") +
-                    ". No action was dispatched. Correct the arguments using this tool schema, then retry with a new call ID: " +
-                    tool.definition.inputSchema.toString().take(6000)
+                val message = ToolArgumentValidator.repairMessage(tool.definition.name, invalid, tool.definition.inputSchema)
                 return { withBudgetState(ToolResultEnvelope.error(callId, "INVALID_ARGUMENTS", message)) }
             }
             if (!alreadyBudgeted && !tryAcquireCall(enforceResearchLimit = executionContext != null)) {
@@ -182,11 +185,14 @@ class ToolExecutionBudget(
                     val recorder = statistics
                     val recordedId = statisticsId
                     val sharedContext = physicalContext?.let { CombinedToolDispatchScope(it, physicalIdentity) } ?: kotlin.coroutines.EmptyCoroutineContext
-                    val result = withContext(sharedContext) {
+                    val observed = withContext(sharedContext) {
                         currentCoroutineContext().ensureActive()
                         physicalToolStarted = true
                         if (recorder != null && recordedId != null) withContext(dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsContext(recorder, recordedId, statisticsIdentity.key, attributedProfile, statisticsRoot)) { tool.execute(callId, arguments) } else tool.execute(callId, arguments)
                     }
+                    // A receipt with another call ID cannot establish this call's outcome,
+                    // even if that unrelated receipt claims it was not dispatched.
+                    val result = AgentContractValidation.receipt(callId, observed)
                     return result.also { raw ->
                         combinedResult = raw
                         if (!raw.dispatched) {
@@ -196,7 +202,7 @@ class ToolExecutionBudget(
                         shared = raw.sharedResult
                         producer = raw.statisticsProducerId
                         executionOutcome = when {
-                            raw.errorCode in setOf("TIMEOUT_OUTCOME_UNKNOWN", "DISPATCH_OUTCOME_UNKNOWN") -> dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolOutcome.UNKNOWN
+                            raw.errorCode in ToolResultEnvelope.unknownOutcomeCodes -> dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolOutcome.UNKNOWN
                             raw.isError -> dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolOutcome.FAILURE
                             else -> dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolOutcome.SUCCESS
                         }
@@ -222,7 +228,7 @@ class ToolExecutionBudget(
                                 }
                         }
                     }
-                    if (result.errorCode in setOf("TIMEOUT_OUTCOME_UNKNOWN", "DISPATCH_OUTCOME_UNKNOWN")) reason = result.errorCode
+                    if (result.errorCode in ToolResultEnvelope.unknownOutcomeCodes) reason = result.errorCode
                     if (result.errorCode == "READ_DEADLINE") {
                         combinedResult = result
                         reason = result.errorCode
@@ -257,7 +263,7 @@ class ToolExecutionBudget(
                             terminalToolFailures[tool.definition.name] = "AUTH_FAILED"
                         }
                     }
-                    if (normalizedResult.errorCode in setOf("TIMEOUT_OUTCOME_UNKNOWN", "DISPATCH_OUTCOME_UNKNOWN") && !replayableRead) unknownOutcomes += signature
+                    if (normalizedResult.errorCode in ToolResultEnvelope.unknownOutcomeCodes && !replayableRead) unknownOutcomes += signature
                     if (normalizedResult.isError && normalizedResult.errorCode !in setOf("AUTH_REQUIRED", "BUDGET_EXHAUSTED")) failures.computeIfAbsent(signature) { AtomicInteger() }.incrementAndGet()
                     deliveryOutcome = if (normalizedResult.outputBudgetExhausted || normalizedResult.content != result.content || (result.retainedContent != null && result.retainedContent != result.content)) dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolDelivery.TRUNCATED else dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolDelivery.DELIVERED
                     success = !normalizedResult.isError
@@ -301,13 +307,13 @@ class ToolExecutionBudget(
                         if (budget != null && attemptId != null) {
                             if (!physicalToolStarted || raw != null && !raw.dispatched) {
                                 budget.releaseNotDispatched(attemptId)
-                            } else if (raw != null && raw.errorCode !in setOf("TIMEOUT_OUTCOME_UNKNOWN", "DISPATCH_OUTCOME_UNKNOWN")) {
+                            } else if (raw != null && raw.errorCode !in ToolResultEnvelope.unknownOutcomeCodes) {
                                 budget.settle(attemptId, CombinedUsage(CombinedResourceQuota(toolOperations = workUnits)))
                             } else {
                                 budget.unknown(attemptId, reason ?: "Tool completion unknown; work reservation retained.")
                             }
                         }
-                        if (budget != null && raw != null && raw.dispatched && raw.errorCode !in setOf("TIMEOUT_OUTCOME_UNKNOWN", "DISPATCH_OUTCOME_UNKNOWN")) {
+                        if (budget != null && raw != null && raw.dispatched && raw.errorCode !in ToolResultEnvelope.unknownOutcomeCodes) {
                             val item = assignedWorkId
                             var madeProgress = false
                             if (!raw.isError && item != null) {
@@ -373,7 +379,7 @@ class ToolExecutionBudget(
             is ToolResultContent.Json -> value.value.toString()
             is ToolResultContent.ResourceLinks -> value.links.joinToString("\n") { it.uri }
         }
-        val checkpoint = if (completed.incrementAndGet() % ToolProgressTracker.INTERVAL == 0) {
+        val checkpoint = if (completed.incrementAndGet() % ToolProgressTracker.INTERVAL == 0 && GitHubReplayRecovery.envelope(result.content) == null) {
             "\n\n" + ToolProgressTracker.SUMMARY_INSTRUCTION
         } else {
             ""

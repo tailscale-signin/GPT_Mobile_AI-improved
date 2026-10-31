@@ -16,25 +16,23 @@ import io.ktor.client.request.header
 import io.ktor.client.request.request
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
-import io.ktor.client.statement.bodyAsChannel
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpMethod
 import io.ktor.http.contentType
 import io.ktor.http.isSuccess
-import io.ktor.utils.io.readAvailable
-import java.io.ByteArrayOutputStream
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 import java.util.Base64
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.yield
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.intOrNull
@@ -70,11 +68,12 @@ class GitHubTool(
     private val rateLimits = if (httpClient === defaultHttpClient) dev.chungjungsoo.gptmobile.data.github.GitHubSessionCaches.rateLimitsForCredential(apiToken) else dev.chungjungsoo.gptmobile.data.github.GitHubRateLimitManager()
     internal val hasCredential get() = apiToken.isNotBlank()
     internal val hasRepositoryContext get() = repositoryContext != null
-    private val scheduler = dev.chungjungsoo.gptmobile.data.github.GitHubSessionCaches.schedulerForCredential(apiToken)
+    private val scheduler = if (httpClient === defaultHttpClient) dev.chungjungsoo.gptmobile.data.github.GitHubSessionCaches.schedulerForCredential(apiToken) else dev.chungjungsoo.gptmobile.data.github.GitHubRequestScheduler()
+    private val responseCache = if (httpClient === defaultHttpClient) dev.chungjungsoo.gptmobile.data.github.GitHubSessionCaches.forCredential(apiToken) else dev.chungjungsoo.gptmobile.data.github.GitHubResponseCache()
     private val workspaceClient by lazy {
         GitHubWorkspaceClient(
             apiToken, httpClient, rateLimits = rateLimits, authenticationRejected = authenticationRejected,
-            responseCache = if (httpClient === defaultHttpClient) dev.chungjungsoo.gptmobile.data.github.GitHubSessionCaches.forCredential(apiToken) else dev.chungjungsoo.gptmobile.data.github.GitHubResponseCache(),
+            responseCache = responseCache,
             conditionalReads = featureSettings.githubConditionalReads, blobCache = featureSettings.githubBlobCache,
             freshnessSeconds = featureSettings.pluginExecution[dev.chungjungsoo.gptmobile.data.model.ToolPluginId.GITHUB]?.githubCacheSeconds ?: 15,
             connectionUid = connectionUid, conversationId = conversationId, taskId = taskId, persistentState = persistentState, stateStore = stateStore, scheduler = scheduler, engineeringPrepare = engineeringPrepare
@@ -82,7 +81,7 @@ class GitHubTool(
     }
     internal fun operations(): List<GitHubOperationTool> {
         val suffix = modelToolName.removePrefix("github").takeIf { it.startsWith("__") }.orEmpty()
-        val scope = dev.chungjungsoo.gptmobile.data.research.researchHash("$apiToken|$connectionUid|$conversationId|$taskId")
+        val scope = GitHubResultViews.scope(apiToken, connectionUid, conversationId, taskId)
         return GitHubOperationTool.names.map { GitHubOperationTool(it, this, scope, it + suffix) }
     }
 
@@ -886,8 +885,26 @@ class GitHubTool(
         val base = "$BASE_URL/repos/$owner/$repo/actions"
         val page = arguments["page"]?.jsonPrimitive?.intOrNull ?: 1
         require(page in 1..1000) { "Page must be between 1 and 1000." }
-        val pagination = "?per_page=30&page=$page"
+        val perPage = arguments["per_page"]?.jsonPrimitive?.intOrNull ?: 30
+        require(perPage in 1..100) { "per_page must be between 1 and 100." }
+        val pagination = "?per_page=$perPage&page=$page"
         val write = action in setOf("dispatch_workflow", "rerun_workflow", "rerun_failed_jobs", "cancel_workflow")
+        if (write) requireToken()
+        if (action == "get_job_logs") {
+            val jobId = positiveId("job_id")
+            if (arguments["run_id"] != null || arguments["expected_head_sha"] != null) {
+                val response = getGitHubApi("$base/jobs/$jobId")
+                val text = response.bodyAsText()
+                if (!response.status.isSuccess()) return classifyGitHubHttpFailure(callId, action, arguments, response, text)
+                val job = jsonParser.parseToJsonElement(text).jsonObject
+                arguments["run_id"]?.let { require(job["run_id"] == it) { "Job belongs to another workflow run; rediscover jobs using run_id." } }
+                arguments["expected_head_sha"]?.let { require(job["head_sha"] == it) { "CI evidence belongs to a different commit; refresh the job head." } }
+            }
+            val log = dev.chungjungsoo.gptmobile.data.github.GitHubCiLogReader(httpClient, apiToken, scheduler, responseCache, authenticationRejected = authenticationRejected)
+                .read("/repos/$owner/$repo/actions/jobs/$jobId/logs", immutable = false)
+            val safe = dev.chungjungsoo.gptmobile.data.diagnostics.redactLogMessage(log.text).let { if (apiToken.isNotBlank()) it.replace(apiToken, "[REDACTED]") else it }
+            return successResult(callId, dev.chungjungsoo.gptmobile.data.github.GitHubCiLogPage.render(log.copy(text = safe), arguments).toString())
+        }
         if (action == "dispatch_workflow" && arguments["workflow_id"]?.jsonPrimitive?.content.isNullOrBlank()) {
             val discovery = handleWorkflowAction(callId, "list_workflows", arguments)
             if (discovery.isError) return discovery
@@ -911,13 +928,14 @@ class GitHubTool(
                 dispatched = false
             )
         }
+        var observedAttempt: JsonElement? = null
+        if (write) workflowWritePrecondition(callId, action, arguments, base) { observedAttempt = it["run_attempt"] }?.let { return it }
         val path = when (action) {
             "list_workflows" -> "/workflows$pagination"
             "get_workflow_run" -> "/runs/${positiveId("run_id")}"
             "list_workflow_jobs" -> "/runs/${positiveId("run_id")}/jobs$pagination"
             "get_workflow_job" -> "/jobs/${positiveId("job_id")}"
             "list_workflow_artifacts" -> "/runs/${positiveId("run_id")}/artifacts$pagination"
-            "get_job_logs" -> "/jobs/${positiveId("job_id")}/logs"
             "dispatch_workflow" -> {
                 val workflow = normalizeGitHubWorkflowSelector(arguments["workflow_id"]?.jsonPrimitive?.content.orEmpty())
                 "/workflows/$workflow/dispatches"
@@ -927,8 +945,7 @@ class GitHubTool(
             "cancel_workflow" -> "/runs/${positiveId("run_id")}/cancel"
             else -> error("Unsupported workflow action.")
         }
-        val response = if (write) {
-            requireToken()
+        if (write) {
             val body = if (action == "dispatch_workflow") {
                 buildJsonObject {
                     val ref = arguments["ref"]?.jsonPrimitive?.content.orEmpty()
@@ -943,46 +960,98 @@ class GitHubTool(
             } else {
                 buildJsonObject {}
             }
-            writeGitHubApi(base + path, HttpMethod.Post, body)
-        } else {
-            getGitHubApi(base + path)
+            val identity = JsonObject(arguments + mapOf("observed_run_attempt" to (observedAttempt ?: JsonNull)))
+            var rejected: AgentToolResult? = null
+            val result = try {
+                workspaceClient.trackExecution("ci.$action", identity) {
+                    val response = writeGitHubApi(base + path, HttpMethod.Post, body)
+                    val text = response.bodyAsText()
+                    if (!response.status.isSuccess()) {
+                        rejected = classifyGitHubHttpFailure(callId, action, arguments, response, text)
+                        if (response.status.value in 400..499) throw dev.chungjungsoo.gptmobile.data.github.GitHubRequestRejected(response.status.value, "GitHub rejected the CI request")
+                        throw java.io.IOException("CI response was not accepted; reconcile the saved execution before retrying")
+                    }
+                    workflowReceipt(action, arguments, text)
+                }
+            } catch (failure: dev.chungjungsoo.gptmobile.data.github.GitHubRequestRejected) {
+                return rejected ?: throw failure
+            }
+            return executionResult(callId, result)
         }
-        val text = if (action == "get_job_logs") readLogPreview(response) else response.bodyAsText()
+        val response = getGitHubApi(base + path)
+        val text = response.bodyAsText()
         return if (response.status.isSuccess()) {
+            if (action == "get_workflow_job") {
+                val job = jsonParser.parseToJsonElement(text).jsonObject
+                arguments["run_id"]?.let { require(job["run_id"] == it) { "Job belongs to another workflow run; rediscover jobs using run_id." } }
+                arguments["expected_head_sha"]?.let { require(job["head_sha"] == it) { "CI evidence belongs to a different commit; refresh the job head." } }
+            }
             successResult(
                 callId,
-                if (text.isBlank()) {
-                    "GitHub accepted $action. Inspect the workflow run to confirm its result."
-                } else if (action == "get_job_logs") {
-                    text
-                } else {
-                    compactWorkflowPayload(action, text, page)
-                }
+                compactWorkflowPayload(action, text, page, perPage, arguments)
             )
-        } else if (write) {
-            classifyGitHubHttpFailure(callId, action, arguments, response, text)
         } else {
-            errorResult(callId, "GitHub API returned HTTP ${response.status.value}: ${truncate(text, 500)}")
+            classifyGitHubHttpFailure(callId, action, arguments, response, text)
         }
     }
 
-    private fun compactWorkflowPayload(action: String, text: String, page: Int): String {
-        val parsed = runCatching { jsonParser.parseToJsonElement(text) }.getOrNull() ?: return truncate(text, MAX_OUTPUT_CHARS)
-        if (parsed !is JsonObject) return truncate(text, MAX_OUTPUT_CHARS)
+    private fun workflowReceipt(action: String, arguments: JsonObject, text: String): JsonObject = buildJsonObject {
+        val receipt = text.takeIf { it.isNotBlank() }?.let { jsonParser.parseToJsonElement(it) as? JsonObject }
+        put("status", "accepted")
+        put("action", action)
+        put("upstream_completed", true)
+        put("message", "GitHub accepted $action. Acceptance does not mean that the workflow completed. Reconcile this receipt before retrying a mutation.")
+        listOf("run_id", "workflow_id", "ref").forEach { key -> arguments[key]?.let { put(key, it) } }
+        receipt?.let { put("receipt", it) }
+        val runId = receipt?.get("workflow_run_id") ?: receipt?.get("id") ?: arguments["run_id"]
+        if (runId != null) {
+            put(
+                "continuation",
+                buildJsonObject {
+                    put("action", "get_workflow_run")
+                    put("run_id", runId)
+                }
+            )
+        } else {
+            put("association", "unknown; no run ID returned by GitHub. Inspect action=runs for the selected workflow/ref; do not infer a run ID from recency alone.")
+        }
+    }
+
+    private fun executionResult(callId: String, checkpoint: JsonObject): AgentToolResult {
+        val metadata = checkpoint["execution"]?.jsonObject
+        val completed = metadata?.get("status")?.jsonPrimitive?.content == "COMPLETED"
+        val replayed = metadata?.get("replayed_receipt")?.jsonPrimitive?.booleanOrNull == true
+        return AgentToolResult(
+            callId,
+            if (completed) successResult(callId, checkpoint.toString()).content else ToolResultContent.Json(checkpoint),
+            !completed,
+            errorCode = if (completed) null else checkpoint["status"]?.jsonPrimitive?.content,
+            dispatched = completed && !replayed,
+            sharedResult = replayed
+        )
+    }
+
+    private fun compactWorkflowPayload(action: String, text: String, page: Int, perPage: Int, arguments: JsonObject): String {
+        val parsed = runCatching { jsonParser.parseToJsonElement(text) as? JsonObject }.getOrNull()
+            ?: error("GITHUB_UNEXPECTED_RESPONSE · Expected a GitHub CI JSON object; no empty collection was inferred.")
 
         fun projectedArray(key: String, fields: List<String>): JsonObject {
-            val values = parsed[key]?.jsonArray ?: JsonArray(emptyList())
+            val values = checkNotNull(parsed[key] as? JsonArray) { "GITHUB_UNEXPECTED_RESPONSE · GitHub response is missing the $key collection; this is not an empty result." }
             return buildJsonObject {
-                put("total_count", parsed["total_count"] ?: JsonPrimitive(values.size))
+                put("total_count", parsed["total_count"] ?: JsonNull)
                 put("page", page)
+                put("per_page", perPage)
+                put("returned", values.size)
+                put("empty", values.isEmpty())
                 val total = parsed["total_count"]?.jsonPrimitive?.intOrNull
-                val hasMore = if (total != null) page * 30 < total else values.size == 30
+                val hasMore = if (total != null) page * perPage < total else values.size == perPage
+                put("pagination_inconsistent", values.isEmpty() && total != null && total > (page - 1) * perPage)
                 put("has_more", hasMore)
-                if (hasMore) put("continuation", buildJsonObject { put("page", page + 1) })
+                if (hasMore) put("continuation", JsonObject(arguments + mapOf("action" to JsonPrimitive(action), "page" to JsonPrimitive(page + 1), "per_page" to JsonPrimitive(perPage))))
                 put(
                     key,
                     buildJsonArray {
-                        values.take(30).forEach { value ->
+                        values.forEach { value ->
                             add(
                                 buildJsonObject {
                                     fields.forEach { field -> value.jsonObject[field]?.let { put(field, it) } }
@@ -1018,26 +1087,91 @@ class GitHubTool(
         }
     }
 
-    private suspend fun readLogPreview(response: HttpResponse): String {
-        val channel = response.bodyAsChannel()
-        val output = ByteArrayOutputStream()
-        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-        try {
-            while (output.size() <= MAX_OUTPUT_CHARS) {
-                val count = channel.readAvailable(buffer, 0, minOf(buffer.size, MAX_OUTPUT_CHARS + 1 - output.size()))
-                if (count < 0) break
-                if (count == 0) {
-                    yield()
-                    continue
+    /** Observe state before a CI mutation; never cancel or replay another run to force progress. */
+    private suspend fun workflowWritePrecondition(callId: String, action: String, args: JsonObject, base: String, observed: (JsonObject) -> Unit = {}): AgentToolResult? {
+        fun stopped(code: String, message: String, observation: JsonObject? = null) = AgentToolResult(
+            callId,
+            ToolResultContent.Json(
+                buildJsonObject {
+                    put("code", code)
+                    put("message", message)
+                    observation?.let { put("observation", it) }
                 }
-                output.write(buffer, 0, count)
+            ),
+            true,
+            errorCode = code,
+            dispatched = false
+        )
+        if (action == "dispatch_workflow") {
+            val workflow = normalizeGitHubWorkflowSelector(args["workflow_id"]?.jsonPrimitive?.content.orEmpty())
+            require(!args["ref"]?.jsonPrimitive?.content.isNullOrBlank()) { "An explicit ref is required for workflow dispatch." }
+            val response = getGitHubApi("$base/workflows/$workflow")
+            val text = response.bodyAsText()
+            if (response.status.value == 404 && workflow.toLongOrNull()?.let { it > 0 } == true) {
+                val runResponse = getGitHubApi("$base/runs/$workflow")
+                val runText = runResponse.bodyAsText()
+                if (runResponse.status.isSuccess()) {
+                    val run = jsonParser.parseToJsonElement(runText).jsonObject
+                    return stopped(
+                        "WORKFLOW_ID_IS_RUN_ID",
+                        "workflow_id is a run ID. Discover workflows and use the observed workflow_id or YAML filename with the explicit ref. No workflow was dispatched.",
+                        buildJsonObject {
+                            put("run_id", args.getValue("workflow_id"))
+                            put("workflow_id", run["workflow_id"] ?: JsonNull)
+                            put("path", run["path"] ?: JsonNull)
+                        }
+                    )
+                }
             }
-            val bytes = output.toByteArray()
-            return bytes.copyOf(minOf(bytes.size, MAX_OUTPUT_CHARS)).decodeToString() +
-                if (bytes.size > MAX_OUTPUT_CHARS) "\n[Log preview limited to 32 KB. Open the workflow job on GitHub for the full log.]" else ""
-        } finally {
-            channel.cancel(null)
+            if (!response.status.isSuccess()) return classifyGitHubHttpFailure(callId, action, args, response, text)
+            val workflowState = jsonParser.parseToJsonElement(text).jsonObject
+            if (workflowState["state"]?.jsonPrimitive?.content != "active") {
+                return stopped("WORKFLOW_NOT_ACTIVE", "This workflow is disabled or its state is unavailable. Inspect action=workflows before dispatching; no workflow was started.", workflowState)
+            }
+            return null
         }
+        val runId = requireNotNull(args["run_id"]?.jsonPrimitive?.content?.toLongOrNull()?.takeIf { it > 0 }) { "A positive run_id is required." }
+        val response = getGitHubApi("$base/runs/$runId")
+        val text = response.bodyAsText()
+        if (!response.status.isSuccess()) return classifyGitHubHttpFailure(callId, action, args, response, text)
+        val run = jsonParser.parseToJsonElement(text).jsonObject
+        observed(run)
+        val status = run["status"]?.jsonPrimitive?.content.orEmpty()
+        if (status == "completed" && action == "cancel_workflow") {
+            return successResult(
+                callId,
+                buildJsonObject {
+                    put("status", "already_completed")
+                    put("run_id", runId)
+                    put("message", "The run has completed; no cancellation was sent.")
+                    put(
+                        "continuation",
+                        buildJsonObject {
+                            put("action", "get_workflow_run")
+                            put("run_id", runId)
+                        }
+                    )
+                }.toString()
+            ).copy(dispatched = false)
+        }
+        if (status.isBlank()) return stopped("CI_STATE_UNAVAILABLE", "The run state is unavailable. Inspect action=run before retrying; no mutation was sent.")
+        if (status !in setOf("completed", "queued", "in_progress", "pending", "requested", "waiting")) {
+            return stopped("CI_STATE_UNAVAILABLE", "The run returned an unrecognized state. Inspect action=run before retrying; no mutation was sent.")
+        }
+        if (action != "cancel_workflow" && status != "completed") {
+            return stopped("CI_RUN_ACTIVE", "The run is $status. Wait for completion before rerunning; no retry or cancellation was sent.", run)
+        }
+        if (action == "rerun_failed_jobs" && run["conclusion"] == JsonPrimitive("success")) {
+            return successResult(
+                callId,
+                buildJsonObject {
+                    put("status", "no_failed_jobs")
+                    put("run_id", runId)
+                    put("message", "This completed run succeeded. No failed-job rerun was sent; use rerun_all only when a complete rerun is intended.")
+                }.toString()
+            ).copy(dispatched = false)
+        }
+        return null
     }
 
     private suspend fun handleCreateBranch(callId: String, arguments: JsonObject): AgentToolResult {
@@ -1246,7 +1380,17 @@ class GitHubTool(
         arguments: JsonObject,
         throwable: Throwable
     ): AgentToolResult {
+        if (throwable is dev.chungjungsoo.gptmobile.data.github.GitHubExecutionBlocked) return executionResult(callId, throwable.checkpoint)
         val detail = throwable.localizedMessage ?: throwable.message ?: "Unknown error"
+        if (detail.startsWith("GITHUB_UNEXPECTED_RESPONSE")) {
+            return AgentToolResult(callId, ToolResultContent.Text(detail), true, errorCode = "GITHUB_UNEXPECTED_RESPONSE")
+        }
+        if (Regex("(?i)create a working branch before committing|use a working branch; direct default-branch writes").containsMatchIn(detail)) {
+            return AgentToolResult(callId, ToolResultContent.Text("WORKING_BRANCH_REQUIRED · Create/select a permitted branch with github_commit action=branch, resolve that branch, then stage against its current head. The preview is retained; no commit was sent. Repository write access does not authorize direct default-branch writes."), true, errorCode = "WORKING_BRANCH_REQUIRED", dispatched = false)
+        }
+        if (detail.contains("Pull request head changed", ignoreCase = true)) {
+            return AgentToolResult(callId, ToolResultContent.Text("GITHUB_PR_HEAD_CHANGED · Refresh github_pr action=context and review the current diff before supplying a new expected_head_sha. No PR mutation was sent."), true, errorCode = "GITHUB_PR_HEAD_CHANGED", dispatched = false)
+        }
         if (throwable is IllegalArgumentException) {
             val explanation = detail.takeUnless { it.isBlank() || it == "Failed requirement." }
                 ?: "Invalid or missing arguments for this GitHub operation."
@@ -1313,6 +1457,12 @@ class GitHubTool(
             }
         }
         return when {
+            action in setOf("rerun_workflow", "rerun_failed_jobs", "cancel_workflow") &&
+                response.status.value in setOf(403, 409, 422) &&
+                Regex("(?i)already running|currently running|in progress|not completed|not running|already completed|unable to cancel").containsMatchIn(githubMessage.orEmpty()) ->
+                AgentToolResult(callId, ToolResultContent.Text("CI_STATE_CHANGED · $detail. Refresh github_ci action=run with the same run_id. Do not cancel another run or blindly retry this mutation."), true, errorCode = "CI_STATE_CHANGED")
+            action == "create_pull_request" && response.status.value == 422 ->
+                AgentToolResult(callId, ToolResultContent.Text("GITHUB_PR_VALIDATION_FAILED · $detail. Inspect github_context action=branches and github_pr action=list; head/base must exist, differ and contain changes. A PR may already exist. No PR creation was confirmed. Details: ${truncate(body, 500)}"), true, errorCode = "GITHUB_PR_VALIDATION_FAILED")
             response.status.value == 429 ||
                 response.status.value == 403 &&
                 (response.headers["X-RateLimit-Remaining"] == "0" || githubMessage?.contains("secondary rate", ignoreCase = true) == true) ->
@@ -1410,8 +1560,12 @@ class GitHubTool(
     }
 
     private suspend fun writeGitHubApi(url: String, method: HttpMethod, body: JsonObject): HttpResponse = scheduler.execute(null) {
-        check(!authenticationRejected.get()) { "GitHub authentication was rejected (HTTP 401). Reconnect the GitHub account before retrying any operation." }
-        rateLimits.requireAvailable("core")
+        try {
+            check(!authenticationRejected.get()) { "GitHub authentication was rejected (HTTP 401). Reconnect the GitHub account before retrying any operation." }
+            rateLimits.requireAvailable("core")
+        } catch (rejected: IllegalStateException) {
+            throw dev.chungjungsoo.gptmobile.data.github.GitHubRequestRejected(0, rejected.message ?: "Request admission failed before dispatch")
+        }
         scheduler.recordRequest()
         httpClient.request(url) {
             this.method = method

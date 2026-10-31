@@ -22,16 +22,18 @@ import org.junit.Test
 
 class GitHubDispatchReceiptTest {
     private val sha = "a".repeat(40)
-    private fun args(run: Long? = null, tag: String = "v1.2.3") = buildJsonObject {
+    private fun args(run: Long? = null, tag: String = "v1.2.3", execution: String? = null) = buildJsonObject {
         put("owner", "owner")
         put("repo", "repo")
         put("tag_name", tag)
         put("ref", "main")
         put("expected_head_sha", sha)
         run?.let { put("workflow_run_id", it) }
+        execution?.let { put("execution_id", it) }
     }
     private inner class Fixture(private val ids: List<Long?>, var runHead: String = sha) : AutoCloseable {
         var dispatches = 0
+        var loseAcknowledgement = false
         val runsRead = mutableListOf<Long>()
         val http = HttpClient(
             MockEngine { request ->
@@ -49,6 +51,7 @@ class GitHubDispatchReceiptTest {
                         val body = Json.parseToJsonElement((request.body as TextContent).text).jsonObject
                         assertTrue(body["return_run_details"]!!.jsonPrimitive.boolean)
                         val id = ids[dispatches++]
+                        if (loseAcknowledgement) throw java.io.IOException("Acknowledgement lost")
                         if (id == null) respond("", HttpStatusCode.NoContent) else respond("""{"workflow_run_id":$id,"run_url":"https://api.github.com/repos/owner/repo/actions/runs/$id","html_url":"https://github.com/owner/repo/actions/runs/$id"}""")
                     }
                     else -> {
@@ -60,15 +63,19 @@ class GitHubDispatchReceiptTest {
                 }
             }
         )
-        val client = GitHubWorkspaceClient("token", http)
+        val store = GitHubRepositoryStateStore()
+        val client = GitHubWorkspaceClient("token", http, stateStore = store)
         override fun close() = http.close()
-        suspend fun dispatch(): JsonObject = client.execute("publish_release", args()).jsonObject
+        suspend fun dispatch(execution: String? = null): JsonObject = client.execute("publish_release", args(execution = execution)).jsonObject
     }
 
     @Test fun twoDispatchesOnTheSameBranchAndSourceKeepTheirOwnExactRuns() = runTest {
         Fixture(listOf(501L, 502L)).use { fixture ->
-            val first = fixture.dispatch()
-            val second = fixture.dispatch()
+            val first = fixture.dispatch("first-request")
+            val replay = fixture.dispatch("first-request")
+            assertEquals(first["dispatch_receipt"], replay["dispatch_receipt"])
+            assertEquals(1, fixture.dispatches)
+            val second = fixture.dispatch("second-request")
             assertEquals("501", first["dispatch_receipt"]!!.jsonObject["workflow_run_id"]!!.jsonPrimitive.content)
             assertEquals("502", second["dispatch_receipt"]!!.jsonObject["workflow_run_id"]!!.jsonPrimitive.content)
             for (run in listOf(501L, 502L)) {
@@ -78,6 +85,9 @@ class GitHubDispatchReceiptTest {
                 assertFalse(status["release_asset_source_verified"]!!.jsonPrimitive.boolean)
             }
             assertEquals(listOf(501L, 502L), fixture.runsRead)
+            val restored = GitHubWorkspaceClient("token", fixture.http, stateStore = fixture.store, taskId = "next-turn")
+            assertEquals("DISPATCH_RECEIPT_AND_SOURCE_VERIFIED", restored.execute("release_status", args(501)).jsonObject["workflow_correlation"]!!.jsonPrimitive.content)
+            assertEquals("UNKNOWN_DISPATCH_RECEIPT_NOT_AVAILABLE", GitHubWorkspaceClient("other-token", fixture.http, stateStore = fixture.store).execute("release_status", args(502)).jsonObject["workflow_correlation"]!!.jsonPrimitive.content)
             assertTrue(runCatching { fixture.client.execute("release_status", args(501, "v9.9.9")) }.isFailure)
         }
     }
@@ -91,6 +101,26 @@ class GitHubDispatchReceiptTest {
             assertEquals(JsonNull, status["latest_workflow_run"])
             assertEquals(1, fixture.dispatches)
             assertTrue(fixture.runsRead.isEmpty())
+        }
+    }
+
+    @Test fun lostDispatchResponseRemainsUncertainAcrossClientRestart() = runTest {
+        Fixture(listOf(501L)).use { fixture ->
+            fixture.loseAcknowledgement = true
+            assertTrue(runCatching { fixture.dispatch("lost-response") }.isFailure)
+            val restored = GitHubWorkspaceClient("token", fixture.http, stateStore = fixture.store)
+            val recovered = runCatching { restored.execute("publish_release", args(execution = "lost-response")) }.exceptionOrNull()
+            assertTrue(recovered is GitHubExecutionBlocked)
+            assertEquals(1, fixture.dispatches)
+            assertTrue(fixture.runsRead.isEmpty())
+        }
+    }
+
+    @Test fun changedExpectedSourceStopsBeforeDispatch() = runTest {
+        Fixture(emptyList()).use { fixture ->
+            val changed = JsonObject(args() + ("expected_head_sha" to kotlinx.serialization.json.JsonPrimitive("b".repeat(40))))
+            assertTrue(runCatching { fixture.client.execute("publish_release", changed) }.exceptionOrNull()?.message.orEmpty().contains("head changed"))
+            assertEquals(0, fixture.dispatches)
         }
     }
 

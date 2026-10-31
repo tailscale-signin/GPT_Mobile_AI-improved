@@ -10,6 +10,17 @@ import kotlinx.serialization.json.put
 
 /** Model-facing control metadata is never inferred from the provider's prose. */
 internal object ToolResultEnvelope {
+    val unknownOutcomeCodes = setOf("TIMEOUT_OUTCOME_UNKNOWN", "DISPATCH_OUTCOME_UNKNOWN", "TOOL_OUTCOME_UNKNOWN", "TOOL_RESULT_ID_MISMATCH", "RECONCILIATION_REQUIRED")
+
+    private fun category(code: String): String = when (code) {
+        in unknownOutcomeCodes -> "OUTCOME_UNKNOWN"
+        "INVALID_ARGUMENTS", "TOOL_BATCH_OVERSIZE", "UNSUPPORTED_TOOL_CONTRACT", "TOOL_EXCHANGE_INVALID" -> "CONTRACT"
+        "PERMISSION_DENIED", "PERMISSION_REVOKED", "AUTH_REQUIRED", "AUTH_FAILED", "UNAUTHORIZED", "FORBIDDEN" -> "AUTHORIZATION"
+        "BUDGET_EXHAUSTED" -> "BUDGET"
+        "READ_DEADLINE", "READ_FAILED", "PROVIDER_UNAVAILABLE" -> "AVAILABILITY"
+        else -> "TOOL_FAILURE"
+    }
+
     fun error(callId: String, code: String, message: String, dispatched: Boolean = false): AgentToolResult =
         AgentToolResult(callId, ToolResultContent.Text(message), true, errorCode = code, dispatched = dispatched)
 
@@ -25,7 +36,7 @@ internal object ToolResultEnvelope {
                 put(
                     "outcome",
                     when {
-                        result.errorCode in setOf("TIMEOUT_OUTCOME_UNKNOWN", "DISPATCH_OUTCOME_UNKNOWN") -> "unknown"
+                        result.errorCode in unknownOutcomeCodes -> "unknown"
                         !result.dispatched -> "not_executed"
                         result.isError -> "failed"
                         else -> "completed"
@@ -37,13 +48,16 @@ internal object ToolResultEnvelope {
             put(
                 "error",
                 buildJsonObject {
+                    val code = result.errorCode ?: when {
+                        result.outputBudgetExhausted || result.toolCallBudgetExhausted -> "BUDGET_EXHAUSTED"
+                        else -> "TOOL_FAILURE"
+                    }
                     put(
                         "code",
-                        result.errorCode ?: when {
-                            result.outputBudgetExhausted || result.toolCallBudgetExhausted -> "BUDGET_EXHAUSTED"
-                            else -> "PROVIDER_UNAVAILABLE"
-                        }
+                        code
                     )
+                    put("category", category(code))
+                    put("reconciliationRequired", code in unknownOutcomeCodes)
                     put("retryableWithoutChanges", false)
                 }
             )

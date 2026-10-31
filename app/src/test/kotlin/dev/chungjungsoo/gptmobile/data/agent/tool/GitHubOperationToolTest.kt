@@ -168,7 +168,7 @@ class GitHubOperationToolTest {
         val backend = Backend().also { it.body = JsonPrimitive("captured ".repeat(2000)) }
         val views = GitHubResultViews(now = { clock }, pageBytes = 2048)
         val read = GitHubOperationTool("github_read", backend, "task-A", views = views)
-        val cursor = continuation(result(read.execute("first", buildJsonObject {})))
+        val cursor = continuation(result(read.execute("first", args("""{"evidence_id":"E1"}"""))))
         clock = 9 * 60_000L
         assertFalse(read.execute("active", cursor).isError)
         clock = 18 * 60_000L
@@ -187,6 +187,52 @@ class GitHubOperationToolTest {
         assertEquals(1, backend.calls.size)
     }
 
+    @Test fun savedPageAcceptsMatchingContextDefaultsWithoutRepeatingBackendWork() = runBlocking {
+        val backend = Backend().also { it.body = JsonPrimitive("captured ".repeat(2000)) }
+        val views = GitHubResultViews(pageBytes = 2048)
+        val tool = GitHubOperationTool("github_pr", backend, "task", views = views)
+        val request = args("""{"owner":"owner","repo":"repo","action":"context","pull_number":12,"commit_sha":"$sha"}""")
+        val cursor = continuation(result(tool.execute("first", request)))
+        val matching = JsonObject(cursor + request.filterKeys { it in setOf("owner", "repo", "action", "commit_sha") })
+        val saved = tool.execute("page", matching)
+        assertFalse(saved.isError)
+        assertFalse(saved.dispatched)
+        assertTrue(saved.sharedResult)
+        for (changed in listOf("owner" to JsonPrimitive("other"), "repo" to JsonPrimitive("other"), "commit_sha" to JsonPrimitive("b".repeat(40)), "action" to JsonPrimitive("merge"))) {
+            val refused = tool.execute("wrong-${changed.first}", JsonObject(matching + changed))
+            assertEquals("INVALID_ARGUMENTS", refused.errorCode)
+            assertFalse(refused.dispatched)
+            assertEquals(cursor, (refused.content as ToolResultContent.Json).value.jsonObject.getValue("correction_call").jsonObject.getValue("arguments"))
+        }
+        val foreign = GitHubOperationTool("github_pr", backend, "other-task", views = views).execute("foreign", matching)
+        assertEquals("SAVED_VIEW_UNAVAILABLE", foreign.errorCode)
+        assertEquals(1, backend.calls.size)
+    }
+
+    @Test fun nextTurnCanReadSavedReceiptWithoutRepeatingTheMutation() = runBlocking {
+        val backend = Backend().also { it.body = JsonPrimitive("commit receipt ".repeat(500)) }
+        val views = GitHubResultViews(pageBytes = 2048)
+        val firstScope = GitHubResultViews.scope("credential", "connection", "chat", "first-turn")
+        val first = GitHubOperationTool("github_commit", backend, firstScope, views = views)
+        val request = args("""{"stage_id":"stage","branch":"work","expected_head_sha":"$sha","message":"Commit"}""")
+        val cursor = continuation(result(first.execute("commit", request)))
+        val nextScope = GitHubResultViews.scope("credential", "connection", "chat", "next-turn")
+        val next = GitHubOperationTool("github_commit", backend, nextScope, views = views).execute("receipt", cursor)
+        assertFalse(next.isError)
+        assertFalse(next.dispatched)
+        assertEquals(1, backend.calls.size)
+        for (scope in listOf(
+            GitHubResultViews.scope("other-credential", "connection", "chat", "next-turn"),
+            GitHubResultViews.scope("credential", "other-connection", "chat", "next-turn"),
+            GitHubResultViews.scope("credential", "connection", "other-chat", "next-turn")
+        )) {
+            val foreign = GitHubOperationTool("github_commit", backend, scope, views = views).execute("foreign", cursor)
+            assertEquals("SAVED_VIEW_UNAVAILABLE", foreign.errorCode)
+        }
+        assertFalse(GitHubResultViews.scope("credential", "connection", "", "first") == GitHubResultViews.scope("credential", "connection", "", "next"))
+        assertEquals(1, backend.calls.size)
+    }
+
     @Test fun malformedSourceRangesAreRejectedBeforeTheBackendRuns() = runBlocking {
         val backend = Backend()
         val read = GitHubOperationTool("github_read", backend, "validation")
@@ -202,9 +248,9 @@ class GitHubOperationToolTest {
         val backend = Backend().also { it.body = JsonPrimitive("captured ".repeat(500)) }
         val views = GitHubResultViews(pageBytes = 2048)
         val read = GitHubOperationTool("github_read", backend, "task-A", views = views)
-        val cursors = (1..32).map { continuation(result(read.execute("source-$it", buildJsonObject {}))) }
+        val cursors = (1..32).map { continuation(result(read.execute("source-$it", args("""{"evidence_id":"E$it"}""")))) }
         assertFalse(read.execute("touch-first", cursors.first()).isError)
-        read.execute("new-source", buildJsonObject {})
+        read.execute("new-source", args("""{"evidence_id":"E33"}"""))
         assertFalse(read.execute("first-still-present", cursors.first()).isError)
         assertEquals("SAVED_VIEW_UNAVAILABLE", read.execute("second-evicted", cursors[1]).errorCode)
         assertEquals(33, backend.calls.size)
@@ -531,7 +577,7 @@ class GitHubOperationToolTest {
         val backend = Backend().also { it.body = JsonPrimitive("captured ".repeat(2000)) }
         val views = GitHubResultViews(pageBytes = 2048)
         val read = GitHubOperationTool("github_read", backend, "task-A", views = views)
-        val cursor = continuation(result(read.execute("first", buildJsonObject {})))
+        val cursor = continuation(result(read.execute("first", args("""{"evidence_id":"E1"}"""))))
         val foreign = GitHubOperationTool("github_read", backend, "task-B", views = views).execute("foreign", cursor)
         val other = GitHubOperationTool("github_search", backend, "task-A", views = views).execute("other", cursor)
         assertEquals("SAVED_VIEW_UNAVAILABLE", foreign.errorCode)
@@ -585,6 +631,9 @@ class GitHubOperationToolTest {
                 buildJsonObject {
                     put("stage_id", "S1")
                     put("commit_sha", sha)
+                    put("expected_head_sha", sha)
+                    put("branch", "work")
+                    put("message", "Apply staged changes")
                 }
             )
         }
@@ -604,10 +653,10 @@ class GitHubOperationToolTest {
         }
         val admission = ToolRoundAdmission(maxCalls = 32, maxSameTool = 24)
         assertTrue(calls.all(admission::admit))
-        val plan = planToolBatch(calls, 32, setOf("github_read"), emptyMap(), emptySet(), 24, ::toolRepeatKey)
+        val plan = planToolBatch(calls, 32, setOf("github_read"), emptyMap(), emptySet(), 24, scope = ::toolRepeatKey)
         assertEquals(30, plan.executable.size)
         val repeated = (0..3).map { calls.first().copy(callId = "repeat-$it") }
-        val repeatedPlan = planToolBatch(repeated, 32, setOf("github_read"), emptyMap(), emptySet(), 24, ::toolRepeatKey)
+        val repeatedPlan = planToolBatch(repeated, 32, setOf("github_read"), emptyMap(), emptySet(), 24, scope = ::toolRepeatKey)
         assertEquals(3, repeatedPlan.executable.size)
         assertEquals(setOf("repeat-3"), repeatedPlan.perToolSuppressedIds)
         assertTrue(repeatedPlan.disabledNames.isEmpty())

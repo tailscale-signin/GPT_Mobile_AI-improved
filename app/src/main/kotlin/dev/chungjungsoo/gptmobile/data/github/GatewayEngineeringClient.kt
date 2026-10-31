@@ -65,6 +65,11 @@ class GatewayEngineeringClient internal constructor(private val http: HttpClient
         return json.decodeFromString(request(config, "jobs/$id?after_revision=${afterRevision.coerceAtLeast(-1)}"))
     }
 
+    suspend fun evidence(config: ProviderRequestConfig, jobId: String, receiptId: String): String {
+        require(jobId.matches(Regex("eng_[a-f0-9]{32}")) && receiptId.matches(Regex("ev_[a-f0-9]{24}")))
+        return request(config, "jobs/$jobId/evidence/$receiptId?preview=true")
+    }
+
     suspend fun control(config: ProviderRequestConfig, job: GatewayEngineeringJob, action: String): GatewayEngineeringJob {
         require(job.id.matches(Regex("eng_[a-f0-9]{32}")) && action in setOf("approve", "cancel", "request_changes"))
         if (action == "approve") require(job.mergeReady && job.pr != null && job.headSha?.matches(Regex("[a-f0-9]{40}")) == true)

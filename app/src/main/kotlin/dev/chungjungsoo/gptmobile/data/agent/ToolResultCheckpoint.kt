@@ -10,12 +10,21 @@ import kotlinx.serialization.json.put
 
 /** Save complete research and its separate display trace without changing the Room schema. */
 object ToolResultCheckpoint {
-    fun encode(payload: String, type: String, display: String, personalData: List<dev.chungjungsoo.gptmobile.data.permissions.PersonalDataProvenance> = emptyList()): String = buildJsonObject {
+    fun encode(payload: String, type: String, display: String, personalData: List<dev.chungjungsoo.gptmobile.data.permissions.PersonalDataProvenance> = emptyList(), executionReceipt: JsonObject? = null): String = buildJsonObject {
         put("payload", payload)
         put("payload_type", type)
         put("display", display)
+        executionReceipt?.let { put("execution", it) }
         if (personalData.isNotEmpty()) put("personal_data", Json.encodeToJsonElement(kotlinx.serialization.builtins.ListSerializer(dev.chungjungsoo.gptmobile.data.permissions.PersonalDataProvenance.serializer()), personalData))
     }.toString()
+
+    fun execution(event: ToolEvent): JsonObject? = if (event.resultType != ToolEventResultType.CHECKPOINT) {
+        null
+    } else {
+        runCatching {
+            (Json.parseToJsonElement(event.result.orEmpty()) as? JsonObject)?.get("execution") as? JsonObject
+        }.getOrNull()
+    }
 
     fun personalData(event: ToolEvent): List<dev.chungjungsoo.gptmobile.data.permissions.PersonalDataProvenance> {
         if (event.resultType != ToolEventResultType.CHECKPOINT) return emptyList()

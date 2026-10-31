@@ -1608,10 +1608,10 @@ private class McpAgentTool(
             )
         }
         if (result.isError == true && result.content.toString().let { it.contains("unknown tool", true) || it.contains("tool not found", true) }) {
-            if (!unknownCatalogRefreshed.compareAndSet(false, true)) return dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.error(callId, "UNKNOWN_TOOL", "Tool remains unavailable after one catalog refresh. Stop repeating this call.", dispatched = true)
+            if (!unknownCatalogRefreshed.compareAndSet(false, true)) return dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.error(callId, "UNKNOWN_TOOL", "Tool remains unavailable after one catalog refresh. Stop repeating this call.", dispatched = false)
             val catalog = clientManager.listTools(initialConfig, forceRefresh = true)
             // Discovery refresh is read-only. Do not replay an action whose dispatch outcome is uncertain.
-            return dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.error(callId, "UNKNOWN_TOOL", if (catalog.any { it.name == remoteToolName }) "Catalog refreshed; tool exists but execution was rejected. Check arguments and connection." else "Catalog refreshed once; tool is absent. Stop repeating this call.", dispatched = true)
+            return dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.error(callId, "UNKNOWN_TOOL", if (catalog.any { it.name == remoteToolName }) "Catalog refreshed; tool exists but execution was rejected. Check arguments and connection." else "Catalog refreshed once; tool is absent. Stop repeating this call.", dispatched = false)
         }
         if (outputSchema != null && result.isError != true) {
             val schema = kotlinx.serialization.json.Json.encodeToJsonElement(io.modelcontextprotocol.kotlin.sdk.types.ToolSchema.serializer(), outputSchema) as JsonObject

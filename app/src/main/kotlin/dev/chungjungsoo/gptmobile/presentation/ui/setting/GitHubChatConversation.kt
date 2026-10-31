@@ -61,15 +61,20 @@ internal fun GitHubChatConversation(
                     }
                 }
                 androidx.compose.runtime.CompositionLocalProvider(dev.chungjungsoo.gptmobile.presentation.ui.chat.LocalChatProgressInHeader provides true) {
-                    ChatScreen(
-                        chatViewModel = model,
-                        onBackAction = onBack,
-                        onOpenConversation = { id, _ -> onOpenConversation(id) },
-                        onReviewEvidenceAccess = onReviewEvidenceAccess,
-                        onNavigateToLocalModels = onNavigateToLocalModels,
-                        showTopBar = false,
-                        allowResearchPanels = false
-                    )
+                    androidx.compose.foundation.layout.Column {
+                        dev.chungjungsoo.gptmobile.presentation.ui.chat.GitHubEvidenceButton(chatId)
+                        androidx.compose.foundation.layout.Box(Modifier.weight(1f)) {
+                            ChatScreen(
+                                chatViewModel = model,
+                                onBackAction = onBack,
+                                onOpenConversation = { id, _ -> onOpenConversation(id) },
+                                onReviewEvidenceAccess = onReviewEvidenceAccess,
+                                onNavigateToLocalModels = onNavigateToLocalModels,
+                                showTopBar = false,
+                                allowResearchPanels = false
+                            )
+                        }
+                    }
                 }
             }
         }

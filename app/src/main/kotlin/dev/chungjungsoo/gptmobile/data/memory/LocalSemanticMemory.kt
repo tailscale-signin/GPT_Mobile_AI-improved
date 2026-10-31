@@ -51,6 +51,18 @@ class LocalSemanticMemory @Inject constructor(@ApplicationContext private val co
         MemoryVectorCache(File(context.noBackupFilesDir, "memory-fact-cache-v1"), memoryCipher, "meaning-v2:" + digest.digest().joinToString("") { "%02x".format(it) })
     }
     private var embedder: TextEmbedder? = null
+    private val engineeringVectorCache by lazy {
+        val model = MessageDigest.getInstance("SHA-256")
+        context.assets.open("memory/universal_sentence_encoder.tflite").use { input ->
+            val buffer = ByteArray(8192)
+            while (true) {
+                val count = input.read(buffer)
+                if (count < 0) break
+                model.update(buffer, 0, count)
+            }
+        }
+        MemoryVectorCache(File(context.noBackupFilesDir, "github-engineering-vectors-v1"), memoryCipher, "github:" + model.digest().joinToString("") { "%02x".format(it) })
+    }
     private var embedderGeneration = 0
     private var lastReleaseReason = "first_use"
     private var lastUsed = 0L
@@ -162,6 +174,33 @@ class LocalSemanticMemory @Inject constructor(@ApplicationContext private val co
             } catch (failure: LinkageError) {
                 unavailable(failure)
                 emptyMap()
+            }
+        }
+    }
+
+    /** A separate encrypted namespace; never mixes repository vectors with personal facts. */
+    suspend fun rankEngineering(query: String, scope: String, records: Map<String, String>): Map<String, Double>? = withContext(ownerDispatcher) {
+        mutex.withLock {
+            if (retryDeferred() || dev.chungjungsoo.gptmobile.data.localruntime.InferenceAdmission.isExclusiveBusy) return@withLock null
+            require(scope.startsWith("github:") && records.size <= 48)
+            try {
+                val queryVector = embed(query)
+                records.mapValues { (id, text) ->
+                    currentCoroutineContext().ensureActive()
+                    val fingerprint = MessageDigest.getInstance("SHA-256").digest(text.encodeToByteArray()).joinToString("") { "%02x".format(it) }
+                    val key = engineeringVectorCache.key(id, scope, fingerprint)
+                    val vector = engineeringVectorCache.read(key) ?: embed(text).also { engineeringVectorCache.write(key, it) }
+                    val norm = kotlin.math.sqrt(queryVector.sumOf { it.toDouble() * it } * vector.sumOf { it.toDouble() * it })
+                    if (norm > 0) queryVector.indices.sumOf { queryVector[it].toDouble() * vector[it] } / norm else 0.0
+                }.also { engineeringVectorCache.bound(4096) }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                unavailable(failure)
+                null
+            } catch (failure: LinkageError) {
+                unavailable(failure)
+                null
             }
         }
     }

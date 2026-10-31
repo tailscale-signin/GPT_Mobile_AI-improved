@@ -843,6 +843,22 @@ class ProviderAdaptersTest {
     }
 
     @Test
+    fun `github engineering primary serializes quality controls without lightweight worker defaults`() = runBlocking {
+        val encoder = object : ProviderAttachmentEncoder(ContextWrapper(null)) {
+            override fun gatewayPerformanceHeaders() = mapOf("X-Gateway-Performance-Profile" to "turbo", "X-Gateway-Reasoning-Effort" to "low", "X-Gateway-Intermediate-Max-Tokens" to "1024")
+        }
+        val api = FakeOpenAIAPI(chatRounds = ArrayDeque(listOf(emptyFlow())))
+        OpenAICompatibleAdapter(api, FakeGroqAPI(), encoder)
+            .openSession(turns(), platform(ClientType.LLAMA), RequestConstraints(maxOutputTokens = 4096, maximizeReasoning = true, requestRole = "primary"))
+            .streamRound(emptyList(), emptyList()).toList()
+        val headers = api.configs.single().extraHeaders
+        assertEquals("quality", headers["X-Gateway-Performance-Profile"])
+        assertEquals("4096", headers["X-Gateway-Intermediate-Max-Tokens"])
+        assertEquals("true", headers["X-Gateway-Delegated-Worker"])
+        assertEquals("github-primary", headers["X-Gateway-Request-Role"])
+    }
+
+    @Test
     fun `NVIDIA request controls are transmitted across compatible adapter roles`() = runBlocking {
         for ((model, reasoningEnabled, allowed, expectedEffort) in listOf(
             listOf("openai/gpt-oss-20b", true, true, "medium"),

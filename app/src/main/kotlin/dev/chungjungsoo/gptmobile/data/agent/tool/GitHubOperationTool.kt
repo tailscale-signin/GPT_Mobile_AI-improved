@@ -24,6 +24,25 @@ internal class GitHubOperationTool(
     override val definition = definition(operation, modelName)
 
     override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+        val started = System.nanoTime()
+        val result = executeOperation(callId, arguments)
+        val trace = buildJsonObject {
+            put("schema", "github.trace.v1")
+            put("call_id", callId)
+            put("tool", operation)
+            put("action", (arguments["action"] as? JsonPrimitive)?.content.orEmpty())
+            put("response_time_ms", ((System.nanoTime() - started) / 1_000_000).coerceAtLeast(0))
+            put("success", !result.isError)
+            put("dispatched", result.dispatched)
+            put("reused_receipt", result.sharedResult)
+            put("pages_returned", if (result.isError) 0 else 1)
+            result.errorCode?.let { put("error_code", it) }
+        }
+        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("GitHubToolTrace", trace.toString())
+        return result
+    }
+
+    private suspend fun executeOperation(callId: String, arguments: JsonObject): AgentToolResult {
         if ("view_cursor" in arguments) {
             // Providers often carry repository/action defaults into a saved-page call.
             // Validate those against the retained read instead of forcing a model repair loop.
@@ -576,6 +595,7 @@ internal class GitHubOperationTool(
                 "github_watch_checks" -> {
                     properties["pr_number"] = field("integer")
                     properties["run_id"] = field("integer")
+                    properties["commit_sha"] = field("string")
                 }
                 "github_release" -> {
                     properties["execution_id"] = buildJsonObject {

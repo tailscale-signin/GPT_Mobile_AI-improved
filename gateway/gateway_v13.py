@@ -19931,6 +19931,11 @@ def v12_isolated_delegate(runtime_perf):
 def v12_delegate_model_round(incoming, runtime_perf, progress_callback=None,
                              cancel_event=None, hard_cancel_event=None):
     """One bounded model round; client tools are returned for the app to execute."""
+    engineering = str(runtime_perf.get("request_role") or "").startswith("github-") or (
+        runtime_perf.get("github_client_owned") and runtime_perf.get("request_role") == "primary"
+    )
+    # Client-owned is an execution boundary, not a lightweight reasoning/deadline policy.
+    round_mode = "interactive" if engineering else "delegate"
     payload = v12_enforce_request_budget(incoming)
     payload["stream"] = False
     payload.pop("stream_options", None)
@@ -19947,17 +19952,17 @@ def v12_delegate_model_round(incoming, runtime_perf, progress_callback=None,
     if payload.get("tools") and runtime_perf.get("client_tool_choice") == "required":
         payload["tool_choice"] = "required"
     apply_context_guard(payload, runtime_perf.get("request_role", "delegate"), get_effective_user_text(payload.get("messages", [])), 1, progress_callback)
-    emit_progress(progress_callback, "model", "Running the selected delegate with its supplied tools",
+    emit_progress(progress_callback, "model", "Running GitHub engineering with client-owned tools" if engineering else "Running the selected delegate with its supplied tools",
                   event="model_started", status="running", stage="reasoning")
     response, wall_ms = post_llama_model_round(
         payload, progress_callback, 1, "delegate", cancel_event,
-        hard_cancel_event, job_mode="delegate",
+        hard_cancel_event, job_mode=round_mode,
     )
     if response.status_code == 400 and adaptive_llama_request_error(_bounded_response_text(response)):
         disable_adaptive_llama_request_fields(payload)
         response, wall_ms = post_llama_model_round(
             payload, progress_callback, 1, "delegate", cancel_event,
-            hard_cancel_event, job_mode="delegate",
+            hard_cancel_event, job_mode=round_mode,
         )
     if response.status_code != 200:
         return response.status_code, {"error": {

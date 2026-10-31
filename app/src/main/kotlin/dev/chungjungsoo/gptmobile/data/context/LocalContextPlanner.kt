@@ -21,6 +21,14 @@ internal data class LocalContextPlan(
  * Estimates are deliberately conservative; only the native tokenizer is authoritative.
  */
 internal object LocalContextPlanner {
+    /** Authorization permits discovery; only upstream-advertised schemas enter the first prompt. */
+    fun advertisedToolNames(authorized: List<AgentToolDefinition>, advertised: List<AgentToolDefinition>?, discovered: List<AgentToolDefinition>? = null): Set<String> {
+        val allowed = authorized.mapTo(hashSetOf()) { it.name }
+        val selected = advertised ?: discovered ?: authorized.filter { it.modelVisible }
+        require(selected.all { it.name in allowed }) { "Local advertised catalog contains an unauthorized tool" }
+        return selected.mapTo(linkedSetOf()) { it.name }
+    }
+
     fun plan(
         priorTurns: List<ConversationTurn>,
         currentUserPrompt: String,
@@ -71,7 +79,7 @@ internal object LocalContextPlanner {
         // template safety, and at least a modest reply. The delivery budget below
         // enforces the smaller result allowance on every tool callback. At least
         // 512 bytes are needed before executeBoundTool can dispatch any tool.
-        val minimumReply = minOf(outputLimit?.takeIf { it > 0 } ?: 128, 128)
+        val minimumReply = minOf(outputLimit?.takeIf { it > 0 } ?: 512, if (contextTokens >= 4096) 512 else 128)
         val resultHeadroom = contextTokens.toLong() - used - requiredSchemaTokens - templateReserve - minimumReply - 1
         val toolResultReserve = if (relevantTools.isEmpty()) {
             0
@@ -79,7 +87,7 @@ internal object LocalContextPlanner {
             minOf(maxOf(256, contextTokens / 4).toLong(), resultHeadroom.coerceAtLeast(256)).toInt()
         }
         val safetyReserve = templateReserve + toolResultReserve + 1
-        val baselineOutput = LocalOutputAllocation.reserve(contextTokens, used + requiredSchemaTokens, safetyReserve, outputLimit)
+        val baselineOutput = LocalOutputAllocation.reserve(contextTokens, used + requiredSchemaTokens, safetyReserve, outputLimit, minimum = minimumReply)
         val baselinePromptLimit = contextTokens.toLong() - baselineOutput - templateReserve - toolResultReserve
         var anchorTokens = 0L
         // Keep the history anchors that fit before optional schemas are considered.
@@ -107,7 +115,7 @@ internal object LocalContextPlanner {
                 }
             }
         }
-        val outputReserve = LocalOutputAllocation.reserve(contextTokens, used + anchorTokens + schemaCost(catalogTools), safetyReserve, outputLimit)
+        val outputReserve = LocalOutputAllocation.reserve(contextTokens, used + anchorTokens + schemaCost(catalogTools), safetyReserve, outputLimit, minimum = minimumReply)
         val promptLimit = contextTokens.toLong() - outputReserve - templateReserve - toolResultReserve
         require(used < promptLimit) {
             "This message and system instructions exceed this local model's $contextTokens-token context. " +

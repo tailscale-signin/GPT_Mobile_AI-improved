@@ -1,15 +1,18 @@
 package dev.chungjungsoo.gptmobile.data.context
 
+import dev.chungjungsoo.gptmobile.data.network.LocalEndpointConnectionPolicy
 import dev.chungjungsoo.gptmobile.data.network.NetworkClient
 import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
 import dev.chungjungsoo.gptmobile.data.research.researchHash
 import io.ktor.client.call.body
 import io.ktor.client.request.bearerAuth
 import io.ktor.client.request.get
+import io.ktor.client.request.header
 import io.ktor.client.request.parameter
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.http.ContentType
+import io.ktor.http.HttpHeaders
 import io.ktor.http.contentType
 import java.net.URI
 import kotlinx.coroutines.CancellationException
@@ -25,7 +28,8 @@ import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 
 /** Metadata stays on the configured route, with autoload disabled. No slot contents are requested. */
-internal class LlamaCapacityRepository(private val client: NetworkClient, private val now: () -> Long = { System.nanoTime() / 1_000_000 }) {
+internal class LlamaCapacityRepository(private val client: () -> io.ktor.client.HttpClient, private val now: () -> Long = { System.nanoTime() / 1_000_000 }) {
+    constructor(client: NetworkClient, now: () -> Long = { System.nanoTime() / 1_000_000 }) : this({ client() }, now)
     private data class Metadata(val capacity: CapacitySnapshot, val template: String, val buildKnown: Boolean)
     private val cache = RouteCapabilityCache<Metadata>(now)
     private val reasoningCache = RouteCapabilityCache<ReasoningTemplateControl>(now)
@@ -41,10 +45,13 @@ internal class LlamaCapacityRepository(private val client: NetworkClient, privat
                     val uri = URI(route)
                     require(uri.scheme in setOf("http", "https") && uri.host != null && uri.rawQuery == null && uri.rawFragment == null && uri.userInfo == null)
                     val endpoint = route.removeSuffix("/v1") + "/props"
-                    val response = client().get(endpoint) {
-                        config.token?.takeIf { it.isNotBlank() }?.let { bearerAuth(it) }
-                        parameter("model", model)
-                        parameter("autoload", "false")
+                    val response = LocalEndpointConnectionPolicy.probe(config.apiUrl) {
+                        client().get(endpoint) {
+                            config.token?.takeIf { it.isNotBlank() }?.let { bearerAuth(it) }
+                            parameter("model", model)
+                            parameter("autoload", "false")
+                            if (LocalEndpointConnectionPolicy.freshConnection(config.apiUrl)) header(HttpHeaders.Connection, "close")
+                        }.also { it.body<String>() }
                     }
                     if (response.status.value != 200) return@withTimeoutOrNull null
                     val body = response.body<String>()
@@ -88,29 +95,32 @@ internal class LlamaCapacityRepository(private val client: NetworkClient, privat
 
     private suspend fun applyTemplate(config: ProviderRequestConfig, model: String, control: ReasoningTemplateControl, enabled: Boolean): String? {
         val endpoint = config.apiUrl.trim().trimEnd('/').removeSuffix("/v1") + "/apply-template"
-        val response = client().post(endpoint) {
-            config.token?.takeIf { it.isNotBlank() }?.let { bearerAuth(it) }
-            parameter("model", model)
-            parameter("autoload", "false")
-            contentType(ContentType.Application.Json)
-            setBody(
-                buildJsonObject {
-                    put("model", model)
-                    put(
-                        "messages",
-                        JsonArray(
-                            listOf(
-                                buildJsonObject {
-                                    put("role", "user")
-                                    put("content", "Template capability check.")
-                                }
+        val response = LocalEndpointConnectionPolicy.probe(config.apiUrl) {
+            client().post(endpoint) {
+                config.token?.takeIf { it.isNotBlank() }?.let { bearerAuth(it) }
+                parameter("model", model)
+                parameter("autoload", "false")
+                if (LocalEndpointConnectionPolicy.freshConnection(config.apiUrl)) header(HttpHeaders.Connection, "close")
+                contentType(ContentType.Application.Json)
+                setBody(
+                    buildJsonObject {
+                        put("model", model)
+                        put(
+                            "messages",
+                            JsonArray(
+                                listOf(
+                                    buildJsonObject {
+                                        put("role", "user")
+                                        put("content", "Template capability check.")
+                                    }
+                                )
                             )
                         )
-                    )
-                    put("chat_template_kwargs", buildJsonObject { put(control.parameter, enabled) })
-                    put("add_generation_prompt", true)
-                }.toString()
-            )
+                        put("chat_template_kwargs", buildJsonObject { put(control.parameter, enabled) })
+                        put("add_generation_prompt", true)
+                    }.toString()
+                )
+            }.also { it.body<String>() }
         }
         if (response.status.value != 200) return null
         val body = response.body<String>()

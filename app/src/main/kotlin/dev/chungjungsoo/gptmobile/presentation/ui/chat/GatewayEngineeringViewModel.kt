@@ -22,7 +22,8 @@ data class GatewayEngineeringUiState(
     val bindings: List<GatewayEngineeringBinding> = emptyList(),
     val options: GatewayEngineeringSettings = GatewayEngineeringSettings(),
     val busy: Boolean = false,
-    val error: String? = null
+    val error: String? = null,
+    val evidencePreview: String? = null
 )
 
 @HiltViewModel
@@ -35,6 +36,7 @@ class GatewayEngineeringViewModel @Inject constructor(private val repository: Ga
     fun bind(chatId: Int) {
         if (chat == chatId) return
         chat = chatId
+        mutable.update { it.copy(evidencePreview = null) }
         polling?.cancel()
         polling = viewModelScope.launch {
             mutable.update { it.copy(bindings = repository.bindings(chatId), options = repository.options()) }
@@ -66,6 +68,16 @@ class GatewayEngineeringViewModel @Inject constructor(private val repository: Ga
     fun reconnect(binding: GatewayEngineeringBinding) = action { repository.reconnect(binding.request.requestId) }
 
     fun markSeen(binding: GatewayEngineeringBinding) = action { repository.markSeen(binding.request.requestId) }
+
+    fun evidence(binding: GatewayEngineeringBinding, receiptId: String) = action {
+        val selectedChat = chat
+        val text = repository.evidence(binding.request.requestId, receiptId)
+        if (chat == selectedChat) mutable.update { it.copy(evidencePreview = text) }
+    }
+
+    fun closeEvidence() {
+        mutable.update { it.copy(evidencePreview = null) }
+    }
 
     private fun action(block: suspend () -> Unit) {
         if (mutable.value.busy) return

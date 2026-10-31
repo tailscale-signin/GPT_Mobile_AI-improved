@@ -37,6 +37,7 @@ import dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringJob
 import dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringSettings
 import dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext
 import kotlinx.coroutines.delay
+import kotlinx.serialization.json.jsonPrimitive
 
 /** Persisted host jobs are shown in the ordinary conversation, including notification deep links. */
 @Composable
@@ -99,6 +100,7 @@ fun GatewayEngineeringPanel(chatId: Int, context: GitHubConversationContext, mod
                     Text("This approval applies only to this PR and commit, expires after 30 minutes, and is rejected if the head, base or merge policy changes.")
                     Text("Changed files\n" + job.changedFiles.joinToString("\n"))
                     Text("Test evidence\n" + job.tests.joinToString("\n") { "${it["name"]}: ${it["status"]}" })
+                    Text("Completion scope: ${job.completionVerification?.get("scope") ?: "Feature completeness has not been measured. Review the requested requirements."}")
                 }
             },
             confirmButton = {
@@ -126,6 +128,10 @@ fun GatewayEngineeringPanel(chatId: Int, context: GitHubConversationContext, mod
                         Text("${java.time.Instant.ofEpochSecond(update.createdAt.toLong())}\n${update.message}", style = MaterialTheme.typography.bodySmall)
                     }
                     if (current.updates.isEmpty()) Text(current.job?.message ?: "Connecting to saved request")
+                    current.job?.completionVerification?.let { Text("Requirement verification\n$it", style = MaterialTheme.typography.bodySmall) }
+                    current.job?.latestEvidence?.get("receipt_id")?.jsonPrimitive?.content?.let { receipt ->
+                        TextButton(onClick = { model.evidence(current, receipt) }, enabled = !state.busy) { Text("Inspect latest evidence") }
+                    }
                 }
             },
             confirmButton = {
@@ -134,6 +140,14 @@ fun GatewayEngineeringPanel(chatId: Int, context: GitHubConversationContext, mod
                     details = null
                 }) { Text("Close") }
             }
+        )
+    }
+    state.evidencePreview?.let { receipt ->
+        AlertDialog(
+            onDismissRequest = model::closeEvidence,
+            title = { Text("Gateway evidence receipt") },
+            text = { Text(receipt, Modifier.heightIn(max = 440.dp).verticalScroll(rememberScrollState()), style = MaterialTheme.typography.bodySmall) },
+            confirmButton = { TextButton(onClick = model::closeEvidence) { Text("Close") } }
         )
     }
 }
@@ -164,6 +178,19 @@ private fun EngineeringJobSetup(options: GatewayEngineeringSettings, dismiss: ()
     var base by remember { mutableStateOf("main") }
     var hours by remember { mutableStateOf(options.durationHours) }
     var repairs by remember { mutableStateOf(options.repairAttempts) }
+    var acceptancePaths by remember { mutableStateOf("") }
+    var acceptanceChecks by remember { mutableStateOf("") }
+    val acceptance = remember(acceptancePaths, acceptanceChecks) {
+        runCatching {
+            if (acceptancePaths.isBlank() && acceptanceChecks.isBlank()) {
+                emptyList()
+            } else {
+                listOf(
+                    dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringAcceptance("requested_changes", acceptancePaths.lines().map(String::trim).filter(String::isNotBlank), acceptanceChecks.lines().map(String::trim).filter(String::isNotBlank))
+                )
+            }
+        }
+    }
     AlertDialog(
         onDismissRequest = dismiss,
         title = { Text("Start gateway engineering") },
@@ -173,6 +200,10 @@ private fun EngineeringJobSetup(options: GatewayEngineeringSettings, dismiss: ()
                 OutlinedTextField(objective, { objective = it }, label = { Text("Job objective") }, modifier = Modifier.fillMaxWidth(), minLines = 3, maxLines = 5)
                 OutlinedTextField(branch, { branch = it }, label = { Text("Working branch") }, singleLine = true)
                 OutlinedTextField(base, { base = it }, label = { Text("PR base branch") }, singleLine = true)
+                Text("Optional completion criteria: require specific changed files and successful CI checks before merge approval. Enter one exact file or check name per line.", style = MaterialTheme.typography.bodySmall)
+                OutlinedTextField(acceptancePaths, { acceptancePaths = it }, label = { Text("Required changed files") }, maxLines = 4)
+                OutlinedTextField(acceptanceChecks, { acceptanceChecks = it }, label = { Text("Required successful checks") }, maxLines = 4)
+                if (acceptance.isFailure) Text("Provide both valid file paths and CI check names (up to 32 each).")
                 Row {
                     listOf(3, 6, 12, 0).forEach { value ->
                         TextButton(onClick = { hours = value }) { Text((if (value == 0) "Until done" else "${value}h") + if (hours == value) " ✓" else "") }
@@ -185,7 +216,7 @@ private fun EngineeringJobSetup(options: GatewayEngineeringSettings, dismiss: ()
                 Text("Until done is capped at 72 hours, 256 steps and 20 total repairs. Notifications arrive through Android background sync; the OS may delay them.", style = MaterialTheme.typography.bodySmall)
             }
         },
-        confirmButton = { Button(onClick = { start(base.trim(), branch.trim(), objective.trim(), GatewayEngineeringSettings(hours, repairs)) }, enabled = objective.isNotBlank() && objective.length <= 16000 && branch.isNotBlank() && base.isNotBlank() && branch != base) { Text("Start job") } },
+        confirmButton = { Button(onClick = { start(base.trim(), branch.trim(), objective.trim(), GatewayEngineeringSettings(hours, repairs, acceptance.getOrThrow())) }, enabled = acceptance.isSuccess && objective.isNotBlank() && objective.length <= 16000 && branch.isNotBlank() && base.isNotBlank() && branch != base) { Text("Start job") } },
         dismissButton = { TextButton(onClick = dismiss) { Text("Cancel") } }
     )
 }

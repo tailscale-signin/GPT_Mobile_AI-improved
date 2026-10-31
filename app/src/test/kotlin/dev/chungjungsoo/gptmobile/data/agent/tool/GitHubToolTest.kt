@@ -22,7 +22,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubToolTest {
-    @Test fun admissionCapacityKeepsAStableErrorCodeAndDoesNotEraseEarlierDispatchEvidence() = runTest {
+    @Test fun admissionCapacityBeforeAnyRequestIsReportedAsUnsent() = runTest {
         val http = HttpClient(MockEngine { error("No network request should execute") })
         try {
             val tool = GitHubTool("token", http, watchChecks = { throw dev.chungjungsoo.gptmobile.data.github.GitHubRequestScheduler.Capacity(sharedRead = false) })
@@ -37,7 +37,7 @@ class GitHubToolTest {
             )
             assertTrue(result.isError)
             assertEquals("GITHUB_WAITING_CAPACITY", result.errorCode)
-            assertTrue(result.dispatched)
+            assertFalse(result.dispatched)
             assertTrue((result.content as ToolResultContent.Text).text.contains("earlier mutation receipts"))
         } finally {
             http.close()
@@ -63,6 +63,8 @@ class GitHubToolTest {
                 }
             )
             assertTrue(result.isError)
+            assertFalse(result.dispatched)
+            assertEquals("PREFLIGHT_REJECTED", result.executionReceipt?.get("phase")?.jsonPrimitive?.content)
             assertEquals(0, requests)
         } finally {
             http.close()
@@ -134,6 +136,7 @@ class GitHubToolTest {
             MockEngine { request ->
                 respond(
                     when (request.url.encodedPath) {
+                        "/repos/o/r/actions/runs/7" -> """{"id":7,"head_sha":"${"a".repeat(40)}"}"""
                         "/repos/o/r/actions/runs/7/jobs" -> """{"total_count":1,"jobs":[$job]}"""
                         "/repos/o/r/actions/jobs/3" -> job
                         else -> error("Unexpected job endpoint")
@@ -184,8 +187,11 @@ class GitHubToolTest {
             MockEngine { request ->
                 requests += "${request.method.value} ${request.url.encodedPath}"
                 when (request.url.encodedPath) {
+                    "/repos/owner/repo/commits/work" -> respond("""{"sha":"${"a".repeat(40)}"}""")
                     "/repos/owner/repo/actions/workflows" -> respond("""{"total_count":31,"workflows":[{"id":1,"path":".github/workflows/build.yml"}]}""")
-                    "/repos/owner/repo/actions/workflows/build.yml" -> respond("""{"id":1,"state":"active"}""")
+                    "/repos/owner/repo/actions/workflows/build.yml" -> respond("""{"id":1,"state":"active","path":".github/workflows/build.yml"}""")
+                    "/repos/owner/repo" -> respond("""{"default_branch":"main"}""")
+                    "/repos/owner/repo/contents/.github/workflows/build.yml" -> respond("""{"encoding":"base64","size":27,"content":"${java.util.Base64.getEncoder().encodeToString("on: [workflow_dispatch]".toByteArray())}"}""")
                     "/repos/owner/repo/actions/workflows/build.yml/dispatches" -> respond("", HttpStatusCode.NoContent)
                     else -> error("Unexpected workflow path")
                 }
@@ -198,6 +204,7 @@ class GitHubToolTest {
                 put("repo", "repo")
                 put("ref", "work")
                 put("action", "dispatch_workflow")
+                put("expected_head_sha", "a".repeat(40))
             }
             val missing = tool.execute("missing", common)
             assertEquals("WORKFLOW_SELECTION_REQUIRED", missing.errorCode)
@@ -374,8 +381,14 @@ class GitHubToolTest {
         val client = HttpClient(
             MockEngine { request ->
                 if (request.method == io.ktor.http.HttpMethod.Get) {
+                    if (request.url.encodedPath == "/repos/owner/repo/commits/main") return@MockEngine respond("""{"sha":"${"a".repeat(40)}"}""")
+                    if (request.url.encodedPath == "/repos/owner/repo") return@MockEngine respond("""{"default_branch":"main"}""")
+                    if ("/contents/" in request.url.encodedPath) {
+                        val source = "on:\n  workflow_dispatch:\n    inputs:\n      debug:\n        type: boolean\n"
+                        return@MockEngine respond("""{"encoding":"base64","size":${source.length},"content":"${java.util.Base64.getEncoder().encodeToString(source.toByteArray())}"}""")
+                    }
                     assertEquals("/repos/owner/repo/actions/workflows/build.yml", request.url.encodedPath)
-                    return@MockEngine respond("""{"id":1,"state":"active"}""")
+                    return@MockEngine respond("""{"id":1,"state":"active","path":".github/workflows/build.yml"}""")
                 }
                 assertEquals("/repos/owner/repo/actions/workflows/build.yml/dispatches", request.url.encodedPath)
                 assertEquals(io.ktor.http.HttpMethod.Post, request.method)
@@ -395,6 +408,7 @@ class GitHubToolTest {
                     put("repo", "repo")
                     put("workflow_id", "build.yml")
                     put("ref", "main")
+                    put("expected_head_sha", "a".repeat(40))
                     put("inputs", buildJsonObject { put("debug", true) })
                 }
             )

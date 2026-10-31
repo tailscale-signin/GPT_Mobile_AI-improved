@@ -100,8 +100,12 @@ class WorkspaceRepository @Inject constructor(val database: ChatDatabaseV2, priv
     }
 
     /** Each encrypted chunk fits the vault limit. Publish metadata only after all chunks exist. */
-    suspend fun saveProtectedSynthesisCheckpoint(id: String, chatId: Int, runId: String, payload: kotlinx.serialization.json.JsonObject) {
+    suspend fun saveProtectedSynthesisCheckpoint(id: String, chatId: Int, runId: String, payload: kotlinx.serialization.json.JsonObject, appendOnly: Boolean = false, engineeringMemory: Boolean = false) {
         if (chatId <= 0 || database.chatRoomDao().getChatRoomsByIds(listOf(chatId)).singleOrNull()?.isTemporary != false) return
+        if (appendOnly && dao.get(id) != null) {
+            check(protectedSynthesisCheckpoint(id) == payload) { "Existing evidence is immutable" }
+            return
+        }
         val bytes = payload.toString().encodeToByteArray()
         require(bytes.size <= 1_500_000) { "Synthesis checkpoint exceeds retention limit" }
         val references = mutableListOf<String>()
@@ -124,7 +128,29 @@ class WorkspaceRepository @Inject constructor(val database: ChatDatabaseV2, priv
             val previous = dao.get(id)?.payload?.let { Json.parseToJsonElement(it) as? kotlinx.serialization.json.JsonObject }
             committed = database.withTransaction {
                 if (database.chatRoomDao().getChatRoomsByIds(listOf(chatId)).singleOrNull()?.isTemporary != false) return@withTransaction false
-                dao.save(WorkspaceRecord(id, "synthesis_checkpoint", "Combined inspection progress", metadata.toString(), chatId, runId))
+                check(!appendOnly || dao.get(id) == null) { "Evidence was already appended; refresh before retrying" }
+                dao.save(
+                    WorkspaceRecord(
+                        id,
+                        if (engineeringMemory) {
+                            "github_engineering_memory"
+                        } else if (appendOnly) {
+                            "github_evidence"
+                        } else {
+                            "synthesis_checkpoint"
+                        },
+                        if (engineeringMemory) {
+                            "Engineering memory"
+                        } else if (appendOnly) {
+                            "GitHub evidence receipt"
+                        } else {
+                            "Combined inspection progress"
+                        },
+                        metadata.toString(),
+                        chatId,
+                        runId
+                    )
+                )
                 true
             }
             if (!committed) {

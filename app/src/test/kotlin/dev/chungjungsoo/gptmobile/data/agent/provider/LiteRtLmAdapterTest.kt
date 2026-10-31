@@ -1411,6 +1411,42 @@ class LiteRtLmAdapterTest {
     }
 
     @Test
+    fun `upstream discovery inventory stays smaller than the authorized local catalog`() = runBlocking {
+        val runtime = FakeLocalRuntime().apply {
+            capabilities = LocalModelCapabilities(contextTokens = 8192, backends = setOf("gpu"), tools = true)
+            scriptedEvents = listOf(listOf(LocalRuntimeEvent.TextDelta("Ready."), LocalRuntimeEvent.Done))
+        }
+        val tools = (1..14).map { lookupTool("authorized_$it") }
+        val directory = dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog(tools.map { it.definition }, "Use authorized_1")
+        val events = adapter(runtime).openSession(
+            turns("Use available tools to inspect authorized_1"),
+            localPlatform(),
+            tools + directory,
+            advertisedTools = listOf(directory.definition)
+        ).streamRound(emptyList(), emptyList()).toList()
+
+        assertEquals(listOf(directory.definition.name), runtime.createConversationCalls.single().tools.map { it.name })
+        assertTrue(events.last() is ProviderEvent.Completed)
+    }
+
+    @Test
+    fun `empty upstream inventory does not repopulate authorized local schemas`() = runBlocking {
+        val runtime = FakeLocalRuntime().apply {
+            capabilities = LocalModelCapabilities(contextTokens = 8192, backends = setOf("gpu"), tools = true)
+            scriptedEvents = listOf(listOf(LocalRuntimeEvent.TextDelta("Ready."), LocalRuntimeEvent.Done))
+        }
+        val events = adapter(runtime).openSession(
+            turns("What tools are available?"),
+            localPlatform(),
+            listOf(lookupTool()),
+            advertisedTools = emptyList()
+        ).streamRound(emptyList(), emptyList()).toList()
+
+        assertTrue(runtime.createConversationCalls.single().tools.isEmpty())
+        assertTrue(events.last() is ProviderEvent.Completed)
+    }
+
+    @Test
     fun `local model without native function calling still sees and executes authorized tools`() = runBlocking {
         val runtime = FakeLocalRuntime().apply {
             capabilities = LocalModelCapabilities(backends = setOf("cpu", "gpu", "npu"), tools = false)

@@ -1003,21 +1003,24 @@ class OpenAICompatibleAdapter @Inject constructor(
         constraints: RequestConstraints
     ): ProviderRequestConfig {
         if (!isLlama) return config
+        val engineering = constraints.maximizeReasoning && (constraints.requestRole == "primary" || constraints.requestRole?.startsWith("github-") == true)
+        val configuredHeaders = GitHubReasoningPolicy.gatewayHeaders(config.extraHeaders, engineering, effectiveOutputTokens)
         val headers = buildMap {
-            val configuredIntermediate = config.extraHeaders["X-Gateway-Intermediate-Max-Tokens"]?.toIntOrNull()?.takeIf { it > 0 }
+            val configuredIntermediate = configuredHeaders["X-Gateway-Intermediate-Max-Tokens"]?.toIntOrNull()?.takeIf { it > 0 }
             val intermediateCap = listOfNotNull(configuredIntermediate, effectiveOutputTokens).minOrNull()
             intermediateCap?.let { put("X-Gateway-Intermediate-Max-Tokens", it.toString()) }
             if (constraints.requestRole != null || constraints.maxOutputTokens != null) {
+                // Legacy gateways use this flag for client-owned isolation, independently of role/effort.
                 put("X-Gateway-Delegated-Worker", "true")
                 put("X-Gateway-Allow-Local-Tools", (constraints.allowTools && constraints.allowGatewayLocalTools && constraints.requestRole != "reviewer").toString())
-                constraints.requestRole?.let { put("X-Gateway-Request-Role", it) }
+                constraints.requestRole?.let { put("X-Gateway-Request-Role", if (engineering && it == "primary") "github-primary" else it) }
                 constraints.attemptId?.let { put("X-Gateway-Attempt-ID", it) }
             }
         }
         val prior = if (!config.allowReasoning || config.reasoningMode != dev.chungjungsoo.gptmobile.data.context.ReasoningMode.AUTO) {
-            config.extraHeaders.filterKeys { !it.equals("X-Gateway-Reasoning-Effort", ignoreCase = true) }
+            configuredHeaders.filterKeys { !it.equals("X-Gateway-Reasoning-Effort", ignoreCase = true) }
         } else {
-            config.extraHeaders
+            configuredHeaders
         }
         return config.copy(extraHeaders = prior + headers)
     }

@@ -14,6 +14,10 @@ NATIVE_TOOLS = frozenset({
 
 def native_github_request(payload):
     """Use explicit client declarations, never keywords in untrusted repository text."""
+    policy = payload.get('_gateway_performance') or {}
+    role = policy.get('request_role', '') if isinstance(policy, dict) else ''
+    if isinstance(role, str) and role.startswith('github-'):
+        return True  # Explicit client engineering role includes discovery-only and review rounds.
     return any(
         isinstance(tool, dict) and isinstance(tool.get('function'), dict)
         and str(tool['function'].get('name', '')).split('__', 1)[0] in NATIVE_TOOLS
@@ -82,6 +86,10 @@ def install_github_fast_path(runtime):
         status, result = 500, None
         try:
             status, result = original(incoming, cancel_event, progress_callback, hard_cancel_event)
+            if isinstance(result, dict):
+                result = dict(result, github_evidence_policy={'schema': 'github.evidence.v1',
+                    'publication': 'private_draft', 'verification_owner': 'client',
+                    'reason': 'Native tool receipts are owned by Android. A model round cannot certify them.'})
             return status, result
         finally:
             metrics.record((time.monotonic() - started) * 1000, status, result)

@@ -1,5 +1,6 @@
 """GitHub ownership, immutable caching and truthful metrics behavior."""
 import concurrent.futures
+import ast
 import json
 import sys
 import threading
@@ -13,6 +14,42 @@ from v14.results import bound_result, ToolViewCapacity
 
 
 class GitHubGatewayTests(unittest.TestCase):
+    def test_explicit_engineering_roles_keep_discovery_and_review_client_owned(self):
+        for tools in ([], [{'function': {'name': 'discover_available_tools'}}]):
+            seen = []
+            runtime = SimpleNamespace(process_chat_payload=lambda payload, *args: (seen.append(payload) or 200, {}))
+            install_github_fast_path(runtime)
+            payload = {'tools': tools, '_gateway_performance': {'request_role': 'github-primary', 'reasoning': 'high'}}
+            runtime.process_chat_payload(payload)
+            self.assertTrue(seen[0]['_gateway_performance']['github_client_owned'])
+            self.assertEqual(tools, seen[0]['tools'])
+            self.assertEqual('high', seen[0]['_gateway_performance']['reasoning'])
+        self.assertFalse(native_github_request({'_gateway_performance': {'request_role': 'delegate'}}))
+
+    def test_engineering_round_uses_primary_deadline_and_delegate_remains_bounded(self):
+        # Execute the actual compatibility function with a deterministic HTTP boundary.
+        path = Path(__file__).resolve().parents[1] / 'gateway_v13.py'
+        node = next(item for item in ast.parse(path.read_text(encoding='utf-8')).body
+                    if isinstance(item, ast.FunctionDef) and item.name == 'v12_delegate_model_round')
+        modes = []
+        response = SimpleNamespace(status_code=200, json=lambda: {'choices': []})
+        env = {
+            'v12_enforce_request_budget': lambda value: dict(value),
+            'configure_llama_model_round': lambda *args, **kwargs: None,
+            'apply_context_guard': lambda *args: None,
+            'get_effective_user_text': lambda *args: '',
+            'emit_progress': lambda *args, **kwargs: None,
+            'post_llama_model_round': lambda *args, **kwargs: (modes.append(kwargs['job_mode']) or response, 1),
+            'observe_llama_prompt_cache': lambda *args: None,
+            'validate_completion_tools': lambda *args: None,
+        }
+        exec(compile(ast.Module(body=[node], type_ignores=[]), str(path), 'exec'), env)
+        run = env['v12_delegate_model_round']
+        for role in ('github-primary', 'github-review', 'primary', 'delegate'):
+            status, _ = run({'messages': [], 'max_tokens': 4096}, {'request_role': role})
+            self.assertEqual(200, status)
+        self.assertEqual(['interactive', 'interactive', 'delegate', 'delegate'], modes)
+
     def test_client_catalog_routes_one_round_without_changing_prompt_or_budgets(self):
         calls = []
         runtime = SimpleNamespace(process_chat_payload=lambda payload, *args: calls.append(payload) or (200, {

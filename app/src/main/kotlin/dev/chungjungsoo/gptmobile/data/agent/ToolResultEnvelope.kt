@@ -33,6 +33,7 @@ internal object ToolResultEnvelope {
             "execution",
             buildJsonObject {
                 put("dispatched", result.dispatched)
+                result.executionReceipt?.let { put("receipt", it) }
                 put(
                     "outcome",
                     when {
@@ -57,7 +58,7 @@ internal object ToolResultEnvelope {
                         code
                     )
                     put("category", category(code))
-                    put("reconciliationRequired", code in unknownOutcomeCodes)
+                    put("reconciliationRequired", code in unknownOutcomeCodes || result.executionReceipt?.get("requires_reconciliation") == JsonPrimitive(true))
                     put("retryableWithoutChanges", false)
                 }
             )

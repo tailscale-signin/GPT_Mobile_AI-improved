@@ -62,6 +62,13 @@ internal class MemoryVectorCache(private val directory: File, private val cipher
         }
     }
 
+    fun bound(maximum: Int) {
+        require(maximum > 0)
+        directory.listFiles().orEmpty().sortedByDescending { it.lastModified() }.drop(maximum).forEach { file ->
+            check(file.delete() || !file.exists()) { "Cannot bound engineering vector cache." }
+        }
+    }
+
     private fun context(key: String) = MemoryCipherContext("vector:$modelVersion", key, 1, "derived")
     private fun valid(vector: FloatArray) = vector.size == 100 && vector.all(Float::isFinite) && vector.any { it != 0f }
 }

@@ -91,7 +91,7 @@ private class AssistantTextMarkupGuard(private val allowControlJsonText: Boolean
     data class Result(val text: String = "", val blocked: Boolean = false, val reason: String? = null) {
         fun failureMessage(): String = when (reason) {
             "unsupported_search_claim" -> "The model claimed a web search that has no successful web-search tool result. That claim was withheld."
-            else -> "The provider returned unparsed tool-call markup. The raw control payload was withheld."
+            else -> "The provider returned unparsed tool-call markup; no call was dispatched from that text. Verify the llama.cpp build, model chat template and function-calling configuration with one read-only tool before resuming. The raw control payload was withheld."
         }
     }
 

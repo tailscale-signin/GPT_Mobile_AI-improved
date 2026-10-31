@@ -98,7 +98,8 @@ class LiteRtLmAdapter(
         tools: List<AgentTool> = emptyList(),
         constraints: RequestConstraints = RequestConstraints(),
         fallbackSystemPrompt: String? = null,
-        progressSettings: dev.chungjungsoo.gptmobile.data.agent.ProgressDeadlineSettings = dev.chungjungsoo.gptmobile.data.agent.ProgressDeadlineSettings()
+        progressSettings: dev.chungjungsoo.gptmobile.data.agent.ProgressDeadlineSettings = dev.chungjungsoo.gptmobile.data.agent.ProgressDeadlineSettings(),
+        advertisedTools: List<AgentToolDefinition>? = null
     ): AgentProviderSession {
         require(constraints.allowTools || tools.isEmpty()) { "Tools are disabled for this request." }
         val singlePass = constraints.combined?.requested?.singlePass == true || constraints.requestRole?.startsWith("benchmark") == true
@@ -109,6 +110,13 @@ class LiteRtLmAdapter(
         } else {
             tools
         }
+        // The caller may already have admitted a precise schema inventory. Without
+        // that inventory, let the context planner below select from the bound tools:
+        // a second catalog rank here loses prior-turn intent and capability queries.
+        val advertisedNames = dev.chungjungsoo.gptmobile.data.context.LocalContextPlanner.advertisedToolNames(
+            boundTools.map { it.definition },
+            advertisedTools
+        )
         return object : AgentProviderSession {
             override val handlesToolsInternally: Boolean = true
 
@@ -281,13 +289,14 @@ class LiteRtLmAdapter(
 
                 suspend fun planToolContext(): PreparedLocalToolContext? {
                     val intent = if (LocalContextPlanner.isToolFollowUp(latestUserText)) turns.dropLast(1).takeLast(6).lastOrNull { !LocalContextPlanner.isToolFollowUp(it.userMessage.effectiveContent()) }?.userMessage?.effectiveContent().orEmpty() else ""
-                    val requiredTools = LocalContextPlanner.requiredToolNames(latestUserText + "\n" + intent + "\n" + platform.systemPrompt.orEmpty(), boundTools.map { it.definition })
+                    val stepTools = boundTools.filter { it.definition.name in advertisedNames }
+                    val requiredTools = LocalContextPlanner.requiredToolNames(latestUserText + "\n" + intent, stepTools.map { it.definition })
                     val relevantNames = LocalContextPlanner.relevantTools(
                         latestUserText,
-                        boundTools.map { it.definition },
+                        stepTools.map { it.definition },
                         requiredTools
                     ).map { it.name }.toSet()
-                    val availableTools = boundTools.filter { it.definition.name in relevantNames }
+                    val availableTools = stepTools.filter { it.definition.name in relevantNames }
                     val capabilityContract = if (availableTools.isEmpty()) "" else "\n" + LOCAL_CAPABILITY_CONTRACT
                     val noToolsInstruction = ""
                     // The explicit no-tools instruction already is the final inventory
@@ -307,7 +316,7 @@ class LiteRtLmAdapter(
                     }
                     dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
                         "LocalModel",
-                        "LOCAL_TOOL_SELECTION · stage=adapter_input · received=${boundTools.size} · available=${availableTools.size} · mode=${when {
+                        "LOCAL_TOOL_SELECTION · stage=adapter_input · authorized=${boundTools.size} · advertised=${advertisedNames.size} · available=${availableTools.size} · mode=${when {
                             availableTools.isEmpty() -> "chat_only"
                             usePromptToolBridge -> "prompt_bridge"
                             else -> "tools_enabled"

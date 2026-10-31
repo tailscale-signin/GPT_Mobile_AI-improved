@@ -3,3 +3,6 @@ requests==2.34.2
 uvicorn==0.53.0
 # HTTPX supports the legacy v10 entry point and the FastAPI integration tests.
 httpx
+
+# Authenticated encryption for engineering receipts, memory and backups.
+cryptography==50.0.2

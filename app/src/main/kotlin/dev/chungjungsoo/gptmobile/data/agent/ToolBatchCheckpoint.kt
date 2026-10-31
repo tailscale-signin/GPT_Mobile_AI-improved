@@ -42,8 +42,8 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String) 
         fun event() = ProviderEvent.ToolCall(id, name, arguments)
     }
 
-    @Serializable private data class Result(val body: String, val json: Boolean, val error: Boolean, val dispatched: Boolean, val code: String?, val callLimit: Boolean, val outputLimit: Boolean) {
-        fun restore(id: String) = AgentContractValidation.receipt(id, AgentToolResult(id, if (json) ToolResultContent.Json(Json.parseToJsonElement(body)) else ToolResultContent.Text(body), error, sharedResult = true, dispatched = dispatched, errorCode = code, toolCallBudgetExhausted = callLimit, outputBudgetExhausted = outputLimit))
+    @Serializable private data class Result(val body: String, val json: Boolean, val error: Boolean, val dispatched: Boolean, val code: String?, val callLimit: Boolean, val outputLimit: Boolean, val execution: JsonObject? = null) {
+        fun restore(id: String) = AgentContractValidation.receipt(id, AgentToolResult(id, if (json) ToolResultContent.Json(Json.parseToJsonElement(body)) else ToolResultContent.Text(body), error, sharedResult = true, dispatched = dispatched, errorCode = code, toolCallBudgetExhausted = callLimit, outputBudgetExhausted = outputLimit, executionReceipt = execution))
     }
 
     @Serializable private data class Entry(val call: Call, val started: Boolean = false, val result: Result? = null, val priorBudgetRejection: Result? = null)
@@ -199,7 +199,7 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String) 
             is ToolResultContent.Text -> content.text
             is ToolResultContent.ResourceLinks -> content.links.joinToString("\n") { it.uri }
         }
-        val saved = Result(body, content is ToolResultContent.Json, result.isError, result.dispatched, result.errorCode, result.toolCallBudgetExhausted, result.outputBudgetExhausted)
+        val saved = Result(body, content is ToolResultContent.Json, result.isError, result.dispatched, result.errorCode, result.toolCallBudgetExhausted, result.outputBudgetExhausted, result.executionReceipt)
         write(state.copy(entries = state.entries + (call.callId to entry.copy(result = saved))))
     }
     suspend fun finish() = locked {

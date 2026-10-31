@@ -6,7 +6,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 
 /** Private run-scoped review observes execution receipts before any delivery or replay compaction. */
-internal class ToolReceiptObserver(val observe: (ProviderEvent.ToolCall, AgentToolResult) -> Unit) : kotlin.coroutines.AbstractCoroutineContextElement(Key) {
+internal class ToolReceiptObserver(val observe: suspend (ProviderEvent.ToolCall, AgentToolResult) -> Unit) : kotlin.coroutines.AbstractCoroutineContextElement(Key) {
     companion object Key : kotlin.coroutines.CoroutineContext.Key<ToolReceiptObserver>
 }
 

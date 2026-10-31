@@ -987,6 +987,15 @@ internal class GitHubRepositorySession(
         val after = newTree["tree"]!!.jsonArray.map { it.jsonObject }.filter { it.s("type") == "blob" }.associateBy { it.s("path") }
         val changes = (before.keys + after.keys).sorted().filter { before[it]?.s("sha") != after[it]?.s("sha") || before[it]?.s("mode") != after[it]?.s("mode") }
         val page = (args["page"]?.jsonPrimitive?.intOrNull ?: 1).also { require(it in 1..1000) }
+        val includePatches = args["include_patches"]?.jsonPrimitive?.booleanOrNull == true
+        // GitHub compare exposes patches for at most 300 files. Missing/binary patches
+        // remain explicitly unavailable; tree comparison still covers every file.
+        val patches = if (includePatches) {
+            request("${root(context.owner, context.repo)}/compare/${base.commitSha}...${context.commitSha}?per_page=1&page=1")
+                .jsonObject["files"]?.jsonArray.orEmpty().map { it.jsonObject }.associateBy { it.s("filename") }
+        } else {
+            emptyMap()
+        }
         return buildJsonObject {
             put("base_sha", base.commitSha)
             put("head_sha", context.commitSha)
@@ -1009,6 +1018,14 @@ internal class GitHubRepositorySession(
                             )
                             put("sha", after[path]?.get("sha") ?: JsonNull)
                             put("previous_sha", before[path]?.get("sha") ?: JsonNull)
+                            if (includePatches) {
+                                val patch = patches[path]?.get("patch") as? JsonPrimitive
+                                put("patch_available", patch != null)
+                                patch?.content?.let {
+                                    put("patch", utf8Prefix(it, MAX_EXCERPT_BYTES))
+                                    put("patch_truncated", it.encodeToByteArray().size > MAX_EXCERPT_BYTES)
+                                } ?: put("patch_unavailable_reason", "GitHub omitted the patch (binary, oversized, or outside its 300-file compare limit). Read the pinned before/after blobs for this file.")
+                            }
                         }
                     }
                 )
@@ -1025,6 +1042,7 @@ internal class GitHubRepositorySession(
                         put("base", base.commitSha)
                         put("commit_sha", context.commitSha)
                         put("page", page + 1)
+                        put("include_patches", includePatches)
                     }
                 )
             }

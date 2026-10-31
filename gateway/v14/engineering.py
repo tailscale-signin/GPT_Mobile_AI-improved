@@ -10,6 +10,8 @@ import asyncio
 
 from v14.actions import canonical_json
 from v14.batch import digest, retry_delay
+from v14.evidence import EvidenceLedger, completion_gate
+from v14.engineering_memory import EngineeringMemory
 
 PHASES = ('PLAN', 'READ', 'IMPLEMENT', 'REVIEW', 'COMMIT', 'OPEN_PR', 'CI', 'PROMOTE', 'MERGE_READY', 'MERGE', 'VERIFY', 'COMPLETED')
 PAUSED = {'MERGE_READY', 'NEEDS_INPUT', 'COMPLETED', 'CANCELLED'}
@@ -24,10 +26,14 @@ def principal_authorized(config, principal, devices):
 
 
 def validate_request(request):
-    allowed = {'repository', 'branch', 'base', 'objective', 'model', 'duration_hours', 'repair_attempts', 'chat_id', 'request_id'}
+    allowed = {'repository', 'branch', 'base', 'objective', 'model', 'duration_hours', 'repair_attempts', 'chat_id', 'request_id', 'acceptance', 'profile_id', 'memory_mode'}
     if not isinstance(request, dict) or set(request) - allowed:
         raise ValueError('Unsupported engineering request fields')
     result = dict(request)
+    if result.get('memory_mode', 'HYBRID') not in {'SESSION_ONLY', 'PERSISTENT', 'HYBRID'}:
+        raise ValueError('Invalid engineering memory mode')
+    if 'profile_id' in result and (not isinstance(result['profile_id'], str) or not 1 <= len(result['profile_id']) <= 128):
+        raise ValueError('Invalid engineering profile scope')
     if not re.fullmatch(r'[A-Za-z0-9-]+/[A-Za-z0-9_.-]+', str(result.get('repository', ''))):
         raise ValueError('Select a valid repository')
     for key in ('branch', 'base'):
@@ -44,6 +50,25 @@ def validate_request(request):
     if type(hours) is not int or hours not in (0, 3, 6, 12) or type(retries) is not int or not 1 <= retries <= 5:
         raise ValueError('Choose 3, 6, 12 hours or bounded until-complete; repair attempts are 1–5')
     result.update(duration_hours=hours, repair_attempts=retries)
+    acceptance = result.get('acceptance', [])
+    if not isinstance(acceptance, list) or len(acceptance) > 32:
+        raise ValueError('At most 32 explicit acceptance requirements are supported')
+    ids = set()
+    for requirement in acceptance:
+        if not isinstance(requirement, dict) or set(requirement) != {'id', 'paths', 'checks'}:
+            raise ValueError('Acceptance needs id, paths and checks')
+        if not isinstance(requirement['id'], str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,80}', requirement['id']) or requirement['id'] in ids:
+            raise ValueError('Acceptance IDs must be unique and bounded')
+        ids.add(requirement['id'])
+        for key in ('paths', 'checks'):
+            if not isinstance(requirement[key], list) or len(requirement[key]) > 32 or any(not isinstance(item, str) or not item.strip() or len(item) > 400 for item in requirement[key]):
+                raise ValueError('Acceptance paths/checks must be bounded strings')
+        if not requirement['paths'] or not requirement['checks']:
+            raise ValueError('Each acceptance requirement needs changed paths and successful CI check names')
+        if any(path.startswith('/') or '\\' in path or any(part in {'', '.', '..', '.git'} for part in path.split('/')) for path in requirement['paths']):
+            raise ValueError('Acceptance paths must be repository-relative files')
+    if acceptance:
+        result['acceptance'] = acceptance
     if type(result.get('chat_id', 0)) is not int or result.get('chat_id', 0) < 0:
         raise ValueError('Invalid conversation')
     return result
@@ -252,6 +277,10 @@ class EngineeringSupervisor:
 class EngineeringService:
     def __init__(self, store, backend):
         self.store, self.backend = store, backend
+        self.evidence = EvidenceLedger(store)
+        self.memory = EngineeringMemory(store, store.runtime)
+        backend.record_evidence = lambda job, payload: self.evidence.append(job, 'github_api', payload)
+        backend.recall_memory = self.memory.recall
         self.stop = threading.Event()
         self.wake = threading.Event()
         self.thread = None
@@ -267,6 +296,10 @@ class EngineeringService:
                 self.store.invalidate_ready(job, evidence)
                 self.wake.set()
             raise ValueError('PR head or merge readiness changed; approval rejected')
+        completion = completion_gate(job, evidence)
+        if not completion['passed']:
+            self.store.invalidate_ready(job, dict(evidence, checks_passed=False, message='Configured acceptance evidence is incomplete'))
+            raise ValueError('Completion evidence is missing: ' + '; '.join(completion['failures']))
         approval = {'principal': principal, 'repository': job['request']['repository'], 'pr': pr, 'head_sha': head,
                     'base_sha': evidence['base_sha'], 'evidence_digest': digest(evidence),
                     'expires_at': self.store.now() + 1800}
@@ -297,7 +330,7 @@ class EngineeringService:
             elif phase == 'MERGE':
                 evidence = self.backend.inspect(job)
                 approval = job.get('approval') or {}
-                valid = (EngineeringSupervisor.readiness(evidence) and approval.get('principal') == job['principal']
+                valid = (EngineeringSupervisor.readiness(evidence) and completion_gate(job, evidence)['passed'] and approval.get('principal') == job['principal']
                          and approval.get('repository') == job['request']['repository'] and approval.get('pr') == evidence.get('pr')
                          and approval.get('head_sha') == evidence.get('head_sha') and approval.get('base_sha') == evidence.get('base_sha')
                          and self.store.now() < approval.get('expires_at', 0))
@@ -327,9 +360,16 @@ class EngineeringService:
                     phase = 'PROMOTE'
                 elif EngineeringSupervisor.readiness(output):
                     job['data']['readiness'] = output
+                    gate = completion_gate(job, output)
+                    job['data']['completion_verification'] = gate
+                    self.evidence.append(job, 'completion_gate', gate)
                     job['approval'] = None
-                    job['message'] = 'All required checks and policies passed. Awaiting your exact-commit merge approval.'
-                    phase = 'MERGE_READY'
+                    if gate['passed']:
+                        job['message'] = 'CI and configured acceptance evidence passed. Review the feature requirements before exact-commit merge approval.'
+                        phase = 'MERGE_READY'
+                    else:
+                        job['message'] = 'Completion evidence missing: ' + '; '.join(gate['failures'])
+                        phase = 'NEEDS_INPUT'
                 else:
                     job['data']['readiness'] = output
                     job['message'] = output.get('message', 'Waiting for checks, required reviews or merge policy')
@@ -349,6 +389,13 @@ class EngineeringService:
                 elif phase == 'REVIEW' and output.get('review', {}).get('approved') is not True:
                     fingerprint = digest(output.get('review', {}))
                     phase = 'IMPLEMENT' if EngineeringSupervisor.repair(job, fingerprint) else 'NEEDS_INPUT'
+                elif phase == 'VERIFY':
+                    gate = completion_gate(job, job['data'].get('readiness', {}), merged=True)
+                    job['data']['completion_verification'] = gate
+                    self.evidence.append(job, 'completion_gate', gate)
+                    phase = 'COMPLETED' if gate['passed'] else 'NEEDS_INPUT'
+                    if not gate['passed']:
+                        job['message'] = 'Merge occurred but completion evidence is incomplete: ' + '; '.join(gate['failures'])
                 else:
                     phase = 'CI' if phase == 'PROMOTE' else PHASES[PHASES.index(phase) + 1]
                 job['stalls'] = 0
@@ -359,7 +406,7 @@ class EngineeringService:
                                       'OPEN_PR': 'Preparing the draft pull request', 'CI': 'Waiting for CI validation',
                                       'COMPLETED': 'Merge verified; engineering result published'}.get(phase, phase)
                 elif phase == 'COMPLETED':
-                    job['message'] = 'Approved merge verified; the result and test evidence are saved.'
+                    job['message'] = 'Approved merge and workflow evidence verified. Feature acceptance is limited to configured paths/checks; unexecuted benchmarks remain Not measured.'
         except Exception as error:
             output = {'error_type': type(error).__name__}
             transient = retry_delay(error, 0) is not None
@@ -396,6 +443,11 @@ class EngineeringService:
             confirmed = False
         if confirmed:
             job['milestones'] = sorted(set(job.get('milestones', [])) | {job['state']})
+        try:
+            self.memory.capture(job, job['state'], output)
+        except Exception as error:
+            # Memory failure must not lose a confirmed mutation receipt or replay a write.
+            job['data']['memory_status'] = 'UNAVAILABLE:' + type(error).__name__
         self.store.complete(job, lease, phase, output, delay)
 
     def start(self):
@@ -453,4 +505,6 @@ def public_job(job):
             'tests': readiness.get('checks', []), 'checks_passed': readiness.get('checks_passed', False),
             'merge_ready': state == 'MERGE_READY' and bool(EngineeringSupervisor.readiness(readiness)),
             'approval_expires_at': (job.get('approval') or {}).get('expires_at'),
-            'merge_sha': data.get('merge_sha'), 'review': data.get('review', {})}
+            'merge_sha': data.get('merge_sha'), 'review': data.get('review', {}),
+            'completion_verification': data.get('completion_verification'), 'evidence_policy': 'github.evidence.v1',
+            'latest_evidence': data.get('latest_evidence')}

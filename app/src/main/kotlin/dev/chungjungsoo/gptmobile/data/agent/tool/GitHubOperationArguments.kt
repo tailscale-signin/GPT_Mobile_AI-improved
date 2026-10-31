@@ -20,6 +20,7 @@ internal object GitHubOperationArguments {
             "github_watch_checks" -> {
                 positive("pr_number")
                 positive("run_id")
+                if ("commit_sha" in args && !text("commit_sha").matches(Regex("[a-fA-F0-9]{40}"))) errors += "commit_sha must be the exact 40-character head to monitor"
                 if ("pr_number" !in args && "run_id" !in args) errors += "provide pr_number or run_id from PR or workflow discovery"
             }
             "github_read" -> {
@@ -39,7 +40,7 @@ internal object GitHubOperationArguments {
             }
             "github_commit" -> {
                 when (text("action")) {
-                    "branch" -> required("branch")
+                    "branch" -> required("branch", "expected_head_sha")
                     "delete_branch" -> required("branch", "expected_head_sha")
                     else -> required("stage_id", "expected_head_sha", "branch", "message")
                 }
@@ -70,8 +71,9 @@ internal object GitHubOperationArguments {
                     "run", "artifacts", "rerun", "rerun_failed_jobs", "rerun_all", "cancel" -> required("run_id")
                     "job", "logs" -> required("job_id")
                     "jobs" -> if ("run_id" !in args && "job_id" !in args) errors += "jobs requires run_id to list jobs, or job_id to inspect one job; obtain IDs from action=runs"
-                    "dispatch" -> required("workflow_id", "ref")
+                    "dispatch" -> required("workflow_id", "ref", "expected_head_sha")
                 }
+                if ("expected_head_sha" in args && !text("expected_head_sha").matches(Regex("[a-fA-F0-9]{40}"))) errors += "expected_head_sha must be the current 40-character workflow head"
                 val start = text("start_line").ifBlank { "1" }.toLongOrNull()
                 val end = text("end_line").toLongOrNull()
                 if (start == null || start !in 1..Int.MAX_VALUE.toLong() || end != null && (end < start || end - start >= 2000)) {

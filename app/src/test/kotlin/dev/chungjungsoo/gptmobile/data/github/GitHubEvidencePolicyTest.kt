@@ -141,12 +141,103 @@ class GitHubEvidencePolicyTest {
         assertTrue(text.contains("Not available / Not measured"))
     }
 
-    @Test fun revokedPermissionAndMalformedExtractionBlockPublication() = runBlocking {
+    @Test fun revokedPermissionBlocksPublicationWhileMalformedExtractionProducesPartialEvidence() = runBlocking {
         for (revoked in listOf(false, true)) {
             val gate = GitHubVerifiedSession(session("private"), GitHubEvidenceBook("b", "o/r", "main", emptySet()), "fix", { 8192 }, { session("not JSON") }, { check(!revoked) }, {})
             val events = gate.streamRound(emptyList(), emptyList()).toList()
-            assertTrue(events.any { it is ProviderEvent.Failed })
-            assertTrue(events.none { it is ProviderEvent.TextDelta })
+            assertEquals(revoked, events.any { it is ProviderEvent.Failed })
+            assertEquals(!revoked, events.any { it is ProviderEvent.Completed })
+            assertEquals(!revoked, events.any { it is ProviderEvent.TextDelta })
         }
+    }
+
+    @Test fun failedOrTruncatedExtractorPublishesOnlyCurrentReceiptFactsWithoutRetry() = runBlocking {
+        for (extractor in listOf(
+            flowOf(ProviderEvent.TextDelta("private broken JSON"), ProviderEvent.Failed("output limit", errorCode = "OUTPUT_LIMIT")),
+            flowOf(ProviderEvent.TextDelta("{\"claims\":"))
+        )) {
+            val book = GitHubEvidenceBook("binding", "owner/repo", "main", setOf("github_ci"), { 1000 })
+            book.observe(ProviderEvent.ToolCall("read", "github_ci", json("{}")), AgentToolResult("read", ToolResultContent.Json(json("""{"count":3,"content":"private source"}""")), false))
+            var attempts = 0
+            val gate = GitHubVerifiedSession(session("all 99 tests passed"), book, "fix", { 8192 }, {
+                attempts++
+                object : AgentProviderSession {
+                    override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = extractor
+                }
+            }, {}, {}, { 1000 })
+            val events = gate.streamRound(emptyList(), emptyList()).toList()
+            val text = events.filterIsInstance<ProviderEvent.TextDelta>().joinToString { it.text }
+            assertEquals(1, attempts)
+            assertTrue(text.contains("Partial evidence summary"))
+            assertTrue(text.contains("/count = 3"))
+            assertFalse(text.contains("99"))
+            assertFalse(text.contains("private source"))
+            assertFalse(text.contains("private broken JSON"))
+            assertTrue(events.last() is ProviderEvent.Completed)
+            assertFalse(events.any { it is ProviderEvent.Failed })
+        }
+    }
+
+    @Test fun partialSummaryExcludesStaleUntrustedAndFailedObservations() {
+        val receipt = json("""{"trusted":true,"success":true,"observed_at_ms":1000,"epoch":0,"result":{"count":987654}}""")
+        for (bad in listOf(receipt, JsonObject(receipt + ("trusted" to JsonPrimitive(false))), JsonObject(receipt + ("success" to JsonPrimitive(false))))) {
+            val (text, report) = GitHubEvidencePolicy.partial(mapOf("source" to bad), 200_000, 0)
+            assertFalse(text.contains("987654"))
+            assertEquals(JsonPrimitive(true), report["partial"])
+            assertEquals(JsonPrimitive(false), report["completion_verified"])
+        }
+    }
+
+    @Test fun providerFailureStillReturnsAnExplicitPartialAnswerWithoutPublishingItsDraft() = runBlocking {
+        val provider = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) =
+                flowOf(ProviderEvent.TextDelta("unverified draft"), ProviderEvent.Failed("403 forbidden"))
+        }
+        val gate = GitHubVerifiedSession(provider, GitHubEvidenceBook("b", "o/r", "main", emptySet()), "fix", { 8192 }, { error("must not retry provider") }, {}, {})
+        val events = gate.streamRound(emptyList(), emptyList()).toList()
+        assertTrue(events.last() is ProviderEvent.Completed)
+        val text = events.filterIsInstance<ProviderEvent.TextDelta>().joinToString { it.text }
+        assertTrue(text.contains("Partial evidence summary"))
+        assertFalse(text.contains("unverified draft"))
+    }
+
+    @Test fun cancellationAndPermissionRevocationDuringExtractionNeverPublishAPartialReply() = runBlocking {
+        var revoked = false
+        val gate = GitHubVerifiedSession(session("private"), GitHubEvidenceBook("b", "o/r", "main", emptySet()), "fix", { 8192 }, {
+            revoked = true
+            session("broken JSON")
+        }, { check(!revoked) }, {})
+        val events = gate.streamRound(emptyList(), emptyList()).toList()
+        assertTrue(events.any { it is ProviderEvent.Failed })
+        assertTrue(events.none { it is ProviderEvent.TextDelta })
+        val cancelled = GitHubVerifiedSession(session("private"), GitHubEvidenceBook("b", "o/r", "main", emptySet()), "fix", { 8192 }, {
+            throw kotlinx.coroutines.CancellationException("user stopped")
+        }, {}, {})
+        val result = runCatching { cancelled.streamRound(emptyList(), emptyList()).toList() }
+        assertTrue(result.exceptionOrNull() is kotlinx.coroutines.CancellationException)
+    }
+
+    @Test fun stalledExtractorHasABoundedDeadlineAndReturnsPartialEvidence() = kotlinx.coroutines.test.runTest {
+        var attempts = 0
+        val extractor = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = kotlinx.coroutines.flow.flow<ProviderEvent> {
+                attempts++
+                kotlinx.coroutines.delay(90_001)
+                emit(ProviderEvent.Completed)
+            }
+        }
+        val gate = GitHubVerifiedSession(session("private"), GitHubEvidenceBook("b", "o/r", "main", emptySet()), "fix", { 8192 }, { extractor }, {}, {})
+        val events = gate.streamRound(emptyList(), emptyList()).toList()
+        assertEquals(1, attempts)
+        assertTrue(events.last() is ProviderEvent.Completed)
+        assertTrue(events.filterIsInstance<ProviderEvent.TextDelta>().single().text.contains("Partial evidence summary"))
+    }
+
+    @Test fun verdictStorageFailurePreventsEvenReceiptOnlyPublication() = runBlocking {
+        val book = GitHubEvidenceBook("b", "o/r", "main", emptySet(), save = { _, _ -> error("disk unavailable") })
+        val gate = GitHubVerifiedSession(session("private"), book, "fix", { 8192 }, { session("broken JSON") }, {}, {})
+        val events = gate.streamRound(emptyList(), emptyList()).toList()
+        assertTrue(events.any { it is ProviderEvent.Failed })
+        assertTrue(events.none { it is ProviderEvent.TextDelta })
     }
 }

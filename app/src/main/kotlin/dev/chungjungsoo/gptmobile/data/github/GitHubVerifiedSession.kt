@@ -9,6 +9,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -32,6 +33,7 @@ internal class GitHubVerifiedSession(
         var calls = false
         var completed = false
         var failed = false
+        var providerFailure: ProviderEvent.Failed? = null
         delegate.streamRound(tools, exchanges).collect { event ->
             when (event) {
                 is ProviderEvent.TextDelta -> {
@@ -49,14 +51,30 @@ internal class GitHubVerifiedSession(
                 is ProviderEvent.Completed -> completed = true
                 is ProviderEvent.Failed -> {
                     failed = true
-                    emit(event)
+                    providerFailure = event
                 }
                 is ProviderEvent.CombinedAnswer -> failed = true
                 else -> emit(event)
             }
         }
         if (failed || !completed) {
-            if (!failed) emit(ProviderEvent.Failed("GitHub response ended before verification. Receipts remain available.", errorCode = "GITHUB_EVIDENCE_REQUIRED"))
+            if (calls) {
+                emit(providerFailure ?: ProviderEvent.Failed("GitHub response ended before verification. Receipts remain available.", errorCode = "GITHUB_EVIDENCE_REQUIRED"))
+                return@flow
+            }
+            try {
+                validatePublication()
+                val (receipts, epoch) = evidence.snapshot()
+                val (text, report) = GitHubEvidencePolicy.partial(receipts, now(), epoch)
+                validatePublication()
+                evidence.retainVerdict(report)
+                emit(ProviderEvent.TextDelta(text))
+                emit(ProviderEvent.Completed)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                emit(ProviderEvent.Failed("GitHub evidence cannot be published. Restore access or inspect the retained checkpoint.", errorCode = "GITHUB_EVIDENCE_REQUIRED"))
+            }
             return@flow
         }
         if (calls) {
@@ -82,23 +100,33 @@ internal class GitHubVerifiedSession(
                 request = payload()
             }
             check(TextTokenEstimate.estimate(request) <= inputLimit()) { "Task and draft exceed the verification context; narrow the task before publication" }
-            val response = StringBuilder()
-            var verifiedComplete = false
-            openVerifier(request).streamRound(emptyList(), emptyList()).collect { event ->
-                when (event) {
-                    is ProviderEvent.TextDelta -> {
-                        check(response.length.toLong() + event.text.length <= 131_072) { "Claim extraction exceeded its output bound" }
-                        response.append(event.text)
+            val (text, report) = try {
+                withTimeoutOrNull(90_000) {
+                    val response = StringBuilder()
+                    var verifiedComplete = false
+                    openVerifier(request).streamRound(emptyList(), emptyList()).collect { event ->
+                        when (event) {
+                            is ProviderEvent.TextDelta -> {
+                                check(response.length.toLong() + event.text.length <= 131_072) { "Claim extraction exceeded its output bound" }
+                                response.append(event.text)
+                            }
+                            is ProviderEvent.Completed -> verifiedComplete = true
+                            is ProviderEvent.Failed -> error("Claim extraction did not complete")
+                            is ProviderEvent.ToolCall, is ProviderEvent.ToolResult -> error("Evidence formatting attempted an operation")
+                            else -> Unit
+                        }
                     }
-                    is ProviderEvent.Completed -> verifiedComplete = true
-                    is ProviderEvent.Failed -> error("Claim extraction did not complete")
-                    is ProviderEvent.ToolCall, is ProviderEvent.ToolResult -> error("Evidence formatting attempted an operation")
-                    else -> Unit
-                }
+                    check(verifiedComplete) { "Claim extraction was interrupted" }
+                    val answer = Json.parseToJsonElement(response.toString().trim()) as? JsonObject ?: error("Claim extraction was not structured")
+                    GitHubEvidencePolicy.render(answer, receipts, now(), epoch)
+                } ?: GitHubEvidencePolicy.partial(receipts, now(), epoch)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                // Only formatter failure is recoverable here. Permission, ledger and
+                // persistence failures remain outside this boundary and fail closed.
+                GitHubEvidencePolicy.partial(receipts, now(), epoch)
             }
-            check(verifiedComplete) { "Claim extraction was interrupted" }
-            val answer = Json.parseToJsonElement(response.toString().trim()) as? JsonObject ?: error("Claim extraction was not structured")
-            val (text, report) = GitHubEvidencePolicy.render(answer, receipts, now(), epoch)
             validatePublication()
             evidence.retainVerdict(report)
             emit(ProviderEvent.TextDelta(text))

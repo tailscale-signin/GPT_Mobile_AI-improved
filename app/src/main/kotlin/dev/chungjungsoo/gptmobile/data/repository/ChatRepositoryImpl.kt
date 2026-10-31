@@ -4082,7 +4082,8 @@ class ChatRepositoryImpl(
             if (recalled.facts.isNotEmpty()) send(ApiState.MemoryRecalled(recalled.references))
             val passCombined = prepareCombinedDeliveryWork(combinedOverride ?: chatToolConfig?.combined, kind, runId, platform.uid, turns, invocationPlatform.systemPrompt.orEmpty(), listOfNotNull(passOutputTokens, requestConstraints.maxOutputTokens).minOrNull())
             val constraints = (if (textOnly) requestConstraints.withoutTools() else requestConstraints)
-                .copy(requestRole = kind, combined = passCombined, continuationPrefixDigest = continuationPrefixDigest, maximizeReasoning = requestConstraints.maximizeReasoning && !kind.startsWith("github-review"))
+                .copy(combined = passCombined, continuationPrefixDigest = continuationPrefixDigest)
+                .forRole(kind)
                 .let { original ->
                     if (passOutputTokens != null) {
                         original.copy(maxOutputTokens = minOf(original.maxOutputTokens ?: passOutputTokens, passOutputTokens))

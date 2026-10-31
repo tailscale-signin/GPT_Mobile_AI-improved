@@ -1586,6 +1586,9 @@ class GitHubTool(
         if (throwable is dev.chungjungsoo.gptmobile.data.github.GitHubRequestScheduler.AdmissionRejected) {
             return AgentToolResult(callId, ToolResultContent.Text(detail), true, errorCode = "GITHUB_WAITING_CAPACITY", dispatched = false)
         }
+        if (detail.startsWith("EVIDENCE_UNAVAILABLE:")) {
+            return AgentToolResult(callId, ToolResultContent.Text(detail), true, errorCode = "EVIDENCE_UNAVAILABLE", dispatched = false)
+        }
         if (throwable is java.io.IOException) {
             val uncertain = action in MUTATING_ACTIONS
             return AgentToolResult(callId, ToolResultContent.Text(if (uncertain) "GitHub connection interrupted. The write outcome is uncertain; reconcile the saved remote ref/tree or receipt before retrying." else "GitHub connection interrupted after bounded read retries. Retry this read when the connection recovers."), true, errorCode = if (throwable is dev.chungjungsoo.gptmobile.data.github.GitHubReadRetry.HttpFailure) "GITHUB_TRANSIENT_SERVER" else "GITHUB_TRANSIENT_NETWORK", dispatched = true)

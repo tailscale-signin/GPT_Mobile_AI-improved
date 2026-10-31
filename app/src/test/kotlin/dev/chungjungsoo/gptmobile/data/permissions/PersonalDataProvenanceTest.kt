@@ -102,7 +102,8 @@ class PersonalDataProvenanceTest {
             guarded.execute("public", JsonObject(emptyMap()))
             context.add(listOf(memory()))
             val blocked = runCatching { guarded.execute("derived", JsonObject(emptyMap())) }.exceptionOrNull()
-            assertTrue(blocked?.message.orEmpty().startsWith("PERSONAL_DATA_SERVICE_PERMISSION_REQUIRED"))
+            assertTrue(blocked is ToolAuthorizationRejected)
+            assertEquals("PERSONAL_DATA_SERVICE_PERMISSION_REQUIRED", (blocked as ToolAuthorizationRejected).code)
         }
         assertEquals(1, searches)
         // The same evidence remains usable with its explicitly approved model recipient.

@@ -68,6 +68,14 @@ Open **Plugins/Tools** to manage integrated plugins and external connections. En
 | GitHub workspace | Browse repositories and files, edit changes, and work with branches, commits and pull requests | A connected GitHub account with the necessary repository permissions. |
 | External MCP tools | Connect compatible third-party tools and services | MCP is a standard way for an AI app to connect to tools. Each server has its own access and setup requirements. |
 
+In the GitHub workspace's settings, choose an AI profile and its separate GitHub
+chat preferences. Web search, GitHub tools, maximum context expansion and **Ultra
+Maximum** are enabled by default. Provider capacity and spending limits still
+apply. Design questions offer buttons and a custom answer; background prompts
+notify you when notifications are allowed. The header shows elapsed job time.
+Llama gateway final answers require a separate review of retained tool results;
+failed review keeps the answer unpublished and preserves the work for recovery.
+
 A marketplace listing is not proof that a service is configured, free, reachable or supported on your device. Tools can contact external services even when the chat model runs locally.
 
 ### Run compatible AI models on your phone

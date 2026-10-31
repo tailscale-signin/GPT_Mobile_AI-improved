@@ -14,6 +14,12 @@ run_resources() {
     python3 scripts/check_qnn_provenance.py
 }
 
+# Provision explicitly before invoking Gradle. The verified cache works offline;
+# an air-gapped host can seed it with provision_memory_model.py --file PATH.
+case "$TASK" in
+    all|test|lint|build) python3 scripts/provision_memory_model.py ;;
+esac
+
 case "$TASK" in
     all)
         run_resources

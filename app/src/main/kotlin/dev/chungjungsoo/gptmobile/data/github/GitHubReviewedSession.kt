@@ -11,6 +11,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.transformWhile
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -60,7 +61,9 @@ internal class GitHubReviewedSession(
     private val openReview: suspend (prompt: String, kind: String) -> AgentProviderSession,
     private val progress: suspend (String) -> Unit,
     private val maxDraftCharacters: Int = 1_048_576,
-    private val validatePublication: suspend () -> Unit = {}
+    private val validatePublication: suspend () -> Unit = {},
+    private val guardDraft: (Flow<ProviderEvent>) -> Flow<ProviderEvent> = { it },
+    private val currentInputLimit: () -> Int = { inputTokenLimit }
 ) : AgentProviderSession by delegate {
     override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> = flow {
         exchanges.forEach { exchange -> exchange.results.forEach { result -> exchange.calls.firstOrNull { it.callId == result.callId }?.let { evidence.observe(it, result) } } }
@@ -68,7 +71,15 @@ internal class GitHubReviewedSession(
         var hasCalls = false
         var completed = false
         var failed = false
-        delegate.streamRound(tools, exchanges).collect { event ->
+        guardDraft(delegate.streamRound(tools, exchanges)).transformWhile { event ->
+            if (event is ProviderEvent.TextDelta && draft.length.toLong() + event.text.length > maxDraftCharacters) {
+                emit(ProviderEvent.Failed("The private draft exceeded the bounded review allowance.", errorCode = "GITHUB_REVIEW_REQUIRED"))
+                false
+            } else {
+                emit(event)
+                true
+            }
+        }.collect { event ->
             when (event) {
                 is ProviderEvent.TextDelta -> {
                     if (draft.length.toLong() + event.text.length > maxDraftCharacters) {
@@ -134,25 +145,33 @@ internal class GitHubReviewedSession(
     private data class Verdict(val approved: Boolean, val issues: List<String>, val claims: List<String>)
 
     private suspend fun review(draft: String, receipts: List<String>): Verdict {
+        val limit = minOf(inputTokenLimit, currentInputLimit())
         val fragments = mutableListOf<Pair<String, String>>()
         // UTF-8 token estimates and the actual serialized envelope determine admission, not character counts alone.
         val overhead = TextTokenEstimate.estimate(payload(draft, emptyList(), emptyList(), emptyList(), "review"))
-        val available = inputTokenLimit - overhead - 512
+        val available = limit - overhead - 512
         check(available >= 512) { "The complete draft and task do not fit the gateway review context." }
         val chunkCharacters = available.coerceAtMost(32_768)
         receipts.forEachIndexed { index, receipt ->
-            receipt.chunked(chunkCharacters).forEachIndexed { part, text -> fragments += "$index:$part" to text }
+            var start = 0
+            var part = 0
+            while (start < receipt.length) {
+                var end = minOf(receipt.length, start + chunkCharacters)
+                if (end < receipt.length && receipt[end - 1].isHighSurrogate() && receipt[end].isLowSurrogate()) end--
+                fragments += "$index:${part++}" to receipt.substring(start, end)
+                start = end
+            }
         }
         val batches = mutableListOf<List<Pair<String, String>>>()
         var batch = mutableListOf<Pair<String, String>>()
         fragments.forEach { fragment ->
             val next = batch + fragment
-            if (TextTokenEstimate.estimate(payload(draft, next, emptyList(), emptyList(), "review")) > inputTokenLimit && batch.isNotEmpty()) {
+            if (TextTokenEstimate.estimate(payload(draft, next, emptyList(), emptyList(), "review")) > limit && batch.isNotEmpty()) {
                 batches += batch.toList()
                 batch = mutableListOf()
             }
             batch += fragment
-            check(TextTokenEstimate.estimate(payload(draft, batch, emptyList(), emptyList(), "review")) <= inputTokenLimit) { "A tool result cannot fit the gateway review context." }
+            check(TextTokenEstimate.estimate(payload(draft, batch, emptyList(), emptyList(), "review")) <= limit) { "A tool result cannot fit the gateway review context." }
         }
         if (batch.isNotEmpty() || batches.isEmpty()) batches += batch.toList()
         check(batches.size <= 128) { "Review requires more than 128 context windows. Narrow the task before publishing." }
@@ -189,7 +208,7 @@ internal class GitHubReviewedSession(
     }.toString()
 
     private suspend fun collectPass(prompt: String, kind: String, cap: Int): String {
-        check(TextTokenEstimate.estimate(prompt) <= inputTokenLimit) { "The complete review input exceeds the gateway context. No evidence was silently omitted." }
+        check(TextTokenEstimate.estimate(prompt) <= minOf(inputTokenLimit, currentInputLimit())) { "The complete review input exceeds the gateway context. No evidence was silently omitted." }
         val output = StringBuilder()
         var completed = false
         var failure: String? = null

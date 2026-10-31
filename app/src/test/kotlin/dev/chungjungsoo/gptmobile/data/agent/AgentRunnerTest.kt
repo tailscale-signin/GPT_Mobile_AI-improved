@@ -22,10 +22,10 @@ import org.junit.Test
 
 class AgentRunnerTest {
     @Test fun reviewObserverReceivesFullReceiptBeforeCompactedReplayAndFinalAnswer() = runBlocking {
-        val complete = "source line\n".repeat(5000)
+        val complete = "source line\n".repeat(10000)
         var observed: String? = null
         var round = 0
-        val events = AgentRunner(AgentRunLimits(maxReplayTokens = 512, maxReplayResultTokens = 128), onToolResult = { _, result -> observed = (result.retainedContent ?: result.content).let { (it as ToolResultContent.Text).text } }).run(
+        val events = AgentRunner(AgentRunLimits(maxReplayTokens = 512, maxReplayResultTokens = 128), onToolResult = { _, result -> if (observed == null) observed = (result.retainedContent ?: result.content).let { (it as ToolResultContent.Text).text } }).run(
             session { _, _ ->
                 flow {
                     if (round++ == 0) {

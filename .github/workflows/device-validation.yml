@@ -82,6 +82,8 @@ jobs:
           fi
           printf '%s  %s\n' "$QNN_MODEL_SHA256" "$staged_model" | sha256sum --check
           sha256sum "$staged_model" > device-evidence/qnn-model.sha256
+      - name: Provision verified memory model outside Gradle
+        run: python3 scripts/provision_memory_model.py
       - name: Instrumented behavior and native memory checks
         run: ./gradlew :app:connectedDebugAndroidTest
       - name: Require actual GGUF execution for the selected compatible backends

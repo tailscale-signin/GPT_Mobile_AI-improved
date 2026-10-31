@@ -1166,6 +1166,7 @@ class AgentRunner(
                 tool.execute(call.callId, call.arguments)
             }
             val receipt = AgentContractValidation.receipt(call.callId, result)
+            onToolResult(call, receipt)
             ToolObservationRetention.bound(if (tool.managesExecutionBudget) receipt else receipt.copy(content = boundContent(receipt.content)))
         } catch (error: CancellationException) {
             throw error

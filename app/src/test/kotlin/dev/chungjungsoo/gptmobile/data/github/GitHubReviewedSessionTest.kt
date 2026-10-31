@@ -25,6 +25,41 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubReviewedSessionTest {
+    @Test fun actualGatewayCapacityOverridesExpandedPreferenceBeforeReview() = runBlocking {
+        val output = GitHubReviewedSession(answer(), GitHubReviewEvidence(), "task", 1_048_576, { _, _ -> error("Review must honor actual capacity") }, {}, currentInputLimit = { 4 }).streamRound(emptyList(), emptyList()).toList()
+        assertTrue(output.any { it is ProviderEvent.Failed })
+        assertTrue(output.none { it is ProviderEvent.TextDelta })
+    }
+
+    @Test fun oversizedPrivateDraftCancelsSourceBeforeItCanKeepGenerating() = runBlocking {
+        var emitted = 0
+        val source = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> = kotlinx.coroutines.flow.flow {
+                repeat(100) {
+                    emitted++
+                    emit(ProviderEvent.TextDelta("123456"))
+                }
+                emit(ProviderEvent.Completed)
+            }
+        }
+        val output = GitHubReviewedSession(source, GitHubReviewEvidence(), "task", 8192, { _, _ -> error("oversized draft must not dispatch review") }, {}, maxDraftCharacters = 10).streamRound(emptyList(), emptyList()).toList()
+        assertEquals(2, emitted)
+        assertTrue(output.any { it is ProviderEvent.Failed })
+        assertTrue(output.none { it is ProviderEvent.TextDelta })
+    }
+
+    @Test fun evidenceFragmentsPreserveUnicodeAtWindowBoundaries() = runBlocking {
+        val evidence = GitHubReviewEvidence().also { receipt(it, text = "😀X".repeat(3000)) }
+        val expected = evidence.snapshot().single()
+        val fragments = mutableListOf<String>()
+        val output = GitHubReviewedSession(answer(), evidence, "task", 1600, { prompt, _ ->
+            Json.parseToJsonElement(prompt).jsonObject.getValue("records").jsonArray.forEach { fragments += (it.jsonObject.getValue("evidence") as JsonPrimitive).content }
+            answer(verdict(prompt))
+        }, {}).streamRound(emptyList(), emptyList()).toList()
+        assertEquals(expected, fragments.joinToString(""))
+        assertFalse(output.any { it is ProviderEvent.Failed })
+    }
+
     @Test fun revokedAuthorityAfterReviewStillPreventsPublication() = runBlocking {
         val output = GitHubReviewedSession(answer(), GitHubReviewEvidence(), "task", 8192, { prompt, _ -> answer(verdict(prompt)) }, {}, validatePublication = { error("Permission changed") }).streamRound(emptyList(), emptyList()).toList()
         assertTrue(output.any { it is ProviderEvent.Failed })

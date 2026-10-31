@@ -4050,6 +4050,7 @@ class ChatRepositoryImpl(
                 "Remote synthesis budget · ownership=$processingOwnership · requested=${requestedOutputTokens ?: -1} · profileCap=${platform.maxTokens} · effective=$resolvedOutputCap · exposedTools=${exposedTools.size} · selectedTools=${contextPlan.tools.size}"
             )
         }
+        val observedRequestContext = java.util.concurrent.atomic.AtomicReference<Int?>(null)
         suspend fun openPrimarySession(
             turns: List<dev.chungjungsoo.gptmobile.data.context.ConversationTurn>,
             kind: String = if (runId.startsWith("combined-synthesis:")) "synthesis" else "primary",
@@ -4110,6 +4111,11 @@ class ChatRepositoryImpl(
                 override val hasPreparedSearchEvidence: Boolean = preparedSearch
                 override fun streamRound(tools: List<dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition>, exchanges: List<dev.chungjungsoo.gptmobile.data.agent.AgentToolExchange>): Flow<ProviderEvent> =
                     raw.streamRound(tools, exchanges).map { event ->
+                        if (chatToolConfig?.github != null && platform.compatibleType == ClientType.LLAMA) {
+                            kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext]?.receipts?.lastOrNull()?.contextTokens?.takeIf { it > 0 }?.coerceAtMost(Int.MAX_VALUE.toLong())?.toInt()?.let { capacity ->
+                                observedRequestContext.updateAndGet { previous -> minOf(previous ?: Int.MAX_VALUE, capacity) }
+                            }
+                        }
                         if (event is ProviderEvent.Failed) {
                             runCatching { writerFailures.observe(platform, event.message) }
                             if (researchSessions?.sessions?.value?.get(runId)?.snapshot?.sources?.any { it.readable } == true) {
@@ -4605,27 +4611,31 @@ class ChatRepositoryImpl(
         }
         val selectedSession = catalog?.let { groundedSession.withToolCatalog(it) } ?: groundedSession
         val reviewEvidence = if (chatToolConfig?.github != null && platform.compatibleType == ClientType.LLAMA) dev.chungjungsoo.gptmobile.data.github.GitHubReviewEvidence() else null
-        val reviewOutputTokens = minOf(4096, limits.contextTokens / 8).coerceAtLeast(256)
-        val reviewedSession = if (reviewEvidence != null && latestUser != null) {
+        fun reviewOutputTokens(): Int = minOf(4096, minOf(limits.contextTokens, observedRequestContext.get() ?: Int.MAX_VALUE) / 8).coerceAtLeast(256)
+        fun reviewInputLimit(): Int = (minOf(limits.contextTokens, observedRequestContext.get() ?: Int.MAX_VALUE).toLong() - dev.chungjungsoo.gptmobile.data.context.TextTokenEstimate.estimate(requestPlatform.systemPrompt.orEmpty() + dev.chungjungsoo.gptmobile.data.github.GitHubReviewedSession.INSTRUCTION) - reviewOutputTokens() - 512).coerceIn(0, 1_048_576).toInt()
+        val reviewedSession = if (reviewEvidence != null) {
+            val reviewUser = requireNotNull(latestUser) { "GITHUB_REVIEW_REQUIRED: The original task is missing; no answer can be published." }
             dev.chungjungsoo.gptmobile.data.github.GitHubReviewedSession(
                 selectedSession,
                 reviewEvidence,
-                latestUser.content,
-                inputTokenLimit = (limits.contextTokens.toLong() - dev.chungjungsoo.gptmobile.data.context.TextTokenEstimate.estimate(requestPlatform.systemPrompt.orEmpty() + dev.chungjungsoo.gptmobile.data.github.GitHubReviewedSession.INSTRUCTION) - reviewOutputTokens - 512).coerceIn(0, 1_048_576).toInt(),
+                reviewUser.content,
+                inputTokenLimit = reviewInputLimit(),
+                currentInputLimit = ::reviewInputLimit,
                 openReview = { prompt, kind ->
                     openPrimarySession(
-                        listOf(ConversationTurn(latestUser.copy(content = prompt, attachments = emptyList()), null, true)),
+                        listOf(ConversationTurn(reviewUser.copy(content = prompt, attachments = emptyList()), null, true)),
                         kind = kind,
                         textOnly = true,
-                        passOutputTokens = if (kind.endsWith("repair")) resolvedOutputCap else reviewOutputTokens,
+                        passOutputTokens = if (kind.endsWith("repair")) resolvedOutputCap else reviewOutputTokens(),
                         extraInstruction = dev.chungjungsoo.gptmobile.data.github.GitHubReviewedSession.INSTRUCTION
                     )
                 },
                 progress = { send(ApiState.ProgressCheckpoint(it)) },
+                guardDraft = dev.chungjungsoo.gptmobile.data.agent.GenerationSafety(budgetSettings.responseCharacterLimit, budgetSettings.repetitionGuardEnabled)::apply,
                 validatePublication = {
                     dispatchAuthority.validate()
                     check(validateSavedEvidence()) { "Saved evidence permission changed during review." }
-                    factVault?.validateRecall(recalled, latestUser.chatId, platform.isPrivateDestination())
+                    factVault?.validateRecall(recalled, reviewUser.chatId, platform.isPrivateDestination())
                 }
             )
         } else {

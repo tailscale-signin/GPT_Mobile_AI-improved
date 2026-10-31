@@ -264,3 +264,19 @@ Local review validation: 76 focused JVM tests passed, including review withholdi
 coverage, correction, malformed/failed streams, cancellation, context/evidence
 bounds and preservation of original receipts. Android runner/resolver/profile,
 backup and UI integration still require the new exact-head CI result.
+
+
+Final review hardening starts from `52e32fc782cc4211d90d9db1f1f61d7afb6f2ff2`
+on the same repository/base/branch. Preserve generated-character/repetition guards
+inside the private Llama draft stream, stop an oversized stream immediately,
+and avoid splitting UTF-16 surrogate pairs when partitioning review evidence.
+Additional behavioral regressions cover bounded source collection, exact Unicode
+reconstruction and actual gateway capacity. Review windows use the primary request
+admission receipt before partitioning evidence. All 79 focused JVM tests pass.
+
+CI revealed manual Android setup jobs that did not provision the model after
+Gradle network extraction. All Android workflows and the local full-validation
+entry point now provision explicitly before Gradle; verified cache hits perform
+no network I/O. The workflow policy rejects missing or late provisioning on
+manual SDK and physical-device jobs, including cross-job false positives.
+The host validation suite now contains 276 tests.

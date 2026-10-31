@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "default": {"minimum_samples": 20, "success_rate": 0.95, "p95_seconds": 3600},
+  "workflows": {
+    "codeql.yml": {"p95_seconds": 5400},
+    "geniex-preview.yml": {"p95_seconds": 12600},
+    "release-build.yml": {"p95_seconds": 7200},
+    "apply-ui-pipeline.yml": {"p95_seconds": 12600}
+  }
+}

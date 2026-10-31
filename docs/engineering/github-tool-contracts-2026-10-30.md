@@ -160,3 +160,74 @@ compactor suite and the new recovery regressions. All 238 canonical host tests,
 changed-source ktlint, workflow actionlint and whitespace checks passed. Cloud
 checks must be refreshed on the next published revision; the earlier CodeQL
 success is evidence for the plugin repair, not approval of a later head.
+
+## Expanded reliability and delivery scope
+
+Expansion base: `9144dee0ef386b0f9313e3fd0651143e284d3914`; the same PR #765
+and working branch remain in use. The owner requested the reliability, recovery,
+CI, visual validation, release and observability additions while a merge was
+waiting for checks. Merge authorization remains pending completion and validation
+of this expanded scope; earlier green checks do not qualify the new revision.
+
+Inspection found existing encrypted repository snapshots, a Room engineering
+ledger with compare-and-set Git saga checkpoints, WorkManager check watches,
+read-only HTTP retries, device/visual fixtures, release identity/provenance gates,
+artifact retention and opt-in signed CI notifications. The three `apply-*-ui.yml`
+files named in the proposal are absent from the current source tree; historical
+registered workflow IDs are not current workflow definitions.
+
+Confirmed gap: staging the same patch writes the same deterministic stage ID but
+replaces its record, potentially removing a saved commit/review receipt. The
+expanded implementation must preserve immutable versioned stage records, serialize
+publication claims, and reconcile uncertain outcomes without replaying writes.
+
+Delivery checklist:
+
+- Deterministic execution identities, retained lifecycle/checkpoint context,
+  correlation and concurrent invocation recovery.
+- Versioned immutable patch snapshots, atomic publication claims and safe restore.
+- Bounded transient retries and circuit admission with behavior regressions.
+- One configurable UI pipeline and shared build implementation with existing
+  signing, memory, provenance and native verification requirements preserved.
+- GenieX stage metrics, retained diagnostics and selectable runtime validation.
+- Visual baseline comparison, emulator matrix and workflow smoke contracts.
+- Release preparation/changelog/indexing and non-destructive rollback planning.
+- Measured workflow reliability/latency objectives, trends, capacity and dashboard
+  evidence; optional notification destinations require owner configuration.
+
+Numeric speed/flakiness targets in the proposal are objectives, not measurements.
+Physical-device qualification, credentials, signed production publication and
+external notification delivery require their existing concrete runtime evidence.
+
+The subsequent coding-accuracy list is part of this same expansion: dependency-aware
+multi-file context, commit/branch history, versioned execution/output identities,
+preserved error evidence, pre-commit feedback/test planning, fuzzy/pattern/reference
+discovery, revision-bound cache reuse, semantic patch context, DAG recovery,
+inline editing/highlighted diffs/contextual help, and retained repository guidance
+for tests, generation and refactoring. The proposed accuracy percentages are
+unmeasured objectives. Commit IDs, workflow/run IDs, evidence handles and opaque
+saved-view cursors remain distinct typed identities; examples in the proposal do
+not override the admitted tool schemas or publication safeguards.
+
+## Integrated delivery checkpoint
+
+Before publication, the PR head had independently advanced to
+`856115333ee3464c3d996b2109cdebd8a786c2a0` (chat continuity and bounded completion).
+The expansion was rebased onto that head. Both cross-turn source descriptors and
+multi-file dependency metadata are retained, and both sets of evidence/recovery
+regressions run together. No remote branch history was overwritten.
+
+The [delivery matrix](github-reliability-delivery.md) maps every recommendation
+group to its implemented capability, existing subsystem, and concrete limits.
+The shared UI pipeline and release preparation are manual entry points. No
+notification destination, physical-device qualification, approved design baseline,
+or production release is fabricated or enabled by adding these definitions.
+
+Integrated local validation passed: 236 Kotlin host regressions against the actual
+runner, facades, native HTTP/session, saved views, execution journal, circuit,
+multi-file context, patch validation and replay code; all 248 canonical host tests;
+changed-source ktlint 1.3.1; actionlint; architecture index and whitespace checks.
+The host harness retains its stated Android storage/telemetry stand-ins and does
+not compile Compose or run a device. Full Android, emulator, native APK and CodeQL
+checks must qualify the newly published head before merge. The earlier CI results
+are not approval of this expansion.

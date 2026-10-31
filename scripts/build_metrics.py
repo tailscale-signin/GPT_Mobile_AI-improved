@@ -49,6 +49,16 @@ def compare(current, baseline):
     return result
 
 
+def collect_apks(directory):
+    reports, errors = [], []
+    for path in sorted(directory.rglob('*.apk')):
+        try:
+            reports.append(apk_metrics(path))
+        except (OSError, zipfile.BadZipFile):
+            errors.append({'file': path.name, 'status': 'UNREADABLE_OR_INCOMPLETE'})
+    return reports, errors
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--label', required=True)
@@ -71,14 +81,22 @@ def main():
     environment = {'runner': os.getenv('RUNNER_ARCH', os.uname().machine), 'os': os.getenv('ImageOS', os.uname().sysname),
                    'image_version': os.getenv('ImageVersion'), 'java_home': os.getenv('JAVA_HOME'), 'label': args.label, 'command': command}
     count = tasks['executed'] + tasks['from_cache'] + tasks['up_to_date']
-    report = {'schema_version': 1, 'label': args.label, 'commit_sha': os.getenv('GITHUB_SHA'), 'exit_code': code,
+    trace = {key: os.getenv(env) for key, env in (('repository', 'GITHUB_REPOSITORY'), ('run_id', 'GITHUB_RUN_ID'),
+             ('attempt', 'GITHUB_RUN_ATTEMPT'), ('job', 'GITHUB_JOB'), ('ref', 'GITHUB_REF_NAME'))}
+    trace['trace_id'] = hashlib.sha256(json.dumps({key: trace[key] for key in ('repository', 'run_id', 'attempt')}, sort_keys=True).encode()).hexdigest()
+    trace['span_id'] = hashlib.sha256((trace['trace_id'] + str(trace['job']) + args.label).encode()).hexdigest()[:16]
+    apks, apk_errors = collect_apks(Path('app/build/outputs/apk'))
+    try:
+        test_coverage = coverage(Path('app/build/reports/jacoco/jacocoTestReport/jacocoTestReport.xml'))
+    except (OSError, ET.ParseError, KeyError, ValueError):
+        test_coverage = {'status': 'UNREADABLE_OR_INCOMPLETE'}
+    report = {'schema_version': 1, 'label': args.label, 'commit_sha': os.getenv('GITHUB_SHA'), 'exit_code': code, 'trace': trace,
               'elapsed_seconds': round(time.monotonic() - started, 3), 'child_peak_rss_kb': usage.ru_maxrss,
               'rss_definition': 'Linux child-process high-water mark, not simultaneous aggregate memory',
               'block_input_operations': usage.ru_inblock, 'block_output_operations': usage.ru_oublock,
               'tasks': tasks, 'task_cache_hit_rate': tasks['from_cache'] / count if count else None,
               'comparison_key': hashlib.sha256(json.dumps(environment, sort_keys=True).encode()).hexdigest(),
-              'environment': environment, 'apks': [apk_metrics(p) for p in sorted(Path('app/build/outputs/apk').rglob('*.apk'))],
-              'coverage': coverage(Path('app/build/reports/jacoco/jacocoTestReport/jacocoTestReport.xml'))}
+              'environment': environment, 'apks': apks, 'apk_errors': apk_errors, 'coverage': test_coverage}
     if args.baseline:
         report['comparison'] = compare(report, json.loads(Path(args.baseline).read_text()))
     output = Path(args.output)

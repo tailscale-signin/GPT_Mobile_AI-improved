@@ -11,6 +11,7 @@ import urllib.request
 from pathlib import Path
 
 from notify_ci_status import NoRedirect, deliver_payload
+from workflow_service_levels import evaluate, markdown
 
 
 def timestamp(value):
@@ -155,7 +156,11 @@ def main():
               'recent_failures': failures, 'completed_diagnostic_cache_hits': hits, 'diagnostics': diagnostics,
               'stalled_prs': [{'pr_number': p['number']} for p in pulls if p['state'] == 'open' and not p.get('draft') and now - timestamp(p['updated_at']) > 14400],
               'merged_prs': [{'pr_number': p['number']} for p in pulls if p.get('merged_at') and now - timestamp(p['merged_at']) < 86400]}
+    report['service_levels'] = evaluate(runs, json.loads(Path('.github/ci-objectives.json').read_text()), now)
     Path(args.output).write_text(json.dumps(report, indent=2) + '\n')
+    if os.getenv('GITHUB_STEP_SUMMARY'):
+        with Path(os.environ['GITHUB_STEP_SUMMARY']).open('a') as stream:
+            stream.write(markdown(report['service_levels']))
     if args.notify:
         url, secret = os.getenv('CI_STATUS_WEBHOOK_URL', ''), os.getenv('CI_STATUS_WEBHOOK_SECRET', '')
         if not url or not secret:

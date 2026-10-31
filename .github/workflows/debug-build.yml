@@ -61,7 +61,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          ./gradlew assembleDebug --no-daemon --stacktrace 2>&1 | tee gradle-build.log
+          python3 scripts/android_pipeline.py --phase debug --output build/reports/pipeline/debug.json 2>&1 | tee gradle-build.log
 
       - name: Verify local runtime native libraries
         if: steps.gradle_build.outcome == 'success'
@@ -72,7 +72,10 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: gradle-build-log-${{ github.run_id }}
-          path: gradle-build.log
+          path: |
+            gradle-build.log
+            build/reports/pipeline/
+            build/reports/profile/
           if-no-files-found: warn
           retention-days: 14
 

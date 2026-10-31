@@ -1,0 +1,124 @@
+name: UI qualification pipeline
+on:
+  workflow_dispatch:
+    inputs:
+      stage:
+        type: choice
+        options: [requested, final, production]
+        default: requested
+        description: Qualification stage (production prepares an unsigned release candidate)
+      runtime:
+        type: choice
+        options: [legacy, geniex, both]
+        default: legacy
+        description: Runtime coverage
+      baseline:
+        type: string
+        default: docs/ui-baselines/workspace/manifest.json
+        description: Reviewed manifest committed under docs/ui-baselines
+permissions:
+  contents: read
+concurrency:
+  group: ui-pipeline-${{ github.ref }}-${{ inputs.stage }}
+  cancel-in-progress: true
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - run: bash scripts/validate-local.sh fast
+  qualify:
+    needs: preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 210
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        runtime: ${{ fromJSON(inputs.runtime == 'both' && '["legacy","geniex"]' || format('["{0}"]', inputs.runtime)) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-android
+      - name: Install native shader prerequisites
+        timeout-minutes: 8
+        run: |
+          apt_options=(-o Acquire::Retries=2 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 -o DPkg::Lock::Timeout=60)
+          sudo timeout --kill-after=15s 180s apt-get "${apt_options[@]}" update
+          sudo env DEBIAN_FRONTEND=noninteractive timeout --kill-after=15s 180s apt-get "${apt_options[@]}" install --no-install-recommends -y glslc libvulkan-dev spirv-headers
+      - name: Render UI fixtures and measure execution
+        timeout-minutes: 40
+        env:
+          RUNTIME: ${{ matrix.runtime }}
+        run: python3 scripts/android_pipeline.py --runtime "$RUNTIME" --phase ui --output build/reports/pipeline/ui.json
+      - name: Compare reviewed visual baseline
+        env:
+          BASELINE: ${{ inputs.baseline }}
+          STAGE: ${{ inputs.stage }}
+        run: |
+          options=()
+          if [[ "$STAGE" != requested ]]; then options+=(--require-qualified); fi
+          python3 scripts/visual_regression.py --candidates app/build/reports/reliability-ui --baseline "$BASELINE" --output build/reports/pipeline/visual.json "${options[@]}"
+      - name: Build requested or final preview
+        if: inputs.stage != 'production'
+        timeout-minutes: 45
+        env:
+          RUNTIME: ${{ matrix.runtime }}
+        run: python3 scripts/android_pipeline.py --runtime "$RUNTIME" --phase debug --output build/reports/pipeline/build.json
+      - name: Prepare production candidate in separate compiler and packaging processes
+        if: inputs.stage == 'production'
+        timeout-minutes: 110
+        env:
+          RUNTIME: ${{ matrix.runtime }}
+        run: |
+          python3 scripts/android_pipeline.py --runtime "$RUNTIME" --variant release --phase shrink --output build/reports/pipeline/shrink.json
+          python3 scripts/android_pipeline.py --runtime "$RUNTIME" --variant release --phase package --output build/reports/pipeline/build.json
+      - name: Audit candidate native stack and telemetry
+        env:
+          RUNTIME: ${{ matrix.runtime }}
+          STAGE: ${{ inputs.stage }}
+        run: |
+          variant=debug
+          if [[ "$STAGE" == production ]]; then variant=release; fi
+          stack=litert
+          if [[ "$RUNTIME" == geniex ]]; then stack=geniex; fi
+          python3 scripts/check_local_runtime_apk.py --native-stack "$stack" app/build/outputs/apk/"$variant"/*.apk
+          python3 scripts/check_no_telemetry.py app/build/outputs/apk/"$variant"/*.apk
+      - name: Index versioned UI candidate
+        env:
+          RUNTIME: ${{ matrix.runtime }}
+        run: python3 scripts/artifact_manifest.py --root app/build/outputs/apk --runtime "$RUNTIME" --output build/reports/pipeline/artifact-index.json
+      - name: Retain versioned candidate, visual comparisons, and measured performance
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ui-${{ inputs.stage }}-${{ matrix.runtime }}-${{ github.sha }}-${{ github.run_attempt }}
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            app/build/outputs/apk/
+            app/build/reports/reliability-ui/
+            app/build/reports/tests/
+            build/reports/pipeline/
+            build/reports/profile/
+  qualification:
+    needs: [preflight, qualify]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every selected runtime to qualify
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+          STAGE: ${{ inputs.stage }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          results = json.loads(os.environ['RESULTS'])
+          assert all(row['result'] == 'success' for row in results.values()), results
+          print(f"{os.environ['STAGE']} candidate qualified. Distribution remains in the signed release pipeline.")
+          PY

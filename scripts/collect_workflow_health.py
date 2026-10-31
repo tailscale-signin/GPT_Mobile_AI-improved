@@ -8,6 +8,7 @@ import re
 import statistics
 import urllib.request
 from pathlib import Path
+from workflow_service_levels import evaluate, markdown
 
 
 def summarize(runs):
@@ -85,6 +86,7 @@ def main():
     parser.add_argument('--output', default='workflow-health.json')
     parser.add_argument('--max-pages', type=int, default=3, help='100 runs per page; 1–1000 pages per invocation')
     parser.add_argument('--resume', type=Path, help='Resume a previous output file; never repeats a mutation')
+    parser.add_argument('--objectives', type=Path, default=Path('.github/ci-objectives.json'))
     args = parser.parse_args()
     if not re.fullmatch(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+', args.repository):
         raise SystemExit('Invalid repository')
@@ -101,6 +103,7 @@ def main():
                      'sample_limit': args.max_pages * 100, 'sample_size': len(snapshot['runs']),
                      'duration_definition': 'run_started_at to updated_at; includes post-processing, not CPU time or a device benchmark',
                      'consistency_note': 'Run history is mutable. Complete means every initial run ID was observed; concurrent deletions or page movement can leave incomplete coverage.'})
+    snapshot['service_levels'] = evaluate(snapshot['runs'], json.loads(args.objectives.read_text()))
     write_snapshot(Path(args.output), snapshot)
     if os.getenv('GITHUB_STEP_SUMMARY'):
         with Path(os.environ['GITHUB_STEP_SUMMARY']).open('a') as stream:
@@ -110,6 +113,7 @@ def main():
             for metric in snapshot['metrics']:
                 name = metric['workflow'].replace('|', '/').replace('<', '&lt;').replace('\n', ' ')
                 stream.write(f"| {name} | {metric['completed']} | {metric['successes']} | {metric['failures']} | {metric['cancelled']} | {metric['median_observed_seconds']} |\n")
+            stream.write('\n' + markdown(snapshot['service_levels']))
 
 
 if __name__ == '__main__':

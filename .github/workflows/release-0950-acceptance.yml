@@ -15,7 +15,16 @@ concurrency:
 jobs:
   emulator:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        include:
+          - api: 34
+            profile: pixel_2
+          - api: 36
+            profile: pixel_c
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6
@@ -62,7 +71,8 @@ jobs:
       - name: Run editor and Combined finalization regressions and measure database/catalog operations
         uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
         with:
-          api-level: 36
+          api-level: ${{ matrix.api }}
+          profile: ${{ matrix.profile }}
           arch: x86_64
           target: google_apis
           disable-animations: true
@@ -72,7 +82,7 @@ jobs:
         if: always()
         with:
           retention-days: 14
-          name: acceptance-0950-emulator
+          name: acceptance-0950-api${{ matrix.api }}-${{ matrix.profile }}
           path: |
             app/build/reports/androidTests/
             app/build/outputs/androidTest-results/

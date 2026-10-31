@@ -1,0 +1,40 @@
+name: Prepare release proposal
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        type: string
+        required: true
+        description: New four-component version (for example 0.9.65.0)
+      rollback_commit:
+        type: string
+        required: false
+        description: Optional full SHA to include as a forward-revert proposal
+permissions:
+  contents: read
+concurrency:
+  group: prepare-release-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  proposal:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Prepare version, changelog, notes, and rollback plan
+        env:
+          VERSION: ${{ inputs.version }}
+          ROLLBACK_COMMIT: ${{ inputs.rollback_commit }}
+        run: |
+          options=()
+          if [[ -n "$ROLLBACK_COMMIT" ]]; then options+=(--rollback-commit "$ROLLBACK_COMMIT"); fi
+          python3 scripts/prepare_release.py --version "$VERSION" --expected-head "$GITHUB_SHA" "${options[@]}"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: release-proposal-${{ github.sha }}-${{ github.run_attempt }}
+          path: build/reports/release-plan/
+          if-no-files-found: error
+          retention-days: 90

@@ -93,7 +93,7 @@ class AgentRunner(
         if (finishedInTime == null) {
             emit(failed("Agent run timed out after ${limits.runTimeoutMillis} ms."))
         }
-    }.flowOn((limits.combined?.let(::CombinedRunScope) ?: kotlin.coroutines.EmptyCoroutineContext) + (onToolResult?.let(::ToolReceiptObserver) ?: kotlin.coroutines.EmptyCoroutineContext))
+    }.flowOn(limits.combined?.let(::CombinedRunScope) ?: kotlin.coroutines.EmptyCoroutineContext)
 
     private suspend fun kotlinx.coroutines.flow.FlowCollector<AgentRunEvent>.executeLoop(
         session: AgentProviderSession,
@@ -1153,17 +1153,25 @@ class AgentRunner(
         }
         val replayableRead = replayableRead(call)
         return try {
-            val result = if (!tool.managesExecutionBudget && limits.toolTimeoutMillis < Long.MAX_VALUE) {
-                withTimeoutOrNull(limits.toolTimeoutMillis) {
+            // A delegated child can have different data permissions. Capture only
+            // this call's authorized receipt, never its private intermediate calls.
+            val result = kotlinx.coroutines.withContext(
+                ToolReceiptObserver { observedCall, receipt ->
+                    if (observedCall == call) onToolResult?.invoke(call, receipt)
+                }
+            ) {
+                if (!tool.managesExecutionBudget && limits.toolTimeoutMillis < Long.MAX_VALUE) {
+                    withTimeoutOrNull(limits.toolTimeoutMillis) {
+                        tool.execute(call.callId, call.arguments)
+                    } ?: AgentToolResult(
+                        callId = call.callId,
+                        content = ToolResultContent.Text("Tool '${call.name}' timed out after ${limits.toolTimeoutMillis} ms."),
+                        isError = true,
+                        errorCode = if (replayableRead) "READ_DEADLINE" else "TIMEOUT_OUTCOME_UNKNOWN"
+                    )
+                } else {
                     tool.execute(call.callId, call.arguments)
-                } ?: AgentToolResult(
-                    callId = call.callId,
-                    content = ToolResultContent.Text("Tool '${call.name}' timed out after ${limits.toolTimeoutMillis} ms."),
-                    isError = true,
-                    errorCode = if (replayableRead) "READ_DEADLINE" else "TIMEOUT_OUTCOME_UNKNOWN"
-                )
-            } else {
-                tool.execute(call.callId, call.arguments)
+                }
             }
             val receipt = AgentContractValidation.receipt(call.callId, result)
             onToolResult?.invoke(call, receipt)

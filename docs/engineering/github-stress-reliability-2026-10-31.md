@@ -300,3 +300,8 @@ test double after OkHttp added event-listener and typed-tag members. The test no
 delegates unused interface members to a real, undispatched Call while controlling
 headers, cancellation and body callbacks explicitly. No test request reaches the
 network. This is checked against the repository's pinned OkHttp 5.5.0 bytes.
+
+The receipt observer is scoped to the exact executing call, including its name
+and arguments. Nested delegated operations can have different data permissions;
+only their authorized outer handoff enters the parent's review. An integration
+regression verifies that private child results are not observed by the parent.

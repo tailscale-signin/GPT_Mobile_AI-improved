@@ -21,6 +21,29 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AgentRunnerTest {
+    @Test fun reviewObserverOnlyReceivesTheAuthorizedOuterReceiptOfDelegatedWork() = runBlocking {
+        val observed = mutableListOf<Pair<String, String>>()
+        val child = ToolExecutionBudget(AgentRunLimits()).bind(tool("child_private_read") { id, _ -> AgentToolResult(id, ToolResultContent.Text("private child intermediate"), false) })
+        val outer = ToolExecutionBudget(AgentRunLimits()).bind(
+            tool("delegate_task") { id, _ ->
+                child.execute("child-call", JsonObject(emptyMap()))
+                AgentToolResult(id, ToolResultContent.Text("authorized handoff"), false)
+            }
+        )
+        var round = 0
+        AgentRunner(onToolResult = { call, result -> observed += call.callId to result.content.toString() }).run(
+            session { _, _ ->
+                flow {
+                    if (round++ == 0) emit(toolCall("parent-call", "delegate_task")) else emit(ProviderEvent.TextDelta("Done"))
+                    emit(ProviderEvent.Completed)
+                }
+            },
+            listOf(outer)
+        ).toList()
+        assertTrue(observed.isNotEmpty())
+        assertTrue(observed.all { it.first == "parent-call" && it.second.contains("authorized handoff") && !it.second.contains("private child intermediate") })
+    }
+
     @Test fun reviewObserverReceivesFullReceiptBeforeCompactedReplayAndFinalAnswer() = runBlocking {
         val complete = "source line\n".repeat(10000)
         var observed: String? = null

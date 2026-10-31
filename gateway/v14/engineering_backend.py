@@ -101,6 +101,8 @@ class GitHubEngineeringBackend:
         self.journal = BatchJournal(runtime)
         self.stopping = threading.Event()
         self.cancelled = lambda job_id: False
+        self.record_evidence = lambda job, payload: None
+        self.recall_memory = lambda job, query: {'records': [], 'current_evidence': False}
 
     def cancel(self):
         self.stopping.set()
@@ -132,6 +134,16 @@ class GitHubEngineeringBackend:
         return '/repos/' + quote(owner, safe='') + '/' + quote(repo, safe='')
 
     def api(self, path, method='GET', body=None, job=None, text=False):
+        started = time.monotonic()
+        def recorded(value, status, success):
+            if job:
+                receipt = self.record_evidence(job, {'source': 'github_api', 'method': method, 'path': path, 'status': status,
+                    'success': success, 'trusted': True, 'repository': job['request']['repository'],
+                    'head_sha': job['data'].get('head_sha'), 'observed_at_ms': int(time.time() * 1000),
+                    'response_time_ms': max(0, int((time.monotonic() - started) * 1000)), 'result': value})
+                if receipt:
+                    job['data']['latest_evidence'] = receipt
+            return value
         if not path.startswith('/') or path.startswith('//') or self.stopping.is_set() or job and self.cancelled(job['id']):
             raise InterruptedError('Engineering operation stopped')
         if job and job['state'] not in {'MERGE', 'VERIFY'} and time.time() >= job['deadline']:
@@ -155,9 +167,11 @@ class GitHubEngineeringBackend:
                 # GitHub credentials never accompany the signed storage redirect.
                 with requests.get(location, timeout=(10, 30), allow_redirects=False, stream=True) as download:
                     download.raise_for_status()
-                    return self.read_response(download, True)
+                    return recorded(self.read_response(download, True), download.status_code, True)
+            if response.status_code >= 400:
+                recorded({'http_status': response.status_code, 'error': self.read_response(response, True)}, response.status_code, False)
             response.raise_for_status()
-            return self.read_response(response, text)
+            return recorded(self.read_response(response, text), response.status_code, True)
 
     @staticmethod
     def read_response(response, text):
@@ -181,6 +195,7 @@ class GitHubEngineeringBackend:
         expected = job['data'].get('actor_id')
         if expected is not None and actor['id'] != expected:
             raise ValueError('The GitHub account changed; job authorization is invalid')
+        job['data']['permission_scope'] = hashlib.sha256((self.token() + '\0' + os.getenv('GATEWAY_ENGINEERING_GITHUB_SERVER', '')).encode()).hexdigest()
         return actor
 
     def ref(self, job, branch):
@@ -218,10 +233,14 @@ class GitHubEngineeringBackend:
                        '"edits":[{"old":"unique exact anchor","new":"replacement"}]}],"summary":"..."}. '
                        'A new/small file may use content instead of edits. Use delete:true alone for deletion. '
                        'Existing files must have been read. Do not invent file contents; include meaningful tests.')
-        payload = {'model': job['request']['model'], 'stream': False, 'cache_prompt': True,
+        historical = self.recall_memory(job, job['request']['objective'])
+        # Optional independent model on the same private gateway; review is supplemental,
+        # and never overrides the deterministic receipt or merge gates.
+        model = os.getenv('GATEWAY_ENGINEERING_REVIEW_MODEL', '') if role == 'independent reviewer' else ''
+        payload = {'model': model or job['request']['model'], 'stream': False, 'cache_prompt': True,
                    'max_tokens': 8192, 'temperature': .1, 'response_format': {'type': 'json_object'},
                    'messages': [{'role': 'system', 'content': system}, {'role': 'user', 'content': json.dumps({
-                       'objective': job['request']['objective'], 'evidence': evidence}, ensure_ascii=False)}]}
+                       'objective': job['request']['objective'], 'evidence': evidence, 'historical_memory': historical}, ensure_ascii=False)}]}
         if len(payload['messages'][1]['content']) > 200000:
             raise ValueError('Engineering model context requires a smaller evidence bundle')
         backend = self
@@ -384,8 +403,8 @@ class GitHubEngineeringBackend:
             retained = self.find_pr(job)
             if retained:
                 return retained
-            body = 'Autonomous engineering job `' + job['id'] + '`.\n\n' + data['summary'] + '\n\nIndependent model review completed. CI validation is pending; merge requires explicit in-chat approval.'
-            pr = self.api(root + '/pulls', 'POST', {'title': data['summary'].splitlines()[0][:180], 'body': body,
+            body = 'Autonomous engineering job `' + job['id'] + '`.\n\nPublished paths:\n' + '\n'.join('- `' + change['path'] + '`' for change in data['changes']) + '\n\nIndependent model review completed. CI validation is pending; merge requires explicit in-chat approval. Feature completeness and benchmarks are not inferred from this publication.'
+            pr = self.api(root + '/pulls', 'POST', {'title': 'Engineering changes · ' + job['id'], 'body': body,
                           'head': job['request']['branch'], 'base': job['request']['base'], 'draft': True}, job)
             return {'pr': pr['number'], 'pr_url': pr['html_url']}
         if phase == 'PROMOTE':

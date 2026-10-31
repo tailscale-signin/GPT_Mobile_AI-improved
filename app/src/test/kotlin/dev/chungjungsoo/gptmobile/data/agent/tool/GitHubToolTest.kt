@@ -134,6 +134,7 @@ class GitHubToolTest {
             MockEngine { request ->
                 respond(
                     when (request.url.encodedPath) {
+                        "/repos/o/r/actions/runs/7" -> """{"id":7,"head_sha":"${"a".repeat(40)}"}"""
                         "/repos/o/r/actions/runs/7/jobs" -> """{"total_count":1,"jobs":[$job]}"""
                         "/repos/o/r/actions/jobs/3" -> job
                         else -> error("Unexpected job endpoint")
@@ -184,6 +185,7 @@ class GitHubToolTest {
             MockEngine { request ->
                 requests += "${request.method.value} ${request.url.encodedPath}"
                 when (request.url.encodedPath) {
+                    "/repos/owner/repo/commits/work" -> respond("""{"sha":"${"a".repeat(40)}"}""")
                     "/repos/owner/repo/actions/workflows" -> respond("""{"total_count":31,"workflows":[{"id":1,"path":".github/workflows/build.yml"}]}""")
                     "/repos/owner/repo/actions/workflows/build.yml" -> respond("""{"id":1,"state":"active"}""")
                     "/repos/owner/repo/actions/workflows/build.yml/dispatches" -> respond("", HttpStatusCode.NoContent)
@@ -198,6 +200,7 @@ class GitHubToolTest {
                 put("repo", "repo")
                 put("ref", "work")
                 put("action", "dispatch_workflow")
+                put("expected_head_sha", "a".repeat(40))
             }
             val missing = tool.execute("missing", common)
             assertEquals("WORKFLOW_SELECTION_REQUIRED", missing.errorCode)
@@ -374,6 +377,7 @@ class GitHubToolTest {
         val client = HttpClient(
             MockEngine { request ->
                 if (request.method == io.ktor.http.HttpMethod.Get) {
+                    if (request.url.encodedPath == "/repos/owner/repo/commits/main") return@MockEngine respond("""{"sha":"${"a".repeat(40)}"}""")
                     assertEquals("/repos/owner/repo/actions/workflows/build.yml", request.url.encodedPath)
                     return@MockEngine respond("""{"id":1,"state":"active"}""")
                 }
@@ -395,6 +399,7 @@ class GitHubToolTest {
                     put("repo", "repo")
                     put("workflow_id", "build.yml")
                     put("ref", "main")
+                    put("expected_head_sha", "a".repeat(40))
                     put("inputs", buildJsonObject { put("debug", true) })
                 }
             )

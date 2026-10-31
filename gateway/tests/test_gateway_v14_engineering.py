@@ -18,14 +18,14 @@ class Backend:
     def __init__(self):
         self.calls = []
         self.evidence = {'pr': 7, 'head_sha': 'a' * 40, 'base_sha': 'b' * 40, 'state': 'OPEN', 'checks_passed': True,
-                         'policy_verified': True, 'mergeable': True, 'reviews_satisfied': True, 'draft': False, 'checks': []}
+                         'policy_verified': True, 'mergeable': True, 'reviews_satisfied': True, 'draft': False, 'checks': [{'name': 'tests', 'status': 'SUCCESS', 'required': True}], 'changed_files': ['file']}
         self.recovered = None
 
     def step(self, job, phase):
         self.calls.append(phase)
         return {'PLAN': {'head_sha': 'a' * 40}, 'READ': {'files': {}}, 'IMPLEMENT': {'changes': [{'path': 'file', 'content': 'new'}]},
                 'REVIEW': {'review': {'approved': True, 'issues': []}}, 'COMMIT': {'head_sha': 'a' * 40},
-                'OPEN_PR': {'pr': 7, 'pr_url': 'https://github.com/owner/repo/pull/7'}, 'VERIFY': {'verified': True}}[phase]
+                'OPEN_PR': {'pr': 7, 'pr_url': 'https://github.com/owner/repo/pull/7'}, 'VERIFY': {'result': {'merged': True, 'merge_sha': 'c' * 40}}}[phase]
 
     def inspect(self, job):
         self.calls.append('inspect')

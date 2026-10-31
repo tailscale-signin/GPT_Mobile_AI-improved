@@ -91,7 +91,8 @@ object ChatRepositoryModule {
         combinedBudgets: dev.chungjungsoo.gptmobile.data.agent.CombinedTurnBudgetStore,
         combinedDecisions: dev.chungjungsoo.gptmobile.data.agent.CombinedCollectionDecisionStore,
         gitHubDecisions: dev.chungjungsoo.gptmobile.data.github.GitHubChatDecisions,
-        gitHubDecisionNotifications: dev.chungjungsoo.gptmobile.data.github.GitHubDecisionNotifications
+        gitHubDecisionNotifications: dev.chungjungsoo.gptmobile.data.github.GitHubDecisionNotifications,
+        engineeringMemory: dev.chungjungsoo.gptmobile.data.github.GitHubEngineeringMemory
     ): ChatRepository = ChatRepositoryImpl(
         context = context,
         chatRoomV2Dao = chatRoomV2Dao,
@@ -135,6 +136,7 @@ object ChatRepositoryModule {
         combinedBudgets = combinedBudgets,
         combinedDecisions = combinedDecisions,
         gitHubDecisions = gitHubDecisions,
-        gitHubDecisionNotifications = gitHubDecisionNotifications
+        gitHubDecisionNotifications = gitHubDecisionNotifications,
+        engineeringMemory = engineeringMemory
     )
 }

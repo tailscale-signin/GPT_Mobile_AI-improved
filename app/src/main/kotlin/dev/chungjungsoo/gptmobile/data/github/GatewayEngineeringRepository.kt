@@ -33,6 +33,13 @@ class GatewayEngineeringRepository @Inject constructor(
 
     suspend fun options(): GatewayEngineeringSettings = settings.getFeatureSettings().githubEngineeringSettings
 
+    suspend fun evidence(requestId: String, receiptId: String): String {
+        val binding = bindings().single { it.request.requestId == requestId }
+        val config = config(binding)
+        check(binding.principalId == client.principal(config)) { "The gateway account changed; evidence is unavailable." }
+        return client.evidence(config, requireNotNull(binding.job).id, receiptId)
+    }
+
     private suspend fun config(binding: GatewayEngineeringBinding): ProviderRequestConfig {
         val profile = settings.fetchPlatformV2s().singleOrNull { it.uid == binding.profileUid && it.enabled }
             ?: error("The saved engineering AI profile is unavailable. The gateway job is retained.")
@@ -44,18 +51,19 @@ class GatewayEngineeringRepository @Inject constructor(
         require(objective.isNotBlank() && objective.length <= 16000 && branch != base)
         val profile = settings.fetchPlatformV2s().single { it.uid == context.mainProfileUid && it.enabled }
         require(profile.compatibleType == ClientType.LLAMA) { "Select a llama gateway AI profile to start an autonomous job." }
+        val preferences = settings.getFeatureSettings().githubProfileOverrides[profile.uid] ?: GitHubChatProfileOverride()
         val principal = client.principal(ProviderRequestConfig(profile.apiUrl, profile.token, profileUid = profile.uid))
         val binding = GatewayEngineeringBinding(
             profile.uid,
             profile.apiUrl.trimEnd('/'),
             GatewayEngineeringRequest(
-                "${context.owner}/${context.repo}", branch, base, objective, profile.model, options.durationHours, options.repairAttempts, chatId, UUID.randomUUID().toString()
+                "${context.owner}/${context.repo}", branch, base, objective, profile.model, options.durationHours, options.repairAttempts, chatId, UUID.randomUUID().toString(), options.acceptance, profile.uid, preferences.engineeringMemory
             ),
             principalId = principal
         )
         settings.mutateFeatureSettings {
             check(it.gatewayEngineeringJobs.size < 64) { "Saved engineering jobs reached capacity." }
-            it.copy(githubEngineeringSettings = options, gatewayEngineeringJobs = it.gatewayEngineeringJobs + binding)
+            it.copy(githubEngineeringSettings = options.copy(acceptance = emptyList()), gatewayEngineeringJobs = it.gatewayEngineeringJobs + binding)
         }
         schedule()
         reconnect(binding.request.requestId)

@@ -27,6 +27,12 @@ data class WorkspaceRecord(
 
 @Dao
 interface WorkspaceDao {
+    @Query("SELECT * FROM workspace_records WHERE chatId = :chatId AND kind = 'github_evidence' ORDER BY updatedAt DESC LIMIT 80")
+    fun observeGitHubEvidence(chatId: Int): Flow<List<WorkspaceRecord>>
+
+    @Query("SELECT * FROM workspace_records WHERE kind = 'github_engineering_memory' AND runId = :scope ORDER BY updatedAt DESC LIMIT 256")
+    suspend fun engineeringMemory(scope: String): List<WorkspaceRecord>
+
     @Query("SELECT * FROM workspace_records WHERE chatId = :chatId AND kind = 'github_checks' ORDER BY updatedAt DESC LIMIT 20")
     fun observeGitHubChecks(chatId: Int): Flow<List<WorkspaceRecord>>
 

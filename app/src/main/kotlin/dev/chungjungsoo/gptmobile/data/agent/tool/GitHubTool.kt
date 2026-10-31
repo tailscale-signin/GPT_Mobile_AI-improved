@@ -930,6 +930,43 @@ class GitHubTool(
         }
         var observedAttempt: JsonElement? = null
         if (write) workflowWritePrecondition(callId, action, arguments, base) { observedAttempt = it["run_attempt"] }?.let { return it }
+        var runObservation: JsonObject? = null
+        if (action in setOf("list_workflow_jobs", "list_workflow_artifacts")) {
+            val runId = positiveId("run_id")
+            val runResponse = getGitHubApi("$base/runs/$runId")
+            val runText = runResponse.bodyAsText()
+            if (!runResponse.status.isSuccess()) {
+                val failure = classifyGitHubHttpFailure(callId, action, arguments, runResponse, runText)
+                return failure.copy(
+                    content = ToolResultContent.Json(
+                        buildJsonObject {
+                            put("error_code", failure.errorCode ?: "GITHUB_RUN_UNAVAILABLE")
+                            put("http_status", runResponse.status.value)
+                            put("run_id", runId)
+                            put("message", "The requested run could not be verified. Discover runs for this repository; never replace the ID with an estimate. Jobs were not requested.")
+                            put("recovery_required", true)
+                            put(
+                                "recovery_call",
+                                buildJsonObject {
+                                    put("tool", "github_ci" + modelToolName.removePrefix("github"))
+                                    put(
+                                        "arguments",
+                                        buildJsonObject {
+                                            put("action", "runs")
+                                            put("owner", owner)
+                                            put("repo", repo)
+                                        }
+                                    )
+                                }
+                            )
+                        }
+                    )
+                )
+            }
+            runObservation = jsonParser.parseToJsonElement(runText).jsonObject
+            require(runObservation["id"]?.jsonPrimitive?.content?.toLongOrNull() == runId) { "GitHub returned a different workflow run." }
+            arguments["expected_head_sha"]?.let { require(runObservation["head_sha"] == it) { "Workflow run belongs to another commit. Refresh the exact head before reading jobs." } }
+        }
         val path = when (action) {
             "list_workflows" -> "/workflows$pagination"
             "get_workflow_run" -> "/runs/${positiveId("run_id")}"
@@ -981,6 +1018,11 @@ class GitHubTool(
         val response = getGitHubApi(base + path)
         val text = response.bodyAsText()
         return if (response.status.isSuccess()) {
+            if (action == "get_workflow_run") {
+                val run = jsonParser.parseToJsonElement(text).jsonObject
+                require(run["id"]?.jsonPrimitive?.content?.toLongOrNull() == positiveId("run_id")) { "GitHub returned another workflow run." }
+                arguments["expected_head_sha"]?.let { require(run["head_sha"] == it) { "Workflow run belongs to another commit. Refresh exact-head CI evidence." } }
+            }
             if (action == "get_workflow_job") {
                 val job = jsonParser.parseToJsonElement(text).jsonObject
                 arguments["run_id"]?.let { require(job["run_id"] == it) { "Job belongs to another workflow run; rediscover jobs using run_id." } }
@@ -991,7 +1033,38 @@ class GitHubTool(
                 compactWorkflowPayload(action, text, page, perPage, arguments)
             )
         } else {
-            classifyGitHubHttpFailure(callId, action, arguments, response, text)
+            val failure = classifyGitHubHttpFailure(callId, action, arguments, response, text)
+            if (action == "list_workflow_jobs" && runObservation != null) {
+                failure.copy(
+                    content = ToolResultContent.Json(
+                        buildJsonObject {
+                            put("error_code", failure.errorCode ?: "GITHUB_JOBS_UNAVAILABLE")
+                            put("http_status", response.status.value)
+                            put("message", "Job inspection failed. The verified run metadata is retained; it does not prove that jobs passed.")
+                            put("run", JsonObject(runObservation.filterKeys { it in setOf("id", "head_sha", "status", "conclusion", "html_url", "run_attempt") }))
+                            put("recovery_required", true)
+                            put(
+                                "recovery_call",
+                                buildJsonObject {
+                                    put("tool", "github_ci" + modelToolName.removePrefix("github"))
+                                    put(
+                                        "arguments",
+                                        buildJsonObject {
+                                            put("action", "run")
+                                            put("owner", owner)
+                                            put("repo", repo)
+                                            put("run_id", arguments.getValue("run_id"))
+                                            arguments["expected_head_sha"]?.let { put("expected_head_sha", it) }
+                                        }
+                                    )
+                                }
+                            )
+                        }
+                    )
+                )
+            } else {
+                failure
+            }
         }
     }
 
@@ -1105,6 +1178,12 @@ class GitHubTool(
         if (action == "dispatch_workflow") {
             val workflow = normalizeGitHubWorkflowSelector(args["workflow_id"]?.jsonPrimitive?.content.orEmpty())
             require(!args["ref"]?.jsonPrimitive?.content.isNullOrBlank()) { "An explicit ref is required for workflow dispatch." }
+            val expected = args["expected_head_sha"]?.jsonPrimitive?.content.orEmpty()
+            require(expected.matches(Regex("[a-fA-F0-9]{40}"))) { "Workflow dispatch requires the current expected_head_sha." }
+            val headResponse = getGitHubApi(base.removeSuffix("/actions") + "/commits/" + GitHubWorkspaceClient.segment(args.getValue("ref").jsonPrimitive.content))
+            val headText = headResponse.bodyAsText()
+            if (!headResponse.status.isSuccess()) return classifyGitHubHttpFailure(callId, action, args, headResponse, headText)
+            require(jsonParser.parseToJsonElement(headText).jsonObject["sha"]?.jsonPrimitive?.content == expected) { "Workflow ref moved. Refresh the head before dispatching." }
             val response = getGitHubApi("$base/workflows/$workflow")
             val text = response.bodyAsText()
             if (response.status.value == 404 && workflow.toLongOrNull()?.let { it > 0 } == true) {

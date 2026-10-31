@@ -103,6 +103,9 @@ class GitHubCheckWatchRepository @Inject constructor(
         val runHead = run?.let { Json.parseToJsonElement(api.request("$root/actions/runs/$it")).jsonObject["head_sha"]?.jsonPrimitive?.content }
         require(pullHead == null || runHead == null || pullHead == runHead) { "The workflow run belongs to a different PR revision." }
         val head = requireNotNull(pullHead ?: runHead).also { require(it.matches(Regex("[a-fA-F0-9]{40}"))) }
+        args["commit_sha"]?.jsonPrimitive?.content?.let { expected ->
+            require(expected.equals(head, true)) { "The PR or run head differs from commit_sha. Refresh the exact revision before subscribing." }
+        }
         mutex.withLock {
             val existing = workspace.dao.get(id)?.let(::decode)
             require(existing?.terminal == false || workspace.dao.forChat(chatId).filter { it.kind == "github_checks" }.mapNotNull(::decode).count { !it.terminal } < 20) { "Stop an existing check watch before adding another (20 active watches per chat)." }
@@ -118,6 +121,8 @@ class GitHubCheckWatchRepository @Inject constructor(
         buildJsonObject {
             put("watch_id", id)
             put("head_sha", head)
+            pull?.let { put("pr_number", it) }
+            run?.let { put("run_id", it) }
             put("status", "SUBSCRIBED")
             put("delivery", "Native background checks update the chat card automatically. No more model polling calls are needed. Android may defer checks while offline or in battery-saving mode.")
         }

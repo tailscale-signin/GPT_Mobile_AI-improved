@@ -62,7 +62,7 @@ class AgentRunner(
     private val checkpoint: ToolBatchCheckpoint? = null,
     private val healthCatalog: ProgressiveToolCatalog? = null,
     private val retryUndispatchedBudgetFailures: Boolean = false,
-    private val onToolResult: ((ProviderEvent.ToolCall, AgentToolResult) -> Unit)? = null
+    private val onToolResult: (suspend (ProviderEvent.ToolCall, AgentToolResult) -> Unit)? = null
 ) {
     fun run(session: AgentProviderSession, tools: List<AgentTool>, dynamicTools: () -> List<AgentTool> = { emptyList() }, selectDefinitions: (List<AgentToolDefinition>) -> List<AgentToolDefinition> = { it }): Flow<AgentRunEvent> = flow {
         if (tools.groupBy { it.definition.name }.any { it.value.size > 1 }) {

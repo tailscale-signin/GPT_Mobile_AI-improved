@@ -16,6 +16,27 @@ import test_gateway_v14_engineering as fixtures
 
 
 class EngineeringHTTPTests(unittest.TestCase):
+    def test_evidence_pagination_preview_and_account_isolation(self):
+        job = self.store.create('tailnet:owner', self.request)
+        for index in range(21):
+            last = self.service.evidence.append(job, 'github_api', {'index': index, 'source': 'x' * 17000})
+        url = '/gateway/engineering/jobs/' + job['id'] + '/evidence'
+        first = self.client.get(url, headers=self.headers).json()
+        self.assertEqual(20, len(first['receipts']))
+        self.assertTrue(first['has_more'])
+        second = self.client.get(url + '?after=' + str(first['next_cursor']), headers=self.headers).json()
+        self.assertEqual(last['receipt_id'], second['receipts'][0]['receipt_id'])
+        receipt = url + '/' + last['receipt_id']
+        preview = self.client.get(receipt + '?preview=true', headers=self.headers).json()
+        self.assertTrue(preview['truncated'])
+        self.assertEqual(16000, len(preview['preview']))
+        self.assertIsNone(preview['payload'])
+        self.assertEqual(20, self.client.get(receipt, headers=self.headers).json()['payload']['index'])
+        for path in (url, receipt):
+            self.assertEqual(404, self.client.get(path, headers={'Tailscale-User-Login': 'other@example.test'}).status_code)
+            self.assertEqual(403, self.client.get(path, headers={'Tailscale-User-Login': 'reader@example.test'}).status_code)
+        self.assertEqual(409, self.client.get(url + '?after=-2', headers=self.headers).status_code)
+
     def setUp(self):
         fixtures.DurableEngineeringTests.setUp(self)
         self.backend.available = lambda: True

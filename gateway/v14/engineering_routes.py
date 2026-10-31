@@ -107,6 +107,30 @@ def install_engineering_routes(app, service):
             return public_job(result)
         return await execute(run)
 
+    @app.get('/gateway/engineering/jobs/{job_id}/evidence')
+    @app.get('/v1/gateway/engineering/jobs/{job_id}/evidence')
+    async def evidence(job_id: str, request: Request):
+        async def run():
+            row = await asyncio.to_thread(service.store.get, job_id, principal(request))
+            if not row:
+                return JSONResponse({'error': {'code': 'unknown_job'}}, status_code=404)
+            return await asyncio.to_thread(service.evidence.page, job_id, int(request.query_params.get('after', '-1')))
+        return await execute(run)
+
+    @app.get('/gateway/engineering/jobs/{job_id}/evidence/{receipt_id}')
+    @app.get('/v1/gateway/engineering/jobs/{job_id}/evidence/{receipt_id}')
+    async def evidence_receipt(job_id: str, receipt_id: str, request: Request):
+        async def run():
+            row = await asyncio.to_thread(service.store.get, job_id, principal(request))
+            if not row:
+                return JSONResponse({'error': {'code': 'unknown_job'}}, status_code=404)
+            result = await asyncio.to_thread(service.evidence.read, job_id, receipt_id)
+            if result and request.query_params.get('preview') == 'true':
+                text = json.dumps(result['payload'], ensure_ascii=False, indent=2)
+                return dict(result, payload=None, preview=text[:16000], truncated=len(text) > 16000)
+            return result if result else JSONResponse({'error': {'code': 'unknown_receipt'}}, status_code=404)
+        return await execute(run)
+
     @app.post('/gateway/engineering/webhook')
     @app.post('/v1/gateway/engineering/webhook')
     async def webhook(request: Request):

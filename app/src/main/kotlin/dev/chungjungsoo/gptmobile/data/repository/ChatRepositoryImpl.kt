@@ -257,7 +257,8 @@ class ChatRepositoryImpl(
     private val combinedDecisions: dev.chungjungsoo.gptmobile.data.agent.CombinedCollectionDecisionStore? = null,
     private val freeToolConsents: dev.chungjungsoo.gptmobile.data.permissions.FreeModelToolConsentStore? = null,
     private val gitHubDecisions: dev.chungjungsoo.gptmobile.data.github.GitHubChatDecisions? = null,
-    private val gitHubDecisionNotifications: dev.chungjungsoo.gptmobile.data.github.GitHubDecisionNotifications? = null
+    private val gitHubDecisionNotifications: dev.chungjungsoo.gptmobile.data.github.GitHubDecisionNotifications? = null,
+    private val engineeringMemory: dev.chungjungsoo.gptmobile.data.github.GitHubEngineeringMemory? = null
 ) : ChatRepository {
     override suspend fun prepareCombinedTurn(
         execution: dev.chungjungsoo.gptmobile.data.agent.CombinedExecutionContext,
@@ -2782,8 +2783,9 @@ class ChatRepositoryImpl(
             AppLogRecorder.record("Recovery", "Saved response reused · chat=${latestUser?.chatId} · resourceChars=${recovery.contentLength} · inlineChars=${minOf(inlineCharacters, recovery.contentLength)}")
             emit(ApiState.Notice("Continuing from the saved partial response and tool results.", persistent = false))
         }
+        val engineeringContext = if (resolvedTools.any { it.isGitHubTool() }) engineeringMemoryContext(platform, chatToolConfig, latestUser, limits.contextTokens, emit) else ""
         val projectInstructions = latestUser?.let { knowledge?.scopeForChat(it.chatId) }
-            ?.takeUnless { it.isTemporary }?.project?.instructions.orEmpty()
+            ?.takeUnless { it.isTemporary }?.project?.instructions.orEmpty() + "\n" + engineeringContext
         val responseFeatures = settingRepository.getFeatureSettings()
         val quickRepliesEnabled = responseFeatures.smartSuggestions
         fun baseSystemPrompt() = buildPrimarySystemPrompt(platform, exposedTools, resolvedTools.isNotEmpty(), localResearch, processingOwnership, synthesisRun, chatToolConfig?.combined, latestUser, limits.contextTokens, quickRepliesEnabled, projectInstructions, taskRecovery, reviewedPreparationUnavailable, chatToolConfig?.research?.researchToggle == true) + chatToolConfig?.github?.let { "\n" + it.promptContext() }.orEmpty()
@@ -4611,6 +4613,22 @@ class ChatRepositoryImpl(
             null
         }
         val selectedSession = catalog?.let { groundedSession.withToolCatalog(it) } ?: groundedSession
+        val verifiedEvidence = chatToolConfig?.github?.let { github ->
+            val user = requireNotNull(latestUser)
+            val binding = dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook.digest("${user.chatId}:${user.id}:${platform.uid}:${github.connectionUid}:${github.owner}/${github.repo}:${github.ref}:${dispatchAuthority.revision}")
+            dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook(
+                binding = binding,
+                repository = "${github.owner}/${github.repo}",
+                branch = github.ref,
+                trustedTools = effectiveTools.filter { it.nativeGitHub }.mapTo(hashSetOf()) { it.modelToolName },
+                load = { id -> workspace?.protectedSynthesisCheckpoint("github-evidence:$binding:$id") },
+                save = { id, value ->
+                    workspace?.saveProtectedSynthesisCheckpoint("github-evidence:$binding:$id", user.chatId, runId, value, appendOnly = true)
+                    val preferences = settingRepository.getFeatureSettings().githubProfileOverrides[platform.uid] ?: dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride()
+                    engineeringMemory?.observe(github, user.chatId, value, preferences)
+                }
+            )
+        }
         val reviewEvidence = if (chatToolConfig?.github != null && platform.compatibleType == ClientType.LLAMA) dev.chungjungsoo.gptmobile.data.github.GitHubReviewEvidence() else null
         fun reviewOutputTokens(): Int = minOf(4096, minOf(limits.contextTokens, observedRequestContext.get() ?: Int.MAX_VALUE) / 8).coerceAtLeast(256)
         fun reviewInputLimit(): Int = (minOf(limits.contextTokens, observedRequestContext.get() ?: Int.MAX_VALUE).toLong() - dev.chungjungsoo.gptmobile.data.context.TextTokenEstimate.estimate(requestPlatform.systemPrompt.orEmpty() + dev.chungjungsoo.gptmobile.data.github.GitHubReviewedSession.INSTRUCTION) - reviewOutputTokens() - 512).coerceIn(0, 1_048_576).toInt()
@@ -4642,7 +4660,33 @@ class ChatRepositoryImpl(
         } else {
             selectedSession
         }
-        val advertisedSession = if (chatToolConfig?.github != null) dev.chungjungsoo.gptmobile.data.github.GitHubProgressSession(reviewedSession) { send(ApiState.GitHubRoundStarted) } else reviewedSession
+        val verifiedSession = if (verifiedEvidence != null) {
+            val user = requireNotNull(latestUser)
+            dev.chungjungsoo.gptmobile.data.github.GitHubVerifiedSession(
+                delegate = reviewedSession,
+                evidence = verifiedEvidence,
+                task = user.content,
+                inputLimit = { (reviewInputLimit() - dev.chungjungsoo.gptmobile.data.context.TextTokenEstimate.estimate(dev.chungjungsoo.gptmobile.data.github.GitHubEvidencePolicy.INSTRUCTION)).coerceAtLeast(0) },
+                openVerifier = { prompt ->
+                    openPrimarySession(
+                        listOf(ConversationTurn(user.copy(content = prompt, attachments = emptyList()), null, true)),
+                        kind = "github-claim-extraction",
+                        textOnly = true,
+                        passOutputTokens = reviewOutputTokens(),
+                        extraInstruction = dev.chungjungsoo.gptmobile.data.github.GitHubEvidencePolicy.INSTRUCTION
+                    )
+                },
+                validatePublication = {
+                    dispatchAuthority.validate()
+                    check(validateSavedEvidence()) { "Saved evidence permission changed during verification" }
+                    factVault?.validateRecall(recalled, user.chatId, platform.isPrivateDestination())
+                },
+                progress = { send(ApiState.ProgressCheckpoint(it)) }
+            )
+        } else {
+            reviewedSession
+        }
+        val advertisedSession = if (chatToolConfig?.github != null) dev.chungjungsoo.gptmobile.data.github.GitHubProgressSession(verifiedSession) { send(ApiState.GitHubRoundStarted) } else verifiedSession
         val executableTools = if (catalog != null && runnerTools.none { it.definition.name == catalog.definition.name }) runnerTools + catalog else runnerTools
         if (catalog != null) AppLogRecorder.record("ToolCatalog", "PROGRESSIVE_CATALOG · authorized=${runnerTools.size} · initiallyAdvertised=${catalog.selected(executableTools.map { it.definition }).size} · discovery=true · permissionExpansion=false")
 
@@ -4666,9 +4710,32 @@ class ChatRepositoryImpl(
             },
             healthCatalog = catalog,
             retryUndispatchedBudgetFailures = retryUndispatchedBudgetFailures,
-            onToolResult = reviewEvidence?.let { it::observe }
+            onToolResult = if (reviewEvidence != null || verifiedEvidence != null) {
+                { call, result ->
+                    reviewEvidence?.observe(call, result)
+                    verifiedEvidence?.observe(call, result)
+                    Unit
+                }
+            } else {
+                null
+            }
         ).run(advertisedSession, executableTools, dynamicTools = { effectiveTools.flatMap { it.dynamicTools?.invoke().orEmpty() }.map { it.tool } }, selectDefinitions = { definitions -> catalog?.selected(definitions) ?: definitions })
         streamAgentEvents(agentEvents, platform, runId, resolvedTools.size, trace, chatToolConfig?.combined != null, resolvedOutputCap, dispatchAuthority, githubChat = chatToolConfig?.github != null).collect { send(it) }
+    }
+
+    private suspend fun engineeringMemoryContext(platform: PlatformV2, tools: ChatMcpToolConfig?, user: MessageV2?, contextTokens: Int, emit: suspend (ApiState) -> Unit): String {
+        val github = tools?.github ?: return ""
+        if (user == null || engineeringMemory == null || agentPersistenceDao.getChatRoom(user.chatId)?.isTemporary != false) return ""
+        val preferences = settingRepository.getFeatureSettings().githubProfileOverrides[platform.uid] ?: dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride()
+        val text = engineeringMemory.prepare(github, user.chatId, "${user.chatId}:${user.id}", user.content, preferences, platform.isPrivateDestination(), minOf(12_000, contextTokens / 4))
+        if (text.isNotBlank() && (platform.isPrivateDestination() || preferences.allowCloudEngineeringMemory)) {
+            val labels = listOf(
+                dev.chungjungsoo.gptmobile.data.permissions.PersonalDataProvenance(sourceToolId = "github_engineering_memory", sourceProfileUid = platform.uid, sourceRef = dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook.digest(text), categories = setOf(dev.chungjungsoo.gptmobile.data.permissions.PersonalDataCategory.PRIVATE_CONTENT), retentionChatId = user.chatId, localOnly = !preferences.allowCloudEngineeringMemory)
+            )
+            kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.permissions.PersonalDataContext]?.add(labels)
+            emit(ApiState.Notice("", personalData = labels))
+        }
+        return text
     }
 
     private suspend fun followUpInbox(

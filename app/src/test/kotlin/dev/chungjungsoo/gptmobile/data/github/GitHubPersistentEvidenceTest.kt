@@ -402,6 +402,42 @@ class GitHubPersistentEvidenceTest {
         assertTrue(failure?.message.orEmpty().contains("github_pr"))
     }
 
+    @Test fun changesPatchesUsePinnedCommitsAndPreserveMissingBinaryFiles() = runTest {
+        var compares = 0
+        val client = session(GitHubRepositoryStateStore(), request = { path ->
+            when {
+                path.endsWith("/commits/work") -> commit(head, headTree)
+                path.endsWith("/commits/$old") -> commit(old, oldTree)
+                path.contains("/git/trees/$oldTree") -> tree(listOf(item("A.kt", sha(1), 30), item("image.png", sha(2), 30)))
+                path.contains("/git/trees/$headTree") -> tree(listOf(item("A.kt", sha(3), 30), item("image.png", sha(4), 30)))
+                path.contains("/compare/$old...$head?") -> {
+                    compares++
+                    buildJsonObject {
+                        put(
+                            "files",
+                            JsonArray(
+                                listOf(
+                                    buildJsonObject {
+                                        put("filename", "A.kt")
+                                        put("patch", "@@ -1 +1 @@\n-old\n+new")
+                                    }
+                                )
+                            )
+                        )
+                    }
+                }
+                else -> error("Unexpected path $path")
+            }
+        })
+        val result = client.execute("changed_since", "owner", "repo", args("base" to JsonPrimitive(old), "include_patches" to JsonPrimitive(true))).jsonObject
+        val files = result.getValue("files").jsonArray.map { it.jsonObject }
+        assertEquals(1, compares)
+        assertEquals(JsonPrimitive(true), files[0]["patch_available"])
+        assertEquals(JsonPrimitive(false), files[1]["patch_available"])
+        assertEquals(JsonPrimitive(old), result["base_sha"])
+        assertEquals(JsonPrimitive(head), result["head_sha"])
+    }
+
     private val head = "a".repeat(40)
     private val old = "b".repeat(40)
     private val headTree = "c".repeat(40)

@@ -82,6 +82,10 @@ def install_github_fast_path(runtime):
         status, result = 500, None
         try:
             status, result = original(incoming, cancel_event, progress_callback, hard_cancel_event)
+            if isinstance(result, dict):
+                result = dict(result, github_evidence_policy={'schema': 'github.evidence.v1',
+                    'publication': 'private_draft', 'verification_owner': 'client',
+                    'reason': 'Native tool receipts are owned by Android. A model round cannot certify them.'})
             return status, result
         finally:
             metrics.record((time.monotonic() - started) * 1000, status, result)

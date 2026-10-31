@@ -105,6 +105,7 @@ class GitHubToolContractsTest {
             MockEngine { request ->
                 requests += "${request.method.value} ${request.url.encodedPath}"
                 when (request.url.encodedPath) {
+                    "/repos/o/r/commits/work" -> respond("""{"sha":"$sha"}""")
                     "/repos/o/r/actions/workflows/41148584430" -> respond("""{"message":"Not Found"}""", HttpStatusCode.NotFound)
                     "/repos/o/r/actions/runs/41148584430" -> respond("""{"id":41148584430,"workflow_id":25,"path":".github/workflows/build.yml"}""")
                     else -> error("Unexpected request")
@@ -112,7 +113,7 @@ class GitHubToolContractsTest {
             }
         )
         try {
-            val result = GitHubTool("token", http).execute("bad-selector", call("dispatch_workflow", """, "workflow_id":"41148584430", "ref":"work""""))
+            val result = GitHubTool("token", http).execute("bad-selector", call("dispatch_workflow", """, "workflow_id":"41148584430", "ref":"work", "expected_head_sha":"$sha""""))
             assertEquals("WORKFLOW_ID_IS_RUN_ID", result.errorCode)
             assertFalse(result.dispatched)
             assertEquals("25", data(result)["observation"]!!.jsonObject["workflow_id"]!!.jsonPrimitive.content)
@@ -159,6 +160,7 @@ class GitHubToolContractsTest {
     @Test fun artifactsAreEmptySuccessfullyAndPaginationKeepsTheRun() = runTest {
         val http = HttpClient(
             MockEngine { request ->
+                if (request.url.encodedPath == "/repos/o/r/actions/runs/7") return@MockEngine respond("""{"id":7,"head_sha":"$sha"}""")
                 assertEquals("/repos/o/r/actions/runs/7/artifacts", request.url.encodedPath)
                 assertEquals("1", request.url.parameters["per_page"])
                 if (request.url.parameters["page"] == "2") {
@@ -185,7 +187,7 @@ class GitHubToolContractsTest {
     }
 
     @Test fun missingCollectionsAreNotReportedAsSuccessfulEmptyResults() = runTest {
-        val http = HttpClient(MockEngine { respond("{}") })
+        val http = HttpClient(MockEngine { request -> if (request.url.encodedPath == "/repos/o/r/actions/runs/7") respond("""{"id":7,"head_sha":"$sha"}""") else respond("{}") })
         try {
             val result = GitHubTool("token", http).execute("missing", call("list_workflow_artifacts", """, "run_id":7"""))
             assertTrue(result.isError)
@@ -347,11 +349,11 @@ class GitHubToolContractsTest {
                     posts++
                     throw java.io.IOException("Acknowledgement lost after dispatch")
                 }
-                respond("""{"id":8,"state":"active"}""")
+                if (request.url.encodedPath == "/repos/o/r/commits/work") respond("""{"sha":"$sha"}""") else respond("""{"id":8,"state":"active"}""")
             }
         )
         try {
-            val input = call("dispatch_workflow", """, "workflow_id":"build.yml", "ref":"work"""")
+            val input = call("dispatch_workflow", """, "workflow_id":"build.yml", "ref":"work", "expected_head_sha":"$sha"""")
             val first = GitHubTool("token", http, stateStore = store).execute("first", input)
             assertTrue(first.isError)
             val second = GitHubTool("token", http, stateStore = store).execute("recover", input)

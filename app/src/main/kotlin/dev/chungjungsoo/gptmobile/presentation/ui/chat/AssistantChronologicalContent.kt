@@ -222,6 +222,7 @@ internal fun AssistantChronologicalContent(
             }
         }
         if (combinedManifest == null && originalSource == null && fallbackText.length <= dev.chungjungsoo.gptmobile.data.agent.CombinedDocuments.INLINE_CHARACTERS) articleCards(fallbackText)
+        if (isLoading && LocalChatProgressInHeader.current) GeneratingEllipsis()
     }
 }
 

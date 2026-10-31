@@ -1983,7 +1983,7 @@ class ChatRepositoryImpl(
                     var exposedTools = dispatchPreparation.exposedTools
                     val projectInstructions = dispatchPreparation.projectInstructions
                     val quickRepliesEnabled = dispatchPreparation.quickRepliesEnabled
-                    fun baseSystemPrompt() = buildPrimarySystemPrompt(platform, exposedTools, resolvedTools.isNotEmpty(), localResearch, processingOwnership, synthesisRun, chatToolConfig?.combined, latestUser, limits.contextTokens, quickRepliesEnabled, projectInstructions, taskRecovery, reviewedPreparationUnavailable, chatToolConfig?.research?.researchToggle == true) + chatToolConfig?.github?.let { "\n" + it.promptContext() }.orEmpty()
+                    fun baseSystemPrompt() = buildPrimarySystemPrompt(platform, exposedTools, resolvedTools.isNotEmpty(), localResearch, processingOwnership, synthesisRun, chatToolConfig?.combined, latestUser, limits.contextTokens, quickRepliesEnabled, projectInstructions, taskRecovery, reviewedPreparationUnavailable, chatToolConfig?.research?.researchToggle == true) + chatToolConfig?.github?.let { "\n" + it.promptContext() + dev.chungjungsoo.gptmobile.data.github.GitHubAutonomousEngineeringPolicy.instruction(platform, it) }.orEmpty()
                     val memorySettings = dispatchPreparation.memory.memorySettings
                     val connectedMemoryTools = dispatchPreparation.memory.connectedMemoryTools
                     val researchMemory = dispatchPreparation.memory.researchMemory
@@ -2788,7 +2788,7 @@ class ChatRepositoryImpl(
             ?.takeUnless { it.isTemporary }?.project?.instructions.orEmpty() + "\n" + engineeringContext
         val responseFeatures = settingRepository.getFeatureSettings()
         val quickRepliesEnabled = responseFeatures.smartSuggestions
-        fun baseSystemPrompt() = buildPrimarySystemPrompt(platform, exposedTools, resolvedTools.isNotEmpty(), localResearch, processingOwnership, synthesisRun, chatToolConfig?.combined, latestUser, limits.contextTokens, quickRepliesEnabled, projectInstructions, taskRecovery, reviewedPreparationUnavailable, chatToolConfig?.research?.researchToggle == true) + chatToolConfig?.github?.let { "\n" + it.promptContext() }.orEmpty()
+        fun baseSystemPrompt() = buildPrimarySystemPrompt(platform, exposedTools, resolvedTools.isNotEmpty(), localResearch, processingOwnership, synthesisRun, chatToolConfig?.combined, latestUser, limits.contextTokens, quickRepliesEnabled, projectInstructions, taskRecovery, reviewedPreparationUnavailable, chatToolConfig?.research?.researchToggle == true) + chatToolConfig?.github?.let { "\n" + it.promptContext() + dev.chungjungsoo.gptmobile.data.github.GitHubAutonomousEngineeringPolicy.instruction(platform, it) }.orEmpty()
         val memoryPreparation = preparePrimaryDispatchMemory(input, admission, toolPreparation, recallPreparation, taskRoutedTools)
         val researchMemory = memoryPreparation.researchMemory
         val documentContext = memoryPreparation.documentContext

@@ -11,7 +11,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -27,21 +26,19 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringBinding
 import dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringJob
 import dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringSettings
 import dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext
-import kotlinx.coroutines.delay
 import kotlinx.serialization.json.jsonPrimitive
 
 /** Persisted host jobs are shown in the ordinary conversation, including notification deep links. */
 @Composable
-fun GatewayEngineeringPanel(chatId: Int, context: GitHubConversationContext, model: GatewayEngineeringViewModel = hiltViewModel()) {
+fun GatewayEngineeringPanel(chatId: Int, context: GitHubConversationContext, profile: dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2?, model: GatewayEngineeringViewModel = hiltViewModel()) {
+    val selectedProfile = profile?.takeIf { it.uid == context.mainProfileUid && dev.chungjungsoo.gptmobile.data.github.GitHubAutonomousEngineeringPolicy.enabled(it) } ?: return
     LaunchedEffect(chatId) { model.bind(chatId) }
     val state by model.state.collectAsStateWithLifecycle()
     var setup by remember { mutableStateOf(false) }
@@ -51,10 +48,14 @@ fun GatewayEngineeringPanel(chatId: Int, context: GitHubConversationContext, mod
     Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text("Autonomous engineering", Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
-            TextButton(onClick = { setup = true }, enabled = !state.busy) { Text("Start job") }
+            Text("On", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelMedium)
+            if (dev.chungjungsoo.gptmobile.data.github.GitHubAutonomousEngineeringPolicy.supportsSavedJobs(selectedProfile)) {
+                TextButton(onClick = { setup = true }, enabled = !state.busy) { Text("Saved job") }
+            }
         }
+        Text("Enabled for this local profile. Send a repository task to begin.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         state.error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
-        state.bindings.forEach { binding ->
+        state.bindings.filter { it.profileUid == selectedProfile.uid }.forEach { binding ->
             val job = binding.job
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -154,20 +155,7 @@ fun GatewayEngineeringPanel(chatId: Int, context: GitHubConversationContext, mod
 
 @Composable
 internal fun EngineeringJobProgress(job: GatewayEngineeringJob, textSizeIncrease: Int = 0) {
-    var now by remember(job.id) { mutableStateOf(System.currentTimeMillis()) }
-    LaunchedEffect(job.id, job.terminal) {
-        while (!job.terminal) {
-            now = System.currentTimeMillis()
-            delay(1000)
-        }
-    }
-    val seconds = (((job.finishedAt?.toLong() ?: (now / 1000)) - job.createdAt.toLong()).coerceAtLeast(0))
-    val elapsed = "%02d:%02d:%02d".format(seconds / 3600, seconds / 60 % 60, seconds % 60)
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Text(job.message, Modifier.weight(1f).alignByBaseline(), style = MaterialTheme.typography.bodyMedium.copy(fontSize = (MaterialTheme.typography.bodyMedium.fontSize.value + textSizeIncrease).sp), maxLines = 2, overflow = TextOverflow.Ellipsis)
-        Text(elapsed, Modifier.alignByBaseline().padding(start = 8.dp), style = MaterialTheme.typography.labelMedium, maxLines = 1)
-    }
-    LinearProgressIndicator(progress = { job.progress }, modifier = Modifier.fillMaxWidth())
+    GitHubLoadingHeader(job.message, !job.terminal, (job.createdAt * 1000).toLong(), job.finishedAt?.times(1000)?.toLong(), textSizeIncrease + 3, job.progress)
     Text("${job.branch} · Milestone ${job.milestonesCompleted}/${job.milestonesTotal} · ${job.repairAttempts} repair attempts", style = MaterialTheme.typography.labelSmall)
 }
 
@@ -196,7 +184,7 @@ private fun EngineeringJobSetup(options: GatewayEngineeringSettings, dismiss: ()
         title = { Text("Start gateway engineering") },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("Use a llama gateway profile. The host will read, edit, independently review, create a draft PR and repair CI. Merging always waits for your approval.")
+                Text("Use a local Llama or Ollama profile connected to an engineering gateway. The host will read, edit, independently review, create a draft PR and repair CI. Merging always waits for your approval.")
                 OutlinedTextField(objective, { objective = it }, label = { Text("Job objective") }, modifier = Modifier.fillMaxWidth(), minLines = 3, maxLines = 5)
                 OutlinedTextField(branch, { branch = it }, label = { Text("Working branch") }, singleLine = true)
                 OutlinedTextField(base, { base = it }, label = { Text("PR base branch") }, singleLine = true)

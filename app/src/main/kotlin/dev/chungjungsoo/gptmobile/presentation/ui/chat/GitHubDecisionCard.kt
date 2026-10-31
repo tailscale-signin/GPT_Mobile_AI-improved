@@ -7,10 +7,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -94,16 +92,10 @@ internal fun GitHubDecisionCard(decision: GitHubChatDecision, waiting: Boolean, 
 @Composable
 internal fun GitHubLiveProgressCard(summary: String, milestones: List<String>) {
     val colors = MaterialTheme.colorScheme
-    Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp).testTag("github_live_activity"), shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = colors.surfaceContainerLow), border = BorderStroke(1.dp, colors.outlineVariant)) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Icon(Icons.Rounded.AutoAwesome, null, Modifier.size(20.dp), tint = colors.primary)
-                Text("Working in your repository", style = MaterialTheme.typography.titleSmall, color = colors.primary)
-            }
-            Text(summary.ifBlank { "Preparing your task. Live updates appear here while work continues." }, style = MaterialTheme.typography.bodyMedium)
-            milestones.distinct().takeLast(3).forEach { Text(it, style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant) }
-            Text("Updates every few seconds · Final answer replaces this activity", style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant)
-        }
+    Column(Modifier.fillMaxWidth().padding(horizontal = 28.dp, vertical = 8.dp).testTag("github_live_activity"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("Working in your repository", style = MaterialTheme.typography.titleSmall, color = colors.primary.copy(alpha = 0.5f))
+        Text(summary.ifBlank { "Preparing your task. Live updates appear here while work continues." }, style = MaterialTheme.typography.bodyMedium, color = colors.onSurface.copy(alpha = 0.5f))
+        milestones.distinct().takeLast(3).forEach { Text(it, style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant.copy(alpha = 0.5f)) }
     }
 }
 

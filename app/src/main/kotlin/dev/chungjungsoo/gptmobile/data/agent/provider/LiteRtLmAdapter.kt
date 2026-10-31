@@ -110,13 +110,12 @@ class LiteRtLmAdapter(
         } else {
             tools
         }
+        // The caller may already have admitted a precise schema inventory. Without
+        // that inventory, let the context planner below select from the bound tools:
+        // a second catalog rank here loses prior-turn intent and capability queries.
         val advertisedNames = dev.chungjungsoo.gptmobile.data.context.LocalContextPlanner.advertisedToolNames(
             boundTools.map { it.definition },
-            advertisedTools,
-            (
-                boundTools.filterIsInstance<dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog>().firstOrNull()
-                    ?: dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog(boundTools.map { it.definition }.filter { it.name != dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog.NAME }, task)
-                ).selected(boundTools.map { it.definition })
+            advertisedTools
         )
         return object : AgentProviderSession {
             override val handlesToolsInternally: Boolean = true

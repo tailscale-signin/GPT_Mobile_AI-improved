@@ -42,8 +42,21 @@ internal fun ChatGenerationProgress(
     textSizeIncrease: Int = 0,
     startedAtMillis: Long? = null,
     completedAtMillis: Long? = null,
-    engineeringJob: dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringJob? = null
+    engineeringJob: dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringJob? = null,
+    githubPresentation: Boolean = false
 ) {
+    if (githubPresentation) {
+        GitHubLoadingHeader(
+            activity = engineeringJob?.message ?: statusOverride ?: generationActivityLabel(toolEvents, timeline),
+            active = engineeringJob?.let { !it.terminal } ?: active,
+            startedAtMillis = engineeringJob?.createdAt?.times(1000)?.toLong() ?: startedAtMillis,
+            completedAtMillis = engineeringJob?.finishedAt?.times(1000)?.toLong() ?: completedAtMillis,
+            textSizeIncrease = textSizeIncrease,
+            progress = engineeringJob?.progress,
+            modifier = modifier
+        )
+        return
+    }
     Column(modifier) {
         if (engineeringJob != null) {
             EngineeringJobProgress(engineeringJob, textSizeIncrease)

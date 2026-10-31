@@ -905,7 +905,7 @@ private fun ChatScreenContent(
                         }
                     }
                     chatToolConfig.github?.let { github ->
-                        item(key = "gateway-engineering-jobs") { GatewayEngineeringPanel(chatRoom.id, github) }
+                        item(key = "gateway-engineering-jobs") { GatewayEngineeringPanel(chatRoom.id, github, appAllPlatforms.firstOrNull { it.uid == github.mainProfileUid }) }
                     }
                     items(visibleGitHubDecisions.size, key = { "github-decision-${visibleGitHubDecisions[it].id}" }) { index ->
                         val decision = visibleGitHubDecisions[index]

@@ -161,7 +161,7 @@ internal fun AssistantChronologicalContent(
                                 Text(citationText, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(vertical = 8.dp))
                             } else {
                                 if (response.length > dev.chungjungsoo.gptmobile.data.agent.CombinedDocuments.INLINE_CHARACTERS) {
-                                    BoundedInlineAssistantDocument("$answerIdentity:$index", response, combinedWording, proseColor, outputTrace?.copy(partId = "$index"), articleCards)
+                                    BoundedInlineAssistantDocument("$answerIdentity:$index", response, combinedWording, proseColor, outputTrace?.copy(partId = "$index"), articleCards, streaming = isLoading)
                                 } else if (isLoading) {
                                     ChatMarkdown(adaptiveAnswerLength = totalAnswerLength, wording = combinedWording, outputTrace = outputTrace?.copy(partId = "$index"), proseColor = proseColor, memoryValues = recalledSources.map { it.value }, content = response, contentIdentity = "$answerIdentity:$index", streaming = true, animateStreaming = animateResponse, modifier = Modifier.padding(vertical = 8.dp))
                                 } else {

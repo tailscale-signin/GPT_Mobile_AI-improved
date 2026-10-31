@@ -90,7 +90,7 @@ class CombinedDiagnosticRepairTest {
 
     @Test fun threeHundredStatementsAreConsolidatedAndUnrelatedClaimsDoNotBecomeRequiredCoverage() {
         val sources = (1..12).map { p -> CombinedModelResponse("p$p", "Profile $p", content = (1..25).joinToString(" ") { "Provider $it offers a free model API for chat applications." } + " Archaeologists discovered ancient pottery near excavation site $p.") }
-        val request = "Rank the best free model APIs."
+        val request = "Provide a detailed ranking of the best free model APIs."
         val rows = CombinedEditorialInventory.select(CombinedClaimSemantics.records(sources), request, CombinedAnswerPolicy.from(request))
         assertEquals(25, rows.size)
         assertTrue(rows.all { it.profileUids.size == 12 })

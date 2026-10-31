@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "be5d55930df8be6caad2380eea71b2f9a6bb0419",
+  "branch": "fix/combined-quality-budget-rendering-2026-10-31",
+  "intent": "Implement the supplied Combined Mode quality, retry, tool alignment, budget, streaming and export feedback",
+  "status": "reviewed_ready_for_authorized_push_and_draft_pr",
+  "checks": {
+    "kotlin_host": {
+      "passed": 398,
+      "scope": "tool runner, budgets, settings and new feedback policy regressions; Android boundaries stubbed"
+    },
+    "fast": "passed again after audit: 276 Python tests plus CI/dependency/resource/regex/provenance checks",
+    "android": "blocked: Gradle distribution download network unreachable; JDK 21 and SDK 37 also required",
+    "combined_delivery_host": {
+      "passed": 90,
+      "scope": "actual delivery, final checks, source mapping, synthesis prompts, policy and turn-budget code; Android/logging/research-ingestion boundaries stubbed"
+    }
+  },
+  "remaining": [
+    "Push reviewed branch and open draft PR against main",
+    "Run full Android compilation/publication/Compose regressions in CI; device profiling remains unmeasured"
+  ],
+  "publication": {
+    "state": "authorized_pending_push",
+    "authorization": "User explicitly requested branch/feature verification, push, and a draft PR."
+  }
+}

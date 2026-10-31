@@ -56,12 +56,16 @@ data class CombinedAnswerPolicy(
                 version = 4,
                 requiresOfficialPrices = pricing,
                 task = CombinedTaskContract.from(request, previousRequest),
-                maximumWords = count?.let {
-                    when {
-                        minimum -> null
-                        strict -> (it - 1).coerceAtLeast(0)
-                        qualifier.isNotEmpty() -> it
-                        else -> null
+                maximumWords = if (count == null) {
+                    CombinedRequestScope.defaultMaximumWords(request)
+                } else {
+                    count.let {
+                        when {
+                            minimum -> null
+                            strict -> (it - 1).coerceAtLeast(0)
+                            qualifier.isNotEmpty() -> it
+                            else -> null
+                        }
                     }
                 },
                 targetWords = count.takeIf { qualifier.isEmpty() },

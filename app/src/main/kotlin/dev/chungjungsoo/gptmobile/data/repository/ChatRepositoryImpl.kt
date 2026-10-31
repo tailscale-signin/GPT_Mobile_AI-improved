@@ -4424,6 +4424,7 @@ class ChatRepositoryImpl(
                     (kotlinx.serialization.json.Json.parseToJsonElement(frozen.prompt) as? kotlinx.serialization.json.JsonObject)?.get("source_preservation")?.toString() == "\"FULL_SPANS_V1\""
                 }.getOrDefault(false),
                 originalRequest = frozen.userMessage.content,
+                outputTokenAllowance = frozen.writerRequestPlan?.effectiveOutputTokens,
                 onStage = { phase -> frozen.combined?.let { combinedBudgets.open(it).recordDeliveryPhase(phase) } },
                 evidence = combinedRecoveryEvidence(frozen, runId) {
                     dispatchAuthority.validate()

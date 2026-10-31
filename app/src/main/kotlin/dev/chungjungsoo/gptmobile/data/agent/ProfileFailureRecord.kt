@@ -27,7 +27,11 @@ data class ProfileFailureRecord(
             val retryAt = iso ?: epoch
             val unavailablePolicy = details.contains("POLICY_SNAPSHOT_", true)
             val incompatible = demoExcluded || listOf("enforceable", "unsupported", "budget-blocked", "demo exclusion", "demo endpoint", "demo model", "demo provider", "TOOL_CHOICE_MISMATCH", "RESEARCH_CONFIGURATION_CHANGED", "COMBINED_OUTPUT_ALLOWANCE_CHANGED", "Profile is disabled", "PROFILE_DISABLED", "PROFILE_REMOVED", "PROFILE_CONFIGURATION_CHANGED", "PROFILE_IDENTITY_AMBIGUOUS", "DISPATCH_POLICY_CHANGED", "Unknown Free route").any { details.contains(it, true) }
+            val permanentEndpoint = Regex("(?i)\\b410\\b|endpoint.{0,40}(?:retired|removed|gone)|model.{0,30}(?:decommissioned|retired)").containsMatchIn(details)
+            val billing = Regex("(?i)credit balance|insufficient (?:credits|funds|balance)|billing.{0,30}(?:required|disabled|exhausted)|payment required|\\b402\\b").containsMatchIn(details)
             val category = when {
+                permanentEndpoint -> "ENDPOINT_RETIRED"
+                billing -> "BILLING_UNAVAILABLE"
                 details.contains("QUEUE_JOB_PENDING", true) -> "QUEUED_JOB"
                 details.contains("CACHED_UNUSABLE_RESPONSE", true) -> "CACHED_UNUSABLE_RESPONSE"
                 details.contains("STREAM_DEGRADED", true) -> "STREAM_DEGRADED"
@@ -48,7 +52,7 @@ data class ProfileFailureRecord(
                 details.contains("connection", true) -> "CONNECTION"
                 else -> "INCOMPLETE"
             }
-            return ProfileFailureRecord(category, !incompatible && !unavailablePolicy && category !in setOf("QUEUED_JOB", "CACHED_UNUSABLE_RESPONSE"), retryAt)
+            return ProfileFailureRecord(category, !incompatible && !unavailablePolicy && category !in setOf("QUEUED_JOB", "CACHED_UNUSABLE_RESPONSE", "ENDPOINT_RETIRED", "BILLING_UNAVAILABLE"), retryAt)
         }
     }
 }

@@ -23,6 +23,8 @@ data class CombinedProfileFailure(
 
 internal fun CombinedProfileFailure.shortStatus(now: Long): String = when {
     retrying -> "Retrying…"
+    category == "ENDPOINT_RETIRED" -> "Endpoint retired"
+    category == "BILLING_UNAVAILABLE" -> "Provider credits unavailable"
     category == "QUEUED_JOB" -> "Waiting for remote job"
     category == "CACHED_UNUSABLE_RESPONSE" -> "Cached answer unavailable"
     category == "HOSTED_GENERATION_FAILED" -> "Provider generation failed"
@@ -70,10 +72,12 @@ internal fun combinedProfileFailures(
     if (run.status == AgentRunStatus.COMPLETED && assessed.admitted && !assessed.usablePartial) return@mapNotNull null
     val details = run.terminalError ?: if (waitingForLimit) "Provider rate limit. This profile is paused and has not completed its contribution." else assessed.reason ?: "Incomplete contribution"
     val savedPolicyUnavailable = details.contains("POLICY_SNAPSHOT_", ignoreCase = true)
+    val terminalClassification = dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.classify(details, demoExcluded = demo)
     val classified = message.timeline.lastOrNull { it.profileFailure != null }?.profileFailure
-        ?.takeUnless { demo || savedPolicyUnavailable } ?: dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.classify(details, demoExcluded = demo)
+        ?.takeUnless { demo || savedPolicyUnavailable || terminalClassification.category in setOf("ENDPOINT_RETIRED", "BILLING_UNAVAILABLE") } ?: dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.classify(details, demoExcluded = demo)
     val appFailure = !waitingForLimit && (classified.category in setOf("APP_EXECUTION", "SAVED_POLICY_UNAVAILABLE") || savedPolicyUnavailable)
-    val incompatible = !waitingForLimit && !classified.retryAllowed
+    val permanentUnavailable = classified.category in setOf("ENDPOINT_RETIRED", "BILLING_UNAVAILABLE")
+    val incompatible = !classified.retryAllowed && (!waitingForLimit || permanentUnavailable)
     val savedDeadline = waitDeadlines[run.runId]?.takeIf {
         waitingForLimit &&
             it.runId == run.runId &&
@@ -85,6 +89,8 @@ internal fun combinedProfileFailures(
     }
     val retryAt = savedDeadline?.retryAt ?: classified.retryAfterMillis
     val reason = when {
+        classified.category == "ENDPOINT_RETIRED" -> "The provider retired this endpoint. Update the endpoint or model before starting a new turn."
+        classified.category == "BILLING_UNAVAILABLE" -> "The provider cannot generate with the current account balance. Restore credits before starting a new turn."
         waitingForLimit -> "This profile is paused by a provider limit. Wait for its allowance or combine the available replies without this profile for this turn."
         run.status == AgentRunStatus.WAITING_REMOTE_JOB || classified.category == "QUEUED_JOB" -> "The remote job is still queued or generating. Check its saved status or continue without this profile."
         classified.category == "CACHED_UNUSABLE_RESPONSE" -> "The provider replayed the same cached generation without an answer. Choose a different model, supported settings or provider."
@@ -103,10 +109,14 @@ internal fun combinedProfileFailures(
         else -> details.take(180)
     }
     val retryAllowed = !incompatible && run.status != AgentRunStatus.WAITING_REMOTE_JOB && (!waitingForLimit || retryAt != null)
-    val category = when (run.status) {
-        AgentRunStatus.WAITING_PROVIDER_LIMIT -> "RATE_LIMIT"
-        AgentRunStatus.WAITING_REMOTE_JOB -> "QUEUED_JOB"
-        else -> classified.category
+    val category = if (permanentUnavailable) {
+        classified.category
+    } else {
+        when (run.status) {
+            AgentRunStatus.WAITING_PROVIDER_LIMIT -> "RATE_LIMIT"
+            AgentRunStatus.WAITING_REMOTE_JOB -> "QUEUED_JOB"
+            else -> classified.category
+        }
     }
     CombinedProfileFailure(userMessageId, uid, names[uid]?.takeIf { it.isNotBlank() } ?: "Saved profile", models[uid] ?: run.modelSnapshot, message.currentRunId, reason, details, retryAllowed, appFailure, retryAt, category)
 }

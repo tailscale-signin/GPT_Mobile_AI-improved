@@ -60,7 +60,8 @@ class CombinedTaskRegressionTest {
         val interrupted = CombinedDeliverySession(session(portugal, ProviderEvent.Failed("COMBINED_PARTIAL: output limit")), listOf(CombinedModelResponse("p", "Portugal", content = portugal)), 10000, validateAccess = {}, maxRepairRounds = 0, originalRequest = requests.last()) { _, _ -> error("No repair") }
         val interruptedEvents = interrupted.streamRound(emptyList(), emptyList()).toList()
         assertFalse(interruptedEvents.combinedReport().complete)
-        assertEquals(portugal, interruptedEvents.combinedAnswerText())
+        assertEquals("", interruptedEvents.combinedAnswerText())
+        assertEquals(portugal.length, interruptedEvents.combinedReport().writerCharacters)
         assertEquals(emptyList<Int>(), CombinedTaskContract.relevantHistoryIndices("History of Germany", requests))
         val sources = listOf(CombinedModelResponse("g", "Germany draft", content = germany))
         var repairs = 0

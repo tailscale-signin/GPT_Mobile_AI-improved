@@ -35,7 +35,7 @@ class ConversationCombinedSettingsTest {
     }
 
     @Test fun missingFieldsUseDefaultsAndLegacySchemaMigrates() {
-        assertEquals(ConversationCombinedSettings(continueLongAnswers = false), Json.decodeFromString(ConversationCombinedSettingsSerializer, "{}"))
+        assertEquals(ConversationCombinedSettings(continueLongAnswers = false, adaptiveContributors = false), Json.decodeFromString(ConversationCombinedSettingsSerializer, "{}"))
         val result = Json.decodeFromString(ConversationCombinedSettingsSerializer, """{"schemaVersion":0,"collectionBias":99,"effort":-4}""")
         assertEquals(1, result.schemaVersion)
         assertEquals(100, result.collectionBias)
@@ -55,5 +55,14 @@ class ConversationCombinedSettingsTest {
         val saved = Json.encodeToJsonElement(ConversationCombinedSettingsSerializer, decoded.copy(effort = 100)).jsonObject
         assertEquals(Json.parseToJsonElement("""{"nested":["a"]}"""), saved["future"])
         assertEquals("100", saved["effort"].toString())
+    }
+
+    @Test fun adaptiveSelectionRoundTripsWithoutChangingLegacyWireDigests() {
+        val legacy = Json.decodeFromString(ConversationCombinedSettingsSerializer, "{}")
+        assertFalse(legacy.adaptiveContributors)
+        assertFalse(Json.encodeToJsonElement(ConversationCombinedSettingsSerializer, legacy).jsonObject.containsKey("adaptiveContributors"))
+        val fresh = ConversationCombinedSettings()
+        assertTrue(fresh.adaptiveContributors)
+        assertEquals(fresh, Json.decodeFromString(ConversationCombinedSettingsSerializer, Json.encodeToString(ConversationCombinedSettingsSerializer, fresh)))
     }
 }

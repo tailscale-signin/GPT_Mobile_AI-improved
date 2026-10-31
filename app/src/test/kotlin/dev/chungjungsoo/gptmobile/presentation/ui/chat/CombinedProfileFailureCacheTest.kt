@@ -87,4 +87,24 @@ class CombinedProfileFailureCacheTest {
             assertEquals("Paused by provider limit", failure.shortStatus(1_000))
         }
     }
+
+    @Test fun permanentBillingFailureOverridesSavedIncompleteReceiptAndRetryDeadline() {
+        val cache = CombinedProfileFailureCache()
+        val message = partial.copy(
+            timeline = listOf(
+                dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem(
+                    dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType.NOTICE,
+                    profileFailure = dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord("INCOMPLETE", true)
+                )
+            )
+        )
+        for (status in listOf("FAILED", "WAITING_PROVIDER_LIMIT")) {
+            val run = failed.copy(status = status, terminalError = "Your credit balance is too low to access the Anthropic API")
+            val deadline = ProviderWaitDeadline(run.runId, run.ownershipFence, 1000)
+            val failure = cache.failures(1, "Compare foods", listOf(message), mapOf(run.runId to run), emptyMap(), emptyMap(), mapOf(run.runId to deadline)).single()
+            assertFalse(failure.retryAllowed)
+            assertEquals("BILLING_UNAVAILABLE", failure.category)
+            assertEquals("Provider credits unavailable", failure.shortStatus(2000))
+        }
+    }
 }

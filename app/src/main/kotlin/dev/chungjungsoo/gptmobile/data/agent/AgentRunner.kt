@@ -600,6 +600,13 @@ class AgentRunner(
         ) {
             AppLogRecorder.record("Agent", "SEARCH_ROUTED_TO_AGGREGATE · requested=${call.name} · assigned=web_search")
             call.copy(name = "web_search", arguments = dev.chungjungsoo.gptmobile.data.agent.tool.legacySearchArguments(call.arguments))
+        } else if (call.name == "web_search" && call.name !in executableToolByName) {
+            val candidates = executableToolByName.values.filter {
+                AgentToolCapability.WEB_SEARCH in it.definition.capabilities &&
+                    Regex("^mcp__[A-Za-z0-9_-]+__web_search$").matches(it.definition.name) &&
+                    ToolArgumentValidator.errors(call.arguments, it.definition.inputSchema).isEmpty()
+            }
+            candidates.singleOrNull()?.let { call.copy(name = it.definition.name) } ?: call
         } else {
             call
         }
@@ -675,6 +682,7 @@ class AgentRunner(
             }
         val unproductiveDiscoveryRounds = if (noNewTools) previousDiscoveryRounds + 1 else 0
         val repeatedDiscoveryStalled = unproductiveDiscoveryRounds >= 2
+        val combinedWorkBudgetExhausted = allResults.any { it.combinedWorkBudgetExhausted }
         val outputBudgetExhausted = allResults.any { it.outputBudgetExhausted }
         val toolCallBudgetExhausted = allResults.any { it.toolCallBudgetExhausted }
         val sharedCallBudgetResult = allResults
@@ -702,6 +710,7 @@ class AgentRunner(
             repeatedDiscoveryStalled ||
             roundLimitReached ||
             contextNearLimit ||
+            combinedWorkBudgetExhausted ||
             outputBudgetExhausted ||
             toolCallBudgetExhausted ||
             (executionToolCallLimit < Int.MAX_VALUE && toolCallCount >= executionToolCallLimit)
@@ -720,6 +729,10 @@ class AgentRunner(
         } else if (roundLimitReached) {
             finalResponseRequested = true
             emit(AgentRunEvent.Notice(ROUND_LIMIT_FINAL_RESPONSE_NOTICE, persistent = false))
+        } else if (combinedWorkBudgetExhausted) {
+            finalResponseRequested = true
+            val denial = allResults.firstOrNull { it.combinedWorkBudgetExhausted }?.let(::toolResultText).orEmpty()
+            emit(AgentRunEvent.Notice(denial.ifBlank { "Combined work allowance exhausted. Finishing with retained evidence." }, persistent = true))
         } else if (toolCallBudgetExhausted && outputBudgetExhausted) {
             finalResponseRequested = true
             val callUsed = sharedCallBudgetResult?.toolCallBudgetUsed ?: toolCallCount
@@ -1038,7 +1051,7 @@ class AgentRunner(
     }
 
     private fun countsTowardToolFailureCircuit(result: AgentToolResult): Boolean {
-        if (!result.isError || result.outputBudgetExhausted || result.toolCallBudgetExhausted) return false
+        if (!result.isError || result.combinedWorkBudgetExhausted || result.outputBudgetExhausted || result.toolCallBudgetExhausted) return false
         val text = when (val content = result.content) {
             is ToolResultContent.Text -> content.text
             is ToolResultContent.Json -> content.value.toString()

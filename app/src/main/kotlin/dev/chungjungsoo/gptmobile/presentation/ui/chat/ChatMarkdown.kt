@@ -106,7 +106,7 @@ import org.intellij.markdown.MarkdownTokenTypes
 private const val CLIPBOARD_LABEL_CODE = "code"
 private const val STREAM_FADE_DURATION_MS = 1_000L
 private const val STREAM_FADE_TICK_MS = 50L
-private const val MARKDOWN_PREPARATION_SAMPLE_MS = 120L
+private const val MARKDOWN_PREPARATION_SAMPLE_MS = 500L
 private const val DISPLAY_MATH_PLACEHOLDER_PREFIX = "CHAT_MATH_DISPLAY_"
 private const val DISPLAY_MATH_PLACEHOLDER_SUFFIX = "_TOKEN"
 private const val DISPLAY_MATH_PLACEHOLDER_TEST_NONCE = "test"
@@ -164,7 +164,7 @@ fun ChatMarkdown(
     adaptiveAnswerLength: Int? = null
 ) {
     AdaptiveAnswerTypography(content, adaptiveAnswerLength) {
-        ChatMarkdownContent(content = content, contentIdentity = contentIdentity, memoryValues = memoryValues, highlightSentence = highlightSentence, highlightProgress = highlightProgress, streaming = streaming, animateStreaming = animateStreaming, proseColor = proseColor, provenance = provenance, wording = wording, outputTrace = outputTrace, modifier = modifier, minimumPendingHeight = minimumPendingHeight, onContentDrawn = onContentDrawn)
+        ChatMarkdownContent(content = content, contentIdentity = contentIdentity, memoryValues = memoryValues, highlightSentence = highlightSentence, highlightProgress = highlightProgress, streaming = streaming, animateStreaming = animateStreaming && !(streaming && wording != null), proseColor = proseColor, provenance = provenance, wording = wording, outputTrace = outputTrace, modifier = modifier, minimumPendingHeight = minimumPendingHeight, onContentDrawn = onContentDrawn)
     }
 }
 
@@ -237,7 +237,7 @@ private fun ChatMarkdownContent(
                         val parsed = parseChatMarkdown(visibleSource, cacheResult = !request.streaming, checkActive = { renderContext.ensureActive() })
                         // Rendering is sampled above; completed passage mappings can colour live output.
                         // Shared, invalid and unknown source declarations remain neutral.
-                        val wantsWording = request.wording != null
+                        val wantsWording = request.wording != null && !request.streaming
                         val mapped = if (request.provenance != null || wantsWording) {
                             buildMappedMarkdown(request.content, visibleSource, parsed, displayMathNonce)
                         } else {

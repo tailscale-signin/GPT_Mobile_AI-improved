@@ -19,7 +19,7 @@ internal fun classifyResearchAccess(text: String): ResearchAccessDisposition {
 /** A target site's access denial must not disable the provider for other sites. */
 internal fun researchReaderOutcome(result: AgentToolResult?, text: String, minimumCharacters: Int = 1): ToolOutcome = when {
     result == null -> ToolOutcome.FAILED
-    result.toolCallBudgetExhausted || result.outputBudgetExhausted -> ToolOutcome.BUDGET_EXHAUSTED
+    result.combinedWorkBudgetExhausted || result.toolCallBudgetExhausted || result.outputBudgetExhausted -> ToolOutcome.BUDGET_EXHAUSTED
     result.isError && researchReaderAuthFailure(result) -> ToolOutcome.AUTH_FAILED
     result.isError && (result.errorCode == "RATE_LIMITED" || Regex("HTTP 429|rate.?limit|too many requests", RegexOption.IGNORE_CASE).containsMatchIn(result.content.researchText())) -> ToolOutcome.RATE_LIMITED
     result.errorCode in setOf("INVALID_RESPONSE", "MALFORMED_RESPONSE", "PARSE_ERROR") -> ToolOutcome.INVALID_RESPONSE

@@ -28,8 +28,9 @@ class CombinedDeliverySessionTest {
             }
             val wrapper = CombinedDeliverySession(session(original), sources, 10000, validateAccess = {}, originalRequest = "One fact under 10 words") { _, _ -> repair }
             val events = wrapper.streamRound(emptyList(), emptyList()).toList()
-            assertTrue(events.answer().startsWith("Original"))
-            assertFalse(events.answer().contains("Partial replacement"))
+            assertTrue(events.answer().isEmpty())
+            assertFalse(events.quality().complete)
+            assertEquals(0, events.quality().repairAccepted)
             assertTrue(events.last() is ProviderEvent.Failed)
         }
     }
@@ -206,10 +207,12 @@ class CombinedDeliverySessionTest {
         assertTrue(runCatching { wrapper.streamRound(emptyList(), emptyList()).collect { throw failure } }.exceptionOrNull() === failure)
     }
 
-    @Test fun providerFailureKeepsPartialTextAndReportsInterruptedQuality() = runTest {
+    @Test fun providerFailureWithholdsUncheckedTextAndReportsInterruptedQuality() = runTest {
         val wrapper = CombinedDeliverySession(session("Partial answer.", ProviderEvent.Failed("Disconnected")), sources, 10000, validateAccess = {}) { _, _ -> error("No repair") }
         val events = wrapper.streamRound(emptyList(), emptyList()).toList()
-        assertEquals("Partial answer.", events.answer())
+        assertEquals("", events.answer())
+        assertFalse(events.quality().complete)
+        assertEquals("Partial answer.".length, events.quality().writerCharacters)
         assertEquals("INTERRUPTED", events.quality().status)
         assertTrue(events.last() is ProviderEvent.Failed)
     }

@@ -5,6 +5,7 @@ import dev.chungjungsoo.gptmobile.domain.model.BatchRequest
 import dev.chungjungsoo.gptmobile.domain.service.BatchResult
 import dev.chungjungsoo.gptmobile.domain.service.executeBoundedBatch
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -28,7 +29,7 @@ class LlamaBatchClient(private val serverUrl: String = "http://localhost:8080", 
         return JSONObject().put("prompt", request.prompt).put("n_predict", request.maxTokens).put("temperature", request.temperature.toDouble()).put("stream", false).toString()
     }
 
-    private suspend fun processRequest(request: BatchRequest): String {
+    private suspend fun processRequest(request: BatchRequest): String = try {
         val call = Request.Builder().url("${serverUrl.trimEnd('/')}/completion")
             .post(completionPayload(request).toRequestBody("application/json".toMediaType()))
             .apply { apiKey?.takeIf { it.isNotBlank() }?.let { header("Authorization", "Bearer $it") } }.build()
@@ -36,7 +37,13 @@ class LlamaBatchClient(private val serverUrl: String = "http://localhost:8080", 
         check(response.successful) { "Local batch request failed: HTTP ${response.code}" }
         val json = JSONObject(response.text)
         require(json.opt("content") is String && !json.has("error")) { "Local server did not return decoded completion text." }
-        return json.getString("content")
+        json.getString("content")
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (_: Exception) {
+        // Keep the established local-only recovery contract and avoid exposing
+        // a configured URL or provider response through raw exception messages.
+        error("Local batch failed. Retry with the selected local connection.")
     }
 
     /** Compatibility for saved JSONL jobs; each row still uses the selected local server. */

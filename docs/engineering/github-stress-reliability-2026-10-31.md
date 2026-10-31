@@ -305,3 +305,15 @@ The receipt observer is scoped to the exact executing call, including its name
 and arguments. Nested delegated operations can have different data permissions;
 only their authorized outer handoff enters the parent's review. An integration
 regression verifies that private child results are not observed by the parent.
+
+At `99d6046f78573b49493e51e37c867a6a75529041`, GenieX compiled and ran 5,679
+unit tests: 5,674 passed, four skipped, one failed. The failure exposed a changed
+local batch error contract after bounded concurrency: raw endpoint exceptions
+replaced the local-only recovery message. The local adapter now preserves that
+message for callback and JSONL jobs while still propagating cancellation, with
+a regression ensuring private endpoint text is never included in the output.
+
+Before publishing the batch repair, the remote branch advanced independently to
+`bcbe7b7f5e7f93847d3eba6cefb6fe2cb239dadd` (durable gateway engineering and
+intelligent read batches). That commit is preserved in full; the batch repair
+is applied as its descendant. Base `main` remains unchanged.

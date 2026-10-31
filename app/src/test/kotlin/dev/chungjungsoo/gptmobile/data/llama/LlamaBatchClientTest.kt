@@ -10,6 +10,17 @@ import org.junit.Test
 @org.junit.runner.RunWith(org.robolectric.RobolectricTestRunner::class)
 @org.robolectric.annotation.Config(sdk = [34], application = android.app.Application::class)
 class LlamaBatchClientTest {
+    @Test
+    fun `invalid local endpoint preserves private recovery errors in callbacks and JSONL`() = kotlinx.coroutines.runBlocking {
+        val client = LlamaBatchClient(serverUrl = "invalid-url?private-configuration=fixture")
+        var received = emptyList<BatchResult>()
+        client.processBatch(listOf(dev.chungjungsoo.gptmobile.domain.model.BatchRequest("fixture"))) { received = it }
+        val expected = "Local batch failed. Retry with the selected local connection."
+        assertEquals(expected, (received.single() as BatchResult.Failure).error)
+        val jsonl = client.batchProcess("""{"prompt":"fixture"}""")
+        assertEquals(expected, org.json.JSONObject(jsonl).getString("error"))
+        assertTrue(!jsonl.contains("private-configuration"))
+    }
 
     @Test
     fun `parseLlamaResponse parses valid JSONL responses correctly`() {

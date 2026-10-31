@@ -62,3 +62,44 @@ The temporary benchmark branch is outside this change and has not been deleted.
 
 These changes do not establish device execution, end-to-end tool perfection, or
 merge readiness. The draft PR must be evaluated at its exact head revision.
+
+## Attached diagnostics follow-up checkpoint
+
+- Repository: `tailscale-signin/GPT_Mobile_AI-improved`; base branch: `main`.
+- Base SHA reported by PR #766: `9781b63c72bf3a2a4786ede07f0d9e094cd07db2`.
+- Starting branch head: `f2f21b8c05f34cf5963123ff74ada9342f7d9ad6`.
+- Working branch: `fix/github-stress-reliability-2026-10-31`; existing draft PR: #766.
+- Evidence: attached diagnostics from version 0.9.65.0/build 133 at the base SHA,
+  5,275 records. No raw user diagnostics are committed.
+- Intent: eliminate saved-page argument repair loops, bound finalization when a
+  provider ignores disabled tools, reduce search coroutine compilation size and
+  remove the identified main-thread settings disk read. Preserve authorization,
+  pinned revisions, cancellation, write receipts and existing branch improvements.
+
+### Follow-up changes and evidence
+
+| Observed failure | Change | Regression evidence |
+| --- | --- | --- |
+| Saved search pages repeatedly rejected original query/mode/index selectors. | Retain bounded read selectors and accept them only when identical to the saved request; reject changed selectors, unknown fields and write payloads without backend dispatch. | Saved search/read pages retain their original scope, reject changes, and dispatch the backend only once. |
+| Explicit `RETRY_FAILED_STAGE` restored the same undispatched budget rejection. | On an explicit ordinary-mode retry, reopen only pending `BUDGET_EXHAUSTED` results proven not dispatched; retain the previous rejection for audit, cumulative dispatch counts, successful receipts and uncertain outcomes. Clear stale attempt-local budget flags on retained results. | Normal resume keeps the refusal; explicit retry reopens exactly the eligible call and never replays completed, invalid or uncertain calls. Current admission still enforces its allowance. |
+| A provider can continue requesting tools after finalization disables the catalog. | Allow one corrective response, then stop with `FINAL_RESPONSE_REQUIRED` while retaining completed results. | Runner regressions check bounded rounds, one backend execution, and finalization when a shared result exhausts the budget without increasing the runner dispatch count. |
+| ART declined to compile the oversized search coroutine. | Separate search preparation, scanning, blob retrieval, coverage retention and response construction; reuse one related-path list per page. | Compile the actual repository session; traverse multi-page path/content searches, cached continuations, truncated trees and bounded match previews. Device ART compilation remains to be verified. |
+| StrictMode reported the advanced-settings preference read on the main thread. | Load preferences and decode saved settings on `Dispatchers.IO` before initializing the editable dialog. | Source inspection confirms the reported disk read moves off the main thread; device StrictMode verification remains outstanding. |
+| The model guessed nonexistent workflow/package paths. | Suggest at most 12 actual files from the pinned tree, preferring a matching basename across packages, without silently substituting a path. | Candidate ordering, nonexistent paths and hard result bounds. |
+| PR #766's starting head failed its existing ordinary-schema token test. | Shorten repeated descriptions without changing schemas, tool capabilities or the test threshold. | Existing regression passes: 2,942 UTF-8 bytes, 981 estimated tokens, three facade definitions; limit remains below 1,000. |
+
+The supplied log also includes rejected watch IDs, two provider tool-markup parse
+failures, a recovered transport interruption and platform/inference warnings.
+Argument validation and native parser rejection remain in place. These external
+conditions and device jank are not claimed resolved by source or host tests.
+
+### Follow-up validation
+
+- `bash scripts/validate-local.sh fast`: 269 host tests and repository checks passed.
+- ktlint 1.3.1: all changed Kotlin files formatted and checked.
+- 22 focused JVM tests passed using production search/session, facade, result-view,
+  checkpoint and schema-estimator sources with inert platform fixtures. This includes
+  the existing schema-size regression that failed on the starting PR head.
+- Full Android compilation, runner integration, lint and emulator checks must be
+  evaluated in CI at the new head; results from the starting head are not evidence
+  for this follow-up. The local JDK/SDK limitation recorded above still applies.

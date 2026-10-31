@@ -2277,6 +2277,7 @@ class ChatRepositoryImpl(
                                 budgetSettings, limits, customRunner, delegationSettings, effectiveTools, exposedTools,
                                 resolvedTools, delegatedTools, trace, traceSequences, recalled, documentContext,
                                 localResearch, processingOwnership, reservedFinalToolCalls, followUps,
+                                retryUndispatchedBudgetFailures = taskRecovery?.action == dev.chungjungsoo.gptmobile.data.agent.TaskRecoveryAction.RETRY_FAILED_STAGE && chatToolConfig?.combined == null,
                                 previousAnswerWords = if (taskRecovery != null) {
                                     dev.chungjungsoo.gptmobile.data.agent.previousRecoveryAnswerWords(assistantMessages, platform.uid, taskRecovery.sourceMessageId, runId)
                                 } else {
@@ -3986,6 +3987,7 @@ class ChatRepositoryImpl(
         processingOwnership: Int,
         reservedFinalToolCalls: Int,
         followUps: dev.chungjungsoo.gptmobile.data.queue.FollowUpInbox?,
+        retryUndispatchedBudgetFailures: Boolean = false,
         previousAnswerWords: Int = 0,
         recoveredAnswer: String = "",
         preparedAssistEvidence: Set<JsonObject> = emptySet(),
@@ -4600,7 +4602,8 @@ class ChatRepositoryImpl(
             checkpoint = latestUser?.let { user ->
                 dev.chungjungsoo.gptmobile.data.agent.ToolBatchCheckpoint.forTurn(context.filesDir, user.chatId, "${user.chatId}:${user.id}:${platform.uid}:${dispatchAuthority.revision}", persistent = agentPersistenceDao.getChatRoom(user.chatId)?.isTemporary == false)
             },
-            healthCatalog = catalog
+            healthCatalog = catalog,
+            retryUndispatchedBudgetFailures = retryUndispatchedBudgetFailures
         ).run(advertisedSession, executableTools, dynamicTools = { effectiveTools.flatMap { it.dynamicTools?.invoke().orEmpty() }.map { it.tool } }, selectDefinitions = { definitions -> catalog?.selected(definitions) ?: definitions })
         streamAgentEvents(agentEvents, platform, runId, resolvedTools.size, trace, chatToolConfig?.combined != null, resolvedOutputCap, dispatchAuthority).collect { send(it) }
     }

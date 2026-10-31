@@ -12,6 +12,17 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubSearchEnhancementTest {
+    @Test fun missingPathsPreferObservedFileNamesAcrossPackagesAndBoundDirectorySuggestions() {
+        val actual = "app/src/main/kotlin/dev/example/MainActivity.kt"
+        val candidates = GitHubSearchContext.missingPathCandidates(
+            "app/src/main/kotlin/wrong/MainActivity.kt",
+            listOf(actual, actual, "app/src/main/kotlin/wrong/Other.kt", "unrelated.kt")
+        )
+        assertEquals(listOf(actual, "app/src/main/kotlin/wrong/Other.kt"), candidates)
+        assertEquals(12, GitHubSearchContext.missingPathCandidates(".github/workflows/ci.yml", (1..30).map { ".github/workflows/build$it.yml" }).size)
+        assertTrue(GitHubSearchContext.missingPathCandidates("unknown/File.kt", listOf("unrelated.kt")).isEmpty())
+    }
+
     @Test fun workflowMetadataBoundsRepeatedEntriesAndFlagsBlockMetadata() {
         val bounded = GitHubWorkflowMetadata.parse("name: item\n".repeat(20_000))
         assertTrue(bounded.getValue("warnings").toString().contains("entry limit"))

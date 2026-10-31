@@ -33,6 +33,43 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubOperationToolTest {
+    @Test fun searchSavedPagesAcceptOnlyUnchangedSelectorsWithoutDispatch() = runBlocking {
+        val backend = Backend().also { it.body = JsonPrimitive("search evidence ".repeat(2000)) }
+        val tool = GitHubOperationTool("github_search", backend, "search-context", views = GitHubResultViews(pageBytes = 2048))
+        val request = args("""{"owner":"owner","repo":"repo","commit_sha":"$sha","query":"Target","mode":"definitions","path_prefix":"src/","index_cursor":0,"batch_size":100,"context_lines":4,"fuzzy_match":false}""")
+        var cursor = continuation(result(tool.execute("first", request)))
+        var pages = 0
+        while ("view_cursor" in cursor) {
+            val saved = tool.execute("page-${pages++}", JsonObject(cursor + request))
+            assertFalse(saved.isError)
+            assertFalse(saved.dispatched)
+            assertTrue(saved.sharedResult)
+            assertTrue(pages < 200)
+            val page = result(saved)
+            if (page["local_page_complete"] == JsonPrimitive(true)) break
+            cursor = continuation(page)
+        }
+        assertTrue(pages > 1)
+        for ((field, value) in listOf("query" to JsonPrimitive("Other"), "index_cursor" to JsonPrimitive(1), "context_lines" to JsonPrimitive(3), "mode" to JsonPrimitive("paths"), "unexpected" to JsonPrimitive(true))) {
+            val rejected = tool.execute("changed-$field", JsonObject(cursor + request + (field to value)))
+            assertEquals("INVALID_ARGUMENTS", rejected.errorCode)
+            assertFalse(rejected.dispatched)
+        }
+        assertEquals(1, backend.calls.size)
+    }
+
+    @Test fun savedReadRangesCannotBeChangedOrUsedToRepeatAWrite() = runBlocking {
+        val backend = Backend().also { it.body = JsonPrimitive("evidence ".repeat(2000)) }
+        val tool = GitHubOperationTool("github_read", backend, "range-context", views = GitHubResultViews(pageBytes = 2048))
+        val request = args("""{"ranges":[{"path":"A.kt","start_line":1,"end_line":3}]}""")
+        val cursor = continuation(result(tool.execute("first", request)))
+        assertFalse(tool.execute("same", JsonObject(cursor + request)).isError)
+        val changed = args("""{"ranges":[{"path":"B.kt","start_line":1,"end_line":3}]}""")
+        assertEquals("INVALID_ARGUMENTS", tool.execute("changed", JsonObject(cursor + changed)).errorCode)
+        assertEquals("INVALID_ARGUMENTS", tool.execute("write", JsonObject(cursor + ("files" to JsonArray(emptyList())))).errorCode)
+        assertEquals(1, backend.calls.size)
+    }
+
     @Test fun invalidWatchIdentifiersAreRejectedBeforeBackendDispatch() = runBlocking {
         val backend = Backend()
         val tool = GitHubOperationTool("github_watch_checks", backend, "watch")

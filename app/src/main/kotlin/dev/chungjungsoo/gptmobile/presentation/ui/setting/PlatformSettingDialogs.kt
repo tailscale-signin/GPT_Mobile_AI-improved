@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.setting
 
 import android.content.Context
+import android.content.SharedPreferences
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -32,6 +33,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -66,7 +68,9 @@ import dev.chungjungsoo.gptmobile.presentation.ui.setup.DownloadedLocalModelOpti
 import dev.chungjungsoo.gptmobile.presentation.ui.setup.LocalModelPicker
 import dev.chungjungsoo.gptmobile.util.isValidUrl
 import kotlin.math.roundToInt
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
@@ -315,11 +319,14 @@ fun LlamaAdvancedSettingsDialog(
 ) {
     if (dialogState.isLlamaAdvancedDialogOpen) {
         val context = LocalContext.current
-        val prefs = remember { context.getSharedPreferences("llama_settings", Context.MODE_PRIVATE) }
-        val initialSettings = remember {
-            val json = prefs.getString("advanced_settings", null)
-            AdvancedSettingsJson.decode(json)
+        val loaded by produceState<Pair<SharedPreferences, AdvancedSettings>?>(null, context) {
+            value = withContext(Dispatchers.IO) {
+                val prefs = context.applicationContext.getSharedPreferences("llama_settings", Context.MODE_PRIVATE)
+                prefs to AdvancedSettingsJson.decode(prefs.getString("advanced_settings", null))
+            }
         }
+        // Do not initialize editable defaults before the saved settings arrive.
+        val (prefs, initialSettings) = loaded ?: return
         LlamaAdvancedSettingsDialog(
             initialSettings = initialSettings,
             onDismissRequest = settingViewModel::closeLlamaAdvancedDialog,

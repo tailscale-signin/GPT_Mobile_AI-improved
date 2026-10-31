@@ -46,7 +46,7 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String) 
         fun restore(id: String) = AgentContractValidation.receipt(id, AgentToolResult(id, if (json) ToolResultContent.Json(Json.parseToJsonElement(body)) else ToolResultContent.Text(body), error, sharedResult = true, dispatched = dispatched, errorCode = code, toolCallBudgetExhausted = callLimit, outputBudgetExhausted = outputLimit))
     }
 
-    @Serializable private data class Entry(val call: Call, val started: Boolean = false, val result: Result? = null)
+    @Serializable private data class Entry(val call: Call, val started: Boolean = false, val result: Result? = null, val priorBudgetRejection: Result? = null)
 
     @Serializable private data class State(val binding: String, val schemaVersion: Int = 1, val pending: List<String> = emptyList(), val entries: Map<String, Entry> = emptyMap())
     private val mutex = file?.let { locks.computeIfAbsent(it.absolutePath) { Mutex() } } ?: Mutex()
@@ -98,6 +98,27 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String) 
         val state = read()
         state.pending.filterTo(mutableSetOf()) { state.entries.getValue(it).countsAsDispatched() }
     }
+
+    /** Only an explicit user retry may reopen a proven pre-dispatch budget rejection. */
+    suspend fun prepareExplicitBudgetRetry() = locked {
+        val state = read()
+        val entries = state.entries.toMutableMap()
+        state.pending.forEach { id ->
+            val entry = entries.getValue(id)
+            val result = entry.result ?: return@forEach
+            entries[id] = if (result.error && !result.dispatched && result.code == "BUDGET_EXHAUSTED") {
+                // Keep the old refusal for audit, but let ordinary admission decide
+                // whether this still-unexecuted call fits the current allowance.
+                entry.copy(started = false, result = null, priorBudgetRejection = result)
+            } else {
+                // These are attempt-local signals, not execution authority. The
+                // new budget is enforced on new work; the receipt stays retained.
+                entry.copy(result = result.copy(callLimit = false, outputLimit = false))
+            }
+        }
+        if (entries != state.entries) write(state.copy(entries = entries))
+    }
+
     suspend fun recoverySnapshot(objective: CheckpointRestoreObjective? = null): ToolBatchRecoverySnapshot {
         val started = System.nanoTime()
         return locked {

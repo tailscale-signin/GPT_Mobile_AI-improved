@@ -60,7 +60,8 @@ data class AgentRunLimits(
 class AgentRunner(
     val limits: AgentRunLimits = AgentRunLimits(),
     private val checkpoint: ToolBatchCheckpoint? = null,
-    private val healthCatalog: ProgressiveToolCatalog? = null
+    private val healthCatalog: ProgressiveToolCatalog? = null,
+    private val retryUndispatchedBudgetFailures: Boolean = false
 ) {
     fun run(session: AgentProviderSession, tools: List<AgentTool>, dynamicTools: () -> List<AgentTool> = { emptyList() }, selectDefinitions: (List<AgentToolDefinition>) -> List<AgentToolDefinition> = { it }): Flow<AgentRunEvent> = flow {
         if (tools.groupBy { it.definition.name }.any { it.value.size > 1 }) {
@@ -73,6 +74,7 @@ class AgentRunner(
         var exposedDefinitions = tools.map { it.definition }
         val exchanges = mutableListOf<AgentToolExchange>()
         var rounds = 0
+        if (retryUndispatchedBudgetFailures) checkpoint?.prepareExplicitBudgetRetry()
         val recovery = checkpoint?.recoverySnapshot(limits.checkpointRestoreObjective)
         var toolCallCount = recovery?.dispatchedCount ?: 0
         var toolMayHaveExecuted = (recovery?.dispatchedCount ?: 0) > 0
@@ -125,6 +127,7 @@ class AgentRunner(
         var unproductiveDiscoveryRounds = 0
         var suppressedReadRounds = 0
         var unsuccessfulGitHubRounds = 0
+        var finalizationToolRepairAttempted = false
         var restoredCalls = recovery?.pending.orEmpty()
         var restoredDispatched = recovery?.pendingDispatchedIds.orEmpty()
         var restoredRetained = recovery?.pendingRetainedIds.orEmpty()
@@ -225,6 +228,15 @@ class AgentRunner(
                     instructFinalResponse(exchanges)
                 }
                 continue
+            }
+            // A provider may ignore an empty tool catalog. Offer one correction,
+            // then stop instead of spending the observed-call ceiling on refusals.
+            if (finalResponseRequested && exposedDefinitions.isEmpty() && round.calls.isNotEmpty()) {
+                if (finalizationToolRepairAttempted) {
+                    emit(AgentRunEvent.Provider(ProviderEvent.Failed("The provider kept requesting tools after finalization. Completed results are retained; no additional action was dispatched.", errorCode = "FINAL_RESPONSE_REQUIRED")))
+                    return
+                }
+                finalizationToolRepairAttempted = true
             }
             val resolvedCalls = round.calls.map { resolveGitHubReadAlias(it, executableToolByName.keys) }
             resolvedCalls.forEach { emit(AgentRunEvent.Provider(it)) }

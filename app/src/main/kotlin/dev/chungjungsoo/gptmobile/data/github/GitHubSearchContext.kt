@@ -78,6 +78,14 @@ internal object GitHubSearchContext {
         }
     }
 
+    fun missingPathCandidates(path: String, paths: List<String>, limit: Int = 12): List<String> {
+        val parent = path.substringBeforeLast('/', "")
+        val name = path.substringAfterLast('/')
+        val sameName = paths.asSequence().filter { it.substringAfterLast('/').equals(name, true) }.sorted()
+        val sameDirectory = paths.asSequence().filter { it.substringBeforeLast('/', "") == parent }.sorted()
+        return (sameName + sameDirectory).filter { it != path }.distinct().take(limit.coerceIn(0, 12)).toList()
+    }
+
     fun related(path: String, paths: List<String>): JsonArray {
         fun stem(value: String): String = value.substringAfterLast('/').substringBeforeLast('.')
             .removePrefix("test_").removeSuffix("_test").removeSuffix(".test").removeSuffix(".spec")

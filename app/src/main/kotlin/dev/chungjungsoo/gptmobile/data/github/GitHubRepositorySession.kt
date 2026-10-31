@@ -393,7 +393,7 @@ internal class GitHubRepositorySession(
         val extension = args.s("file_extension").removePrefix(".").lowercase(java.util.Locale.ROOT)
         require(extension.isEmpty() || extension.matches(Regex("[a-z0-9]+"))) { "file_extension must be a single extension such as kt or .kt." }
         val batchSize = args.s("batch_size").ifBlank { "1000" }.toInt().also { require(it in 1..1000) }
-        val maxNewBlobs = args.s("max_new_blobs").ifBlank { "16" }.toInt().also { require(it in 1..32) }
+        val maxNewBlobs = args.s("max_new_blobs").ifBlank { "16" }.toInt().also { require(it in 1..100) }
         val searchId = GitHubRepositoryStateStore.digest(listOf(context.commitSha, query, mode, args.s("path_prefix"), extension, options.json().toString()).joinToString("\u0000"))
         require(args.s("search_id").isBlank() || args.s("search_id") == searchId) { "Search parameters changed. Start at index_cursor=0 without search_id, or use the exact continuation." }
         val all = data["tree"]!!.jsonArray.map { it.jsonObject }.filter { item ->
@@ -404,7 +404,7 @@ internal class GitHubRepositorySession(
                 (extension.isEmpty() || item.s("path").substringAfterLast('.', "").equals(extension, true))
         }.distinctBy { it.s("path") }.sortedBy { it.s("path") }
         val cursor = args.s("index_cursor").ifBlank { "0" }.toInt().also { require(it in 0..all.size) }
-        val cacheKey = "search-page-v3:$searchId:$cursor:$batchSize:$maxNewBlobs"
+        val cacheKey = "search-page-v4:$searchId:$cursor:$batchSize:$maxNewBlobs"
         store.read(scope, cacheKey)?.let { cached ->
             return JsonObject(cached + mapOf("cache_hit" to JsonPrimitive(true), "new_blobs" to JsonPrimitive(0)))
         }
@@ -418,6 +418,7 @@ internal class GitHubRepositorySession(
         var incompleteSymbols = false
         var truncatedMatches = false
         val hits = mutableListOf<JsonObject>()
+        val contextBudget = SearchContextBudget()
         val prefetched = mutableMapOf<String, Result<JsonObject?>>()
         val hitLimit = if (mode == "paths") 100 else 20
         while (next < all.size && (mode == "paths" || next - cursor < batchSize) && hits.size < hitLimit) {
@@ -468,7 +469,7 @@ internal class GitHubRepositorySession(
                 skipped++
                 continue
             }
-            val match = matchSearchFile(context, item, content, options, mode, query, startedNanos)
+            val match = matchSearchFile(context, item, content, options, mode, query, startedNanos, contextBudget)
             incompleteSymbols = incompleteSymbols || match.incompleteSymbols
             val matches = match.items
             if (match.deadlineReached) {
@@ -527,6 +528,9 @@ internal class GitHubRepositorySession(
             put("new_blobs", fetched)
             put("max_new_blobs", maxNewBlobs)
             put("batch_size", batchSize)
+            put("context_excerpt_budget_bytes", SearchContextBudget.LIMIT)
+            put("context_excerpt_bytes_used", SearchContextBudget.LIMIT - contextBudget.remaining)
+            put("context_truncated", contextBudget.truncated)
             put(
                 "stop_reason",
                 when {
@@ -595,24 +599,48 @@ internal class GitHubRepositorySession(
 
     private data class SearchMatches(val items: List<JsonObject>, val incompleteSymbols: Boolean = false, val deadlineReached: Boolean = false)
 
-    private suspend fun matchSearchFile(context: GitHubTaskSnapshot, item: JsonObject, content: JsonObject, options: GitHubSearchOptions, mode: String, query: String, startedNanos: Long): SearchMatches {
+    private class SearchContextBudget(var remaining: Int = LIMIT, var truncated: Boolean = false) {
+        companion object {
+            const val LIMIT = 48 * 1024
+        }
+    }
+
+    private suspend fun matchSearchFile(context: GitHubTaskSnapshot, item: JsonObject, content: JsonObject, options: GitHubSearchOptions, mode: String, query: String, startedNanos: Long, contextBudget: SearchContextBudget): SearchMatches {
         val sourceLines = content.s("content").lines()
         if (sourceLines.size !in options.minLines..options.maxLines) return SearchMatches(emptyList())
         val lexical = content["index"]?.jsonObject
         val symbolMode = mode in setOf("definitions", "references")
         val incompleteSymbols = symbolMode && lexical?.get("${mode}_complete")?.jsonPrimitive?.booleanOrNull != true
-        val lines = if (symbolMode) {
-            lexical?.get(mode)?.jsonArray.orEmpty().map { it.jsonObject }.filter { if (options.fuzzy) options.score(it.s("name"), query) > 0 else it.s("name").equals(query, ignoreCase = !options.caseSensitive) }.mapNotNull { it["line"]?.jsonPrimitive?.intOrNull }.toSet()
-        } else {
-            emptySet()
+        val active = kotlinx.coroutines.currentCoroutineContext()
+        fun checkpoint() {
+            active.ensureActive()
+            if ((System.nanoTime() - startedNanos) / 1_000_000 >= 12_000) throw SearchPageDeadline()
+        }
+        val lines = try {
+            if (symbolMode) {
+                lexical?.get(mode)?.jsonArray.orEmpty().map { it.jsonObject }.mapNotNull { symbol ->
+                    checkpoint()
+                    val score = if (options.fuzzy) {
+                        options.score(symbol.s("name"), query, ::checkpoint)
+                    } else if (symbol.s("name").equals(query, ignoreCase = !options.caseSensitive)) {
+                        1.0
+                    } else {
+                        0.0
+                    }
+                    symbol["line"]?.jsonPrimitive?.intOrNull?.takeIf { score > 0 }?.let { it to score }
+                }.groupBy({ it.first }, { it.second }).mapValues { it.value.maxOrNull() ?: 0.0 }
+            } else {
+                emptyMap()
+            }
+        } catch (_: SearchPageDeadline) {
+            return SearchMatches(emptyList(), incompleteSymbols, deadlineReached = true)
         }
         val matches = mutableListOf<JsonObject>()
-        val active = kotlinx.coroutines.currentCoroutineContext()
         for ((index, line) in sourceLines.withIndex()) {
             active.ensureActive()
             if ((System.nanoTime() - startedNanos) / 1_000_000 >= 12_000) return SearchMatches(matches, incompleteSymbols, deadlineReached = true)
             val confidence = if (symbolMode) {
-                if (index + 1 in lines) 1.0 else 0.0
+                lines[index + 1] ?: 0.0
             } else {
                 try {
                     options.score(line, query) {
@@ -624,13 +652,16 @@ internal class GitHubRepositorySession(
                 }
             }
             if (confidence > 0) {
+                val excerpt = GitHubSearchContext.extract(sourceLines, index + 1, options.contextLines, minOf(8192, contextBudget.remaining))
+                contextBudget.remaining -= excerpt["excerpt"]!!.jsonPrimitive.content.toByteArray(Charsets.UTF_8).size
+                contextBudget.truncated = contextBudget.truncated || excerpt["truncated"]!!.jsonPrimitive.booleanOrNull == true
                 matches += buildJsonObject {
                     put("line", index + 1)
                     put("text", utf8Prefix(line, 500))
                     put("confidence", confidence)
                     put("confidence_kind", "text_similarity_not_semantic_probability")
                     put("result_id", GitHubRepositoryStateStore.digest(context.commitSha + item.s("path") + ":" + (index + 1)))
-                    put("context", GitHubSearchContext.extract(sourceLines, index + 1, options.contextLines))
+                    put("context", excerpt)
                 }
             }
             if (matches.size == 11) break

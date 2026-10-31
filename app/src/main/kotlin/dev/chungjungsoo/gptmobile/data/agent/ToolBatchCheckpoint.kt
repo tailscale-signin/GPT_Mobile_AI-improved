@@ -25,7 +25,7 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String) 
 
     @Serializable private data class Entry(val call: Call, val started: Boolean = false, val result: Result? = null)
 
-    @Serializable private data class State(val binding: String, val pending: List<String> = emptyList(), val entries: Map<String, Entry> = emptyMap())
+    @Serializable private data class State(val binding: String, val schemaVersion: Int = 1, val pending: List<String> = emptyList(), val entries: Map<String, Entry> = emptyMap())
     private val mutex = file?.let { locks.computeIfAbsent(it.absolutePath) { Mutex() } } ?: Mutex()
     private val json = Json {
         encodeDefaults = true
@@ -37,6 +37,7 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String) 
             require(it.length() <= 32 * 1024 * 1024) { "Tool recovery journal exceeds capacity." }
             json.decodeFromString<State>(AtomicFile(it).openRead().bufferedReader().use { stream -> stream.readText() })
         } ?: memory
+        require(saved.schemaVersion == 1) { "Unsupported tool recovery checkpoint version." }
         require(saved.binding == binding) { "Tool recovery authorization changed." }
         return saved
     }
@@ -70,6 +71,14 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String) 
     }
     suspend fun enqueue(calls: List<ProviderEvent.ToolCall>) = locked {
         val state = read()
+        require(calls.map { it.callId }.distinct().size == calls.size) { "Duplicate tool call IDs cannot be checkpointed." }
+        val incoming = calls.map { it.callId }
+        require(
+            state.pending == incoming ||
+                state.pending.none { id ->
+                    state.entries.getValue(id).let { !it.started && it.result == null }
+                }
+        ) { "An earlier batch still has queued calls; restore it before starting another batch." }
         val entries = state.entries.toMutableMap()
         calls.forEach { call ->
             val row = Call(call.callId, call.name, call.arguments)
@@ -95,12 +104,18 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String) 
         }
         if (restored != null) return restored
         val result = dispatch()
-        withContext(NonCancellable) { complete(call, result) }
+        withContext(NonCancellable) { saveResult(call, result, claimed = true) }
         return result
     }
-    suspend fun complete(call: ProviderEvent.ToolCall, result: AgentToolResult) = locked {
+
+    suspend fun complete(call: ProviderEvent.ToolCall, result: AgentToolResult) = saveResult(call, result, claimed = false)
+
+    private suspend fun saveResult(call: ProviderEvent.ToolCall, result: AgentToolResult, claimed: Boolean) = locked {
         val state = read()
         val entry = requireNotNull(state.entries[call.callId])
+        require(entry.call.event() == call && result.callId == call.callId) { "Tool receipt does not match the checkpointed call." }
+        // A later deferred/suppressed replay must never replace the first receipt.
+        if (entry.result != null || (entry.started && !claimed)) return@locked
         // Replay is bounded separately from the authoritative Research/ToolEvent evidence stores.
         val retained = ToolExchangeCompactor.compact(listOf(AgentToolExchange(listOf(call), listOf(result.copy(traceContent = null, retainedContent = null)))), 4096, 4096).single().results.single()
         val content = retained.content
@@ -114,6 +129,9 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String) 
     }
     suspend fun finish() = locked {
         val state = read()
+        require(state.pending.none { id -> state.entries.getValue(id).let { !it.started && it.result == null } }) {
+            "Cannot finish while checkpointed calls remain queued."
+        }
         if (state.pending.isNotEmpty()) write(state.copy(pending = emptyList()))
     }
     companion object {

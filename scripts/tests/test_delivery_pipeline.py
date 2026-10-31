@@ -133,6 +133,37 @@ class ReleaseAndArtifactTest(unittest.TestCase):
             self.assertEqual(result['artifacts'], artifacts.search(result, 'GenieX'))
             self.assertEqual([], artifacts.search(result, 'missing'))
 
+    def test_geniex_artifacts_are_verified_and_tampering_or_missing_variants_fail(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'debug').mkdir()
+            (root / 'nativeSmoke').mkdir()
+            (root / 'debug/app.apk').write_bytes(b'debug')
+            (root / 'nativeSmoke/app.apk').write_bytes(b'cold packaging')
+            manifest = artifacts.build(root, 'geniex', 'a' * 40, '0.9.65.0')
+            required = ['debug/*.apk', 'nativeSmoke/*.apk']
+            self.assertEqual('VERIFIED', artifacts.verify(root, manifest, 'geniex', 'a' * 40, required)['status'])
+            with self.assertRaises(ValueError):
+                artifacts.verify(root, manifest, 'legacy', 'a' * 40, required)
+            with self.assertRaises(ValueError):
+                artifacts.verify(root, manifest, 'geniex', 'b' * 40, required)
+            with self.assertRaises(ValueError):
+                artifacts.verify(root, manifest, 'geniex', 'a' * 40, required, '0.9.64.0')
+            with self.assertRaises(ValueError):
+                artifacts.verify(root, manifest, 'geniex', 'a' * 40, ['release/*.apk'])
+            (root / 'debug/app.apk').write_bytes(b'tampered')
+            with self.assertRaises(ValueError):
+                artifacts.verify(root, manifest, 'geniex', 'a' * 40, required)
+
+    def test_artifact_verification_rejects_paths_outside_the_root(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'app.apk').write_bytes(b'candidate')
+            manifest = artifacts.build(root, 'geniex', 'a' * 40, '1')
+            manifest['artifacts'][0]['path'] = '../app.apk'
+            with self.assertRaises(ValueError):
+                artifacts.verify(root, manifest, 'geniex', 'a' * 40)
+
 
 class ServiceLevelsTest(unittest.TestCase):
     objectives = {'schema_version': 1, 'default': {'minimum_samples': 20, 'success_rate': .95, 'p95_seconds': 600}}

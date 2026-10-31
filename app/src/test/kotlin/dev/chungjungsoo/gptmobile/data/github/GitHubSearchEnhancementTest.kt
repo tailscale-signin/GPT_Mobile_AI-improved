@@ -37,7 +37,7 @@ class GitHubSearchEnhancementTest {
         )
         assertNotEquals(options.json(), options.copy(caseSensitive = true).json())
         for (args in listOf(
-            buildJsonObject { put("context_lines", 21) },
+            buildJsonObject { put("context_lines", 101) },
             buildJsonObject {
                 put("min_lines", 20)
                 put("max_lines", 10)
@@ -89,6 +89,28 @@ class GitHubSearchEnhancementTest {
         assertTrue(context.getValue("documentation").jsonPrimitive.content.contains("Adds one"))
         assertTrue(context.getValue("resolution").jsonPrimitive.content.contains("lexical"))
         assertEquals(1, GitHubSearchContext.related("src/Add.kt", listOf("src/Add.kt", "test/AddTest.kt", "test/AddTest.kt")).size)
+    }
+
+    @Test fun expandedContextIsBoundedAroundTheMatchAndReportsTruncation() {
+        val options = GitHubSearchOptions.from(
+            buildJsonObject {
+                put("query", "needle")
+                put("context_lines", 100)
+                put("fuzzy_threshold", 0.7)
+            }
+        )
+        assertEquals(100, options.contextLines)
+        val lines = (1..250).map { if (it == 125) "needle" else "é".repeat(100) }
+        val bounded = GitHubSearchContext.extract(lines, 125, 100, 1000)
+        val excerpt = bounded.getValue("excerpt").jsonPrimitive.content
+        assertTrue(excerpt.contains("needle"))
+        assertTrue(excerpt.toByteArray(Charsets.UTF_8).size <= 1000)
+        assertEquals("true", bounded.getValue("truncated").jsonPrimitive.content)
+        assertEquals("25", bounded.getValue("requested_start_line").jsonPrimitive.content)
+        assertEquals("225", bounded.getValue("requested_end_line").jsonPrimitive.content)
+        val noBudget = GitHubSearchContext.extract(lines, 125, 100, 0)
+        assertEquals("", noBudget.getValue("excerpt").jsonPrimitive.content)
+        assertEquals("true", noBudget.getValue("truncated").jsonPrimitive.content)
     }
 
     @Test fun workflowOutlineIgnoresExecutableBlockContent() {

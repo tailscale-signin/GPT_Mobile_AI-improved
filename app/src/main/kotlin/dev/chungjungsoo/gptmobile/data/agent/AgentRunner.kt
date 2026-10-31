@@ -57,7 +57,8 @@ data class AgentRunLimits(
 
 class AgentRunner(
     val limits: AgentRunLimits = AgentRunLimits(),
-    private val checkpoint: ToolBatchCheckpoint? = null
+    private val checkpoint: ToolBatchCheckpoint? = null,
+    private val healthCatalog: ProgressiveToolCatalog? = null
 ) {
     fun run(session: AgentProviderSession, tools: List<AgentTool>, dynamicTools: () -> List<AgentTool> = { emptyList() }, selectDefinitions: (List<AgentToolDefinition>) -> List<AgentToolDefinition> = { it }): Flow<AgentRunEvent> = flow {
         if (tools.groupBy { it.definition.name }.any { it.value.size > 1 }) {
@@ -420,7 +421,10 @@ class AgentRunner(
         for (batch in executableCalls.chunked(limits.maxToolCallsPerRound.coerceIn(1, 32))) {
             val results = executeToolBatch(batch, toolsForBatch)
             executedResults += results
-            batch.zip(results).forEach { (call, result) -> emit(AgentRunEvent.ToolFinished(call, result)) }
+            batch.zip(results).forEach { (call, result) ->
+                healthCatalog?.recordObservation(call.name, result)
+                emit(AgentRunEvent.ToolFinished(call, result))
+            }
         }
         if (!finalResponseRequested && !retriedWithoutTools) {
             val update = admitDiscoveredTools(dynamicTools(), toolByName, executableToolByName, exposedDefinitions, initialSchemaTokens, consecutiveToolFailures, toolCallsByName, replayTokens, selectDefinitions) ?: return null
@@ -1092,6 +1096,15 @@ class AgentRunner(
                 )
             } else {
                 tool.execute(call.callId, call.arguments)
+            }
+            if (result.callId != call.callId) {
+                return AgentToolResult(
+                    callId = call.callId,
+                    content = ToolResultContent.Text("The tool returned a receipt for a different call. This operation may have executed; inspect its external state before retrying."),
+                    isError = true,
+                    errorCode = "TOOL_RESULT_ID_MISMATCH",
+                    dispatched = result.dispatched
+                )
             }
             ToolObservationRetention.bound(if (tool.managesExecutionBudget) result else result.copy(content = boundContent(result.content)))
         } catch (error: CancellationException) {

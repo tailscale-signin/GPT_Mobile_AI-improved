@@ -12,6 +12,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 
 /** An observed rejection proves this request did not apply; a lost response does not. */
@@ -97,9 +98,34 @@ internal class GitHubExecutionJournal(
         }
     }
 
-    suspend fun context(): JsonObject = store.read(scope, "execution-context") ?: buildJsonObject {
-        put("schema_version", 1)
-        put("executions", JsonArray(emptyList()))
+    suspend fun context(): JsonObject {
+        val started = System.nanoTime()
+        val context = store.read(scope, "execution-context") ?: buildJsonObject {
+            put("schema_version", 1)
+            put("executions", JsonArray(emptyList()))
+        }
+        val rows = (context["executions"] as? JsonArray).orEmpty().mapNotNull { it as? JsonObject }
+        val unresolved = rows.filter { it.text("status") in setOf("RUNNING", "RECONCILE_REQUIRED") }
+        val currentTime = now()
+        val oldestAge = unresolved.mapNotNull { (it["started_at_epoch_ms"] as? JsonPrimitive)?.longOrNull }
+            .minOrNull()?.let { (currentTime - it).coerceAtLeast(0) }
+        return buildJsonObject {
+            context.forEach { (key, value) -> put(key, value) }
+            put(
+                "recovery_metrics",
+                buildJsonObject {
+                    put("schema_version", 1)
+                    put("retained_execution_count", rows.size)
+                    put("completed_count", rows.count { it.text("status") == "COMPLETED" })
+                    put("running_count", rows.count { it.text("status") == "RUNNING" })
+                    put("reconciliation_required_count", rows.count { it.text("status") == "RECONCILE_REQUIRED" })
+                    oldestAge?.let { put("oldest_unresolved_age_ms", it) }
+                    put("context_load_duration_ms", ((System.nanoTime() - started) / 1_000_000).coerceAtLeast(0))
+                    put("rto_status", "NOT_CONFIGURED")
+                    put("coverage", "Latest 32 retained task-scoped checkpoints only. Load duration is not end-to-end recovery time; unknown or evicted executions are not counted.")
+                }
+            )
+        }
     }
 
     private suspend fun finish(identity: String, claim: String, status: String, result: JsonElement? = null, outputHash: String? = null): JsonObject {

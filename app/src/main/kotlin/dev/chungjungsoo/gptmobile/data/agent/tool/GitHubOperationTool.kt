@@ -364,11 +364,11 @@ internal class GitHubOperationTool(
                         put("maximum", 1.0)
                     }
                     listOf("min_lines", "max_lines").forEach { properties[it] = field("integer") }
-                    properties["context_lines"] = integer(0, 20)
+                    properties["context_lines"] = integer(0, 100)
                     properties["max_new_blobs"] = buildJsonObject {
                         put("type", "integer")
                         put("minimum", 1)
-                        put("maximum", 32)
+                        put("maximum", 100)
                         put("description", "Downloads per call; default 16, parallel 4.")
                     }
                     properties["batch_size"] = buildJsonObject {

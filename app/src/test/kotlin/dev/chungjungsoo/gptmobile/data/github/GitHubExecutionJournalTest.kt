@@ -26,6 +26,20 @@ class GitHubExecutionJournalTest {
     }
     private val receipt = buildJsonObject { put("sha", "b".repeat(40)) }
 
+    @Test fun recoveryMetricsReportRetainedUncertaintyWithoutClaimingAnRto() = runTest {
+        var clock = 1000L
+        val journal = GitHubExecutionJournal(GitHubRepositoryStateStore(), "scope", now = { clock })
+        journal.run("read", buildJsonObject { put("id", 1) }) { receipt }
+        runCatching { journal.run("write", arguments) { throw IOException("lost") } }
+        clock = 3500L
+        val metrics = journal.context().getValue("recovery_metrics").jsonObject
+        assertEquals("2", metrics.getValue("retained_execution_count").jsonPrimitive.content)
+        assertEquals("1", metrics.getValue("completed_count").jsonPrimitive.content)
+        assertEquals("1", metrics.getValue("reconciliation_required_count").jsonPrimitive.content)
+        assertEquals("2500", metrics.getValue("oldest_unresolved_age_ms").jsonPrimitive.content)
+        assertEquals("NOT_CONFIGURED", metrics.getValue("rto_status").jsonPrimitive.content)
+    }
+
     @Test fun concurrentSessionsShareOneClaimAndCanonicalReceipt() = runTest {
         val store = GitHubRepositoryStateStore()
         val first = GitHubExecutionJournal(store, "scope")

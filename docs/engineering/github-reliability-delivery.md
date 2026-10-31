@@ -1,5 +1,40 @@
 # GitHub reliability and coding context
 
+## Contract and recovery follow-up
+
+Search accepts up to 100 context lines on each side and up to 100 new blobs per
+request. The existing four-download concurrency limit, twelve-second page
+deadline, and continuation remain in force. Excerpts share a 48 KiB page budget
+and disclose truncated ranges; a match can be reopened at its pinned revision.
+Fuzzy symbol confidence is the observed identifier similarity, not a semantic
+probability. The default threshold remains 0.8; 0.7 can be requested explicitly.
+
+Tool batches retain the first saved receipt, reject conflicting call identities,
+and prevent a new batch or finalization from discarding queued calls. In-flight
+writes still return an unknown outcome until reconciled; no retry is inferred.
+The runner rejects a tool result associated with the wrong call ID and preserves
+the uncertainty that the requested operation may have executed. Existing schema
+and GitHub action validation remain the input contracts.
+Checkpoint schema version 1 reads older unversioned data and rejects unknown
+versions. Recovery context reports counts and age only for its latest 32 retained
+execution records. Context load duration is not an end-to-end recovery time;
+an RTO has not been configured or established.
+
+Tool discovery serializes concurrent cold acquisitions and caches successful
+queries for the run. Inventory continuations carry a version derived from the
+authorized names and schemas; a changed inventory must be restarted. The schema
+fingerprint records change, not compatibility or a publisher version. Inventory
+can display the last dispatched outcome observed during this run; that observation
+is not an active health probe and does not assert present availability. Inventory
+can expose declared dependency edges and identify names outside the authorized
+catalog; an empty declaration is reported as unknown. Existing producers do not
+yet supply dependency metadata, so no relationships are guessed.
+
+GenieX CI verifies its candidate index against actual paths, sizes, SHA-256,
+runtime, version and source revision and requires debug and minified APKs. This
+does not replace the existing APK/native audits, prove a signature, or establish
+physical-device behavior. Rollback remains a separately reviewed forward change.
+
 Implementation scope: PR #765, based on
 `020b351bc3b98bd30cbdbb3443a332e8f5bd88f9`. The recommendations mix existing
 capabilities, missing behavior, sample API calls, and aspirational measurements.

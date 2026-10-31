@@ -75,7 +75,7 @@ internal data class GitHubSearchOptions(
             )
             require(result.threshold.isFinite() && result.threshold in 0.5..1.0) { "fuzzy_threshold must be between 0.5 and 1." }
             require(result.minLines in 0..1_000_000 && result.maxLines in maxOf(1, result.minLines)..1_000_000)
-            require(result.contextLines in 0..20 && result.suffix.length <= 200)
+            require(result.contextLines in 0..100 && result.suffix.length <= 200)
             if (result.pattern) {
                 val query = args["query"]?.jsonPrimitive?.content.orEmpty()
                 require(!result.fuzzy && query.length in 1..200 && query.count { it == '*' } <= 16 && query.any { it != '*' && !it.isWhitespace() }) { "Pattern search accepts literal segments separated by at most 16 stars; fuzzy matching cannot be combined with patterns." }

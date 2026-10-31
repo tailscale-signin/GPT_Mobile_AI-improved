@@ -221,6 +221,32 @@ class GitHubPersistentEvidenceTest {
         assertTrue(cached.getValue("items").jsonArray.first().jsonObject.getValue("matches").jsonArray.single().jsonObject.getValue("result_id").jsonPrimitive.content in ids)
     }
 
+    @Test fun expandedFuzzySearchRespectsThePageBudgetAndReportsActualSimilarity() = runTest {
+        val entries = (1..8).map { item("src/File$it.kt", sha(it), 60_000) }
+        val source = (1..220).joinToString("\n") { if (it == 110) "fun renderResponse() = 1" else "// " + "x".repeat(180) }
+        val client = session(GitHubRepositoryStateStore(), request = { path ->
+            when {
+                "/commits/" in path -> commit(head, headTree)
+                "/git/trees/" in path -> tree(entries)
+                else -> blob(path.substringAfterLast('/'), source)
+            }
+        })
+        val result = client.execute(
+            "search_repository",
+            "owner",
+            "repo",
+            args("query" to JsonPrimitive("renderReponse"), "mode" to JsonPrimitive("definitions"), "fuzzy_match" to JsonPrimitive(true), "fuzzy_threshold" to JsonPrimitive(0.7), "context_lines" to JsonPrimitive(100), "batch_size" to JsonPrimitive(100), "max_new_blobs" to JsonPrimitive(100))
+        ).jsonObject
+        assertEquals(8, result.getValue("items").jsonArray.size)
+        assertTrue(result.getValue("context_truncated").jsonPrimitive.booleanOrNull == true)
+        assertTrue(result.getValue("context_excerpt_bytes_used").jsonPrimitive.intOrNull!! <= 48 * 1024)
+        result.getValue("items").jsonArray.forEach { item ->
+            val match = item.jsonObject.getValue("matches").jsonArray.single().jsonObject
+            assertTrue(match.getValue("confidence").jsonPrimitive.content.toDouble() in 0.7..<1.0)
+            assertEquals("100", result.getValue("filters").jsonObject.getValue("context_lines").jsonPrimitive.content)
+        }
+    }
+
     @Test fun workflowDefinitionsPageAndReuseImmutableMetadataWithoutDispatch() = runTest {
         var blobReads = 0
         val entries = (1..5).map { item(".github/workflows/build$it.yml", sha(it), 80) }

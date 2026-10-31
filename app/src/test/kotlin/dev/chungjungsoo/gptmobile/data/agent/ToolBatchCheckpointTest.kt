@@ -3,6 +3,8 @@ package dev.chungjungsoo.gptmobile.data.agent
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
@@ -19,6 +21,118 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(manifest = Config.NONE, sdk = [34])
 class ToolBatchCheckpointTest {
+    @Test fun mismatchedToolReceiptIsAnUncertainErrorAndIsNotRedispatched() = runBlocking {
+        val checkpoint = ToolBatchCheckpoint(null, "grant")
+        val call = ProviderEvent.ToolCall("expected", "write", JsonObject(emptyMap()))
+        var count = 0
+        val tool = object : AgentTool {
+            override val definition = AgentToolDefinition("write", "Write", JsonObject(emptyMap()))
+            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+                count++
+                return AgentToolResult("other", ToolResultContent.Text("untrusted receipt"), false)
+            }
+        }
+        var round = 0
+        val session = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                if (round++ == 0) emit(call) else emit(ProviderEvent.TextDelta("done"))
+                emit(ProviderEvent.Completed)
+            }
+        }
+        val events = AgentRunner(checkpoint = checkpoint).run(session, listOf(tool)).toList()
+        val result = events.filterIsInstance<AgentRunEvent.ToolFinished>().single().result
+        assertEquals("expected", result.callId)
+        assertEquals("TOOL_RESULT_ID_MISMATCH", result.errorCode)
+        assertTrue(result.isError)
+        assertEquals("TOOL_RESULT_ID_MISMATCH", checkpoint.execute(call) { error("must not repeat") }.errorCode)
+        assertEquals(1, count)
+    }
+
+    @Test fun deferredReplayCannotReplaceAnInFlightWriteReceipt() = runBlocking {
+        val checkpoint = ToolBatchCheckpoint(null, "grant")
+        val call = ProviderEvent.ToolCall("one", "write", JsonObject(emptyMap()))
+        checkpoint.enqueue(listOf(call))
+        val entered = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val owner = async {
+            checkpoint.execute(call) {
+                entered.complete(Unit)
+                release.await()
+                AgentToolResult(call.callId, ToolResultContent.Text("published"), false)
+            }
+        }
+        entered.await()
+        checkpoint.complete(call, AgentToolResult(call.callId, ToolResultContent.Text("deferred"), true, dispatched = false))
+        assertEquals("TOOL_OUTCOME_UNKNOWN", checkpoint.execute(call) { error("must not dispatch") }.errorCode)
+        release.complete(Unit)
+        owner.await()
+        assertEquals(ToolResultContent.Text("published"), checkpoint.execute(call) { error("must not dispatch") }.content)
+    }
+
+    @Test fun checkpointVersionRejectsUnknownVersionsAndReadsLegacyState() = runBlocking {
+        val directory = kotlin.io.path.createTempDirectory("checkpoint-version").toFile()
+        val file = File(directory, "batch.json")
+        try {
+            file.writeText("""{"binding":"grant","pending":[],"entries":{}}""")
+            assertTrue(ToolBatchCheckpoint(file, "grant").pending().isEmpty())
+            file.writeText("""{"binding":"grant","schemaVersion":2,"pending":[],"entries":{}}""")
+            assertTrue(runCatching { ToolBatchCheckpoint(file, "grant").pending() }.isFailure)
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test fun sixtySevenCallsRecoverWithoutRepeatingOrLosingQueuedWork() = runBlocking {
+        val directory = kotlin.io.path.createTempDirectory("batch-67").toFile()
+        val file = File(directory, "batch.json")
+        val calls = (1..67).map { ProviderEvent.ToolCall("call-$it", "operation", JsonObject(emptyMap())) }
+        try {
+            val original = ToolBatchCheckpoint(file, "grant")
+            original.enqueue(calls)
+            var dispatched = 0
+            for (call in calls.take(33)) {
+                original.execute(call) {
+                    dispatched++
+                    AgentToolResult(call.callId, ToolResultContent.Text("verified"), false)
+                }
+            }
+            try {
+                original.execute(calls[33]) {
+                    dispatched++
+                    throw CancellationException("lost response")
+                }
+            } catch (_: CancellationException) { }
+            assertTrue(runCatching { original.enqueue(listOf(ProviderEvent.ToolCall("other", "operation", JsonObject(emptyMap())))) }.isFailure)
+            assertTrue(runCatching { original.finish() }.isFailure)
+            val restored = ToolBatchCheckpoint(file, "grant")
+            val results = restored.pending().map { call ->
+                restored.execute(call) {
+                    dispatched++
+                    AgentToolResult(call.callId, ToolResultContent.Text("verified"), false)
+                }
+            }
+            assertEquals(67, results.size)
+            assertEquals("TOOL_OUTCOME_UNKNOWN", results[33].errorCode)
+            assertTrue(results.filterIndexed { index, _ -> index != 33 }.none { it.isError })
+            assertEquals(67, dispatched)
+            restored.finish()
+            assertTrue(restored.pending().isEmpty())
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test fun savedReceiptCannotBeReplacedByADeferredOrMismatchedResult() = runBlocking {
+        val checkpoint = ToolBatchCheckpoint(null, "grant")
+        val call = ProviderEvent.ToolCall("one", "write", JsonObject(emptyMap()))
+        checkpoint.enqueue(listOf(call))
+        checkpoint.execute(call) { AgentToolResult(call.callId, ToolResultContent.Text("published"), false) }
+        checkpoint.complete(call, AgentToolResult(call.callId, ToolResultContent.Text("deferred"), true, dispatched = false))
+        assertEquals(ToolResultContent.Text("published"), checkpoint.execute(call) { error("must not dispatch") }.content)
+        assertTrue(runCatching { checkpoint.complete(call, AgentToolResult("other", ToolResultContent.Text("wrong"), false)) }.isFailure)
+        assertTrue(runCatching { checkpoint.enqueue(listOf(call, call)) }.isFailure)
+    }
+
     @Test fun interruptedThirtyThreeCallBatchRestoresCommittedResultsAndOnlyDispatchesQueuedCalls() = runBlocking {
         val directory = kotlin.io.path.createTempDirectory("batch-recovery").toFile()
         val file = File(directory, "batch.json")

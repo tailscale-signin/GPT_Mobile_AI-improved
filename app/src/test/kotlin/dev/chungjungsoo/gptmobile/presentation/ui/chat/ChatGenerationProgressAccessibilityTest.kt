@@ -57,9 +57,13 @@ class ChatGenerationProgressAccessibilityTest {
         compose.setContent {
             MaterialTheme {
                 CompositionLocalProvider(LocalChatProgressInHeader provides true) {
-                    AssistantChronologicalContent(
-                        timeline = emptyList(), toolEvents = emptyList(), fallbackText = "Repository update", fallbackThoughts = "", contentIdentity = "github-reply",
-                        isLoading = loading, animateResponse = false, debugMode = false, showExecutionTrace = false, showReasoning = false, expanded = false, onExpandedChange = {}
+                    OpponentChatBubble(
+                        canRetry = false,
+                        isLoading = loading,
+                        text = "Repository update",
+                        contentIdentity = "github-reply",
+                        showExecutionTrace = false,
+                        showReasoning = false
                     )
                 }
             }

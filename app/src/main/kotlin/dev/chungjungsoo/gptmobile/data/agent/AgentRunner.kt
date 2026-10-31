@@ -388,7 +388,15 @@ class AgentRunner(
             kotlinx.coroutines.delay(1000)
             return RoundRecovery(exposedDefinitions, limits.githubTask, finalize)
         }
-        emit(AgentRunEvent.Provider(ProviderEvent.Failed(roundFailure, round.progressDeadline, round.errorCode, round.failureTransportComplete, round.providerLimit)))
+        val failure = ProviderEvent.Failed(roundFailure, round.progressDeadline, round.errorCode, round.failureTransportComplete, round.providerLimit)
+        if (limits.githubTask && round.calls.isEmpty()) {
+            session.retainedFailureResponse(failure).collect { event ->
+                if (event is ProviderEvent.Completed) checkpoint?.finish()
+                emit(AgentRunEvent.Provider(event))
+            }
+        } else {
+            emit(AgentRunEvent.Provider(failure))
+        }
         return null
     }
 

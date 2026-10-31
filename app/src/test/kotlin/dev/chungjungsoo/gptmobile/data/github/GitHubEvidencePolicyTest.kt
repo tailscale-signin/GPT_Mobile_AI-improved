@@ -194,7 +194,9 @@ class GitHubEvidencePolicyTest {
                 flowOf(ProviderEvent.TextDelta("unverified draft"), ProviderEvent.Failed("403 forbidden"))
         }
         val gate = GitHubVerifiedSession(provider, GitHubEvidenceBook("b", "o/r", "main", emptySet()), "fix", { 8192 }, { error("must not retry provider") }, {}, {})
-        val events = gate.streamRound(emptyList(), emptyList()).toList()
+        val failed = gate.streamRound(emptyList(), emptyList()).toList().single() as ProviderEvent.Failed
+        assertEquals("403 forbidden", failed.message)
+        val events = gate.retainedFailureResponse(failed).toList()
         assertTrue(events.last() is ProviderEvent.Completed)
         val text = events.filterIsInstance<ProviderEvent.TextDelta>().joinToString { it.text }
         assertTrue(text.contains("Partial evidence summary"))

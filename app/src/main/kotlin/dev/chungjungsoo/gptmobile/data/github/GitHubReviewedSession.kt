@@ -87,6 +87,7 @@ internal class GitHubReviewedSession(
         var hasCalls = false
         var completed = false
         var failed = false
+        var failureEmitted = false
         guardDraft(delegate.streamRound(tools, exchanges)).transformWhile { event ->
             if (event is ProviderEvent.TextDelta && draft.length.toLong() + event.text.length > maxDraftCharacters) {
                 emit(ProviderEvent.Failed("The private draft exceeded the bounded review allowance.", errorCode = "GITHUB_REVIEW_REQUIRED"))
@@ -115,7 +116,8 @@ internal class GitHubReviewedSession(
                 is ProviderEvent.Completed -> completed = true
                 is ProviderEvent.Failed -> {
                     failed = true
-                    emit(event)
+                    if (!failureEmitted) emit(event)
+                    failureEmitted = true
                 }
                 is ProviderEvent.CombinedAnswer -> {
                     failed = true
@@ -124,7 +126,7 @@ internal class GitHubReviewedSession(
             }
         }
         if (failed || !completed) {
-            emit(ProviderEvent.Failed("GitHub answer withheld: generation did not complete within the review allowance. Saved tool results remain available.", errorCode = "GITHUB_REVIEW_REQUIRED"))
+            if (!failureEmitted) emit(ProviderEvent.Failed("GitHub answer withheld: generation did not complete within the review allowance. Saved tool results remain available.", errorCode = "GITHUB_REVIEW_REQUIRED"))
             return@flow
         }
         if (hasCalls) {

@@ -6,9 +6,13 @@ import dev.chungjungsoo.gptmobile.data.agent.AgentToolExchange
 import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
 import dev.chungjungsoo.gptmobile.data.context.TextTokenEstimate
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -25,7 +29,8 @@ internal class GitHubVerifiedSession(
     private val openVerifier: suspend (String) -> AgentProviderSession,
     private val validatePublication: suspend () -> Unit,
     private val progress: suspend (String) -> Unit,
-    private val now: () -> Long = System::currentTimeMillis
+    private val now: () -> Long = System::currentTimeMillis,
+    private val computationDispatcher: CoroutineDispatcher = Dispatchers.Default
 ) : AgentProviderSession by delegate {
     override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> = flow {
         exchanges.forEach { exchange -> exchange.results.forEach { result -> exchange.calls.firstOrNull { it.callId == result.callId }?.let { evidence.observe(it, result) } } }
@@ -51,90 +56,111 @@ internal class GitHubVerifiedSession(
                 is ProviderEvent.Completed -> completed = true
                 is ProviderEvent.Failed -> {
                     failed = true
-                    providerFailure = event
+                    if (providerFailure == null) providerFailure = event
                 }
                 is ProviderEvent.CombinedAnswer -> failed = true
                 else -> emit(event)
             }
         }
         if (failed || !completed) {
-            if (calls) {
-                emit(providerFailure ?: ProviderEvent.Failed("GitHub response ended before verification. Receipts remain available.", errorCode = "GITHUB_EVIDENCE_REQUIRED"))
-                return@flow
-            }
-            try {
-                validatePublication()
-                val (receipts, epoch) = evidence.snapshot()
-                val (text, report) = GitHubEvidencePolicy.partial(receipts, now(), epoch)
-                validatePublication()
-                evidence.retainVerdict(report)
-                emit(ProviderEvent.TextDelta(text))
-                emit(ProviderEvent.Completed)
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (_: Exception) {
-                emit(ProviderEvent.Failed("GitHub evidence cannot be published. Restore access or inspect the retained checkpoint.", errorCode = "GITHUB_EVIDENCE_REQUIRED"))
-            }
+            // The runner owns retries and protocol repair. Do not turn a transient
+            // failure into completion before that policy has had a chance to run.
+            emit(providerFailure ?: ProviderEvent.Failed("GitHub response ended before verification. Receipts remain available.", errorCode = "GITHUB_EVIDENCE_REQUIRED"))
             return@flow
         }
-        if (calls) {
+        if (calls || (draft.isBlank() && tools.isNotEmpty())) {
             emit(ProviderEvent.Completed)
             return@flow
         }
-        try {
+        emitAll(publish(draft.toString()))
+    }
+
+    override fun retainedFailureResponse(failure: ProviderEvent.Failed): Flow<ProviderEvent> = publish(null)
+
+    private fun publish(draft: String?): Flow<ProviderEvent> = flow {
+        val text = try {
             validatePublication()
             val (receipts, epoch) = evidence.snapshot()
-            progress("Verifying factual claims against exact tool receipts")
-            val catalog = GitHubEvidencePolicy.catalog(receipts).reversed().toMutableList()
-            fun payload() = buildJsonObject {
-                put("task", task)
-                put("candidate", draft.toString())
-                put("catalog", JsonArray(catalog))
-                put("retained_receipts", receipts.size)
-                put("omitted_from_context", receipts.size - catalog.size)
-                put("coverage", "Full originals remain in the encrypted ledger. Omitted source is not proof; unresolved claims must remain Not measured.")
-            }.toString()
-            var request = payload()
-            while (TextTokenEstimate.estimate(request) > inputLimit() && catalog.isNotEmpty()) {
-                catalog.removeAt(catalog.lastIndex)
-                request = payload()
+            val request = if (draft == null) {
+                null
+            } else {
+                progress("Verifying factual claims against exact tool receipts")
+                withContext(computationDispatcher) { verificationRequest(draft, receipts) }
             }
-            check(TextTokenEstimate.estimate(request) <= inputLimit()) { "Task and draft exceed the verification context; narrow the task before publication" }
-            val (text, report) = try {
-                withTimeoutOrNull(90_000) {
-                    val response = StringBuilder()
-                    var verifiedComplete = false
-                    openVerifier(request).streamRound(emptyList(), emptyList()).collect { event ->
-                        when (event) {
-                            is ProviderEvent.TextDelta -> {
-                                check(response.length.toLong() + event.text.length <= 131_072) { "Claim extraction exceeded its output bound" }
-                                response.append(event.text)
-                            }
-                            is ProviderEvent.Completed -> verifiedComplete = true
-                            is ProviderEvent.Failed -> error("Claim extraction did not complete")
-                            is ProviderEvent.ToolCall, is ProviderEvent.ToolResult -> error("Evidence formatting attempted an operation")
-                            else -> Unit
-                        }
-                    }
-                    check(verifiedComplete) { "Claim extraction was interrupted" }
-                    val answer = Json.parseToJsonElement(response.toString().trim()) as? JsonObject ?: error("Claim extraction was not structured")
-                    GitHubEvidencePolicy.render(answer, receipts, now(), epoch)
-                } ?: GitHubEvidencePolicy.partial(receipts, now(), epoch)
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (_: Exception) {
-                // Only formatter failure is recoverable here. Permission, ledger and
-                // persistence failures remain outside this boundary and fail closed.
-                GitHubEvidencePolicy.partial(receipts, now(), epoch)
-            }
+            val (text, report) = if (request == null) partial(receipts, epoch) else extract(request, receipts, epoch)
             validatePublication()
             evidence.retainVerdict(report)
-            emit(ProviderEvent.TextDelta(text))
-            emit(ProviderEvent.Completed)
+            text
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: Exception) {
             emit(ProviderEvent.Failed("GitHub answer withheld: ${failure.message.orEmpty().take(400)}. Not available / Not measured. Retained evidence can be inspected or refreshed.", errorCode = "GITHUB_EVIDENCE_REQUIRED"))
+            return@flow
         }
+        // Collector exceptions must propagate unchanged; they are not formatter failures.
+        emit(ProviderEvent.TextDelta(text))
+        emit(ProviderEvent.Completed)
+    }
+
+    private suspend fun partial(receipts: Map<String, JsonObject>, epoch: Long): Pair<String, JsonObject> = withContext(computationDispatcher) {
+        GitHubEvidencePolicy.partial(receipts, now(), epoch)
+    }
+
+    private suspend fun extract(request: String, receipts: Map<String, JsonObject>, epoch: Long): Pair<String, JsonObject> = try {
+        withTimeoutOrNull(90_000) {
+            val response = StringBuilder()
+            var verifiedComplete = false
+            openVerifier(request).streamRound(emptyList(), emptyList()).collect { event ->
+                when (event) {
+                    is ProviderEvent.TextDelta -> {
+                        check(response.length.toLong() + event.text.length <= 131_072) { "Claim extraction exceeded its output bound" }
+                        response.append(event.text)
+                    }
+                    is ProviderEvent.Completed -> verifiedComplete = true
+                    is ProviderEvent.Failed -> error("Claim extraction did not complete")
+                    is ProviderEvent.ToolCall, is ProviderEvent.ToolResult -> error("Evidence formatting attempted an operation")
+                    else -> Unit
+                }
+            }
+            check(verifiedComplete) { "Claim extraction was interrupted" }
+            withContext(computationDispatcher) {
+                val answer = Json.parseToJsonElement(response.toString().trim()) as? JsonObject ?: error("Claim extraction was not structured")
+                GitHubEvidencePolicy.render(answer, receipts, now(), epoch)
+            }
+        } ?: partial(receipts, epoch)
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (_: Exception) {
+        // Permission, ledger and persistence failures remain outside this boundary.
+        partial(receipts, epoch)
+    }
+
+    private fun verificationRequest(draft: String, receipts: Map<String, JsonObject>): String? {
+        val limit = inputLimit()
+        fun payload(catalog: List<kotlinx.serialization.json.JsonElement>) = buildJsonObject {
+            put("task", task)
+            put("candidate", draft)
+            put("catalog", JsonArray(catalog))
+            put("retained_receipts", receipts.size)
+            put("omitted_from_context", receipts.size - catalog.size)
+            put("coverage", "Full originals remain in the encrypted ledger. Omitted source is not proof; unresolved claims must remain Not measured.")
+        }.toString()
+        var request = payload(emptyList())
+        if (TextTokenEstimate.estimate(request) > limit) return null
+        val catalog = GitHubEvidencePolicy.catalog(receipts).reversed()
+        var low = 0
+        var high = catalog.size
+        // Keep the newest fitting prefix in logarithmic serialization passes.
+        while (low < high) {
+            val count = low + (high - low + 1) / 2
+            val candidate = payload(catalog.take(count))
+            if (TextTokenEstimate.estimate(candidate) <= limit) {
+                low = count
+                request = candidate
+            } else {
+                high = count - 1
+            }
+        }
+        return request.takeIf { TextTokenEstimate.estimate(it) <= inputLimit() }
     }
 }

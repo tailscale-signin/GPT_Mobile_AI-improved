@@ -15,13 +15,16 @@ internal object GitHubEvidencePolicy {
     const val MAX_AGE_MS = 120_000L
     private val unavailable = setOf("content", "body", "text", "patch", "message", "summary", "description", "instructions", "log", "logs", "error", "error_message")
 
+    private val secretField = Regex("(?i)token|secret|password|authorization|cookie")
+
     fun facts(result: JsonElement, limit: Int = 256): Map<String, JsonPrimitive> {
         val found = linkedMapOf<String, JsonPrimitive>()
         fun visit(value: JsonElement, path: String, depth: Int) {
             if (found.size >= limit || depth > 12) return
             when (value) {
-                is JsonObject -> value.forEach { (key, item) ->
-                    if (key.lowercase() !in unavailable && !Regex("(?i)token|secret|password|authorization|cookie").containsMatchIn(key)) {
+                is JsonObject -> for ((key, item) in value) {
+                    if (found.size >= limit) break
+                    if (key.lowercase() !in unavailable && !secretField.containsMatchIn(key)) {
                         visit(item, "$path/${key.replace("~", "~0").replace("/", "~1")}", depth + 1)
                     }
                 }
@@ -112,17 +115,22 @@ internal object GitHubEvidencePolicy {
     /** A formatter outage cannot turn a private draft into proof or erase retained observations. */
     fun partial(receipts: Map<String, JsonObject>, now: Long, epoch: Long): Pair<String, JsonObject> {
         val claims = mutableListOf<JsonObject>()
-        receipts.entries.reversed().forEach { (id, receipt) ->
-            facts(receipt["result"] ?: JsonNull).forEach { (pointer, value) ->
-                if (claims.size < 16) {
-                    val claim = buildJsonObject {
-                        put("kind", "fact")
-                        put("receipt_id", id)
-                        put("pointer", pointer)
-                        put("value", value)
-                    }
-                    if (verify(claim, receipts, now, epoch).string("status") == "VERIFIED") claims += claim
+        for ((id, receipt) in receipts.entries.reversed()) {
+            if (claims.size >= 16) break
+            // Skip ineligible receipts before traversing their potentially large results.
+            if (receipt["success"] != JsonPrimitive(true) || receipt["trusted"] != JsonPrimitive(true)) continue
+            val observedAt = (receipt["observed_at_ms"] as? JsonPrimitive)?.longOrNull ?: 0
+            if (observedAt <= 0 || observedAt > now) continue
+            if (receipt["immutable"] != JsonPrimitive(true) && (now - observedAt > MAX_AGE_MS || receipt["epoch"] != JsonPrimitive(epoch))) continue
+            for ((pointer, value) in facts(receipt["result"] ?: JsonNull)) {
+                if (claims.size >= 16) break
+                val claim = buildJsonObject {
+                    put("kind", "fact")
+                    put("receipt_id", id)
+                    put("pointer", pointer)
+                    put("value", value)
                 }
+                if (verify(claim, receipts, now, epoch).string("status") == "VERIFIED") claims += claim
             }
         }
         claims += buildJsonObject {

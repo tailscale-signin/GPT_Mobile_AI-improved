@@ -17,7 +17,7 @@ internal object GitHubReplayRecovery {
 
     fun compact(content: ToolResultContent, maxChars: Int): ToolResultContent? {
         val source = envelope(content) ?: return null
-        val controls = source.filterKeys { it in setOf("schema", "operation", "status", "local_page_complete", "continuation_call", "remote_continuations", "correction_call", "previous_call_id", "metadata", "recovery_required") }
+        val controls = source.filterKeys { it in setOf("schema", "operation", "status", "local_page_complete", "continuation_call", "remote_continuations", "correction_call", "previous_call_id", "metadata", "recovery_required", "agent_instruction") }
         val result = controls.toMutableMap()
         result["replay_compacted"] = JsonPrimitive(true)
         // The omitted page may never have reached the model. Recover that exact

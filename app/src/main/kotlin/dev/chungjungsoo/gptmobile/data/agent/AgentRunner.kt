@@ -119,6 +119,7 @@ class AgentRunner(
         var batchRepairAttempted = false
         var unproductiveDiscoveryRounds = 0
         var suppressedReadRounds = 0
+        var unsuccessfulGitHubRounds = 0
         var restoredCalls = checkpoint?.pending().orEmpty()
         var restoredDispatched = checkpoint?.pendingDispatchedCount() ?: 0
         val executionToolCallLimit = ToolBudgetPolicy.executionLimit(limits)
@@ -211,6 +212,7 @@ class AgentRunner(
                 if (recovery.finalize) {
                     executableToolByName = emptyMap()
                     finalResponseRequested = true
+                    instructFinalResponse(exchanges)
                 }
                 continue
             }
@@ -231,6 +233,14 @@ class AgentRunner(
                             executableToolByName = emptyMap()
                             emit(AgentRunEvent.Notice("The model returned no visible answer. Finalizing once with tools disabled and the results already collected.", persistent = false))
                         }
+                        continue
+                    }
+                    if (limits.githubTask && limits.combined?.requested?.singlePass != true && !session.handlesToolsInternally && !finalResponseRequested) {
+                        finalResponseRequested = true
+                        exposedDefinitions = emptyList()
+                        executableToolByName = emptyMap()
+                        instructFinalResponse(exchanges)
+                        emit(AgentRunEvent.Notice("The GitHub provider returned another empty round. Generating a text answer from the saved operation results.", persistent = false))
                         continue
                     }
                     emit(AgentRunEvent.Provider(ProviderEvent.Failed("The model returned no visible answer after finalization. No completed tool action was repeated. Please retry or choose another model.", transportComplete = round.completed)))
@@ -264,6 +274,14 @@ class AgentRunner(
             replayTokens = completed.batch.replayTokens
             unproductiveDiscoveryRounds = completed.batch.discoveryRounds
             finalResponseRequested = completed.batch.finalResponseRequested
+            unsuccessfulGitHubRounds = if (limits.githubTask && !completed.batch.hasSuccessfulResult) unsuccessfulGitHubRounds + 1 else 0
+            if (unsuccessfulGitHubRounds >= 3 && !finalResponseRequested && limits.combined?.requested?.singlePass != true) {
+                finalResponseRequested = true
+                exposedDefinitions = emptyList()
+                executableToolByName = emptyMap()
+                instructFinalResponse(exchanges)
+                emit(AgentRunEvent.Notice("GitHub operations failed for three consecutive rounds. Finishing with saved results and the remaining blockers.", persistent = false))
+            }
         }
     }
 
@@ -272,6 +290,7 @@ class AgentRunner(
         var protocolRecoveryAttempted = false
         var githubRecoveries = 0
         var githubOutputRepairAttempted = false
+        var githubProtocolFinalizationAttempted = false
     }
 
     private data class RoundRecovery(val definitions: List<AgentToolDefinition>, val restoreRound: Boolean, val finalize: Boolean)
@@ -307,6 +326,11 @@ class AgentRunner(
                 }
                 emit(AgentRunEvent.Notice(if (exposedDefinitions.isEmpty()) "The provider attempted a tool call with tools disabled. Requesting a text answer once; no tool action was dispatched." else "The provider returned an invalid tool frame. Retrying its authorized call once.", persistent = false))
                 return RoundRecovery(exposedDefinitions, limits.githubTask, finalize)
+            }
+            if (limits.githubTask && limits.combined?.requested?.singlePass != true && !session.handlesToolsInternally && hasToolWork && !finalResponseRequested && !state.githubProtocolFinalizationAttempted) {
+                state.githubProtocolFinalizationAttempted = true
+                emit(AgentRunEvent.Notice("The provider could not repair its tool format. Generating a text answer from completed GitHub operations; their actions will not be repeated.", persistent = false))
+                return RoundRecovery(emptyList(), restoreRound = true, finalize = true)
             }
             emit(AgentRunEvent.Provider(ProviderEvent.Failed(roundFailure, round.progressDeadline, errorCode = "TOOL_PROTOCOL_INVALID_FRAME")))
             return null
@@ -466,7 +490,11 @@ class AgentRunner(
             )
         }
         val message = if (call.callId in hostSuppressedIds) {
-            "This website failed repeatedly and is paused for this response. read_url remains available for other hosts; choose another source."
+            if (dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(call.name) != null) {
+                "This exact GitHub request failed repeatedly and is paused for this response. Other GitHub operations remain available. Use the returned correction or retained evidence; do not repeat the failed arguments."
+            } else {
+                "This website failed repeatedly and is paused for this response. read_url remains available for other hosts; choose another source."
+            }
         } else if (call.callId in perToolSuppressedIds) {
             "This operation reached the per-response repeat limit. Use results already collected; do not repeat these arguments. " +
                 if (dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(call.name) in setOf("github_read", "github_search")) {
@@ -570,7 +598,7 @@ class AgentRunner(
         return ToolCatalogUpdate(executableToolByName + admitted.associateBy { it.definition.name }, (exposedDefinitions + admitted.map { it.definition }).distinctBy { it.name })
     }
 
-    private data class BatchCompletion(val replayTokens: Long, val discoveryRounds: Int, val finalResponseRequested: Boolean)
+    private data class BatchCompletion(val replayTokens: Long, val discoveryRounds: Int, val finalResponseRequested: Boolean, val hasSuccessfulResult: Boolean)
 
     /** Separate tool-result publication/finalization from the dispatch coroutine for ART compilation. */
     private suspend fun kotlinx.coroutines.flow.FlowCollector<AgentRunEvent>.finishBatch(
@@ -727,7 +755,7 @@ class AgentRunner(
         )
         exchanges.clear()
         exchanges.addAll(retained)
-        return BatchCompletion(replayTokens, unproductiveDiscoveryRounds, finalResponseRequested)
+        return BatchCompletion(replayTokens, unproductiveDiscoveryRounds, finalResponseRequested, allResults.any { !it.isError })
     }
 
     private data class RoundResult(
@@ -1019,6 +1047,11 @@ class AgentRunner(
     }
 
     private fun appendInstruction(result: AgentToolResult, instruction: String): AgentToolResult {
+        GitHubReplayRecovery.envelope(result.content)?.let { envelope ->
+            val previous = (envelope["agent_instruction"] as? JsonPrimitive)?.content.orEmpty()
+            if (previous.contains(instruction)) return result
+            return result.copy(content = ToolResultContent.Json(kotlinx.serialization.json.JsonObject(envelope + ("agent_instruction" to JsonPrimitive(listOf(previous, instruction).filter { it.isNotBlank() }.joinToString("\n"))))))
+        }
         val existing = when (val content = result.content) {
             is ToolResultContent.Text -> content.text
             is ToolResultContent.Json -> Json.encodeToString(content.value)
@@ -1028,14 +1061,12 @@ class AgentRunner(
         return result.copy(content = ToolResultContent.Text("$existing\n\n$instruction"))
     }
 
-    private fun appendFinalResponseInstruction(result: AgentToolResult): AgentToolResult {
-        val existing = when (val content = result.content) {
-            is ToolResultContent.Text -> content.text
-            is ToolResultContent.Json -> Json.encodeToString(content.value)
-            is ToolResultContent.ResourceLinks -> Json.encodeToString(content.links.map { it.uri })
-        }
-        if (existing.contains(FINAL_RESPONSE_INSTRUCTION)) return result
-        return result.copy(content = ToolResultContent.Text("$existing\n\n$FINAL_RESPONSE_INSTRUCTION"))
+    private fun appendFinalResponseInstruction(result: AgentToolResult): AgentToolResult = appendInstruction(result, FINAL_RESPONSE_INSTRUCTION)
+
+    private fun instructFinalResponse(exchanges: MutableList<AgentToolExchange>) {
+        val previous = exchanges.lastOrNull() ?: return
+        val result = previous.results.lastOrNull() ?: return
+        exchanges[exchanges.lastIndex] = previous.copy(results = previous.results.dropLast(1) + appendInstruction(result, "Continue with a text answer and no further tool calls. Report verified outcomes from saved receipts, the concrete failure and any unfinished work. Do not claim changes were applied without a successful receipt or repeat a completed action."))
     }
 
     private suspend fun executeBounded(

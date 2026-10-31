@@ -1,5 +1,49 @@
 # GitHub tool contract repairs
 
+## GitHub chat diagnostic follow-up
+
+Repository: `tailscale-signin/GPT_Mobile_AI-improved`.
+Base branch: `main` at `020b351bc3b98bd30cbdbb3443a332e8f5bd88f9`.
+Working branch: `fix/github-tool-contracts-2026-10-30`, PR #765.
+Repair checkpoint: `9144dee0ef386b0f9313e3fd0651143e284d3914`.
+Intent: repair the uploaded build-132 diagnostics: cross-message source handles,
+saved-page argument loops, repeated unsuccessful GitHub rounds, empty/protocol
+finalization and the oversized repository-search coroutine. Retain task-scoped
+mutation receipts and account/connection/conversation isolation.
+
+The log contains 36 source-handle failures, saved-view correction loops, three
+rejected provider tool frames and five oversized-search compiler warnings. These
+are distinct from inaccessible CI resource IDs and unreachable external MCP hosts.
+The latter cannot be made reachable by changing Android source.
+
+- Retain at most 128 immutable source descriptors per repository and conversation.
+  A new turn or process can inventory and reopen them without selecting an old
+  branch revision. Descriptor aliases exclude source bodies. Cross-account,
+  connection, conversation, repository and conflicting-commit reads are rejected.
+- Keep captured result pages available across turns in the same credential,
+  connection and conversation. Page delivery never dispatches a backend operation;
+  mutation receipts and stages keep their existing task-specific authorization.
+- Accept matching owner/repository/commit/action defaults when reading a saved
+  page. Conflicting context still returns an exact cursor-only correction.
+- Finalize after three consecutive unsuccessful GitHub tool rounds, resetting the
+  bound on a successful result, including a saved read. Repeated empty responses
+  and failed protocol repair receive one text-only finalization from saved results.
+  The existing single-pass and cancellation policies remain enforced.
+- Preserve final-response instructions inside the structured GitHub envelope so
+  replay compaction retains both the instructions and executable recovery handles.
+- Split blob prefetch and file matching out of the repository search coroutine.
+  The compiled search method is 10,302 JVM bytecode bytes; Android ART behavior
+  still requires an APK/device check.
+
+Current follow-up validation: 91 Kotlin host regressions passed against the real
+runner, facade, retained views, session and replay code. Android storage adapters,
+telemetry, unrelated Combined types and UI answer projection are host stand-ins;
+this is not a full Android build. All 238 canonical host tests, changed-source
+ktlint 1.3.1, architecture-index regeneration and whitespace checks pass. The
+targeted Gradle invocation failed downloading Gradle with `Network is unreachable`;
+this workspace also lacks JDK 21 and Android SDK 37. Earlier hosted successes
+below apply to their recorded head only; new-head Android verification is pending.
+
 Repository: `tailscale-signin/GPT_Mobile_AI-improved`.
 Base branch: `main`.
 Base SHA: `020b351bc3b98bd30cbdbb3443a332e8f5bd88f9`.

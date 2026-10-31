@@ -24,7 +24,9 @@ internal class GitHubOperationTool(
 
     override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
         if ("view_cursor" in arguments) {
-            if (arguments.size != 1) {
+            // Providers often carry repository/action defaults into a saved-page call.
+            // Validate those against the retained read instead of forcing a model repair loop.
+            if (arguments.keys.any { it !in setOf("view_cursor", "owner", "repo", "commit_sha", "action") }) {
                 val evidence = (arguments["evidence_id"] as? JsonPrimitive)?.takeIf { it.isString && it.content.isNotBlank() }
                 val restoreEvidence = operation == "github_read" && evidence != null && (arguments["view_cursor"] as? JsonPrimitive)?.content?.contains(':') != true
                 val corrected = if (restoreEvidence) {
@@ -61,7 +63,7 @@ internal class GitHubOperationTool(
             if (!cursor.contains(':')) {
                 return AgentToolResult(callId, ToolResultContent.Text("Invalid saved-view cursor. Use the exact continuation_call arguments returned by the previous result. To read an evidence_id, omit view_cursor and provide evidence_id alone with the repository context."), true, errorCode = "INVALID_ARGUMENTS", dispatched = false)
             }
-            return views.read(scope, operation, definition.name, cursor, callId)
+            return views.read(scope, operation, definition.name, cursor, callId, JsonObject(arguments - "view_cursor"))
         }
         // Explicit repository overrides must be complete; both absent uses the pinned task context.
         val explicitOwner = (arguments["owner"] as? JsonPrimitive)?.content?.trim()

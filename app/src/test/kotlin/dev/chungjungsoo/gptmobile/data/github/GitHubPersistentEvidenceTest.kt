@@ -27,6 +27,93 @@ import org.junit.Test
 class GitHubPersistentEvidenceTest {
     private val fetchCounterLock = Any()
 
+    @Test fun previousTurnSourceReopensWithoutRebindingTheCurrentRevision() = runTest {
+        val store = GitHubRepositoryStateStore()
+        var latest = head
+        val fetch: suspend (String) -> JsonElement = { path ->
+            when {
+                "/commits/" in path -> commit(latest, if (latest == head) headTree else sha(90))
+                "/git/trees/" in path -> tree(listOf(item("A.kt", sha(1), 20)))
+                else -> blob(sha(1), "retained source")
+            }
+        }
+        val first = session(store, task = "first-turn", request = fetch)
+        val original = first.execute("read_ranges", "owner", "repo", args("path" to JsonPrimitive("A.kt"))).jsonObject
+        val id = original.getValue("evidence_id")
+        latest = sha(91)
+        val next = session(store, task = "next-turn", request = fetch)
+        next.execute("resolve_context", "owner", "repo", args())
+        val inventory = next.execute("recovery_context", "owner", "repo", args()).jsonObject
+        assertEquals(id, inventory.getValue("evidence").jsonArray.single().jsonObject["evidence_id"])
+        val reopened = next.execute("read_ranges", "owner", "repo", args("evidence_id" to id)).jsonObject
+        assertEquals(head, reopened.getValue("commit_sha").jsonPrimitive.content)
+        assertEquals("retained source", reopened.getValue("items").jsonArray.single().jsonObject.getValue("content").jsonPrimitive.content)
+        assertEquals(latest, next.snapshot()!!.commitSha)
+        assertEquals("work", session(store, task = "following", request = fetch).context()!!.ref)
+        val descriptor = store.read("account:connection:conversation", "source-evidence:${id.jsonPrimitive.content}")!!
+        assertFalse(descriptor.toString().contains("retained source"))
+        assertTrue(runCatching { next.execute("read_ranges", "owner", "repo", args("evidence_id" to id, "commit_sha" to JsonPrimitive(latest))) }.isFailure)
+    }
+
+    @Test fun crossTurnSourceHandlesRemainIsolatedByAccountConnectionConversationAndRepository() = runTest {
+        val store = GitHubRepositoryStateStore()
+        val fetch: suspend (String) -> JsonElement = { path ->
+            when {
+                "/commits/" in path -> commit(head, headTree)
+                "/git/trees/" in path -> tree(listOf(item("A.kt", sha(1), 20)))
+                else -> blob(sha(1), "private source")
+            }
+        }
+        val source = session(store, request = fetch).execute("read_ranges", "owner", "repo", args("path" to JsonPrimitive("A.kt"))).jsonObject
+        val request = args("evidence_id" to source.getValue("evidence_id"))
+        for (identity in listOf(Triple("other-account", "connection", "conversation"), Triple("account", "other-connection", "conversation"), Triple("account", "connection", "other-conversation"))) {
+            val isolated = GitHubRepositorySession(identity.first, identity.second, identity.third, "next", store, { error("A foreign handle must not make a remote request") }, { _, _ -> error("No writes") })
+            val failure = runCatching { isolated.execute("read_ranges", "owner", "repo", request) }.exceptionOrNull()
+            assertTrue(failure?.message.orEmpty().contains("EVIDENCE_UNAVAILABLE"))
+        }
+        assertTrue(runCatching { session(store, task = "next", request = fetch).execute("read_ranges", "owner", "different-repo", request) }.exceptionOrNull()?.message.orEmpty().contains("another repository"))
+    }
+
+    @Test fun newTurnCanBootstrapAndReopenSourceWithoutASeparateContextCall() = runTest {
+        val store = GitHubRepositoryStateStore()
+        val fetch: suspend (String) -> JsonElement = { path ->
+            when {
+                "/commits/" in path -> commit(head, headTree)
+                "/git/trees/" in path -> tree(listOf(item("A.kt", sha(1), 20)))
+                else -> blob(sha(1), "source")
+            }
+        }
+        val first = session(store, request = fetch).execute("read_ranges", "owner", "repo", args("path" to JsonPrimitive("A.kt"))).jsonObject
+        val inventory = session(store, task = "inventory", request = fetch).execute("recovery_context", "owner", "repo", args()).jsonObject
+        assertEquals(first.getValue("evidence_id"), inventory.getValue("evidence").jsonArray.single().jsonObject.getValue("evidence_id"))
+        val next = session(store, task = "next", request = fetch)
+        val reopened = next.execute("read_ranges", "owner", "repo", args("evidence_id" to first.getValue("evidence_id"))).jsonObject
+        assertEquals("source", reopened.getValue("items").jsonArray.single().jsonObject.getValue("content").jsonPrimitive.content)
+        assertEquals(head, next.snapshot()!!.commitSha)
+    }
+
+    @Test fun sourceAliasesSurviveAStoreRestartAndANewTurn() = runTest {
+        val directory = Files.createTempDirectory("github-cross-turn-evidence").toFile()
+        val fetch: suspend (String) -> JsonElement = { path ->
+            when {
+                "/commits/" in path -> commit(head, headTree)
+                "/git/trees/" in path -> tree(listOf(item("A.kt", sha(1), 20)))
+                else -> blob(sha(1), "durable source")
+            }
+        }
+        try {
+            val first = session(GitHubRepositoryStateStore(directory), request = fetch).execute("read_ranges", "owner", "repo", args("path" to JsonPrimitive("A.kt"))).jsonObject
+            val next = session(GitHubRepositoryStateStore(directory), task = "next-turn", request = { path ->
+                assertTrue("Retained tree and source should be reused: $path", "/commits/" in path)
+                commit(head, headTree)
+            })
+            val reopened = next.execute("read_ranges", "owner", "repo", args("evidence_id" to first.getValue("evidence_id"))).jsonObject
+            assertEquals("durable source", reopened.getValue("items").jsonArray.single().jsonObject.getValue("content").jsonPrimitive.content)
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
     @Test fun recoveryInventoriesRetainedPathsAndBlobIdentitiesWithoutRemoteReads() = runTest {
         var requests = 0
         val client = session(GitHubRepositoryStateStore(), request = { path ->

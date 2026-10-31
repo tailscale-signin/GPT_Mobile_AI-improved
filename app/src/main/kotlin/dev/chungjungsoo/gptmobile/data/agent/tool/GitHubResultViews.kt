@@ -21,7 +21,7 @@ internal class GitHubResultViews(
     init {
         require(pageBytes >= 2048)
     }
-    private data class Entry(val scope: String, val operation: String, val fragments: List<JsonObject>, val metadata: JsonObject, val continuations: List<JsonObject>, val expires: Long, val bytes: Int, val originalError: Boolean, val pageBytes: Int)
+    private data class Entry(val scope: String, val operation: String, val fragments: List<JsonObject>, val metadata: JsonObject, val continuations: List<JsonObject>, val expires: Long, val bytes: Int, val originalError: Boolean, val pageBytes: Int, val context: JsonObject)
     private val entries = LinkedHashMap<String, Entry>()
     private var retainedBytes = 0
 
@@ -74,10 +74,11 @@ internal class GitHubResultViews(
         if (fragments.any { it.toString().toByteArray().size > pageBytes / 3 } || fragments.isEmpty()) return overflow(upstream, operation, value)
         // Retain fragments and compact metadata only, without a duplicate source tree.
         // Account for strings, object/collection overhead and continuation copies.
-        val retained = fragments.sumOf { it.toString().toByteArray().size * 2L + 256 } + metadata.toString().toByteArray().size * 2L + lastContinuations.sumOf { it.toString().toByteArray().size * 2L + 256 } + 1024
+        val context = JsonObject(((value as? JsonObject).orEmpty() + request).filterKeys { it in setOf("owner", "repo", "commit_sha", "action") })
+        val retained = fragments.sumOf { it.toString().toByteArray().size * 2L + 256 } + metadata.toString().toByteArray().size * 2L + lastContinuations.sumOf { it.toString().toByteArray().size * 2L + 256 } + context.toString().toByteArray().size * 2L + 1024
         if (retained > capacityBytes) return overflow(upstream, operation, value)
         while (entries.isNotEmpty() && (entries.size >= 32 || retainedBytes + retained > capacityBytes)) evict(entries.keys.first())
-        val entry = Entry(scope, operation, fragments, metadata, lastContinuations, now() + 10 * 60_000, retained.toInt(), upstream.isError, pageBytes)
+        val entry = Entry(scope, operation, fragments, metadata, lastContinuations, now() + 10 * 60_000, retained.toInt(), upstream.isError, pageBytes, context)
         entries[id] = entry
         retainedBytes += entry.bytes
         if (small.toString().toByteArray().size <= pageBytes) return upstream.copy(content = ToolResultContent.Json(small))
@@ -85,7 +86,7 @@ internal class GitHubResultViews(
     }
 
     @Synchronized
-    fun read(scope: String, operation: String, modelName: String, cursor: String, callId: String): AgentToolResult {
+    fun read(scope: String, operation: String, modelName: String, cursor: String, callId: String, context: JsonObject = JsonObject(emptyMap())): AgentToolResult {
         purge()
         val parts = cursor.split(':')
         val entry = parts.firstOrNull()?.let(entries::get)
@@ -93,7 +94,31 @@ internal class GitHubResultViews(
         val requestedBytes = if (parts.size == 3) parts[2].toIntOrNull() else entry?.pageBytes
         if (parts.size !in 2..3 || entry == null || offset == null || requestedBytes == null || requestedBytes !in 1024..entry.pageBytes || entry.scope != scope || entry.operation != operation || offset !in entry.fragments.indices) {
             val evidenceRecovery = if (operation == "github_read") " Reopen retained source with evidence_id and no view_cursor." else ""
-            return AgentToolResult(callId, ToolResultContent.Text("This saved GitHub view is unavailable or outside the authorized task. Use the exact continuation_call from the latest result in this task; never invent or reuse a cursor from another task.$evidenceRecovery For an expired immutable read, request a smaller range at the same commit_sha. Reconcile a prior mutation using its receipt; do not repeat the mutation to recover output."), true, errorCode = "SAVED_VIEW_UNAVAILABLE", dispatched = false)
+            return AgentToolResult(callId, ToolResultContent.Text("This saved GitHub view is unavailable or outside the authorized conversation. Use the exact continuation_call from the latest result in this conversation; never invent or reuse a cursor from another account or conversation.$evidenceRecovery For an expired immutable read, request a smaller range at the same commit_sha. Reconcile a prior mutation using its receipt; do not repeat the mutation to recover output."), true, errorCode = "SAVED_VIEW_UNAVAILABLE", dispatched = false)
+        }
+        val conflictingContext = context.any { (key, value) ->
+            val expected = entry.context[key]
+            if (key in setOf("owner", "repo")) {
+                expected !is JsonPrimitive || value !is JsonPrimitive || !expected.isString || !value.isString || !expected.content.equals(value.content, true)
+            } else {
+                expected != value
+            }
+        }
+        if (conflictingContext) {
+            return AgentToolResult(
+                callId,
+                ToolResultContent.Json(
+                    buildJsonObject {
+                        put("schema", "github.arguments.v1")
+                        put("operation", operation)
+                        put("message", "Saved-page context differs from the retained request. Use only the exact view_cursor; a saved read cannot change repository, revision or action. Nothing was dispatched.")
+                        put("correction_call", savedCall(modelName, cursor))
+                    }
+                ),
+                true,
+                errorCode = "INVALID_ARGUMENTS",
+                dispatched = false
+            )
         }
         // Active readers can take longer than ten minutes to consume a large result.
         // Inactive views still expire and the existing byte/entry bounds still apply.
@@ -318,6 +343,10 @@ internal class GitHubResultViews(
         entries.remove(id)?.let { retainedBytes -= it.bytes }
     }
     companion object {
+        /** Saved pages only deliver captured bytes; backend mutations keep their task-specific receipts. */
+        fun scope(credential: String, connectionUid: String, conversationId: String, taskId: String): String =
+            dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore.digest(listOf(credential, connectionUid, conversationId, taskId.takeIf { conversationId.isBlank() }.orEmpty()).joinToString("|"))
+
         const val SCHEMA = "github.operation.v1"
         private const val MAX_SOURCE_BYTES = 1024 * 1024
         private const val RECOVERY_PAGE_BYTES = 1536

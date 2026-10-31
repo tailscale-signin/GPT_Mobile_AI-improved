@@ -187,6 +187,52 @@ class GitHubOperationToolTest {
         assertEquals(1, backend.calls.size)
     }
 
+    @Test fun savedPageAcceptsMatchingContextDefaultsWithoutRepeatingBackendWork() = runBlocking {
+        val backend = Backend().also { it.body = JsonPrimitive("captured ".repeat(2000)) }
+        val views = GitHubResultViews(pageBytes = 2048)
+        val tool = GitHubOperationTool("github_pr", backend, "task", views = views)
+        val request = args("""{"owner":"owner","repo":"repo","action":"context","pull_number":12,"commit_sha":"$sha"}""")
+        val cursor = continuation(result(tool.execute("first", request)))
+        val matching = JsonObject(cursor + request.filterKeys { it in setOf("owner", "repo", "action", "commit_sha") })
+        val saved = tool.execute("page", matching)
+        assertFalse(saved.isError)
+        assertFalse(saved.dispatched)
+        assertTrue(saved.sharedResult)
+        for (changed in listOf("owner" to JsonPrimitive("other"), "repo" to JsonPrimitive("other"), "commit_sha" to JsonPrimitive("b".repeat(40)), "action" to JsonPrimitive("merge"))) {
+            val refused = tool.execute("wrong-${changed.first}", JsonObject(matching + changed))
+            assertEquals("INVALID_ARGUMENTS", refused.errorCode)
+            assertFalse(refused.dispatched)
+            assertEquals(cursor, (refused.content as ToolResultContent.Json).value.jsonObject.getValue("correction_call").jsonObject.getValue("arguments"))
+        }
+        val foreign = GitHubOperationTool("github_pr", backend, "other-task", views = views).execute("foreign", matching)
+        assertEquals("SAVED_VIEW_UNAVAILABLE", foreign.errorCode)
+        assertEquals(1, backend.calls.size)
+    }
+
+    @Test fun nextTurnCanReadSavedReceiptWithoutRepeatingTheMutation() = runBlocking {
+        val backend = Backend().also { it.body = JsonPrimitive("commit receipt ".repeat(500)) }
+        val views = GitHubResultViews(pageBytes = 2048)
+        val firstScope = GitHubResultViews.scope("credential", "connection", "chat", "first-turn")
+        val first = GitHubOperationTool("github_commit", backend, firstScope, views = views)
+        val request = args("""{"stage_id":"stage","branch":"work","expected_head_sha":"$sha","message":"Commit"}""")
+        val cursor = continuation(result(first.execute("commit", request)))
+        val nextScope = GitHubResultViews.scope("credential", "connection", "chat", "next-turn")
+        val next = GitHubOperationTool("github_commit", backend, nextScope, views = views).execute("receipt", cursor)
+        assertFalse(next.isError)
+        assertFalse(next.dispatched)
+        assertEquals(1, backend.calls.size)
+        for (scope in listOf(
+            GitHubResultViews.scope("other-credential", "connection", "chat", "next-turn"),
+            GitHubResultViews.scope("credential", "other-connection", "chat", "next-turn"),
+            GitHubResultViews.scope("credential", "connection", "other-chat", "next-turn")
+        )) {
+            val foreign = GitHubOperationTool("github_commit", backend, scope, views = views).execute("foreign", cursor)
+            assertEquals("SAVED_VIEW_UNAVAILABLE", foreign.errorCode)
+        }
+        assertFalse(GitHubResultViews.scope("credential", "connection", "", "first") == GitHubResultViews.scope("credential", "connection", "", "next"))
+        assertEquals(1, backend.calls.size)
+    }
+
     @Test fun malformedSourceRangesAreRejectedBeforeTheBackendRuns() = runBlocking {
         val backend = Backend()
         val read = GitHubOperationTool("github_read", backend, "validation")

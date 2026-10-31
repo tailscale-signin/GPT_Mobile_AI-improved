@@ -79,7 +79,7 @@ class GitHubTool(
     }
     internal fun operations(): List<GitHubOperationTool> {
         val suffix = modelToolName.removePrefix("github").takeIf { it.startsWith("__") }.orEmpty()
-        val scope = dev.chungjungsoo.gptmobile.data.research.researchHash("$apiToken|$connectionUid|$conversationId|$taskId")
+        val scope = GitHubResultViews.scope(apiToken, connectionUid, conversationId, taskId)
         return GitHubOperationTool.names.map { GitHubOperationTool(it, this, scope, it + suffix) }
     }
 

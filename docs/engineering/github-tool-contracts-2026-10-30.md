@@ -271,3 +271,26 @@ Follow-up local verification: 285 Kotlin host regressions and all 251 canonical
 host tests passed. Changed Kotlin formatting, workflow syntax, architecture index,
 secret scan and whitespace checks passed. The full Android/device suite remains
 the qualification boundary for the next published revision.
+
+## Publication fences under cache pressure
+
+All applicable hosted checks passed on `d803f0057e6cf9b5acab1e53fc6fbba69eb32753`,
+including Required verification, CodeQL, both emulator profiles, diagnostic audit,
+review APK and complete GenieX minified cold packaging/native audits. Main Android
+unit results were 5,544 run, 5,540 passed, four skipped, zero failures.
+
+A final durability regression then reproduced a separate failure: after an
+uncertain write, ordinary cache pressure evicted its execution record, allowing
+the same invocation to dispatch again. Execution identity fences now have separate
+retention from cached receipt bodies. Receipt eviction/removal, memory pressure,
+and restart return `RECONCILE_REQUIRED` instead of admitting another write.
+Empty persistent fence files contain only hashed identity in their names; source
+and credentials are absent. A bounded fence-capacity limit fails closed for new
+claims, preserving existing receipts and read-only work. Regression tests exercise
+actual memory eviction, disk-quota pruning, restart, receipt removal and admission
+at capacity. The new storage revision requires fresh hosted checks before merge.
+
+Final local verification of the storage revision: 289 Kotlin host regressions,
+251 canonical host tests, changed-source ktlint, architecture index, secret and
+whitespace checks passed. The earlier all-green hosted result is retained as
+evidence for `d803f00`; it does not qualify the new storage head.

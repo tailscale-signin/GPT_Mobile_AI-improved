@@ -59,3 +59,12 @@ and exact run receipt. Read-only release verification can recover a retained
 credential/connection/conversation-scoped association in a later turn; it still
 checks the requested repository, tag, workflow, event and source SHA. A matching
 branch or recently observed run never substitutes for a missing dispatch receipt.
+
+Publication fences are stored independently of evictable receipts. Cache pressure,
+receipt cleanup or process restart cannot turn an earlier execution into a new
+write: a missing receipt with a retained fence requires remote reconciliation.
+The device retains at most 16,384 hashed fence identities; reaching that capacity
+stops admission of new write claims while existing receipts and source reads
+remain available. Fences contain no source or credential payload and are removed
+only by explicit app-data erasure, rather than ordinary cache pruning. This is
+single-process serialized state, not a distributed transaction coordinator.

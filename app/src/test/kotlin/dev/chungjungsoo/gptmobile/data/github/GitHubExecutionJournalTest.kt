@@ -63,7 +63,7 @@ class GitHubExecutionJournalTest {
             val result = restored.run("commit", args) { error("Restart cannot repeat publication") }
             assertEquals(receipt["sha"], result.jsonObject["sha"])
             assertEquals(1, restored.context()["executions"]!!.jsonArray.size)
-            assertFalse(directory.listFiles()!!.any { it.readText().contains("private-source-marker") })
+            assertFalse(directory.walkTopDown().filter { it.isFile }.any { it.readText().contains("private-source-marker") })
         } finally {
             directory.deleteRecursively()
         }
@@ -142,5 +142,108 @@ class GitHubExecutionJournalTest {
             receipt
         }
         assertTrue(independent)
+    }
+
+    @Test fun cachePressureCannotReleaseAnUncertainWriteClaim() = runTest {
+        val store = GitHubRepositoryStateStore()
+        val journal = GitHubExecutionJournal(store, "scope")
+        var writes = 0
+        assertTrue(
+            runCatching {
+                journal.run("commit", arguments) {
+                    writes++
+                    throw IOException("Lost response")
+                }
+            }.isFailure
+        )
+        repeat(300) { store.write("cache", "blob:$it", receipt) }
+        val recovered = journal.run("commit", arguments) {
+            writes++
+            receipt
+        }.jsonObject
+        assertEquals(1, writes)
+        assertEquals("RECONCILE_REQUIRED", recovered["status"]!!.jsonPrimitive.content)
+    }
+
+    @Test fun durableFenceSurvivesReceiptEvictionRemovalAndRestart() = runTest {
+        val directory = Files.createTempDirectory("github-write-fence").toFile()
+        try {
+            val store = GitHubRepositoryStateStore(directory)
+            val journal = GitHubExecutionJournal(store, "scope")
+            var writes = 0
+            val completed = journal.run("commit", arguments) {
+                writes++
+                receipt
+            }.jsonObject
+            val id = completed["execution"]!!.jsonObject["execution_id"]!!.jsonPrimitive.content
+            store.remove("scope", "execution:$id")
+            val restarted = GitHubRepositoryStateStore(directory)
+            assertTrue(restarted.contains("scope", "execution:$id"))
+            val replay = GitHubExecutionJournal(restarted, "scope").run("commit", arguments) {
+                writes++
+                receipt
+            }.jsonObject
+            assertEquals(1, writes)
+            assertEquals("RECONCILE_REQUIRED", replay["status"]!!.jsonPrimitive.content)
+            val fences = directory.resolve("publication-claims").listFiles()!!
+            assertTrue(fences.isNotEmpty())
+            assertTrue(fences.all { it.extension == "claim" && it.length() == 0L })
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test fun fullFenceCapacityStopsBeforeDispatchAndStillAllowsSavedReceiptsAndReads() = runTest {
+        val store = GitHubRepositoryStateStore(publicationClaimLimit = 2)
+        val journal = GitHubExecutionJournal(store, "scope")
+        var writes = 0
+        repeat(2) {
+            journal.run("commit", buildJsonObject { put("index", it) }) {
+                writes++
+                receipt
+            }
+        }
+        val blocked = runCatching {
+            journal.run("commit", buildJsonObject { put("index", 2) }) {
+                writes++
+                receipt
+            }
+        }.exceptionOrNull()
+        assertTrue(blocked?.message.orEmpty().contains("GITHUB_PUBLICATION_CLAIM_CAPACITY"))
+        assertEquals(2, writes)
+        journal.run("commit", buildJsonObject { put("index", 0) }) { error("Retained receipt must remain readable") }
+        store.write("source", "blob", receipt)
+        assertEquals(receipt, store.read("source", "blob"))
+    }
+
+    @Test fun diskQuotaPruningCannotForgetAnUncertainWriteAfterRestart() = runTest {
+        val directory = Files.createTempDirectory("github-fence-quota").toFile()
+        try {
+            val store = GitHubRepositoryStateStore(directory)
+            val journal = GitHubExecutionJournal(store, "scope")
+            var writes = 0
+            assertTrue(
+                runCatching {
+                    journal.run("commit", arguments) {
+                        writes++
+                        throw IOException("Lost response")
+                    }
+                }.isFailure
+            )
+            val largeBlob = buildJsonObject { put("content", "x".repeat(6 * 1024 * 1024)) }
+            repeat(9) { store.write("source", "blob:$it", largeBlob) }
+            val identity = GitHubRepositoryStateStore.digest("scope|commit|${GitHubExecutionJournal.canonical(arguments)}")
+            val record = java.io.File(directory, GitHubRepositoryStateStore.digest("scope:execution:$identity") + ".record")
+            assertFalse("The receipt must actually have been pruned by the disk quota", record.exists())
+            val restarted = GitHubExecutionJournal(GitHubRepositoryStateStore(directory), "scope")
+            val recovered = restarted.run("commit", arguments) {
+                writes++
+                receipt
+            }.jsonObject
+            assertEquals(1, writes)
+            assertEquals("RECONCILE_REQUIRED", recovered["status"]!!.jsonPrimitive.content)
+        } finally {
+            directory.deleteRecursively()
+        }
     }
 }

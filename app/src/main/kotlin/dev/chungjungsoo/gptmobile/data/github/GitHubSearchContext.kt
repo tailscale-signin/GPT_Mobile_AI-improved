@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.github
 
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -44,8 +45,14 @@ internal object GitHubSearchContext {
                 if (!added) break
             }
         }
-        put("start_line", start + 1)
-        put("end_line", end)
+        if (start == end) {
+            put("start_line", JsonNull)
+            put("end_line", JsonNull)
+        } else {
+            put("start_line", start + 1)
+            put("end_line", end)
+        }
+        put("returned_line_count", end - start)
         put("requested_start_line", requestedStart + 1)
         put("requested_end_line", requestedEnd)
         put("excerpt", (start until end).joinToString("\n") { excerpts.getValue(it) })

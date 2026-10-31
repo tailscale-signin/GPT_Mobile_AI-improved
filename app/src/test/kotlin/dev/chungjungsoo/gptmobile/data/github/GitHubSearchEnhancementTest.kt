@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.github
 
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -110,6 +111,9 @@ class GitHubSearchEnhancementTest {
         assertEquals("225", bounded.getValue("requested_end_line").jsonPrimitive.content)
         val noBudget = GitHubSearchContext.extract(lines, 125, 100, 0)
         assertEquals("", noBudget.getValue("excerpt").jsonPrimitive.content)
+        assertEquals(JsonNull, noBudget.getValue("start_line"))
+        assertEquals(JsonNull, noBudget.getValue("end_line"))
+        assertEquals("0", noBudget.getValue("returned_line_count").jsonPrimitive.content)
         assertEquals("true", noBudget.getValue("truncated").jsonPrimitive.content)
     }
 

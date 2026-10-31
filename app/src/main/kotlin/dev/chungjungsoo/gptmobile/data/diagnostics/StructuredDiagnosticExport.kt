@@ -30,6 +30,7 @@ internal fun structuredDiagnosticLine(
     exportedAtMillis: Long? = null
 ): String {
     val limit = if (captureSource == "runtime_incident_history") 32 * 1024 else 8000
+    val sourceTruncated = "truncatedAtSource=true" in line || "reasonTruncated=true" in line || Regex("(?i)\\[truncated\\]").containsMatchIn(line)
     val safe = redactLogMessage(line).take(limit)
     val match = recordPattern.matchEntire(safe)
     val message = match?.groupValues?.get(4) ?: safe
@@ -82,8 +83,8 @@ internal fun structuredDiagnosticLine(
         put("workerExitConfirmed", exitConfirmed)
         put("workerExitEvidence", text("workerExitEvidence"))
         put("osExitReason", text("osExitReason") ?: text("reasonCode"))
-        put("truncated", line.length > limit || "truncatedAtSource=true" in line)
-        put("truncatedAtSource", "truncatedAtSource=true" in line)
+        put("truncated", line.length > limit || sourceTruncated)
+        put("truncatedAtSource", sourceTruncated)
         put("truncatedAtExport", line.length > limit)
         put("originalLength", line.length)
         put("retainedLength", safe.length)

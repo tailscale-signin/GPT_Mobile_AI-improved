@@ -10,6 +10,34 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LocalContextPlannerTest {
+    @Test fun upstreamDiscoveryDoesNotExpandToEveryAuthorizedSchema() {
+        val catalog = (1..14).map { AgentToolDefinition("github_tool$it", "Authorized", buildJsonObject {}) }
+        val discovery = AgentToolDefinition("discover_available_tools", "Discover", buildJsonObject {})
+        val names = LocalContextPlanner.advertisedToolNames(catalog + discovery, listOf(discovery), catalog)
+        assertEquals(setOf(discovery.name), names)
+        assertThrows(IllegalArgumentException::class.java) {
+            LocalContextPlanner.advertisedToolNames(catalog, listOf(discovery))
+        }
+    }
+
+    @Test fun renderedToolSchemasCannotReduceEngineeringReplyTo128Tokens() {
+        val definitions = (1..14).map { AgentToolDefinition("optional$it", "Capability", buildJsonObject {}) }
+        val plan = LocalContextPlanner.plan(
+            emptyList(),
+            "Use available tools to inspect this task",
+            "Generic instructions",
+            definitions,
+            8192,
+            4096,
+            renderToolPrompt = { tools -> "Schema and template ".repeat(tools.size * 100) }
+        )
+        assertTrue(plan.outputReserveTokens >= 512)
+        assertTrue(plan.tools.size < definitions.size)
+        assertThrows(IllegalArgumentException::class.java) {
+            LocalOutputAllocation.reserve(8192, 7800, 264, 4096, minimum = 512)
+        }
+    }
+
     @Test fun greetingWithRealPromptBridgeFitsSmallContextAndLargeCatalog() {
         val tools = (1..15).map { AgentToolDefinition("tool$it", "Optional capability ".repeat(35), buildJsonObject {}) }
         val system = dev.chungjungsoo.gptmobile.data.agent.liveToolSystemPrompt(null, emptyList(), compact = true, deferCapabilities = true)

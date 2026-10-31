@@ -68,9 +68,14 @@ internal class GitHubEvidenceBook(
                 ?: ((root?.get("head") as? JsonObject)?.get("sha") as? JsonPrimitive)?.contentOrNull
             )
             ?.takeIf { it.matches(Regex("[a-fA-F0-9]{40}")) }
-        if (trusted && selected && targetBranch == branch && !result.isError && !result.sharedResult) {
-            if (mutation || !immutable && head != null && observedHead != null && head != observedHead) epoch++
-            if (head != null && !immutable) observedHead = head
+        val remoteChange = ((result.executionReceipt?.get("accepted_mutations") as? JsonPrimitive)?.longOrNull ?: 0) > 0 ||
+            ((result.executionReceipt?.get("unknown_mutations") as? JsonPrimitive)?.longOrNull ?: 0) > 0 ||
+            mutation &&
+            result.dispatched &&
+            !result.isError
+        if (trusted && selected && targetBranch == branch && !result.sharedResult) {
+            if (remoteChange || !result.isError && !immutable && head != null && observedHead != null && head != observedHead) epoch++
+            if (!result.isError && head != null && !immutable) observedHead = head
         }
         val receipt = buildJsonObject {
             put("schema", "github.evidence.v1")
@@ -81,13 +86,15 @@ internal class GitHubEvidenceBook(
             put("repository", if (selected) repository else "$owner/$repo")
             put("branch", targetBranch)
             put("arguments", call.arguments)
-            put("observed_at_ms", if (result.sharedResult || !result.dispatched) 0 else now())
+            val sourceTime = (result.executionReceipt?.get("source_observed_at_ms") as? JsonPrimitive)?.longOrNull
+            put("observed_at_ms", sourceTime ?: if (result.sharedResult || !result.dispatched) 0 else now())
             put("epoch", epoch)
             put("source_head_sha", head?.let(::JsonPrimitive) ?: JsonNull)
             put("immutable", immutable)
             put("trusted", trusted && selected)
             put("success", !result.isError && result.errorCode == null)
             put("dispatched", result.dispatched)
+            result.executionReceipt?.let { put("execution", it) }
             put("error_code", result.errorCode?.let(::JsonPrimitive) ?: JsonNull)
             put("result", content)
             put("result_sha256", digest(content.toString()))

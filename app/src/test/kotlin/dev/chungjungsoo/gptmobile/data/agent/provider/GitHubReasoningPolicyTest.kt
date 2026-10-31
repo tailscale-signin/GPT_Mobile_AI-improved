@@ -9,6 +9,16 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubReasoningPolicyTest {
+    @Test fun primaryEngineeringControlsDoNotInheritLightweightDelegateDefaults() {
+        val defaults = mapOf("X-Gateway-Performance-Profile" to "turbo", "X-Gateway-Reasoning-Effort" to "low", "X-Gateway-Intermediate-Max-Tokens" to "1024", "X-Gateway-Cache-Prompt" to "true")
+        val primary = GitHubReasoningPolicy.gatewayHeaders(defaults, true, 4096)
+        assertEquals("quality", primary["X-Gateway-Performance-Profile"])
+        assertEquals("high", primary["X-Gateway-Reasoning-Effort"])
+        assertEquals("4096", primary["X-Gateway-Intermediate-Max-Tokens"])
+        assertEquals("true", primary["X-Gateway-Cache-Prompt"])
+        assertEquals(defaults, GitHubReasoningPolicy.gatewayHeaders(defaults, false, 512))
+    }
+
     @Test fun reasoningAllowanceFitsContextAndPreservesExplicitLimits() {
         assertEquals(16384, GitHubReasoningPolicy.outputBudget(Int.MAX_VALUE, 0, null))
         assertEquals(4096, GitHubReasoningPolicy.outputBudget(32768, 0, 4096))

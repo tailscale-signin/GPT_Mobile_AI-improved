@@ -43,6 +43,7 @@
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubConversationContext.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubDecisionNotifications.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubDeviceAuthClient.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubDispatchAccounting.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubElapsedTime.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEngineeringMemory.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEngineeringMemoryMode.kt",
@@ -75,6 +76,7 @@
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSearchQuery.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSessionCaches.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubVerifiedSession.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubWorkflowDispatch.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubWorkflowMetadata.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubWorkflowSelector.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubWorkspaceClient.kt",
@@ -120,6 +122,7 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSearchTraversalTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSessionCachesTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubToolCompletenessTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubWorkflowDispatchTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubWorkspaceClientTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubWorkspaceDraftStoreTest.kt"
       ]

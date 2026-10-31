@@ -4106,6 +4106,7 @@ class ChatRepositoryImpl(
                     if (textOnly) emptyList() else effectiveTools.map { it.tool },
                     constraints,
                     fallbackSystemPrompt = liveToolSystemPrompt(platform.systemPrompt, emptyList(), compact = true, deferCapabilities = true, researchReport = chatToolConfig?.research?.researchToggle == true),
+                    advertisedTools = if (textOnly) emptyList() else contextPlan.tools,
                     progressSettings = progressSettings
                 )
             }.withNormalizedAssistantText(latestUser?.content.orEmpty())

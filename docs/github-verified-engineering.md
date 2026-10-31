@@ -18,7 +18,7 @@ against an actual native GitHub tool receipt. A tool name containing â€œGitHubâ€
 does not establish trust. The rendered fact is the source field
 and value, not model-supplied assertion text. Missing, failed, foreign, reused
 without original provenance, future-dated, contradicted and stale observations
-cannot render as verified. Mutable facts expire after two minutes and after an
+cannot render as verified. Cached observations retain their original source time. Mutable facts expire after two minutes and after an
 observed branch change or successful write. Immutable reads require pinned SHAs.
 
 Inferences require supporting observations and are explicitly labeled as
@@ -159,9 +159,43 @@ embeddings or a physical Android device. Run canonical Android CI before merging
 Observed validation on this branch:
 
 - `bash scripts/validate-local.sh fast`: passed, including 276 host policy/script tests.
-- Android host JVM regression harness: 337 tests passed against actual runner, GitHub client/session/facade and verifier code; Android boundary adapters were fixtures.
-- `python3 gateway/check_gateway.py`: 262 Python tests and seven browser bootstrap tests passed.
+- Android host JVM regression harness: 346 tests passed against actual runner, GitHub client/session/facade and verifier code; Android boundary adapters were fixtures.
+- `python3 gateway/check_gateway.py`: 264 Python tests and seven browser bootstrap tests passed.
+- Context, connection/probe and diagnostic host regressions: 53 tests passed; one unchanged Free-provider integration case remains for Android CI.
 - Authentication/broker suite: 15 tests passed during the full validation attempt.
 - ktlint 1.3.1: changed Kotlin sources formatted and checked.
 - Gateway Android client/repository/ViewModel and engineering-memory wiring compiled with host boundary fixtures.
 - `bash scripts/validate-local.sh full`: stopped at the Gradle 9.8 distribution download (`Network is unreachable`). Android assemble/lint/unit tests and physical native inference were not executed by that attempt.
+
+
+## Diagnostic investigation follow-up
+
+The supplied investigation describes the exported build at
+`622a8848fcc9e3e55502320953ffc1724c4f260a`. Its counts and device timings are
+historical observations from that report, not new measurements of this branch.
+The current source was checked against each proposed remedy.
+
+| Finding | Implementation and verification boundary |
+| --- | --- |
+| Unsent actions marked dispatched | Per-invocation `github.dispatch.v1` receipts distinguish preflight rejection, observations, accepted/rejected mutations, partial acceptance and unknown outcomes. Read preflight does not become a sent mutation. Definite rejection and lost acknowledgement have separate regressions. |
+| Reconciliation deadlocks | Persist dispatch receipts in batch and ToolEvent checkpoints. Proven preflight/HTTP rejection may resume; partial acceptance and uncertain writes remain fenced. Unknown-tool and recovery guards report that no new action was sent. |
+| Local context overflow | Preserve the upstream advertised set through the native adapter. Required tools come from the current task and its bounded follow-up, excluding generic system policy. Budget rendered bridge schemas and preserve at least 512 reply tokens for contexts of 4096 or larger, subject to an explicitly smaller requested output. Capacity errors retain input and recommend fewer tools or a compatible larger-context artifact. |
+| Tool catalog expands | Authorized definitions remain discoverable, while only admitted/advertised definitions enter the initial local prompt. Discovery can add an authorized schema for a later step. The 14-authorized/one-advertised case is covered. |
+| Unparseable tool markup | Reuse complete-stream argument assembly, schema validation, malformed-frame rejection and the existing single protocol repair. The compatibility error now names build/template/function-calling checks and a read-only smoke test. No arbitrary control text is executed. |
+| Invalid workflow triggers/inputs | Read the selected workflow path under the actual credential. Verify default-branch manual registration and parse the definition at the expected commit. Validate declared input names, required values, scalar types and choices. Top-level ref remains separate. Unsupported YAML fails closed with an explicit inspection blocker; this is not a general YAML evaluator. |
+| Repeated 404/invalid workflow calls | Persist normalized request fingerprints scoped to the credential/connection/conversation. An unchanged blocked request, including filename aliases and new call IDs, performs no HTTP retry. Corrected arguments/head/credential or newly observed workflow inventory can permit fresh preflight. A 404 remains ambiguous; push permission is not assumed to grant Actions access. |
+| Primary low/turbo defaults | GitHub engineering primary/review requests select quality/high requested controls and their admitted output allowance. Lightweight workers retain their own settings. The explicit github-primary/review role receives the normal request deadline. The legacy worker flag retains client-owned isolation and does not select low effort. These are requested controls; absent serving receipts keep effective reasoning/settings unverified. |
+| Saved view expiration | Reuse durable scoped result storage, original evidence receipts and exact structured continuation objects. Recovery calls are not cursor strings. Existing restart/scope/pagination regressions remain applicable. |
+| Probe EOFs | Normalize local connection recovery by origin across props, apply-template and chat completions. Synthetic probes retry an EOF once, apply the fresh-connection hint, and retain the existing bounded positive/negative capability cache. TLS/cancellation failures are not replayed. Tests cover both probes, recovery and failed-probe cooldown. |
+| MCP instability | Retain current per-endpoint connectivity leases, network-health failure recording, bounded backoff and supported session/replay handling. Protocol negotiation fallback is distinct from transport failure. Durable job state stays outside SSE. |
+| UI stalls | Reuse background Markdown preparation and 33 ms streaming publication coalescing. New receipt pretty-printing runs on Default. A physical-device trace is still required to attribute CPU/GPU/blur cost or claim improvement. |
+| Misleading diagnostics | Source preview truncation and explicit truncation markers feed export metadata. Preserve structured error code, dispatch phase, HTTP status and reconciliation state independently of previews. GitHub and Tool records share a causal incident ID. |
+| Selected branch cleanup | Keep the selected-branch deletion guard; its regression now checks the unsent receipt. Select a surviving branch and refresh its head before separately authorized cleanup. |
+| Model import permissions | Retain persisted document-provider access, managed-copy fallback and controlled file/stream lifetimes. No blanket storage permission is added. Physical provider restart/load validation remains necessary. |
+| ART/teardown/optional warnings | Retain existing incident classification, generation/termination receipts and explicit unknowns. No OOM, ANR, failed feature, or blur root cause is inferred from the reported warnings or teardown timing alone. |
+
+The dispatch receipt is retained before replay compaction and is included in
+expandable evidence. A partially accepted or uncertain mutation invalidates older
+mutable observations even when the outer tool reports an error. No successful
+write is inferred from the phase name alone; exact API/journal receipts remain
+authoritative.

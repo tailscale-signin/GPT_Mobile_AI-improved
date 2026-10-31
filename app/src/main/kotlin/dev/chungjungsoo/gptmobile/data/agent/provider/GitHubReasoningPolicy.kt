@@ -2,6 +2,16 @@ package dev.chungjungsoo.gptmobile.data.agent.provider
 
 /** Request-scoped effort; stored profile settings and provider output ceilings are unchanged. */
 internal object GitHubReasoningPolicy {
+    fun gatewayHeaders(existing: Map<String, String>, engineering: Boolean, outputTokens: Int?): Map<String, String> {
+        if (!engineering) return existing
+        val controls = setOf("x-gateway-performance-profile", "x-gateway-reasoning-effort", "x-gateway-intermediate-max-tokens")
+        return existing.filterKeys { it.lowercase() !in controls } + buildMap {
+            put("X-Gateway-Performance-Profile", "quality")
+            put("X-Gateway-Reasoning-Effort", "high")
+            outputTokens?.takeIf { it > 0 }?.let { put("X-Gateway-Intermediate-Max-Tokens", it.toString()) }
+        }
+    }
+
     fun openAiEffort(model: String): String? {
         val name = model.lowercase().substringAfterLast('/')
         return when {

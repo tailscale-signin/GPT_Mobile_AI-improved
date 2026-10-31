@@ -56,7 +56,7 @@ class GitHubEvidenceViewModel @Inject constructor(private val workspace: Workspa
                 if (payload == null) {
                     "Receipt unavailable. Refresh the source; this is not evidence of success."
                 } else {
-                    Json { prettyPrint = true }.encodeToString(kotlinx.serialization.json.JsonObject.serializer(), payload).let {
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { Json { prettyPrint = true }.encodeToString(kotlinx.serialization.json.JsonObject.serializer(), payload) }.let {
                         if (it.length > 16_000) it.take(16_000) + "\n[Preview limited to 16,000 characters; full encrypted receipt remains retained.]" else it
                     }
                 }

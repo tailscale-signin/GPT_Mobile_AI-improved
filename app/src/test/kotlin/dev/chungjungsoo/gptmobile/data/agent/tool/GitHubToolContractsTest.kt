@@ -349,7 +349,12 @@ class GitHubToolContractsTest {
                     posts++
                     throw java.io.IOException("Acknowledgement lost after dispatch")
                 }
-                if (request.url.encodedPath == "/repos/o/r/commits/work") respond("""{"sha":"$sha"}""") else respond("""{"id":8,"state":"active"}""")
+                when {
+                    request.url.encodedPath == "/repos/o/r/commits/work" -> respond("""{"sha":"$sha"}""")
+                    request.url.encodedPath == "/repos/o/r" -> respond("""{"default_branch":"main"}""")
+                    "/contents/" in request.url.encodedPath -> respond("""{"encoding":"base64","size":23,"content":"${java.util.Base64.getEncoder().encodeToString("on: [workflow_dispatch]".toByteArray())}"}""")
+                    else -> respond("""{"id":8,"state":"active","path":".github/workflows/build.yml"}""")
+                }
             }
         )
         try {
@@ -358,7 +363,7 @@ class GitHubToolContractsTest {
             assertTrue(first.isError)
             val second = GitHubTool("token", http, stateStore = store).execute("recover", input)
             assertTrue(second.isError)
-            assertEquals("RECONCILE_REQUIRED", second.errorCode)
+            assertEquals("RECONCILIATION_REQUIRED", second.errorCode)
             assertFalse(second.dispatched)
             assertEquals(1, posts)
         } finally {

@@ -120,6 +120,7 @@ internal object GitHubEvidencePolicy {
                 put("branch", receipt["branch"] ?: JsonNull)
                 put("error_code", receipt["error_code"] ?: JsonNull)
                 put("success", receipt["success"] ?: JsonNull)
+                receipt["execution"]?.let { put("execution", it) }
                 put("facts", JsonObject(facts(receipt["result"] ?: JsonNull)))
             }
         }

@@ -8,6 +8,15 @@ import org.junit.Assert.assertFalse
 import org.junit.Test
 
 class StructuredDiagnosticExportTest {
+    @Test fun sourcePreviewTruncationAndStructuredDispatchFieldsRemainIndependent() {
+        val receipt = """{"phase":"PREFLIGHT_REJECTED","http_status":422,"mutation_requests":0}"""
+        val record = Json.parseToJsonElement(structuredDiagnosticLine("2026-10-31T12:00:00Z E/Tool: Finished · callId=call-1 · dispatched=false · executionReceipt=$receipt · reasonTruncated=true · reasonPreview={incomplete [truncated]")).jsonObject
+        assertEquals("true", record.getValue("truncated").jsonPrimitive.content)
+        assertEquals("true", record.getValue("truncatedAtSource").jsonPrimitive.content)
+        assertEquals("false", record.getValue("truncatedAtExport").jsonPrimitive.content)
+        assertEquals(Json.parseToJsonElement(receipt), record.getValue("fields").jsonObject.getValue("executionReceipt"))
+    }
+
     @Test fun paddedLogcatJobInfoTagRemainsAnInformationalPlatformHint() {
         val classification = classifyDiagnostic("W", "Android", "eventId=job-10 · monoNs=123 · bootMs=12 · processId=42 · processName=dev.melo.gptmobile.improved · W/JobInfo (31174): Requested important-while-foreground flag for job10 is ignored and takes no effect")
         assertEquals("platform_job_hint", classification.category)

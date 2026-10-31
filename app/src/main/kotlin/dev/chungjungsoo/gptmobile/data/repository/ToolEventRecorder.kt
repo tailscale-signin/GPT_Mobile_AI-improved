@@ -20,6 +20,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -104,8 +105,10 @@ class ToolEventRecorder @Inject constructor(
         }
         dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
             "Tool",
-            "Finished ${normalizedResult.callId} · tool=${startedEvent?.toolName.orEmpty()} · error=${normalizedResult.isError}" +
-                if (normalizedResult.isError) " · reason=${dev.chungjungsoo.gptmobile.data.security.DiagnosticRedactor.redact(safeError.orEmpty()).take(240)}" else "",
+            "Finished · callId=${normalizedResult.callId} · tool=${startedEvent?.toolName.orEmpty()} · error=${normalizedResult.isError} · dispatched=${normalizedResult.dispatched}" +
+                " · errorCode=${normalizedResult.errorCode ?: "none"}" +
+                (normalizedResult.executionReceipt?.let { " · executionReceipt=$it · causalIncidentId=${(it["incident_id"] as? JsonPrimitive)?.content.orEmpty()}" }.orEmpty()) +
+                if (normalizedResult.isError) " · reasonTruncated=${safeError.orEmpty().length > 240} · reasonPreview=${dev.chungjungsoo.gptmobile.data.security.DiagnosticRedactor.redact(safeError.orEmpty()).take(240)}" else "",
             if (normalizedResult.isError) "E" else "I"
         )
         val content = (normalizedResult.retainedContent ?: normalizedResult.content).serialized()
@@ -122,8 +125,8 @@ class ToolEventRecorder @Inject constructor(
             )
         }
         val display = (normalizedResult.traceContent ?: normalizedResult.content).serialized()
-        val checkpoint = content.value != display.value || normalizedResult.personalData.isNotEmpty()
-        val stored = if (checkpoint) dev.chungjungsoo.gptmobile.data.agent.ToolResultCheckpoint.encode(content.value, content.type, display.value, normalizedResult.personalData) else content.value
+        val checkpoint = content.value != display.value || normalizedResult.personalData.isNotEmpty() || normalizedResult.executionReceipt != null
+        val stored = if (checkpoint) dev.chungjungsoo.gptmobile.data.agent.ToolResultCheckpoint.encode(content.value, content.type, display.value, normalizedResult.personalData, normalizedResult.executionReceipt) else content.value
         val resultType = when {
             checkpoint -> ToolEventResultType.CHECKPOINT
             !normalizedResult.isError && content.value.isBlank() -> ToolEventResultType.EMPTY

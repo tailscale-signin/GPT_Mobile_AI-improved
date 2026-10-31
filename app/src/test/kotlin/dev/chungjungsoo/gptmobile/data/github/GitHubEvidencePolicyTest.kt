@@ -24,6 +24,27 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubEvidencePolicyTest {
+    @Test fun cachedObservationKeepsItsOriginalTimeInsteadOfBecomingFreshProof() = runBlocking {
+        val book = GitHubEvidenceBook("binding", "owner/repo", "main", setOf("github_ci"), { 200_000 })
+        book.observe(ProviderEvent.ToolCall("cached", "github_ci", json("""{"action":"status"}""")), AgentToolResult("cached", ToolResultContent.Json(json("""{"count":3}""")), false, dispatched = false, executionReceipt = json("""{"source_observed_at_ms":1000,"cached_read_observations":1}""")))
+        val receipts = book.snapshot().first
+        val id = receipts.keys.single()
+        assertEquals(JsonPrimitive(1000), receipts.getValue(id)["observed_at_ms"])
+        assertEquals(JsonPrimitive("STALE"), GitHubEvidencePolicy.verify(json("""{"receipt_id":"$id","pointer":"/count","value":3}"""), receipts, 200_000, 0)["status"])
+    }
+
+    @Test fun partiallyAcceptedOrUncertainWriteInvalidatesEarlierFactsEvenWhenTheToolFails() = runBlocking {
+        for (phase in listOf("accepted_mutations", "unknown_mutations")) {
+            val book = GitHubEvidenceBook("binding", "owner/repo", "main", setOf("github_ci", "github_write"), { 1000 })
+            book.observe(ProviderEvent.ToolCall("read", "github_ci", json("""{"action":"status"}""")), AgentToolResult("read", ToolResultContent.Json(json("""{"count":3}""")), false))
+            val id = book.snapshot().first.keys.single()
+            book.observe(ProviderEvent.ToolCall("write", "github_write", json("""{"branch":"main"}""")), AgentToolResult("write", ToolResultContent.Text("Later operation failed"), true, executionReceipt = json("""{"$phase":1}""")))
+            val (receipts, epoch) = book.snapshot()
+            assertEquals(1L, epoch)
+            assertEquals(JsonPrimitive("STALE"), GitHubEvidencePolicy.verify(json("""{"receipt_id":"$id","pointer":"/count","value":3}"""), receipts, 1000, epoch)["status"])
+        }
+    }
+
     @Test fun nativeAdapterAndStagedCommitUseTheSameEvidenceEpoch() = runBlocking {
         val book = GitHubEvidenceBook("binding", "owner/repo", "main", setOf("github__native", "github_commit__native"), { 1000 })
         book.observe(ProviderEvent.ToolCall("read", "github__native", json("""{"action":"get_commit_status_summary"}""")), AgentToolResult("read", ToolResultContent.Json(json("""{"count":3}""")), false, dispatched = true))

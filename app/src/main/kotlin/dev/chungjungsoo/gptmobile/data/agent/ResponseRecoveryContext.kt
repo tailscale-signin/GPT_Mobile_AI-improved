@@ -208,10 +208,10 @@ internal class ResponseRecoveryContext(
         override val managesExecutionBudget get() = tool.managesExecutionBudget
         override val coordinatesChildWork get() = tool.coordinatesChildWork
         override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
-            if (!isAuthorized()) return AgentToolResult(callId, ToolResultContent.Text("Saved evidence access was revoked or its conversation was deleted. No saved content was returned or action repeated."), true)
+            if (!isAuthorized()) return AgentToolResult(callId, ToolResultContent.Text("Saved evidence access was revoked or its conversation was deleted. No saved content was returned or action repeated."), true, dispatched = false, errorCode = "SAVED_EVIDENCE_REVOKED")
             val effectId = (arguments["_recovery_effect_id"] as? kotlinx.serialization.json.JsonPrimitive)?.content
             val actual = JsonObject(arguments - "_recovery_effect_id")
-            if (effectId != null && (rootWorkId == null || canReuse?.invoke() == false)) return AgentToolResult(callId, ToolResultContent.Text("Saved effect is outside the current authorized recovery scope; no action was repeated."), true)
+            if (effectId != null && (rootWorkId == null || canReuse?.invoke() == false)) return AgentToolResult(callId, ToolResultContent.Text("Saved effect is outside the current authorized recovery scope; no action was repeated."), true, dispatched = false, errorCode = "RECOVERY_SCOPE_MISMATCH")
             if (dev.chungjungsoo.gptmobile.data.health.HealthConnectTools.isHealthTool(realName) ||
                 dev.chungjungsoo.gptmobile.data.health.HealthConnectTools.isHealthTool(definition.name) ||
                 rootWorkId == null ||
@@ -231,8 +231,15 @@ internal class ResponseRecoveryContext(
                 sensitivity?.add(labels)
                 return AgentToolResult(callId, ToolResultContent.Text(match.recoveryResult().orEmpty()), false, traceContent = ToolResultContent.Text(match.displayResult().orEmpty()), sharedResult = true, personalData = (labels + sensitivity?.snapshot().orEmpty()).distinct())
             }
-            if (!readOnly && (effectId != null || candidates.isNotEmpty())) {
-                return AgentToolResult(callId, ToolResultContent.Text("Saved action requires reconciliation. Read its receipt and use its exact _recovery_effect_id only when completed. An unknown outcome must be checked using a read-only status tool before a new action is authorized."), true)
+            val unresolved = candidates.filter { event ->
+                // Only a persisted native dispatch receipt can prove an earlier failure harmless.
+                val receipt = ToolResultCheckpoint.execution(event)
+                receipt == null ||
+                    receipt["requires_reconciliation"] != kotlinx.serialization.json.JsonPrimitive(false) ||
+                    receipt["phase"] !in setOf(kotlinx.serialization.json.JsonPrimitive("PREFLIGHT_REJECTED"), kotlinx.serialization.json.JsonPrimitive("REJECTED"))
+            }
+            if (!readOnly && (effectId != null || unresolved.isNotEmpty())) {
+                return AgentToolResult(callId, ToolResultContent.Text("Saved action requires reconciliation. Read its receipt and use its exact _recovery_effect_id only when completed. An unknown outcome must be checked using a read-only status tool before a new action is authorized."), true, dispatched = false, errorCode = "RECONCILIATION_REQUIRED")
             }
             return tool.execute(callId, actual)
         }

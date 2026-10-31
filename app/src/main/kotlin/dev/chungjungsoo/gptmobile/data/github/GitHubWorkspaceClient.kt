@@ -1716,8 +1716,12 @@ class GitHubWorkspaceClient(
         val cached = if (cacheable) responseCache.get(cacheKey) else null
         // Mutable branch heads and permission checks are always revalidated.
         val freshList = path.startsWith("/user/repos") || path.startsWith("/user/installations") || path.matches(Regex("/repos/[^/]+/[^/]+/(?:branches|contents)(?:[?].*)?"))
-        if (cached != null && freshList && System.currentTimeMillis() - cached.storedAtMillis < freshnessSeconds.coerceIn(0, 120) * 1000L) return cached.value
+        if (cached != null && freshList && System.currentTimeMillis() - cached.storedAtMillis < freshnessSeconds.coerceIn(0, 120) * 1000L) {
+            GitHubDispatchAccounting.cached(cached.storedAtMillis)
+            return cached.value
+        }
         if (cached != null && cached.immutable) {
+            GitHubDispatchAccounting.cached(cached.storedAtMillis)
             scheduler.recordCacheHit()
             return cached.value
         }
@@ -1731,6 +1735,7 @@ class GitHubWorkspaceClient(
                     throw rejected
                 }
                 scheduler.recordRequest()
+                GitHubDispatchAccounting.started(method != HttpMethod.Get)
                 val response = client.request("https://api.github.com$path") {
                     this.method = method
                     header(HttpHeaders.Accept, "application/vnd.github+json")
@@ -1743,6 +1748,7 @@ class GitHubWorkspaceClient(
                         setBody(body.toString())
                     }
                 }
+                GitHubDispatchAccounting.responded(method != HttpMethod.Get, response.status.value)
                 rateLimits.record(response.headers, response.status.value)
                 if (response.status.value == 304 && cached != null) {
                     responseCache.put(cacheKey, cached.etag, cached.value)

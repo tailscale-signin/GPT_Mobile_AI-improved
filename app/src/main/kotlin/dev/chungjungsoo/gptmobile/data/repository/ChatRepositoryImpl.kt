@@ -1336,7 +1336,7 @@ class ChatRepositoryImpl(
         val childRunner = dev.chungjungsoo.gptmobile.data.agent.AgentRunner(
             childLimits,
             checkpoint = childChatId?.let { id ->
-                dev.chungjungsoo.gptmobile.data.agent.ToolBatchCheckpoint.forTurn(context.filesDir, id, "$turnKey:${target.uid}:$requestRole:${dev.chungjungsoo.gptmobile.data.research.researchHash(task)}:${dispatchAuthority.revision}", agentPersistenceDao.getChatRoom(id)?.isTemporary == false)
+                dev.chungjungsoo.gptmobile.data.agent.ToolBatchCheckpoint.forTurn(context.filesDir, id, "$turnKey:${target.uid}:$requestRole:${dev.chungjungsoo.gptmobile.data.research.researchHash(task)}:${dispatchAuthority.revision}", agentPersistenceDao.getChatRoom(id)?.isTemporary == false, jobContext = chatToolConfig.github?.let { github -> dev.chungjungsoo.gptmobile.data.agent.ToolBatchJobContext(task, requestRole, "${github.owner}/${github.repo}", github.ref, github.commitSha) })
             }
         )
         val startedAtMs = System.currentTimeMillis()
@@ -2800,6 +2800,15 @@ class ChatRepositoryImpl(
             }
             sensitivity?.add(labels)
             emit(ApiState.Notice("", personalData = labels))
+        }
+        // Recall can add local-only evidence after initial catalog resolution.
+        // Refuse the GitHub request before any model receives incompatible schemas.
+        if (chatToolConfig?.github != null) {
+            resolvedTools.filter { it.isGitHubTool() }.forEach { tool ->
+                val id = tool.connectionUid?.let { "$it:${tool.realToolName}" } ?: tool.realToolName
+                sensitivity?.validateExternalTool(platform, id)
+            }
+            AppLogRecorder.record("GitHub", "AUTONOMOUS_ENGINEERING_POLICY · availability=${if (dev.chungjungsoo.gptmobile.data.github.GitHubAutonomousEngineeringPolicy.enabled(platform)) "AVAILABLE" else "UNAVAILABLE"} · defaultEnabled=${dev.chungjungsoo.gptmobile.data.github.GitHubAutonomousEngineeringPolicy.enabled(platform)} · scope=GITHUB · assistPipelineIndependent=true")
         }
         // A frozen writer already contains its complete accepted instructions and evidence.
         // New memory, project or time wrappers must not change its admitted request.
@@ -4750,7 +4759,7 @@ class ChatRepositoryImpl(
                 maxReplayResultTokens = if (chatToolConfig?.github != null) minOf(limits.contextTokens / 16, 32_768).coerceAtLeast(64) else delegationSettings.primaryReplayResultTokens
             ),
             checkpoint = latestUser?.let { user ->
-                dev.chungjungsoo.gptmobile.data.agent.ToolBatchCheckpoint.forTurn(context.filesDir, user.chatId, "${user.chatId}:${user.id}:${platform.uid}:${dispatchAuthority.revision}", persistent = agentPersistenceDao.getChatRoom(user.chatId)?.isTemporary == false)
+                dev.chungjungsoo.gptmobile.data.agent.ToolBatchCheckpoint.forTurn(context.filesDir, user.chatId, "${user.chatId}:${user.id}:${platform.uid}:${dispatchAuthority.revision}", persistent = agentPersistenceDao.getChatRoom(user.chatId)?.isTemporary == false, jobContext = chatToolConfig?.github?.let { github -> dev.chungjungsoo.gptmobile.data.agent.ToolBatchJobContext(user.effectiveContent(), "GITHUB_ENGINEERING", "${github.owner}/${github.repo}", github.ref, github.commitSha) })
             },
             healthCatalog = catalog,
             retryUndispatchedBudgetFailures = retryUndispatchedBudgetFailures,

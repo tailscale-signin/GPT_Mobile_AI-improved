@@ -12,6 +12,23 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.put
+
+/** Accepted job context, distinct from the optional checkpoint-load latency objective. */
+@Serializable
+data class ToolBatchJobContext(
+    val objective: String,
+    val stage: String,
+    val repository: String,
+    val branch: String,
+    val commitSha: String,
+    val pullRequest: Int? = null,
+    val retryPolicy: String = "TRANSIENT_READ_BACKOFF_ONLY;MUTATIONS_REQUIRE_RECONCILIATION;PRECHECK_REJECTIONS_NEVER_RETRY",
+    val lastVerifiedReceipt: JsonObject? = null
+)
 
 /** An objective for loading a checkpoint, not for reconciling remote writes. */
 data class CheckpointRestoreObjective(val maximumMillis: Long) {
@@ -33,11 +50,12 @@ data class ToolBatchRecoverySnapshot(
     val unknownCount: Int = 0,
     val queuedCount: Int = 0,
     val rejectedCount: Int = 0,
-    val failedCount: Int = 0
+    val failedCount: Int = 0,
+    val jobContext: ToolBatchJobContext? = null
 )
 
 /** Durable dispatch receipts. A crash after dispatch is unknown, never permission to repeat a side effect. */
-class ToolBatchCheckpoint(private val file: File?, private val binding: String) {
+class ToolBatchCheckpoint(private val file: File?, private val binding: String, private val initialJob: ToolBatchJobContext? = null) {
     @Serializable private data class Call(val id: String, val name: String, val arguments: JsonObject) {
         fun event() = ProviderEvent.ToolCall(id, name, arguments)
     }
@@ -48,13 +66,13 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String) 
 
     @Serializable private data class Entry(val call: Call, val started: Boolean = false, val result: Result? = null, val priorBudgetRejection: Result? = null)
 
-    @Serializable private data class State(val binding: String, val schemaVersion: Int = 1, val pending: List<String> = emptyList(), val entries: Map<String, Entry> = emptyMap())
+    @Serializable private data class State(val binding: String, val schemaVersion: Int = 1, val pending: List<String> = emptyList(), val entries: Map<String, Entry> = emptyMap(), val jobContext: ToolBatchJobContext? = null)
     private val mutex = file?.let { locks.computeIfAbsent(it.absolutePath) { Mutex() } } ?: Mutex()
     private val json = Json {
         encodeDefaults = true
         ignoreUnknownKeys = true
     }
-    private var memory = State(binding)
+    private var memory = State(binding, jobContext = initialJob)
     private fun read(): State {
         val saved = file?.takeIf { it.isFile || File(it.path + ".bak").isFile }?.let {
             require(maxOf(it.length(), File(it.path + ".bak").length()) <= 32 * 1024 * 1024) { "Tool recovery journal exceeds capacity." }
@@ -64,7 +82,10 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String) 
         require(saved.binding == binding) { "Tool recovery authorization changed." }
         require(saved.entries.size <= 1024 && saved.pending.distinct().size == saved.pending.size && saved.pending.all(saved.entries::containsKey)) { "Tool recovery journal has invalid call identities." }
         require(saved.entries.all { (id, entry) -> id.isNotBlank() && id == entry.call.id }) { "Tool recovery journal has inconsistent receipts." }
-        return saved
+        if (initialJob != null && saved.jobContext != null) {
+            require(initialJob.objective == saved.jobContext.objective && initialJob.repository == saved.jobContext.repository && initialJob.branch == saved.jobContext.branch) { "Saved engineering objective or destination changed; reconcile the previous job before starting another." }
+        }
+        return if (saved.jobContext == null && initialJob != null) saved.copy(jobContext = initialJob) else saved
     }
     private fun write(state: State) {
         val bytes = json.encodeToString(state).toByteArray()
@@ -140,7 +161,8 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String) 
                 unknownCount = state.entries.values.count { it.started && it.result == null || it.result?.code in ToolResultEnvelope.unknownOutcomeCodes },
                 queuedCount = state.entries.values.count { !it.started && it.result == null },
                 rejectedCount = state.entries.values.count { it.result?.let { result -> result.error && !result.dispatched && result.code !in ToolResultEnvelope.unknownOutcomeCodes } == true },
-                failedCount = state.entries.values.count { it.result?.let { result -> result.error && result.dispatched && result.code !in ToolResultEnvelope.unknownOutcomeCodes } == true }
+                failedCount = state.entries.values.count { it.result?.let { result -> result.error && result.dispatched && result.code !in ToolResultEnvelope.unknownOutcomeCodes } == true },
+                jobContext = state.jobContext
             )
         }
     }
@@ -200,7 +222,29 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String) 
             is ToolResultContent.ResourceLinks -> content.links.joinToString("\n") { it.uri }
         }
         val saved = Result(body, content is ToolResultContent.Json, result.isError, result.dispatched, result.errorCode, result.toolCallBudgetExhausted, result.outputBudgetExhausted, result.executionReceipt)
-        write(state.copy(entries = state.entries + (call.callId to entry.copy(result = saved))))
+        val observed = if (!result.isError && result.dispatched && result.errorCode !in ToolResultEnvelope.unknownOutcomeCodes) result.executionReceipt else null
+        val operation = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(call.name)
+        val action = (call.arguments["action"] as? JsonPrimitive)?.content
+        val prSource = operation == "github_pr" || call.name == "github" && action in setOf("create_pull_request", "get_pull_request", "update_pull_request")
+        val payload = if (prSource) ToolResultEnvelope.element(result.content) as? JsonObject else null
+        val pr = (payload?.get("pull_request_number") as? JsonPrimitive)?.intOrNull
+            ?: ((payload?.get("pull_request") as? JsonObject)?.get("number") as? JsonPrimitive)?.intOrNull
+            ?: if (operation == "github_pr") (payload?.get("number") as? JsonPrimitive)?.intOrNull else null
+        val job = state.jobContext?.let { context ->
+            if (observed == null) {
+                context
+            } else {
+                context.copy(
+                    pullRequest = pr?.takeIf { it > 0 } ?: context.pullRequest,
+                    lastVerifiedReceipt = buildJsonObject {
+                        put("callId", call.callId)
+                        put("tool", call.name)
+                        put("execution", observed)
+                    }
+                )
+            }
+        }
+        write(state.copy(entries = state.entries + (call.callId to entry.copy(result = saved)), jobContext = job))
     }
     suspend fun finish() = locked {
         val state = read()
@@ -212,7 +256,7 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String) 
     companion object {
         private val locks = ConcurrentHashMap<String, Mutex>()
         private val deleted = ConcurrentHashMap.newKeySet<String>()
-        fun forTurn(directory: File, chatId: Int, binding: String, persistent: Boolean): ToolBatchCheckpoint = ToolBatchCheckpoint(if (persistent) File(directory, "tool-batches/$chatId/${combinedDigest(binding)}.json") else null, binding)
+        fun forTurn(directory: File, chatId: Int, binding: String, persistent: Boolean, jobContext: ToolBatchJobContext? = null): ToolBatchCheckpoint = ToolBatchCheckpoint(if (persistent) File(directory, "tool-batches/$chatId/${combinedDigest(binding)}.json") else null, binding, jobContext)
         suspend fun deleteChat(directory: File, chatId: Int) = withContext(Dispatchers.IO) {
             val folder = File(directory, "tool-batches/$chatId")
             val files = (folder.listFiles().orEmpty().toList() + locks.keys.filter { it.startsWith(folder.absolutePath + File.separator) }.map(::File)).distinctBy { it.absolutePath }

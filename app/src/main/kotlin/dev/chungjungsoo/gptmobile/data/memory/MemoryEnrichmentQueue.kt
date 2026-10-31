@@ -37,6 +37,13 @@ class MemoryEnrichmentQueue @Inject constructor(
 
     init {
         diagnosticsScope.launch {
+            try {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { resumeWaiting() }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Memory", "ENRICHMENT_RESTORE_DEFERRED · sourcePersisted=true", "W")
+            }
             kotlinx.coroutines.flow.combine(
                 runtime.state,
                 WorkManager.getInstance(context).getWorkInfosByTagFlow("memory-enrichment"),
@@ -106,9 +113,14 @@ class MemoryEnrichmentQueue @Inject constructor(
             clearWaiting(context, message.id)
             return
         }
-        if (runtime.state.value.engineSpec == null || runtime.isBusy || runtime.hasOpenConversation() || dev.chungjungsoo.gptmobile.data.localruntime.InferenceAdmission.isExclusiveBusy || dev.chungjungsoo.gptmobile.data.readiness.ReadinessWorkloadSignals.active.value > 0) {
+        val modelMissing = runtime.state.value.engineSpec == null
+        if (!modelMissing && (runtime.isBusy || runtime.hasOpenConversation() || dev.chungjungsoo.gptmobile.data.localruntime.InferenceAdmission.isExclusiveBusy || dev.chungjungsoo.gptmobile.data.readiness.ReadinessWorkloadSignals.active.value > 0)) {
             markWaiting(context, workDataOf("messageId" to message.id, "chatId" to message.chatId, "hash" to digest(message.content)))
             dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Memory", "ENRICHMENT_DEFERRED · message=${message.id} · reason=${if (runtime.state.value.engineSpec == null) "WAITING_FOR_MODEL" else "WAITING_FOR_IDLE"} · workerScheduled=false · sourcePersisted=true · wakeTrigger=RUNTIME_IDLE_OR_MODEL_AVAILABLE")
+            return
+        }
+        if (modelMissing && fallbackStore(context).getString(message.id.toString(), null) == completionKey(message.chatId, digest(message.content))) {
+            markWaiting(context, workDataOf("messageId" to message.id, "chatId" to message.chatId, "hash" to digest(message.content)))
             return
         }
         if (runtimeCoolingDown(context, runtime)) {
@@ -151,6 +163,10 @@ class MemoryEnrichmentQueue @Inject constructor(
         val cleanup = completed.edit()
         completed.all.filterValues { (it as? String)?.startsWith("$chatId:") == true }.keys.forEach(cleanup::remove)
         cleanup.apply()
+        val fallback = fallbackStore(context)
+        val fallbackCleanup = fallback.edit()
+        fallback.all.filterValues { (it as? String)?.startsWith("$chatId:") == true }.keys.forEach(fallbackCleanup::remove)
+        fallbackCleanup.apply()
         WorkManager.getInstance(context).cancelAllWorkByTag("memory-chat-$chatId")
         val store = waitingStore(context)
         val editor = store.edit()
@@ -175,6 +191,12 @@ class MemoryEnrichmentQueue @Inject constructor(
         internal fun uniqueName(id: Int, hash: String) = "memory-v$ENRICHMENT_VERSION-$id-$hash"
         internal fun completionKey(chatId: Int, hash: String) = "$chatId:v$ENRICHMENT_VERSION:$hash"
         internal fun completedStore(context: Context) = context.getSharedPreferences("memory-enrichment-completed", Context.MODE_PRIVATE)
+        internal fun fallbackStore(context: Context) = context.getSharedPreferences("memory-enrichment-local-fallback", Context.MODE_PRIVATE)
+        internal fun markFallbackCompleted(context: Context, data: androidx.work.Data) {
+            val id = data.getInt("messageId", 0)
+            val hash = data.getString("hash") ?: return
+            if (id > 0) check(fallbackStore(context).edit().putString(id.toString(), completionKey(data.getInt("chatId", 0), hash)).commit()) { "Cannot persist local enrichment receipt" }
+        }
         internal fun markCompleted(context: Context, data: androidx.work.Data) {
             val id = data.getInt("messageId", 0)
             val hash = data.getString("hash") ?: return

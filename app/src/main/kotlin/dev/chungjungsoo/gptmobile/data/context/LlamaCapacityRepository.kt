@@ -47,19 +47,19 @@ internal class LlamaCapacityRepository(private val client: () -> io.ktor.client.
                     val uri = URI(route)
                     require(uri.scheme in setOf("http", "https") && uri.host != null && uri.rawQuery == null && uri.rawFragment == null && uri.userInfo == null)
                     val endpoint = route.removeSuffix("/v1") + "/props"
-                    val response = LocalEndpointConnectionPolicy.probe(config.apiUrl) {
-                        client().get(endpoint) {
+                    val (response, body) = LocalEndpointConnectionPolicy.probe(config.apiUrl) {
+                        val response = client().get(endpoint) {
                             config.token?.takeIf { it.isNotBlank() }?.let { bearerAuth(it) }
                             parameter("model", model)
                             parameter("autoload", "false")
                             if (LocalEndpointConnectionPolicy.freshConnection(config.apiUrl)) header(HttpHeaders.Connection, "close")
-                        }.also { it.body<String>() }
+                        }
+                        response to response.boundedMetadata(1_000_000)
                     }
                     if (response.status.value != 200) return@withTimeoutOrNull null
-                    val body = response.body<String>()
                     val capacity = parseLlamaCapacity(body, config, model, now()) ?: return@withTimeoutOrNull null
                     val root = Json.parseToJsonElement(body) as JsonObject
-                    Metadata(capacity, (root["chat_template"] as JsonPrimitive).content, (root["build_info"] as? JsonPrimitive)?.contentOrNull?.isNotBlank() == true)
+                    Metadata(capacity, (root["chat_template"] as? JsonPrimitive)?.contentOrNull.orEmpty(), (root["build_info"] as? JsonPrimitive)?.contentOrNull?.isNotBlank() == true)
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled
@@ -192,7 +192,8 @@ internal fun parseLlamaCapacity(body: String, config: ProviderRequestConfig, mod
     if (resolved != null && resolved != model) return null
     val generation = root["default_generation_settings"] as? JsonObject ?: return null
     val allocation = (generation["n_ctx"] as? JsonPrimitive)?.longOrNull?.takeIf { it in 256L..1_048_576L } ?: return null
-    val template = (root["chat_template"] as? JsonPrimitive)?.contentOrNull ?: return null
+    val template = (root["chat_template"] as? JsonPrimitive)?.contentOrNull.orEmpty()
+    if (template.isBlank() && resolved == null) return null
     val revision = researchHash(listOf(root["model_path"], root["build_info"], root["runtime_epoch"]).joinToString("|"))
     return CapacitySnapshot(
         RuntimeFingerprint(config.profileUid ?: "unbound", "sha256:${researchHash(config.apiUrl.trim().trimEnd('/'))}", researchHash(config.token.orEmpty()), model, resolved ?: model, revision, researchHash(template), "n_ctx=$allocation;slots=${root["total_slots"]}"),

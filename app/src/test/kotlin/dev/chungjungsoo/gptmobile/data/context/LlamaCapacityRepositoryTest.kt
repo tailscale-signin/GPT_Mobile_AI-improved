@@ -15,6 +15,21 @@ import org.junit.Assert.assertNotNull
 import org.junit.Test
 
 class LlamaCapacityRepositoryTest {
+    @Test fun explicitModelCapacityDoesNotRequireAnOptionalTemplateAndCannotConfirmReasoning() = runTest {
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+            val http = HttpClient(MockEngine { respond("""{"model_alias":"test-model","build_info":"fixture","default_generation_settings":{"n_ctx":8192}}""") })
+            try {
+                val repository = LlamaCapacityRepository({ http })
+                val config = ProviderRequestConfig("http://127.0.0.1:29769/v1", null)
+                val capacity = repository.discover(config, "test-model")!!
+                assertEquals(8192L, capacity.contextTokens)
+                org.junit.Assert.assertNull(repository.reasoningControl(config, "test-model", capacity))
+            } finally {
+                http.close()
+            }
+        }
+    }
+
     @Test fun reviewSchemaSupportIsObservedOnceAndBoundToTheVerifiedModelRoute() = runTest {
         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
             var schemas = 0

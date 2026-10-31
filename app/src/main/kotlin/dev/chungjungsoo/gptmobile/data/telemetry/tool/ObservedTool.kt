@@ -26,6 +26,9 @@ class ObservedTool(private val delegate: AgentTool, private val identity: ToolId
             return withContext(ToolStatisticsContext(parent.repository, id, identity.key, parent.profile, parent.root)) {
                 delegate.execute(callId, arguments)
             }.also { result = it }
+        } catch (rejected: dev.chungjungsoo.gptmobile.data.permissions.ToolAuthorizationRejected) {
+            result = dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.error(callId, rejected.code, rejected.message.orEmpty())
+            throw rejected
         } finally {
             withContext(NonCancellable) {
                 val value = result

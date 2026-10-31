@@ -1,5 +1,8 @@
 # Diagnostic recovery and GitHub integration
 
+The [additional authorization and durable-work investigation](diagnostic-authorization-2026-10-31.md)
+tracks the later 2,103-record export, its implementation changes and verification boundaries.
+
 - Repository: `tailscale-signin/GPT_Mobile_AI-improved`
 - Working branch: `feat/github-operation-resilience-2026-10-31`
 - Integrated dependency: PR #767, merged into `main` at `be5d55930df8be6caad2380eea71b2f9a6bb0419`

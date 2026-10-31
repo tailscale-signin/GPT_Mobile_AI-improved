@@ -486,6 +486,12 @@ class AgentRunner(
                 AppLogRecorder.record("Agent", "TOOL_FAILURE_CIRCUIT_OPEN · tool=$toolName · failures=${consecutiveToolFailures[toolName]}", "W")
             }
         }
+        val authorizationStops = executableCalls.zip(executedResults).filter { (_, result) -> result.isError && ToolResultEnvelope.isAuthorizationRejection(result.errorCode) }.map { it.first.name }.toSet()
+        if (authorizationStops.isNotEmpty()) {
+            executableToolByName = executableToolByName.filterKeys { it !in authorizationStops }
+            exposedDefinitions = exposedDefinitions.filterNot { it.name in authorizationStops }
+            authorizationStops.forEach { name -> AppLogRecorder.record("Agent", "TOOL_AUTHORIZATION_STOP · tool=$name · action=review_authorization · providerCircuitChanged=false") }
+        }
 
         val deferredResults = deferredToolResults(deferredCalls, hostSuppressedIds, perToolSuppressedIds, plan.unavailableIds, executableToolByName.keys, exchanges).map { result -> if (result.callId in plan.dependencyDeferredIds) ToolResultEnvelope.error(result.callId, "DEPENDENCY_DEFERRED", "This dependent remains undispatched because a prerequisite was not admitted. Complete the missing read or correct its arguments before resuming this saved dependency group.") else result }
         deferredCalls.zip(deferredResults).forEach { (call, result) -> checkpoint?.complete(call, result) }
@@ -1052,6 +1058,9 @@ class AgentRunner(
         if (!result.isError ||
             result.outputBudgetExhausted ||
             result.toolCallBudgetExhausted ||
+            ToolResultEnvelope.isAuthorizationRejection(result.errorCode) ||
+            !result.dispatched &&
+            ToolResultEnvelope.isPrecheckRejection(result.errorCode) ||
             result.errorCode in setOf("DEPENDENCY_DEFERRED", "DEPENDENCY_FAILED", "RECONCILIATION_REQUIRED", "INVALID_ARGUMENTS", "RECOVERY_SCOPE_MISMATCH", "SAVED_EVIDENCE_REVOKED") &&
             !result.dispatched
         ) {
@@ -1080,7 +1089,7 @@ class AgentRunner(
             .groupBy(keySelector = { failureScope(it.first) }, valueTransform = { it.second })
             .forEach { (toolName, roundResults) ->
                 val failures = when {
-                    roundResults.any { result -> result.isError && terminalToolFailure(toolResultText(result)) } -> MAX_CONSECUTIVE_TOOL_FAILURES
+                    roundResults.any { result -> result.isError && result.dispatched && !ToolResultEnvelope.isAuthorizationRejection(result.errorCode) && terminalToolFailure(toolResultText(result)) } -> MAX_CONSECUTIVE_TOOL_FAILURES
                     roundResults.any { !it.isError } -> 0
                     roundResults.none(::countsTowardToolFailureCircuit) -> consecutiveToolFailures[toolName] ?: 0
                     else -> (consecutiveToolFailures[toolName] ?: 0) + 1
@@ -1254,6 +1263,8 @@ class AgentRunner(
             throw error
         } catch (error: dev.chungjungsoo.gptmobile.data.research.ResearchProviderDeferred) {
             throw error
+        } catch (rejected: dev.chungjungsoo.gptmobile.data.permissions.ToolAuthorizationRejected) {
+            ToolResultEnvelope.error(call.callId, rejected.code, rejected.message.orEmpty())
         } catch (error: Exception) {
             AgentToolResult(
                 callId = call.callId,

@@ -29,6 +29,13 @@ import kotlinx.serialization.json.Json
 @Serializable
 data class ScheduledExamination(val request: ExaminationRequest, val tools: ChatMcpToolConfig, val needed: Boolean, val waitingReason: String? = null, val waitingRevision: String? = null)
 
+internal fun examinationWorkerOutcome(pending: Boolean, processedItems: Int, queuedAtStart: Int, remaining: Int): String = when {
+    pending -> "WAITING"
+    processedItems > 0 -> "WORKER_COMPLETED"
+    queuedAtStart == 0 && remaining == 0 -> "EMPTY_QUEUE"
+    else -> "PENDING_UNPROCESSED"
+}
+
 /** The durable outbox is authoritative. A unique worker never derives permissions from a card. */
 @HiltWorker
 class ResearchExaminationWorker @AssistedInject constructor(
@@ -41,17 +48,17 @@ class ResearchExaminationWorker @AssistedInject constructor(
 ) : CoroutineWorker(context, parameters) {
     override suspend fun doWork(): Result {
         var processedItems = 0
+        val queuedAtStart = archive.dao.pendingExaminations("").size
+        var policyBlock = "NONE"
+        AppLogRecorder.record("ResearchExamine", "WORKER_DEQUEUED · work=$id · attempt=$runAttemptCount · queuedAtStart=$queuedAtStart · queueObservation=BOUNDED_PAGE · durableOutbox=true")
         suspend fun finish(pending: Boolean): Result {
-            val outcome = if (pending) {
-                "WAITING"
-            } else if (processedItems == 0) {
-                "NO_OP"
-            } else {
-                "WORKER_COMPLETED"
-            }
-            val receipt = androidx.work.workDataOf("scope" to "app_wide_examination_outbox", "processedItems" to processedItems, "outcome" to outcome, "reportDeliveryStatus" to "NOT_EVALUATED")
+            val remaining = archive.dao.pendingExaminations("").size
+            val waitingJobs = archive.dao.allJobs().count { it.stage in dev.chungjungsoo.gptmobile.data.research.feature.ExaminationLifecycle.waiting }
+            val outcome = examinationWorkerOutcome(pending, processedItems, queuedAtStart, remaining)
+            val delivery = if (processedItems == 0) "NOT_APPLICABLE" else "NOT_EVALUATED"
+            val receipt = androidx.work.workDataOf("scope" to "app_wide_examination_outbox", "processedItems" to processedItems, "outcome" to outcome, "reportDeliveryStatus" to delivery, "queuedAtStart" to queuedAtStart, "queuedAfter" to remaining, "waitingJobs" to waitingJobs, "queueObservation" to "BOUNDED_PAGE", "policyBlock" to policyBlock)
             setProgress(receipt)
-            AppLogRecorder.record("ResearchExamine", "WORKER_OUTCOME · scope=app_wide_examination_outbox · processedItems=$processedItems · outcome=$outcome · reportDeliveryStatus=NOT_EVALUATED · deliveryScope=individual_job_receipts")
+            AppLogRecorder.record("ResearchExamine", "WORKER_OUTCOME · scope=app_wide_examination_outbox · processedItems=$processedItems · outcome=$outcome · queuedAtStart=$queuedAtStart · queuedAfter=$remaining · waitingJobs=$waitingJobs · queueObservation=BOUNDED_PAGE · policyBlock=$policyBlock · reportDeliveryStatus=$delivery · deliveryScope=individual_job_receipts · pendingWorkRetained=${remaining > 0 || waitingJobs > 0}")
             return if (pending) Result.retry() else Result.success(receipt)
         }
         coordinator.recover()
@@ -82,10 +89,14 @@ class ResearchExaminationWorker @AssistedInject constructor(
             }
         }
         if (!features.researchFeature.enabled || features.researchFeature.autoExamination == AutoExamination.OFF) {
+            policyBlock = "AUTO_EXAMINATION_DISABLED"
             archive.dao.trimUnexamined(features.researchFeature.unexaminedStudyLimit, System.currentTimeMillis())
             return finish(pending)
         }
-        if (!features.researchFeature.backgroundExamination && !withContext(Dispatchers.Main) { ProcessLifecycleOwner.get().lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED) }) return finish(true)
+        if (!features.researchFeature.backgroundExamination && !withContext(Dispatchers.Main) { ProcessLifecycleOwner.get().lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED) }) {
+            policyBlock = "FOREGROUND_REQUIRED"
+            return finish(true)
+        }
         val profiles = settings.fetchPlatformV2s()
         // Only process-loss recovery is automatic; user Pause/Stop always requires user action.
         archive.dao.allJobs().filter { it.origin != dev.chungjungsoo.gptmobile.data.research.feature.ExaminationOrigin.USER_EXAMINE && it.stage == dev.chungjungsoo.gptmobile.data.research.feature.ExaminationStage.PAUSED && (it.terminalReason == "Process interrupted; explicit resume required" || it.cancellationOrigin == "WAITING_FOR_CONFIGURATION") }.forEach { job ->
@@ -127,6 +138,7 @@ class ResearchExaminationWorker @AssistedInject constructor(
             val batch = archive.dao.pendingExaminations(cursor)
             if (batch.isEmpty()) break
             for (row in batch) {
+                AppLogRecorder.record("ResearchExamine", "OUTBOX_DEQUEUED · work=$id · row=${row.id} · pendingWorkRetained=true")
                 try {
                     val scheduled = Json.decodeFromString<ScheduledExamination>(row.operation)
                     val rowRevision = examinationConfigurationRevision(features, profiles, scheduled.request.chatId, scheduled.request.profileUid, scheduled.tools)
@@ -200,14 +212,20 @@ class ResearchExaminationWorker @AssistedInject constructor(
             val networkReady = androidx.work.Constraints.Builder()
                 .setRequiredNetworkType(androidx.work.NetworkType.CONNECTED)
                 .build()
-            WorkManager.getInstance(context).enqueueUniqueWork(
+            val request = OneTimeWorkRequestBuilder<ResearchExaminationWorker>()
+                .setConstraints(networkReady)
+                .setBackoffCriteria(androidx.work.BackoffPolicy.EXPONENTIAL, 30, java.util.concurrent.TimeUnit.SECONDS)
+                .build()
+            AppLogRecorder.record("ResearchExamine", "WORKER_ENQUEUE_REQUESTED · candidateWork=${request.id} · policy=${if (reconsider) "REPLACE" else "KEEP"} · durableOutbox=true")
+            val operation = WorkManager.getInstance(context).enqueueUniqueWork(
                 "research-examination-outbox",
                 if (reconsider) ExistingWorkPolicy.REPLACE else ExistingWorkPolicy.KEEP,
-                OneTimeWorkRequestBuilder<ResearchExaminationWorker>()
-                    .setConstraints(networkReady)
-                    .setBackoffCriteria(androidx.work.BackoffPolicy.EXPONENTIAL, 30, java.util.concurrent.TimeUnit.SECONDS)
-                    .build()
+                request
             )
+            operation.result.addListener({
+                val accepted = runCatching { operation.result.get() }.isSuccess
+                AppLogRecorder.record("ResearchExamine", "WORKER_ENQUEUE_RECEIPT · candidateWork=${request.id} · accepted=$accepted · durableOutbox=true", if (accepted) "I" else "W")
+            }, java.util.concurrent.Executor { it.run() })
         }
     }
 }

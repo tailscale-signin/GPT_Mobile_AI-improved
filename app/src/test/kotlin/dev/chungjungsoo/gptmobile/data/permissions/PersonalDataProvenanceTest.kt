@@ -53,6 +53,38 @@ class PersonalDataProvenanceTest {
         assertThrows(IllegalStateException::class.java) { context.validateModel(profile("kilo", FreeAiProvider.KILO)) }
     }
 
+    @Test fun inferencePrivacyAndConnectorAuthorizationUseIndependentDecisions() = runTest {
+        val local = PlatformV2(uid = "local", name = "Local", apiUrl = "http://127.0.0.1:8080/v1", model = "local", compatibleType = ClientType.LLAMA)
+        val remote = profile()
+        for (destination in listOf(local, remote)) {
+            assertEquals(null, PersonalDataContext(7, store).externalToolRejection(destination, "github_pr"))
+        }
+        val context = PersonalDataContext(7, store, listOf(memory().copy(localOnly = true)))
+        context.validateModel(local)
+        assertThrows(IllegalStateException::class.java) { context.validateModel(remote) }
+        for (destination in listOf(local, remote)) {
+            val decision = context.externalToolRejection(destination, "github_pr")
+            assertEquals("PERSONAL_DATA_LOCAL_ONLY", decision?.code)
+            val thrown = assertThrows(ToolAuthorizationRejected::class.java) { context.validateExternalTool(destination, "github_pr") }
+            assertEquals(decision?.code, thrown.code)
+        }
+        var dispatches = 0
+        val child = object : AgentTool {
+            override val definition = AgentToolDefinition("github_pr", "", JsonObject(emptyMap()))
+            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+                dispatches++
+                return AgentToolResult(callId, ToolResultContent.Text("unexpected"), false)
+            }
+        }
+        val guarded = dev.chungjungsoo.gptmobile.data.agent.ToolExecutionBudget(dev.chungjungsoo.gptmobile.data.agent.AgentRunLimits()).bind(ProvenanceGuardedTool(child, local, "github_pr", personal = true, external = true) { null })
+        withContext(context) {
+            val result = guarded.execute("blocked", JsonObject(emptyMap()))
+            assertEquals("PERSONAL_DATA_LOCAL_ONLY", result.errorCode)
+            assertTrue(!result.dispatched)
+        }
+        assertEquals(0, dispatches)
+    }
+
     @Test fun publicSearchWorksUntilPersonalEvidenceCouldBeCopiedIntoItsDerivedArguments() = runTest {
         val profile = profile()
         store.grant(profile, "memory", chatId = 7)

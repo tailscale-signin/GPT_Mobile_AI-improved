@@ -299,7 +299,9 @@ class FactVaultRepository @Inject constructor(
     }
 
     /** Serializes enrichment across parallel AI profiles and rechecks settings after inference. */
-    suspend fun enrichTurn(message: dev.chungjungsoo.gptmobile.data.database.entity.MessageV2, extract: suspend (String) -> JsonObject?): Int? = enrichmentMutex.withLock enrichment@{
+    suspend fun enrichTurn(message: dev.chungjungsoo.gptmobile.data.database.entity.MessageV2, extract: suspend (String) -> JsonObject?): Int? = enrichTurn(message, completeSemantic = true, extract = extract)
+
+    suspend fun enrichTurn(message: dev.chungjungsoo.gptmobile.data.database.entity.MessageV2, completeSemantic: Boolean, extract: suspend (String) -> JsonObject?): Int? = enrichmentMutex.withLock enrichment@{
         val boundary = scopeForChat(message.chatId)
         if (boundary.isTemporary) return@enrichment null
         val scope = boundary.key
@@ -320,13 +322,13 @@ class FactVaultRepository @Inject constructor(
             if (scopeForChat(message.chatId) != boundary || scopes?.sourceUnchanged(message) == false) return@withLock null
             val facts = MemoryLearning.modelObservations(input, response, current.settings.captureSensitivity)
                 .filter { current.settings.meaningAwareMemory || it.relation.relationType != "MEMORY_EPISODE" }
-            val merged = mergeAutomatic(current, facts, message.chatId, message.id, scope, "local_model_observation", System.currentTimeMillis())
+            val merged = mergeAutomatic(current, facts, message.chatId, message.id, scope, if (completeSemantic) "local_model_observation" else "local_extractor_observation", System.currentTimeMillis())
             if (merged != current) persist(merged)
             val previous = current.facts.associateBy { it.id }
             val written = merged.facts.count { it.id !in previous }
             val updated = merged.facts.count { previous[it.id]?.let { old -> old != it } == true }
             AppLogRecorder.record("Memory", "ENRICHMENT_RECORDS · message=${message.id} · examined=${facts.size} · written=$written · updated=$updated · skipped=${(facts.size - written - updated).coerceAtLeast(0)}")
-            enrichedMessages += key
+            if (completeSemantic) enrichedMessages += key
             while (enrichedMessages.size > 128) enrichedMessages.remove(enrichedMessages.first())
             written + updated
         }
@@ -336,7 +338,7 @@ class FactVaultRepository @Inject constructor(
         if (chatId in current.suppressedChats || "$scope:${sourceKey(chatId, messageId)}" in current.suppressedMessages) return current
         val config = current.settings.normalized()
         val facts = current.facts.toMutableList()
-        var admitted = if (messageId > 0) facts.count { it.sourceChatId == chatId && it.sourceMessageId == messageId && it.scope == scope && it.source in setOf("user_message", "local_model_observation", "recurring_topic") } else 0
+        var admitted = if (messageId > 0) facts.count { it.sourceChatId == chatId && it.sourceMessageId == messageId && it.scope == scope && it.source in setOf("user_message", "local_model_observation", "local_extractor_observation", "recurring_topic") } else 0
         for (candidate in candidates.distinctBy(::factId)) {
             if (admitted >= config.maxCapturePerMessage) break
             val preference = candidate.relation.relationType in setOf("PREFERS", "AVOIDS", "RESPONSE_LANGUAGE")
@@ -356,7 +358,7 @@ class FactVaultRepository @Inject constructor(
             val evidence = evidenceHash(candidate.relation.context.ifBlank { candidate.target.name })
             if (stableId in current.suppressedIds || "$scope:$evidence" in current.suppressedEvidence) continue
             // The local model must not create a second form of an already captured statement.
-            if (source == "local_model_observation" && facts.any { it.evidenceHash == evidence && it.scope == scope }) continue
+            if (source in setOf("local_model_observation", "local_extractor_observation") && facts.any { it.evidenceHash == evidence && it.scope == scope }) continue
             val correctionIds = MemoryMeaningPolicy.correctionTargets(meaning, facts, scope, messageId).map { it.id }.toSet()
             val exclusive = fact.relation.relationType in setOf("LOCATED_IN", "NAMED", "TIMEZONE", "PRONOUNS", "RESPONSE_LANGUAGE")
             fun conflicts(entry: VaultFact): Boolean {
@@ -393,7 +395,7 @@ class FactVaultRepository @Inject constructor(
             if (facts.size >= config.maxFacts) {
                 if (!config.rotateAutomaticFacts) continue
                 val protectedIds = facts.flatMap { it.pendingReplacements.keys }.toSet()
-                val victim = facts.filter { !it.pinned && it.pendingReplacements.isEmpty() && it.supersededBy == null && it.id !in protectedIds && !conflicts(it) && it.source in setOf("user_message", "local_model_observation", "recurring_topic") }
+                val victim = facts.filter { !it.pinned && it.pendingReplacements.isEmpty() && it.supersededBy == null && it.id !in protectedIds && !conflicts(it) && it.source in setOf("user_message", "local_model_observation", "local_extractor_observation", "recurring_topic") }
                     .minWithOrNull(compareBy<VaultFact> { it.enabled }.thenBy { it.occurrences }.thenBy { it.lastSeenMillis }) ?: continue
                 facts.remove(victim)
             }

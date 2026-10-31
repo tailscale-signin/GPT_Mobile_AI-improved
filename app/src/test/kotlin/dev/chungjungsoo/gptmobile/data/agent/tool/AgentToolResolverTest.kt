@@ -340,6 +340,22 @@ class AgentToolResolverTest {
         assertFalse(resolver(dao = dao).resolve("profile", ChatMcpToolConfig(allowAllByDefault = true).withToolDisabled("work")).any { it.connectionUid == "work" })
     }
 
+    @Test fun localOnlyContextCannotPublishExternalGithubSchemasButLocalInferenceAloneCan() = runBlocking {
+        val dao = ResolverFakeToolConnectionDao()
+        dao.upsertConnection(connection("work", ToolConnectionType.GITHUB, endpointUrl = "https://api.github.com"))
+        val local = PlatformV2(uid = "profile", name = "Local", compatibleType = ClientType.LLAMA, apiUrl = "http://127.0.0.1:8080/v1", model = "local")
+        val resolver = resolver(dao = dao, settings = ResolverFakeSettingRepository(listOf(local)))
+        val context = dev.chungjungsoo.gptmobile.data.permissions.PersonalDataContext(7, null)
+        kotlinx.coroutines.withContext(context) {
+            assertTrue(resolver.resolve(local.uid).any { it.connectionUid == "work" || it.nativeGitHub })
+            context.add(listOf(dev.chungjungsoo.gptmobile.data.permissions.PersonalDataProvenance(sourceToolId = "memory", sourceProfileUid = local.uid, sourceRef = "local-source", categories = setOf(dev.chungjungsoo.gptmobile.data.permissions.PersonalDataCategory.MEMORY), localOnly = true)))
+            assertFalse(resolver.resolve(local.uid).any { it.connectionUid == "work" || it.nativeGitHub })
+            val workspace = dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext("work", "owner", "repo", "feature", "a".repeat(40), local.uid)
+            val rejected = runCatching { resolver.resolve(local.uid, ChatMcpToolConfig(github = workspace)) }.exceptionOrNull()
+            assertEquals("PERSONAL_DATA_LOCAL_ONLY", (rejected as? dev.chungjungsoo.gptmobile.data.permissions.ToolAuthorizationRejected)?.code)
+        }
+    }
+
     @Test
     fun `free MCP usage requires the grant for the exact profile and tool at runtime`() = runBlocking {
         McpClientManagerTest.McpFixtureServer().use { server ->

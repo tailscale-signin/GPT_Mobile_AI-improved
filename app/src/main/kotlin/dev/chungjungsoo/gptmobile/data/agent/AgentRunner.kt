@@ -62,7 +62,7 @@ class AgentRunner(
     private val checkpoint: ToolBatchCheckpoint? = null,
     private val healthCatalog: ProgressiveToolCatalog? = null,
     private val retryUndispatchedBudgetFailures: Boolean = false,
-    private val onToolResult: (ProviderEvent.ToolCall, AgentToolResult) -> Unit = { _, _ -> }
+    private val onToolResult: ((ProviderEvent.ToolCall, AgentToolResult) -> Unit)? = null
 ) {
     fun run(session: AgentProviderSession, tools: List<AgentTool>, dynamicTools: () -> List<AgentTool> = { emptyList() }, selectDefinitions: (List<AgentToolDefinition>) -> List<AgentToolDefinition> = { it }): Flow<AgentRunEvent> = flow {
         if (tools.groupBy { it.definition.name }.any { it.value.size > 1 }) {
@@ -93,7 +93,7 @@ class AgentRunner(
         if (finishedInTime == null) {
             emit(failed("Agent run timed out after ${limits.runTimeoutMillis} ms."))
         }
-    }.flowOn(limits.combined?.let(::CombinedRunScope) ?: kotlin.coroutines.EmptyCoroutineContext)
+    }.flowOn((limits.combined?.let(::CombinedRunScope) ?: kotlin.coroutines.EmptyCoroutineContext) + (onToolResult?.let(::ToolReceiptObserver) ?: kotlin.coroutines.EmptyCoroutineContext))
 
     private suspend fun kotlinx.coroutines.flow.FlowCollector<AgentRunEvent>.executeLoop(
         session: AgentProviderSession,
@@ -452,7 +452,7 @@ class AgentRunner(
             executedResults += results
             batch.zip(results).forEach { (call, result) ->
                 healthCatalog?.recordObservation(call.name, result)
-                onToolResult(call, result)
+                onToolResult?.invoke(call, result)
                 emit(AgentRunEvent.ToolFinished(call, result))
             }
         }
@@ -782,7 +782,7 @@ class AgentRunner(
 
         calls.zip(allResults).forEach { (call, result) ->
             if (call.callId !in publishedCallIds) {
-                onToolResult(call, result)
+                onToolResult?.invoke(call, result)
                 emit(AgentRunEvent.ToolFinished(call, result))
             }
         }
@@ -968,7 +968,7 @@ class AgentRunner(
 
                 is ProviderEvent.ToolResult -> {
                     val receipt = AgentContractValidation.receipt(event.call.callId, event.result)
-                    onToolResult(event.call, receipt)
+                    onToolResult?.invoke(event.call, receipt)
                     emit(AgentRunEvent.ToolFinished(event.call, ToolObservationRetention.bound(receipt)))
                 }
 
@@ -1166,7 +1166,7 @@ class AgentRunner(
                 tool.execute(call.callId, call.arguments)
             }
             val receipt = AgentContractValidation.receipt(call.callId, result)
-            onToolResult(call, receipt)
+            onToolResult?.invoke(call, receipt)
             ToolObservationRetention.bound(if (tool.managesExecutionBudget) receipt else receipt.copy(content = boundContent(receipt.content)))
         } catch (error: CancellationException) {
             throw error

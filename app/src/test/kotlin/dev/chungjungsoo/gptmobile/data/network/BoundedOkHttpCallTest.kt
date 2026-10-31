@@ -7,6 +7,7 @@ import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.runBlocking
 import okhttp3.Call
 import okhttp3.Callback
+import okhttp3.OkHttpClient
 import okhttp3.Protocol
 import okhttp3.Request
 import okhttp3.Response
@@ -21,7 +22,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class BoundedOkHttpCallTest {
-    private class PendingCall : Call {
+    private class PendingCall : Call by OkHttpClient().newCall(Request.Builder().url("https://example.org/").build()) {
         var callback: Callback? = null
         var cancelled = false
         override fun request(): Request = Request.Builder().url("https://example.org/").build()

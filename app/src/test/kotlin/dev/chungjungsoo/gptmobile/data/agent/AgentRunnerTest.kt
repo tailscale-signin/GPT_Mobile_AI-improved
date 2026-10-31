@@ -37,7 +37,7 @@ class AgentRunnerTest {
                     emit(ProviderEvent.Completed)
                 }
             },
-            listOf(tool("github_read") { id, _ -> AgentToolResult(id, ToolResultContent.Text(complete), false) })
+            listOf(ToolExecutionBudget(AgentRunLimits(githubTask = true)).bind(tool("github_read") { id, _ -> AgentToolResult(id, ToolResultContent.Text(complete), false) }))
         ).toList()
         assertTrue(events.any { it is AgentRunEvent.Provider && it.event is ProviderEvent.TextDelta })
         assertEquals(complete, observed)

@@ -4,6 +4,7 @@ import dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -17,6 +18,25 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubToolBudgetTest {
+    @Test fun privateReviewReceivesTheOriginalReceiptBeforeSharedBudgetTruncation() = runTest {
+        val original = "source line\n".repeat(10000) + "Important finding at the end"
+        val evidence = dev.chungjungsoo.gptmobile.data.github.GitHubReviewEvidence()
+        val tool = ToolExecutionBudget(AgentRunLimits(githubTask = true)).bind(object : AgentTool {
+            override val definition = AgentToolDefinition("github_read", "", JsonObject(emptyMap()))
+            override suspend fun execute(callId: String, arguments: JsonObject) = AgentToolResult(callId, ToolResultContent.Text(original), false)
+        })
+        val args = buildJsonObject { put("path", "source.txt") }
+        val delivered = withContext(ToolReceiptObserver(evidence::observe)) { tool.execute("read", args) }
+        assertFalse(delivered.content.toString().contains("Important finding at the end"))
+        val receipt = Json.parseToJsonElement(evidence.snapshot().single()).jsonObject
+        assertEquals(JsonPrimitive(original), receipt["result"])
+        assertEquals(args, receipt["arguments"])
+        assertEquals(JsonPrimitive("github_read"), receipt["tool"])
+        // Later delivery/replay excerpts must never overwrite the checked execution receipt.
+        evidence.observe(ProviderEvent.ToolCall("read", "github_read", args), delivered)
+        assertEquals(JsonPrimitive(original), Json.parseToJsonElement(evidence.snapshot().single()).jsonObject["result"])
+    }
+
     @Test fun missingWritePathsGetSpecificRepairWithoutDispatchAndValidCorrectionCanProceed() = runTest {
         var dispatched = 0
         val tool = ToolExecutionBudget(AgentRunLimits(githubTask = true, maxToolCalls = 1)).bind(object : AgentTool {

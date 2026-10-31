@@ -4665,7 +4665,7 @@ class ChatRepositoryImpl(
             },
             healthCatalog = catalog,
             retryUndispatchedBudgetFailures = retryUndispatchedBudgetFailures,
-            onToolResult = { call, result -> reviewEvidence?.observe(call, result) }
+            onToolResult = reviewEvidence?.let { it::observe }
         ).run(advertisedSession, executableTools, dynamicTools = { effectiveTools.flatMap { it.dynamicTools?.invoke().orEmpty() }.map { it.tool } }, selectDefinitions = { definitions -> catalog?.selected(definitions) ?: definitions })
         streamAgentEvents(agentEvents, platform, runId, resolvedTools.size, trace, chatToolConfig?.combined != null, resolvedOutputCap, dispatchAuthority, githubChat = chatToolConfig?.github != null).collect { send(it) }
     }

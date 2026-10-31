@@ -194,6 +194,7 @@ class ToolExecutionBudget(
                     // A receipt with another call ID cannot establish this call's outcome,
                     // even if that unrelated receipt claims it was not dispatched.
                     val result = AgentContractValidation.receipt(callId, observed)
+                    currentCoroutineContext()[ToolReceiptObserver]?.observe?.invoke(ProviderEvent.ToolCall(callId, tool.definition.name, arguments), result)
                     return result.also { raw ->
                         combinedResult = raw
                         if (!raw.dispatched) {

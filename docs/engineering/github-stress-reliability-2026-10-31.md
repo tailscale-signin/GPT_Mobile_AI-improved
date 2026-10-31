@@ -280,3 +280,23 @@ entry point now provision explicitly before Gradle; verified cache hits perform
 no network I/O. The workflow policy rejects missing or late provisioning on
 manual SDK and physical-device jobs, including cross-job false positives.
 The host validation suite now contains 276 tests.
+
+Review follow-up from `d52e8a16004e004e9a90e0e4f66250766176fee8`: the shared
+tool-budget layer also compacts observations, before the runner sees them. A
+run-scoped receipt observer now captures validated execution results ahead of
+that layer; the runner still supplies restored and admission-failure receipts.
+Regression tests send a 110 KiB result through the real shared budget and runner
+and assert the final finding remains available for private review. Ordinary
+chats retain their existing bounded delivery without a review recorder.
+
+Focused JaCoCo measurement (selected actual production sources with inert host
+fixtures, not whole-app coverage): review gate 94.4% lines, decision persistence
+100%, GitHub backup preferences 100%, inference admission 83.0%, fair native lock
+93.1%, native handle lifecycle 88.5%, bounded batch workers 100%. Full Android
+coverage and device performance remain separate measurements.
+
+The GenieX CI variant compiled production code but rejected the HTTP cancellation
+test double after OkHttp added event-listener and typed-tag members. The test now
+delegates unused interface members to a real, undispatched Call while controlling
+headers, cancellation and body callbacks explicitly. No test request reaches the
+network. This is checked against the repository's pinned OkHttp 5.5.0 bytes.

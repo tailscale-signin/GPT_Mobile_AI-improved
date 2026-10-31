@@ -114,6 +114,7 @@
     "docs/architecture/repository-index.json",
     "docs/engineering/github-reliability-delivery.md",
     "docs/engineering/github-tool-contracts-2026-10-30.md",
+    "docs/repairs/2026-10-21-geniex-packaging-ci.md",
     "docs/ui-baselines/README.md",
     "release-scope.json",
     "scripts/android_pipeline.py",

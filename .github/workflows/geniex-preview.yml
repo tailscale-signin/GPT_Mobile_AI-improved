@@ -94,8 +94,10 @@ jobs:
           # Match native-memory-smoke.yml: release compiler/KSP/R8 analysis
           # memory before ApkFlinger allocates its packaging buffers.
           python3 scripts/build_metrics.py --label geniex-shrinker --output build/geniex-validation/shrinker-metrics.json -- python3 scripts/gradle_retry.py -- -PgeniexRuntime=true -PnativeMemorySmoke=true :app:minifyNativeSmokeWithR8 --no-daemon --max-workers=1 --console=plain --info --stacktrace --profile '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -Dfile.encoding=UTF-8' 2>&1 | tee build/geniex-validation/shrinker.log
-      # ApkFlinger uses the common pool, independently of --max-workers. Serialize
-      # native-library compression so simultaneous byte buffers cannot exhaust the heap.
+      # ApkFlinger uses the common pool, independently of --max-workers. Keep the
+      # pool bounded, but retain two workers: a single common-pool worker left the
+      # completed shrinker blocked in packageNativeSmoke for the full 90-minute
+      # allowance on run 41180689148.
       # This phase can legitimately outlast compilation on a cold runner; the previous
       # 25- and 45-minute bounds terminated Gradle during active packaging without an
       # error after AAPT2 had completed. Keep this as one bounded, independently
@@ -106,7 +108,29 @@ jobs:
         run: |
           set -o pipefail
           mkdir -p build/geniex-validation
-          python3 scripts/build_metrics.py --label geniex-package --output build/geniex-validation/package-metrics.json -- python3 scripts/gradle_retry.py -- -PgeniexRuntime=true -PnativeMemorySmoke=true :app:assembleNativeSmoke --no-daemon --max-workers=1 --console=plain --info --stacktrace --profile '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -Djava.util.concurrent.ForkJoinPool.common.parallelism=1 -XX:+UseG1GC -Dfile.encoding=UTF-8' 2>&1 | tee build/geniex-validation/package.log
+          (
+            sleep 900
+            diagnostics=build/geniex-validation/package-watchdog.log
+            {
+              echo "GenieX packaging is still active after 15 minutes."
+              date -u '+captured_at=%Y-%m-%dT%H:%M:%SZ'
+              ps -eo pid=,ppid=,stat=,etime=,%cpu=,%mem=,rss=,comm= --sort=-%cpu | head -n 80
+              while read -r pid; do
+                [[ "$pid" =~ ^[0-9]+$ ]] || continue
+                echo "--- Gradle daemon $pid heap ---"
+                timeout 15s jcmd "$pid" GC.heap_info || true
+                echo "--- Gradle daemon $pid threads ---"
+                timeout 30s jcmd "$pid" Thread.print -l || true
+              done < <(jcmd -l | awk '/GradleDaemon/ {print $1}' | tail -n 2)
+            } > "$diagnostics" 2>&1
+          ) &
+          watchdog_pid=$!
+          cleanup_watchdog() {
+            kill "$watchdog_pid" 2>/dev/null || true
+            wait "$watchdog_pid" 2>/dev/null || true
+          }
+          trap cleanup_watchdog EXIT
+          python3 scripts/build_metrics.py --label geniex-package --output build/geniex-validation/package-metrics.json -- python3 scripts/gradle_retry.py -- -PgeniexRuntime=true -PnativeMemorySmoke=true :app:assembleNativeSmoke --no-daemon --max-workers=1 --console=plain --info --stacktrace --profile '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -Djava.util.concurrent.ForkJoinPool.common.parallelism=2 -XX:+UseG1GC -Dfile.encoding=UTF-8' 2>&1 | tee build/geniex-validation/package.log
       - name: Audit minified GenieX native stack
         run: |
           python3 scripts/check_local_runtime_apk.py --native-stack geniex app/build/outputs/apk/nativeSmoke/*.apk

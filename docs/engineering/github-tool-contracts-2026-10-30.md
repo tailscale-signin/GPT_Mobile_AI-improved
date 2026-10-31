@@ -393,3 +393,15 @@ Final consistency review: restored legacy receipts carrying an unknown-outcome
 code are normalized as errors, matching fresh receipts. Authorization categories
 include revocation and unauthorized codes; an unclassified tool failure no longer
 invents a provider outage. Both cases have focused behavior regressions.
+
+Exact-head hosted validation on `e6fccf9b4eb3ed02d7e5b0cb7f05ec51866f7d86`
+passed Required verification, Kotlin formatting, CodeQL, diagnostic audit, review
+APK, real-JNI/native memory smoke, and API 34/API 36 acceptance. GenieX run
+`41180689148` passed compilation, isolated tests, debug assembly and R8, then
+produced no output after AAPT2 shutdown in `packageNativeSmoke` and exhausted the
+full 90-minute packaging bound. Its retained log contains no OOM or build error.
+The follow-up keeps the 4 GiB heap and one Gradle worker while raising only
+ApkFlinger's separately bounded common pool from one to two workers. A one-shot
+15-minute watchdog captures process, heap and thread evidence for another slow
+attempt without changing the timeout or audit requirements. Thirteen delivery
+tests and all 269 canonical fast checks pass; fresh hosted validation is required.

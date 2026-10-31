@@ -27,6 +27,17 @@ def write_png(path, color, width=1, filter_mode=0):
 
 
 class PipelineTest(unittest.TestCase):
+    def test_geniex_packaging_has_bounded_parallelism_and_stall_evidence(self):
+        workflow = (Path(__file__).resolve().parents[2] / '.github/workflows/geniex-preview.yml').read_text()
+        package = workflow.split('- name: Package the minified GenieX APK in a fresh process', 1)[1]
+        package = package.split('- name: Audit minified GenieX native stack', 1)[0]
+        self.assertIn('timeout-minutes: 90', package)
+        self.assertIn('ForkJoinPool.common.parallelism=2', package)
+        self.assertNotIn('ForkJoinPool.common.parallelism=1', package)
+        self.assertIn('sleep 900', package)
+        self.assertIn('jcmd "$pid" GC.heap_info', package)
+        self.assertIn('jcmd "$pid" Thread.print -l', package)
+
     def test_incomplete_build_artifacts_do_not_mask_the_original_command_failure(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

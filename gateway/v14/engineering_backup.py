@@ -1,6 +1,7 @@
 """Password-encrypted offline backup. Restore into a NEW directory, then start the gateway."""
 import argparse
 import base64
+from contextlib import closing
 import getpass
 import json
 import os
@@ -26,7 +27,7 @@ def backup(database, destination, password):
     database, destination = Path(database).absolute(), Path(destination)
     if not database.is_file() or database.is_symlink():
         raise ValueError('Select an existing gateway database')
-    with sqlite3.connect(database.as_uri() + '?mode=ro', uri=True) as source, sqlite3.connect(':memory:') as snapshot:
+    with closing(sqlite3.connect(database.as_uri() + '?mode=ro', uri=True)) as source, closing(sqlite3.connect(':memory:')) as snapshot:
         source.backup(snapshot)
         if snapshot.execute('PRAGMA quick_check').fetchone()[0] != 'ok':
             raise ValueError('Database integrity check failed')
@@ -67,7 +68,7 @@ def restore(archive, directory, password):
     binary, key = base64.b64decode(payload['database'], validate=True), base64.b64decode(payload['engineering_key'], validate=True)
     if len(binary) > LIMIT or len(key) != 32:
         raise ValueError('Invalid backup contents')
-    with sqlite3.connect(':memory:') as test:
+    with closing(sqlite3.connect(':memory:')) as test:
         test.deserialize(binary)
         if test.execute('PRAGMA quick_check').fetchone()[0] != 'ok':
             raise ValueError('Restored database integrity check failed')

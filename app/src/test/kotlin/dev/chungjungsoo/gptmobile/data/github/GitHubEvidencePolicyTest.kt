@@ -24,6 +24,18 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubEvidencePolicyTest {
+    @Test fun nativeAdapterAndStagedCommitUseTheSameEvidenceEpoch() = runBlocking {
+        val book = GitHubEvidenceBook("binding", "owner/repo", "main", setOf("github__native", "github_commit__native"), { 1000 })
+        book.observe(ProviderEvent.ToolCall("read", "github__native", json("""{"action":"get_commit_status_summary"}""")), AgentToolResult("read", ToolResultContent.Json(json("""{"count":3}""")), false, dispatched = true))
+        val id = book.snapshot().first.keys.single()
+        val claim = json("""{"receipt_id":"$id","pointer":"/count","value":3}""")
+        assertEquals(JsonPrimitive("VERIFIED"), GitHubEvidencePolicy.verify(claim, book.snapshot().first, 1000, 0)["status"])
+        book.observe(ProviderEvent.ToolCall("commit", "github_commit__native", json("""{"action":"commit","branch":"main","stage_id":"stage","message":"Fix","expected_head_sha":"${"a".repeat(40)}"}""")), AgentToolResult("commit", ToolResultContent.Json(json("""{"status":"committed"}""")), false, dispatched = true))
+        val (receipts, epoch) = book.snapshot()
+        assertEquals(1L, epoch)
+        assertEquals(JsonPrimitive("STALE"), GitHubEvidencePolicy.verify(claim, receipts, 1000, epoch)["status"])
+    }
+
     @Test fun memoryScopeSeparatesPermissionsProfilesBranchesAndRepositories() {
         val base = GitHubEngineeringMemoryPolicy.scope("connection", 1, "profile", "Owner/Repo", "main")
         assertEquals(base, GitHubEngineeringMemoryPolicy.scope("connection", 1, "profile", "owner/repo", "main"))

@@ -64,7 +64,8 @@ class EngineeringMemoryTests(unittest.TestCase):
     def test_key_loss_fails_closed(self):
         self.memory.remember(self.job, 'code', {'content': 'private'})
         key = self.database.with_suffix('.engineering.key')
-        self.assertEqual(0o600, key.stat().st_mode & 0o777)
+        if os.name != 'nt':
+            self.assertEqual(0o600, key.stat().st_mode & 0o777)
         key.unlink()
         with self.assertRaises(ValueError):
             self.memory.recall(self.job, 'private')

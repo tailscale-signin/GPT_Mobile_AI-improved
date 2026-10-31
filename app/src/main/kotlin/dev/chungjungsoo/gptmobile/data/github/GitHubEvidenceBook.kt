@@ -52,21 +52,16 @@ internal class GitHubEvidenceBook(
             is ToolResultContent.Text -> runCatching { Json.parseToJsonElement(body.text) }.getOrElse { JsonPrimitive(body.text) }
             is ToolResultContent.ResourceLinks -> JsonNull
         }
-        val operation = GitHubOperationTool.operationName(call.name)
+        val operation = GitHubOperationTool.operationName(call.name) ?: "github".takeIf { call.name.substringBefore("__") == it }
         val trusted = call.name in trustedTools && operation != null
         val owner = (call.arguments["owner"] as? JsonPrimitive)?.contentOrNull
         val repo = (call.arguments["repo"] as? JsonPrimitive)?.contentOrNull
         val selected = owner == null && repo == null || "$owner/$repo".equals(repository, true)
         val targetBranch = (call.arguments["ref"] as? JsonPrimitive)?.contentOrNull ?: (call.arguments["branch"] as? JsonPrimitive)?.contentOrNull ?: branch
         val immutable = GitHubOperationTool.immutableRead(call.name, call.arguments)
-        val action = (call.arguments["action"] as? JsonPrimitive)?.contentOrNull.orEmpty()
-        val mutation = operation in setOf("github_write", "github_commit") ||
-            operation == "github_pr" &&
-            action in setOf("create", "update", "merge", "comment", "reply", "review") ||
-            operation == "github_ci" &&
-            action in setOf("dispatch", "rerun", "rerun_all", "rerun_failed_jobs", "cancel") ||
-            operation == "github_release" &&
-            action in setOf("publish", "create_tag")
+        val native = if (operation == "github") call.arguments else GitHubOperationTool.nativeArguments(call.name, call.arguments)
+        val action = (native?.get("action") as? JsonPrimitive)?.contentOrNull.orEmpty()
+        val mutation = action in GitHubWorkspaceClient.writeActions - "stage_patch" || action in setOf("create_branch", "update_file", "create_pull_request", "create_issue_comment", "dispatch_workflow", "rerun_workflow", "rerun_failed_jobs", "cancel_workflow")
         val root = (content as? JsonObject)?.let { (it["data"] as? JsonObject) ?: it }
         val head = (
             listOf("head_sha", "commit_sha").firstNotNullOfOrNull { (root?.get(it) as? JsonPrimitive)?.contentOrNull }

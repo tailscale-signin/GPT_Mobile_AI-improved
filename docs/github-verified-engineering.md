@@ -150,14 +150,16 @@ It covers exact values/types, wrong SHAs, stale epochs/timestamps, failed or for
 sources, provenance-free cache replay, prompt text and unmeasured benchmarks.
 Additional behavior tests exercise private draft withholding, permission revocation,
 storage failure, run/jobs recovery, pinned patches, missing CI/acceptance evidence,
-encrypted restart, scope separation and password backup/restore. Host JVM harnesses
+encrypted restart, scope separation, native-adapter/commit invalidation and password
+backup/restore. SQLite backup handles are closed explicitly for Windows; POSIX file
+mode assertions run only on platforms that implement those modes. Host JVM harnesses
 use Android boundary fixtures; they do not qualify Compose, Room, Keystore, native
 embeddings or a physical Android device. Run canonical Android CI before merging.
 
 Observed validation on this branch:
 
 - `bash scripts/validate-local.sh fast`: passed, including 276 host policy/script tests.
-- Android host JVM regression harness: 336 tests passed against actual runner, GitHub client/session/facade and verifier code; Android boundary adapters were fixtures.
+- Android host JVM regression harness: 337 tests passed against actual runner, GitHub client/session/facade and verifier code; Android boundary adapters were fixtures.
 - `python3 gateway/check_gateway.py`: 262 Python tests and seven browser bootstrap tests passed.
 - Authentication/broker suite: 15 tests passed during the full validation attempt.
 - ktlint 1.3.1: changed Kotlin sources formatted and checked.

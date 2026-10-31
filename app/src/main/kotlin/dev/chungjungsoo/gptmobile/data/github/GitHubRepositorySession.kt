@@ -767,6 +767,7 @@ internal class GitHubRepositorySession(
         require(staged.s("owner").equals(context.owner, true) && staged.s("repo").equals(context.repo, true))
         staged["commit_receipt"]?.let { return it }
         staged["engineering_review_receipt"]?.let { return it }
+        require(args.s("expected_head_sha") == staged.s("expected_head_sha")) { "The supplied expected_head_sha differs from the staged patch; refresh the branch and stage evidence before committing." }
         require(staged.s("expected_head_sha") == context.commitSha) { "Task revision changed; restage the reviewed patch." }
         val result = commit(root(context.owner, context.repo), JsonObject(args + mapOf("files" to staged.getValue("files"), "expected_head_sha" to staged.getValue("expected_head_sha"))))
         val receiptKey = if (result.jsonObject["sha"] != null) "commit_receipt" else "engineering_review_receipt"

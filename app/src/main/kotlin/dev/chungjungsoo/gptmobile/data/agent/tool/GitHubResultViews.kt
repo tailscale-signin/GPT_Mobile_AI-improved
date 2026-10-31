@@ -21,12 +21,13 @@ internal class GitHubResultViews(
     init {
         require(pageBytes >= 2048)
     }
-    private data class Entry(val scope: String, val operation: String, val fragments: List<JsonObject>, val metadata: JsonObject, val continuations: List<JsonObject>, val expires: Long, val bytes: Int, val originalError: Boolean)
+    private data class Entry(val scope: String, val operation: String, val fragments: List<JsonObject>, val metadata: JsonObject, val continuations: List<JsonObject>, val expires: Long, val bytes: Int, val originalError: Boolean, val pageBytes: Int)
     private val entries = LinkedHashMap<String, Entry>()
     private var retainedBytes = 0
 
     @Synchronized
-    fun present(scope: String, operation: String, modelName: String, upstream: AgentToolResult, request: JsonObject = JsonObject(emptyMap())): AgentToolResult {
+    fun present(scope: String, operation: String, modelName: String, upstream: AgentToolResult, request: JsonObject = JsonObject(emptyMap()), maxPageBytes: Int = pageBytes): AgentToolResult {
+        val pageBytes = minOf(this.pageBytes, maxPageBytes.coerceAtLeast(2048))
         val value = when (val content = upstream.content) {
             is ToolResultContent.Json -> content.value
             is ToolResultContent.Text -> runCatching { Json.parseToJsonElement(content.text) }.getOrNull() ?: JsonPrimitive(content.text)
@@ -56,7 +57,7 @@ internal class GitHubResultViews(
             }
         )
         val fragments = mutableListOf<JsonObject>()
-        fragment("", body, fragments)
+        fragment("", body, fragments, pageBytes)
         // Continuations too large for the final envelope remain exact, retrievable records.
         // They are appended only after every data fragment; no remote record is discarded.
         val lastContinuations = if (continuations.toString().toByteArray().size <= pageBytes / 4) continuations else emptyList()
@@ -76,7 +77,7 @@ internal class GitHubResultViews(
         if (retained > capacityBytes) return overflow(upstream, operation, value)
         while (entries.isNotEmpty() && (entries.size >= 32 || retainedBytes + retained > capacityBytes)) evict(entries.keys.first())
         val id = UUID.randomUUID().toString()
-        val entry = Entry(scope, operation, fragments, metadata, lastContinuations, now() + 10 * 60_000, retained.toInt(), upstream.isError)
+        val entry = Entry(scope, operation, fragments, metadata, lastContinuations, now() + 10 * 60_000, retained.toInt(), upstream.isError, pageBytes)
         entries[id] = entry
         retainedBytes += entry.bytes
         return upstream.copy(content = ToolResultContent.Json(page(id, entry, 0, modelName)), retainedContent = upstream.retainedContent ?: upstream.content)
@@ -101,6 +102,7 @@ internal class GitHubResultViews(
     }
 
     private fun page(id: String, entry: Entry, offset: Int, modelName: String): JsonObject {
+        val pageBytes = entry.pageBytes
         val records = mutableListOf<JsonObject>()
         var next = offset
         fun envelope(): JsonObject = buildJsonObject {
@@ -187,11 +189,21 @@ internal class GitHubResultViews(
             continuation["expected_head"]?.let { values["expected_head_sha"] = it }
         }
         if (operation == "github_issue") {
-            val action = mapOf("issue_context" to "context", "issue_comments" to "comments", "issue_events" to "history")[(continuation["action"] as? JsonPrimitive)?.content]
+            val action = mapOf("list_issues" to "list", "issue_context" to "context", "issue_comments" to "comments", "issue_events" to "history")[(continuation["action"] as? JsonPrimitive)?.content]
             if (action != null) values["action"] = JsonPrimitive(action)
         }
         if (operation == "github_release") {
             val action = mapOf("tag_context" to "tag", "list_tags" to "tags", "list_releases" to "list", "get_release_by_tag" to "detail")[(continuation["action"] as? JsonPrimitive)?.content]
+            if (action != null) values["action"] = JsonPrimitive(action)
+        }
+        if (operation == "github_ci") {
+            val action = mapOf(
+                "workflow_catalog" to "definitions", "list_workflows" to "workflows",
+                "list_workflow_runs" to "runs", "get_workflow_run" to "run",
+                "list_workflow_jobs" to "jobs", "get_workflow_job" to "job",
+                "list_workflow_artifacts" to "artifacts", "get_job_logs" to "logs",
+                "ci_failure_digest" to "failure", "get_commit_status_summary" to "status"
+            )[(continuation["action"] as? JsonPrimitive)?.content]
             if (action != null) values["action"] = JsonPrimitive(action)
         }
         if (operation == "github_read" && "path" in continuation) {
@@ -210,7 +222,7 @@ internal class GitHubResultViews(
         return JsonObject(values.filterKeys { it in properties })
     }
 
-    private fun fragment(pointer: String, value: JsonElement, target: MutableList<JsonObject>) {
+    private fun fragment(pointer: String, value: JsonElement, target: MutableList<JsonObject>, pageBytes: Int) {
         if (value.toString().toByteArray().size <= minOf(2000, pageBytes / 4)) {
             target += buildJsonObject {
                 put("pointer", pointer)
@@ -219,8 +231,8 @@ internal class GitHubResultViews(
             return
         }
         when (value) {
-            is JsonObject -> value.forEach { (key, child) -> fragment(pointer + "/" + key.replace("~", "~0").replace("/", "~1"), child, target) }
-            is JsonArray -> value.forEachIndexed { index, child -> fragment("$pointer/$index", child, target) }
+            is JsonObject -> value.forEach { (key, child) -> fragment(pointer + "/" + key.replace("~", "~0").replace("/", "~1"), child, target, pageBytes) }
+            is JsonArray -> value.forEachIndexed { index, child -> fragment("$pointer/$index", child, target, pageBytes) }
             is JsonPrimitive -> {
                 val text = value.content
                 var start = 0

@@ -163,6 +163,7 @@ class GitHubToolTest {
                 requests += "${request.method.value} ${request.url.encodedPath}"
                 when (request.url.encodedPath) {
                     "/repos/owner/repo/actions/workflows" -> respond("""{"total_count":31,"workflows":[{"id":1,"path":".github/workflows/build.yml"}]}""")
+                    "/repos/owner/repo/actions/workflows/build.yml" -> respond("""{"id":1,"state":"active"}""")
                     "/repos/owner/repo/actions/workflows/build.yml/dispatches" -> respond("", HttpStatusCode.NoContent)
                     else -> error("Unexpected workflow path")
                 }
@@ -350,6 +351,10 @@ class GitHubToolTest {
     fun `workflow dispatch carries user ref and typed inputs and accepts no-content response`() = runTest {
         val client = HttpClient(
             MockEngine { request ->
+                if (request.method == io.ktor.http.HttpMethod.Get) {
+                    assertEquals("/repos/owner/repo/actions/workflows/build.yml", request.url.encodedPath)
+                    return@MockEngine respond("""{"id":1,"state":"active"}""")
+                }
                 assertEquals("/repos/owner/repo/actions/workflows/build.yml/dispatches", request.url.encodedPath)
                 assertEquals(io.ktor.http.HttpMethod.Post, request.method)
                 assertEquals("Bearer user-token", request.headers[HttpHeaders.Authorization])
@@ -482,7 +487,9 @@ class GitHubToolTest {
             assertFalse(result.isError)
             val text = (result.content as ToolResultContent.Text).text
             assertTrue(text.length < 33_000)
-            assertTrue(text.contains("preview limited"))
+            val data = Json.parseToJsonElement(text).jsonObject
+            assertEquals("true", data["has_more"].toString())
+            assertEquals("24576", data["continuation"]!!.jsonObject["start_offset"]!!.jsonPrimitive.content)
         } finally {
             client.close()
         }

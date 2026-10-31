@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.github
 
 import kotlinx.coroutines.CancellationException
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
@@ -14,7 +15,7 @@ import kotlinx.serialization.json.put
 /** Bounded, explicit follow-ups. A failed policy read is unknown, never permission. */
 internal class GitHubInspection(private val get: suspend (String) -> JsonElement) {
     companion object {
-        val actions = setOf("branch_context", "branch_dependencies", "repository_details", "issue_context", "issue_comments", "issue_events", "search_commits", "tag_context", "pull_request_reviews")
+        val actions = setOf("branch_context", "branch_dependencies", "repository_details", "list_issues", "issue_context", "issue_comments", "issue_events", "search_commits", "tag_context", "pull_request_reviews")
     }
 
     private fun JsonObject.s(key: String) = (get(key) as? JsonPrimitive)?.content.orEmpty()
@@ -38,6 +39,22 @@ internal class GitHubInspection(private val get: suspend (String) -> JsonElement
         fun required(key: String) = args.s(key).also { require(it.isNotBlank()) { "$key is required." } }
         fun number(key: String) = required(key).toInt().also { require(it > 0) }
         return when (action) {
+            "list_issues" -> {
+                val state = args.s("state").ifBlank { "open" }
+                require(state in setOf("open", "closed", "all")) { "Issue state must be open, closed or all." }
+                val raw = get("$root/issues?state=$state&sort=created&direction=asc&per_page=30&page=$page").jsonArray
+                val issues = raw.filter { "pull_request" !in it.jsonObject }
+                buildJsonObject {
+                    put("items", JsonArray(issues))
+                    put("page", page)
+                    put("returned", issues.size)
+                    put("upstream_returned", raw.size)
+                    put("pull_requests_excluded", raw.size - issues.size)
+                    put("has_more", raw.size == 30)
+                    put("empty", issues.isEmpty())
+                    if (raw.size == 30) put("continuation", JsonObject(args + mapOf("action" to JsonPrimitive(action), "page" to JsonPrimitive(page + 1))))
+                }
+            }
             "repository_details" -> buildJsonObject {
                 put("repository", get(root))
                 put("languages", observed("$root/languages"))

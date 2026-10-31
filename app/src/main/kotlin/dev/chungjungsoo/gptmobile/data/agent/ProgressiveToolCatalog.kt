@@ -51,6 +51,14 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
                             put("items", buildJsonObject { put("type", "string") })
                         }
                     )
+                    put(
+                        "inventory_cursor",
+                        buildJsonObject {
+                            put("type", "integer")
+                            put("minimum", 0)
+                            put("maximum", Int.MAX_VALUE)
+                        }
+                    )
                 }
             )
             put("additionalProperties", false)
@@ -82,7 +90,10 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
     override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
         val query = (arguments["query"] as? JsonPrimitive)?.content.orEmpty().take(4096)
         val names = (arguments["names"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.content }.take(12).map(::resolveName)
-        if (acquireCold != null) {
+        if ("inventory_cursor" in arguments && (query.isNotBlank() || names.isNotEmpty())) {
+            return AgentToolResult(callId, ToolResultContent.Text("Use inventory_cursor alone to continue the tool inventory; query/names start a separate discovery."), true, errorCode = "INVALID_ARGUMENTS", dispatched = false)
+        }
+        if (acquireCold != null && "inventory_cursor" !in arguments) {
             // Cache only successful acquisitions. Offline or empty catalogs remain retryable.
             // Never suspend while holding the selection monitor.
             val key = query.trim().lowercase(java.util.Locale.ROOT) + "|" + names.sorted().joinToString("|")
@@ -104,6 +115,11 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
         val query = (arguments["query"] as? JsonPrimitive)?.content.orEmpty().take(4096)
         val names = (arguments["names"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.content }.take(12).map(::resolveName)
         if (query.isBlank() && names.isEmpty()) {
+            val inventory = candidates.values.sortedBy { it.name }
+            val cursor = (arguments["inventory_cursor"] as? JsonPrimitive)?.content?.toIntOrNull() ?: 0
+            if (cursor !in 0..inventory.size) return@synchronized AgentToolResult(callId, ToolResultContent.Text("Invalid inventory_cursor; use the exact continuation_call from the preceding inventory page."), true, errorCode = "INVALID_ARGUMENTS", dispatched = false)
+            val items = inventory.drop(cursor).take(12)
+            val next = cursor + items.size
             return@synchronized AgentToolResult(
                 callId,
                 ToolResultContent.Json(
@@ -111,10 +127,10 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
                         put(
                             "authorized_inventory",
                             JsonArray(
-                                candidates.values.map { tool ->
+                                items.map { tool ->
                                     buildJsonObject {
                                         put("name", tool.name)
-                                        put("description", tool.description.take(240))
+                                        put("description", tool.description.take(160))
                                         put("currently_advertised", tool.name in active)
                                         put("operational_status", "not tested")
                                         omissions[tool.name]?.let { put("omission_reason", it) }
@@ -122,6 +138,18 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
                                 }
                             )
                         )
+                        put("authorized_tool_count", inventory.size)
+                        put("returned", items.size)
+                        put("has_more", next < inventory.size)
+                        if (next < inventory.size) {
+                            put(
+                                "continuation_call",
+                                buildJsonObject {
+                                    put("tool", NAME)
+                                    put("arguments", buildJsonObject { put("inventory_cursor", next) })
+                                }
+                            )
+                        }
                         put("permissions_changed", false)
                         put("note", "Configured tools outside this authorized catalog are not executable. Reachability and successful execution require a separate check.")
                     }

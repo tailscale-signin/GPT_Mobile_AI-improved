@@ -36,7 +36,11 @@ internal class GitHubCiLogReader(private val client: HttpClient, private val tok
                     scheduler.recordRequest()
                     val response = network.get(url) {
                         header(HttpHeaders.UserAgent, "GPT-Mobile-App")
-                        if (host == "api.github.com" && token.isNotBlank()) header(HttpHeaders.Authorization, "Bearer $token")
+                        if (host == "api.github.com") {
+                            header(HttpHeaders.Accept, "application/vnd.github+json")
+                            header("X-GitHub-Api-Version", GitHubWorkspaceClient.API_VERSION)
+                            if (token.isNotBlank()) header(HttpHeaders.Authorization, "Bearer $token")
+                        }
                     }
                     val channel = response.bodyAsChannel()
                     try {

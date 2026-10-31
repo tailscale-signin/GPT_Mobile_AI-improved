@@ -2895,6 +2895,7 @@ class ChatRepositoryImpl(
         // produce a grounded response.
         val reservedFinalToolCalls = if (localResearch) 1 else 0
         val toolBudgetLimits = customRunner.limits.copy(
+            githubTask = chatToolConfig?.github != null || toolPreparation.resolvedTools.any { it.isGitHubTool() } && dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.taskTools(input.taskRecovery?.originalRequest.orEmpty() + "\n" + input.effectiveUserMessages.lastOrNull()?.content.orEmpty()).isNotEmpty(),
             maxToolCalls = if (chatToolConfig?.combined != null) effectiveMaxTools else minOf(effectiveMaxTools, 64),
             combined = chatToolConfig?.combined,
             maxReplayTokens = minOf(customRunner.limits.maxReplayTokens, 4096),
@@ -2907,7 +2908,7 @@ class ChatRepositoryImpl(
             "Run limits · configuredCalls=${toolBudgetLimits.maxToolCalls} · " +
                 "executableCalls=${ToolBudgetPolicy.executionLimit(toolBudgetLimits)} · " +
                 "reservedCalls=${toolBudgetLimits.finalResponseToolCallReserve} · " +
-                "resultBytes=${toolBudgetLimits.maxToolOutputBytes} · localResearch=$localResearch"
+                "resultBytes=${toolBudgetLimits.maxToolOutputBytes} · githubPagedResults=${toolBudgetLimits.githubTask} · localResearch=$localResearch"
         )
         val toolBudget = ToolExecutionBudget(toolBudgetLimits, statistics = toolStatistics.takeIf { researchPersistent }, statisticsProfile = platform.uid, statisticsRoot = chatToolConfig?.combined?.rootBudgetId ?: runId, combined = chatToolConfig?.combined, combinedBudgets = combinedBudgets)
         val explicitResearchSelection = chatToolConfig?.research
@@ -4586,7 +4587,7 @@ class ChatRepositoryImpl(
         val agentEvents = dev.chungjungsoo.gptmobile.data.agent.AgentRunner(
             customRunner.limits.copy(
                 contextTokens = limits.contextTokens,
-                githubTask = chatToolConfig?.github != null,
+                githubTask = chatToolConfig?.github != null || effectiveTools.any { it.isGitHubTool() } && isGitHubTask(latestUser?.content.orEmpty()),
                 runTimeoutMillis = minOf(customRunner.limits.runTimeoutMillis, budgetSettings.generationTimeoutMinutes.takeIf { it > 0 }?.toLong()?.times(60_000) ?: Long.MAX_VALUE),
                 maxGeneratedCharacters = budgetSettings.responseCharacterLimit,
                 detectRepetition = budgetSettings.repetitionGuardEnabled,

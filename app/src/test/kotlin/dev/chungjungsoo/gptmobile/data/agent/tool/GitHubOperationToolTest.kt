@@ -168,7 +168,7 @@ class GitHubOperationToolTest {
         val backend = Backend().also { it.body = JsonPrimitive("captured ".repeat(2000)) }
         val views = GitHubResultViews(now = { clock }, pageBytes = 2048)
         val read = GitHubOperationTool("github_read", backend, "task-A", views = views)
-        val cursor = continuation(result(read.execute("first", buildJsonObject {})))
+        val cursor = continuation(result(read.execute("first", args("""{"evidence_id":"E1"}"""))))
         clock = 9 * 60_000L
         assertFalse(read.execute("active", cursor).isError)
         clock = 18 * 60_000L
@@ -202,9 +202,9 @@ class GitHubOperationToolTest {
         val backend = Backend().also { it.body = JsonPrimitive("captured ".repeat(500)) }
         val views = GitHubResultViews(pageBytes = 2048)
         val read = GitHubOperationTool("github_read", backend, "task-A", views = views)
-        val cursors = (1..32).map { continuation(result(read.execute("source-$it", buildJsonObject {}))) }
+        val cursors = (1..32).map { continuation(result(read.execute("source-$it", args("""{"evidence_id":"E$it"}""")))) }
         assertFalse(read.execute("touch-first", cursors.first()).isError)
-        read.execute("new-source", buildJsonObject {})
+        read.execute("new-source", args("""{"evidence_id":"E33"}"""))
         assertFalse(read.execute("first-still-present", cursors.first()).isError)
         assertEquals("SAVED_VIEW_UNAVAILABLE", read.execute("second-evicted", cursors[1]).errorCode)
         assertEquals(33, backend.calls.size)
@@ -531,7 +531,7 @@ class GitHubOperationToolTest {
         val backend = Backend().also { it.body = JsonPrimitive("captured ".repeat(2000)) }
         val views = GitHubResultViews(pageBytes = 2048)
         val read = GitHubOperationTool("github_read", backend, "task-A", views = views)
-        val cursor = continuation(result(read.execute("first", buildJsonObject {})))
+        val cursor = continuation(result(read.execute("first", args("""{"evidence_id":"E1"}"""))))
         val foreign = GitHubOperationTool("github_read", backend, "task-B", views = views).execute("foreign", cursor)
         val other = GitHubOperationTool("github_search", backend, "task-A", views = views).execute("other", cursor)
         assertEquals("SAVED_VIEW_UNAVAILABLE", foreign.errorCode)
@@ -585,6 +585,9 @@ class GitHubOperationToolTest {
                 buildJsonObject {
                     put("stage_id", "S1")
                     put("commit_sha", sha)
+                    put("expected_head_sha", sha)
+                    put("branch", "work")
+                    put("message", "Apply staged changes")
                 }
             )
         }

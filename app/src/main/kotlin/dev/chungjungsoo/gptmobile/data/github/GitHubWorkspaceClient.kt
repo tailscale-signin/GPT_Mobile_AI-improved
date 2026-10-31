@@ -819,8 +819,9 @@ class GitHubWorkspaceClient(
                 buildJsonObject { put("id", requireNotNull(pr["node_id"])) }
             ).also { check(it["errors"]?.jsonArray.isNullOrEmpty()) { "GitHub did not confirm ready-for-review." } }
             "submit_pull_request_review" -> {
-                val event = args["event"]?.jsonPrimitive?.content.orEmpty()
+                val event = args["event"]?.jsonPrimitive?.content.orEmpty().ifBlank { "COMMENT" }
                 require(event in setOf("APPROVE", "REQUEST_CHANGES", "COMMENT")) { "event must be APPROVE, REQUEST_CHANGES or COMMENT." }
+                require(event == "APPROVE" || body.isNotBlank()) { "A COMMENT or REQUEST_CHANGES review requires body text." }
                 request(
                     "$root/pulls/$number/reviews",
                     HttpMethod.Post,
@@ -1424,16 +1425,36 @@ class GitHubWorkspaceClient(
         var job: JsonObject? = null
         if (jobId == null) {
             require(runId != null && runId > 0)
-            for (page in 1..10) {
-                val jobs = request("$root/actions/runs/$runId/jobs?per_page=100&page=$page").jsonObject["jobs"]?.jsonArray.orEmpty()
+            val startPage = args["page"]?.jsonPrimitive?.content?.toIntOrNull() ?: 1
+            require(startPage in 1..1000) { "Page must be between 1 and 1000." }
+            var more = false
+            var nextPage = startPage
+            for (page in startPage..minOf(startPage + 9, 1000)) {
+                val payload = request("$root/actions/runs/$runId/jobs?per_page=100&page=$page").jsonObject
+                val jobs = requireNotNull(payload["jobs"] as? JsonArray) { "CI jobs response is missing the jobs collection." }
+                val total = payload["total_count"]?.jsonPrimitive?.content?.toLongOrNull()
+                more = if (total != null) page * 100L < total else jobs.size == 100
+                nextPage = page + 1
                 job = jobs.map { it.jsonObject }.firstOrNull { it["conclusion"]?.jsonPrimitive?.content in setOf("failure", "timed_out", "action_required") }
-                if (job != null || jobs.size < 100) break
+                if (job != null || !more) break
             }
             jobId = job?.get("id")?.jsonPrimitive?.content?.toLongOrNull()
             if (jobId == null) {
                 return buildJsonObject {
-                    put("status", "failed_job_unavailable")
+                    put("status", if (more) "job_search_incomplete" else "failed_job_unavailable")
                     put("run_id", runId)
+                    put("job_search_complete", !more)
+                    put("has_more", more && nextPage <= 1000)
+                    if (more && nextPage <= 1000) {
+                        put(
+                            "continuation",
+                            buildJsonObject {
+                                put("action", "ci_failure_digest")
+                                put("run_id", runId)
+                                put("page", nextPage)
+                            }
+                        )
+                    }
                 }
             }
         }
@@ -1482,6 +1503,15 @@ class GitHubWorkspaceClient(
             put("log_bytes", log.bytes)
             put("log_complete", log.complete)
             put("truncated", !log.complete)
+            put(
+                "excerpted",
+                selected.size < lines.size ||
+                    excerpts.size < selected.size ||
+                    excerpts.any { row ->
+                        val index = row["line"]!!.jsonPrimitive.content.toInt() - 1
+                        row["text"]!!.jsonPrimitive.content.length < lines[index].length
+                    }
+            )
             put("total_lines", lines.size)
             put("failure_lines", JsonArray(positions.map { JsonPrimitive(it + 1) }))
             put("first_failure", allPositions.firstOrNull()?.let { JsonPrimitive(lines[it].take(1200)) } ?: JsonNull)
@@ -1506,6 +1536,16 @@ class GitHubWorkspaceClient(
                     put("run_id", runId)
                     put("expected_head_sha", head)
                     put("start_line", positions.lastOrNull()?.plus(1) ?: 1)
+                }
+            )
+            put(
+                "log_continuation",
+                buildJsonObject {
+                    put("action", "get_job_logs")
+                    put("job_id", jobId)
+                    put("run_id", runId)
+                    put("expected_head_sha", head)
+                    put("start_line", 1)
                 }
             )
         }

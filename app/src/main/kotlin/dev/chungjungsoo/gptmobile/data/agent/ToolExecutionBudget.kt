@@ -34,7 +34,11 @@ class ToolExecutionBudget(
     private val permits = Semaphore(limits.maxConcurrentTools.coerceAtLeast(1))
     private val executionLimit = ToolBudgetPolicy.executionLimit(limits)
     private val combinedMode = combined != null || limits.combined != null
-    private val separateResultAllowance = limits.researchAcquisition || combinedMode
+
+    // GitHub delivers bounded saved-view pages; a cumulative excerpt allowance
+    // must not stop traversal after three 8 KiB pages. The call ceiling,
+    // per-result bound and provider replay/context admission still apply.
+    private val separateResultAllowance = limits.researchAcquisition || combinedMode || limits.githubTask && limits.maxToolOutputBytes > 0
 
     fun canExecute(): Boolean = (separateResultAllowance || remainingBytes.get() > 0) && !callBudgetIsExhausted()
     fun remainingOutputBytes(): Int = if (separateResultAllowance) limits.maxToolOutputBytes.coerceAtLeast(0) else remainingBytes.get().coerceAtLeast(0)
@@ -373,7 +377,7 @@ class ToolExecutionBudget(
             is ToolResultContent.Json -> value.value.toString()
             is ToolResultContent.ResourceLinks -> value.links.joinToString("\n") { it.uri }
         }
-        val checkpoint = if (completed.incrementAndGet() % ToolProgressTracker.INTERVAL == 0) {
+        val checkpoint = if (completed.incrementAndGet() % ToolProgressTracker.INTERVAL == 0 && GitHubReplayRecovery.envelope(result.content) == null) {
             "\n\n" + ToolProgressTracker.SUMMARY_INSTRUCTION
         } else {
             ""

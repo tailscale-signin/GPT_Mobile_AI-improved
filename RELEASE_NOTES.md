@@ -1,14 +1,16 @@
-# GPT Mobile AI 0.9.64.0 (build 132)
+# GPT Mobile AI 0.9.65.0 (build 133)
 
-GitHub chat now retains authorized tools and completed results while recovering from transient provider failures, malformed tool frames and empty or output-limited rounds. Recovery respects cooldowns and stops with a concrete blocker after bounded attempts. Successful mutations are not automatically replayed.
+GitHub work now retains pinned source context and scoped receipts through interruption, detects incompatible tool contracts, and keeps uncertain writes from being silently repeated.
 
-- Retry transient GitHub read failures; preserve cancellation, authentication and mutation safeguards.
-- Add paginated PR listing, resolve the GitHub pull-request alias, and prioritize explicitly requested authorized schemas, including staging and memory.
-- Request strong supported reasoning and increase the automatic output allowance within context and profile caps. The requested effort cannot guarantee a model's actual computation.
-- Keep literal LAN, Tailscale, IPv6 and localhost endpoints usable during unrelated public DNS cooldowns.
-- Include the already merged compact approvals and viewport corrections, meaning-aware memory improvements, adaptive answer typography, gateway reliability, CI observability, and GitHub workflow discovery improvements from PRs #760–#763.
+## Changes
 
-## Qualification and remaining limitations
+- Preserve GitHub source context, immutable staged patches, scoped operation receipts and uncertain write claims across recovery.
+- Validate local tool contract versions and call/result identities across direct, budgeted, delegated and provider-owned execution; prevent repeating uncertain mutations.
+- Expand bounded pinned search, multi-file and history context, inventory caching, action relationships and version-bound tool health observations.
+- Restore Android checkpoint backup files, report recovery dispositions and an optional checkpoint-load objective, and reduce diagnostic log rendering work.
+- Validate GenieX cold packaging and artifact identity, collect CI metrics, prepare ancestry-checked forward rollback proposals, and repair Android emulator home selection.
+
+## Qualification and limitations
 
 - Unified Reliability v2 is not complete; its remaining acceptance cases are not represented as passed.
 - Physical-device performance and a production baseline profile remain unqualified until measured on a reference device.
@@ -24,52 +26,11 @@ GitHub chat now retains authorized tools and completed results while recovering 
 - Live Android sign-in, authenticated App-token read/write and refresh acceptance remain unverified and are not claimed as qualified by this release.
 - Browser PKCE requires its broker and verified HTTPS callback deployment.
 - The October 30 GitHub chat diagnostic scenarios still require live provider and physical-device replay; automated tests do not establish private server availability or uninterrupted execution through permanent outages.
+- The 34 pending operations in the original report cannot be verified from the supplied log; no device-side watch was registered from this environment.
+- Checkpoint loading objectives and local recovery counters do not establish end-to-end recovery time or remote transaction reconciliation.
+- Tool health reports version-bound observations from actual executions; it does not actively probe services or guarantee present availability.
+- The diagnostics log rendering changes require physical-device frame measurements to quantify their effect. Forward rollback proposals require a reviewed new release; published tags are never rewritten.
 
 ## Validation
 
-Local repository checks and 65 focused Kotlin regression tests passed with infrastructure boundary stubs. Full Android unit tests, lint, emulator acceptance and security checks are required in CI for this candidate. Publication is gated on successful checks for the exact merged commit, release signing, and artifact identity verification. Host test results do not qualify a physical device.
-
-# GPT Mobile AI 0.9.63.0 (build 131)
-
-- Clean up GitHub Workspace with outlined buttons, icons, a solid background and collapsed operation history.
-- Automatically authorize scoped workspace repository tools. Present one commit popup with its branch and file-change bullets; approval validates the immutable patch and continues the saved task.
-- Follow an explicitly selected task branch when preparing a commit, and move the complete chat-deletion operation to IO.
-- Refresh device-issued GitHub App credentials directly with their registered client, retaining account binding and uncertain-rotation protection. Browser-issued credentials retain the confidential PKCE broker.
-- Select GitHub App installations and their permitted repositories. Preserve saved edits during selection and combine installation Contents permission with repository membership when displaying edit access.
-- Default to the registered public GitHub App client and open its installation page only for matching-client connections. Custom clients retain isolated installation settings.
-
-PR #752 was merged concurrently; its signed release failed scope validation and was not published. This follow-up preserves the concurrent diagnostic repairs and explicitly includes their synthesis document in the release scope. GitHub App registration and the selected-repository installation are complete, with a real public release client ID and approved Workflows write permission. Live Android sign-in, authenticated App-token read/write and refresh acceptance remain unverified and are not claimed as qualified by this release. Publication is gated on the exact-commit release validations and signing checks. Browser PKCE requires its broker and verified HTTPS callback deployment.
-
-Unified Reliability v2 is not complete. Physical-device frame timing, external provider/token permissions, private server/MCP reachability and ASUS firmware limitations remain unqualified. See the diagnostic disposition table and GitHub sign-in implementation document.
-
-# GPT Mobile AI 0.9.62.0 (130)
-
-This scoped maintenance release includes the current main branch and the October 28 diagnostic repairs from PR #751. The earlier chat-first GitHub workspace and reliability integration are described in PR #750; this maintenance audit does not requalify every inherited feature.
-
-## Fixes
-
-- Defer GitHub draft directory resolution to IO; run repository hashing and lexical indexing on Dispatchers.Default.
-- Validate compact GitHub search inputs and require an explicit comparison base before dispatch.
-- Retain the low-yield continuation guard when providers omit usage; preserve the earlier immediate empty-restored-continuation stop.
-- Resolve chat deletion and temporary-chat cleanup directories on Dispatchers.IO.
-- Regression coverage for encrypted draft persistence, search/comparison validation, missing-usage continuation bounds and cleanup dispatcher ownership.
-
-- Separate cold compilation and full-suite execution deadlines in PR/GenieX validation; retain all tests and the coverage gate.
-
-## Qualification and remaining limitations
-
-- Unified Reliability v2 is not complete; its remaining acceptance cases are not represented as passed.
-- Physical-device performance and a production baseline profile remain unqualified until measured on a reference device.
-- Android GPU qualification requires compatible-device receipts for actual offload, prefill, decode, repeated requests and cancel/recovery; host tests do not establish those results.
-- Repeated physical NPU/GPU schema completion, reduced warm inspection latency, calibrated memory admission and Full-run performance remain device acceptance gates. The app does not infer runtime-effective settings from requested or SDK-applied values.
-- Qwen demo backend availability and live authenticated LLM7 generation are not established by deterministic tests.
-- Optional runtime extraction remains a staged packaging project. The measured payload inventory and APK code compression do not extract plugins or remove native runtimes.
-- Exact recovered France/Portugal wording and report fields, and the earlier benchmark export round-trip, do not establish a complete conversation replay; the later 16-run benchmark export remains unavailable.
-- Live GitHub sign-in, private-repository access and credential-refresh acceptance remain unverified in this diagnostic audit; public browser sign-in requires the registered broker deployment.
-- The October 28 export still requires physical-device performance replay; fixing the identified filesDir calls does not establish that the 748 ms frame stalls are resolved.
-- Provider HTTP 403s, Android-app GitHub token endpoint permissions, private local/MCP server reachability and the remote MCP discovery timeout require service, credential or device-route verification.
-- The ASUS framework finalizer SecurityException is outside application control. Host and emulator checks do not qualify the affected vendor firmware.
-
-## Validation
-
-Publication is gated on the exact candidate's Android build, post-merge correctness, CodeQL and Android acceptance workflows, followed by signed-release validation and artifact identity checks. Check the linked workflow results for the final commit; pending checks are not passing evidence. Original device/provider scenarios must still be replayed to close the disclosed limitations.
+Release publication requires successful exact-commit Android build, post-merge correctness, CodeQL and emulator acceptance, followed by signed-release tests, native/APK audits, artifact identity and signing-certificate continuity. PR qualification also includes GenieX cold packaging. Pending checks are not passing evidence. Host regressions cover receipt identity, interruption and concurrency, backup restoration, bounded search, dependency metadata, health observations, rollback ancestry and artifact tampering. Host checks do not qualify external services or a physical device.

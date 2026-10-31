@@ -13,8 +13,11 @@ Tool batches retain the first saved receipt, reject conflicting call identities,
 and prevent a new batch or finalization from discarding queued calls. In-flight
 writes still return an unknown outcome until reconciled; no retry is inferred.
 The runner rejects a tool result associated with the wrong call ID and preserves
-the uncertainty that the requested operation may have executed. Existing schema
-and GitHub action validation remain the input contracts.
+the uncertainty that the requested operation may have executed. Schema and GitHub action validation remain the input contracts. The shared local
+invocation contract declares major/minor compatibility, validates replay identity
+pairing, and normalizes direct, delegated and provider-owned receipts. A new major
+requires an adapter before dispatch. Structured error categories preserve unknown
+outcomes and never imply that a mutation is retryable.
 Checkpoint schema version 1 reads older unversioned data and rejects unknown
 versions. Recovery context reports counts and age only for its latest 32 retained
 execution records. Context load duration is not an end-to-end recovery time;
@@ -136,3 +139,10 @@ stops admission of new write claims while existing receipts and source reads
 remain available. Fences contain no source or credential payload and are removed
 only by explicit app-data erasure, rather than ordinary cache pruning. This is
 single-process serialized state, not a distributed transaction coordinator.
+
+The completion review adds mutex-consistent recovery disposition counts and
+AtomicFile backup restoration, as well as version-bound health counters and
+stale-observation markers. Rollback proposals now validate ancestry and require
+an explicit mainline for merge commits; qualification remains a new forward
+release. Neither a configured checkpoint objective nor an observed health counter
+establishes an end-to-end recovery guarantee.

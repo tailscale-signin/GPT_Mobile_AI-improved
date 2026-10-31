@@ -342,3 +342,49 @@ Fifteen behavior/fixture regressions cover selection, launch verification,
 Android's metadata-prefixed brief output, resume, bounded discovery and failures
 without mutation replay. Fresh API 34
 and API 36 validation on the published revision remains required.
+
+## Completion review and release preparation (October 31)
+
+Repository: `tailscale-signin/GPT_Mobile_AI-improved`. Base: `main` at
+`020b351bc3b98bd30cbdbb3443a332e8f5bd88f9`. Working branch:
+`fix/github-tool-contracts-2026-10-30`. Review began at
+`6d823d67f532afbf4d9119288b00ba0724d99f38` after fast-forwarding the two
+Android acceptance setup repairs. Intent: complete the contract, recovery and
+release follow-up, qualify the final PR revision, and publish a forward scoped
+release only after its exact-commit gates pass. The application engineering ledger
+is device-owned and unavailable here; this repository ledger preserves the review
+checkpoint without claiming that device work or external receipts were reconciled.
+
+- Local tool invocation contracts now declare a major/minor version. A new major
+  requires an adapter; an additive minor remains compatible. Direct and budgeted
+  tools reject unsupported majors before dispatch. Discovery records this version
+  separately from schema fingerprints and invalidates observations when it changes.
+- Tool exchanges require unique matching call/result identities before provider
+  replay. Direct, delegated and provider-owned receipt normalization preserves
+  unknown outcomes. Direct mutation exceptions/timeouts remain unknown and block
+  an identical new invocation in that run; known read failures remain distinct.
+- Checkpoint loading honors Android AtomicFile backup recovery and rejects corrupt
+  identities. Snapshots report completed, failed, uncertain, queued and rejected
+  counts under the same mutex. Concurrent-instance and backup-only regressions
+  verify that restored writes are not sent again. These counts describe the local
+  journal, not the unobserved 34 operations mentioned in the original report.
+- Tool health distinguishes unknown outcomes from failures, reports run-local
+  counters and observation age, and marks observations older than five minutes
+  stale. It does not perform unsolicited external probes or infer live availability.
+- Forward rollback proposals bind to exact observed ancestry. Merge reversions
+  require an explicit parent; stale/unrelated/root targets fail. Tests apply the
+  proposed command to real disposable Git histories and verify that later changes
+  survive. No tag or published artifact is rewritten.
+- Release preparation advances to 0.9.65.0/build 133 with an exact changed-file
+  scope and carried-forward limitations. Publication uses the existing signed
+  workflow and must still pass Android, security, native, signer-continuity and
+  exact-source checks. Pending jobs are not successful evidence.
+
+Local completion validation: 319 focused Kotlin/JUnit regressions passed using
+the existing host harness (Android integration substitutes, including AtomicFile;
+three Android/resolver integration tests excluded), 268 canonical fast checks
+passed, changed Kotlin passed ktlint 1.3.1, architecture index and whitespace
+checks passed, and the complete working-tree release scope validated. The new
+backup test is also part of the real Robolectric suite in hosted CI. The original
+queued-work fixture now uses a different target from the uncertain write, because
+an identical operation must remain blocked even under a new call ID.

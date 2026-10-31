@@ -159,8 +159,9 @@ class GitHubReplayRecoveryTest {
         val exchanges = listOf(AgentToolExchange(listOf(call), listOf(AgentToolResult(call.callId, content, false))))
         val recovered = requireNotNull(GitHubReplayRecovery.repeated(call.copy(callId = "repeat"), exchanges, "Repeat limit"))
         assertFalse(recovered.dispatched)
-        assertTrue(recovered.isError)
-        assertEquals("REPEAT_SUPPRESSED", recovered.errorCode)
+        assertFalse(recovered.isError)
+        assertTrue(recovered.sharedResult)
+        assertEquals(null, recovered.errorCode)
         assertEquals(next, (recovered.content as ToolResultContent.Json).value.let { it as JsonObject }["continuation_call"])
         assertEquals(null, GitHubReplayRecovery.repeated(call.copy(arguments = buildJsonObject { put("path", "B.kt") }), exchanges, "Repeat limit"))
     }

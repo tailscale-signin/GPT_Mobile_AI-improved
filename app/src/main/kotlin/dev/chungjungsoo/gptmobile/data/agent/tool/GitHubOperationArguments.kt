@@ -41,6 +41,11 @@ internal object GitHubOperationArguments {
                 if ("expected_head_sha" in args && !text("expected_head_sha").matches(Regex("[a-fA-F0-9]{40}"))) errors += "expected_head_sha must be the current 40-character branch head"
             }
             "github_stage_patch" -> {
+                if ("restore_stage_id" in args) {
+                    required("restore_stage_id")
+                    if (listOf("edits", "target_file", "search_snippet", "replacement_snippet").any { it in args }) errors += "restore_stage_id cannot be combined with new edits"
+                    return errors
+                }
                 val compound = listOf("target_file", "search_snippet", "replacement_snippet").any { it in args }
                 if (compound) {
                     required("target_file", "search_snippet")

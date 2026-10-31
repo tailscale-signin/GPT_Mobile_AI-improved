@@ -37,7 +37,7 @@ class GitHubSearchEnhancementTest {
         )
         assertNotEquals(options.json(), options.copy(caseSensitive = true).json())
         for (args in listOf(
-            buildJsonObject { put("context_lines", 6) },
+            buildJsonObject { put("context_lines", 21) },
             buildJsonObject {
                 put("min_lines", 20)
                 put("max_lines", 10)
@@ -54,6 +54,31 @@ class GitHubSearchEnhancementTest {
 
     @Test fun fuzzyScanningCooperatesWithCancellationBudget() {
         assertTrue(runCatching { GitHubSearchOptions(fuzzy = true).score("anotherIdentifier", "target") { error("cancelled") } }.isFailure)
+    }
+
+    @Test fun patternsUseOrderedLiteralsAndRespectCancellationAndLimits() {
+        val options = GitHubSearchOptions.from(
+            buildJsonObject {
+                put("mode", "patterns")
+                put("query", "fun *(")
+                put("context_lines", 20)
+            }
+        )
+        assertEquals(1.0, options.score("fun render(value: Int)", "fun *("), 0.001)
+        assertEquals(0.0, options.score("( value fun ", "fun *("), 0.001)
+        assertEquals(1.0, options.score("a[anything", "a[*"), 0.001)
+        assertTrue(runCatching { options.score("fun render()", "fun *(") { error("cancelled") } }.isFailure)
+        assertTrue(
+            runCatching {
+                GitHubSearchOptions.from(
+                    buildJsonObject {
+                        put("mode", "patterns")
+                        put("query", "***")
+                    }
+                )
+            }.isFailure
+        )
+        assertNotEquals(options.json(), options.copy(pattern = false).json())
     }
 
     @Test fun contextCarriesExactExcerptAndLabelsHeuristicScope() {

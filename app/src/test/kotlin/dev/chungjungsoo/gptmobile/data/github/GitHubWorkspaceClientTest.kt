@@ -24,6 +24,71 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubWorkspaceClientTest {
+    @Test fun identicalBodiesWithNewReviewedPreconditionsAreDistinctMutations() = runTest {
+        var updated = "first"
+        var writes = 0
+        val http = HttpClient(
+            MockEngine { request ->
+                if (request.method == HttpMethod.Patch) {
+                    writes++
+                    respond("""{"id":1,"number":1,"updated_at":"$updated"}""")
+                } else {
+                    respond("""{"id":1,"number":1,"updated_at":"$updated"}""")
+                }
+            }
+        )
+        try {
+            val client = GitHubWorkspaceClient("token", http, conditionalReads = false)
+            suspend fun update() = client.execute(
+                "update_issue",
+                buildJsonObject {
+                    put("owner", "o")
+                    put("repo", "r")
+                    put("issue_number", 1)
+                    put("expected_updated_at", updated)
+                    put("title", "same reviewed title")
+                }
+            )
+            update()
+            update()
+            assertEquals(1, writes)
+            updated = "second"
+            update()
+            assertEquals(2, writes)
+        } finally {
+            http.close()
+        }
+    }
+
+    @Test fun uncertainIssueMutationCannotReturnAFakeCompletedReceipt() = runTest {
+        var writes = 0
+        val http = HttpClient(
+            MockEngine { request ->
+                if (request.method == HttpMethod.Patch) {
+                    writes++
+                    throw java.io.IOException("Lost response")
+                }
+                respond("""{"id":1,"updated_at":"first"}""")
+            }
+        )
+        try {
+            val client = GitHubWorkspaceClient("token", http, conditionalReads = false)
+            val args = buildJsonObject {
+                put("owner", "o")
+                put("repo", "r")
+                put("issue_number", 1)
+                put("expected_updated_at", "first")
+                put("title", "reviewed")
+            }
+            assertTrue(runCatching { client.execute("update_issue", args) }.isFailure)
+            val recovery = runCatching { client.execute("update_issue", args) }.exceptionOrNull()
+            assertTrue(recovery is GitHubExecutionBlocked)
+            assertEquals(1, writes)
+        } finally {
+            http.close()
+        }
+    }
+
     @Test fun appDiscoveryUsesUserInstallationEndpointsAndPreservesPaginationAndPermissions() = runTest {
         val requests = mutableListOf<String>()
         val http = HttpClient(

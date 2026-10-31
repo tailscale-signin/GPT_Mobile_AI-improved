@@ -52,7 +52,7 @@ internal object GitHubReplayRecovery {
                 buildJsonObject {
                     put("schema", "github.repeat.v1")
                     put("operation", operation)
-                    put("status", "REPEAT_SUPPRESSED")
+                    put("status", "ALREADY_COMPLETED")
                     put("message", message)
                     put("previous_call_id", previous.callId)
                     original?.get("continuation_call")?.let { put("continuation_call", it) }
@@ -62,9 +62,9 @@ internal object GitHubReplayRecovery {
                     put("recovery", "Use the exact continuation_call above when present. The earlier call already completed; no action was repeated. Use a different unread range for additional source evidence.")
                 }
             ),
-            isError = true,
+            isError = false,
             dispatched = false,
-            errorCode = "REPEAT_SUPPRESSED"
+            sharedResult = true
         )
     }
 }

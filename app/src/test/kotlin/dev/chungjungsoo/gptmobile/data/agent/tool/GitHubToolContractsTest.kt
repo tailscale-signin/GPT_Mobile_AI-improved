@@ -338,6 +338,62 @@ class GitHubToolContractsTest {
         }
     }
 
+    @Test fun ciLostAcknowledgementCannotPublishAgainAcrossToolSessions() = runTest {
+        val store = dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore()
+        var posts = 0
+        val http = HttpClient(
+            MockEngine { request ->
+                if (request.method == HttpMethod.Post) {
+                    posts++
+                    throw java.io.IOException("Acknowledgement lost after dispatch")
+                }
+                respond("""{"id":8,"state":"active"}""")
+            }
+        )
+        try {
+            val input = call("dispatch_workflow", """, "workflow_id":"build.yml", "ref":"work"""")
+            val first = GitHubTool("token", http, stateStore = store).execute("first", input)
+            assertTrue(first.isError)
+            val second = GitHubTool("token", http, stateStore = store).execute("recover", input)
+            assertTrue(second.isError)
+            assertEquals("RECONCILE_REQUIRED", second.errorCode)
+            assertFalse(second.dispatched)
+            assertEquals(1, posts)
+        } finally {
+            http.close()
+        }
+    }
+
+    @Test fun ciReceiptIsReusedAndANewObservedRunAttemptHasItsOwnIdentity() = runTest {
+        var posts = 0
+        var attempt = 1
+        val http = HttpClient(
+            MockEngine { request ->
+                if (request.method == HttpMethod.Post) {
+                    posts++
+                    respond("", HttpStatusCode.Created)
+                } else {
+                    respond("""{"id":7,"run_attempt":$attempt,"status":"completed","conclusion":"failure"}""")
+                }
+            }
+        )
+        try {
+            val tool = GitHubTool("token", http)
+            val input = call("rerun_failed_jobs", """, "run_id":7""")
+            assertFalse(tool.execute("first", input).isError)
+            val replay = tool.execute("replay", input)
+            assertFalse(replay.isError)
+            assertTrue(replay.sharedResult)
+            assertFalse(replay.dispatched)
+            assertEquals(1, posts)
+            attempt = 2
+            assertFalse(tool.execute("requested-new-attempt", input).isError)
+            assertEquals(2, posts)
+        } finally {
+            http.close()
+        }
+    }
+
     private class Backend : AgentTool {
         override val definition = AgentToolDefinition("github", "Test backend", JsonObject(emptyMap()))
         val calls = mutableListOf<JsonObject>()

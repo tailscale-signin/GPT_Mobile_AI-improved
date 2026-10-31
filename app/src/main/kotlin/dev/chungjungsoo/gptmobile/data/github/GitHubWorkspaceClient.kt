@@ -15,6 +15,10 @@ import io.ktor.http.isSuccess
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 import java.util.Base64
+import kotlin.coroutines.AbstractCoroutineContextElement
+import kotlin.coroutines.CoroutineContext
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -54,7 +58,7 @@ class GitHubWorkspaceClient(
     private val taskId: String = "",
     private val persistentState: Boolean = true,
     stateStore: GitHubRepositoryStateStore? = null,
-    private val scheduler: GitHubRequestScheduler = GitHubSessionCaches.schedulerForCredential(token),
+    private val scheduler: GitHubRequestScheduler = if (client === sharedClient) GitHubSessionCaches.schedulerForCredential(token) else GitHubRequestScheduler(),
     private val requestPriority: Int = 0,
     private val authenticationRejected: java.util.concurrent.atomic.AtomicBoolean = if (client === sharedClient) GitHubSessionCaches.authenticationForCredential(token) else java.util.concurrent.atomic.AtomicBoolean(),
     private val engineeringPrepare: (suspend (String, JsonObject) -> JsonObject)? = null
@@ -109,8 +113,13 @@ class GitHubWorkspaceClient(
     private val repositorySession by lazy {
         GitHubRepositorySession(GitHubRepositoryStateStore.digest(token), connectionUid, conversationId, taskId, repositoryState, { request(it) }, { root, args -> commitFiles(root, args) })
     }
+    private val executionJournal by lazy {
+        GitHubExecutionJournal(repositoryState, listOf(GitHubRepositoryStateStore.digest(token), connectionUid, conversationId, taskId).joinToString(":"))
+    }
     suspend fun taskSnapshot(): GitHubTaskSnapshot? = repositorySession.snapshot()
     suspend fun taskContext(): GitHubRepositoryContext? = repositorySession.context()
+    internal suspend fun trackExecution(action: String, arguments: JsonObject, block: suspend () -> JsonElement): JsonObject =
+        executionJournal.run(action, arguments, block).jsonObject
 
     private data class ReleaseDispatchReceipt(val root: String, val workflowId: String, val sourceSha: String, val tagName: String, val correlationId: String)
 
@@ -118,7 +127,15 @@ class GitHubWorkspaceClient(
     // Restart/eviction loses that proof and must produce UNKNOWN, never a recent-run guess.
     private val dispatchedRuns = java.util.concurrent.ConcurrentHashMap<Long, ReleaseDispatchReceipt>()
 
-    suspend fun execute(action: String, args: JsonObject): JsonElement {
+    private class Invocation(val identity: String) : AbstractCoroutineContextElement(Key) {
+        companion object Key : CoroutineContext.Key<Invocation>
+    }
+
+    suspend fun execute(action: String, args: JsonObject): JsonElement = withContext(
+        Invocation(GitHubRepositoryStateStore.digest("$action|${GitHubExecutionJournal.canonical(args)}"))
+    ) { executeInvocation(action, args) }
+
+    private suspend fun executeInvocation(action: String, args: JsonObject): JsonElement {
         fun field(name: String): String = args[name]?.jsonPrimitive?.content.orEmpty()
         fun required(name: String): String = field(name).also { require(it.isNotBlank()) { "$name is required." } }
 
@@ -175,6 +192,31 @@ class GitHubWorkspaceClient(
                 buildJsonObject {
                     result.forEach { (key, value) -> put(key, value) }
                     put("commit_sha", pinned)
+                    val commits = items.jsonArray.map { it.jsonObject }
+                    val loaded = commits.map { it["sha"]?.jsonPrimitive?.content.orEmpty() }.toSet()
+                    put(
+                        "history_graph",
+                        buildJsonObject {
+                            put("scope", "This pinned history page; unloaded parent edges need the continuation or commit detail.")
+                            put("semantic_analysis", "Commit-message intent hints; not a proof of behavior or a complete repository graph.")
+                            put(
+                                "nodes",
+                                buildJsonArray {
+                                    commits.forEach { commit ->
+                                        val message = commit["commit"]?.jsonObject?.get("message")?.jsonPrimitive?.content.orEmpty()
+                                        add(
+                                            buildJsonObject {
+                                                put("sha", commit["sha"] ?: JsonNull)
+                                                put("parents", commit["parents"] ?: JsonArray(emptyList()))
+                                                put("intent_hints", JsonArray(listOf("fix", "test", "refactor", "release", "security", "revert").filter { word -> Regex("(?i)\\b$word\\b").containsMatchIn(message) }.map(::JsonPrimitive)))
+                                            }
+                                        )
+                                    }
+                                }
+                            )
+                            put("unloaded_parents", JsonArray(commits.flatMap { it["parents"]?.jsonArray.orEmpty() }.mapNotNull { it.jsonObject["sha"]?.jsonPrimitive?.content }.filter { it !in loaded }.distinct().map(::JsonPrimitive)))
+                        }
+                    )
                     if (result["has_more"] == JsonPrimitive(true)) {
                         put(
                             "continuation",
@@ -1623,6 +1665,28 @@ class GitHubWorkspaceClient(
         body: JsonObject? = null,
         authenticated: Boolean = false
     ): JsonElement {
+        if (method == HttpMethod.Get) return requestUntracked(path, method, body, authenticated)
+        require(token.isNotBlank()) { "A GitHub credential is required." }
+        val identity = buildJsonObject {
+            put("path", path)
+            // Two identical HTTP bodies with newly reviewed preconditions are
+            // different executions. The whole invocation is hashed, never logged.
+            put("invocation", currentCoroutineContext()[Invocation]?.identity.orEmpty())
+            body?.let { put("body", it) }
+        }
+        val result = executionJournal.run("http.${method.value}", identity) { requestUntracked(path, method, body, authenticated) }.jsonObject
+        if (result["execution"]?.jsonObject?.get("status")?.jsonPrimitive?.content != "COMPLETED") {
+            throw GitHubExecutionBlocked(result)
+        }
+        return result
+    }
+
+    private suspend fun requestUntracked(
+        path: String,
+        method: HttpMethod,
+        body: JsonObject?,
+        authenticated: Boolean
+    ): JsonElement {
         if (authenticated || method != HttpMethod.Get) require(token.isNotBlank()) { "A GitHub credential is required." }
         check(!authenticationRejected.get()) { "GitHub authentication was rejected (HTTP 401). Reconnect the GitHub account before retrying any operation." }
         val cacheKey = "${method.value}:$path"
@@ -1637,8 +1701,13 @@ class GitHubWorkspaceClient(
         }
         return GitHubReadRetry.run(readOnly = method == HttpMethod.Get) {
             scheduler.execute(if (method == HttpMethod.Get && immutablePath(path)) cacheKey else null, priority = requestPriority) {
-                check(!authenticationRejected.get()) { "GitHub authentication was rejected (HTTP 401). Reconnect the GitHub account before retrying any operation." }
-                if (path != "/rate_limit") rateLimits.requireAvailable(if (path.startsWith("/search/")) "search" else "core")
+                try {
+                    check(!authenticationRejected.get()) { "GitHub authentication was rejected (HTTP 401). Reconnect the GitHub account before retrying any operation." }
+                    if (path != "/rate_limit") rateLimits.requireAvailable(if (path.startsWith("/search/")) "search" else "core")
+                } catch (rejected: IllegalStateException) {
+                    if (method != HttpMethod.Get) throw GitHubRequestRejected(0, rejected.message ?: "Request admission failed before dispatch.")
+                    throw rejected
+                }
                 scheduler.recordRequest()
                 val response = client.request("https://api.github.com$path") {
                     this.method = method
@@ -1680,7 +1749,8 @@ class GitHubWorkspaceClient(
                         response.headers["X-Accepted-GitHub-Permissions"]?.takeIf { it.isNotBlank() }?.let { add("acceptedGitHubPermissions=$it") }
                         response.headers["X-GitHub-SSO"]?.takeIf { it.isNotBlank() }?.let { add("sso=$it") }
                     }.joinToString(" · ")
-                    error(
+                    throw GitHubRequestRejected(
+                        response.status.value,
                         "GitHub HTTP ${response.status.value}" +
                             (if (details.isBlank()) ". " else " · $details. ") +
                             (

@@ -114,6 +114,42 @@ class GitHubPersistentEvidenceTest {
         }
     }
 
+    @Test fun multiFileReadsJoinDistinctBlobsWithBoundedConcurrencyAndStableOrder() = runTest {
+        val both = CompletableDeferred<Unit>()
+        var active = 0
+        var maximum = 0
+        var reads = 0
+        val client = session(GitHubRepositoryStateStore(), request = { path ->
+            when {
+                "/commits/" in path -> commit(head, headTree)
+                "/git/trees/" in path -> tree(listOf(item("A.kt", sha(1), 30), item("B.kt", sha(2), 30)))
+                else -> {
+                    reads++
+                    active++
+                    maximum = maxOf(maximum, active)
+                    if (active == 2) both.complete(Unit)
+                    both.await()
+                    active--
+                    blob(path.substringAfterLast('/'), "fun value() = 1\nsecond line")
+                }
+            }
+        })
+        val ranges = JsonArray(
+            listOf("A.kt", "B.kt", "A.kt").map { path ->
+                buildJsonObject {
+                    put("path", path)
+                    put("start_line", 1)
+                    put("end_line", 2)
+                }
+            }
+        )
+        val result = client.execute("read_ranges", "owner", "repo", args("ranges" to ranges)).jsonObject
+        assertEquals(2, reads)
+        assertEquals(2, maximum)
+        assertEquals(listOf("A.kt", "B.kt", "A.kt"), result["items"]!!.jsonArray.map { it.jsonObject["path"]!!.jsonPrimitive.content })
+        assertEquals(head, result["context_graph"]!!.jsonObject["commit_sha"]!!.jsonPrimitive.content)
+    }
+
     @Test fun recoveryInventoriesRetainedPathsAndBlobIdentitiesWithoutRemoteReads() = runTest {
         var requests = 0
         val client = session(GitHubRepositoryStateStore(), request = { path ->
@@ -619,6 +655,34 @@ class GitHubPersistentEvidenceTest {
         assertEquals(0, writes)
     }
 
+    @Test fun immutableStageVersionsRestoreWithoutChangingRemoteState() = runTest {
+        var writes = 0
+        val store = GitHubRepositoryStateStore()
+        val fetch: suspend (String) -> JsonElement = { path ->
+            when {
+                "/commits/" in path -> commit(head, headTree)
+                "/git/trees/" in path -> tree(listOf(item("A.kt", sha(1), 30)))
+                else -> blob(sha(1), "fun answer() = 41\n")
+            }
+        }
+        val client = session(store, request = fetch, write = { _, _ ->
+            writes++
+            buildJsonObject { put("sha", old) }
+        })
+        fun patch(value: String) = args("target_file" to JsonPrimitive("A.kt"), "search_snippet" to JsonPrimitive("41"), "replacement_snippet" to JsonPrimitive(value))
+        val first = client.execute("stage_patch", "owner", "repo", patch("42")).jsonObject
+        val second = client.execute("stage_patch", "owner", "repo", patch("43")).jsonObject
+        assertNotEquals(first["stage_id"], second["stage_id"])
+        assertEquals(first["stage_id"], second["parent_stage_id"])
+        val restored = client.execute("stage_patch", "owner", "repo", args("restore_stage_id" to first.getValue("stage_id"))).jsonObject
+        assertEquals(first["stage_id"], restored["stage_id"])
+        assertEquals(first["stage_id"]!!.jsonPrimitive.content, client.snapshot()!!.stagedPatchId)
+        assertEquals(false, restored["remote_state_changed"]!!.jsonPrimitive.booleanOrNull)
+        assertEquals(0, writes)
+        client.execute("task_context", "owner", "repo", args("ref" to JsonPrimitive("other")))
+        assertTrue(runCatching { client.execute("stage_patch", "owner", "repo", args("restore_stage_id" to first.getValue("stage_id"))) }.isFailure)
+    }
+
     @Test fun stagedExactPatchPersistsOriginalBlobAndCommitsOnceAcrossRestart() = runTest {
         val dir = Files.createTempDirectory("github-stage").toFile()
         var writes = 0
@@ -657,6 +721,10 @@ class GitHubPersistentEvidenceTest {
             assertTrue(runCatching { restored.execute("commit_staged_patch", "owner", "repo", JsonObject(commitArgs + ("expected_head_sha" to JsonPrimitive(sha(8))))) }.isFailure)
             assertEquals(0, writes)
             val receipt = restored.execute("commit_staged_patch", "owner", "repo", commitArgs)
+            val restaged = restored.execute("stage_patch", "owner", "repo", args("edits" to edits)).jsonObject
+            assertEquals(staged["stage_id"], restaged["stage_id"])
+            assertTrue(restaged["committed"]!!.jsonPrimitive.booleanOrNull == true)
+            assertEquals(receipt, restaged["commit_receipt"])
             assertEquals(receipt, session(GitHubRepositoryStateStore(dir), request = fetch, write = write).execute("commit_staged_patch", "owner", "repo", commitArgs))
             assertEquals(1, writes)
             assertTrue(runCatching { session(GitHubRepositoryStateStore(dir), task = "another", request = fetch, write = write).execute("commit_staged_patch", "owner", "repo", commitArgs) }.isFailure)

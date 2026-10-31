@@ -351,7 +351,7 @@ internal class GitHubOperationTool(
                         put("minLength", 1)
                         put("maxLength", 200)
                     }
-                    properties["mode"] = choice("literal", "definitions", "references", "paths", "tests")
+                    properties["mode"] = choice("literal", "definitions", "references", "paths", "tests", "patterns")
                     properties["index_cursor"] = field("integer")
                     properties["search_id"] = field("string")
                     properties["file_extension"] = field("string")
@@ -363,7 +363,8 @@ internal class GitHubOperationTool(
                         put("minimum", 0.5)
                         put("maximum", 1.0)
                     }
-                    listOf("min_lines", "max_lines", "context_lines").forEach { properties[it] = field("integer") }
+                    listOf("min_lines", "max_lines").forEach { properties[it] = field("integer") }
+                    properties["context_lines"] = integer(0, 20)
                     properties["max_new_blobs"] = buildJsonObject {
                         put("type", "integer")
                         put("minimum", 1)
@@ -405,6 +406,7 @@ internal class GitHubOperationTool(
                 }
                 "github_stage_patch" -> {
                     listOf("target_file", "search_snippet", "replacement_snippet").forEach { properties[it] = field("string") }
+                    properties["restore_stage_id"] = field("string")
                     properties["expected_head_sha"] = field("string")
                     properties["branch"] = field("string")
                     properties["edits"] = buildJsonObject {
@@ -518,6 +520,11 @@ internal class GitHubOperationTool(
                 }
                 "github_ci" -> {
                     properties["action"] = choice("failure", "workflows", "definitions", "runs", "run", "status", "jobs", "job", "logs", "artifacts", "dispatch", "rerun", "rerun_failed_jobs", "rerun_all", "cancel")
+                    properties["execution_id"] = buildJsonObject {
+                        put("type", "string")
+                        put("maxLength", 80)
+                        put("description", "Reuse for recovery. Supply a new ID only for a separately requested execution after reconciling the previous receipt; never change it to retry a lost response.")
+                    }
                     listOf("run_id", "job_id").forEach { key ->
                         properties[key] = buildJsonObject {
                             put("type", "integer")
@@ -562,9 +569,9 @@ internal class GitHubOperationTool(
             }
             val description = when (operation) {
                 "github_context" -> "Inspect repository, branches/rules, commits, checks, evidence/stages. Changes requires base_sha."
-                "github_search" -> "Pinned literal/definitions/references/paths/tests search. Paths uses tree only; *=all. Check coverage/skips. Fuzzy matches one identifier; context is lexical."
+                "github_search" -> "Search pinned paths/code/tests/symbols. patterns: ordered literals joined by *. Fuzzy: one identifier. Inspect lexical coverage."
                 "github_read" -> "Read pinned ranges=[{path,start_line,end_line}] (1-based, <=2000 lines) or evidence_id. Use view_cursor alone for saved pages."
-                "github_stage_patch" -> "Stage an exact replacement with target_file, search_snippet and replacement_snippet, or SHA-checked edits. Reads the pinned blob and rejects ambiguous anchors. Returns preview/stage_id; no remote write. Commit on a permitted working branch using its current expected_head_sha."
+                "github_stage_patch" -> "Stage an exact replacement with target_file, search_snippet and replacement_snippet, or SHA-checked edits. Reads the pinned blob and rejects ambiguous anchors. Returns immutable version/stage_id and preserves publication receipts. Supply restore_stage_id alone to select a saved local patch at the same branch/base. Commit on a permitted working branch using its current expected_head_sha."
                 "github_commit" -> "Create a working branch, commit a validated stage_id, or delete_branch with expected_head_sha after dependency inspection. Deletion blocks selected/default/protected branches, unmerged commits, open PRs and active runs. GitHub deletion is not an atomic SHA lease."
                 "github_write" -> "Every files item requires a repository-relative path (for example app/src/main/kotlin/.../MainActivity.kt), never an absolute path or directory. Stage up to 20 UTF-8 file creations, replacements or deletions for exact user approval and one atomic commit on a working branch. Supply expected_head_sha and expected_blob_sha for existing files. Replacements require content; deletions require delete=true and no content. Never write to the default branch."
                 "github_pr" -> "Canonical pull-request tool (also known as github_pull_request). Use action=list to discover pull_number; context/comments/reviews require it. Read PR files, checks and review threads; explicitly post inline review comments, reply to review comments, update/comment/create, or merge after all checks pass. Writes require the current expected head SHA."

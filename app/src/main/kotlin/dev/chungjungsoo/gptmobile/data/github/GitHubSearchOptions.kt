@@ -17,7 +17,8 @@ internal data class GitHubSearchOptions(
     val threshold: Double = 0.8,
     val minLines: Int = 0,
     val maxLines: Int = 1_000_000,
-    val contextLines: Int = 2
+    val contextLines: Int = 2,
+    val pattern: Boolean = false
 ) {
     fun json() = buildJsonObject {
         put("path_suffix", suffix)
@@ -27,9 +28,22 @@ internal data class GitHubSearchOptions(
         put("min_lines", minLines)
         put("max_lines", maxLines)
         put("context_lines", contextLines)
+        put("pattern_match", pattern)
     }
 
     fun score(text: String, query: String, checkpoint: () -> Unit = {}): Double {
+        if (pattern) {
+            // Ordered literal segments, not a backtracking regular expression. A star
+            // spans characters on this line; matches remain inside the pinned blob.
+            var offset = 0
+            for (part in query.split('*').filter { it.isNotEmpty() }) {
+                checkpoint()
+                val found = text.indexOf(part, offset, ignoreCase = !caseSensitive)
+                if (found < 0) return 0.0
+                offset = found + part.length
+            }
+            return 1.0
+        }
         if (text.contains(query, ignoreCase = !caseSensitive)) return 1.0
         if (!fuzzy) return 0.0
         val needle = if (caseSensitive) query else query.lowercase(Locale.ROOT)
@@ -56,11 +70,16 @@ internal data class GitHubSearchOptions(
                 args["fuzzy_threshold"]?.jsonPrimitive?.doubleOrNull ?: 0.8,
                 number("min_lines", 0),
                 number("max_lines", 1_000_000),
-                number("context_lines", 2)
+                number("context_lines", 2),
+                args["mode"]?.jsonPrimitive?.content == "patterns"
             )
             require(result.threshold.isFinite() && result.threshold in 0.5..1.0) { "fuzzy_threshold must be between 0.5 and 1." }
             require(result.minLines in 0..1_000_000 && result.maxLines in maxOf(1, result.minLines)..1_000_000)
-            require(result.contextLines in 0..5 && result.suffix.length <= 200)
+            require(result.contextLines in 0..20 && result.suffix.length <= 200)
+            if (result.pattern) {
+                val query = args["query"]?.jsonPrimitive?.content.orEmpty()
+                require(!result.fuzzy && query.length in 1..200 && query.count { it == '*' } <= 16 && query.any { it != '*' && !it.isWhitespace() }) { "Pattern search accepts literal segments separated by at most 16 stars; fuzzy matching cannot be combined with patterns." }
+            }
             if (result.fuzzy) require(args["query"]?.jsonPrimitive?.content.orEmpty().matches(Regex("[A-Za-z_][A-Za-z_0-9]{1,79}"))) { "Fuzzy search accepts one identifier of 2–80 characters." }
             return result
         }

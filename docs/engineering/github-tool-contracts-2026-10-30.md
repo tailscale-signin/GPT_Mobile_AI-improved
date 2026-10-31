@@ -294,3 +294,26 @@ Final local verification of the storage revision: 289 Kotlin host regressions,
 251 canonical host tests, changed-source ktlint, architecture index, secret and
 whitespace checks passed. The earlier all-green hosted result is retained as
 evidence for `d803f00`; it does not qualify the new storage head.
+
+## Emulator boot readiness
+
+The API 34 run on storage head `7a42859ec48205745a33ce50070a4e57b2da1a9e`
+stopped before app tests: the first post-boot home resolution was not an allowlisted
+launcher. Preflight now observes home readiness read-only for at most 60 seconds,
+including subprocess timeouts, before changing any package. Only a resolved stock
+launcher can be disabled. Offline boot discovery can retry; permission failures,
+malformed components and mutation failures are not replayed. A stable unknown
+home times out with its component in retained diagnostics, rather than silently
+passing or changing the app under test. Failed setup also writes a `BLOCKED`
+artifact. Deterministic clock tests cover missing/fallback home transitions,
+offline transport, unknown components, hard budgets and permission failures.
+
+Android's [upstream FallbackHome](https://github.com/aosp-mirror/platform_packages_apps_settings/blob/android-14.0.0_r1/src/com/android/settings/FallbackHome.java)
+waits for user unlock and a real home after boot; `sys.boot_completed` alone does
+not establish that launcher resolution is ready. The setup keeps that transition
+separate from application pixel qualification and preserves both device profiles.
+
+The readiness revision passes all 257 canonical host tests, including nine
+emulator preparation regressions. Kotlin source is unchanged from the storage
+revision's 289-test host pass. Fresh hosted device and merge checks remain
+required after publication.

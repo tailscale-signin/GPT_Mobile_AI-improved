@@ -2,6 +2,7 @@
 set -euo pipefail
 acceptance_output=app/build/acceptance-0950
 mkdir -p "$acceptance_output"
+python3 scripts/prepare_emulator_ui.py --output "$acceptance_output/emulator-ui.json"
 # Constrain the display itself so dialog windows are also tested at 320 dp.
 adb shell wm size 640x1280
 adb shell wm density 320

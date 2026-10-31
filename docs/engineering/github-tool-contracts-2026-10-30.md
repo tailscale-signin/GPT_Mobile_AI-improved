@@ -231,3 +231,43 @@ The host harness retains its stated Android storage/telemetry stand-ins and does
 not compile Compose or run a device. Full Android, emulator, native APK and CodeQL
 checks must qualify the newly published head before merge. The earlier CI results
 are not approval of this expansion.
+
+## Hosted full-suite follow-up
+
+On published expansion `7b140d21c6f27567c78c4ebe43b6bda1858a835c`, CodeQL,
+Android lint, dependency review, formatting, contracts, and build-download checks
+passed. The full unit suite ran 5,541 tests and found two failures (four skipped):
+an old runner assertion expected a reused successful read to be an error, and a
+release test requested two dispatches without distinct execution identities.
+
+The runner regression now verifies successful receipt reuse, no repeat dispatch,
+and continued availability of another read. Release publication retains its
+complete original receipt/correlation under a canonical execution claim; a separate
+explicit request supplies a new `execution_id`. Exact accepted run/source/tag
+associations persist across client restarts and conversation turns. Missing or
+foreign receipts remain unknown, and a changed expected source stops dispatch.
+Release schemas admit the execution, ref/inputs and exact run selectors needed
+for publication and subsequent verification. Lost acknowledgements are tested
+without repeating the publication.
+
+The expanded host harness additionally exercises the runner replay/completion
+tests and native release receipt tests. Android tool-resolver, legacy MCP adapter,
+and provider error-classifier integrations remain outside this host subset; the
+hosted Android suite runs those actual adapters. A new publication must receive
+fresh hosted verification before merge.
+
+The expanded API 34 phone run also failed two compositor assertions while API 36
+tablet coverage passed. Actual retained PNGs in artifact `13028614063` show a
+Pixel Launcher ANR dialog covering both sampled regions; the app's stripes and
+green parent are visible underneath. This is not evidence of an app blur failure.
+Emulator preparation now disables only a resolved, allowlisted stock launcher
+before these app-owned Activity fixtures. It never changes the app under test or
+suppresses system error dialogs. Unknown launchers and command failures stop
+preparation. Pixel tests retain their screenshot and assert that the qualified
+app owns the foreground window before judging colors. Both API/device profiles
+remain in the matrix; fresh runs must verify the correction.
+
+Follow-up local verification: 285 Kotlin host regressions and all 251 canonical
+host tests passed. Changed Kotlin formatting, workflow syntax, architecture index,
+secret scan and whitespace checks passed. The full Android/device suite remains
+the qualification boundary for the next published revision.

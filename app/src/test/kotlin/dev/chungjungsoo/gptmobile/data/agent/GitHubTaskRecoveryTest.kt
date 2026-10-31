@@ -14,6 +14,33 @@ import org.junit.Test
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class GitHubTaskRecoveryTest {
+    @Test fun legacyUnsentValidationResultsCannotPoisonALaterCorrectedCall() = runTest {
+        var rounds = 0
+        var actions = 0
+        val tool = object : AgentTool {
+            override val definition = AgentToolDefinition("inspect_candidate", "Inspect an admitted candidate", JsonObject(emptyMap()))
+            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+                if (arguments["candidate"] != kotlinx.serialization.json.JsonPrimitive(4)) return AgentToolResult(callId, ToolResultContent.Text("Local validation requires another candidate"), true, dispatched = false)
+                actions++
+                return AgentToolResult(callId, ToolResultContent.Text("Verified candidate"), false)
+            }
+        }
+        val session = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> = flow {
+                assertTrue(tools.any { it.name == tool.definition.name })
+                val candidate = rounds++
+                if (candidate <= 4) emit(ProviderEvent.ToolCall("candidate-$candidate", tool.definition.name, kotlinx.serialization.json.buildJsonObject { put("candidate", kotlinx.serialization.json.JsonPrimitive(candidate)) })) else emit(ProviderEvent.TextDelta("Verified candidate accepted."))
+                emit(ProviderEvent.Completed)
+            }
+        }
+        val events = AgentRunner(AgentRunLimits()).run(session, listOf(tool)).toList()
+        assertEquals(1, actions)
+        assertEquals(6, rounds)
+        val results = events.filterIsInstance<AgentRunEvent.ToolFinished>().map { it.result }
+        assertEquals(4, results.count { it.isError && !it.dispatched })
+        assertFalse(events.any { it is AgentRunEvent.Provider && it.event is ProviderEvent.Failed })
+    }
+
     @Test fun unsentPolicyRejectionRemovesItsSchemaWithoutAProviderFailureCircuitOrUnknownWrite() = runTest {
         var rounds = 0
         var checks = 0

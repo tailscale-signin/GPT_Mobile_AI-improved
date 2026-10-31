@@ -1056,13 +1056,10 @@ class AgentRunner(
 
     private fun countsTowardToolFailureCircuit(result: AgentToolResult): Boolean {
         if (!result.isError ||
+            !result.dispatched ||
             result.outputBudgetExhausted ||
             result.toolCallBudgetExhausted ||
-            ToolResultEnvelope.isAuthorizationRejection(result.errorCode) ||
-            !result.dispatched &&
-            ToolResultEnvelope.isPrecheckRejection(result.errorCode) ||
-            result.errorCode in setOf("DEPENDENCY_DEFERRED", "DEPENDENCY_FAILED", "RECONCILIATION_REQUIRED", "INVALID_ARGUMENTS", "RECOVERY_SCOPE_MISMATCH", "SAVED_EVIDENCE_REVOKED") &&
-            !result.dispatched
+            ToolResultEnvelope.isAuthorizationRejection(result.errorCode)
         ) {
             return false
         }

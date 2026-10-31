@@ -2,7 +2,7 @@
 
 Repository: `tailscale-signin/GPT_Mobile_AI-improved`
 
-Branch: `feat/github-operation-resilience-2026-10-31` (PR #768)
+Branch: `feat/github-operation-resilience-2026-10-31` (PR #769, supersedes #768)
 
 Main baseline: `be5d55930df8be6caad2380eea71b2f9a6bb0419`
 
@@ -70,9 +70,16 @@ fixtures. `Required verification`, GenieX packaging, security, native memory,
 APK and emulator checks must all pass before merge. There is no physical-device
 or deployed-server qualification claim.
 
-Local verification: 416 runner/GitHub behavior tests and 108 context, network,
+Local verification: 426 runner/GitHub behavior tests and 108 context, network,
 receipt and memory-contract tests passed. The canonical fast command passed 278
 repository tests and resource, dependency, architecture, secret and regex checks.
 Changed Kotlin passes ktlint 1.3.1; the complete PR diff passes whitespace checks.
 Resolver/provenance, memory repository and Compose additions still require the
 complete current-head Android check set.
+
+The successor integrates reply recovery at `fcf53f1b65530f9a6b0c0d4560420aa92039530e`
+while retaining the authorization/background-work update at
+`4ff51486c90f9db3da2151b89a8b778ca6e3a4bf`. Every proven-unsent result is excluded
+from provider reliability circuits, including legacy results without a typed code.
+A runner regression makes four distinct local validation refusals before a
+corrected candidate succeeds; the tool stays usable and no provider circuit opens.

@@ -329,3 +329,22 @@ pinned progress component must render without constructing its own Hilt owner.
 Cover the plain header and a completed 25-hour gateway job, and baseline-align
 the gateway clock with its bounded status text. Repository/base/branch and PR
 #766 remain unchanged for this follow-up.
+
+At `2cbad33dab33f50559ad5f28da70860a779ac42e`, both standard and GenieX Android
+suites passed 5,691 tests with four skips and zero failures (5,695 total each).
+Android lint, the 256 MiB recovery/export suite, API 34/36 acceptance and minified
+native memory smoke passed. Both review APK jobs built successfully, then the
+packaged DEX gate rejected `AgentToolResolver.resolve` at 17,036 code units
+(limit 16,383). Extract local and remote built-in construction into non-inline
+stages, retaining tool order, profile/chat gates and the final authorization
+pass; do not raise the ART method-size limit. Repository
+`tailscale-signin/GPT_Mobile_AI-improved`, base `main` at
+`9781b63c72bf3a2a4786ede07f0d9e094cd07db2`, working branch
+`fix/github-stress-reliability-2026-10-31` and PR #766 are unchanged.
+
+The resolver review also exposed raw/effective profile mismatches in cold MCP
+discovery and crawler reuse. Carry the GitHub request context through discovery,
+post-I/O fencing and saved-read checks, always recomputing current effective
+settings. A behavior regression starts with ordinary tools disabled, discovers
+an explicitly selected MCP tool in GitHub mode, and then proves plugin revocation
+invalidates saved-read authority while ordinary chat remains disabled.

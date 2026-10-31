@@ -10,6 +10,15 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LocalContextPlannerTest {
+    @Test fun absentUpstreamInventoryPreservesToolsForContextPlanning() {
+        val tool = AgentToolDefinition("lookup", "Look things up", buildJsonObject {})
+        val candidates = listOf(tool)
+        val names = LocalContextPlanner.advertisedToolNames(candidates, null)
+        val plan = LocalContextPlanner.plan(emptyList(), "What can you do?", null, candidates.filter { it.name in names }, 8192, 8192)
+        assertEquals(listOf(tool), plan.tools)
+        assertTrue(LocalContextPlanner.advertisedToolNames(candidates, emptyList()).isEmpty())
+    }
+
     @Test fun upstreamDiscoveryDoesNotExpandToEveryAuthorizedSchema() {
         val catalog = (1..14).map { AgentToolDefinition("github_tool$it", "Authorized", buildJsonObject {}) }
         val discovery = AgentToolDefinition("discover_available_tools", "Discover", buildJsonObject {})

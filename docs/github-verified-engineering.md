@@ -199,3 +199,24 @@ expandable evidence. A partially accepted or uncertain mutation invalidates olde
 mutable observations even when the outer tool reports an error. No successful
 write is inferred from the phase name alone; exact API/journal receipts remain
 authoritative.
+
+## Draft integration validation
+
+PR #766 merged into `main` at `548521a3419021e95af8c3ac9e6c7f4656a527d9`
+after its applicable checks passed. This integration preserves its final tool
+resolver split and live GitHub override checks.
+
+The first canonical Android run for #767 exposed three native-adapter regressions:
+date-call repair, search follow-up selection and a capability request with an
+8192-token output preference. A redundant catalog selection used only the latest
+message before the context planner could account for follow-up intent. The adapter
+now applies an explicit upstream advertised inventory when supplied; otherwise it
+lets the existing context planner choose the relevant bound tools. Explicit empty
+inventories remain empty, and advertising discovery alone never expands to all
+authorized schemas.
+
+The existing three behavior regressions are retained. New adapter tests cover
+discovery-only and empty upstream inventories, and a planner regression covers
+the absent-inventory fallback. The focused host context/network/diagnostic harness
+passed 61 tests using Android boundary fixtures. Full adapter execution, Android
+packaging and the canonical aggregate remain subject to the updated head's CI.

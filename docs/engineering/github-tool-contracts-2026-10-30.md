@@ -54,3 +54,34 @@ workflow dispatch, review, staged patch commit or release is performed as a test
   download failed with `Network is unreachable` in the Java runtime. This host
   also lacks JDK 21 and Android SDK 37. APK, Android lint and device execution
   must be checked by the branch CI; no success is inferred from the host subset.
+
+## CI follow-up on PR #765
+
+Repair base: `864ae21e776c36c59941f8513a7b4de2a40b9dad`; same working branch.
+CodeQL run `41154624990`, job `124398586717`, failed before Kotlin compilation
+while resolving `io.objectbox:io.objectbox.gradle.plugin:5.4.2`. Other checks had
+already passed formatting and repository contracts; Android checks were running.
+
+The ObjectBox marker and implementation were fetched from Maven Central. Their
+SHA-256 values match the existing verification metadata: marker POM
+`6847926c3bf9941bd1982cec5206da2493d57294f320f74bce076ece56b19047`,
+implementation JAR `08f70685fb677ed83ea8d39a08a09afe274a412f9fcf273d1ab17b1b01ce2365`,
+and module metadata `63b5deb386fd79abc9dc14ed7dac0333af6358590d548f989411181d375c5e33`.
+The implementation POM also confirms version 5.4.2 and the official ObjectBox SCM.
+Sources: [marker POM](https://repo.maven.apache.org/maven2/io/objectbox/io.objectbox.gradle.plugin/5.4.2/io.objectbox.gradle.plugin-5.4.2.pom),
+[implementation metadata](https://repo.maven.apache.org/maven2/io/objectbox/objectbox-gradle-plugin/5.4.2/objectbox-gradle-plugin-5.4.2.module).
+
+Plugin resolution now targets that already verified implementation directly.
+CodeQL uses the existing bounded dependency retry runner and verbose resolution
+diagnostics. Versions, trusted hashes, compiler/test failures and security gates
+retain their existing enforcement; unknown-plugin errors without explicit
+transient HTTP evidence are not retried.
+
+Follow-up validation: all 235 canonical host tests pass; the retry process
+regressions, actionlint and settings ktlint pass. A Gradle 9.8.0 smoke project
+using the repository's plugin-resolution settings and unchanged strict
+verification metadata resolves the ObjectBox implementation successfully, and
+also configures a versionless consumer of the already loaded plugin. Its isolated
+classpath includes AGP 9.4.1's published ASM 9.9 constraint so it matches the
+existing application's verified dependency graph. No dependency version or
+trusted checksum was changed. Full Android/CodeQL compilation remains a CI check.

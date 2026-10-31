@@ -92,9 +92,9 @@ jobs:
       env:
         GRADLE_OPTS: "-Dorg.gradle.caching=false -Dkotlin.incremental=false -Dkotlin.compiler.execution.strategy=in-process"
       run: |
-        ./gradlew :app:clean :app:compileDebugKotlin :app:compileDebugJavaWithJavac \
+        python3 scripts/gradle_retry.py -- :app:clean :app:compileDebugKotlin :app:compileDebugJavaWithJavac \
           -Dorg.gradle.jvmargs="-Xmx4096m -XX:MaxMetaspaceSize=1024m -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8" \
-          --no-daemon --no-build-cache --rerun-tasks --stacktrace
+          --no-daemon --no-build-cache --rerun-tasks --stacktrace --info
 
     - name: Perform CodeQL Analysis
       uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4

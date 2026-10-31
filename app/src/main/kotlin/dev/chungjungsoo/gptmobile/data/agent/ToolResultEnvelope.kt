@@ -15,7 +15,7 @@ internal object ToolResultEnvelope {
     private fun category(code: String): String = when (code) {
         in unknownOutcomeCodes -> "OUTCOME_UNKNOWN"
         "INVALID_ARGUMENTS", "TOOL_BATCH_OVERSIZE", "UNSUPPORTED_TOOL_CONTRACT", "TOOL_EXCHANGE_INVALID" -> "CONTRACT"
-        "PERMISSION_DENIED", "AUTH_REQUIRED", "AUTH_FAILED", "FORBIDDEN" -> "AUTHORIZATION"
+        "PERMISSION_DENIED", "PERMISSION_REVOKED", "AUTH_REQUIRED", "AUTH_FAILED", "UNAUTHORIZED", "FORBIDDEN" -> "AUTHORIZATION"
         "BUDGET_EXHAUSTED" -> "BUDGET"
         "READ_DEADLINE", "READ_FAILED", "PROVIDER_UNAVAILABLE" -> "AVAILABILITY"
         else -> "TOOL_FAILURE"
@@ -50,7 +50,7 @@ internal object ToolResultEnvelope {
                 buildJsonObject {
                     val code = result.errorCode ?: when {
                         result.outputBudgetExhausted || result.toolCallBudgetExhausted -> "BUDGET_EXHAUSTED"
-                        else -> "PROVIDER_UNAVAILABLE"
+                        else -> "TOOL_FAILURE"
                     }
                     put(
                         "code",

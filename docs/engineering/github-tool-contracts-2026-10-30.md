@@ -380,7 +380,7 @@ checkpoint without claiming that device work or external receipts were reconcile
   workflow and must still pass Android, security, native, signer-continuity and
   exact-source checks. Pending jobs are not successful evidence.
 
-Local completion validation: 319 focused Kotlin/JUnit regressions passed using
+Local completion validation: 321 focused Kotlin/JUnit regressions passed using
 the existing host harness (Android integration substitutes, including AtomicFile;
 three Android/resolver integration tests excluded), 268 canonical fast checks
 passed, changed Kotlin passed ktlint 1.3.1, architecture index and whitespace
@@ -388,3 +388,8 @@ checks passed, and the complete working-tree release scope validated. The new
 backup test is also part of the real Robolectric suite in hosted CI. The original
 queued-work fixture now uses a different target from the uncertain write, because
 an identical operation must remain blocked even under a new call ID.
+
+Final consistency review: restored legacy receipts carrying an unknown-outcome
+code are normalized as errors, matching fresh receipts. Authorization categories
+include revocation and unauthorized codes; an unclassified tool failure no longer
+invents a provider outage. Both cases have focused behavior regressions.

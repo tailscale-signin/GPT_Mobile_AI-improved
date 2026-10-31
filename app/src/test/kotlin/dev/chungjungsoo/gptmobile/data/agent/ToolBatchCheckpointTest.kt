@@ -25,6 +25,20 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(manifest = Config.NONE, sdk = [34])
 class ToolBatchCheckpointTest {
+    @Test fun retainedUnknownReceiptCannotBeRestoredAsSuccess() = runBlocking {
+        val call = ProviderEvent.ToolCall("one", "write", JsonObject(emptyMap()))
+        val journal = ToolBatchCheckpoint(null, "grant")
+        journal.enqueue(listOf(call))
+        journal.execute(call) { AgentToolResult(call.callId, ToolResultContent.Text("contradictory legacy receipt"), false, errorCode = "DISPATCH_OUTCOME_UNKNOWN") }
+        val restored = journal.execute(call) { error("must not dispatch") }
+        assertTrue(restored.isError)
+        assertTrue(restored.sharedResult)
+        assertEquals("DISPATCH_OUTCOME_UNKNOWN", restored.errorCode)
+        val metrics = journal.recoverySnapshot()
+        assertEquals(1, metrics.unknownCount)
+        assertEquals(0, metrics.completedCount)
+    }
+
     @Test fun backupOnlyCheckpointRestoresClaimsInsteadOfDispatchingThemAgain() = runBlocking {
         val directory = kotlin.io.path.createTempDirectory("checkpoint-backup").toFile()
         val file = File(directory, "batch.json")

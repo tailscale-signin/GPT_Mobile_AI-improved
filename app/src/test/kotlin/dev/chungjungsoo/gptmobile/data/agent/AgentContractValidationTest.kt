@@ -4,7 +4,10 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.jsonObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -15,6 +18,16 @@ import org.junit.Test
 class AgentContractValidationTest {
     private val arguments = JsonObject(emptyMap())
     private val call = ProviderEvent.ToolCall("one", "write", arguments)
+
+    @Test fun errorCategoriesPreserveAuthorizationAndUnknownOutcomeWithoutGuessingAvailability() {
+        fun error(code: String?) = Json.parseToJsonElement(ToolResultEnvelope.encode("write", AgentToolResult("one", ToolResultContent.Text("failed"), true, errorCode = code))).jsonObject.getValue("error").jsonObject
+        for (code in listOf("AUTH_REQUIRED", "AUTH_FAILED", "UNAUTHORIZED", "FORBIDDEN", "PERMISSION_DENIED", "PERMISSION_REVOKED")) {
+            assertEquals(JsonPrimitive("AUTHORIZATION"), error(code)["category"])
+        }
+        assertEquals(JsonPrimitive("TOOL_FAILURE"), error(null)["category"])
+        assertEquals(JsonPrimitive(false), error(null)["retryableWithoutChanges"])
+        assertEquals(JsonPrimitive(true), error("RECONCILIATION_REQUIRED")["reconciliationRequired"])
+    }
 
     @Test fun exchangeValidationRequiresExactlyOneReceiptPerCallAndAllowsReorderedResults() {
         val second = call.copy(callId = "two")

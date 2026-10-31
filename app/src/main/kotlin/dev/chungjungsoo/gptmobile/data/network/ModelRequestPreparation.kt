@@ -52,11 +52,17 @@ internal class ModelRequestPreparation(client: NetworkClient) {
             provenance = if (context != null) CapacityProvenance.DECLARED else CapacityProvenance.UNKNOWN
         )
         // Read the actual serialized value as the final authority, not a profile DTO's default.
-        val original = Json.parseToJsonElement(payload) as JsonObject
+        var original = Json.parseToJsonElement(payload) as JsonObject
+        val review = config.requestRole.startsWith("github-review") && !config.requestRole.endsWith("repair")
+        if (review && discovered != null && llama.supportsReviewSchema(config, model, discovered)) {
+            original = JsonObject(original + ("response_format" to dev.chungjungsoo.gptmobile.data.github.GitHubReviewSchema.format))
+        }
         val reasoning = if (config.providerType == "LLAMA") {
-            val needsControl = config.maximizeReasoning || !config.allowReasoning || config.reasoningMode != dev.chungjungsoo.gptmobile.data.context.ReasoningMode.AUTO
+            val needsControl = review || config.maximizeReasoning || !config.allowReasoning || config.reasoningMode != dev.chungjungsoo.gptmobile.data.context.ReasoningMode.AUTO
             val control = if (needsControl && discovered != null) llama.reasoningControl(config, model, discovered) else null
-            if (config.maximizeReasoning && config.allowReasoning) {
+            if (review) {
+                dev.chungjungsoo.gptmobile.data.context.ReasoningPolicy.resolve(if (control != null) dev.chungjungsoo.gptmobile.data.context.ReasoningMode.OFF else dev.chungjungsoo.gptmobile.data.context.ReasoningMode.AUTO, true, control)
+            } else if (config.maximizeReasoning && config.allowReasoning) {
                 dev.chungjungsoo.gptmobile.data.context.ReasoningPolicy.strongestSupported(true, control)
             } else {
                 dev.chungjungsoo.gptmobile.data.context.ReasoningPolicy.resolve(config.reasoningMode, config.allowReasoning, control)
@@ -95,7 +101,7 @@ internal class ModelRequestPreparation(client: NetworkClient) {
         val prepared = RequestAdmission.prepare(finalPayload, config.requestRole, snapshot, measured, finalAllowance.tokens, permissionRevision, requireKnownCapacity = config.requireKnownCapacity, serializerRevision = if (config.freeProvider == dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.POLLINATIONS) PollinationsClassic.SERIALIZER_REVISION else "provider-json-v1", reasoning = reasoning, messageValidatorRevision = dev.chungjungsoo.gptmobile.data.context.ProviderMessageValidator.VERSION, promptBudget = budget, requestDeadline = kotlinx.coroutines.currentCoroutineContext()[WorkerRequestBudget]?.preflight())
         dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
             "Admission",
-            "FINAL_REQUEST · role=${config.requestRole} · prompt=${prepared.receipt.promptTokens} · output=${prepared.receipt.outputTokens ?: "unknown"} · safety=${prepared.receipt.safetyTokens} · context=${prepared.receipt.contextTokens ?: "unknown"} · measurement=${prepared.receipt.measurement} · capacity=${prepared.receipt.capacityProvenance} · checked=${prepared.receipt.capacityChecked} · reasoningRequested=${reasoning?.requested} · reasoningEffective=${reasoning?.effective} · reasoningControl=${reasoning?.transmittedControl} · reasoningObserved=unknown"
+            "FINAL_REQUEST · role=${config.requestRole} · promptTokens=${prepared.receipt.promptTokens} · outputTokens=${prepared.receipt.outputTokens ?: "unknown"} · safety=${prepared.receipt.safetyTokens} · contextTokens=${prepared.receipt.contextTokens ?: "unknown"} · measurement=${prepared.receipt.measurement} · capacity=${prepared.receipt.capacityProvenance} · checked=${prepared.receipt.capacityChecked} · reasoningRequested=${reasoning?.requested} · reasoningEffective=${reasoning?.effective} · reasoningControl=${reasoning?.transmittedControl} · reasoningObserved=unknown"
         )
         config.freeDiagnostics?.admission = prepared.receipt
         val wire = prepared.dispatchPayload(snapshot.fingerprint, permissionRevision)

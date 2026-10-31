@@ -21,7 +21,7 @@ internal class GitHubResultViews(
     init {
         require(pageBytes >= 2048)
     }
-    private data class Entry(val scope: String, val operation: String, val fragments: List<JsonObject>, val metadata: JsonObject, val continuations: List<JsonObject>, val expires: Long, val bytes: Int, val originalError: Boolean, val originalErrorCode: String?, val pageBytes: Int, val context: JsonObject)
+    private data class Entry(val scope: String, val operation: String, val fragments: List<JsonObject>, val metadata: JsonObject, val continuations: List<JsonObject>, val expires: Long, val bytes: Int, val originalError: Boolean, val originalErrorCode: String?, val pageBytes: Int, val context: JsonObject, val issuedCursors: MutableSet<String> = mutableSetOf())
     private val entries = LinkedHashMap<String, Entry>()
     private var retainedBytes = 0
     private class FragmentCapacity : RuntimeException()
@@ -99,8 +99,13 @@ internal class GitHubResultViews(
         val entry = Entry(scope, operation, fragments, metadata, lastContinuations, now() + 10 * 60_000, retained.toInt(), upstream.isError, upstream.errorCode, pageBytes, context)
         entries[id] = entry
         retainedBytes += entry.bytes
-        if (small.toString().toByteArray().size <= pageBytes) return upstream.copy(content = ToolResultContent.Json(small))
-        return upstream.copy(content = ToolResultContent.Json(page(id, entry, 0, modelName)), retainedContent = upstream.retainedContent ?: upstream.content)
+        if (small.toString().toByteArray().size <= pageBytes) {
+            authorize(entry, small)
+            return upstream.copy(content = ToolResultContent.Json(small))
+        }
+        val first = page(id, entry, 0, modelName)
+        authorize(entry, first)
+        return upstream.copy(content = ToolResultContent.Json(first), retainedContent = upstream.retainedContent ?: upstream.content)
     }
 
     @Synchronized
@@ -110,7 +115,7 @@ internal class GitHubResultViews(
         val entry = parts.firstOrNull()?.let(entries::get)
         val offset = parts.getOrNull(1)?.toIntOrNull()
         val requestedBytes = if (parts.size == 3) parts[2].toIntOrNull() else entry?.pageBytes
-        if (parts.size !in 2..3 || entry == null || offset == null || requestedBytes == null || requestedBytes !in 1024..entry.pageBytes || entry.scope != scope || entry.operation != operation || offset !in entry.fragments.indices) {
+        if (parts.size !in 2..3 || entry == null || offset == null || requestedBytes == null || requestedBytes !in 1024..entry.pageBytes || entry.scope != scope || entry.operation != operation || offset !in entry.fragments.indices || cursor !in entry.issuedCursors) {
             val evidenceRecovery = if (operation == "github_read") " Reopen retained source with evidence_id and no view_cursor." else ""
             return AgentToolResult(callId, ToolResultContent.Text("This saved GitHub view is unavailable or outside the authorized conversation. Use the exact continuation_call from the latest result in this conversation; never invent or reuse a cursor from another account or conversation.$evidenceRecovery For an expired immutable read, request a smaller range at the same commit_sha. Reconcile a prior mutation using its receipt; do not repeat the mutation to recover output."), true, errorCode = "SAVED_VIEW_UNAVAILABLE", dispatched = false)
         }
@@ -144,10 +149,20 @@ internal class GitHubResultViews(
         entries.remove(parts[0])
         entries[parts[0]] = refreshed
         val page = page(parts[0], refreshed, offset, modelName, requestedBytes)
+        authorize(refreshed, page)
         if (page["page_capacity_exceeded"] == JsonPrimitive(true)) {
             return AgentToolResult(callId, ToolResultContent.Json(page), true, errorCode = "SAVED_VIEW_PAGE_CAPACITY", sharedResult = true, dispatched = false)
         }
         return AgentToolResult(callId, ToolResultContent.Json(page), entry.originalError, errorCode = entry.originalErrorCode, sharedResult = true, dispatched = false)
+    }
+
+    private fun authorize(entry: Entry, page: JsonObject) {
+        // Only cursors actually emitted by this view may advance it. Source evidence
+        // and a guessed fragment offset never grant pagination access.
+        listOf("recovery_call", "continuation_call").forEach { key ->
+            val arguments = ((page[key] as? JsonObject)?.get("arguments") as? JsonObject)
+            (arguments?.get("view_cursor") as? JsonPrimitive)?.takeIf { it.isString }?.content?.let(entry.issuedCursors::add)
+        }
     }
 
     private fun savedCall(modelName: String, cursor: String) = buildJsonObject {

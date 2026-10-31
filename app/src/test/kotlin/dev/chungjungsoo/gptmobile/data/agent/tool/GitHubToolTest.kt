@@ -22,6 +22,25 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubToolTest {
+    @Test fun expiredEvidenceHandleIsTypedAndDoesNotDispatchAnyHttpRequest() = runTest {
+        val http = HttpClient(MockEngine { error("No request may execute for an unknown evidence handle") })
+        try {
+            val result = GitHubTool("token", http, repositoryContext = GitHubRepositoryContext("o", "r", "working")).execute(
+                "expired",
+                buildJsonObject {
+                    put("action", "read_ranges")
+                    put("evidence_id", "expired-or-invented-handle")
+                }
+            )
+            assertTrue(result.isError)
+            assertEquals("EVIDENCE_UNAVAILABLE", result.errorCode)
+            assertFalse(result.dispatched)
+            assertEquals("PREFLIGHT_REJECTED", result.executionReceipt?.get("phase")?.jsonPrimitive?.content)
+        } finally {
+            http.close()
+        }
+    }
+
     @Test fun admissionCapacityBeforeAnyRequestIsReportedAsUnsent() = runTest {
         val http = HttpClient(MockEngine { error("No network request should execute") })
         try {
@@ -253,7 +272,7 @@ class GitHubToolTest {
             assertEquals("false", body["created"].toString())
             assertEquals(existing, body["head_sha"]!!.jsonPrimitive.content)
             assertEquals("false", body["matches_requested_base"].toString())
-            assertEquals(1, requests.count { it.startsWith("POST") })
+            assertEquals(0, requests.count { it.startsWith("POST") })
             assertFalse(requests.any { it.startsWith("PATCH") })
         } finally {
             client.close()
@@ -424,27 +443,31 @@ class GitHubToolTest {
         var requestIndex = 0
         val client = HttpClient(
             MockEngine { request ->
-                when (requestIndex++) {
-                    0 -> {
-                        assertEquals("/repos/owner/repo/git/ref/heads/main", request.url.encodedPath)
-                        respond("""{"object":{"sha":"abc123"}}""", HttpStatusCode.OK)
+                if (request.url.encodedPath == "/repos/owner/repo/git/ref/heads/fix%2Ftest") {
+                    respond("{\"message\":\"Not Found\"}", HttpStatusCode.NotFound)
+                } else {
+                    when (requestIndex++) {
+                        0 -> {
+                            assertEquals("/repos/owner/repo/git/ref/heads/main", request.url.encodedPath)
+                            respond("""{"object":{"sha":"abc123"}}""", HttpStatusCode.OK)
+                        }
+                        1 -> {
+                            assertEquals("/repos/owner/repo/git/refs", request.url.encodedPath)
+                            respond(
+                                """{"message":"Resource not accessible by personal access token"}""",
+                                HttpStatusCode.Forbidden,
+                                headersOf("X-RateLimit-Remaining", "4999")
+                            )
+                        }
+                        2 -> {
+                            assertEquals("/repos/owner/repo", request.url.encodedPath)
+                            respond(
+                                """{"full_name":"owner/repo","default_branch":"main","visibility":"public","permissions":{"push":true,"maintain":false,"admin":false}}""",
+                                HttpStatusCode.OK
+                            )
+                        }
+                        else -> error("Unexpected request: ${request.method.value} ${request.url}")
                     }
-                    1 -> {
-                        assertEquals("/repos/owner/repo/git/refs", request.url.encodedPath)
-                        respond(
-                            """{"message":"Resource not accessible by personal access token"}""",
-                            HttpStatusCode.Forbidden,
-                            headersOf("X-RateLimit-Remaining", "4999")
-                        )
-                    }
-                    2 -> {
-                        assertEquals("/repos/owner/repo", request.url.encodedPath)
-                        respond(
-                            """{"full_name":"owner/repo","default_branch":"main","visibility":"public","permissions":{"push":true,"maintain":false,"admin":false}}""",
-                            HttpStatusCode.OK
-                        )
-                    }
-                    else -> error("Unexpected request: ${request.method.value} ${request.url}")
                 }
             }
         )

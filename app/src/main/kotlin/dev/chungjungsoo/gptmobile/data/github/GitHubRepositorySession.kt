@@ -32,7 +32,8 @@ internal class GitHubRepositorySession(
     private val taskId: String,
     private val store: GitHubRepositoryStateStore,
     private val request: suspend (String) -> JsonElement,
-    private val commit: suspend (String, JsonObject) -> JsonElement
+    private val commit: suspend (String, JsonObject) -> JsonElement,
+    private val reconcileCommit: suspend (String, JsonObject) -> JsonElement? = { _, _ -> null }
 ) {
     private val scope = listOf(accountId, connectionUid, conversationId, taskId).joinToString(":")
     private val conversationScope = listOf(accountId, connectionUid, conversationId).joinToString(":")
@@ -964,14 +965,24 @@ internal class GitHubRepositorySession(
         require(args.s("expected_head_sha") == staged.s("expected_head_sha")) { "The supplied expected_head_sha differs from the staged patch; refresh the branch and stage evidence before committing." }
         require(staged.s("expected_head_sha") == context.commitSha) { "Task revision changed; restage the reviewed patch." }
         require(staged.s("branch").isBlank() || staged.s("branch") == context.ref) { "Stage belongs to a different working branch." }
-        val result = executions.run("commit_staged_patch", args) {
-            commit(root(context.owner, context.repo), JsonObject(args + mapOf("files" to staged.getValue("files"), "expected_head_sha" to staged.getValue("expected_head_sha"))))
+        val commitArgs = JsonObject(args + mapOf("files" to staged.getValue("files"), "expected_head_sha" to staged.getValue("expected_head_sha")))
+        val root = root(context.owner, context.repo)
+        val result = executions.run("commit_staged_patch", args, reconcile = { reconcileCommit(root, commitArgs) }) {
+            commit(root, commitArgs)
         }
         if (result.jsonObject["execution"]?.jsonObject?.s("status") != "COMPLETED") return result
         val receiptKey = if (result.jsonObject["sha"] != null) "commit_receipt" else "engineering_review_receipt"
+        val receipt = JsonObject(
+            result.jsonObject + mapOf(
+                "stage_id" to JsonPrimitive(id),
+                "files_digest" to staged.getValue("files_digest"),
+                "patch_preview" to (staged["preview"] ?: JsonArray(emptyList())),
+                "patch_validation" to (staged["validation"] ?: JsonArray(emptyList()))
+            )
+        )
         val saved = store.update(scope, "stage:$id") { current ->
             require(current?.get("files") == staged["files"] && current?.get("expected_head_sha") == staged["expected_head_sha"]) { "Stage changed during publication; reconcile the execution receipt." }
-            if (current?.get(receiptKey) != null) current else JsonObject(requireNotNull(current) + (receiptKey to result))
+            if (current?.get(receiptKey) != null) current else JsonObject(requireNotNull(current) + (receiptKey to receipt))
         }
         return saved.getValue(receiptKey)
     }

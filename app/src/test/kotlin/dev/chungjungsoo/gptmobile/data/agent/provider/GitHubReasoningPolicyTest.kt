@@ -9,6 +9,18 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubReasoningPolicyTest {
+    @org.junit.Test fun extractionDisablesSavedAndMaximumReasoningWithoutChangingPrimaryEngineering() {
+        val original = RequestConstraints(maxOutputTokens = 8192, maximizeReasoning = true, allowReasoning = true)
+        val extraction = original.withoutTools().forRole("github-claim-extraction")
+        org.junit.Assert.assertFalse(extraction.allowReasoning)
+        org.junit.Assert.assertFalse(extraction.maximizeReasoning)
+        org.junit.Assert.assertFalse(extraction.allowTools)
+        org.junit.Assert.assertEquals(8192, extraction.maxOutputTokens)
+        org.junit.Assert.assertEquals("github-claim-extraction", extraction.requestRole)
+        org.junit.Assert.assertTrue(original.forRole("primary").maximizeReasoning)
+        org.junit.Assert.assertFalse(original.forRole("github-review-verdict").maximizeReasoning)
+    }
+
     @Test fun primaryEngineeringControlsDoNotInheritLightweightDelegateDefaults() {
         val defaults = mapOf("X-Gateway-Performance-Profile" to "turbo", "X-Gateway-Reasoning-Effort" to "low", "X-Gateway-Intermediate-Max-Tokens" to "1024", "X-Gateway-Cache-Prompt" to "true")
         val primary = GitHubReasoningPolicy.gatewayHeaders(defaults, true, 4096)

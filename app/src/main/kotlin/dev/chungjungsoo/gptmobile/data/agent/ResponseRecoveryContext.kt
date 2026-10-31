@@ -219,17 +219,23 @@ internal class ResponseRecoveryContext(
             ) {
                 return tool.execute(callId, actual)
             }
+            val nativeRead = dev.chungjungsoo.gptmobile.data.permissions.GitHubAuthorizationBoundary.isReplayableRead(realName, actual) &&
+                !dev.chungjungsoo.gptmobile.data.permissions.GitHubAuthorizationBoundary.isBranchSelection(realName, actual)
+            val immutableNative = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.immutableRead(realName, actual)
+            // Mutable checks and status are fresh reconciliation reads, never saved mutations.
+            if (nativeRead && !immutableNative) return tool.execute(callId, actual)
+            val reusableRead = readOnly || nativeRead && immutableNative
             val candidates = events.filter { event ->
                 event.toolName == realName &&
                     event.connectionUidSnapshot == connectionUid &&
                     runCatching { Json.parseToJsonElement(event.arguments) == actual }.getOrDefault(false)
             }
-            val match = if (readOnly) candidates.lastOrNull { it.completedAt?.let { time -> System.currentTimeMillis() / 1000 - time in 0..86400 } == true } else candidates.lastOrNull { it.eventId == effectId }
+            val match = if (reusableRead) candidates.lastOrNull { it.completedAt?.let { time -> System.currentTimeMillis() / 1000 - time in 0..86400 } == true } else candidates.lastOrNull { it.eventId == effectId }
             if (match?.status == ToolEventStatus.COMPLETED && !match.isError && match.result != null) {
                 val labels = ToolResultCheckpoint.personalData(match)
                 val sensitivity = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.permissions.PersonalDataContext]
                 sensitivity?.add(labels)
-                return AgentToolResult(callId, ToolResultContent.Text(match.recoveryResult().orEmpty()), false, traceContent = ToolResultContent.Text(match.displayResult().orEmpty()), sharedResult = true, personalData = (labels + sensitivity?.snapshot().orEmpty()).distinct())
+                return AgentToolResult(callId, ToolResultContent.Text(match.recoveryResult().orEmpty()), false, traceContent = ToolResultContent.Text(match.displayResult().orEmpty()), sharedResult = true, dispatched = false, personalData = (labels + sensitivity?.snapshot().orEmpty()).distinct())
             }
             val unresolved = candidates.filter { event ->
                 // Only a persisted native dispatch receipt can prove an earlier failure harmless.
@@ -238,7 +244,7 @@ internal class ResponseRecoveryContext(
                     receipt["requires_reconciliation"] != kotlinx.serialization.json.JsonPrimitive(false) ||
                     receipt["phase"] !in setOf(kotlinx.serialization.json.JsonPrimitive("PREFLIGHT_REJECTED"), kotlinx.serialization.json.JsonPrimitive("REJECTED"))
             }
-            if (!readOnly && (effectId != null || unresolved.isNotEmpty())) {
+            if (!reusableRead && (effectId != null || unresolved.isNotEmpty())) {
                 return AgentToolResult(callId, ToolResultContent.Text("Saved action requires reconciliation. Read its receipt and use its exact _recovery_effect_id only when completed. An unknown outcome must be checked using a read-only status tool before a new action is authorized."), true, dispatched = false, errorCode = "RECONCILIATION_REQUIRED")
             }
             return tool.execute(callId, actual)
@@ -331,18 +337,18 @@ internal class ResponseRecoveryContext(
         )
 
         override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
-            if (!isAuthorized()) return AgentToolResult(callId, ToolResultContent.Text("Saved evidence access was revoked or its conversation was deleted. No saved content was returned or action repeated."), true)
+            if (!isAuthorized()) return AgentToolResult(callId, ToolResultContent.Text("Saved evidence access was revoked or its conversation was deleted. No saved content was returned or action repeated."), true, dispatched = false, errorCode = "SAVED_EVIDENCE_REVOKED")
             val invalid = ToolArgumentValidator.errors(arguments, definition.inputSchema)
-            if (invalid.isNotEmpty()) return AgentToolResult(callId, ToolResultContent.Text("Invalid saved evidence arguments: ${invalid.joinToString("; ")}"), true)
+            if (invalid.isNotEmpty()) return AgentToolResult(callId, ToolResultContent.Text("Invalid saved evidence arguments: ${invalid.joinToString("; ")}"), true, dispatched = false, errorCode = "INVALID_ARGUMENTS")
             val reference = arguments["corpus_reference"]?.jsonPrimitive?.content
-            if (reference != null && reference != corpusReference) return AgentToolResult(callId, ToolResultContent.Text("Saved corpus reference is outside the current recovery scope. Read the current manifest."), true)
+            if (reference != null && reference != corpusReference) return AgentToolResult(callId, ToolResultContent.Text("Saved corpus reference is outside the current recovery scope. Read the current manifest."), true, dispatched = false, errorCode = "RECOVERY_SCOPE_MISMATCH")
             val revision = arguments["corpus_revision"]?.jsonPrimitive?.content
-            if (revision != null && revision != corpus.revision) return AgentToolResult(callId, ToolResultContent.Text("Saved corpus revision changed. Read the current manifest before reusing a previous offset."), true)
+            if (revision != null && revision != corpus.revision) return AgentToolResult(callId, ToolResultContent.Text("Saved corpus revision changed. Read the current manifest before reusing a previous offset."), true, dispatched = false, errorCode = "RECOVERY_REVISION_CHANGED")
             val evidenceId = arguments["evidence_id"]?.jsonPrimitive?.content
             val offset = if ("offset" in arguments) (arguments["offset"] as? JsonPrimitive)?.intOrNull else 0
             val length = if ("length" in arguments) (arguments["length"] as? JsonPrimitive)?.intOrNull else 8000
-            if (offset == null || offset < 0 || length == null || length !in 1..16000) return AgentToolResult(callId, ToolResultContent.Text("Invalid saved evidence range. Use a non-negative integer offset and length from 1 through 16000, optionally encoded as decimal strings."), true)
-            val page = runCatching { corpus.read(offset, length, evidenceId) }.getOrElse { return AgentToolResult(callId, ToolResultContent.Text("Invalid saved evidence ID or offset; use a returned record ID and next_offset."), true) }
+            if (offset == null || offset < 0 || length == null || length !in 1..16000) return AgentToolResult(callId, ToolResultContent.Text("Invalid saved evidence range. Use a non-negative integer offset and length from 1 through 16000, optionally encoded as decimal strings."), true, dispatched = false, errorCode = "INVALID_ARGUMENTS")
+            val page = runCatching { corpus.read(offset, length, evidenceId) }.getOrElse { return AgentToolResult(callId, ToolResultContent.Text("Invalid saved evidence ID or offset; use a returned record ID and next_offset."), true, dispatched = false, errorCode = "INVALID_ARGUMENTS") }
             return AgentToolResult(
                 callId,
                 ToolResultContent.Json(
@@ -358,6 +364,8 @@ internal class ResponseRecoveryContext(
                     }
                 ),
                 false,
+                dispatched = false,
+                sharedResult = true,
                 personalData = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.permissions.PersonalDataContext]?.snapshot().orEmpty()
             )
         }

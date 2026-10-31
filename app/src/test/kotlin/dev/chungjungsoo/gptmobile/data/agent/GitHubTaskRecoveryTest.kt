@@ -14,6 +14,36 @@ import org.junit.Test
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class GitHubTaskRecoveryTest {
+    @Test fun unsentPolicyRejectionRemovesItsSchemaWithoutAProviderFailureCircuitOrUnknownWrite() = runTest {
+        var rounds = 0
+        var checks = 0
+        val tool = object : AgentTool {
+            override val definition = AgentToolDefinition("github_write", "Authorized GitHub write", JsonObject(emptyMap()))
+            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+                checks++
+                throw dev.chungjungsoo.gptmobile.data.permissions.ToolAuthorizationRejected("PERSONAL_DATA_LOCAL_ONLY", "Local-only context cannot be shared")
+            }
+        }
+        val session = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> = flow {
+                if (rounds++ == 0) {
+                    assertTrue(tools.any { it.name == tool.definition.name })
+                    emit(ProviderEvent.ToolCall("policy", tool.definition.name, JsonObject(emptyMap())))
+                } else {
+                    assertFalse(tools.any { it.name == tool.definition.name })
+                    emit(ProviderEvent.TextDelta("External authorization is required."))
+                }
+                emit(ProviderEvent.Completed)
+            }
+        }
+        val events = AgentRunner(AgentRunLimits(githubTask = true)).run(session, listOf(tool)).toList()
+        assertEquals(1, checks)
+        assertFalse(events.any { it is AgentRunEvent.Provider && it.event is ProviderEvent.Failed })
+        val results = events.filterIsInstance<AgentRunEvent.ToolFinished>().map { it.result }
+        assertEquals(1, results.size)
+        assertTrue(results.all { !it.dispatched && it.errorCode == "PERSONAL_DATA_LOCAL_ONLY" })
+    }
+
     @Test fun recoveryInstructionsRemainBoundedWithRepositoryContext() {
         val context = dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext("connection", "owner", "repo", "feature", "a".repeat(40), "profile", stagedFileCount = 2, recentCommits = List(100) { "b".repeat(500) + "\nuntrusted continuation" }, observedAtMillis = 123)
         val prompt = context.promptContext()
@@ -31,6 +61,12 @@ class GitHubTaskRecoveryTest {
         assertNull(GitHubTaskRecovery.delayMillis("HTTP 429 rate limit", 0))
         assertNull(GitHubTaskRecovery.delayMillis("LOCAL_SERVICE_UNREACHABLE retryAfterMs=90000", 0))
         assertNull(GitHubTaskRecovery.delayMillis("connection reset", GitHubTaskRecovery.MAX_RECOVERIES))
+    }
+
+    @Test fun deterministicPolicyFailuresNeverBecomeTransportRecovery() {
+        for (code in listOf("PERSONAL_DATA_LOCAL_ONLY", "PERSONAL_DATA_SERVICE_PERMISSION_REQUIRED", "PRECHECK_REJECTED", "PERMISSION_DENIED", "AUTH_REQUIRED", "INVALID_ARGUMENTS", "UNSUPPORTED_OPERATION")) {
+            assertNull(GitHubTaskRecovery.delayMillis("$code: connection reset; unexpected end of stream", 0))
+        }
     }
 
     @Test fun transientFailureAfterVisibleProgressRetainsToolsAndDoesNotRepeatCompletedWrite() = runTest {

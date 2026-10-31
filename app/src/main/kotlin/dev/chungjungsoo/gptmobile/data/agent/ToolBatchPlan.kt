@@ -7,7 +7,8 @@ internal data class ToolBatchPlan(
     val hostSuppressedIds: Set<String>,
     val disabledNames: Set<String>,
     val acceptedByName: Map<String, Int>,
-    val unavailableIds: Set<String> = emptySet()
+    val unavailableIds: Set<String> = emptySet(),
+    val dependencyDeferredIds: Set<String> = emptySet()
 )
 
 /** Pure dispatch planning, separated from the suspending execution/UI coordinator. */

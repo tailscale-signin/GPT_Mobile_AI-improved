@@ -12,12 +12,23 @@ import kotlinx.serialization.json.put
 internal object ToolResultEnvelope {
     val unknownOutcomeCodes = setOf("TIMEOUT_OUTCOME_UNKNOWN", "DISPATCH_OUTCOME_UNKNOWN", "TOOL_OUTCOME_UNKNOWN", "TOOL_RESULT_ID_MISMATCH", "RECONCILIATION_REQUIRED")
 
-    private fun category(code: String): String = when (code) {
-        in unknownOutcomeCodes -> "OUTCOME_UNKNOWN"
-        "INVALID_ARGUMENTS", "TOOL_BATCH_OVERSIZE", "UNSUPPORTED_TOOL_CONTRACT", "TOOL_EXCHANGE_INVALID" -> "CONTRACT"
-        "PERMISSION_DENIED", "PERMISSION_REVOKED", "AUTH_REQUIRED", "AUTH_FAILED", "UNAUTHORIZED", "FORBIDDEN" -> "AUTHORIZATION"
-        "BUDGET_EXHAUSTED" -> "BUDGET"
-        "READ_DEADLINE", "READ_FAILED", "PROVIDER_UNAVAILABLE" -> "AVAILABILITY"
+    fun isAuthorizationRejection(code: String?): Boolean = code?.startsWith("PERSONAL_DATA_") == true || code in setOf("AUTH_REQUIRED", "AUTH_FAILED", "UNAUTHORIZED", "FORBIDDEN", "PERMISSION_DENIED", "PERMISSION_REVOKED", "GITHUB_ENDPOINT_PERMISSION_REQUIRED", "GITHUB_SSO_REQUIRED", "GITHUB_FORBIDDEN_UNKNOWN")
+
+    fun isPrecheckRejection(code: String?): Boolean = isAuthorizationRejection(code) || code in setOf("INVALID_ARGUMENTS", "UNSUPPORTED_TOOL_CONTRACT", "UNSUPPORTED_OPERATION", "UNKNOWN_TOOL", "DUPLICATE_ACTION", "NOT_DISPATCHED")
+
+    fun executionState(result: AgentToolResult): String = when {
+        result.errorCode in unknownOutcomeCodes -> "UNKNOWN_OUTCOME"
+        result.isError && !result.dispatched -> "PRECHECK_REJECTED"
+        result.isError -> "FAILED"
+        else -> "COMPLETED"
+    }
+
+    private fun category(code: String): String = when {
+        code in unknownOutcomeCodes -> "OUTCOME_UNKNOWN"
+        code in setOf("INVALID_ARGUMENTS", "TOOL_BATCH_OVERSIZE", "UNSUPPORTED_TOOL_CONTRACT", "TOOL_EXCHANGE_INVALID") -> "CONTRACT"
+        code.startsWith("PERSONAL_DATA_") || code in setOf("PERMISSION_DENIED", "PERMISSION_REVOKED", "AUTH_REQUIRED", "AUTH_FAILED", "UNAUTHORIZED", "FORBIDDEN") -> "AUTHORIZATION"
+        code == "BUDGET_EXHAUSTED" -> "BUDGET"
+        code in setOf("READ_DEADLINE", "READ_FAILED", "PROVIDER_UNAVAILABLE") -> "AVAILABILITY"
         else -> "TOOL_FAILURE"
     }
 
@@ -33,6 +44,8 @@ internal object ToolResultEnvelope {
             "execution",
             buildJsonObject {
                 put("dispatched", result.dispatched)
+                put("state", executionState(result))
+                put("retryable", !isPrecheckRejection(result.errorCode) && result.errorCode in setOf("READ_DEADLINE", "READ_FAILED", "PROVIDER_UNAVAILABLE"))
                 result.executionReceipt?.let { put("receipt", it) }
                 put(
                     "outcome",

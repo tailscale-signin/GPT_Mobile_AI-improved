@@ -90,7 +90,6 @@ class ToolExecutionBudget(
             }
             val invalid = ToolArgumentValidator.errors(arguments, tool.definition.inputSchema)
             if (invalid.isNotEmpty()) {
-                failures.computeIfAbsent(signature) { AtomicInteger() }.incrementAndGet()
                 val message = ToolArgumentValidator.repairMessage(tool.definition.name, invalid, tool.definition.inputSchema)
                 return { withBudgetState(ToolResultEnvelope.error(callId, "INVALID_ARGUMENTS", message)) }
             }
@@ -129,7 +128,7 @@ class ToolExecutionBudget(
             val authorized = try {
                 authorize(callId, arguments)
             } catch (rejected: dev.chungjungsoo.gptmobile.data.permissions.ToolAuthorizationRejected) {
-                if (rejected.code in setOf("AUTH_REQUIRED", "AUTH_FAILED", "UNAUTHORIZED", "PERMISSION_DENIED", "PERMISSION_REVOKED")) terminalToolFailures[tool.definition.name] = rejected.code
+                if (ToolResultEnvelope.isAuthorizationRejection(rejected.code)) terminalToolFailures[tool.definition.name] = rejected.code
                 return { bounded(ToolResultEnvelope.error(callId, rejected.code, rejected.message.orEmpty())) }
             }
             if (!authorized) {
@@ -257,7 +256,7 @@ class ToolExecutionBudget(
                     }
                     if (normalizedResult.isError) {
                         val code = normalizedResult.errorCode
-                        if (code in setOf("AUTH_REQUIRED", "AUTH_FAILED", "UNAUTHORIZED", "PERMISSION_DENIED", "PERMISSION_REVOKED")) {
+                        if (ToolResultEnvelope.isAuthorizationRejection(code)) {
                             terminalToolFailures[tool.definition.name] = requireNotNull(code)
                         } else if (tool.definition.name !in setOf("read_url", "deep_research_read_paper", "firecrawl_scrape", "tavily_extract", "web_fetch_exa") &&
                             Regex("(?i)HTTP\\s*401|status(?:\\s+code)?[\\s:=]+401|invalid api key|authentication failed").containsMatchIn(normalizedResult.content.toString())
@@ -266,7 +265,7 @@ class ToolExecutionBudget(
                         }
                     }
                     if (normalizedResult.errorCode in ToolResultEnvelope.unknownOutcomeCodes && !replayableRead) unknownOutcomes += signature
-                    if (normalizedResult.isError && normalizedResult.errorCode !in setOf("AUTH_REQUIRED", "BUDGET_EXHAUSTED")) failures.computeIfAbsent(signature) { AtomicInteger() }.incrementAndGet()
+                    if (normalizedResult.isError && normalizedResult.dispatched && normalizedResult.errorCode !in setOf("AUTH_REQUIRED", "BUDGET_EXHAUSTED")) failures.computeIfAbsent(signature) { AtomicInteger() }.incrementAndGet()
                     deliveryOutcome = if (normalizedResult.outputBudgetExhausted || normalizedResult.content != result.content || (result.retainedContent != null && result.retainedContent != result.content)) dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolDelivery.TRUNCATED else dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolDelivery.DELIVERED
                     success = !normalizedResult.isError
                     return@execution normalizedResult
@@ -285,6 +284,17 @@ class ToolExecutionBudget(
                 } catch (error: CombinedBudgetExceeded) {
                     reason = "COMBINED_BUDGET_EXHAUSTED"
                     return@execution failure(error.reason).copy(toolCallBudgetExhausted = true)
+                } catch (rejected: dev.chungjungsoo.gptmobile.data.permissions.ToolAuthorizationRejected) {
+                    // A deterministic refusal proves the child did not dispatch. It is
+                    // neither an unknown write nor a provider reliability failure.
+                    reason = rejected.code
+                    physicalToolStarted = false
+                    statistics?.rejectedBeforeDispatch(statisticsId)
+                    statisticsId = null
+                    if (ToolResultEnvelope.isAuthorizationRejection(rejected.code)) terminalToolFailures[tool.definition.name] = rejected.code
+                    val result = bounded(ToolResultEnvelope.error(callId, rejected.code, rejected.message.orEmpty()))
+                    combinedResult = result
+                    return@execution result
                 } catch (error: Exception) {
                     val readOnly = replayableRead
                     reason = if (readOnly) "READ_FAILED" else "DISPATCH_OUTCOME_UNKNOWN"

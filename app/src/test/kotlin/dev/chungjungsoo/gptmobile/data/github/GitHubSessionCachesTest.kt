@@ -6,8 +6,10 @@ import io.ktor.client.engine.mock.respond
 import io.ktor.http.HttpStatusCode
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
-import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.yield
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonPrimitive
@@ -55,9 +57,8 @@ class GitHubSessionCachesTest {
         }
     }
 
-    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
-    @Test
-    fun queuedRequestRechecksAuthenticationAfterAnEarlierRequestRejectsCredentials() = runTest {
+    @Test(timeout = 15_000)
+    fun queuedRequestRechecksAuthenticationAfterAnEarlierRequestRejectsCredentials() = runBlocking {
         val rejected = java.util.concurrent.atomic.AtomicBoolean()
         val started = CompletableDeferred<Unit>()
         val release = CompletableDeferred<Unit>()
@@ -80,7 +81,11 @@ class GitHubSessionCachesTest {
             val first = async { runCatching { client.execute("get_repository", args) } }
             started.await()
             val second = async { runCatching { client.execute("get_repository", args) } }
-            runCurrent()
+            // HTTP responses run on real IO; do not advance a virtual queue deadline
+            // while the first response is still travelling back to the caller.
+            withTimeout(10_000) {
+                while (scheduler.metrics().getValue("queued_requests").jsonPrimitive.intOrNull != 1) yield()
+            }
             assertEquals(1, scheduler.metrics().getValue("queued_requests").jsonPrimitive.intOrNull)
             release.complete(Unit)
             assertTrue(first.await().isFailure)

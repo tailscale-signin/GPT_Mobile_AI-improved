@@ -25,6 +25,45 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(manifest = Config.NONE, sdk = [34])
 class ToolBatchCheckpointTest {
+    @Test fun acceptedJobAndVerifiedReceiptSurviveRestartWithoutReplayingPolicyRejections() = runBlocking {
+        val file = File.createTempFile("engineering-context", ".json").apply { delete() }
+        try {
+            val job = ToolBatchJobContext("Repair the selected repository", "GITHUB_ENGINEERING", "owner/repo", "feature", "a".repeat(40))
+            val journal = ToolBatchCheckpoint(file, "authorized-job", job)
+            val observed = ProviderEvent.ToolCall("verified-pr", "github_pr", JsonObject(emptyMap()))
+            val blocked = ProviderEvent.ToolCall("policy", "github_write", JsonObject(emptyMap()))
+            journal.enqueue(listOf(observed, blocked))
+            journal.execute(observed) {
+                AgentToolResult(
+                    observed.callId,
+                    ToolResultContent.Json(buildJsonObject { put("number", 22) }),
+                    false,
+                    executionReceipt = buildJsonObject {
+                        put("phase", "OBSERVED")
+                        put("read_requests", 1)
+                    }
+                )
+            }
+            journal.execute(blocked) { ToolResultEnvelope.error(blocked.callId, "PERSONAL_DATA_LOCAL_ONLY", "Local-only source cannot be shared") }
+            val restored = ToolBatchCheckpoint(file, "authorized-job")
+            restored.prepareExplicitBudgetRetry()
+            val snapshot = restored.recoverySnapshot()
+            assertEquals(job.objective, snapshot.jobContext?.objective)
+            assertEquals(job.branch, snapshot.jobContext?.branch)
+            assertEquals(job.commitSha, snapshot.jobContext?.commitSha)
+            assertEquals(22, snapshot.jobContext?.pullRequest)
+            assertEquals(JsonPrimitive(observed.callId), snapshot.jobContext?.lastVerifiedReceipt?.get("callId"))
+            assertEquals("NOT_CONFIGURED", snapshot.objectiveStatus)
+            assertEquals(1, snapshot.rejectedCount)
+            assertEquals(0, snapshot.failedCount)
+            val result = restored.execute(blocked) { error("A saved policy rejection must never dispatch again") }
+            assertEquals("PERSONAL_DATA_LOCAL_ONLY", result.errorCode)
+            assertTrue(!result.dispatched)
+        } finally {
+            file.delete()
+        }
+    }
+
     @Test fun explicitBudgetRetryReopensOnlyUndispatchedBudgetFailuresAndKeepsReceipts() = runBlocking {
         val journal = ToolBatchCheckpoint(null, "retry")
         val calls = listOf("budget", "completed", "uncertain", "invalid", "dispatched-budget").map { ProviderEvent.ToolCall(it, "write", JsonObject(emptyMap())) }

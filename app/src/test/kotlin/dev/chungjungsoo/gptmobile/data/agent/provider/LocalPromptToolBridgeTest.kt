@@ -1,6 +1,11 @@
 package dev.chungjungsoo.gptmobile.data.agent.provider
 
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
+import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
+import dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog
+import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
+import dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
@@ -8,6 +13,17 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 class LocalPromptToolBridgeTest {
+    @Test fun discoveryUsesOnlySuccessfulCatalogEnvelopeData() {
+        val payload = buildJsonObject {
+            put("available_next_round", JsonArray(listOf(buildJsonObject { put("name", "lookup") }, buildJsonObject { put("name", 42) })))
+        }
+        val result = AgentToolResult("discovery", ToolResultContent.Json(payload), false, dispatched = false)
+        assertEquals(setOf("lookup"), LocalPromptToolBridge.discoveredToolNames(ToolResultEnvelope.encode(ProgressiveToolCatalog.NAME, result)))
+        assertEquals(emptySet<String>(), LocalPromptToolBridge.discoveredToolNames(payload.toString()))
+        assertEquals(emptySet<String>(), LocalPromptToolBridge.discoveredToolNames(ToolResultEnvelope.encode("other_tool", result)))
+        assertEquals(emptySet<String>(), LocalPromptToolBridge.discoveredToolNames(ToolResultEnvelope.encode(ProgressiveToolCatalog.NAME, result.copy(isError = true))))
+    }
+
     @Test fun progressBeforeZeroArgumentCallStaysSeparateAcrossEveryChunkSize() {
         val progress = "<progress_update>Checking the time.</progress_update>"
         val call = """{"type":"tool_call","name":"current_date","arguments":{}}"""

@@ -40,6 +40,8 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
@@ -336,6 +338,22 @@ class AgentToolResolverTest {
         assertFalse(account.shareableReadOnly)
         assertTrue(account.tool.definition.description.contains("Authenticated connection"))
         assertFalse(resolver(dao = dao).resolve("profile", ChatMcpToolConfig(allowAllByDefault = true).withToolDisabled("work")).any { it.connectionUid == "work" })
+    }
+
+    @Test fun localOnlyContextCannotPublishExternalGithubSchemasButLocalInferenceAloneCan() = runBlocking {
+        val dao = ResolverFakeToolConnectionDao()
+        dao.upsertConnection(connection("work", ToolConnectionType.GITHUB, endpointUrl = "https://api.github.com"))
+        val local = PlatformV2(uid = "profile", name = "Local", compatibleType = ClientType.LLAMA, apiUrl = "http://127.0.0.1:8080/v1", model = "local")
+        val resolver = resolver(dao = dao, settings = ResolverFakeSettingRepository(listOf(local)))
+        val context = dev.chungjungsoo.gptmobile.data.permissions.PersonalDataContext(7, null)
+        kotlinx.coroutines.withContext(context) {
+            assertTrue(resolver.resolve(local.uid).any { it.connectionUid == "work" || it.nativeGitHub })
+            context.add(listOf(dev.chungjungsoo.gptmobile.data.permissions.PersonalDataProvenance(sourceToolId = "memory", sourceProfileUid = local.uid, sourceRef = "local-source", categories = setOf(dev.chungjungsoo.gptmobile.data.permissions.PersonalDataCategory.MEMORY), localOnly = true)))
+            assertFalse(resolver.resolve(local.uid).any { it.connectionUid == "work" || it.nativeGitHub })
+            val workspace = dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext("work", "owner", "repo", "feature", "a".repeat(40), local.uid)
+            val rejected = runCatching { resolver.resolve(local.uid, ChatMcpToolConfig(github = workspace)) }.exceptionOrNull()
+            assertEquals("PERSONAL_DATA_LOCAL_ONLY", (rejected as? dev.chungjungsoo.gptmobile.data.permissions.ToolAuthorizationRejected)?.code)
+        }
     }
 
     @Test
@@ -1121,16 +1139,22 @@ class AgentToolResolverTest {
         val profile = PlatformV2(uid = "profile", name = "Writer")
         val settings = ResolverFakeSettingRepository(listOf(profile))
         val state = dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore()
-        suspend fun advertised(text: String, chatId: Int = 7): Set<String> {
+        suspend fun advertised(text: String, chatId: Int = 7, discover: List<String> = emptyList()): Set<String> {
             val available = resolver(settings = settings, gitHubState = state).resolve(profile.uid, userMessage = dev.chungjungsoo.gptmobile.data.database.entity.MessageV2(id = text.hashCode().and(Int.MAX_VALUE), chatId = chatId, content = text, platformType = null))
             val directory = requireNotNull(available.firstNotNullOfOrNull { it.progressiveCatalog })
+            if (discover.isNotEmpty()) {
+                assertFalse(directory.execute("discover", buildJsonObject { put("names", JsonArray(discover.map(::JsonPrimitive))) }).isError)
+            }
             return directory.selected(available.map { it.tool.definition }).mapNotNull { GitHubOperationTool.operationName(it.name) }.toSet()
         }
         assertEquals(setOf("github_context", "github_search", "github_read"), advertised("Inspect this repository"))
         assertEquals(setOf("github_context", "github_search", "github_read"), advertised("continue"))
-        assertTrue("github_stage_patch" in advertised("fix it"))
-        assertTrue("github_commit" in advertised("create a branch"))
-        assertTrue("github_commit" in advertised("push"))
+        assertFalse("github_stage_patch" in advertised("fix it"))
+        assertTrue("github_stage_patch" in advertised("fix it", discover = listOf("github_stage_patch")))
+        assertFalse("github_commit" in advertised("create a branch"))
+        assertTrue("github_commit" in advertised("create a branch", discover = listOf("github_commit")))
+        assertFalse("github_commit" in advertised("push"))
+        assertTrue("github_commit" in advertised("push", discover = listOf("github_commit")))
         assertTrue(advertised("hi").isEmpty())
         assertTrue(advertised("continue", chatId = 8).isEmpty())
     }
@@ -1153,7 +1177,7 @@ class AgentToolResolverTest {
         assertFalse(requireNotNull(write.canReuseResult).invoke())
     }
 
-    @Test fun longDiagnosticsCannotHideWritesOrLoseThemOnContinuation() = runBlocking {
+    @Test fun longDiagnosticsRetainDiscoverableWritesAcrossContinuation() = runBlocking {
         val profile = PlatformV2(uid = "profile", name = "Writer")
         val settings = ResolverFakeSettingRepository(listOf(profile))
         val state = dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore()
@@ -1161,22 +1185,28 @@ class AgentToolResolverTest {
         dao.upsertConnection(connection("github_api", ToolConnectionType.GITHUB, "https://api.github.com", "github-token"))
         val vault = ResolverFakeSecretVault(mapOf("github-token" to "test-user-token".encodeToByteArray()))
         val resolver = resolver(dao = dao, vault = vault, settings = settings, gitHubState = state)
-        suspend fun advertised(text: String, chatId: Int = 7): Set<String> {
+        suspend fun advertised(text: String, chatId: Int = 7, discover: Boolean = false): Set<String> {
             val available = resolver.resolve(profile.uid, userMessage = dev.chungjungsoo.gptmobile.data.database.entity.MessageV2(id = text.hashCode().and(Int.MAX_VALUE), chatId = chatId, content = text, platformType = null))
             val directory = available.firstNotNullOfOrNull { it.progressiveCatalog } ?: return emptySet()
+            if (discover) {
+                assertFalse(directory.execute("discover", buildJsonObject { put("names", JsonArray(listOf(JsonPrimitive("github_write__github_api"), JsonPrimitive("github_commit__github_api")))) }).isError)
+            }
             return directory.selected(available.map { it.tool.definition }).filter { GitHubOperationTool.operationName(it.name) != null }.map { it.name }.toSet()
         }
         val task = "Inspect the GitHub repository diagnostic report.\n" + "A retained diagnostic observation. ".repeat(200) + "\nRepair the failures, commit the reviewed changes and push."
         assertTrue(task.indexOf("Repair") > 4096)
         val initial = advertised(task)
-        assertTrue("github_write must be advertised on the original long request", "github_write__github_api" in initial)
-        assertTrue("github_commit__github_api" in initial)
-        val continued = advertised("continue")
-        assertTrue("github_write must survive task compaction", "github_write__github_api" in continued)
+        assertFalse("github_write__github_api" in initial)
+        assertFalse("github_commit__github_api" in initial)
+        val discovered = advertised(task, discover = true)
+        assertTrue("github_write__github_api" in discovered)
+        assertTrue("github_commit__github_api" in discovered)
+        val continued = advertised("continue", discover = true)
+        assertTrue("github_write must remain discoverable after task compaction", "github_write__github_api" in continued)
         assertTrue("github_commit__github_api" in continued)
         assertTrue(advertised("continue", chatId = 8).isEmpty())
         settings.features = settings.features.withToolPluginEnabled(ToolPluginId.GITHUB, false)
-        assertTrue(advertised("continue").isEmpty())
+        assertTrue(advertised("continue", discover = true).isEmpty())
     }
 
     @Test fun telemetryEnabledStillPublishesCompactGithubOperationsAndHonorsRevocation() = runBlocking {

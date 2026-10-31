@@ -31,6 +31,7 @@ internal class GitHubDispatchAccounting : AbstractCoroutineContextElement(Key) {
     }
 
     @Synchronized private fun start(mutation: Boolean) {
+        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("GitHub", "REQUEST_EXECUTION_STATE · state=DISPATCHED · mutation=$mutation")
         if (mutation) {
             mutations++
             unknown++ // Stays unknown if transmission or reading the response is interrupted.

@@ -9,6 +9,28 @@ import org.junit.Assert.assertFalse
 import org.junit.Test
 
 class ToolAuthorizationOutcomeTest {
+    @Test fun childPolicyRejectionIsUnsentAndNeverBecomesAnUnknownWriteOrRepeatedFailure() = runTest {
+        var checks = 0
+        val child = object : AgentTool {
+            override val definition = AgentToolDefinition("github_write__github_api", "", buildJsonObject {})
+            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+                checks++
+                throw ToolAuthorizationRejected("PERSONAL_DATA_LOCAL_ONLY", "Saved local-only context cannot leave this device")
+            }
+        }
+        val wrapped = ToolExecutionBudget(AgentRunLimits()).bind(child)
+        repeat(4) { attempt ->
+            val result = wrapped.execute("attempt-$attempt", buildJsonObject {})
+            assertEquals("PERSONAL_DATA_LOCAL_ONLY", result.errorCode)
+            assertFalse(result.dispatched)
+            assertEquals("PRECHECK_REJECTED", ToolResultEnvelope.executionState(result))
+            val envelope = kotlinx.serialization.json.Json.parseToJsonElement(ToolResultEnvelope.encode(child.definition.name, result)) as JsonObject
+            val execution = envelope.getValue("execution") as JsonObject
+            assertEquals(kotlinx.serialization.json.JsonPrimitive(false), execution["retryable"])
+        }
+        assertEquals(1, checks)
+    }
+
     @Test fun timedOutReadAllowsFreshInvocationButWriteRequiresReconciliation() = runTest {
         for ((name, expected) in listOf("github_search__github_api" to "READ_DEADLINE", "github_write__github_api" to "TIMEOUT_OUTCOME_UNKNOWN")) {
             var dispatches = 0

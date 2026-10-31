@@ -63,6 +63,7 @@ internal fun structuredDiagnosticLine(
                 else -> "INFORMATIONAL"
             }
         )
+        put("causalAttribution", "UNVERIFIED")
         put("category", classification.category)
         put("severity", classification.severity)
         put("stage", text("stage") ?: text("runtimeStage"))

@@ -6,6 +6,18 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class DiagnosticPrivacyTest {
+    @Test fun completeRequestMetricsSurviveWhilePromptTextRemainsPrivate() {
+        val metrics = "FINAL_REQUEST · promptTokens=7620 · outputTokens=8192 · contextTokens=32768 · measurement=UTF8_ESTIMATE"
+        assertEquals(metrics, redactDiagnosticPayload(metrics))
+        val exported = structuredDiagnosticLine("2026-10-31T12:00:00Z I/Admission: $metrics")
+        assertTrue(exported.contains("7620"))
+        assertFalse(redactDiagnosticPayload("FINAL_REQUEST · prompt=private-canary").contains("private-canary"))
+        val network = structuredDiagnosticLine("2026-10-31T12:00:00Z I/Network: unexpected end of stream")
+        assertTrue(network.contains("transport_availability"))
+        assertTrue(network.contains("\"countAsIssue\":true"))
+        assertTrue(network.contains("\"causalAttribution\":\"UNVERIFIED\""))
+    }
+
     @Test fun `nested and incomplete tool payloads cannot expose search text`() {
         listOf(
             "error={\"nested\":{\"query\":\"private-canary\"}}",

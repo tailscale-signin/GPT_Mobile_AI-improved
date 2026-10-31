@@ -106,7 +106,7 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String) 
         state.pending.forEach { id ->
             val entry = entries.getValue(id)
             val result = entry.result ?: return@forEach
-            entries[id] = if (result.error && !result.dispatched && result.code == "BUDGET_EXHAUSTED") {
+            entries[id] = if (result.error && !result.dispatched && result.code in setOf("BUDGET_EXHAUSTED", "DEPENDENCY_DEFERRED")) {
                 // Keep the old refusal for audit, but let ordinary admission decide
                 // whether this still-unexecuted call fits the current allowance.
                 entry.copy(started = false, result = null, priorBudgetRejection = result)

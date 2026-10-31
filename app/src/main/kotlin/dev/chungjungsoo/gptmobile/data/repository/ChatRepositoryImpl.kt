@@ -4032,7 +4032,8 @@ class ChatRepositoryImpl(
         val editorialPass = runId.startsWith("combined-synthesis:")
         val capKey = "${platform.compatibleType}|${platform.apiUrl}|${platform.model}|${platform.openRouterRouting.orEmpty()}"
         val routeOutputCap = dev.chungjungsoo.gptmobile.data.agent.provider.ProviderRouteCapacity.output(platform, effectiveOutputCap)
-        val resolvedOutputCap = if (writerPlan != null) routeOutputCap else dev.chungjungsoo.gptmobile.data.agent.responseOutputAllowance(limits.copy(outputTokens = requestedOutputTokens ?: limits.outputTokens), routeOutputCap)
+        val requestedCap = if (writerPlan != null) routeOutputCap else dev.chungjungsoo.gptmobile.data.agent.responseOutputAllowance(limits.copy(outputTokens = requestedOutputTokens ?: limits.outputTokens), routeOutputCap)
+        val resolvedOutputCap = if (chatToolConfig?.github != null || exposedTools.isNotEmpty()) dev.chungjungsoo.gptmobile.data.context.ReplayAllowance.allocate(limits.contextTokens, contextPlan.promptTokens, requestedCap ?: 4096, 4096).also { check(it.output > 0 && it.replay > 0) { "TOOL_EVIDENCE_CONTEXT_BUDGET: The prompt, a useful reply and its tool receipts do not fit together. Narrow the prompt or schemas before starting tool work." } }.output else requestedCap
         val requestConstraints = RequestConstraints(
             originalRequestLineage = latestUser?.content?.let { dev.chungjungsoo.gptmobile.data.research.researchHash(it) },
             contextCeiling = limits.contextTokens.takeIf { it < Int.MAX_VALUE },
@@ -4072,7 +4073,7 @@ class ChatRepositoryImpl(
             if (recalled.facts.isNotEmpty()) send(ApiState.MemoryRecalled(recalled.references))
             val passCombined = prepareCombinedDeliveryWork(combinedOverride ?: chatToolConfig?.combined, kind, runId, platform.uid, turns, invocationPlatform.systemPrompt.orEmpty(), listOfNotNull(passOutputTokens, requestConstraints.maxOutputTokens).minOrNull())
             val constraints = (if (textOnly) requestConstraints.withoutTools() else requestConstraints)
-                .copy(requestRole = kind, combined = passCombined, continuationPrefixDigest = continuationPrefixDigest)
+                .copy(requestRole = kind, combined = passCombined, continuationPrefixDigest = continuationPrefixDigest, maximizeReasoning = requestConstraints.maximizeReasoning && !kind.startsWith("github-review"))
                 .let { original ->
                     if (passOutputTokens != null) {
                         original.copy(maxOutputTokens = minOf(original.maxOutputTokens ?: passOutputTokens, passOutputTokens))
@@ -4631,8 +4632,32 @@ class ChatRepositoryImpl(
             )
         }
         val reviewEvidence = if (chatToolConfig?.github != null && platform.compatibleType == ClientType.LLAMA) dev.chungjungsoo.gptmobile.data.github.GitHubReviewEvidence() else null
-        fun reviewOutputTokens(): Int = minOf(4096, minOf(limits.contextTokens, observedRequestContext.get() ?: Int.MAX_VALUE) / 8).coerceAtLeast(256)
-        fun reviewInputLimit(): Int = (minOf(limits.contextTokens, observedRequestContext.get() ?: Int.MAX_VALUE).toLong() - dev.chungjungsoo.gptmobile.data.context.TextTokenEstimate.estimate(requestPlatform.systemPrompt.orEmpty() + dev.chungjungsoo.gptmobile.data.github.GitHubReviewedSession.INSTRUCTION) - reviewOutputTokens() - 512).coerceIn(0, 1_048_576).toInt()
+        fun reviewOutputTokens(): Int = minOf(8192, minOf(limits.contextTokens, observedRequestContext.get() ?: 32_768) / 4).coerceAtLeast(256)
+        fun reviewInputLimit(): Int = (minOf(limits.contextTokens, observedRequestContext.get() ?: 32_768).toLong() - reviewOutputTokens() - 1536).coerceIn(0, 1_048_576).toInt()
+        suspend fun measureReview(prompt: String): Int = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+            val system = requestPlatform.systemPrompt.orEmpty() + "\n" + dev.chungjungsoo.gptmobile.data.github.GitHubReviewedSession.INSTRUCTION
+            dev.chungjungsoo.gptmobile.data.context.TextTokenEstimate.estimate(
+                buildJsonObject {
+                    put("model", platform.model)
+                    put(
+                        "messages",
+                        kotlinx.serialization.json.JsonArray(
+                            listOf(
+                                buildJsonObject {
+                                    put("role", "system")
+                                    put("content", system)
+                                },
+                                buildJsonObject {
+                                    put("role", "user")
+                                    put("content", prompt)
+                                }
+                            )
+                        )
+                    )
+                    put("response_format", dev.chungjungsoo.gptmobile.data.github.GitHubReviewSchema.format)
+                }.toString()
+            )
+        }
         val reviewedSession = if (reviewEvidence != null) {
             val reviewUser = requireNotNull(latestUser) { "GITHUB_REVIEW_REQUIRED: The original task is missing; no answer can be published." }
             dev.chungjungsoo.gptmobile.data.github.GitHubReviewedSession(
@@ -4641,6 +4666,24 @@ class ChatRepositoryImpl(
                 reviewUser.content,
                 inputTokenLimit = reviewInputLimit(),
                 currentInputLimit = ::reviewInputLimit,
+                measureInput = ::measureReview,
+                checkpoint = workspace?.let { store ->
+                    val github = requireNotNull(chatToolConfig?.github)
+                    val binding = dev.chungjungsoo.gptmobile.data.research.researchHash("${reviewUser.chatId}:${reviewUser.id}:${platform.uid}:${github.connectionUid}:${github.owner}/${github.repo}:${github.ref}:${dispatchAuthority.revision}")
+                    dev.chungjungsoo.gptmobile.data.github.GitHubReviewCheckpoint(
+                        reviewUser.content,
+                        read = { id ->
+                            dispatchAuthority.validate()
+                            check(validateSavedEvidence())
+                            store.protectedSynthesisCheckpoint("github-review:$binding:$id")
+                        },
+                        write = { id, value ->
+                            dispatchAuthority.validate()
+                            check(validateSavedEvidence())
+                            store.saveProtectedSynthesisCheckpoint("github-review:$binding:$id", reviewUser.chatId, runId, value)
+                        }
+                    )
+                },
                 openReview = { prompt, kind ->
                     openPrimarySession(
                         listOf(ConversationTurn(reviewUser.copy(content = prompt, attachments = emptyList()), null, true)),

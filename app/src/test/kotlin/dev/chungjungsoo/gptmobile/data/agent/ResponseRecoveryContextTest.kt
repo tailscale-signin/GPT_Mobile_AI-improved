@@ -97,6 +97,8 @@ class ResponseRecoveryContextTest {
         for (value in listOf("-1", "1.5", "1e3", "2147483648", " ", "null")) {
             val result = reader.execute("bad-offset", buildJsonObject { put("offset", value) })
             assertTrue("Accepted invalid offset $value", result.isError)
+            assertFalse(result.dispatched)
+            assertEquals("INVALID_ARGUMENTS", result.errorCode)
         }
         for (value in listOf("0", "16001", "100000", "-1")) {
             assertTrue(reader.execute("bad-length", buildJsonObject { put("length", value) }).isError)
@@ -138,6 +140,43 @@ class ResponseRecoveryContextTest {
         assertEquals(snapshot, recovery.researchSnapshotForDelivery())
         allowed = false
         assertTrue(runCatching { recovery.researchSnapshotForDelivery() }.exceptionOrNull() is SavedEvidenceAccessDenied)
+    }
+
+    @Test fun mutableGithubContextAndCiReadsRemainFreshDuringMutationRecovery() = runTest {
+        for ((name, action) in listOf("github_context" to "repository", "github_ci" to "runs", "github_pr" to "headers")) {
+            val arguments = buildJsonObject {
+                put("action", action)
+                if (name == "github_pr") put("pull_number", 1)
+            }
+            var reads = 0
+            val original = object : AgentTool {
+                override val definition = AgentToolDefinition(name, "read", buildJsonObject {})
+                override suspend fun execute(callId: String, arguments: kotlinx.serialization.json.JsonObject): AgentToolResult {
+                    reads++
+                    return AgentToolResult(callId, ToolResultContent.Text("fresh"), false)
+                }
+            }
+            val event = ToolEvent("read", run.runId, 0, "old", "connection", "GitHub", name, name, arguments.toString(), "stale", "TEXT", "COMPLETED")
+            val wrapper = ResponseRecoveryContext(listOf(run), emptyList(), listOf(event), rootWorkId = "root").reuseCompletedTool(original, name, "connection")
+            assertFalse(wrapper.execute("new", arguments).isError)
+            assertEquals(1, reads)
+        }
+    }
+
+    @Test fun blockedSavedMutationIsTypedAndNeverDispatched() = runTest {
+        val arguments = buildJsonObject {
+            put("action", "commit")
+            put("branch", "work")
+        }
+        val original = object : AgentTool {
+            override val definition = AgentToolDefinition("github_commit", "write", buildJsonObject {})
+            override suspend fun execute(callId: String, arguments: kotlinx.serialization.json.JsonObject): AgentToolResult = error("Unknown mutation cannot be repeated")
+        }
+        val event = ToolEvent("write", run.runId, 0, "old", "connection", "GitHub", "github_commit", "github_commit", arguments.toString(), null, "TEXT", "CANCELED")
+        val result = ResponseRecoveryContext(listOf(run), emptyList(), listOf(event), rootWorkId = "root").reuseCompletedTool(original, "github_commit", "connection").execute("new", arguments)
+        assertTrue(result.isError)
+        assertFalse(result.dispatched)
+        assertEquals("RECONCILIATION_REQUIRED", result.errorCode)
     }
 
     private val run = AgentRun("old-run", 1, 1, 2, "old-profile", "LLAMA", "qwen", status = "FAILED")

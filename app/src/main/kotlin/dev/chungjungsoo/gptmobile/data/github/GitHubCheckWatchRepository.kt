@@ -62,7 +62,7 @@ internal data class GitHubCheckWatch(
     val terminal: Boolean get() = status !in setOf("RUNNING", "UNKNOWN", "NONE", "RETRYING")
 }
 
-/** Durable, token-free native subscriptions. No webhook server or foreground model loop is needed. */
+/** Durable model-free monitoring. Android workers use bounded polling, not GitHub webhooks. */
 @Singleton
 class GitHubCheckWatchRepository @Inject constructor(
     @ApplicationContext private val context: Context,
@@ -124,6 +124,8 @@ class GitHubCheckWatchRepository @Inject constructor(
             pull?.let { put("pr_number", it) }
             run?.let { put("run_id", it) }
             put("status", "SUBSCRIBED")
+            put("monitoring_transport", "ANDROID_BACKGROUND_POLLING")
+            put("model_polling_required", false)
             put("delivery", "Native background checks update the chat card automatically. No more model polling calls are needed. Android may defer checks while offline or in battery-saving mode.")
         }
     }
@@ -155,7 +157,7 @@ class GitHubCheckWatchRepository @Inject constructor(
         if (watch.terminal) return@withContext true
         val now = System.currentTimeMillis()
         if (now < watch.retryAt) return@withContext false
-        val outcome = if (attempt >= 48 || now - watch.startedAt >= TimeUnit.HOURS.toMillis(24)) {
+        val outcome = if (attempt >= 256 || now - watch.startedAt >= TimeUnit.HOURS.toMillis(24)) {
             watch.copy(status = "EXPIRED", detail = "Background watch expired. CI has not been verified.")
         } else {
             try {
@@ -170,10 +172,11 @@ class GitHubCheckWatchRepository @Inject constructor(
                 watch.copy(status = "RETRYING", detail = "Connection interrupted; retrying in the background.")
             }
         }
+        val scheduled = if (!outcome.terminal) outcome.copy(retryAt = GitHubWatchBackoff.next(now, attempt, outcome.retryAt)) else outcome
         mutex.withLock {
             val current = workspace.dao.get(id)?.let(::decode)
             // Cancellation and a replacement subscription win over an in-flight response.
-            if (current != null && !current.terminal && current.startedAt == watch.startedAt && current.headSha == watch.headSha) save(outcome.copy(updatedAt = now))
+            if (current != null && !current.terminal && current.startedAt == watch.startedAt && current.headSha == watch.headSha) save(scheduled.copy(updatedAt = now))
         }
         outcome.terminal
     }

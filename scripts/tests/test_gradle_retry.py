@@ -1,6 +1,8 @@
 import importlib.util
+import os
 import pathlib
 import tempfile
+import time
 import unittest
 
 SCRIPT = pathlib.Path(__file__).resolve().parents[1] / 'gradle_retry.py'
@@ -10,6 +12,37 @@ SPEC.loader.exec_module(retry)
 
 
 class GradleRetryTest(unittest.TestCase):
+    @unittest.skipUnless(os.name == 'posix', 'Process group qualification requires POSIX')
+    def test_deadline_terminates_a_stalled_descendant_and_never_retries_it(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            pid_file, counter = root / 'child.pid', root / 'attempts'
+            fake = root / 'gradlew'
+            fake.write_text('#!/usr/bin/env python3\nimport subprocess,sys,time\n' +
+                            f'open({str(counter)!r}, "a").write("attempt\\n")\n' +
+                            'print("Could not resolve dependency. HTTP 503", flush=True)\n' +
+                            f'child = subprocess.Popen([sys.executable, "-c", "import signal,time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(60)"])\nopen({str(pid_file)!r}, "w").write(str(child.pid))\n' +
+                            'time.sleep(60)\n')
+            fake.chmod(0o755)
+            started = time.monotonic()
+            self.assertEqual(124, retry.run(['packageNativeSmoke'], executable=str(fake), timeout_seconds=.5, termination_grace_seconds=.1, delay_seconds=0))
+            self.assertLess(time.monotonic() - started, 3)
+            self.assertEqual(['attempt'], counter.read_text().splitlines())
+            child = int(pid_file.read_text())
+            status = pathlib.Path(f'/proc/{child}/stat')
+            self.assertTrue(not status.exists() or status.read_text().split(') ', 1)[1].startswith('Z'))
+
+    def test_dependency_backoff_uses_the_same_total_deadline(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            counter, fake = root / 'count', root / 'gradlew'
+            fake.write_text(f'#!/bin/sh\necho attempt >> "{counter}"\necho "Could not GET resource. HTTP 429"\nexit 7\n')
+            fake.chmod(0o755)
+            started = time.monotonic()
+            self.assertEqual(124, retry.run(['help'], executable=str(fake), timeout_seconds=.1, delay_seconds=10))
+            self.assertLess(time.monotonic() - started, 2)
+            self.assertEqual(1, len(counter.read_text().splitlines()))
+
     def test_dependency_throttling_is_retryable(self):
         self.assertTrue(retry.retryable(['Could not resolve dependency.', 'Received status code 429 from server: Too Many Requests']))
         self.assertTrue(retry.retryable(['Could not GET resource.', 'HTTP 503']))

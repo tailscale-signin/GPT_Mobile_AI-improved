@@ -108,7 +108,7 @@ class MemoryEnrichmentQueue @Inject constructor(
         }
         if (runtime.state.value.engineSpec == null || runtime.isBusy || runtime.hasOpenConversation() || dev.chungjungsoo.gptmobile.data.localruntime.InferenceAdmission.isExclusiveBusy || dev.chungjungsoo.gptmobile.data.readiness.ReadinessWorkloadSignals.active.value > 0) {
             markWaiting(context, workDataOf("messageId" to message.id, "chatId" to message.chatId, "hash" to digest(message.content)))
-            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Memory", "ENRICHMENT_DEFERRED · message=${message.id} · reason=${if (runtime.state.value.engineSpec == null) "WAITING_FOR_MODEL" else "WAITING_FOR_IDLE"} · workerScheduled=false")
+            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Memory", "ENRICHMENT_DEFERRED · message=${message.id} · reason=${if (runtime.state.value.engineSpec == null) "WAITING_FOR_MODEL" else "WAITING_FOR_IDLE"} · workerScheduled=false · sourcePersisted=true · wakeTrigger=RUNTIME_IDLE_OR_MODEL_AVAILABLE")
             return
         }
         if (runtimeCoolingDown(context, runtime)) {

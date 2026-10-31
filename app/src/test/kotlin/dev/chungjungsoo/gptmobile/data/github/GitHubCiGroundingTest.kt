@@ -28,7 +28,9 @@ class GitHubCiGroundingTest {
     @Test fun definiteHttpRejectionAndEarlierAcceptedWritesKeepTheirEvidence() = runTest {
         val http = HttpClient(
             MockEngine { request ->
-                if (request.method.value == "POST") {
+                if (request.url.encodedPath.endsWith("/git/ref/heads/topic")) {
+                    return@MockEngine respond("{}", HttpStatusCode.NotFound)
+                } else if (request.method.value == "POST") {
                     respond("""{"message":"Forbidden"}""", HttpStatusCode.Forbidden)
                 } else {
                     respond("""{"object":{"sha":"${"a".repeat(40)}"},"permissions":{"push":true}}""")
@@ -60,7 +62,9 @@ class GitHubCiGroundingTest {
             var writes = 0
             val http = HttpClient(
                 MockEngine { request ->
-                    if (request.method.value == "POST") {
+                    if (request.url.encodedPath.endsWith("/git/ref/heads/topic")) {
+                        return@MockEngine respond("{}", HttpStatusCode.NotFound)
+                    } else if (request.method.value == "POST") {
                         writes++
                         throw java.io.IOException("Connection closed before the response")
                     }

@@ -26,6 +26,8 @@ import kotlinx.serialization.json.put
 class GatewayEngineeringClient internal constructor(private val http: HttpClient) {
     @Inject constructor(network: NetworkClient) : this(network())
     private val json = Json { ignoreUnknownKeys = true }
+    private val unsupported = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private fun capabilityKey(config: ProviderRequestConfig) = dev.chungjungsoo.gptmobile.data.research.researchHash("${config.profileUid}|${config.apiUrl.trimEnd('/')}|${dev.chungjungsoo.gptmobile.data.research.researchHash(config.token.orEmpty())}")
 
     private suspend fun request(config: ProviderRequestConfig, path: String, body: String? = null, approval: Boolean = false): String = http.prepareRequest(config.buildEndpoint("gateway/engineering/$path")) {
         method = if (body == null) HttpMethod.Get else HttpMethod.Post
@@ -54,8 +56,22 @@ class GatewayEngineeringClient internal constructor(private val http: HttpClient
         response.boundedMetadata()
     }
 
-    suspend fun principal(config: ProviderRequestConfig): String =
-        requireNotNull(json.parseToJsonElement(request(config, "capabilities")).let { it as? kotlinx.serialization.json.JsonObject }?.get("principal_id")?.jsonPrimitive?.contentOrNull) { "Gateway engineering identity is unavailable." }
+    suspend fun principal(config: ProviderRequestConfig): String {
+        val key = capabilityKey(config)
+        check(unsupported[key]?.let { System.nanoTime() - it >= 0 } != false) { "This inference endpoint does not expose engineering jobs. Select an engineering gateway endpoint; ordinary chat remains available." }
+        val payload = try {
+            request(config, "capabilities")
+        } catch (failure: IllegalStateException) {
+            if (failure.message.orEmpty().contains("does not expose")) {
+                if (unsupported.size >= 64) unsupported.clear()
+                unsupported[key] = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(60)
+            }
+            throw failure
+        }
+        val capability = requireNotNull(json.parseToJsonElement(payload) as? kotlinx.serialization.json.JsonObject) { "Engineering capability response is invalid." }
+        check(capability["enabled"] == kotlinx.serialization.json.JsonPrimitive(true)) { "The gateway engineering service is disabled or its host connection is unavailable. Chat inference readiness does not establish job readiness." }
+        return requireNotNull(capability["principal_id"]?.jsonPrimitive?.contentOrNull) { "Gateway engineering identity is unavailable." }
+    }
 
     suspend fun create(config: ProviderRequestConfig, payload: GatewayEngineeringRequest): GatewayEngineeringJob =
         json.decodeFromString(request(config, "jobs", json.encodeToString(payload)))

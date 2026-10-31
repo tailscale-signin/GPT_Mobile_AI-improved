@@ -93,7 +93,7 @@ internal object GitHubOperationArguments {
             "github_issue" -> {
                 positive("issue_number")
                 when (text("action")) {
-                    "context", "comments", "history" -> required("issue_number")
+                    "headers", "context", "comments", "history" -> required("issue_number")
                     "create" -> required("title")
                     "update" -> {
                         required("issue_number", "expected_updated_at")

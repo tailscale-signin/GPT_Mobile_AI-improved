@@ -1,6 +1,5 @@
 package dev.chungjungsoo.gptmobile.data.agent.tool
 
-import java.io.IOException
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -10,10 +9,12 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 
-internal class EngineeringApiException(val status: Int, val retryAtEpochMs: Long?) : IOException("GitHub API unavailable (HTTP $status)")
-
 /** Fixed host, no redirects, bounded responses, and a fresh credential for every request. */
 internal open class GitHubEngineeringApi(private val token: suspend () -> String?) {
+    private var http = transport
+    internal constructor(http: OkHttpClient, token: suspend () -> String?) : this(token) {
+        this.http = http
+    }
     internal var expectedWriteActor: String? = null
     open suspend fun request(path: String, method: String = "GET", body: JSONObject? = null): String = execute(path, method, body)
 
@@ -47,16 +48,20 @@ internal open class GitHubEngineeringApi(private val token: suspend () -> String
             .header("X-GitHub-Api-Version", "2022-11-28")
             .method(method, requestBody)
             .build()
-        transport.newCall(request).execute().use { response ->
+        http.newCall(request).execute().use { response ->
             if (response.code !in 200..299) {
-                val retry = engineeringRetryDeadline(
+                // Error text is inspected locally and bounded; never include response
+                // bodies, repository content or credentials in the exception/log.
+                val message = runCatching { JSONObject(response.peekBody(8192).string()).optString("message") }.getOrDefault("")
+                throw engineeringApiFailure(
                     response.code,
                     response.header("Retry-After"),
                     response.header("X-RateLimit-Reset"),
                     response.header("X-RateLimit-Remaining"),
+                    response.header("X-GitHub-SSO"),
+                    message,
                     System.currentTimeMillis()
                 )
-                throw EngineeringApiException(response.code, retry)
             }
             val output = java.io.ByteArrayOutputStream()
             response.body?.byteStream()?.use { input ->

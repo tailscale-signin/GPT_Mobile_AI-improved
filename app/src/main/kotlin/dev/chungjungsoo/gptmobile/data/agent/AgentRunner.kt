@@ -65,6 +65,10 @@ class AgentRunner(
     private val onToolResult: (suspend (ProviderEvent.ToolCall, AgentToolResult) -> Unit)? = null
 ) {
     fun run(session: AgentProviderSession, tools: List<AgentTool>, dynamicTools: () -> List<AgentTool> = { emptyList() }, selectDefinitions: (List<AgentToolDefinition>) -> List<AgentToolDefinition> = { it }): Flow<AgentRunEvent> = flow {
+        if (tools.isNotEmpty() && !session.handlesToolsInternally && limits.maxReplayTokens <= 0) {
+            emit(AgentRunEvent.Provider(ProviderEvent.Failed("No actionable tool receipt fits the replay budget. Reallocate stage output or narrow schemas before starting tool work.", errorCode = "REPLAY_EVIDENCE_REQUIRED")))
+            return@flow
+        }
         if (tools.groupBy { it.definition.name }.any { it.value.size > 1 }) {
             emit(failed("Ambiguous tool aliases: resolve duplicate model-facing names before execution."))
             return@flow
@@ -432,7 +436,7 @@ class AgentRunner(
         // dependent actions after the answer has been returned to the model.
         val toolsForBatch = if (calls.any { it.name in questionNames }) executableToolByName.filterKeys { it in questionNames } else executableToolByName
         val batchAllowance = if (calls.any { it.name in questionNames }) minOf(1, remainingCalls) else remainingCalls
-        val plan = planToolBatch(calls, batchAllowance, toolsForBatch.keys, toolCallsByName, blockedReadScopes, MAX_SAME_TOOL_CALLS_PER_RUN, restoredRetained, ::failureScope)
+        val plan = dependencyClosedPlan(planToolBatch(calls, batchAllowance, toolsForBatch.keys, toolCallsByName, blockedReadScopes, MAX_SAME_TOOL_CALLS_PER_RUN, restoredRetained, ::failureScope), planIntelligentBatch(calls, toolsForBatch), restoredRetained)
         val executableCalls = plan.executable
         val deferredCalls = plan.deferred
         val perToolSuppressedIds = plan.perToolSuppressedIds
@@ -480,7 +484,7 @@ class AgentRunner(
             }
         }
 
-        val deferredResults = deferredToolResults(deferredCalls, hostSuppressedIds, perToolSuppressedIds, plan.unavailableIds, executableToolByName.keys, exchanges)
+        val deferredResults = deferredToolResults(deferredCalls, hostSuppressedIds, perToolSuppressedIds, plan.unavailableIds, executableToolByName.keys, exchanges).map { result -> if (result.callId in plan.dependencyDeferredIds) ToolResultEnvelope.error(result.callId, "DEPENDENCY_DEFERRED", "This dependent remains undispatched because a prerequisite was not admitted. Complete the missing read or correct its arguments before resuming this saved dependency group.") else result }
         deferredCalls.zip(deferredResults).forEach { (call, result) -> checkpoint?.complete(call, result) }
         val canReadOtherSources = (plan.unavailableIds.isNotEmpty() && executableToolByName.isNotEmpty()) ||
             hostSuppressedIds.isNotEmpty() ||
@@ -897,6 +901,10 @@ class AgentRunner(
         // Keep provider failures separate from downstream collector failures. In
         // particular, never emit usage from finally after cancellation or a failed emit.
         flow {
+            if (exchanges.isNotEmpty() && limits.maxReplayTokens <= 0) {
+                emit(ProviderEvent.Failed("No actionable tool receipt fits this request. Lower the stage output reservation or narrow the schemas before continuing; saved evidence was retained.", errorCode = "REPLAY_EVIDENCE_REQUIRED"))
+                return@flow
+            }
             val rawReplayTokens = ToolExchangeCompactor.estimateTokens(exchanges)
             val replayExchanges = ToolExchangeCompactor.compact(
                 exchanges = exchanges,
@@ -1038,7 +1046,14 @@ class AgentRunner(
     }
 
     private fun countsTowardToolFailureCircuit(result: AgentToolResult): Boolean {
-        if (!result.isError || result.outputBudgetExhausted || result.toolCallBudgetExhausted) return false
+        if (!result.isError ||
+            result.outputBudgetExhausted ||
+            result.toolCallBudgetExhausted ||
+            result.errorCode in setOf("DEPENDENCY_DEFERRED", "DEPENDENCY_FAILED", "RECONCILIATION_REQUIRED", "INVALID_ARGUMENTS", "RECOVERY_SCOPE_MISMATCH", "SAVED_EVIDENCE_REVOKED") &&
+            !result.dispatched
+        ) {
+            return false
+        }
         val text = when (val content = result.content) {
             is ToolResultContent.Text -> content.text
             is ToolResultContent.Json -> content.value.toString()
@@ -1112,7 +1127,7 @@ class AgentRunner(
             nodes,
             dispatch = { call ->
                 if (call.callId in blocked) {
-                    return@execute ToolResultEnvelope.error(call.callId, "DEPENDENCY_FAILED", "A prerequisite was deferred by admission. This operation was not dispatched; replan after the missing read completes.")
+                    return@execute ToolResultEnvelope.error(call.callId, "DEPENDENCY_DEFERRED", "A prerequisite was deferred by admission. This operation was not dispatched; replan after the missing read completes.")
                 }
                 val signature = call.name + ":" + dev.chungjungsoo.gptmobile.data.permissions.ScopedToolGrant.canonicalHash(call.arguments)
                 suspend fun dispatch(): AgentToolResult = if (synchronized(unknownOutcomes) { signature in unknownOutcomes }) {

@@ -297,10 +297,21 @@ class LocalSemanticMemory @Inject constructor(@ApplicationContext private val co
     }
 
     /** Shares the app's idle/pressure lifecycle without interrupting native inference. */
-    suspend fun releaseWhenIdle(idleMillis: Long = 180_000L, memoryPressure: Boolean = false) = withContext(ownerDispatcher) {
+    suspend fun releaseWhenIdle(idleMillis: Long = 180_000L, memoryPressure: Boolean = false, trimSignal: Int? = null) = withContext(ownerDispatcher) {
         if (!mutex.tryLock()) return@withContext
         try {
-            if (android.os.SystemClock.elapsedRealtime() - lastUsed >= idleMillis) {
+            val idleAge = android.os.SystemClock.elapsedRealtime() - lastUsed
+            if (idleAge >= idleMillis) {
+                dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
+                    "Memory",
+                    "EMBEDDING_RELEASE_POLICY · reason=${if (memoryPressure) {
+                        "memory_pressure"
+                    } else if (idleMillis <= 0) {
+                        "explicit_release"
+                    } else {
+                        "idle_timeout"
+                    }} · trimSignal=${trimSignal ?: "unreported"} · idleAgeMs=$idleAge · requiredIdleMs=$idleMillis · processCountersAreEngineFootprint=false"
+                )
                 // A forced release is not necessarily a low-memory signal. Only actual
                 // pressure should defer reacquisition; explicit reopen and idle tests must
                 // remain recoverable without a fabricated 30-second memory-pressure stall.

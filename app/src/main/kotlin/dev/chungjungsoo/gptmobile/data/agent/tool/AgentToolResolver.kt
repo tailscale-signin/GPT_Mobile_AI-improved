@@ -13,6 +13,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionAuthType
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionType
+import dev.chungjungsoo.gptmobile.data.github.GitHubChatPolicy
 import dev.chungjungsoo.gptmobile.data.memory.MemoryGraphRepository
 import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
 import dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig
@@ -148,7 +149,8 @@ class AgentToolResolver @Inject constructor(
         requestedModel: String? = null
     ): List<ResolvedAgentTool> {
         val platforms = settingRepository.fetchPlatformV2s()
-        val platform = platforms.firstOrNull { it.uid == profileUid }
+        val featureSettings = GitHubChatPolicy.features(settingRepository.getFeatureSettings(), profileUid, chatToolConfig?.github)
+        val platform = platforms.firstOrNull { it.uid == profileUid }?.let { GitHubChatPolicy.platform(it, featureSettings, chatToolConfig?.github) }
         // Keep registered identity checks separate from the actual model receiving tool data.
         val consentPlatform = platform?.copy(model = requestedModel?.trim()?.takeIf(String::isNotBlank) ?: platform.model)
 
@@ -164,7 +166,6 @@ class AgentToolResolver @Inject constructor(
         val freeProfile = consentPlatform?.let { it.compatibleType == ClientType.FREE || dev.chungjungsoo.gptmobile.data.permissions.ProviderPrivacyPolicy.forProfile(it) != null } == true
         val disableRemote = platform?.disableRemoteTools == true
         val disableLocal = platform?.disableLocalTools == true
-        val featureSettings = settingRepository.getFeatureSettings()
         val researchSelection = chatToolConfig?.research ?: dev.chungjungsoo.gptmobile.data.model.MultiSearchResearchSelection(depth = featureSettings.delegationFor(profileUid).strategy)
         fun paperAccess(features: AppFeatureSettings, current: PlatformV2?, selection: dev.chungjungsoo.gptmobile.data.model.MultiSearchResearchSelection): Boolean = if (examinationRunKey == null) {
             dev.chungjungsoo.gptmobile.data.model.academicUnlockReason(selection, features, profileUid, current?.disableRemoteTools == false && !current.disableAllTools) == null
@@ -210,8 +211,9 @@ class AgentToolResolver @Inject constructor(
                 decisionWorkspace,
                 persistent = factVault?.scopeForChat(userMessage.chatId)?.isTemporary == false,
                 allowed = {
-                    val current = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }
-                    val selected = settingRepository.getFeatureSettings().conversationGitHub[userMessage.chatId]
+                    val live = settingRepository.getFeatureSettings()
+                    val current = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }?.let { GitHubChatPolicy.platform(it, live, decisionWorkspace) }
+                    val selected = live.conversationGitHub[userMessage.chatId]
                     current?.enabled == true && !current.disableAllTools && !current.disableLocalTools && selected?.sameWorkspace(decisionWorkspace) == true
                 },
                 offered = { gitHubDecisionNotifications?.offered(it) }
@@ -787,8 +789,8 @@ class AgentToolResolver @Inject constructor(
                     val snapshot = bindings.filter { it.binding.connectionUid == resolved.connectionUid && it.binding.toolName == resolved.realToolName }
                     val previousCheck = resolved.canReuseResult
                     return@map resolved.copy(canReuseResult = {
-                        val current = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }
-                        val features = settingRepository.getFeatureSettings()
+                        val features = GitHubChatPolicy.features(settingRepository.getFeatureSettings(), profileUid, chatToolConfig?.github)
+                        val current = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }?.let { GitHubChatPolicy.platform(it, features, chatToolConfig?.github) }
                         current != null &&
                             platform != null &&
                             dev.chungjungsoo.gptmobile.data.agent.sameRecoveryDestination(platform, current) &&
@@ -811,7 +813,7 @@ class AgentToolResolver @Inject constructor(
                 if (!resolved.isAmazonProductTool()) return@map resolved
                 val plugin = if (resolved.modelToolName in AmazonNativeTool.names) ToolPluginId.AMAZON_FREE else ToolPluginId.AMAZON_SEARCH
                 resolved.copy(canReuseResult = {
-                    val current = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }
+                    val current = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }?.let { GitHubChatPolicy.platform(it, settingRepository.getFeatureSettings(), chatToolConfig?.github) }
                     val features = settingRepository.getFeatureSettings()
                     current?.enabled == true &&
                         !current.disableAllTools &&
@@ -827,7 +829,7 @@ class AgentToolResolver @Inject constructor(
                 val admittedNames = admittedBindings.map { it.binding.toolName }.toSet()
                 val previousCheck = resolved.canReuseResult
                 resolved.copy(canReuseResult = {
-                    val current = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }
+                    val current = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }?.let { GitHubChatPolicy.platform(it, settingRepository.getFeatureSettings(), chatToolConfig?.github) }
                     current != null &&
                         platform != null &&
                         dev.chungjungsoo.gptmobile.data.agent.sameRecoveryDestination(platform, current) &&
@@ -849,7 +851,7 @@ class AgentToolResolver @Inject constructor(
                 val id = resolved.connectionUid?.let { "$it:${resolved.realToolName}" } ?: resolved.realToolName
                 val previous = resolved.canReuseResult
                 val permitted: suspend () -> Boolean = {
-                    val current = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }
+                    val current = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }?.let { GitHubChatPolicy.platform(it, settingRepository.getFeatureSettings(), chatToolConfig?.github) }
                     current != null &&
                         current.enabled &&
                         dev.chungjungsoo.gptmobile.data.agent.sameRecoveryDestination(platform, current) &&
@@ -1183,7 +1185,7 @@ class AgentToolResolver @Inject constructor(
             }
         }.orEmpty()
 
-        val features = settingRepository.getFeatureSettings()
+        val features = GitHubChatPolicy.features(settingRepository.getFeatureSettings(), profileUid, workspaceContext)
         val engineeringPrepare: (suspend (String, JsonObject) -> JsonObject)? = if (actualConnection != null && engineeringController != null) {
             { root, args ->
                 require(userMessage?.chatId?.let { factVault?.scopeForChat(it)?.isTemporary != true } != false) {
@@ -1221,12 +1223,12 @@ class AgentToolResolver @Inject constructor(
                 null
             }
         )
-        val admittedProfile = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }
+        val admittedProfile = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }?.let { GitHubChatPolicy.platform(it, features, workspaceContext) }
         // resolved() normally wraps telemetry immediately; this backend must stay
         // concrete until its compact operations have been expanded above.
         return tool.resolved(actualConnection?.connectionUid, actualConnection?.name, BuiltInAgentTool.GITHUB).copy(tool = tool, nativeGitHub = true, nativeGitHubAuthenticated = tool.hasCredential, canReuseResult = {
-            val current = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }
-            val live = settingRepository.getFeatureSettings()
+            val live = GitHubChatPolicy.features(settingRepository.getFeatureSettings(), profileUid, workspaceContext)
+            val current = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }?.let { GitHubChatPolicy.platform(it, live, workspaceContext) }
             val credentialUnchanged = if (actualConnection == null) {
                 true
             } else {

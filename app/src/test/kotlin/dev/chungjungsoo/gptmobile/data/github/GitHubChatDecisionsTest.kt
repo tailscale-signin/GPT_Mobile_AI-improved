@@ -10,6 +10,23 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubChatDecisionsTest {
+    @Test fun restoreClearsSavedQuestionsBeforeTheyCanAttachToImportedChatIds() = runBlocking {
+        val directory = kotlin.io.path.createTempDirectory("github-decision-restore").toFile()
+        try {
+            val store = GitHubChatDecisions(GitHubRepositoryStateStore(directory))
+            val request = async { store.request(question(persistent = true)) }
+            store.waiting.first { it.isNotEmpty() }
+            request.cancelAndJoin()
+            val restored = GitHubChatDecisions(GitHubRepositoryStateStore(directory))
+            assertEquals(listOf("choice"), restored.resetAfterRestore())
+            val reopened = GitHubChatDecisions(GitHubRepositoryStateStore(directory))
+            reopened.load()
+            assertTrue(reopened.decisions.value.isEmpty())
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
     private fun question(id: String = "choice", persistent: Boolean = false) = GitHubChatDecision(id, 1, 2, "primary", "workspace", "Which layout?", "Choose before changing the screen.", listOf(GitHubDecisionOption("Compact", "Fits small displays"), GitHubDecisionOption("Spacious", "More room for details")), 0, persistent)
 
     @Test fun requestWaitsForOneValidatedChoiceAndNeverUsesItsRecommendationAutomatically() = runBlocking {

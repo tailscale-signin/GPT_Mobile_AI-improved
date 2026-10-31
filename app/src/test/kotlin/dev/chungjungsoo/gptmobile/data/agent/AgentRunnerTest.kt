@@ -21,6 +21,28 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AgentRunnerTest {
+    @Test fun reviewObserverReceivesFullReceiptBeforeCompactedReplayAndFinalAnswer() = runBlocking {
+        val complete = "source line\n".repeat(5000)
+        var observed: String? = null
+        var round = 0
+        val events = AgentRunner(AgentRunLimits(maxReplayTokens = 512, maxReplayResultTokens = 128), onToolResult = { _, result -> observed = (result.retainedContent ?: result.content).let { (it as ToolResultContent.Text).text } }).run(
+            session { _, _ ->
+                flow {
+                    if (round++ == 0) {
+                        emit(toolCall("read", "github_read"))
+                    } else {
+                        assertEquals(complete, observed)
+                        emit(ProviderEvent.TextDelta("Reviewed answer"))
+                    }
+                    emit(ProviderEvent.Completed)
+                }
+            },
+            listOf(tool("github_read") { id, _ -> AgentToolResult(id, ToolResultContent.Text(complete), false) })
+        ).toList()
+        assertTrue(events.any { it is AgentRunEvent.Provider && it.event is ProviderEvent.TextDelta })
+        assertEquals(complete, observed)
+    }
+
     @Test fun completeGithubEvidenceSurvivesRetentionAndFollowingProviderRound() = runBlocking {
         val source = (1..85).joinToString("\n") { "fun sourceLine$it() = \"value-$it\"" }
         val body = ToolResultContent.Json(

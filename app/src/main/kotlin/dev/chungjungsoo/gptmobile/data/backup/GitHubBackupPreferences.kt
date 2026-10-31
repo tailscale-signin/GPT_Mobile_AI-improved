@@ -46,7 +46,9 @@ internal object GitHubBackupPreferences {
         val globals = if (restoreGlobal) saved else old
         val mainProfiles = (globals["githubMainProfiles"] as? JsonObject).orEmpty().filter { (connection, profile) -> connection in connections && (profile as? JsonPrimitive)?.contentOrNull in profiles }
         val prepareIndex = (globals["githubPrepareIndex"] as? JsonArray).orEmpty().filter { (it as? JsonPrimitive)?.contentOrNull in connections }
-        val updated = JsonObject(base + mapOf("conversationGitHub" to JsonObject(workspaces), "githubMainProfiles" to JsonObject(mainProfiles), "githubPrepareIndex" to JsonArray(prepareIndex)))
+        val overrides = (globals["githubProfileOverrides"] as? JsonObject).orEmpty().filterKeys { it in profiles }
+        val defaultProfile = globals["githubDefaultProfileUid"]?.takeIf { (it as? JsonPrimitive)?.contentOrNull in profiles } ?: kotlinx.serialization.json.JsonNull
+        val updated = JsonObject(base + mapOf("githubProfileOverrides" to JsonObject(overrides), "githubDefaultProfileUid" to defaultProfile, "conversationGitHub" to JsonObject(workspaces), "githubMainProfiles" to JsonObject(mainProfiles), "githubPrepareIndex" to JsonArray(prepareIndex)))
         return next + (KEY to BackupValue("string", updated.toString()))
     }
 }

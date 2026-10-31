@@ -788,7 +788,7 @@ private fun ChatScreenContent(
                             inspectedCombinedTurn = chatMessagePairKey(message, index).takeIf { uid != null }
                             inspectedCombinedProfileUid = uid
                         },
-                        smartSuggestionsEnabled = featureSettings.smartSuggestions,
+                        smartSuggestionsEnabled = featureSettings.smartSuggestions || chatToolConfig.github != null,
                         isUserTyping = chatViewModel.question.text.isNotEmpty(),
                         targetMessageId = chatViewModel.targetMessageId,
                         onTargetResponseOffset = { targetResponseOffset = it },

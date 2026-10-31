@@ -3,7 +3,7 @@ package dev.chungjungsoo.gptmobile.data.context
 import kotlinx.serialization.Serializable
 
 @Serializable
-enum class EngineeringMode { OFF, QUICK, STANDARD, DEEP, ENGINEERING_MAX, ADAPTIVE }
+enum class EngineeringMode { OFF, QUICK, STANDARD, DEEP, ENGINEERING_MAX, ADAPTIVE, ULTRA_MAX }
 
 @Serializable
 data class EngineeringProfileSettings(
@@ -35,12 +35,14 @@ object EngineeringAdaptivePolicy {
             EngineeringMode.QUICK -> 8_192
             EngineeringMode.STANDARD -> 16_384
             EngineeringMode.DEEP -> 32_768
+            EngineeringMode.ULTRA_MAX -> 1_048_576
             else -> 65_536
         }
         val output = when (selected) {
             EngineeringMode.QUICK -> 2_048
             EngineeringMode.STANDARD -> 4_096
             EngineeringMode.DEEP -> 8_192
+            EngineeringMode.ULTRA_MAX -> 32_768
             else -> 16_384
         }
         val normalized = existing.normalized()

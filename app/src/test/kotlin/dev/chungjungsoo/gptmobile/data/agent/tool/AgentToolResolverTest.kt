@@ -48,6 +48,21 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AgentToolResolverTest {
+    @Test fun githubOverrideEnablesSearchWithoutChangingOrdinaryProfileAndRevokesLive() = runBlocking {
+        val profile = PlatformV2(uid = "github-profile", name = "GitHub", disableAllTools = true, disableRemoteTools = true)
+        val workspace = dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext("github", "owner", "repo", "main", "a".repeat(40), profile.uid)
+        val settings = ResolverFakeSettingRepository(listOf(profile))
+        settings.features = settings.features.withToolPluginEnabled(ToolPluginId.WEB_SEARCH, false)
+        val resolver = resolver(settings = settings)
+        assertTrue(resolver.resolve(profile.uid).isEmpty())
+        val selected = dev.chungjungsoo.gptmobile.data.github.GitHubChatPolicy.tools(ChatMcpToolConfig(github = workspace), settings.features, profile.uid)
+        val search = resolver.resolve(profile.uid, selected).single { it.connectionUid == null && it.realToolName == "web_search" }
+        assertTrue(requireNotNull(search.canReuseResult).invoke())
+        settings.features = settings.features.copy(githubProfileOverrides = mapOf(profile.uid to dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride(webSearch = false)))
+        assertFalse(requireNotNull(search.canReuseResult).invoke())
+        assertTrue(resolver.resolve(profile.uid).isEmpty())
+    }
+
     @Test fun personalToolGrantUsesRequestedModelAndRetainsTheRegisteredCredentialFence() = runBlocking {
         McpClientManagerTest.McpFixtureServer().use { server ->
             val registered = FreeAiProvider.OVHCLOUD.applyTo(PlatformV2(uid = "override-profile", name = "Free")).copy(model = "registered-model")

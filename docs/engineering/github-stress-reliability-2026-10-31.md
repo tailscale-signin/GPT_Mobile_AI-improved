@@ -223,3 +223,44 @@ run executed 5,638 tests (5,632 passed, four skipped); two prompt-budget asserti
 failed after new workflow guidance enlarged the frozen GitHub context. Guidance
 was compacted, and commit excerpts bounded to 120 characters, retaining the
 existing <2,000-character snapshot contract. Final-head checks cover this repair.
+
+
+### GitHub profile, long-job and Llama review checkpoint
+
+Repository/base/working branch remain as recorded above. Parent head for this
+follow-up is `500bb03ecbee31871e27f92ae8c7b461275777bd`; the existing draft is
+PR #766. New user scope: independent GitHub profile overrides, maximum engineering
+and context allowance, actionable continuation questions, mandatory Llama review,
+and an elapsed-time header with text three points larger.
+
+- GitHub profile preferences default to web search, repository tools, maximum
+  context expansion and Ultra Maximum (512 tool calls, up to 24 hours and
+  2,097,152 accounted run tokens). These are request-local settings; provider
+  capacity, explicit Stop, spend limits, data-sharing grants and write approval
+  remain authoritative. Context targets up to 1,048,576 tokens with enlarged
+  bounded replay and retained evidence, constrained by advertised provider limits.
+- The themed GitHub settings card controls these preferences separately for each
+  selected AI profile. Backup/restore now includes them and the global default
+  GitHub profile, filtering missing profiles during partial restores.
+- Consequential choices still use durable `github_decide` buttons/custom answers;
+  final continuation questions use the existing clickable response-action parser.
+  GitHub suggestions remain available independently of ordinary-chat preferences.
+- For Llama gateway GitHub sessions, no draft answer text publishes before a
+  separate tools-disabled review. The runner records receipts before compaction,
+  including restored/error results. Every evidence fragment must be acknowledged
+  in a strict review verdict. Large evidence uses bounded context windows and a
+  final consistency review; capacity overflow fails visibly rather than dropping
+  results. One correction is allowed and must pass fresh review. Review requests
+  reuse the authorized provider and invocation ledger; tool writes never replay.
+- The pinned header aligns elapsed HH:MM:SS at the right with text enlarged by
+  3 sp. Saved task timestamps include retries and waiting and survive recreation;
+  completion freezes the duration. Ordinary chat typography stays unchanged.
+- CI caught and repaired the remaining `URI` import after Gradle network extraction
+  and missing Kotlin Multiplatform scripting compiler pins. The eight compiler
+  artifacts were fetched from Maven Central and checked against published checksum
+  sidecars before adding SHA-256 verification entries.
+
+Local review validation: 76 focused JVM tests passed, including review withholding,
+coverage, correction, malformed/failed streams, cancellation, context/evidence
+bounds and preservation of original receipts. Android runner/resolver/profile,
+backup and UI integration still require the new exact-head CI result.

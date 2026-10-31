@@ -10,7 +10,7 @@ import org.junit.Test
 
 class GitHubBackupPreferencesTest {
     private fun prefs(raw: String) = mapOf(ConversationCombinedPortable.FEATURE_KEY to BackupValue("string", raw))
-    private val incoming = prefs("""{"conversationGitHub":{"12":{"connectionUid":"github","owner":"owner","repo":"repo","ref":"main","commitSha":"${"a".repeat(40)}","mainProfileUid":"model","autoApproveTools":true,"observedAtMillis":123}},"githubMainProfiles":{"github":"model"},"githubPrepareIndex":["github"]}""")
+    private val incoming = prefs("""{"conversationGitHub":{"12":{"connectionUid":"github","owner":"owner","repo":"repo","ref":"main","commitSha":"${"a".repeat(40)}","mainProfileUid":"model","autoApproveTools":true,"observedAtMillis":123}},"githubDefaultProfileUid":"model","githubProfileOverrides":{"model":{"webSearch":false,"engineeringMode":"ULTRA_MAX"},"missing":{"webSearch":true}},"githubMainProfiles":{"github":"model"},"githubPrepareIndex":["github"]}""")
     private val snapshot = ConversationCombinedPortableSnapshot(conversations = listOf(PortableConversationCombinedSettings("identity", 12, ConversationCombinedSettings())))
 
     @Test fun settingsOnlyRestoreMatchesIdentityAndResetsWriteApprovalAndFreshness() {
@@ -22,6 +22,9 @@ class GitHubBackupPreferencesTest {
         assertFalse(contexts.getValue("24").jsonObject.getValue("autoApproveTools").toString().toBoolean())
         assertEquals("null", contexts.getValue("24").jsonObject.getValue("observedAtMillis").toString())
         assertTrue(root.getValue("githubMainProfiles").toString().contains("model"))
+        assertEquals("\"model\"", root.getValue("githubDefaultProfileUid").toString())
+        assertEquals(setOf("model"), root.getValue("githubProfileOverrides").jsonObject.keys)
+        assertTrue(root.getValue("githubProfileOverrides").toString().contains("ULTRA_MAX"))
     }
 
     @Test fun restoredChatsAdoptWorkspacesButMissingConnectionsAndProfilesDoNot() {

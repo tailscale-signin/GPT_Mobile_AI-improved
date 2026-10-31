@@ -369,7 +369,7 @@ fun GitHubWorkspaceScreen(
                                 }
                             }
                             5 -> {
-                                GitHubProgrammerSettings(state, visibleProgrammer, programmer::selectProfile, programmer::setPrepareIndex, viewModel::prepareCodeIndex)
+                                GitHubProgrammerSettings(state, visibleProgrammer, programmer::selectProfile, programmer::setPrepareIndex, viewModel::prepareCodeIndex, programmer::setProfileSettings)
                                 if (state.selection != null) {
                                     OutlinedTextField(branchName, { branchName = it }, label = { Text("New working branch") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                                     Button(onClick = {

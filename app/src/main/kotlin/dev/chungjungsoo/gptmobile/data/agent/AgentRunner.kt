@@ -61,7 +61,8 @@ class AgentRunner(
     val limits: AgentRunLimits = AgentRunLimits(),
     private val checkpoint: ToolBatchCheckpoint? = null,
     private val healthCatalog: ProgressiveToolCatalog? = null,
-    private val retryUndispatchedBudgetFailures: Boolean = false
+    private val retryUndispatchedBudgetFailures: Boolean = false,
+    private val onToolResult: (ProviderEvent.ToolCall, AgentToolResult) -> Unit = { _, _ -> }
 ) {
     fun run(session: AgentProviderSession, tools: List<AgentTool>, dynamicTools: () -> List<AgentTool> = { emptyList() }, selectDefinitions: (List<AgentToolDefinition>) -> List<AgentToolDefinition> = { it }): Flow<AgentRunEvent> = flow {
         if (tools.groupBy { it.definition.name }.any { it.value.size > 1 }) {
@@ -451,6 +452,7 @@ class AgentRunner(
             executedResults += results
             batch.zip(results).forEach { (call, result) ->
                 healthCatalog?.recordObservation(call.name, result)
+                onToolResult(call, result)
                 emit(AgentRunEvent.ToolFinished(call, result))
             }
         }
@@ -779,10 +781,13 @@ class AgentRunner(
         }
 
         calls.zip(allResults).forEach { (call, result) ->
-            if (call.callId !in publishedCallIds) emit(AgentRunEvent.ToolFinished(call, result))
+            if (call.callId !in publishedCallIds) {
+                onToolResult(call, result)
+                emit(AgentRunEvent.ToolFinished(call, result))
+            }
         }
         // Retain bounded observations on ingress, including trace/retained payloads.
-        val retentionBudget = limits.maxRetainedEvidenceTokens.coerceIn(1024, 32_000)
+        val retentionBudget = limits.maxRetainedEvidenceTokens.coerceIn(1024, if (limits.githubTask) 262_144 else 32_000)
         val observations = exchanges + AgentToolExchange(calls, allResults.map { it.copy(traceContent = null, retainedContent = null) })
         val retained = ToolExchangeCompactor.compact(
             observations,
@@ -961,7 +966,11 @@ class AgentRunner(
                     }
                 }
 
-                is ProviderEvent.ToolResult -> emit(AgentRunEvent.ToolFinished(event.call, ToolObservationRetention.bound(AgentContractValidation.receipt(event.call.callId, event.result))))
+                is ProviderEvent.ToolResult -> {
+                    val receipt = AgentContractValidation.receipt(event.call.callId, event.result)
+                    onToolResult(event.call, receipt)
+                    emit(AgentRunEvent.ToolFinished(event.call, ToolObservationRetention.bound(receipt)))
+                }
 
                 is ProviderEvent.Failed -> {
                     failure = event.message

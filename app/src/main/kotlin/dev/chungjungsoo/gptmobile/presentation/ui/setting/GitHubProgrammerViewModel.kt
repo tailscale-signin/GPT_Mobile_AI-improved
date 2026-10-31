@@ -11,7 +11,6 @@ import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
 import dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext
 import dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig
-import dev.chungjungsoo.gptmobile.data.model.ToolPluginId
 import dev.chungjungsoo.gptmobile.data.permissions.ToolApproval
 import dev.chungjungsoo.gptmobile.data.permissions.ToolApprovalManager
 import dev.chungjungsoo.gptmobile.data.queue.DurablePromptQueue
@@ -35,6 +34,7 @@ data class GitHubProgrammerState(
     val profiles: List<PlatformV2> = emptyList(),
     val profileUid: String? = null,
     val profileOverrideUid: String? = null,
+    val profileSettings: dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride = dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride(),
     val canLoadEarlier: Boolean = false,
     val context: GitHubConversationContext? = null,
     val chatId: Int? = null,
@@ -182,7 +182,7 @@ class GitHubProgrammerViewModel @Inject constructor(
                 val previousKey = mutable.value.context?.let(::key)
                 val nextKey = context?.let(::key)
                 if (previousKey != nextKey) observeConversation(null)
-                mutable.update { it.copy(profiles = enabled, profileUid = uid, profileOverrideUid = session.profileUid ?: storedUid, context = context, prepareIndex = prepare, draftLoaded = it.draftLoaded && previousKey == nextKey) }
+                mutable.update { it.copy(profiles = enabled, profileUid = uid, profileOverrideUid = session.profileUid ?: storedUid, profileSettings = features.githubProfileOverrides[uid] ?: dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride(), context = context, prepareIndex = prepare, draftLoaded = it.draftLoaded && previousKey == nextKey) }
                 if (previousKey != nextKey || !mutable.value.draftLoaded) {
                     try {
                         val restored = nextKey?.let { latestDrafts[it]?.text ?: drafts.read(it) }.orEmpty()
@@ -278,6 +278,19 @@ class GitHubProgrammerViewModel @Inject constructor(
         }
     }
 
+    fun setProfileSettings(value: dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride) {
+        val uid = mutable.value.profileUid ?: return
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                settings.mutateFeatureSettings { it.copy(githubProfileOverrides = it.githubProfileOverrides + (uid to value)) }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                mutable.update { it.copy(error = "Could not save GitHub chat preferences.") }
+            }
+        }
+    }
+
     fun setPrepareIndex(value: Boolean) {
         val uid = destination.value?.connection?.connectionUid ?: return
         viewModelScope.launch(Dispatchers.IO) {
@@ -318,8 +331,7 @@ class GitHubProgrammerViewModel @Inject constructor(
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 val profile = settings.fetchPlatformV2s().singleOrNull { it.uid == context.mainProfileUid && it.enabled } ?: error("Select an available main AI profile.")
-                val features = settings.getFeatureSettings()
-                require(!profile.disableAllTools && !profile.disableRemoteTools && features.isToolPluginEnabledForProfile(profile.uid, ToolPluginId.GITHUB) && features.isToolPluginEnabledForProfile(profile.uid, ToolPluginId.connection(context.connectionUid))) { "Enable GitHub tools for ${profile.name} in AI profile settings before sending. Your command is kept." }
+                val features = dev.chungjungsoo.gptmobile.data.github.GitHubChatPolicy.features(settings.getFeatureSettings(), profile.uid, context)
                 require(!settings.providerActivationRequired(profile)) { "Review this AI profile's provider privacy settings before sending." }
                 dev.chungjungsoo.gptmobile.data.network.FreeProviderPreflight.check(profile)?.let { error(it.message) }
                 val connection = connections.getConnection(context.connectionUid) ?: error("The GitHub connection was removed.")

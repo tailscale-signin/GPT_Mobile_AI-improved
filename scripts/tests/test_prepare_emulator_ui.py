@@ -75,6 +75,17 @@ class EmulatorReadinessTest(unittest.TestCase):
             emulator.prepare(device)
         self.assertEqual([], device.mutations())
 
+    def test_android_brief_resolution_metadata_does_not_hide_the_component(self):
+        device = HomeDevice()
+        def with_brief_metadata(command, **options):
+            result = device(command, **options)
+            if 'resolve-activity' in command:
+                result.stdout = 'priority=0 preferredOrder=0 match=0x100000 specificIndex=-1 isDefault=true\n' + result.stdout
+            return result
+        report = emulator.prepare(with_brief_metadata)
+        self.assertEqual('PREPARED', report['status'])
+        self.assertEqual(emulator.TEST_HOME, report['selected_test_home'])
+
     def test_an_unconfirmed_home_selection_is_not_used_to_stop_the_launcher(self):
         device = HomeDevice()
         device.accept_selection = False

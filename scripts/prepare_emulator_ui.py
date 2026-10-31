@@ -58,14 +58,14 @@ def prepare(run=subprocess.run, now=time.monotonic, wait=time.sleep, ready_timeo
     # stock launcher, and before the caller changes density/font size. The tiny
     # replacement exists only in the installed instrumentation APK.
     installed = shell('cmd', 'package', 'resolve-activity', '--brief', '-n', TEST_HOME)
-    if installed != TEST_HOME:
+    if (installed.splitlines()[-1] if installed else '') != TEST_HOME:
         raise ValueError('The instrumentation home is missing; install the test APK before preparing the emulator; no home was changed')
     if component != TEST_HOME:
         selected = shell('cmd', 'package', 'set-home-activity', '--user', '0', TEST_HOME)
         if selected != 'Success':
             raise ValueError('Android did not acknowledge selecting the instrumentation home; inspect emulator state before retrying')
     observed = shell('cmd', 'package', 'resolve-activity', '--brief', '-a', 'android.intent.action.MAIN', '-c', 'android.intent.category.HOME')
-    if observed != TEST_HOME:
+    if (observed.splitlines()[-1] if observed else '') != TEST_HOME:
         raise ValueError('The selected home does not resolve to the instrumentation fixture; inspect emulator state before retrying')
     launch = shell('am', 'start', '-W', '--user', '0', '-n', TEST_HOME)
     if not re.search(r'^Status: ok\s*$', launch, re.MULTILINE) or not re.search(r'^Activity: ' + re.escape(TEST_HOME) + r'\s*$', launch, re.MULTILINE):

@@ -338,6 +338,7 @@ run; neither application ANRs nor foreground/pixel assertions are suppressed.
 
 The shell selection follows Android's
 [set-home-activity implementation](https://github.com/aosp-mirror/platform_frameworks_base/blob/android16-release/services/core/java/com/android/server/pm/PackageManagerShellCommand.java).
-Fourteen behavior/fixture regressions cover selection, launch verification,
-resume, bounded discovery and failures without mutation replay. Fresh API 34
+Fifteen behavior/fixture regressions cover selection, launch verification,
+Android's metadata-prefixed brief output, resume, bounded discovery and failures
+without mutation replay. Fresh API 34
 and API 36 validation on the published revision remains required.

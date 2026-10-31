@@ -63,6 +63,18 @@ This matrix records their concrete implementation and limits. Tool inventory is
 not an end-to-end operational test, and an API list count is not a count of
 workflow definitions in source.
 
+API 36 acceptance on `6d185b26` exposed a problem in launcher isolation:
+disabling the only real home left Settings.FallbackHome repeatedly waiting for
+a replacement. The captured System UI ANR obstructed visual fixtures, and four
+early instrumentation processes failed startup amid high emulator CPU pressure.
+The setup now selects and starts a minimal Android-framework-only HOME activity
+from the test APK before display changes, then stops the observed stock launcher
+without disabling it. The activity and manifest are confined to `androidTest`;
+the shipped application contains neither. Missing fixtures, selection/launch
+failures and uncertain setup commands still fail closed, with app ANR reporting
+and visual foreground assertions intact. Host behavior tests cover this contract;
+the updated API 34 and API 36 runs are needed for device evidence.
+
 | Requested capability | Implementation and evidence boundary |
 |---|---|
 | Deterministic invocation and replay | `GitHubExecutionJournal` atomically claims canonical, account/connection/chat/task-scoped identities. Lifecycle records retain execution/trace IDs, checkpoint sequence, output hash, and bounded receipts. Concurrent calls join the saved outcome without publishing twice. A lost response or cancellation retains reconciliation state. |

@@ -2,16 +2,17 @@
 set -euo pipefail
 acceptance_output=app/build/acceptance-0950
 mkdir -p "$acceptance_output"
-python3 scripts/prepare_emulator_ui.py --output "$acceptance_output/emulator-ui.json"
-# Constrain the display itself so dialog windows are also tested at 320 dp.
-adb shell wm size 640x1280
-adb shell wm density 320
-adb shell settings put system font_scale 2.0
 application_apk=$(python3 scripts/select_android_test_apk.py app/build/intermediates/apk/debug --application-id dev.melo.gptmobile.improved --abi x86_64)
 instrumentation_apk=$(python3 scripts/select_android_test_apk.py app/build/intermediates/apk/androidTest/debug --application-id dev.melo.gptmobile.improved.test)
 # AGP marks IDE-targeted APKs test-only; both installs are confined to this emulator.
 adb install -r -t "$application_apk"
 adb install -r -t "$instrumentation_apk"
+python3 scripts/prepare_emulator_ui.py --output "$acceptance_output/emulator-ui.json"
+# Constrain the display only after the lightweight test home is active, so
+# neither the stock launcher nor Settings.FallbackHome handles these changes.
+adb shell wm size 640x1280
+adb shell wm density 320
+adb shell settings put system font_scale 2.0
 adb shell pm list instrumentation > "$acceptance_output/instrumentations.txt"
 adb logcat -c
 # Gradle's connected-test cleanup uninstalls the app. Run explicit named cases

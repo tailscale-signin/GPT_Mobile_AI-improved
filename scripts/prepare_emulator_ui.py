@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Isolate emulator fixtures from the unused launcher's startup ANR windows."""
+"""Select a minimal test-APK home without leaving Android's FallbackHome active."""
 import argparse
 import json
 import math
@@ -10,6 +10,7 @@ import time
 
 # These are system-image home applications, never the app being qualified.
 LAUNCHERS = {'com.google.android.apps.nexuslauncher', 'com.android.launcher3'}
+TEST_HOME = 'dev.melo.gptmobile.improved.test/dev.chungjungsoo.gptmobile.test.EmulatorHomeActivity'
 
 
 def prepare(run=subprocess.run, now=time.monotonic, wait=time.sleep, ready_timeout=60):
@@ -34,7 +35,7 @@ def prepare(run=subprocess.run, now=time.monotonic, wait=time.sleep, ready_timeo
             component = home.splitlines()[-1] if home else 'No activity found'
         except subprocess.CalledProcessError as failure:
             # Only read-only boot discovery can retry transport readiness. A
-            # failed disable/force-stop operation below is never replayed.
+            # failed home selection/start/force-stop below is never replayed.
             detail = (failure.stderr or '').lower()
             if not any(reason in detail for reason in ('device offline', 'device not found', 'no devices/emulators found', "can't find service: package")):
                 raise
@@ -45,21 +46,36 @@ def prepare(run=subprocess.run, now=time.monotonic, wait=time.sleep, ready_timeo
             if component != 'No activity found' and not re.fullmatch(r'[A-Za-z0-9_.]+/[A-Za-z0-9_.$]+', component):
                 raise ValueError('Malformed emulator home component; no package was changed')
             package = component.split('/')[0]
-            if package in LAUNCHERS:
+            if package in LAUNCHERS or component == TEST_HOME:
                 break
         # sys.boot_completed can precede user unlock and the real home. Android's
         # FallbackHome itself waits for that transition; observe it read-only.
         # https://github.com/aosp-mirror/platform_packages_apps_settings/blob/android-14.0.0_r1/src/com/android/settings/FallbackHome.java
         wait(min(delay, max(0, deadline - now())))
         delay = min(5, delay * 2)
-    # The fixtures launch their own Activity. The stock launcher is unrelated to
-    # app navigation and can ANR during density/font changes on cold API 34 images.
-    # Do not suppress system error dialogs: app ANRs must remain observable.
-    shell('pm', 'disable-user', '--user', '0', package)
-    shell('am', 'force-stop', package)
-    return {'schema_version': 1, 'status': 'PREPARED', 'home_component': component,
+    # A disabled launcher leaves Settings.FallbackHome repeatedly searching for
+    # a home on API 36. Keep a real HOME candidate selected before stopping the
+    # stock launcher, and before the caller changes density/font size. The tiny
+    # replacement exists only in the installed instrumentation APK.
+    installed = shell('cmd', 'package', 'resolve-activity', '--brief', '-n', TEST_HOME)
+    if installed != TEST_HOME:
+        raise ValueError('The instrumentation home is missing; install the test APK before preparing the emulator; no home was changed')
+    if component != TEST_HOME:
+        selected = shell('cmd', 'package', 'set-home-activity', '--user', '0', TEST_HOME)
+        if selected != 'Success':
+            raise ValueError('Android did not acknowledge selecting the instrumentation home; inspect emulator state before retrying')
+    observed = shell('cmd', 'package', 'resolve-activity', '--brief', '-a', 'android.intent.action.MAIN', '-c', 'android.intent.category.HOME')
+    if observed != TEST_HOME:
+        raise ValueError('The selected home does not resolve to the instrumentation fixture; inspect emulator state before retrying')
+    launch = shell('am', 'start', '-W', '--user', '0', '-n', TEST_HOME)
+    if not re.search(r'^Status: ok\s*$', launch, re.MULTILINE) or not re.search(r'^Activity: ' + re.escape(TEST_HOME) + r'\s*$', launch, re.MULTILINE):
+        raise ValueError('The instrumentation home did not report a successful launch; inspect emulator state before retrying')
+    if package in LAUNCHERS:
+        shell('am', 'force-stop', package)
+    return {'schema_version': 2, 'status': 'PREPARED', 'home_component': component,
             'readiness_attempts': attempts, 'readiness_seconds': round(now() - started, 3),
-            'disabled_system_launcher': package, 'app_under_test_changed': False,
+            'selected_test_home': TEST_HOME, 'stopped_system_launcher': package if package in LAUNCHERS else None,
+            'system_launcher_disabled_by_setup': False, 'app_under_test_changed': False,
             'system_error_dialogs_suppressed': False}
 
 
@@ -71,11 +87,11 @@ def main():
     try:
         report = prepare()
     except (ValueError, TimeoutError, subprocess.SubprocessError) as failure:
-        args.output.write_text(json.dumps({'schema_version': 1, 'status': 'BLOCKED', 'reason': str(failure)[:500],
+        args.output.write_text(json.dumps({'schema_version': 2, 'status': 'BLOCKED', 'reason': str(failure)[:500],
                                           'app_under_test_changed': False, 'system_error_dialogs_suppressed': False}, indent=2) + '\n')
         raise
     args.output.write_text(json.dumps(report, indent=2) + '\n')
-    print('Emulator launcher isolated; app ANR reporting remains enabled.')
+    print('Instrumentation home selected; app ANR reporting remains enabled.')
 
 
 if __name__ == '__main__':

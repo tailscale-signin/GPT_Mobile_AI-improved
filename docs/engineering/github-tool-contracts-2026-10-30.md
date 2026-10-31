@@ -317,3 +317,27 @@ The readiness revision passes all 257 canonical host tests, including nine
 emulator preparation regressions. Kotlin source is unchanged from the storage
 revision's 289-test host pass. Fresh hosted device and merge checks remain
 required after publication.
+
+## Keep an actual emulator home selected
+
+Acceptance run `41175909700` on `6d185b26` passed API 34, but API 36 retained
+a System UI ANR over both glass fixtures and four early instrumentation startup
+ANRs. Its log contains repeated Settings.FallbackHome "no home" messages after
+launcher disablement and about 92% CPU pressure during those startup failures.
+This is additional emulator evidence, not a successful visual qualification or
+proof of an application rendering defect.
+
+The replacement setup installs both APKs first and selects a framework-only
+`EmulatorHomeActivity` packaged exclusively in the test APK. It verifies the
+installed component, Android's home-selection acknowledgement, the resolved
+default and the actual launched activity before stopping the observed stock
+launcher. Stock packages are no longer disabled. Density and font changes occur
+only after a real home is active. Permission failures, unknown components,
+missing fixtures, unsuccessful launches and uncertain setup commands stop the
+run; neither application ANRs nor foreground/pixel assertions are suppressed.
+
+The shell selection follows Android's
+[set-home-activity implementation](https://github.com/aosp-mirror/platform_frameworks_base/blob/android16-release/services/core/java/com/android/server/pm/PackageManagerShellCommand.java).
+Fourteen behavior/fixture regressions cover selection, launch verification,
+resume, bounded discovery and failures without mutation replay. Fresh API 34
+and API 36 validation on the published revision remains required.

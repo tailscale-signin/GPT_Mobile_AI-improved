@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <application
+        android:name="android.app.Application"
+        android:appComponentFactory="android.app.AppComponentFactory"
+        tools:replace="android:name,android:appComponentFactory">
+        <!-- Test APK only: avoid stock-launcher/FallbackHome work during display changes. -->
+        <activity
+            android:name="dev.chungjungsoo.gptmobile.test.EmulatorHomeActivity"
+            android:excludeFromRecents="true"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:theme="@android:style/Theme.Black.NoTitleBar">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.HOME" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

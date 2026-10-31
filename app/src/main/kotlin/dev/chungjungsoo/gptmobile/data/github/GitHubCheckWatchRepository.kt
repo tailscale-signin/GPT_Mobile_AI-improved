@@ -184,6 +184,14 @@ class GitHubCheckWatchRepository @Inject constructor(
         if (watch.runId != null) {
             val run = Json.parseToJsonElement(api.request("$root/actions/runs/${watch.runId}")).jsonObject
             require(run["head_sha"]?.jsonPrimitive?.content == watch.headSha) { "Workflow revision changed." }
+            // A paired PR/run subscription must fence the PR on both sides of the run read.
+            // The immutable run can pass while a concurrent push changes the mutable PR.
+            if (watch.pullNumber != null) {
+                val after = Json.parseToJsonElement(api.request("$root/pulls/${watch.pullNumber}")).jsonObject
+                if (after["head"]?.jsonObject?.get("sha")?.jsonPrimitive?.content != watch.headSha) {
+                    return watch.copy(status = "STALE", detail = "PR head changed while the workflow was loading. Refresh this watch.", health = null)
+                }
+            }
             val result = workflowWatchStatus(run)
             return watch.copy(status = result, detail = "Workflow ${watch.runId}: ${run["conclusion"]?.jsonPrimitive?.contentOrNull ?: "in progress"} · ${watch.headSha.take(12)}", retryAt = 0)
         }

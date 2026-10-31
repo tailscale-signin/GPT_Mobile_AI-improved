@@ -80,7 +80,7 @@ internal class GitHubOperationTool(
                 dispatched = false
             )
         }
-        if (operation in setOf("github_context", "github_write", "github_search", "github_read", "github_pr", "github_commit", "github_stage_patch", "github_ci", "github_issue", "github_release")) {
+        if (operation in setOf("github_context", "github_write", "github_search", "github_read", "github_pr", "github_commit", "github_stage_patch", "github_ci", "github_watch_checks", "github_issue", "github_release")) {
             val errors = ToolArgumentValidator.errors(arguments, definition.inputSchema).ifEmpty {
                 GitHubOperationArguments.errors(operation, arguments)
             }
@@ -361,6 +361,8 @@ internal class GitHubOperationTool(
                     properties["stage_id"] = field("string")
                     properties["refresh"] = field("boolean")
                     properties["page"] = field("integer")
+                    properties["per_page"] = integer(1, 100, "Commit detail files per page; default 30. Preserved across continuations.")
+                    properties["include_patches"] = field("boolean")
                 }
                 "github_search" -> {
                     properties["path_prefix"] = field("string")
@@ -602,7 +604,7 @@ internal class GitHubOperationTool(
                 }
             }
             val description = when (operation) {
-                "github_context" -> "Inspect repository, branches/rules, commits, checks, evidence/stages. Changes requires base_sha."
+                "github_context" -> "Inspect repository, branches/rules, commits, checks, evidence/stages. Changes requires base_sha. Commit detail defaults to 30 file summaries; include_patches opts into bounded patch excerpts. Read omitted source with github_read at the returned commit_sha."
                 "github_search" -> "Search pinned paths/code/tests/symbols. patterns: ordered literals joined by *. Fuzzy: one identifier. Inspect lexical coverage."
                 "github_read" -> "Read pinned ranges=[{path,start_line,end_line}] (1-based, <=2000 lines) or evidence_id. Use view_cursor alone for saved pages."
                 "github_stage_patch" -> "Stage an exact replacement with target_file, search_snippet and replacement_snippet, or SHA-checked edits. Reads the pinned blob and rejects ambiguous anchors. Returns immutable version/stage_id and preserves publication receipts. Supply restore_stage_id alone to select a saved local patch at the same branch/base. Commit on a permitted working branch using its current expected_head_sha."

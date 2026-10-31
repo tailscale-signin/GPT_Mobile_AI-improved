@@ -33,6 +33,35 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubOperationToolTest {
+    @Test fun invalidWatchIdentifiersAreRejectedBeforeBackendDispatch() = runBlocking {
+        val backend = Backend()
+        val tool = GitHubOperationTool("github_watch_checks", backend, "watch")
+        for (invalid in listOf("{}", "{\"run_id\":0}", "{\"pr_number\":-1}", "{\"run_id\":\"not-a-run\"}")) {
+            val rejected = tool.execute("invalid", args(invalid))
+            assertTrue(rejected.isError)
+            assertFalse(rejected.dispatched)
+            assertEquals("INVALID_ARGUMENTS", rejected.errorCode)
+        }
+        assertTrue(backend.calls.isEmpty())
+        tool.execute("valid", args("{\"run_id\":42}"))
+        assertEquals("watch_checks", backend.calls.single()["action"]!!.jsonPrimitive.content)
+    }
+
+    @Test fun commitDetailContinuationKeepsItsPageSizeAndPatchPreference() = runBlocking {
+        val backend = Backend().apply {
+            body = args("""{"continuation":{"action":"get_commit_detail","commit_sha":"$sha","ref":"$sha","page":2,"per_page":5,"include_patches":false}}""")
+        }
+        val tool = GitHubOperationTool("github_context", backend, "commit-pages")
+        val next = continuation(result(tool.execute("first", args("""{"action":"commit","ref":"main","per_page":5,"include_patches":false}"""))))
+        valid("github_context", next)
+        assertEquals(JsonPrimitive(5), next["per_page"])
+        assertEquals(JsonPrimitive(false), next["include_patches"])
+        assertEquals(JsonPrimitive(sha), next["commit_sha"])
+        tool.execute("next", next)
+        assertEquals(JsonPrimitive(2), backend.calls.last()["page"])
+        assertEquals(JsonPrimitive(5), backend.calls.last()["per_page"])
+    }
+
     @Test fun pullRequestListIsAdvertisedAndContextRequiresObservedNumber() = runBlocking {
         val backend = Backend()
         val tool = GitHubOperationTool("github_pr", backend, "pr-list")

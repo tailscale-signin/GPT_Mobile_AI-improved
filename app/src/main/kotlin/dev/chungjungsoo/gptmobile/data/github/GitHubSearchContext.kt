@@ -79,7 +79,10 @@ internal object GitHubSearchContext {
     }
 
     fun related(path: String, paths: List<String>): JsonArray {
-        val stem = path.substringAfterLast('/').substringBeforeLast('.').removeSuffix("Test")
-        return JsonArray(paths.asSequence().filter { it != path && it.substringAfterLast('/').substringBeforeLast('.').removeSuffix("Test") == stem }.distinct().take(5).map(::JsonPrimitive).toList())
+        fun stem(value: String): String = value.substringAfterLast('/').substringBeforeLast('.')
+            .removePrefix("test_").removeSuffix("_test").removeSuffix(".test").removeSuffix(".spec")
+            .removeSuffix("Tests").removeSuffix("Test").removeSuffix("Spec")
+        val name = stem(path)
+        return JsonArray(paths.asSequence().filter { it != path && stem(it) == name }.distinct().take(5).map(::JsonPrimitive).toList())
     }
 }

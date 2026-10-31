@@ -25,8 +25,12 @@ class ModelDelegationTool(
     private val source: PlatformV2,
     private val settings: suspend () -> ModelDelegationSettings,
     private val profiles: suspend () -> List<PlatformV2>,
+    private val hardware: () -> dev.chungjungsoo.gptmobile.data.localruntime.DeviceHardwareState,
     private val generate: suspend (PlatformV2, String, Int) -> String
 ) : AgentTool {
+    constructor(source: PlatformV2, settings: suspend () -> ModelDelegationSettings, profiles: suspend () -> List<PlatformV2>, generate: suspend (PlatformV2, String, Int) -> String) :
+        this(source, settings, profiles, { dev.chungjungsoo.gptmobile.data.localruntime.DeviceHardwareState() }, generate)
+
     private val calls = AtomicInteger(0)
     private val primaryOnlyForTurn = AtomicBoolean(false)
     private val githubUnavailableTargets = ConcurrentHashMap.newKeySet<String>()
@@ -64,29 +68,18 @@ class ModelDelegationTool(
         if (task.isBlank() || task.length > config.maxInputCharacters) return error("Task must contain 1–${config.maxInputCharacters} characters.")
         val availableProfiles = profiles()
         val reserved = reservedReviewer(config, availableProfiles, source)
-        val eligibleTargets = availableProfiles.filter {
-            it.enabled &&
-                it.uid != source.uid &&
-                !sameDelegationModel(it, reserved) &&
-                !it.excludesMemory() &&
-                (!isGitHubTask(task) || targetKey(it) !in githubUnavailableTargets) &&
-                (config.remoteWorkersAllowed() || it.isPrivateDestination())
-        }
-        val target = eligibleTargets.firstOrNull { it.uid == config.targetProfileUid }
-            ?: eligibleTargets.firstOrNull()?.takeIf { config.targetProfileUid.isBlank() || config.fallbackToAnotherProfile }?.also { fallback ->
-                AppLogRecorder.record(
-                    "Delegation",
-                    "Configured target unavailable; using fallback · configured=${config.targetProfileUid.ifBlank { "<none>" }} · fallback=${fallback.uid} · type=${fallback.compatibleType}",
-                    "W"
-                )
-            }
-            ?: return error("No eligible helper profile is available. Enable a local/private helper or allow a remote worker in Delegation settings.").also {
-                AppLogRecorder.record(
-                    "Delegation",
-                    "Rejected · no eligible target · configured=${config.targetProfileUid.ifBlank { "<none>" }} · profiles=${availableProfiles.size} · remoteWorkers=${config.remoteWorkersAllowed()}",
-                    "W"
-                )
-            }
+        val eligibleTargets = dev.chungjungsoo.gptmobile.data.delegation.DelegationPolicyResolver.ranked(availableProfiles, config, source, reserved)
+            .filter { !isGitHubTask(task) || targetKey(it) !in githubUnavailableTargets }
+        val route = dev.chungjungsoo.gptmobile.core.InferenceRouting.choose(
+            eligibleTargets.map { dev.chungjungsoo.gptmobile.core.InferenceCandidate(it.uid, it.compatibleType == ClientType.LITERT_LM) },
+            config.targetProfileUid,
+            config.fallbackToAnotherProfile,
+            hardware().isThrottlingRequired,
+            config.processingOwnership >= 50 && (task.toByteArray(Charsets.UTF_8).size / 3 > 2000 || Regex("(?i)architecture|migration|multi.file|comprehensive").containsMatchIn(task))
+        )
+        val target = eligibleTargets.firstOrNull { it.uid == route.profileId }
+            ?: return error("No eligible helper is available under the current profile, privacy and device limits (${route.reason}). Keep completed results; choose an approved helper or wait for the device to recover.")
+        if (target.uid != config.targetProfileUid) AppLogRecorder.record("Delegation", "Authorized routing · target=${target.uid} · reason=${route.reason}")
         AppLogRecorder.record("Delegation", "Target selected · target=${target.uid} · type=${target.compatibleType} · model=${target.model.take(96)} · taskChars=${task.length}")
         val taskKey = "${targetKey(target)}|${task.trim()}"
         if (taskKey in exhaustedTasks) {

@@ -6,6 +6,17 @@
     "full": "bash scripts/validate-local.sh full"
   },
   "subsystems": {
+    "portable_domain": {
+      "roots": [
+        "core-domain/src/commonMain/kotlin/dev/chungjungsoo/gptmobile/core",
+        "core-domain/src/jvmTest/kotlin/dev/chungjungsoo/gptmobile/core"
+      ],
+      "entry_files": [
+        "core-domain/src/commonMain/kotlin/dev/chungjungsoo/gptmobile/core/InferenceRouting.kt",
+        "core-domain/src/commonMain/kotlin/dev/chungjungsoo/gptmobile/core/UsageMath.kt",
+        "core-domain/src/jvmTest/kotlin/dev/chungjungsoo/gptmobile/core/UsageMathTest.kt"
+      ]
+    },
     "github": {
       "roots": [
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github",

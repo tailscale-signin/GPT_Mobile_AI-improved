@@ -15,7 +15,7 @@ class LlamaBatchClientTest {
     fun `parseLlamaResponse parses valid JSONL responses correctly`() {
         val client = LlamaBatchClient(serverUrl = "http://localhost:8080")
         val jsonlResponse = """
-            {"token_ids": [72, 101, 108, 108, 111], "logprobs": null}
+            {"content": "Hello", "tokens_predicted": 1}
             {"content": "World"}
         """.trimIndent()
 
@@ -42,6 +42,28 @@ class LlamaBatchClientTest {
         assertEquals("First response", (results[0] as BatchResult.Success).response)
         assertTrue(results[1] is BatchResult.Failure)
         assertTrue(results[2] is BatchResult.Failure)
+    }
+
+    @Test
+    fun `model token IDs are not Unicode code points and excess rows cannot change result identity`() {
+        val client = LlamaBatchClient()
+        val results = client.parseLlamaResponse(
+            """{"token_ids":[72,101,108,108,111]}
+            |{"content":"unexpected extra row"}
+            """.trimMargin(),
+            1
+        )
+        assertEquals(1, results.size)
+        assertTrue(results.single() is BatchResult.Failure)
+    }
+
+    @Test
+    fun `completion payload escapes control characters and retains generation settings`() {
+        val prompt = "quoted \"text\"\n\t\u0001"
+        val payload = org.json.JSONObject(LlamaBatchClient().completionPayload(dev.chungjungsoo.gptmobile.domain.model.BatchRequest(prompt, 256, 0.5f)))
+        assertEquals(prompt, payload.getString("prompt"))
+        assertEquals(256, payload.getInt("n_predict"))
+        assertEquals(false, payload.getBoolean("stream"))
     }
 
     @Test

@@ -275,6 +275,11 @@ class LocalSemanticMemory @Inject constructor(@ApplicationContext private val co
                     else -> "idle_timeout"
                 }
                 closeEmbedder(releaseReason)
+                if (memoryPressure || idleMillis <= 0) {
+                    factVectors.clear()
+                    queryVectors.clear()
+                    _status.value = _status.value.copy(indexed = 0)
+                }
                 store?.closeThreadResources()
                 store?.close()
                 store = null

@@ -236,7 +236,8 @@ class AgentToolResolver @Inject constructor(
                         chatToolConfig?.effectiveDelegation(defaults) ?: defaults
                     },
                     { settingRepository.fetchPlatformV2s() },
-                    delegate
+                    generate = delegate,
+                    hardware = { documentContext?.let { dev.chungjungsoo.gptmobile.data.localruntime.DeviceHardwareGovernor.inspectHardwareState(it) } ?: dev.chungjungsoo.gptmobile.data.localruntime.DeviceHardwareState() }
                 )
                 resolved += tool.resolved(null, "Model delegation", tool.definition.name)
             }

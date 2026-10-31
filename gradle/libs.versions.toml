@@ -1,4 +1,5 @@
 [versions]
+leakcanary = "2.14"
 geniex = "0.8.0"
 agp = "9.4.1"
 autoLicense = "15.2.0"
@@ -45,7 +46,17 @@ pdfbox = "2.0.27.0"
 poi = "5.5.1"
 gson = "2.14.0"
 
+slf4j = "2.0.19"
+window = "1.5.1"
+haze = "1.7.3"
+macrobenchmark = "1.5.0"
+
 [libraries]
+leakcanary-android = { module = "com.squareup.leakcanary:leakcanary-android", version.ref = "leakcanary" }
+slf4j-api = { module = "org.slf4j:slf4j-api", version.ref = "slf4j" }
+androidx-window = { module = "androidx.window:window", version.ref = "window" }
+haze = { module = "dev.chrisbanes.haze:haze-android", version.ref = "haze" }
+androidx-benchmark-macro = { module = "androidx.benchmark:benchmark-macro-junit4", version.ref = "macrobenchmark" }
 geniex-android = { module = "com.qualcomm.qti:geniex-android", version.ref = "geniex" }
 langchain4j-memory = { group = "dev.langchain4j", name = "langchain4j", version.ref = "langchain4j" }
 mediapipe-text = { group = "com.google.mediapipe", name = "tasks-text", version.ref = "mediapipeText" }
@@ -116,6 +127,7 @@ robolectric = { group = "org.robolectric", name = "robolectric", version.ref = "
 androidx-test-core = { group = "androidx.test", name = "core", version.ref = "androidxTestCore" }
 
 [plugins]
+kotlin-multiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }
 objectbox = { id = "io.objectbox", version.ref = "objectbox" }
 kotlin-kapt = { id = "com.android.legacy-kapt", version.ref = "agp" }
 android-application = { id = "com.android.application", version.ref = "agp" }

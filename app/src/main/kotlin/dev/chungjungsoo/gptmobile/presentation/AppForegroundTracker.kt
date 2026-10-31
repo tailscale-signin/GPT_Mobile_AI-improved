@@ -11,7 +11,7 @@ object AppForegroundTracker : Application.ActivityLifecycleCallbacks {
     val visibility: kotlinx.coroutines.flow.StateFlow<Boolean> get() = mutableVisibility
 
     val isBackgrounded: Boolean
-        get() = startedActivities == 0
+        get() = !mutableVisibility.value
 
     override fun onActivityStarted(activity: Activity) {
         startedActivities += 1

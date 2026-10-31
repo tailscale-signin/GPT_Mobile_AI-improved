@@ -4,7 +4,6 @@ import com.android.build.api.dsl.ApplicationExtension
 import com.android.build.api.variant.ApplicationAndroidComponentsExtension
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
-import java.net.URI
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import java.security.MessageDigest
@@ -111,7 +110,10 @@ configurations.configureEach {
 
 dependencies {
     implementation(project(":local-gguf-runtime"))
-    implementation("org.slf4j:slf4j-api:2.0.19")
+    implementation(project(":core-domain"))
+    // Heap dumps are an explicit developer session; never included in release builds.
+    if (providers.gradleProperty("leakDetection").orNull == "true") debugImplementation(libs.leakcanary.android)
+    implementation(libs.slf4j.api)
     artifactTypes.maybeCreate("aar").attributes.attribute(privateMemoryAttribute, false)
     registerTransform(PrivateMemoryRuntime::class) {
         from.attribute(ArtifactTypeDefinition.ARTIFACT_TYPE_ATTRIBUTE, "aar").attribute(privateMemoryAttribute, false)
@@ -314,13 +316,11 @@ extensions.configure<ApplicationExtension> {
 
 @CacheableTask
 abstract class PrepareMemoryModel : DefaultTask() {
-    @get:Input abstract val sourceUrl: Property<String>
-
     @get:Input abstract val expectedSha256: Property<String>
 
-    @get:Input abstract val offline: Property<Boolean>
+    @get:Input abstract val expectedSize: Property<Long>
 
-    @get:Optional @get:InputFile
+    @get:InputFile
     @get:PathSensitive(PathSensitivity.NONE)
     abstract val localModel: RegularFileProperty
 
@@ -329,29 +329,34 @@ abstract class PrepareMemoryModel : DefaultTask() {
     @TaskAction
     fun prepare() {
         val target = outputDirectory.file("memory/universal_sentence_encoder.tflite").get().asFile
-        fun checksum(file: File) = MessageDigest.getInstance("SHA-256").digest(file.readBytes()).joinToString("") { "%02x".format(it) }
+        fun checksum(file: File): String {
+            val digest = MessageDigest.getInstance("SHA-256")
+            file.inputStream().use { input ->
+                val buffer = ByteArray(8192)
+                while (true) {
+                    val count = input.read(buffer)
+                    if (count < 0) break
+                    digest.update(buffer, 0, count)
+                }
+            }
+            return digest.digest().joinToString("") { "%02x".format(it) }
+        }
         if (target.isFile && checksum(target) == expectedSha256.get()) return
         target.parentFile.mkdirs()
         val temporary = File(target.parentFile, "${target.name}.part")
         try {
-            val input = if (localModel.isPresent) {
-                localModel.get().asFile.inputStream()
-            } else {
-                check(!offline.get()) { "Memory model is not cached. Build online once or provide -PmemoryModelFile=/path/to/universal_sentence_encoder.tflite." }
-                URI(sourceUrl.get()).toURL().openConnection().apply {
-                    connectTimeout = 30_000
-                    readTimeout = 120_000
-                }.getInputStream()
-            }
+            val supplied = localModel.get().asFile
+            check(supplied.length() == expectedSize.get()) { "Provision the pinned model with python3 scripts/provision_memory_model.py or supply -PmemoryModelFile." }
+            val input = supplied.inputStream()
             input.use { source ->
                 temporary.outputStream().use { output ->
                     val buffer = ByteArray(8192)
-                    var total = 0
+                    var total = 0L
                     while (true) {
                         val count = source.read(buffer)
                         if (count < 0) break
                         total += count
-                        check(total <= 6_120_274) { "Unexpected memory model size." }
+                        check(total <= expectedSize.get()) { "Unexpected memory model size." }
                         output.write(buffer, 0, count)
                     }
                 }
@@ -364,11 +369,16 @@ abstract class PrepareMemoryModel : DefaultTask() {
     }
 }
 
+val memoryArtifact = (groovy.json.JsonSlurper().parseText(providers.fileContents(rootProject.layout.projectDirectory.file("gradle/model-artifacts.json")).asText.get()) as Map<*, *>)["memory"] as Map<*, *>
+val memoryModelSha256 = memoryArtifact["sha256"] as String
+val memoryModelBytes = (memoryArtifact["bytes"] as Number).toLong()
+val memoryModelName = memoryArtifact["filename"] as String
+val provisionedMemoryModel = File(gradle.gradleUserHomeDir, "caches/gptmobile-models/$memoryModelSha256/$memoryModelName")
 val prepareMemoryModel = tasks.register<PrepareMemoryModel>("prepareMemoryModel") {
-    sourceUrl.set("https://storage.googleapis.com/mediapipe-models/text_embedder/universal_sentence_encoder/float32/1/universal_sentence_encoder.tflite")
-    expectedSha256.set("89ad3c74175dd8caa398cc22b657296d94302d20c525c12b58b29420f7249749")
-    offline.set(gradle.startParameter.isOffline)
-    providers.gradleProperty("memoryModelFile").orNull?.let { localModel.set(file(it)) }
+    description = "Package pre-provisioned weights; run python3 scripts/provision_memory_model.py before the first build."
+    expectedSha256.set(memoryModelSha256)
+    expectedSize.set(memoryModelBytes)
+    localModel.set(providers.gradleProperty("memoryModelFile").orNull?.let { file(it) } ?: provisionedMemoryModel)
     outputDirectory.set(layout.buildDirectory.dir("generated/memoryAssets"))
 }
 
@@ -441,7 +451,7 @@ tasks.register<JacocoReport>("jacocoTestReport") {
 }
 
 dependencies {
-    implementation("androidx.window:window:1.5.1")
+    implementation(libs.androidx.window)
     // Local memory only: no model provider, hosted vector store or remote embedding SDK.
     implementation(libs.langchain4j.memory) {
         exclude(group = "org.apache.opennlp", module = "opennlp-tools")
@@ -506,7 +516,7 @@ dependencies {
     // On-device LiteRT-LM serving
     // AndroidX Compose, Activity, Collection and tracing are already supplied by this app.
     // Avoid parallel JetBrains Compose wrappers selecting a second platform dependency graph.
-    implementation("dev.chrisbanes.haze:haze-android:1.7.3") { isTransitive = false }
+    implementation(libs.haze) { isTransitive = false }
     implementation(libs.litertlm)
 
     // QAIRT host libraries and matching HTP stubs/skeletons for LiteRT-LM NPU dispatch.

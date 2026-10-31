@@ -53,7 +53,8 @@ class GitHubPublicAuthCoordinator internal constructor(
         val refreshExpiresAt: Long? = null,
         val refreshState: String = "READY",
         val refreshOperationId: String? = null,
-        val refreshMethod: String = "BROKER"
+        val refreshMethod: String = "BROKER",
+        val verifyAfterRestore: Boolean = false
     ) {
         override fun toString() = "Encrypted GitHub session (credentials redacted)"
     }
@@ -184,7 +185,15 @@ class GitHubPublicAuthCoordinator internal constructor(
             check(connection.authType == "OAUTH" && connection.oauthClientId == session.clientId) { "GitHub App configuration changed. Reconnect to verify this client and account." }
         }
         val rejected = GitHubSessionCaches.authenticationForCredential(currentToken).get()
-        if (!rejected && (session.expiresAt == null || clock() + 60_000 < session.expiresAt)) return@withLock currentToken
+        if (!rejected && (session.expiresAt == null || clock() + 60_000 < session.expiresAt)) {
+            if (session.verifyAfterRestore) {
+                val account = accountIdentity(currentToken)
+                check(account.id == session.account.id) { "Restored GitHub credentials belong to another account. Reconnect GitHub." }
+                put(bindingReference(connection.connectionUid), account, Account.serializer())
+                put(sessionReference(connection.connectionUid), session.copy(verifyAfterRestore = false), Session.serializer())
+            }
+            return@withLock currentToken
+        }
         val canRefresh = when (session.refreshMethod) {
             "DEVICE" -> GitHubDeviceAuthClient.validClientId(session.clientId)
             "BROKER" -> configuration.configured && session.clientId == configuration.clientId
@@ -224,7 +233,7 @@ class GitHubPublicAuthCoordinator internal constructor(
         } finally {
             bytes.fill(0)
         }
-        put(sessionReference(connection.connectionUid), Session(account, fingerprint(credential.accessToken), clientId, credential.refreshToken, credential.expiresAt, refreshMethod = refreshMethod), Session.serializer())
+        put(sessionReference(connection.connectionUid), Session(account, fingerprint(credential.accessToken), clientId, credential.refreshToken, credential.expiresAt, credential.refreshExpiresAt, refreshMethod = refreshMethod), Session.serializer())
     }
 
     private suspend fun <T> read(reference: String, serializer: kotlinx.serialization.KSerializer<T>): T? {

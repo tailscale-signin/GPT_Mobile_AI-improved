@@ -6,6 +6,12 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ResilientStreamingClientTest {
+    @Test fun `definitive uncommon HTTP failures never fall through to generic IO retries`() {
+        assertFalse(ResilientStreamingClient.isRetryable(IOException("HTTP 505 version unsupported")))
+        assertFalse(ResilientStreamingClient.isRetryable(IOException("HTTP 451 unavailable")))
+        assertTrue(ResilientStreamingClient.isRetryable(IOException("HTTP 504 timeout")))
+    }
+
     @Test
     fun `TLS record errors permit bounded retry but trust failures never do`() {
         assertTrue(ResilientStreamingClient.isRetryable(javax.net.ssl.SSLProtocolException("SSLV3_ALERT_BAD_RECORD_MAC")))

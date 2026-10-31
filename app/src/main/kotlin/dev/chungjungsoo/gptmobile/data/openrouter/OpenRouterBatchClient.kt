@@ -1,12 +1,12 @@
 package dev.chungjungsoo.gptmobile.data.openrouter
 
+import dev.chungjungsoo.gptmobile.data.network.awaitBoundedText
 import dev.chungjungsoo.gptmobile.domain.model.BatchRequest
 import dev.chungjungsoo.gptmobile.domain.service.BatchResult
+import dev.chungjungsoo.gptmobile.domain.service.executeBoundedBatch
 import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.sync.Semaphore
-import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.OkHttpClient
@@ -27,7 +27,8 @@ class OpenRouterBatchClient(
 ) {
 
     private val safeTimeoutMs = timeoutMs.coerceIn(1000, Int.MAX_VALUE.toLong())
-    private val client = OkHttpClient.Builder().followRedirects(false).followSslRedirects(false)
+    private val client = OkHttpClient.Builder().followRedirects(false).followSslRedirects(false).retryOnConnectionFailure(false)
+        .callTimeout(safeTimeoutMs, TimeUnit.MILLISECONDS)
         .connectTimeout(safeTimeoutMs, TimeUnit.MILLISECONDS)
         .readTimeout(safeTimeoutMs, TimeUnit.MILLISECONDS)
         .writeTimeout(safeTimeoutMs, TimeUnit.MILLISECONDS)
@@ -49,7 +50,9 @@ class OpenRouterBatchClient(
         model: String,
         requests: List<NativeBatchRequest>
     ): String {
-        require(model.isNotBlank() && requests.isNotEmpty())
+        require(model.isNotBlank() && requests.size in 1..1000)
+        require(endpoint in setOf("/v1/chat/completions", "/v1/responses", "/v1/messages", "/v1/embeddings"))
+        require(requests.all { it.customId.isNotBlank() && it.customId.length <= 128 } && requests.map { it.customId }.distinct().size == requests.size) { "Batch custom IDs must be unique and bounded." }
         require(requests.none { it.body.has("provider") }) { "Batch routing must be declared in the supported envelope." }
         val sb = StringBuilder()
         sb.append("{")
@@ -88,10 +91,10 @@ class OpenRouterBatchClient(
             .addHeader("X-OpenRouter-Cache", "false")
             .build()
 
-        val response = client.newCall(request).execute()
-        val responseBody = response.use { it.body?.byteStream()?.use { input -> dev.chungjungsoo.gptmobile.data.network.BoundedResponseText.read(input, 8 * 1024 * 1024) }.orEmpty() }
+        val response = client.newCall(request).awaitBoundedText()
+        val responseBody = response.text
 
-        if (!response.isSuccessful) {
+        if (!response.successful) {
             throw BatchHttpException(response.code)
         }
 
@@ -109,10 +112,10 @@ class OpenRouterBatchClient(
             .addHeader("Authorization", "Bearer $apiKey")
             .build()
 
-        val response = client.newCall(request).execute()
-        val responseBody = response.use { it.body?.byteStream()?.use { input -> dev.chungjungsoo.gptmobile.data.network.BoundedResponseText.read(input, 8 * 1024 * 1024) }.orEmpty() }
+        val response = client.newCall(request).awaitBoundedText()
+        val responseBody = response.text
 
-        if (!response.isSuccessful) {
+        if (!response.successful) {
             if (response.code == 404) throw Exception("Batch not found ($batchId)")
             throw BatchHttpException(response.code)
         }
@@ -130,10 +133,10 @@ class OpenRouterBatchClient(
             .addHeader("Authorization", "Bearer $apiKey")
             .build()
 
-        val response = client.newCall(request).execute()
-        val responseBody = response.use { it.body?.byteStream()?.use { input -> dev.chungjungsoo.gptmobile.data.network.BoundedResponseText.read(input, 8 * 1024 * 1024) }.orEmpty() }
+        val response = client.newCall(request).awaitBoundedText()
+        val responseBody = response.text
 
-        if (!response.isSuccessful) {
+        if (!response.successful) {
             throw BatchHttpException(response.code)
         }
 
@@ -159,13 +162,13 @@ class OpenRouterBatchClient(
             .addHeader("Authorization", "Bearer $apiKey")
             .build()
 
-        client.newCall(request).execute().use { response -> if (!response.isSuccessful) throw BatchHttpException(response.code) }
+        client.newCall(request).awaitBoundedText().let { response -> if (!response.successful) throw BatchHttpException(response.code) }
     }
 
     suspend fun delete(batchId: String): Unit = withContext(Dispatchers.IO) {
         val id = URLEncoder.encode(batchId, "UTF-8")
         val request = Request.Builder().url("${batchesUrl()}/$id").delete().addHeader("Authorization", "Bearer $apiKey").build()
-        client.newCall(request).execute().use { if (!it.isSuccessful) throw BatchHttpException(it.code) }
+        client.newCall(request).awaitBoundedText().let { if (!it.successful) throw BatchHttpException(it.code) }
     }
 
     fun parseBatchMeta(jsonString: String): BatchMeta {
@@ -214,24 +217,7 @@ class OpenRouterBatchClient(
         requests: List<BatchRequest>,
         onComplete: (List<BatchResult>) -> Unit
     ) = withContext(Dispatchers.IO) {
-        val results = mutableListOf<BatchResult>()
-
-        // Process in parallel with concurrency limit using semaphore
-        val semaphore = Semaphore(maxConcurrentRequests)
-
-        for ((index, request) in requests.withIndex()) {
-            semaphore.withPermit {
-                try {
-                    val response = processSingleRequest(request)
-                    results.add(BatchResult.Success(index, response))
-                } catch (e: Exception) {
-                    if (e is kotlinx.coroutines.CancellationException) throw e
-                    results.add(BatchResult.Failure(index, e.message ?: "Unknown error"))
-                }
-            }
-        }
-
-        onComplete(results)
+        onComplete(executeBoundedBatch(requests, maxConcurrentRequests, ::processSingleRequest))
     }
 
     suspend fun processRequest(request: BatchRequest): String = withContext(Dispatchers.IO) { processSingleRequest(request) }
@@ -264,14 +250,10 @@ class OpenRouterBatchClient(
             .addHeader("X-OpenRouter-Cache", "false")
             .build()
 
-        val response = client.newCall(requestObj).execute()
-
-        return response.use {
-            if (!it.isSuccessful) throw BatchHttpException(it.code)
-            it.body?.byteStream()?.use { input -> dev.chungjungsoo.gptmobile.data.network.BoundedResponseText.read(input, 8 * 1024 * 1024) }.orEmpty().also { body ->
-                withContext(kotlinx.coroutines.NonCancellable) { runCatching { onRemoteResponse(body) } }
-            }
-        }
+        val response = client.newCall(requestObj).awaitBoundedText()
+        if (!response.successful) throw BatchHttpException(response.code)
+        withContext(kotlinx.coroutines.NonCancellable) { runCatching { onRemoteResponse(response.text) } }
+        return response.text
     }
 }
 

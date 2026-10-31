@@ -185,3 +185,41 @@ recall/context compression, streaming recovery and a portable domain boundary.
 Continue from this checkpoint by inspecting the existing implementations and
 closing verified gaps; do not silently change provider destinations or duplicate
 existing batch, HNSW, compaction or stream-recovery systems.
+
+
+### Follow-up checkpoint: portable backups and end-to-end hardening
+
+Repository `tailscale-signin/GPT_Mobile_AI-improved`; base `main` at
+`9781b63c72bf3a2a4786ede07f0d9e094cd07db2`; reviewed parent/head
+`e49614dc2f3c134641c1bd8c8e9418d727228cd9`. The user expanded this same branch's
+scope to offline provisioning, lifecycle/hybrid routing, accounting, batch and
+stream recovery, modularity, and complete GitHub backup/restore.
+
+| Area | Implemented or verified behavior |
+| --- | --- |
+| Build network coupling | Provision pinned USE weights with a standalone bounded/retrying, atomic, hash-checked cache tool. Gradle only validates/copies the local artifact. CI provisions explicitly and checks two-run configuration-cache reuse for packaging and the portable domain. Full Android/ObjectBox cache compatibility is still a separate limitation. |
+| Catalog and profiling | Inline library versions moved into the shared catalog; a host/CI guard prevents recurrence. Existing weekly Dependabot remains. Opt-in debug LeakCanary 2.14 uses verified artifacts; release builds exclude it. Existing ProfileInstaller, ABI packaging and R8/resource shrinking remain in place. |
+| Lifecycle | Background grace period and idle checks release embedding sessions, bounded vector/query caches and idle model handles. Active inference and explicit idle-off settings remain respected. Encrypted persistent memories can rebuild recall. |
+| Hybrid routing | Battery/thermal/low-memory and prompt-complexity policies rank only preauthorized eligible profiles. Explicit selections and private/cloud-fallback choices remain authoritative; routing never adds a provider. |
+| Accounting/domain | `core-domain` exposes common Kotlin accounting and routing with a JVM target. Exact overflow-checked integer pricing is checked against a BigInteger oracle; provider counts and estimates keep their provenance, receipt IDs deduplicate, and exact provider/model identities remain distinct. Android/Room adapters retain persistence. |
+| Batch | Fixed bounded workers replace sequential pseudo-concurrency. Cancellation closes HTTP calls; response bodies and request counts are bounded. llama-server uses real `/completion` decoded text, not token IDs interpreted as Unicode. Native OpenRouter async batch operations preserve routing/storage policy and do not blindly retry billable submissions. |
+| Streaming | Gateway replay verifies job/generation identity and resets sequence cursors across declared generation changes. Transient HTTP status classification is corrected. Partial provider output remains retained; unsupported provider streams are never silently resubmitted as new paid generations. Existing UI streaming buffers remain in use. |
+| Memory/context | Existing ObjectBox HNSW, encrypted bounded fact memory, retention policy, semantic recall and sliding context budgets already implement the requested scalable/pruned architecture. This patch improves idle eviction rather than replacing those systems or claiming synthetic speedups. |
+| GitHub backups | Encrypted exports include API tokens, OAuth refresh/session/account records and an explicit portable credential marker. Restored OAuth credentials verify account identity; interrupted refresh state stays interrupted. The previously dropped refresh expiration is now persisted. Legacy archives do not silently reconnect. |
+| GitHub workspace backups | Settings restore chat workspace/profile/index choices by stable conversation identity, or by the chats restored in the same transaction. Restored write auto-approval and stale observation fields are reset. Tools-only backups include saved repository selections. A separately selectable encrypted section carries file/programmer drafts and their key with rollback-aware file replacement. |
+| Backup exclusions | Pending OAuth/PKCE sign-ins, local response caches, execution claims/write approvals, device-only consents, and encryption recovery secrets are not replayed/imported. Existing agent approvals restore as interrupted. Draft restoration never performs a GitHub write. Other existing sections retain conversations, profiles, credentials, memories, research, tools, models, attachments, statistics and health/shopping records. |
+
+Validation before publication: 273 host tests and 63 focused JVM checks pass;
+the JVM harness compiles actual selected production files with inert Android/Hilt
+fixtures and does not substitute for the full app suite. New Android tests cover
+encrypted GitHub API/draft/OAuth round trips, account revalidation, partial restore
+identity, response closure/cancellation, delegation, batch payloads and streaming
+replay. Exact final-head Android CI must be reported independently. Device startup,
+P99 inference, memory, throughput and coverage targets in the pasted proposal are
+not measured baselines or demonstrated percentage improvements.
+
+Parent-head Android verification completed compilation and lint. The full unit
+run executed 5,638 tests (5,632 passed, four skipped); two prompt-budget assertions
+failed after new workflow guidance enlarged the frozen GitHub context. Guidance
+was compacted, and commit excerpts bounded to 120 characters, retaining the
+existing <2,000-character snapshot contract. Final-head checks cover this repair.

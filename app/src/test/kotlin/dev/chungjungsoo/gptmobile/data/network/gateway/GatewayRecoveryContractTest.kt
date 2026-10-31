@@ -18,6 +18,26 @@ import org.junit.Assert.fail
 import org.junit.Test
 
 class GatewayRecoveryContractTest {
+    @Test fun `generation reset restarts cursor and wrong job or undeclared generation fails closed`() = runBlocking {
+        val bodies = listOf(
+            "data: {\"job_id\":\"job-1\",\"generation\":\"new\",\"sequence\":1,\"generationChanged\":true}\n\n" +
+                "data: {\"job_id\":\"job-1\",\"generation\":\"new\",\"sequence\":2}\n\n",
+            "data: {\"job_id\":\"other\",\"generation\":\"old\",\"sequence\":101}\n\n",
+            "data: {\"job_id\":\"job-1\",\"generation\":\"unexpected\",\"sequence\":101}\n\n"
+        )
+        for ((index, body) in bodies.withIndex()) {
+            val client = HttpClient(MockEngine { respond(body, HttpStatusCode.OK) })
+            val network = mockk<NetworkClient>()
+            every { network() } returns client
+            try {
+                val result = runCatching { GatewayAPIImpl(network).resumeEvents("job-1", 100, 10, ProviderRequestConfig("http://192.168.1.2", null), "old").toList() }
+                if (index == 0) assertEquals(listOf(1, 2), result.getOrThrow().map { it.sequence }) else assertTrue(result.exceptionOrNull() is GatewayEventReplayException)
+            } finally {
+                client.close()
+            }
+        }
+    }
+
     @Test fun `event replay binds generation and suppresses duplicate cursors`() = runBlocking {
         val client = HttpClient(
             MockEngine { request ->

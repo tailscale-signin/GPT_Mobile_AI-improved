@@ -9,6 +9,7 @@ enum class CompleteBackupSection {
     PLATFORMS,
     TOOLS,
     CREDENTIALS,
+    GITHUB_WORKSPACE,
     MEMORY,
     LOCAL_MODELS,
     ATTACHMENTS,
@@ -35,8 +36,8 @@ enum class CompleteBackupGroup(val title: String, val description: String, val s
     ),
     SETTINGS_AND_TOOLS(
         "Settings & tools",
-        "Themes, preferences, plugins and MCP connections.",
-        setOf(CompleteBackupSection.SETTINGS, CompleteBackupSection.TOOLS)
+        "Themes, preferences, GitHub workspaces, plugins and MCP connections.",
+        setOf(CompleteBackupSection.SETTINGS, CompleteBackupSection.TOOLS, CompleteBackupSection.GITHUB_WORKSPACE)
     ),
     RESEARCH(
         "Research evidence",
@@ -55,12 +56,13 @@ data class CompleteBackupSelection(
     val sections: Set<CompleteBackupSection> = DEFAULT_SECTIONS
 ) {
     val requiresEncryption: Boolean
-        get() = includes(CompleteBackupSection.CREDENTIALS) || includes(CompleteBackupSection.MEMORY) || includes(CompleteBackupSection.HEALTH_DATA) || sections.any { it in dev.chungjungsoo.gptmobile.data.research.feature.ResearchBackup.SECTIONS }
+        get() = includes(CompleteBackupSection.GITHUB_WORKSPACE) || includes(CompleteBackupSection.CREDENTIALS) || includes(CompleteBackupSection.MEMORY) || includes(CompleteBackupSection.HEALTH_DATA) || sections.any { it in dev.chungjungsoo.gptmobile.data.research.feature.ResearchBackup.SECTIONS }
 
     fun includes(section: CompleteBackupSection): Boolean = section in sections
 
     fun normalized(): CompleteBackupSelection {
         val normalized = sections.toMutableSet()
+        if (CompleteBackupSection.GITHUB_WORKSPACE in normalized) normalized += CompleteBackupSection.TOOLS
         if (CompleteBackupSection.CHAT_RESEARCH in normalized) normalized += CompleteBackupSection.CONVERSATIONS
         if (CompleteBackupSection.STATISTICS in normalized) {
             normalized += setOf(CompleteBackupSection.CONVERSATIONS, CompleteBackupSection.PLATFORMS, CompleteBackupSection.AGENT_HISTORY)
@@ -77,7 +79,7 @@ data class CompleteBackupSelection(
         val updated = if (enabled) {
             sections + section
         } else {
-            sections - section -
+            sections - section - (if (section == CompleteBackupSection.TOOLS) setOf(CompleteBackupSection.GITHUB_WORKSPACE) else emptySet()) -
                 if (section == CompleteBackupSection.CONVERSATIONS) {
                     setOf(CompleteBackupSection.ATTACHMENTS, CompleteBackupSection.AGENT_HISTORY, CompleteBackupSection.STATISTICS, CompleteBackupSection.CHAT_RESEARCH)
                 } else if (section in setOf(CompleteBackupSection.AGENT_HISTORY, CompleteBackupSection.PLATFORMS)) {
@@ -98,6 +100,7 @@ data class CompleteBackupSelection(
     companion object {
         val DEFAULT_SECTIONS = CompleteBackupSection.entries.toSet() - setOf(
             CompleteBackupSection.CREDENTIALS,
+            CompleteBackupSection.GITHUB_WORKSPACE,
             CompleteBackupSection.MEMORY,
             CompleteBackupSection.LOCAL_MODELS,
             CompleteBackupSection.ATTACHMENTS,

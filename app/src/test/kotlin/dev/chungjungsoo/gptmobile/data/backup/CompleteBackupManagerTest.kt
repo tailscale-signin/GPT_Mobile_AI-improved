@@ -587,7 +587,7 @@ class CompleteBackupManagerTest {
         assertEquals("first-token", vault.read("provider")!!.decodeToString())
     }
 
-    @Test fun githubCredentialsNeverEnterPortableArchivesAndLegacyCredentialsCannotReconnect() = runBlocking {
+    @Test fun legacyGitHubCredentialsCannotReconnectWithoutPortableEncryptedMetadata() = runBlocking {
         database.toolConnectionDao().upsertConnection(dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection("github-account", "GitHub", "github", "GITHUB", null, "OAUTH", "connection_github-account", null))
         vault.put("connection_github-account", "ghu_private_access".toByteArray())
         vault.put("github-oauth-session-private", "ghr_private_refresh".toByteArray())
@@ -600,12 +600,12 @@ class CompleteBackupManagerTest {
         assertTrue(result.message, result.success)
         val stage = File(context.cacheDir, "github-credential-inspection").apply { mkdirs() }
         val manifest = CompleteBackupArchive.read(archive, stage, Long.MAX_VALUE)
-        assertFalse("connection_github-account" in manifest.secrets)
-        assertFalse(manifest.secrets.keys.any { it.startsWith("github-") })
+        assertTrue("connection_github-account" in manifest.secrets)
+        assertFalse("github-public-auth-pending" in manifest.secrets)
         assertTrue("provider" in manifest.secrets)
         // An older archive can still carry a raw token. Its connection metadata
         // must restore without that credential, even when credentials are selected.
-        val legacy = manifest.copy(secrets = manifest.secrets + ("connection_github-account" to java.util.Base64.getEncoder().encodeToString("ghu_old_archive".toByteArray())))
+        val legacy = manifest.copy(portableGitHubCredentials = false, secrets = manifest.secrets + ("connection_github-account" to java.util.Base64.getEncoder().encodeToString("ghu_old_archive".toByteArray())))
         CompleteBackupArchive.write(archive, legacy, manifest.files.mapValues { (path, _) -> File(stage, path) })
         val restored = manager.restore(Uri.fromFile(archive), selection = selection)
         assertTrue(restored.message, restored.success)
@@ -615,6 +615,58 @@ class CompleteBackupManagerTest {
         assertEquals(null, vault.read("github-public-auth-pending"))
         assertEquals("public-account-1", vault.read("github-account-binding-private")!!.decodeToString())
         assertEquals("other-provider", vault.read("provider")!!.decodeToString())
+    }
+
+    @Test fun encryptedGitHubApiAndDraftsRoundTripWithoutRestoringPendingAuthorization() = runBlocking {
+        val uid = "github-portable"
+        val tokenRef = "connection_$uid"
+        database.toolConnectionDao().upsertConnection(dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection(uid, "GitHub", "github", "GITHUB", null, "TOKEN", tokenRef, null))
+        vault.put(tokenRef, "github_pat_portable_test".toByteArray())
+        vault.put("github-public-auth-pending", "never-portable".toByteArray())
+        val drafts = dev.chungjungsoo.gptmobile.data.github.GitHubWorkspaceDraftStore(context, vault)
+        drafts.write(uid, "saved work")
+        context.getSharedPreferences("github_workspace", Context.MODE_PRIVATE).edit().putString(uid, "repository-selection").commit()
+        val selection = CompleteBackupSelection(setOf(CompleteBackupSection.TOOLS, CompleteBackupSection.CREDENTIALS, CompleteBackupSection.GITHUB_WORKSPACE))
+        val archive = File(context.cacheDir, "github-portable.gptbackup")
+        val saved = manager.backup(Uri.fromFile(archive), selection, password = "test-password")
+        assertTrue(saved.message, saved.success)
+        assertFalse(archive.readBytes().decodeToString().contains("github_pat_portable_test"))
+        vault.delete(tokenRef)
+        vault.delete(dev.chungjungsoo.gptmobile.data.github.GitHubWorkspaceDraftStore.KEY)
+        drafts.write("another-workspace", "keep unrelated work under another key")
+        drafts.write(uid, "changed work")
+        context.getSharedPreferences("github_workspace", Context.MODE_PRIVATE).edit().clear().commit()
+        val restored = manager.restore(Uri.fromFile(archive), legacyPassword = "test-password", selection = selection)
+        assertTrue(restored.message, restored.success)
+        assertEquals(tokenRef, database.toolConnectionDao().getConnection(uid)?.secretRef)
+        assertEquals("github_pat_portable_test", vault.read(tokenRef)!!.decodeToString())
+        assertEquals("saved work", drafts.read(uid))
+        assertEquals("keep unrelated work under another key", drafts.read("another-workspace"))
+        assertEquals("repository-selection", context.getSharedPreferences("github_workspace", Context.MODE_PRIVATE).getString(uid, null))
+        assertEquals(null, vault.read("github-public-auth-pending"))
+        val plaintext = manager.backup(Uri.fromFile(File(context.cacheDir, "unsafe.gptbackup")), selection, encrypt = false)
+        assertFalse(plaintext.success)
+    }
+
+    @Test fun encryptedGitHubOAuthRefreshSessionRestoresWithAccountRevalidation() = runBlocking {
+        val uid = "github-oauth-portable"
+        val token = "ghu_portable_test"
+        val auth = dev.chungjungsoo.gptmobile.data.github.GitHubPublicAuthCoordinator
+        val reference = "connection_$uid"
+        database.toolConnectionDao().upsertConnection(dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection(uid, "GitHub", "github", "GITHUB", null, "OAUTH", reference, "client"))
+        vault.put(reference, token.toByteArray())
+        val session = dev.chungjungsoo.gptmobile.data.github.GitHubPublicAuthCoordinator.Session(dev.chungjungsoo.gptmobile.data.github.GitHubPublicAuthCoordinator.Account("123", "owner"), auth.fingerprint(token), "client", refreshToken = "ghr_portable_test", refreshState = "REAUTH_REQUIRED")
+        vault.put(auth.sessionReference(uid), kotlinx.serialization.json.Json.encodeToString(session).toByteArray())
+        val archive = File(context.cacheDir, "github-oauth-portable.gptbackup")
+        val selection = CompleteBackupSelection(setOf(CompleteBackupSection.TOOLS, CompleteBackupSection.CREDENTIALS))
+        assertTrue(manager.backup(Uri.fromFile(archive), selection, password = "test-password").success)
+        vault.delete(auth.sessionReference(uid))
+        val result = manager.restore(Uri.fromFile(archive), "test-password", selection)
+        assertTrue(result.message, result.success)
+        val restored = kotlinx.serialization.json.Json.decodeFromString<dev.chungjungsoo.gptmobile.data.github.GitHubPublicAuthCoordinator.Session>(vault.read(auth.sessionReference(uid))!!.decodeToString())
+        assertEquals("ghr_portable_test", restored.refreshToken)
+        assertEquals("REAUTH_REQUIRED", restored.refreshState)
+        assertTrue(restored.verifyAfterRestore)
     }
 
     /** Structural migration tests inspect a decrypted archive, never a plaintext export. */

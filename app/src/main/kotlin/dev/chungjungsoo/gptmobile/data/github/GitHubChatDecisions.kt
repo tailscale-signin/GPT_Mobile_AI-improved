@@ -140,6 +140,15 @@ class GitHubChatDecisions @Inject constructor(private val store: GitHubRepositor
         removed
     }
 
+    /** Imported chat IDs cannot inherit questions offered to this installation's old chats. */
+    suspend fun resetAfterRestore(): List<String> = mutex.withLock {
+        val removed = mutable.value.map { it.id }
+        store.remove(SCOPE, KEY)
+        mutable.value = emptyList()
+        loaded = true
+        removed
+    }
+
     companion object {
         private const val SCOPE = "github-chat-decisions"
         private const val KEY = "decisions-v1"

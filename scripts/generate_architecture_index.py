@@ -6,6 +6,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 GROUPS = {
+    'portable_domain': ('core-domain/src/commonMain/kotlin/dev/chungjungsoo/gptmobile/core', 'core-domain/src/jvmTest/kotlin/dev/chungjungsoo/gptmobile/core'),
     'github': ('app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github', 'app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github'),
     'engineering': ('app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool',),
     'workspace_ui': ('app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/workspace',),

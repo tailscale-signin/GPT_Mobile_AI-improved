@@ -28,3 +28,6 @@ runs:
     - name: Enable Gradle wrapper
       shell: bash
       run: chmod +x ./gradlew
+    - name: Provision verified memory model outside Gradle
+      shell: bash
+      run: python3 scripts/provision_memory_model.py

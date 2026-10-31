@@ -1,0 +1,8 @@
+{
+  "memory": {
+    "filename": "universal_sentence_encoder.tflite",
+    "url": "https://storage.googleapis.com/mediapipe-models/text_embedder/universal_sentence_encoder/float32/1/universal_sentence_encoder.tflite",
+    "sha256": "89ad3c74175dd8caa398cc22b657296d94302d20c525c12b58b29420f7249749",
+    "bytes": 6120274
+  }
+}

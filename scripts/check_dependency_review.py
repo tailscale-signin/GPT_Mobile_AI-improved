@@ -93,7 +93,24 @@ def main():
                 raise ValueError('Dependency review response exceeds 4 MiB')
             blocked = findings(json.loads(payload))
     except urllib.error.HTTPError as error:
-        raise SystemExit(f'Dependency review unavailable (HTTP {error.code}); verify dependency graph/security availability and Contents:read. This is not a passing scan.') from None
+        try:
+            details = json.loads(error.read(8192))
+        except (ValueError, UnicodeDecodeError):
+            details = {}
+        message = details.get('message', '') if isinstance(details, dict) else ''
+        message = message if isinstance(message, str) else ''
+        token = os.environ.get('GH_TOKEN', '')
+        if token:
+            message = message.replace(token, '[REDACTED]')
+        message = re.sub(r'(?i)(bearer\s+)[\w.-]+', r'\1[REDACTED]', message)[:1200]
+        Path('dependency-review.json').write_text(json.dumps({
+            'base': args.base, 'head': args.head, 'status': 'BLOCKED_API',
+            'scan_performed': False, 'changed_manifests': manifests,
+            'http_status': error.code, 'message': message,
+        }, indent=2) + '\n')
+        print(f'Dependency review unavailable (HTTP {error.code}): {message or "No upstream diagnostic message"}. '
+              'Verify dependency graph/security availability and Contents:read. This is not a passing scan.')
+        return 1
     Path('dependency-review.json').write_text(json.dumps({'base': args.base, 'head': args.head, 'status': 'SCANNED', 'scan_performed': True, 'changed_manifests': manifests, 'new_high_or_critical': blocked}, indent=2) + '\n')
     for item in blocked:
         print(f"::error::Introduced {item['severity']} advisory {item['advisory']} in {item['package']} {item['version']}")

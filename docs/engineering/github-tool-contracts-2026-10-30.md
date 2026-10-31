@@ -85,3 +85,34 @@ also configures a versionless consumer of the already loaded plugin. Its isolate
 classpath includes AGP 9.4.1's published ASM 9.9 constraint so it matches the
 existing application's verified dependency graph. No dependency version or
 trusted checksum was changed. Full Android/CodeQL compilation remains a CI check.
+
+CodeQL then passed on `e58de9230d7081ba5b00a1d0781829a444189745`
+(run `41155543290`, job `124401425731`). The canonical contracts job separately
+reported dependency-review HTTP 403. This security gate remains enforced.
+Denied review requests now produce a `BLOCKED_API` artifact with a bounded,
+credential-redacted upstream message and `scan_performed=false`; the independent
+gateway/OAuth tests still run after a denied scan. No scan result is invented and
+no repository security setting is changed implicitly.
+
+## Replay delivery follow-up
+
+Follow-up base: `e58de9230d7081ba5b00a1d0781829a444189745`, same branch.
+Provider replay compaction could retain a next-page cursor after dropping records
+from the current page, including small results from a large parallel batch. Each
+retained result now supplies a scoped recovery call for its current offset.
+Compaction offers that saved read before any later cursor, marks the preview as
+unverified and delivers smaller recovery pages within the replay allowance.
+Old call metadata no longer consumes the entire replay budget before the newest
+result is admitted; complete old pairs are removed as necessary to maintain the
+hard context bound. Capacity, expiry, scope and operation checks still apply.
+
+Regressions reconstruct Unicode data without gaps through pressured replay,
+recover mutation receipts with exactly one backend mutation, reject forged page
+ceilings and foreign scopes, and verify that denied dependency scans still fail
+and retain safe diagnostics.
+
+Follow-up host validation: 197 Kotlin tests passed, including the full exchange
+compactor suite and the new recovery regressions. All 238 canonical host tests,
+changed-source ktlint, workflow actionlint and whitespace checks passed. Cloud
+checks must be refreshed on the next published revision; the earlier CodeQL
+success is evidence for the plugin repair, not approval of a later head.

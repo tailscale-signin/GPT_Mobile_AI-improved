@@ -17,16 +17,24 @@ internal object GitHubReplayRecovery {
 
     fun compact(content: ToolResultContent, maxChars: Int): ToolResultContent? {
         val source = envelope(content) ?: return null
-        val controls = source.filterKeys { it in setOf("schema", "operation", "status", "local_page_complete", "continuation_call", "remote_continuations", "correction_call", "previous_call_id", "metadata") }
+        val controls = source.filterKeys { it in setOf("schema", "operation", "status", "local_page_complete", "continuation_call", "remote_continuations", "correction_call", "previous_call_id", "metadata", "recovery_required") }
         val result = controls.toMutableMap()
         result["replay_compacted"] = JsonPrimitive(true)
+        // The omitted page may never have reached the model. Recover that exact
+        // page before offering any cursor that skips past its unread records.
+        (source["recovery_call"] as? JsonObject)?.let { recovery ->
+            result["continuation_call"] = recovery
+            result.remove("remote_continuations")
+            result["local_page_complete"] = JsonPrimitive(false)
+            result["recovery_required"] = JsonPrimitive(true)
+        }
         // Never splice the middle of a cursor or a JSON argument object.
         if (JsonObject(result).toString().length > maxChars) {
             return ToolResultContent.Text("GitHub result omitted from replay: its continuation exceeds the available replay budget. Do not invent a cursor or repeat a mutation; inspect retained evidence or request a narrower immutable read.")
         }
         val preview = (source["data"] ?: source["fragments"] ?: source["message"])?.toString().orEmpty()
         val available = ((maxChars - JsonObject(result).toString().length - 32) / 6).coerceAtLeast(0)
-        if (available > 0) result["consumed_preview"] = JsonPrimitive(preview.take(available))
+        if (available > 0) result["unverified_preview"] = JsonPrimitive(preview.take(available))
         return ToolResultContent.Json(JsonObject(result))
     }
 
@@ -49,6 +57,7 @@ internal object GitHubReplayRecovery {
                     put("previous_call_id", previous.callId)
                     original?.get("continuation_call")?.let { put("continuation_call", it) }
                     original?.get("remote_continuations")?.let { put("remote_continuations", it) }
+                    original?.get("recovery_call")?.let { put("recovery_call", it) }
                     put("retained_result_preview", previous.content.toString().take(1200))
                     put("recovery", "Use the exact continuation_call above when present. The earlier call already completed; no action was repeated. Use a different unread range for additional source evidence.")
                 }

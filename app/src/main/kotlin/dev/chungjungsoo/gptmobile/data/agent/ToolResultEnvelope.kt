@@ -10,6 +10,8 @@ import kotlinx.serialization.json.put
 
 /** Model-facing control metadata is never inferred from the provider's prose. */
 internal object ToolResultEnvelope {
+    val unknownOutcomeCodes = setOf("TIMEOUT_OUTCOME_UNKNOWN", "DISPATCH_OUTCOME_UNKNOWN", "TOOL_OUTCOME_UNKNOWN", "TOOL_RESULT_ID_MISMATCH", "RECONCILIATION_REQUIRED")
+
     fun error(callId: String, code: String, message: String, dispatched: Boolean = false): AgentToolResult =
         AgentToolResult(callId, ToolResultContent.Text(message), true, errorCode = code, dispatched = dispatched)
 
@@ -25,7 +27,7 @@ internal object ToolResultEnvelope {
                 put(
                     "outcome",
                     when {
-                        result.errorCode in setOf("TIMEOUT_OUTCOME_UNKNOWN", "DISPATCH_OUTCOME_UNKNOWN") -> "unknown"
+                        result.errorCode in unknownOutcomeCodes -> "unknown"
                         !result.dispatched -> "not_executed"
                         result.isError -> "failed"
                         else -> "completed"

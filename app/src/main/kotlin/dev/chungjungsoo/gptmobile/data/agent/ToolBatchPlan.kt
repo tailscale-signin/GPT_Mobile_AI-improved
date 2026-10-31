@@ -18,6 +18,7 @@ internal fun planToolBatch(
     usedByName: Map<String, Int>,
     blockedScopes: Set<String>,
     sameToolLimit: Int,
+    retainedCallIds: Set<String> = emptySet(),
     scope: (ProviderEvent.ToolCall) -> String
 ): ToolBatchPlan {
     val executable = mutableListOf<ProviderEvent.ToolCall>()
@@ -27,29 +28,34 @@ internal fun planToolBatch(
     val hostSuppressed = mutableSetOf<String>()
     val disabled = mutableSetOf<String>()
     val accepted = mutableMapOf<String, Int>()
-    calls.forEachIndexed { index, call ->
+    var newlyAdmitted = 0
+    calls.forEach { call ->
         val repeatKey = toolRepeatKey(call)
         val sourceRead = repeatKey != call.name
         val used = (usedByName[repeatKey] ?: 0) + (accepted[repeatKey] ?: 0)
         val repeatLimit = if (sourceRead || Regex("(?i)context[ _-]*retrieve|search[ _-]*nodes|read[ _-]*graph|open[ _-]*nodes").containsMatchIn(call.name)) 3 else sameToolLimit
+        val retained = call.callId in retainedCallIds
         when {
-            index >= remaining -> deferred += call
             call.name !in availableNames -> {
                 deferred += call
                 unavailable += call.callId
             }
-            scope(call) in blockedScopes -> {
+            !retained && scope(call) in blockedScopes -> {
                 deferred += call
                 hostSuppressed += call.callId
             }
-            used >= repeatLimit -> {
+            !retained && used >= repeatLimit -> {
                 deferred += call
                 suppressed += call.callId
                 if (!sourceRead) disabled += call.name
             }
+            !retained && newlyAdmitted >= remaining -> deferred += call
             else -> {
                 executable += call
-                accepted[repeatKey] = (accepted[repeatKey] ?: 0) + 1
+                if (!retained) {
+                    newlyAdmitted++
+                    accepted[repeatKey] = (accepted[repeatKey] ?: 0) + 1
+                }
             }
         }
     }

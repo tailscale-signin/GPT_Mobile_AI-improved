@@ -4,6 +4,7 @@ import kotlinx.coroutines.flow.FlowCollector
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
@@ -15,6 +16,58 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AgentGitHubResilienceTest {
+    @Test fun rejectedWriteDoesNotConsumeTheOnlyExecutionSlotBeforeRepair() = runTest {
+        var rounds = 0
+        var dispatched = 0
+        val limits = AgentRunLimits(githubTask = true, maxToolCalls = 1)
+        val write = ToolExecutionBudget(limits).bind(object : AgentTool {
+            override val definition = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.definition("github_write", "github_write__github_api")
+            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+                dispatched++
+                return AgentToolResult(callId, ToolResultContent.Text("published receipt"), false)
+            }
+        })
+        val session = session { tools, exchanges ->
+            when (++rounds) {
+                1, 2 -> {
+                    assertTrue(tools.isNotEmpty())
+                    if (rounds == 2) assertEquals("INVALID_ARGUMENTS", exchanges.single().results.single().errorCode)
+                    emit(
+                        ProviderEvent.ToolCall(
+                            "call-$rounds",
+                            "github_write__github_api",
+                            buildJsonObject {
+                                put("branch", "work")
+                                put("expected_head_sha", "a".repeat(40))
+                                put("message", "Repair")
+                                put(
+                                    "files",
+                                    JsonArray(
+                                        listOf(
+                                            buildJsonObject {
+                                                if (rounds == 2) put("path", "app/File.kt")
+                                                put("content", "text")
+                                            }
+                                        )
+                                    )
+                                )
+                            }
+                        )
+                    )
+                }
+                else -> {
+                    assertTrue(tools.isEmpty())
+                    assertTrue(exchanges.last().results.single().content.toString().contains("published receipt"))
+                    emit(ProviderEvent.TextDelta("Published."))
+                }
+            }
+            emit(ProviderEvent.Completed)
+        }
+        assertCompleted(AgentRunner(limits).run(session, listOf(write)).toList())
+        assertEquals(3, rounds)
+        assertEquals(1, dispatched)
+    }
+
     @Test fun changingInvalidArgumentsCannotKeepTheGitHubRunInAFailureLoop() = runTest {
         var rounds = 0
         var executions = 0

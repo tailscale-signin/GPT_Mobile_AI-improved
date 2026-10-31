@@ -4,6 +4,7 @@ import dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -16,6 +17,63 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubToolBudgetTest {
+    @Test fun missingWritePathsGetSpecificRepairWithoutDispatchAndValidCorrectionCanProceed() = runTest {
+        var dispatched = 0
+        val tool = ToolExecutionBudget(AgentRunLimits(githubTask = true, maxToolCalls = 1)).bind(object : AgentTool {
+            override val definition = GitHubOperationTool.definition("github_write", "github_write__github_api")
+            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+                dispatched++
+                return AgentToolResult(callId, ToolResultContent.Text("staged"), false)
+            }
+        })
+        fun arguments(path: String?) = buildJsonObject {
+            put("branch", "work")
+            put("expected_head_sha", "a".repeat(40))
+            put("message", "Repair")
+            put(
+                "files",
+                JsonArray(
+                    listOf(
+                        buildJsonObject {
+                            path?.let { put("path", it) }
+                            put("content", "replacement")
+                        }
+                    )
+                )
+            )
+        }
+        val rejected = tool.execute("missing", arguments(null))
+        assertEquals("INVALID_ARGUMENTS", rejected.errorCode)
+        assertFalse(rejected.dispatched)
+        assertTrue(rejected.content.toString().contains("Each files item must contain its own non-empty repository-relative path"))
+        assertTrue(rejected.content.toString().contains("do not guess"))
+        assertEquals("INVALID_ARGUMENTS", tool.execute("empty", arguments("")).errorCode)
+        assertEquals(0, dispatched)
+        assertFalse(tool.execute("corrected", arguments("app/File.kt")).isError)
+        assertEquals(1, dispatched)
+    }
+
+    @Test fun mismatchedWriteReceiptRequiresReconciliationBeforeAnotherCall() = runTest {
+        var dispatched = 0
+        val tool = ToolExecutionBudget(AgentRunLimits()).bind(object : AgentTool {
+            override val definition = AgentToolDefinition("github_write__github_api", "", JsonObject(emptyMap()))
+            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+                dispatched++
+                return AgentToolResult("another-call", ToolResultContent.Text("unrelated"), false, dispatched = false)
+            }
+        })
+        val args = buildJsonObject { put("path", "file.txt") }
+        val first = tool.execute("first", args)
+        assertEquals("TOOL_RESULT_ID_MISMATCH", first.errorCode)
+        assertTrue(first.dispatched)
+        assertEquals(JsonPrimitive("unknown"), Json.parseToJsonElement(ToolResultEnvelope.encode("github_write", first)).jsonObject["execution"]!!.jsonObject["outcome"])
+        val retry = tool.execute("second", args)
+        assertEquals("RECONCILIATION_REQUIRED", retry.errorCode)
+        assertFalse(retry.dispatched)
+        assertEquals(JsonPrimitive("unknown"), Json.parseToJsonElement(ToolResultEnvelope.encode("github_write", retry)).jsonObject["execution"]!!.jsonObject["outcome"])
+        assertEquals(1, dispatched)
+    }
+
     @Test fun aZeroGitHubOutputAllowanceDoesNotDispatch() = runTest {
         val budget = ToolExecutionBudget(AgentRunLimits(githubTask = true, maxToolOutputBytes = 0))
         val tool = budget.bind(object : AgentTool {

@@ -14,6 +14,19 @@ import kotlinx.serialization.json.intOrNull
 internal object ToolArgumentValidator {
     fun errors(arguments: JsonObject, schema: JsonObject): List<String> = validate(arguments, schema, "$", 0).take(12)
 
+    /** Give the model a short, actionable repair before the potentially large schema. */
+    fun repairMessage(toolName: String, errors: List<String>, schema: JsonObject): String {
+        val guidance = if (toolName.substringBefore("__") == "github_write") {
+            "Each files item must contain its own non-empty repository-relative path, not a filename inferred from the content. " +
+                "For a replacement supply path and complete content; for a deletion supply path, delete=true and the observed expected_blob_sha. " +
+                "Use the observed expected_head_sha and the observed blob SHA for existing files. Find missing paths and SHAs with GitHub read/search; do not guess them. "
+        } else {
+            ""
+        }
+        return "Invalid arguments. No action was dispatched. " + guidance + errors.joinToString("; ") +
+            ". Correct the arguments, then use a new call ID. Tool schema: " + schema.toString().take(6000)
+    }
+
     private fun validate(value: JsonElement, schema: JsonObject, path: String, depth: Int): List<String> {
         if (depth > 24) return listOf("$path: schema nesting exceeds validation limit")
         val errors = mutableListOf<String>()

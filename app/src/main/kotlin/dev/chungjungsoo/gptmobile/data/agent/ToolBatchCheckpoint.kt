@@ -13,6 +13,24 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 
+/** An objective for loading a checkpoint, not for reconciling remote writes. */
+data class CheckpointRestoreObjective(val maximumMillis: Long) {
+    init {
+        require(maximumMillis > 0)
+    }
+    fun assess(elapsedMillis: Long): String = if (elapsedMillis.coerceAtLeast(0) <= maximumMillis) "MET" else "EXCEEDED"
+}
+
+data class ToolBatchRecoverySnapshot(
+    val pending: List<ProviderEvent.ToolCall>,
+    val dispatchedCount: Int,
+    val pendingDispatchedIds: Set<String>,
+    val pendingRetainedIds: Set<String>,
+    val loadMillis: Long,
+    val objectiveMillis: Long?,
+    val objectiveStatus: String
+)
+
 /** Durable dispatch receipts. A crash after dispatch is unknown, never permission to repeat a side effect. */
 class ToolBatchCheckpoint(private val file: File?, private val binding: String) {
     @Serializable private data class Call(val id: String, val name: String, val arguments: JsonObject) {
@@ -64,10 +82,34 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String) 
         val state = read()
         state.pending.map { state.entries.getValue(it).call.event() }
     }
-    suspend fun dispatchedCount(): Int = locked { read().entries.values.count { it.started } }
-    suspend fun pendingDispatchedCount(): Int = locked {
+
+    // A claimed call with no receipt may have executed. A saved pre-dispatch
+    // rejection, however, must not consume the executable-call budget on resume.
+    private fun Entry.countsAsDispatched(): Boolean = result?.dispatched ?: started
+    suspend fun dispatchedCount(): Int = locked { read().entries.values.count { it.countsAsDispatched() } }
+    suspend fun pendingDispatchedIds(): Set<String> = locked {
         val state = read()
-        state.pending.count { state.entries.getValue(it).started }
+        state.pending.filterTo(mutableSetOf()) { state.entries.getValue(it).countsAsDispatched() }
+    }
+    suspend fun recoverySnapshot(objective: CheckpointRestoreObjective? = null): ToolBatchRecoverySnapshot {
+        val started = System.nanoTime()
+        return locked {
+            val state = read()
+            val pending = state.pending.map { state.entries.getValue(it).call.event() }
+            val dispatchedCount = state.entries.values.count { it.countsAsDispatched() }
+            val pendingDispatchedIds = state.pending.filterTo(mutableSetOf()) { state.entries.getValue(it).countsAsDispatched() }
+            val pendingRetainedIds = state.pending.filterTo(mutableSetOf()) { state.entries.getValue(it).let { entry -> entry.started || entry.result != null } }
+            val elapsed = ((System.nanoTime() - started) / 1_000_000).coerceAtLeast(0)
+            ToolBatchRecoverySnapshot(
+                pending = pending,
+                dispatchedCount = dispatchedCount,
+                pendingDispatchedIds = pendingDispatchedIds,
+                pendingRetainedIds = pendingRetainedIds,
+                loadMillis = elapsed,
+                objectiveMillis = objective?.maximumMillis,
+                objectiveStatus = objective?.assess(elapsed) ?: "NOT_CONFIGURED"
+            )
+        }
     }
     suspend fun enqueue(calls: List<ProviderEvent.ToolCall>) = locked {
         val state = read()

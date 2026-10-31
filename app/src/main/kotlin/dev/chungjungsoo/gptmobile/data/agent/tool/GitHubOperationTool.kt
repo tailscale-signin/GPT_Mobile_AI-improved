@@ -86,7 +86,7 @@ internal class GitHubOperationTool(
             if (errors.isNotEmpty()) {
                 return AgentToolResult(
                     callId,
-                    ToolResultContent.Text("Invalid $operation arguments: " + errors.joinToString("; ") + ". Correct the fields before retrying; this request was not dispatched."),
+                    ToolResultContent.Text(ToolArgumentValidator.repairMessage(definition.name, errors, definition.inputSchema)),
                     true,
                     errorCode = "INVALID_ARGUMENTS",
                     dispatched = false
@@ -450,7 +450,15 @@ internal class GitHubOperationTool(
                                 put(
                                     "properties",
                                     buildJsonObject {
-                                        listOf("path", "content", "expected_blob_sha").forEach { put(it, field("string")) }
+                                        put(
+                                            "path",
+                                            buildJsonObject {
+                                                put("type", "string")
+                                                put("minLength", 1)
+                                                put("description", "Required for every file: an observed repository-relative file path, never a directory or an inferred path.")
+                                            }
+                                        )
+                                        listOf("content", "expected_blob_sha").forEach { put(it, field("string")) }
                                         put("delete", field("boolean"))
                                     }
                                 )

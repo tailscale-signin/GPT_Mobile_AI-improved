@@ -653,10 +653,10 @@ class GitHubOperationToolTest {
         }
         val admission = ToolRoundAdmission(maxCalls = 32, maxSameTool = 24)
         assertTrue(calls.all(admission::admit))
-        val plan = planToolBatch(calls, 32, setOf("github_read"), emptyMap(), emptySet(), 24, ::toolRepeatKey)
+        val plan = planToolBatch(calls, 32, setOf("github_read"), emptyMap(), emptySet(), 24, scope = ::toolRepeatKey)
         assertEquals(30, plan.executable.size)
         val repeated = (0..3).map { calls.first().copy(callId = "repeat-$it") }
-        val repeatedPlan = planToolBatch(repeated, 32, setOf("github_read"), emptyMap(), emptySet(), 24, ::toolRepeatKey)
+        val repeatedPlan = planToolBatch(repeated, 32, setOf("github_read"), emptyMap(), emptySet(), 24, scope = ::toolRepeatKey)
         assertEquals(3, repeatedPlan.executable.size)
         assertEquals(setOf("repeat-3"), repeatedPlan.perToolSuppressedIds)
         assertTrue(repeatedPlan.disabledNames.isEmpty())

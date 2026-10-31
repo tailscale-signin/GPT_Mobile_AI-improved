@@ -5,7 +5,7 @@
   "base_sha": "be5d55930df8be6caad2380eea71b2f9a6bb0419",
   "branch": "fix/combined-quality-budget-rendering-2026-10-31",
   "intent": "Implement the supplied Combined Mode quality, retry, tool alignment, budget, streaming and export feedback",
-  "status": "reviewed_ready_for_authorized_push_and_draft_pr",
+  "status": "published_draft_pr_ci_pending",
   "checks": {
     "kotlin_host": {
       "passed": 398,
@@ -19,11 +19,19 @@
     }
   },
   "remaining": [
-    "Push reviewed branch and open draft PR against main",
-    "Run full Android compilation/publication/Compose regressions in CI; device profiling remains unmeasured"
+    "Review applicable current-head Android and CI checks before marking ready; device profiling remains unmeasured"
   ],
   "publication": {
-    "state": "authorized_pending_push",
-    "authorization": "User explicitly requested branch/feature verification, push, and a draft PR."
+    "state": "draft_pr_open",
+    "branch": "fix/combined-quality-budget-rendering-2026-10-31",
+    "code_commit": "34c08adb7206ef423bc6802ae2121e8ad5e1d8be",
+    "reviewed_local_commit": "85a2f3ab0db4373fd5fc5464efab200b24372669",
+    "reviewed_tree": "39875a10d9f3d39468b667917b5e55c47b2833f3",
+    "pr_number": 770,
+    "pr_url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/770",
+    "draft": true,
+    "source_tree_verified": true,
+    "authorization": "User explicitly requested branch/feature verification, push, and a draft PR.",
+    "method": "Connected GitHub app; local Git has no credentials."
   }
 }

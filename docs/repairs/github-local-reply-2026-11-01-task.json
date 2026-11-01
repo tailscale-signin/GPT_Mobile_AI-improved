@@ -6,20 +6,31 @@
   "branch": "fix/github-local-llama-empty-output-2026-10-31",
   "original_head": "915e3efd73fd4cc18606b41ca8e9e971dfcad4ed",
   "parent_pr": 770,
-  "parent_head": "3d78ce5e1c2cf2c2a7a81deb5b2b94507caea047",
+  "parent_head": "6c57fd89a9fbaee5f64dfe3ecdedeef345cc7699",
   "intent": "Integrate the prepared GitHub reply, title and UI changes with current runner safeguards; bind engineering-memory reuse to its source connection and retain measured costs for empty replies",
   "prepared_local_commit": "d55eb163877bbb238c957351091e82ed7aea34c7",
-  "status": "parent_ci_repair_integrated",
+  "status": "lifecycle_ui_and_preview_signing_repairs_integrated",
   "remaining": [
     "Publish scoped follow-up and require all current-head CI",
     "Merge after parent PRs 769 and 770; verify main ancestry and post-merge checks"
   ],
   "checks": {
-    "canonical_fast": "278 tests passed plus repository policy, resources and dependency checks",
+    "canonical_fast": "282 tests passed plus repository policy, resources and dependency checks",
     "targeted_host": "2 behavior tests passed against production provenance and title code; platform, grant and tool boundaries stubbed",
     "ktlint": "changed Kotlin passed after correcting condition wrapping",
     "android": "Not run locally: JDK 21 and Android SDK 37 unavailable. Require current-head Android, emulator, native, security, GenieX and Required verification workflows.",
     "physical_device": "Not performed"
   },
-  "parent_repair": "Integrates checked-synthesis publication and queued-recovery fixes after 14 failures on parent head 5946dc4; require fresh current-head CI."
+  "parent_repair": "Integrates Combined lifecycle draft-prefix and failed-writer notice restoration, plus isolated and verified GenieX preview signing. Fresh current-head Android CI is required.",
+  "ci_followup": {
+    "head": "7206f53189c95a83e7f4d834dec4f26160485cf6",
+    "base_sha": "be5d55930df8be6caad2380eea71b2f9a6bb0419",
+    "run": 41258686634,
+    "job": 124707305402,
+    "tests_completed": 5821,
+    "failed": 4,
+    "skipped": 4,
+    "intent": "Integrate the parent Combined lifecycle fixes and align two stale UI assertions with the requested repo-only title and loading-bar-only Response in progress label. Strengthen the UI test to detect duplicate labels with the running composer present.",
+    "validation": "Changed Kotlin formatting and canonical host checks; exact-revision Robolectric/Android checks remain pending."
+  }
 }

@@ -291,6 +291,11 @@ class CombinedLifecycleIntegrationTest {
         val selected = repository.fetchMessagesV2(1).single { it.id == run.assistantMessageId }
         assertTrue(selected.effectiveContent().contains("unified answer could not be completed"))
         assertFalse(selected.effectiveContent().contains("Panel finding remains useful."))
+        val report = requireNotNull(selected.timeline.lastOrNull { it.combinedQuality != null }?.combinedQuality)
+        assertFalse(report.complete)
+        assertEquals(researchHash(selected.content), report.answerDigest)
+        restart()
+        assertEquals(selected.effectiveContent(), repository.fetchMessagesV2(1).single { it.id == selected.id }.effectiveContent())
         val budget = requireNotNull(budgets.snapshot(root(accepted).rootBudgetId))
         assertFalse(budget.closed)
         assertTrue(budget.retryEligible)
@@ -468,6 +473,7 @@ class CombinedLifecycleIntegrationTest {
         val partial = repository.fetchMessagesV2(1).single { it.id == request.assistantMessage.id }
         assertEquals("The result has a preserved explanation.", partial.effectiveContent())
         assertEquals(dev.chungjungsoo.gptmobile.data.database.entity.ACTIVE_REVISION_LATEST, partial.activeRevisionIndex)
+        assertEquals(partial.content, AnswerSegmentChain.text(db.agentPersistenceDao().answerSegments(request.runId), request.runId, partial.ownershipFence))
         val contributorRequests = requests.size
         restart()
         val retryId = "combined-synthesis:retry-frozen"

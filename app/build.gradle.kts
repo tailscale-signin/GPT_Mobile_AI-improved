@@ -38,6 +38,10 @@ plugins {
 
 // Separate preview APK: the two QAIRT distributions must never be merged with pickFirst.
 val geniexRuntime = providers.gradleProperty("geniexRuntime").orNull == "true"
+val geniexSeparateSigning = providers.gradleProperty("geniexSeparateSigning").orNull == "true"
+require(!geniexSeparateSigning || geniexRuntime && providers.gradleProperty("nativeMemorySmoke").orNull == "true") {
+    "Separate preview signing is only supported for the GenieX native-smoke build."
+}
 
 /** Keep on-device embeddings while removing the SDK's remote statistics implementation. */
 @CacheableTransform
@@ -242,7 +246,9 @@ extensions.configure<ApplicationExtension> {
     if (providers.gradleProperty("nativeMemorySmoke").orNull == "true") {
         buildTypes.create("nativeSmoke") {
             initWith(buildTypes.getByName("release"))
-            signingConfig = signingConfigs.getByName("debug")
+            // CI signs and verifies this opt-in preview in a separate process,
+            // avoiding ApkFlinger's shared compression/signing executor deadlock.
+            signingConfig = if (geniexSeparateSigning) null else signingConfigs.getByName("debug")
             applicationIdSuffix = ".nativesmoke"
             matchingFallbacks += listOf("release")
             // The runner/test APK also uses shared APIs that the app alone can

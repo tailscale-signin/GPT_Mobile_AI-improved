@@ -5,7 +5,7 @@
   "base_sha": "be5d55930df8be6caad2380eea71b2f9a6bb0419",
   "branch": "fix/combined-quality-budget-rendering-2026-10-31",
   "intent": "Implement the supplied Combined Mode quality, retry, tool alignment, budget, streaming and export feedback",
-  "status": "integrated_review_ci_pending",
+  "status": "ci_repair_ready_for_exact_head_validation",
   "checks": {
     "kotlin_host": {
       "passed": 398,
@@ -52,5 +52,13 @@
       "ToolExecutionBudget.kt: retain Combined work exhaustion flag and typed authorization handling"
     ],
     "validation": "278 canonical fast tests; changed Kotlin formatting; full integrated Android and behavioral CI pending"
+  },
+  "ci_repair": {
+    "head": "5946dc466026b327e7678f7adf866d1425f01382",
+    "run": 41256899446,
+    "job": 124702084870,
+    "failures": 14,
+    "intent": "Withhold rejected checked synthesis; preserve terminal assessment separately from explicit draft display and queued recovery. Retain word ceilings and archived legacy continuation budgets.",
+    "verification": "278 canonical host tests, changed Kotlin formatting and whitespace passed. Android behavior regressions await CI; no old-head result counts as new-head success."
   }
 }

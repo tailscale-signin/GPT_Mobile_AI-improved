@@ -6,6 +6,15 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 class MemoryEnrichmentContractTest {
+    @Test fun localFallbackCapturesOnlyBoundedLiteralFirstPersonStatements() {
+        val source = "I prefer concise answers. She prefers Java. My name is Sam. What is my goal? I am working on an Android app."
+        val result = MemoryEnrichmentContract.localFallback(source)
+        assertNotNull(MemoryEnrichmentContract.parse(result.toString(), source))
+        assertEquals(3, (result["observations"] as kotlinx.serialization.json.JsonArray).size)
+        assertEquals(6, (MemoryEnrichmentContract.localFallback((1..20).joinToString(" ") { "I prefer option $it." })["observations"] as kotlinx.serialization.json.JsonArray).size)
+        assertEquals("{\"observations\":[]}", MemoryEnrichmentContract.localFallback("The meeting is tomorrow.").toString())
+    }
+
     @Test fun formatRepairKeepsExactQuotesAndNormalizesKnownKinds() {
         val source = "I prefer Kotlin."
         val reply = "Here is the JSON: {\"observations\":[{\"quote\":\"I prefer Kotlin.\",\"kind\":\"Preference\"}]}"

@@ -37,6 +37,9 @@ class PipelineTest(unittest.TestCase):
         self.assertIn('sleep 900', package)
         self.assertIn('jcmd "$pid" GC.heap_info', package)
         self.assertIn('jcmd "$pid" Thread.print -l', package)
+        self.assertIn('-PgeniexSeparateSigning=true', package)
+        self.assertIn('scripts/sign_preview_apks.py', package)
+        self.assertLess(package.index('-PgeniexSeparateSigning=true'), package.index('scripts/sign_preview_apks.py'))
 
     def test_incomplete_build_artifacts_do_not_mask_the_original_command_failure(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -58,7 +61,7 @@ class PipelineTest(unittest.TestCase):
                 shrink = pipeline.command_for(runtime, variant, 'shrink')
                 package = pipeline.command_for(runtime, variant, 'package')
                 self.assertIn('--max-workers=1', shrink)
-                self.assertTrue(any('ForkJoinPool.common.parallelism=1' in arg for arg in package))
+                self.assertTrue(any('ForkJoinPool.common.parallelism=2' in arg for arg in package))
                 self.assertIn(f'-PgeniexRuntime={str(runtime == "geniex").lower()}', shrink)
                 self.assertTrue(any('minify' in arg for arg in shrink))
         for args in [('legacy', 'debug', 'shrink'), ('evil;touch file', 'debug', 'debug'), ('legacy', 'debug', 'bundle')]:

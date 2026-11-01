@@ -19,14 +19,18 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
     private val schemaAllowance get() = if (advanced) MAX_SCHEMA_TOKEN_ALLOWANCE else SCHEMA_TOKEN_ALLOWANCE
     private val taskText = task
     private val candidates = definitions.filter { it.modelVisible }.associateBy { it.name }.toMutableMap()
+    private val deferredEngineering = setOf("github_write", "github_commit", "github_stage_patch", "github_release", "github_watch_checks")
     private val taskRequired = definitions.filter { definition ->
         AgentToolCapability.USER_DECISION in definition.capabilities ||
-            dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(definition.name) in
-            dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.taskTools(task)
+            (
+                dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(definition.name) in
+                    dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.taskTools(task) &&
+                    dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(definition.name) !in deferredEngineering
+                )
     }
     private val requiredCapabilities = if (Regex("(?i)\\b(research|search|sources|papers|studies|latest|news|verify|article|citations)\\b").containsMatchIn(task)) setOf(AgentToolCapability.WEB_SEARCH, AgentToolCapability.PAGE_READER) else emptySet()
     private val omissions = mutableMapOf<String, String>()
-    private val active = window(taskRequired + ranked(task).filter { initialNames == null || it.name in initialNames }).map { it.name }.toMutableSet()
+    private val active = window(taskRequired + ranked(task).filter { (initialNames == null || it.name in initialNames) && dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it.name) !in deferredEngineering }).map { it.name }.toMutableSet()
     private val discovered = active.toMutableSet()
 
     // A catalog lives for one run: repeated discovery should not refetch the same cold source.

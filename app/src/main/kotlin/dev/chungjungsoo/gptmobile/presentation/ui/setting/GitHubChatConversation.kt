@@ -114,6 +114,7 @@ internal fun GitHubChatProgress(workspace: GitHubWorkspaceState, state: GitHubPr
         startedAtMillis = started,
         completedAtMillis = completed,
         engineeringJob = engineeringJob,
+        githubPresentation = true,
         statusOverride = when {
             workspace.busy -> "Loading GitHub workspace"
             waiting || !active -> state.progressDescription()

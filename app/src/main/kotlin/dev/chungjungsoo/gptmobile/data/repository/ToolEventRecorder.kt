@@ -107,6 +107,7 @@ class ToolEventRecorder @Inject constructor(
             "Tool",
             "Finished · callId=${normalizedResult.callId} · tool=${startedEvent?.toolName.orEmpty()} · error=${normalizedResult.isError} · dispatched=${normalizedResult.dispatched}" +
                 " · errorCode=${normalizedResult.errorCode ?: "none"}" +
+                " · executionState=${dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.executionState(normalizedResult)} · retryable=${normalizedResult.errorCode in setOf("READ_DEADLINE", "READ_FAILED", "PROVIDER_UNAVAILABLE") && normalizedResult.dispatched}" +
                 (normalizedResult.executionReceipt?.let { " · executionReceipt=$it · causalIncidentId=${(it["incident_id"] as? JsonPrimitive)?.content.orEmpty()}" }.orEmpty()) +
                 if (normalizedResult.isError) " · reasonTruncated=${safeError.orEmpty().length > 240} · reasonPreview=${dev.chungjungsoo.gptmobile.data.security.DiagnosticRedactor.redact(safeError.orEmpty()).take(240)}" else "",
             if (normalizedResult.isError) "E" else "I"

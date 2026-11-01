@@ -21,6 +21,19 @@ class IntelligentToolBatchTest {
         override suspend fun execute(callId: String, arguments: JsonObject) = AgentToolResult(callId, ToolResultContent.Text(callId), false)
     }
 
+    @Test fun admissionNeverRunsADependentWhosePrerequisiteWasDeferred() {
+        val read = call("read")
+        val write = call("write", "github_commit")
+        val nodes = listOf(ToolBatchNode(read, emptySet(), true), ToolBatchNode(write, setOf("read"), false))
+        val partial = ToolBatchPlan(listOf(write), listOf(read), emptySet(), emptySet(), emptySet(), mapOf(toolRepeatKey(write) to 1))
+        val closed = dependencyClosedPlan(partial, nodes)
+        assertTrue(closed.executable.isEmpty())
+        assertEquals(setOf("write"), closed.dependencyDeferredIds)
+        assertEquals(0, closed.acceptedByName.getValue(toolRepeatKey(write)))
+        val complete = dependencyClosedPlan(partial.copy(executable = listOf(read, write), deferred = emptyList()), nodes)
+        assertEquals(listOf("read", "write"), complete.executable.map { it.callId })
+    }
+
     @Test fun sameToolReadsOverlapAndReceiptsRemainInModelOrder() = runTest {
         val calls = List(10) { call(it.toString()) }
         val nodes = planIntelligentBatch(calls, mapOf("github_read" to tool("github_read")))

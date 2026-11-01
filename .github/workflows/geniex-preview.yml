@@ -8,6 +8,8 @@ on:
       - 'scripts/tests/test_gradle_retry.py'
       - 'scripts/artifact_manifest.py'
       - 'scripts/tests/test_delivery_pipeline.py'
+      - 'scripts/sign_preview_apks.py'
+      - 'scripts/tests/test_sign_preview_apks.py'
       - 'app/src/geniex/**'
       - 'app/src/litertOnly/**'
       - 'app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/localmodel/**'
@@ -96,14 +98,11 @@ jobs:
           # Match native-memory-smoke.yml: release compiler/KSP/R8 analysis
           # memory before ApkFlinger allocates its packaging buffers.
           python3 scripts/build_metrics.py --label geniex-shrinker --output build/geniex-validation/shrinker-metrics.json -- python3 scripts/gradle_retry.py -- -PgeniexRuntime=true -PnativeMemorySmoke=true :app:minifyNativeSmokeWithR8 --no-daemon --max-workers=1 --console=plain --info --stacktrace --profile '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -Dfile.encoding=UTF-8' 2>&1 | tee build/geniex-validation/shrinker.log
-      # ApkFlinger uses the common pool, independently of --max-workers. Keep the
-      # pool bounded, but retain two workers: a single common-pool worker left the
-      # completed shrinker blocked in packageNativeSmoke for the full 90-minute
-      # allowance on run 41180689148.
-      # This phase can legitimately outlast compilation on a cold runner; the previous
-      # 25- and 45-minute bounds terminated Gradle during active packaging without an
-      # error after AAPT2 had completed. Keep this as one bounded, independently
-      # auditable stage rather than weakening the native stack checks below.
+      # Run 41252265770 captured signing waiting on the common pool while its
+      # compression workers waited on the archive lock held by the signer.
+      # Separate signing from packaging; never publish an unverified signature.
+      # The same capture used 3.64 GiB of the 4 GiB heap, so only this fresh
+      # packaging process gets a measured 6 GiB bound on the 16 GiB runner.
       - name: Package the minified GenieX APK in a fresh process
         timeout-minutes: 90
         shell: bash
@@ -132,7 +131,11 @@ jobs:
             wait "$watchdog_pid" 2>/dev/null || true
           }
           trap cleanup_watchdog EXIT
-          python3 scripts/build_metrics.py --label geniex-package --output build/geniex-validation/package-metrics.json -- python3 scripts/gradle_retry.py -- -PgeniexRuntime=true -PnativeMemorySmoke=true :app:assembleNativeSmoke --no-daemon --max-workers=1 --console=plain --info --stacktrace --profile '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -Djava.util.concurrent.ForkJoinPool.common.parallelism=2 -XX:+UseG1GC -Dfile.encoding=UTF-8' 2>&1 | tee build/geniex-validation/package.log
+          python3 scripts/build_metrics.py --label geniex-package --output build/geniex-validation/package-metrics.json -- python3 scripts/gradle_retry.py --timeout-seconds 5160 -- -PgeniexRuntime=true -PnativeMemorySmoke=true -PgeniexSeparateSigning=true :app:assembleNativeSmoke --no-daemon --max-workers=1 --console=plain --info --stacktrace --profile '-Dorg.gradle.jvmargs=-Xmx6144m -XX:MaxMetaspaceSize=768m -Djava.util.concurrent.ForkJoinPool.common.parallelism=2 -XX:+UseG1GC -Dfile.encoding=UTF-8' 2>&1 | tee build/geniex-validation/package.log
+      - name: Sign and verify minified GenieX preview APKs
+        timeout-minutes: 15
+        run: |
+          python3 scripts/sign_preview_apks.py app/build/outputs/apk/nativeSmoke --apksigner "$ANDROID_HOME/build-tools/37.0.0/apksigner" --keystore "$HOME/.android/debug.keystore"
       - name: Audit minified GenieX native stack
         run: |
           python3 scripts/check_local_runtime_apk.py --native-stack geniex app/build/outputs/apk/nativeSmoke/*.apk

@@ -1,5 +1,12 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -7,10 +14,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -24,13 +29,19 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
@@ -94,16 +105,28 @@ internal fun GitHubDecisionCard(decision: GitHubChatDecision, waiting: Boolean, 
 @Composable
 internal fun GitHubLiveProgressCard(summary: String, milestones: List<String>) {
     val colors = MaterialTheme.colorScheme
-    Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp).testTag("github_live_activity"), shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = colors.surfaceContainerLow), border = BorderStroke(1.dp, colors.outlineVariant)) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Icon(Icons.Rounded.AutoAwesome, null, Modifier.size(20.dp), tint = colors.primary)
-                Text("Working in your repository", style = MaterialTheme.typography.titleSmall, color = colors.primary)
+    val opacity = remember { Animatable(0f) }
+    LaunchedEffect(Unit) { opacity.animateTo(1f, tween(1500)) }
+    val motion = rememberInfiniteTransition(label = "github_preview").animateFloat(0f, 1f, infiniteRepeatable(tween(1800, easing = LinearEasing), RepeatMode.Restart), label = "preview_pan")
+    val shades = listOf(colors.primary, colors.tertiary, colors.primary)
+    Column(
+        Modifier.fillMaxWidth().padding(horizontal = 28.dp, vertical = 8.dp).testTag("github_live_activity")
+            .graphicsLayer {
+                alpha = opacity.value
+                compositingStrategy = CompositingStrategy.Offscreen
             }
-            Text(summary.ifBlank { "Preparing your task. Live updates appear here while work continues." }, style = MaterialTheme.typography.bodyMedium)
-            milestones.distinct().takeLast(3).forEach { Text(it, style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant) }
-            Text("Updates every few seconds · Final answer replaces this activity", style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant)
-        }
+            .drawWithCache {
+                onDrawWithContent {
+                    drawContent()
+                    val center = (motion.value * 2f - 0.5f) * size.width
+                    drawRect(Brush.linearGradient(shades, Offset(center - size.width / 2, 0f), Offset(center + size.width / 2, 0f)), blendMode = BlendMode.SrcIn)
+                }
+            },
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text("Working in your repository", style = MaterialTheme.typography.titleSmall, color = colors.primary.copy(alpha = 0.5f))
+        Text(summary.ifBlank { "Preparing your task. Live updates appear here while work continues." }, style = MaterialTheme.typography.bodyMedium, color = colors.onSurface.copy(alpha = 0.5f))
+        milestones.distinct().takeLast(3).forEach { Text(it, style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant.copy(alpha = 0.5f)) }
     }
 }
 

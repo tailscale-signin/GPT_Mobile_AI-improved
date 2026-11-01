@@ -27,6 +27,28 @@ class GatewayEngineeringClientTest {
         followRedirects = false
     }
 
+    @Test fun unsupportedInferenceEndpointIsCachedSeparatelyFromAnotherGatewayIdentity() = runTest {
+        var calls = 0
+        http(
+            MockEngine {
+                calls++
+                respond("not an engineering server", HttpStatusCode.NotFound)
+            }
+        ).use { http ->
+            val client = GatewayEngineeringClient(http)
+            repeat(3) { assertTrue(runCatching { client.principal(config) }.isFailure) }
+            assertEquals(1, calls)
+            assertTrue(runCatching { client.principal(config.copy(token = "other-account")) }.isFailure)
+            assertEquals(2, calls)
+        }
+    }
+
+    @Test fun disabledEngineeringCapabilityNeverEstablishesReadiness() = runTest {
+        http(MockEngine { respond("""{"enabled":false,"principal_id":"owner"}""", HttpStatusCode.OK) }).use { http ->
+            assertTrue(runCatching { GatewayEngineeringClient(http).principal(config) }.isFailure)
+        }
+    }
+
     @Test fun createRetriesKeepTheSameRequestIdentityAndNeverCarryApproval() = runTest {
         val payload = GatewayEngineeringRequest("owner/repo", "feature/job", "main", "Fix tests", "local", chatId = 4, requestId = "saved-before-dispatch")
         var count = 0

@@ -273,7 +273,7 @@ class OpenAIAPIImpl @Inject constructor(
                         )
                         // Capture Gateway headers from response
                         val gatewayJobId = response.headers["X-Gateway-Job-ID"]
-                        val gatewayRequestId = response.headers["X-Gateway-Request-ID"]
+                        val gatewayRequestId = response.headers["X-Gateway-Request-ID"] ?: providerRequestIdentity { response.headers[it] }.takeUnless { it == "unavailable" }
                         val gatewayVersion = response.headers["X-Gateway-Version"]
                         val gatewayProgressProtocol = response.headers["X-Gateway-Progress-Protocol"]
                         val gatewaySingleflight = response.headers["X-Gateway-Singleflight"]

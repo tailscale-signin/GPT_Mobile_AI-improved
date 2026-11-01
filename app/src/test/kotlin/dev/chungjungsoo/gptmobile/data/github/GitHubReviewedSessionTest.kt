@@ -25,6 +25,15 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubReviewedSessionTest {
+    @Test fun transientProviderFailureKeepsItsIdentityForRunnerRecovery() = runBlocking {
+        val failure = ProviderEvent.Failed("Connection reset", errorCode = "NETWORK_ERROR")
+        val source = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flowOf(failure)
+        }
+        val output = GitHubReviewedSession(source, GitHubReviewEvidence(), "task", 8192, { _, _ -> error("must not review a failed round") }, {}).streamRound(emptyList(), emptyList()).toList()
+        assertEquals(listOf(failure), output)
+    }
+
     @Test fun actualGatewayCapacityOverridesExpandedPreferenceBeforeReview() = runBlocking {
         val output = GitHubReviewedSession(answer(), GitHubReviewEvidence(), "task", 1_048_576, { _, _ -> error("Review must honor actual capacity") }, {}, currentInputLimit = { 4 }).streamRound(emptyList(), emptyList()).toList()
         assertTrue(output.any { it is ProviderEvent.Failed })

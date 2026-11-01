@@ -2,8 +2,12 @@ package dev.chungjungsoo.gptmobile.data.github
 
 import dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicInteger
+import kotlin.coroutines.AbstractCoroutineContextElement
+import kotlin.coroutines.CoroutineContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -18,9 +22,32 @@ import kotlinx.serialization.json.put
 /** An observed rejection proves this request did not apply; a lost response does not. */
 internal class GitHubRequestRejected(val status: Int, message: String) : IllegalStateException(message)
 
+/** Nested HTTP claims report to the enclosing compound operation before any write can escape. */
+internal class GitHubMutationAttempts(private val parent: GitHubMutationAttempts?) : AbstractCoroutineContextElement(Key) {
+    companion object Key : CoroutineContext.Key<GitHubMutationAttempts> {
+        suspend fun dispatched() {
+            currentCoroutineContext()[Key]?.sent()
+        }
+        suspend fun rejected() {
+            currentCoroutineContext()[Key]?.rejected()
+        }
+    }
+    private val dispatched = AtomicInteger()
+    private val rejected = AtomicInteger()
+    val uncertainOrAccepted: Boolean get() = dispatched.get() > rejected.get()
+    private fun sent() {
+        dispatched.incrementAndGet()
+        parent?.sent()
+    }
+    private fun rejected() {
+        rejected.incrementAndGet()
+        parent?.rejected()
+    }
+}
+
 internal class GitHubExecutionBlocked(val checkpoint: JsonObject) :
     IllegalStateException(
-        "${checkpoint["status"]}: inspect the saved execution checkpoint and reconcile remote state before continuing. No request was dispatched."
+        "${checkpoint["status"]}: inspect the saved execution checkpoint and reconcile remote state before continuing. No further write was dispatched."
     )
 
 /** Atomic, credential/task-scoped claims. An uncertain write is reconciled, never replayed. */
@@ -29,7 +56,7 @@ internal class GitHubExecutionJournal(
     private val scope: String,
     private val now: () -> Long = System::currentTimeMillis
 ) {
-    suspend fun run(action: String, arguments: JsonObject, singleHttpRequest: Boolean = false, block: suspend () -> JsonElement): JsonElement {
+    suspend fun run(action: String, arguments: JsonObject, reconcile: (suspend () -> JsonElement?)? = null, singleHttpRequest: Boolean = false, block: suspend () -> JsonElement): JsonElement {
         val identity = GitHubRepositoryStateStore.digest("$scope|$action|${canonical(arguments)}")
         val claim = UUID.randomUUID().toString()
         val row = store.update(scope, "execution:$identity") { previous ->
@@ -51,6 +78,34 @@ internal class GitHubExecutionJournal(
             }
         }
         if (row.text("correlation_id") != claim) {
+            if (row.text("status") in setOf("RUNNING", "RECONCILE_REQUIRED") && reconcile != null) {
+                val verified = reconcile()
+                if (verified != null) {
+                    require(verified.toString().toByteArray().size <= 128 * 1024) { "Remote reconciliation receipt exceeds its byte budget." }
+                    // Read-only proof may finish an abandoned claim, but never authorizes
+                    // another mutation. The original owner and concurrent reconcilers
+                    // preserve whichever authoritative receipt was stored first.
+                    val recovered = store.update(scope, "execution:$identity") { current ->
+                        check(current?.text("correlation_id") == row.text("correlation_id")) { "Execution changed during reconciliation." }
+                        if (current.text("status") == "COMPLETED") {
+                            current
+                        } else {
+                            buildJsonObject {
+                                current.forEach { (key, value) -> put(key, value) }
+                                put("status", "COMPLETED")
+                                put("remote_reconciled", true)
+                                put("updated_at_epoch_ms", now())
+                                put("checkpoint_sequence", (current["checkpoint_sequence"] as? JsonPrimitive)?.intOrNull?.plus(1) ?: 2)
+                                put("result", verified)
+                                put("output_hash", GitHubRepositoryStateStore.digest(canonical(verified).toString()))
+                                put("output_hash_covers", "verified_remote_receipt")
+                            }
+                        }
+                    }
+                    remember(recovered)
+                    return decorate(recovered.getValue("result"), recovered, replayed = true)
+                }
+            }
             return if (row.text("status") == "COMPLETED" && row["result"] != null) {
                 decorate(row.getValue("result"), row, replayed = true)
             } else {
@@ -63,9 +118,10 @@ internal class GitHubExecutionJournal(
                 }
             }
         }
+        val attempts = GitHubMutationAttempts(currentCoroutineContext()[GitHubMutationAttempts])
         try {
             remember(row)
-            val result = block()
+            val result = withContext(attempts) { block() }
             val retained = if (result.toString().toByteArray().size <= 128 * 1024) {
                 result
             } else {
@@ -78,8 +134,9 @@ internal class GitHubExecutionJournal(
                 }
             }
             val completed = finish(identity, claim, "COMPLETED", retained, GitHubRepositoryStateStore.digest(canonical(result).toString()))
-            return decorate(result, completed, replayed = false)
+            return decorate(if (completed["remote_reconciled"] == JsonPrimitive(true)) completed.getValue("result") else result, completed, replayed = false)
         } catch (failure: Throwable) {
+            var terminal: JsonObject? = null
             // Cancellation can arrive after GitHub applied a write. Persist that uncertainty
             // even when the caller is cancelled, without storing messages/source/credentials.
             withContext(NonCancellable) {
@@ -87,19 +144,52 @@ internal class GitHubExecutionJournal(
                 // index could not be refreshed. Never downgrade it to uncertainty.
                 if (store.read(scope, "execution:$identity")?.text("status") == "RUNNING") {
                     try {
-                        val rejected = failure is GitHubRequestRejected ||
-                            failure is GitHubRequestCircuit.Open ||
-                            singleHttpRequest &&
-                            failure is GitHubRequestScheduler.Capacity
-                        finish(identity, claim, if (rejected) "REJECTED" else "RECONCILE_REQUIRED")
+                        val provenRejection = failure is GitHubRequestRejected || failure is GitHubRequestCircuit.Open || failure is GitHubRequestScheduler.AdmissionRejected || singleHttpRequest && failure is GitHubRequestScheduler.Capacity || failure is IllegalArgumentException
+                        terminal = finish(identity, claim, if (provenRejection && !attempts.uncertainOrAccepted) "REJECTED" else "RECONCILE_REQUIRED")
                     } catch (checkpointFailure: Throwable) {
                         failure.addSuppressed(checkpointFailure)
                     }
                 }
             }
             if (failure is CancellationException) throw failure
+            if (attempts.uncertainOrAccepted && terminal?.text("status") == "RECONCILE_REQUIRED") {
+                throw GitHubExecutionBlocked(
+                    buildJsonObject {
+                        put("status", "RECONCILE_REQUIRED")
+                        put("execution", metadata(requireNotNull(terminal)))
+                        put("dispatched", true)
+                        put("message", "An earlier mutation was accepted or its outcome is unknown. Reconcile the saved ref/tree or receipt before another write; a later rejection does not release this claim.")
+                    }
+                )
+            }
             throw failure
         }
+    }
+
+    /** Settle only an existing exact HTTP claim after its enclosing operation proved remote state. */
+    suspend fun acceptRemoteProof(action: String, arguments: JsonObject, receipt: JsonObject) {
+        require(receipt.toString().toByteArray().size <= 128 * 1024)
+        val identity = GitHubRepositoryStateStore.digest("$scope|$action|${canonical(arguments)}")
+        val existing = store.read(scope, "execution:$identity") ?: return
+        if (existing.text("status") !in setOf("RUNNING", "RECONCILE_REQUIRED")) return
+        val row = store.update(scope, "execution:$identity") { current ->
+            check(current?.text("correlation_id") == existing.text("correlation_id")) { "Execution changed during remote proof retention." }
+            if (current.text("status") == "COMPLETED") {
+                current
+            } else {
+                buildJsonObject {
+                    current.forEach { (key, value) -> put(key, value) }
+                    put("status", "COMPLETED")
+                    put("remote_reconciled", true)
+                    put("updated_at_epoch_ms", now())
+                    put("checkpoint_sequence", (current["checkpoint_sequence"] as? JsonPrimitive)?.intOrNull?.plus(1) ?: 2)
+                    put("result", receipt)
+                    put("output_hash", GitHubRepositoryStateStore.digest(canonical(receipt).toString()))
+                    put("output_hash_covers", "verified_remote_receipt")
+                }
+            }
+        }
+        remember(row)
     }
 
     suspend fun context(): JsonObject {
@@ -134,7 +224,9 @@ internal class GitHubExecutionJournal(
 
     private suspend fun finish(identity: String, claim: String, status: String, result: JsonElement? = null, outputHash: String? = null): JsonObject {
         val row = store.update(scope, "execution:$identity") { previous ->
-            check(previous?.text("correlation_id") == claim && previous.text("status") == "RUNNING") { "Execution claim changed; reconcile the retained checkpoint." }
+            check(previous?.text("correlation_id") == claim) { "Execution claim changed; reconcile the retained checkpoint." }
+            if (previous.text("status") == "COMPLETED") return@update previous
+            check(previous.text("status") == "RUNNING") { "Execution claim changed; reconcile the retained checkpoint." }
             buildJsonObject {
                 previous.forEach { (key, value) -> put(key, value) }
                 put("status", status)

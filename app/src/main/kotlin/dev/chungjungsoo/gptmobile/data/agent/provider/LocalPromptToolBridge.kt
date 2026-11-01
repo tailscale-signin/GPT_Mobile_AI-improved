@@ -121,6 +121,20 @@ internal class LocalPromptToolOutput {
 
 /** Tool bridge for local runtimes whose model format has no native function-call decoder. */
 internal object LocalPromptToolBridge {
+    fun discoveredToolNames(result: String): Set<String> {
+        val envelope = runCatching { Json.parseToJsonElement(result) as? JsonObject }.getOrNull() ?: return emptySet()
+        if (envelope["schema"] != JsonPrimitive("gptmobile.tool-result.v1") ||
+            envelope["tool"] != JsonPrimitive(dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog.NAME) ||
+            envelope["status"] != JsonPrimitive("success")
+        ) {
+            return emptySet()
+        }
+        val payload = envelope["data"] as? JsonObject ?: return emptySet()
+        return (payload["available_next_round"] as? JsonArray).orEmpty().take(16)
+            .mapNotNull { ((it as? JsonObject)?.get("name") as? JsonPrimitive)?.takeIf { it.isString }?.content?.takeIf { it.isNotBlank() && it.length <= 256 } }
+            .toSet()
+    }
+
     private val json = Json { ignoreUnknownKeys = true }
     private const val GEMMA_CALL_START = "<|tool_call>"
 

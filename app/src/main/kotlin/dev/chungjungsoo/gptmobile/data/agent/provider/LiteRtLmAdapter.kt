@@ -105,11 +105,8 @@ class LiteRtLmAdapter(
         val singlePass = constraints.combined?.requested?.singlePass == true || constraints.requestRole?.startsWith("benchmark") == true
         val singlePrimary = singlePass && constraints.combined?.role == dev.chungjungsoo.gptmobile.data.agent.CombinedRunRole.SYNTHESIS
         val task = turns.lastOrNull()?.userMessage?.effectiveContent().orEmpty()
-        val boundTools = if (tools.size > 1 && tools.none { it.definition.name == dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog.NAME }) {
-            tools + dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog(tools.map { it.definition }, task)
-        } else {
-            tools
-        }
+        val directory = dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog.create(tools.map { it.definition }, task)
+        val boundTools = if (directory == null) tools else tools + directory
         // The caller may already have admitted a precise schema inventory. Without
         // that inventory, let the context planner below select from the bound tools:
         // a second catalog rank here loses prior-turn intent and capability queries.
@@ -207,9 +204,11 @@ class LiteRtLmAdapter(
                 // Only verified runtime support can enable native function decoding.
                 // Imported/legacy exports with unknown support use app-managed tools.
                 val nativeToolsCapable = metadata?.tools == true
-                // Expose the app-managed tool catalog even when this model lacks native
-                // function-call parsing; the prompt bridge validates and executes calls.
-                val usePromptToolBridge = !nativeToolsCapable && boundTools.isNotEmpty()
+                // Runtime function declarations are fixed for a conversation. Keep
+                // discovery catalogs app-managed so newly admitted schemas can be
+                // supplied on the next bounded step without exposing them up front.
+                val usePromptToolBridge = boundTools.isNotEmpty() &&
+                    (!nativeToolsCapable || dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog.NAME in advertisedNames)
                 // Some runtimes advertise native tools while the model emits tool-call JSON as text.
                 // Parse text-call formats even when the authorized catalog is empty so
                 // unsupported control markup is withheld instead of shown as an answer.
@@ -431,7 +430,7 @@ class LiteRtLmAdapter(
                     dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("LocalModel", "LOCAL_TOOL_REGISTRATION · tool=${tool.definition.name} · disposition=$exclusion · selectionReason=${plan.toolSelectionReasons[tool.definition.name]}")
                 }
                 val registeredTools = availableTools.filter { it.definition.name in selectedNames }.map { toolBudget.bind(it) }
-                val descriptors = if (nativeToolsCapable) registeredTools.map { it.definition.toLocalDescriptor() } else emptyList()
+                val descriptors = if (nativeToolsCapable && !usePromptToolBridge) registeredTools.map { it.definition.toLocalDescriptor() } else emptyList()
                 val toolsKey = toolsFingerprint(descriptors) + "|finalSchema=" + constraints.finalResponseSchemaJson.orEmpty() + "|structuredMode=" + constraints.structuredOutputMode + "|compatibility=" + constraints.structuredOutputCompatibilityKey.orEmpty()
                 val runToolsByName = registeredTools.associateBy { it.definition.name }.toMutableMap()
                 val collectedToolResults = java.util.concurrent.CopyOnWriteArrayList<Pair<String, AgentToolResult>>()
@@ -899,14 +898,17 @@ class LiteRtLmAdapter(
                                                         repairReceipts.remember(call, result)
                                                         generationInput = LocalPromptToolBridge.continuation(call, result)
                                                         if (call.name == dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog.NAME) {
-                                                            val payload = runCatching { Json.parseToJsonElement(result) as? JsonObject }.getOrNull()
-                                                            val names = (payload?.get("available_next_round") as? JsonArray).orEmpty().mapNotNull { ((it as? JsonObject)?.get("name") as? JsonPrimitive)?.content }.toSet()
+                                                            val names = LocalPromptToolBridge.discoveredToolNames(result)
                                                             val discovered = boundTools.filter { it.definition.name in names }
                                                             // Admit the exact returned schemas before promising availability.
                                                             val additions = LocalContextPlanner.plan(emptyList(), names.joinToString(" "), generationInput, discovered.map { it.definition }, effectiveContextTokens, outputLimit).tools
                                                             val allowed = additions.map { it.name }.toSet()
                                                             discovered.filter { it.definition.name in allowed }.forEach { runToolsByName[it.definition.name] = toolBudget.bind(it) }
-                                                            generationInput += "\n" + LocalPromptToolBridge.instruction(additions)
+                                                            generationInput += if (additions.isEmpty()) {
+                                                                "\nNo additional schemas were admitted. Existing registered tools remain available; use only their supplied schemas."
+                                                            } else {
+                                                                "\n" + LocalPromptToolBridge.instruction(additions)
+                                                            }
                                                         }
                                                         generationImages = emptyList()
                                                         physicalSegment = UUID.randomUUID().toString()

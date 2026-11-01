@@ -140,6 +140,7 @@ class ToolConnectionsViewModel @Inject constructor(
     }
 
     fun refresh() {
+        _uiState.update { it.copy(errorMessage = null) }
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             runCatching {
                 val connections = toolConnectionRepository.listConnections()
@@ -163,8 +164,7 @@ class ToolConnectionsViewModel @Inject constructor(
                         remoteMcpEnabled = features.remoteMcpConnections,
                         connectionHealth = state.connectionHealth.filterKeys { uid ->
                             connections.any { it.connectionUid == uid }
-                        },
-                        errorMessage = null
+                        }
                     )
                 }
                 if (features.remoteMcpConnections) {

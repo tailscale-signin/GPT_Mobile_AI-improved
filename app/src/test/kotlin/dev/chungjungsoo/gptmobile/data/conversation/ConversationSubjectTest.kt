@@ -38,4 +38,16 @@ class ConversationSubjectTest {
         assertTrue(requireNotNull(ConversationSubject.clean("A detailed guide to configuring conversation recovery")).length <= 24)
         assertNull(ConversationSubject.clean(" "))
     }
+
+    @Test fun `GitHub subject uses repository name and a concise task summary`() {
+        val task = GitHubConversationSubject.task(
+            "GitHub workspace: acme/mobile\nBranch: feature/cache\n\nFix memory patch upgrade handling",
+            "acme",
+            "mobile",
+            "feature/cache"
+        )
+        assertEquals("Fix memory patch upgrade handling", task)
+        assertEquals("mobile — Memory patch fix upgrade", GitHubConversationSubject.format("mobile", "Memory patch fix upgrade", task))
+        assertEquals("mobile — Fix memory patch", GitHubConversationSubject.format("mobile", "mobile", "Fix memory patch"))
+    }
 }

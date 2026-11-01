@@ -3,6 +3,7 @@ package dev.chungjungsoo.gptmobile.presentation.ui.chat
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -50,14 +51,12 @@ fun GatewayEngineeringPanel(chatId: Int, context: GitHubConversationContext, pro
     var details by remember { mutableStateOf<GatewayEngineeringBinding?>(null) }
     val uri = LocalUriHandler.current
     Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text("Autonomous engineering", Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
-            Text("On", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelMedium)
-            if (dev.chungjungsoo.gptmobile.data.github.GitHubAutonomousEngineeringPolicy.supportsSavedJobs(selectedProfile)) {
+        if (dev.chungjungsoo.gptmobile.data.github.GitHubAutonomousEngineeringPolicy.supportsSavedJobs(selectedProfile)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Spacer(Modifier.weight(1f))
                 TextButton(onClick = { setup = true }, enabled = !state.busy) { Text("Saved job") }
             }
         }
-        Text("Enabled for this local profile. Send a repository task to begin.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         state.error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
         state.bindings.filter { it.profileUid == selectedProfile.uid }.forEach { binding ->
             val job = binding.job

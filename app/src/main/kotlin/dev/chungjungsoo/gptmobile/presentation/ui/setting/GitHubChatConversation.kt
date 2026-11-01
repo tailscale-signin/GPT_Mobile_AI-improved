@@ -61,20 +61,15 @@ internal fun GitHubChatConversation(
                     }
                 }
                 androidx.compose.runtime.CompositionLocalProvider(dev.chungjungsoo.gptmobile.presentation.ui.chat.LocalChatProgressInHeader provides true) {
-                    androidx.compose.foundation.layout.Column {
-                        dev.chungjungsoo.gptmobile.presentation.ui.chat.GitHubEvidenceButton(chatId)
-                        androidx.compose.foundation.layout.Box(Modifier.weight(1f)) {
-                            ChatScreen(
-                                chatViewModel = model,
-                                onBackAction = onBack,
-                                onOpenConversation = { id, _ -> onOpenConversation(id) },
-                                onReviewEvidenceAccess = onReviewEvidenceAccess,
-                                onNavigateToLocalModels = onNavigateToLocalModels,
-                                showTopBar = false,
-                                allowResearchPanels = false
-                            )
-                        }
-                    }
+                    ChatScreen(
+                        chatViewModel = model,
+                        onBackAction = onBack,
+                        onOpenConversation = { id, _ -> onOpenConversation(id) },
+                        onReviewEvidenceAccess = onReviewEvidenceAccess,
+                        onNavigateToLocalModels = onNavigateToLocalModels,
+                        showTopBar = false,
+                        allowResearchPanels = false
+                    )
                 }
             }
         }
@@ -117,7 +112,9 @@ internal fun GitHubChatProgress(workspace: GitHubWorkspaceState, state: GitHubPr
         githubPresentation = true,
         statusOverride = when {
             workspace.busy -> "Loading GitHub workspace"
-            waiting || !active -> state.progressDescription()
+            waiting -> state.progressDescription()
+            active -> "Response in progress"
+            !active -> state.progressDescription()
             else -> null
         }
     )

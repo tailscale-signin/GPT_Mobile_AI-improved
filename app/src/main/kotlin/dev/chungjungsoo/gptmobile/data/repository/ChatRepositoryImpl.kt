@@ -1705,7 +1705,11 @@ class ChatRepositoryImpl(
         return bound
     }
 
-    private suspend fun preparePersonalDataContext(users: List<MessageV2>, assistants: List<List<MessageV2>>): dev.chungjungsoo.gptmobile.data.permissions.PersonalDataContext {
+    private suspend fun preparePersonalDataContext(
+        users: List<MessageV2>,
+        assistants: List<List<MessageV2>>,
+        chatToolConfig: ChatMcpToolConfig?
+    ): dev.chungjungsoo.gptmobile.data.permissions.PersonalDataContext {
         val chatId = users.lastOrNull()?.chatId
         val labels = assistants.flatten().flatMap { message ->
             val timeline = message.timeline + message.revisions.flatMap { it.timeline }
@@ -1719,7 +1723,12 @@ class ChatRepositoryImpl(
         } else {
             emptyList()
         }
-        return dev.chungjungsoo.gptmobile.data.permissions.PersonalDataContext(chatId, freeToolConsents, labels + legacy)
+        return dev.chungjungsoo.gptmobile.data.permissions.PersonalDataContext(
+            chatId = chatId,
+            grants = freeToolConsents,
+            initial = labels + legacy,
+            authorizedLocalOnlyGitHubConnectionUid = chatToolConfig?.github?.connectionUid
+        )
     }
 
     private fun preparedCompleteChat(
@@ -1731,7 +1740,7 @@ class ChatRepositoryImpl(
         rebuildFence: dev.chungjungsoo.gptmobile.data.context.PreparationReplayFence,
         stage: dev.chungjungsoo.gptmobile.data.agent.AgentStageRequest?
     ): Flow<ApiState> = channelFlow {
-        val personalContext = preparePersonalDataContext(userMessages, assistantMessages)
+        val personalContext = preparePersonalDataContext(userMessages, assistantMessages, chatToolConfig)
         val dispatchAuthority = dev.chungjungsoo.gptmobile.data.context.ConfiguredDispatchAuthority.capture(settingRepository, platform, userMessages.lastOrNull()?.chatId)
         val writerGuard = stage?.writerRequestPlan?.let { dev.chungjungsoo.gptmobile.data.agent.CombinedWriterDispatchGuard(it) } ?: kotlin.coroutines.EmptyCoroutineContext
         withContext(dispatchAuthority + writerGuard + personalContext + dev.chungjungsoo.gptmobile.data.network.ProviderWaitContext { remaining -> send(ApiState.Notice("Provider rate-limited: retry in ${(remaining + 999) / 1000}s", persistent = false)) }) authorizedRun@{
@@ -4785,7 +4794,7 @@ class ChatRepositoryImpl(
         val text = engineeringMemory.prepare(github, user.chatId, "${user.chatId}:${user.id}", user.content, preferences, platform.isPrivateDestination(), minOf(12_000, contextTokens / 4))
         if (text.isNotBlank() && (platform.isPrivateDestination() || preferences.allowCloudEngineeringMemory)) {
             val labels = listOf(
-                dev.chungjungsoo.gptmobile.data.permissions.PersonalDataProvenance(sourceToolId = "github_engineering_memory", sourceProfileUid = platform.uid, sourceRef = dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook.digest(text), categories = setOf(dev.chungjungsoo.gptmobile.data.permissions.PersonalDataCategory.PRIVATE_CONTENT), retentionChatId = user.chatId, localOnly = !preferences.allowCloudEngineeringMemory)
+                dev.chungjungsoo.gptmobile.data.permissions.PersonalDataProvenance(sourceToolId = "github_engineering_memory", sourceProfileUid = platform.uid, sourceRef = dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook.digest(text), categories = setOf(dev.chungjungsoo.gptmobile.data.permissions.PersonalDataCategory.PRIVATE_CONTENT), retentionChatId = user.chatId, localOnly = !preferences.allowCloudEngineeringMemory, sourceConnectionUid = github.connectionUid)
             )
             kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.permissions.PersonalDataContext]?.add(labels)
             emit(ApiState.Notice("", personalData = labels))

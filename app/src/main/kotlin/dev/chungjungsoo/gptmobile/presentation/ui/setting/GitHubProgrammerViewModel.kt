@@ -118,7 +118,7 @@ class GitHubProgrammerViewModel @Inject constructor(
                     observeConversation(null)
                 }
                 val profile = mutable.value.profiles.singleOrNull { it.uid == context.mainProfileUid } ?: return@withLock
-                val room = chats.createDraftChat(listOf(profile.uid), "STANDARD", "${context.owner}/${context.repo}", profile.uid)
+                val room = chats.createDraftChat(listOf(profile.uid), "STANDARD", context.repo, profile.uid)
                 try {
                     chats.saveChatPlatformModels(room.id, mapOf(profile.uid to profile.model))
                     settings.mutateFeatureSettings { it.copy(conversationGitHub = it.conversationGitHub + (room.id to context)) }
@@ -337,7 +337,7 @@ class GitHubProgrammerViewModel @Inject constructor(
                 val connection = connections.getConnection(context.connectionUid) ?: error("The GitHub connection was removed.")
                 require(connection.type == "GITHUB" && connection.secretRef != null) { "Connect GitHub before starting an engineering task." }
                 var room = mutable.value.chatId?.let { database.agentPersistenceDao().getChatRoom(it) }?.takeIf { !it.isArchived && it.activePlatform == listOf(profile.uid) && features.conversationGitHub[it.id]?.sameWorkspace(context) == true }
-                if (room == null) room = chats.createDraftChat(listOf(profile.uid), "STANDARD", "${context.owner}/${context.repo}", profile.uid)
+                if (room == null) room = chats.createDraftChat(listOf(profile.uid), "STANDARD", context.repo, profile.uid)
                 val chatId = room.id
                 chats.saveChatPlatformModels(chatId, mapOf(profile.uid to profile.model))
                 settings.mutateFeatureSettings { it.copy(conversationGitHub = it.conversationGitHub + (chatId to context)) }

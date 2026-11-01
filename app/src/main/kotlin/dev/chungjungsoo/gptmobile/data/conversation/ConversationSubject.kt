@@ -53,3 +53,21 @@ object ConversationSubject {
         return result
     }
 }
+
+/** Keeps GitHub chat subjects recognizable without exposing the owner/branch prefix. */
+object GitHubConversationSubject {
+    fun task(rawUserContext: String, owner: String, repo: String, ref: String): String {
+        val prefix = "GitHub workspace: $owner/$repo\nBranch: $ref\n\n"
+        return rawUserContext.removePrefix(prefix).trim().ifBlank { rawUserContext.trim() }
+    }
+
+    fun format(repo: String, proposedSummary: String?, task: String): String? {
+        val repositoryName = repo.trim().takeIf(String::isNotBlank) ?: return null
+        var summary = ConversationSubject.clean(proposedSummary.orEmpty())
+            ?: ConversationSubject.clean(task)
+        if (summary.equals(repositoryName, ignoreCase = true)) {
+            summary = ConversationSubject.clean(task)
+        }
+        return summary?.let { "$repositoryName — $it" }
+    }
+}

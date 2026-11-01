@@ -55,6 +55,7 @@ internal fun GitHubProgrammerSettings(workspace: GitHubWorkspaceState, state: Gi
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         GitHubProfilePicker(state.profiles, state.profileOverrideUid, onProfile)
         GitHubProfileOverrides(state.profileSettings, state.profileUid != null, onSettings)
+        state.chatId?.takeIf { it > 0 }?.let { dev.chungjungsoo.gptmobile.presentation.ui.chat.GitHubEvidenceButton(it) }
         state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         Text("GitHub tools run automatically in this workspace. Each commit asks once, with a branch and change summary.", style = MaterialTheme.typography.bodySmall)
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -80,7 +81,6 @@ private fun GitHubProfileOverrides(value: dev.chungjungsoo.gptmobile.data.github
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("GitHub chat preferences", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
             Text("Saved separately for this AI profile in GitHub chats.", style = MaterialTheme.typography.bodySmall)
-            Text("Verified Engineering is on: exact receipt facts, explicit unknowns, fresh state checks, and private Llama review. Open Evidence in the chat to inspect retained receipts.", style = MaterialTheme.typography.bodySmall)
             GitHubOverrideSwitch("Web search", "Search the web and read source pages.", value.webSearch, enabled) { onChange(value.copy(webSearch = it)) }
             GitHubOverrideSwitch("GitHub tools", "Use the connected repository and review changes before committing.", value.githubTools, enabled) { onChange(value.copy(githubTools = it)) }
             GitHubOverrideSwitch("Maximum context expansion", "Expand up to the provider or local model capacity, with room for results and review.", value.maximumContext, enabled) { onChange(value.copy(maximumContext = it)) }

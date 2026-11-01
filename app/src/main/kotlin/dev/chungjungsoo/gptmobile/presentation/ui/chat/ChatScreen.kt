@@ -2077,8 +2077,6 @@ fun ChatInputBox(
             composerNotice = ""
         }
     }
-    LaunchedEffect(isRunning) { if (isRunning) composerNotice = "Response in progress" }
-
     val filePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri ->

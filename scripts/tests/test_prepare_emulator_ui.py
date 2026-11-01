@@ -75,6 +75,45 @@ class EmulatorReadinessTest(unittest.TestCase):
             emulator.prepare(device)
         self.assertEqual([], device.mutations())
 
+    def test_slow_home_selection_completes_once_within_the_total_readiness_budget(self):
+        device = HomeDevice()
+        now, wait = self.clock()
+        def slow_selection(command, **options):
+            if 'set-home-activity' in command:
+                if options['timeout'] < 12:
+                    raise subprocess.TimeoutExpired(command, options['timeout'])
+                wait(12)
+            else:
+                self.assertLessEqual(options['timeout'], 10)
+            return device(command, **options)
+        report = emulator.prepare(slow_selection, now=now, wait=wait)
+        self.assertEqual('PREPARED', report['status'])
+        self.assertEqual(12, report['home_selection_seconds'])
+        self.assertEqual(12, report['readiness_seconds'])
+        self.assertEqual(emulator.TEST_HOME, device.home)
+        self.assertEqual(1, sum('set-home-activity' in command for command, _ in device.calls))
+        self.assertEqual(['set-home-activity', 'start', 'force-stop'],
+                         [next(operation for operation in ('set-home-activity', 'start', 'force-stop') if operation in command)
+                          for command in device.mutations()])
+
+    def test_stalled_home_selection_uses_only_the_remaining_total_budget_and_fails(self):
+        device = HomeDevice(homes=['No activity found', 'com.android.settings/.FallbackHome'])
+        now, wait = self.clock()
+        selections = []
+        def stalled_selection(command, **options):
+            if 'set-home-activity' in command:
+                selections.append(command)
+                self.assertEqual(9, options['timeout'])
+                wait(options['timeout'])
+                raise subprocess.TimeoutExpired(command, options['timeout'])
+            return device(command, **options)
+        with self.assertRaises(subprocess.TimeoutExpired):
+            emulator.prepare(stalled_selection, now=now, wait=wait, ready_timeout=12)
+        self.assertEqual(12, now())
+        self.assertEqual(1, len(selections))
+        self.assertEqual([], device.mutations())
+        self.assertEqual('com.android.launcher3/.Launcher', device.home)
+
     def test_android_brief_resolution_metadata_does_not_hide_the_component(self):
         device = HomeDevice()
         def with_brief_metadata(command, **options):

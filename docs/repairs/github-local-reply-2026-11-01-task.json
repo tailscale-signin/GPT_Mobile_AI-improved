@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "72c63f25dc4b2330611d06a8f0ba56a5dfd7c7e4",
+  "branch": "fix/github-local-llama-empty-output-2026-10-31",
+  "original_head": "915e3efd73fd4cc18606b41ca8e9e971dfcad4ed",
+  "parent_pr": 770,
+  "parent_head": "8c6534ae061f51d316d7cb0ba1d806a1d3990bea",
+  "intent": "Integrate the prepared GitHub reply, title and UI changes with current runner safeguards; bind engineering-memory reuse to its source connection and retain measured costs for empty replies",
+  "prepared_local_commit": "d55eb163877bbb238c957351091e82ed7aea34c7",
+  "status": "bounded_home_selection_repair_host_verified",
+  "remaining": [
+    "Require all fresh exact-head CI after bounded emulator setup repair",
+    "Merge PR 771 after current main post-merge verification; verify final main ancestry and CI"
+  ],
+  "checks": {
+    "canonical_fast": "283 tests passed plus repository policy, resources and dependency checks",
+    "targeted_host": "2 behavior tests passed against production provenance and title code; platform, grant and tool boundaries stubbed",
+    "ktlint": "changed Kotlin passed after correcting condition wrapping",
+    "android": "Not run locally: JDK 21 and Android SDK 37 unavailable. Require current-head Android, emulator, native, security, GenieX and Required verification workflows.",
+    "physical_device": "Not performed"
+  },
+  "parent_repair": "Integrates Combined lifecycle recovery and explicit API-24-through-current verification of both v2/v3 GenieX signatures. Fresh exact-revision Android CI required.",
+  "ci_followup": {
+    "head": "7206f53189c95a83e7f4d834dec4f26160485cf6",
+    "base_sha": "be5d55930df8be6caad2380eea71b2f9a6bb0419",
+    "run": 41258686634,
+    "job": 124707305402,
+    "tests_completed": 5821,
+    "failed": 4,
+    "skipped": 4,
+    "intent": "Integrate the parent Combined lifecycle fixes and align two stale UI assertions with the requested repo-only title and loading-bar-only Response in progress label. Strengthen the UI test to detect duplicate labels with the running composer present.",
+    "validation": "Changed Kotlin formatting and canonical host checks; exact-revision Robolectric/Android checks remain pending."
+  },
+  "verified_ui_evidence": {
+    "head": "c9a8b6b7ae8af259eebc16a9cd19d29b9e6bb210",
+    "run": 41261667172,
+    "artifact": 13066337283,
+    "home_tests": 7,
+    "viewmodel_tests": 8,
+    "failures": 0,
+    "skipped": 0,
+    "geniex_suite_tests": 5821,
+    "geniex_suite_failures": 0,
+    "geniex_suite_skipped": 4,
+    "fresh_revision_ci": "required"
+  },
+  "parent_merge_sha": "72c63f25dc4b2330611d06a8f0ba56a5dfd7c7e4",
+  "emulator_setup_followup": {
+    "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+    "base_branch": "main",
+    "base_sha": "72c63f25dc4b2330611d06a8f0ba56a5dfd7c7e4",
+    "working_branch": "fix/github-local-llama-empty-output-2026-10-31",
+    "expected_head": "b335cccf099b1bb6b20fb0759c5a2050bdac8f50",
+    "intent": "Allow asynchronous HOME selection to use the existing overall 60-second readiness budget; preserve one dispatch, acknowledgement, actual HOME/launch verification, failure reporting and all instrumentation tests.",
+    "evidence": [
+      {
+        "run": 41269269963,
+        "job": 124738480793
+      },
+      {
+        "run": 41272937740,
+        "job": 124749252478
+      }
+    ],
+    "aosp": "https://android.googlesource.com/platform/frameworks/base/+/71d57d976e3bad66b0ee2160215eec7815cca5cb/services/core/java/com/android/server/pm/PackageManagerShellCommand.java",
+    "checks": "17 emulator-setup behavior tests passed; new slow-selection regression fails against the prior implementation; canonical fast validation passed all 285 tests and policy/resource/dependency checks. Fresh exact-revision Android/emulator/security CI required.",
+    "physical_device": "Not performed"
+  }
+}

@@ -133,7 +133,7 @@ class GitHubProgrammerViewModelTest {
         withTimeout(5000) { model.state.first { it.draftLoaded && it.profileUid == "coder" } }
         kotlinx.coroutines.joinAll(model.ensureConversation(), model.ensureConversation())
         withTimeout(5000) { model.state.first { it.chatId == 42 } }
-        coVerify(exactly = 1) { chats.createDraftChat(listOf("coder"), "STANDARD", "owner/repo", "coder") }
+        coVerify(exactly = 1) { chats.createDraftChat(listOf("coder"), "STANDARD", "repo", "coder") }
         coVerify(exactly = 0) { queue.enqueue(any(), any(), any()) }
         assertEquals("feature", features.value.conversationGitHub.getValue(42).ref)
         assertEquals("coder", model.state.value.profileOverrideUid)

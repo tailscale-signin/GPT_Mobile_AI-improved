@@ -23,7 +23,8 @@ data class PersonalDataProvenance(
     val retentionChatId: Int? = null,
     val rangeStart: Long? = null,
     val rangeEnd: Long? = null,
-    val localOnly: Boolean = false
+    val localOnly: Boolean = false,
+    val sourceConnectionUid: String? = null
 )
 
 /** A bounded metadata projection also detects legacy tool results without reading their bodies. */
@@ -33,7 +34,8 @@ data class PersonalDataToolSource(val profileUid: String, val toolName: String, 
 internal class PersonalDataContext(
     val chatId: Int?,
     private val grants: FreeModelToolConsentStore?,
-    initial: List<PersonalDataProvenance> = emptyList()
+    initial: List<PersonalDataProvenance> = emptyList(),
+    private val authorizedLocalOnlyGitHubConnectionUid: String? = null
 ) : AbstractCoroutineContextElement(Key) {
     companion object Key : CoroutineContext.Key<PersonalDataContext>
     private val labels = linkedMapOf<String, PersonalDataProvenance>()
@@ -45,7 +47,7 @@ internal class PersonalDataContext(
     fun add(values: List<PersonalDataProvenance>) {
         values.forEach { value ->
             check(value.version == 1 && value.sourceToolId.isNotBlank() && value.categories.isNotEmpty()) { "PERSONAL_DATA_PROVENANCE_INVALID: Review the saved evidence before sharing." }
-            val identity = researchHash("${value.sourceToolId}|${value.sourceProfileUid}|${value.categories.sortedBy { it.name }}|${value.localOnly}|${value.rangeStart}|${value.rangeEnd}|${value.sourceRecipients.sorted()}|${value.retentionChatId}")
+            val identity = researchHash("${value.sourceToolId}|${value.sourceProfileUid}|${value.categories.sortedBy { it.name }}|${value.localOnly}|${value.rangeStart}|${value.rangeEnd}|${value.sourceRecipients.sorted()}|${value.retentionChatId}|${value.sourceConnectionUid}")
             check(identity in labels || labels.size < 512) { "PERSONAL_DATA_SCOPE_TOO_LARGE: Start a new conversation with the selected evidence." }
             labels[identity] = value
         }
@@ -83,7 +85,21 @@ internal class PersonalDataContext(
     fun externalToolRejection(profile: PlatformV2, toolId: String): ToolAuthorizationRejected? {
         val retained = snapshot()
         if (retained.isEmpty()) return null
-        if (retained.any { it.localOnly }) return ToolAuthorizationRejected("PERSONAL_DATA_LOCAL_ONLY", "PERSONAL_DATA_LOCAL_ONLY: This conversation contains local-only saved context. External tools are unavailable before model dispatch. Start a conversation without that context to use an authorized GitHub connection; local model privacy does not grant permission to share saved personal data.")
+        val localOnly = retained.filter { it.localOnly }
+        // Repository memory may return only to its original, explicitly selected
+        // GitHub connection. Legacy unbound labels remain local-only.
+        val authorizedGitHubMemoryReuse = profile.isPrivateDestination() &&
+            authorizedLocalOnlyGitHubConnectionUid?.takeIf { it.isNotBlank() }?.let { connectionUid ->
+                toolId.startsWith("$connectionUid:") &&
+                    localOnly.isNotEmpty() &&
+                    localOnly.all {
+                        it.sourceToolId == "github_engineering_memory" &&
+                            it.sourceConnectionUid == connectionUid &&
+                            chatId != null &&
+                            it.retentionChatId == chatId
+                    }
+            } == true
+        if (localOnly.isNotEmpty() && !authorizedGitHubMemoryReuse) return ToolAuthorizationRejected("PERSONAL_DATA_LOCAL_ONLY", "PERSONAL_DATA_LOCAL_ONLY: This conversation contains local-only saved context. External tools are unavailable before model dispatch. Start a conversation without that context to use an authorized GitHub connection; local model privacy does not grant permission to share saved personal data.")
         if (ProviderPrivacyPolicy.forProfile(profile) == null && retained.none { it.sourceRecipients.isNotEmpty() }) return null
         // No inferred redaction can prove a model-generated query excludes all source facts.
         // Require an explicit service grant, or keep this request local and explain the gap.

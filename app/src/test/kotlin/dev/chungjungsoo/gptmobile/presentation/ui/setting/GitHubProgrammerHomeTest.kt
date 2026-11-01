@@ -18,10 +18,12 @@ import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.assertContentDescriptionEquals
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.captureToImage
+import androidx.compose.ui.test.hasContentDescription
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
-import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
@@ -77,13 +79,15 @@ class GitHubProgrammerHomeTest {
                     androidx.compose.foundation.lazy.LazyColumn(Modifier.weight(1f).testTag("github_test_messages")) {
                         items(100) { androidx.compose.material3.Text("Message $it") }
                     }
+                    ChatInputBox(isRunning = true, attachmentsEnabled = false)
                 }
             }
         }
         compose.onNodeWithTag("github_test_messages").performScrollToIndex(99)
         compose.onNodeWithText("Message 99").assertIsDisplayed()
         compose.onNodeWithTag("github_chat_progress").assertIsDisplayed()
-        compose.onNodeWithContentDescription("Preparing response").assertIsDisplayed()
+        compose.onNodeWithTag("github_loading_activity").assertContentDescriptionEquals("Response in progress").assertIsDisplayed()
+        compose.onAllNodes(hasText("Response in progress") or hasContentDescription("Response in progress")).assertCountEquals(1)
     }
 
     @Test fun commandShortcutsUseTheConversationComposerAndProfileChoice() {
@@ -103,6 +107,8 @@ class GitHubProgrammerHomeTest {
         compose.onNodeWithTag("chat_send").performClick()
         assertTrue(sent.contains("failing GitHub checks"))
         compose.onNodeWithText("Prepare code context").assertDoesNotExist()
+        compose.onNodeWithText("Autonomous engineering").assertDoesNotExist()
+        compose.onNodeWithText("Verified Engineering Evidence").assertDoesNotExist()
         compose.onNodeWithTag("github_main_profile").assertDoesNotExist()
         val image = compose.onRoot().captureToImage().asAndroidBitmap()
         val output = File(System.getProperty("java.io.tmpdir"), "github-programmer-home.png")

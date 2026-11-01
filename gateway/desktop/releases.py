@@ -116,7 +116,7 @@ def extract(archive, destination):
             if len(zipped.infolist()) > 15000:
                 raise ValueError('Too many archive members')
             for item in zipped.infolist():
-                name = item.filename
+                name = item.orig_filename
                 path = PurePosixPath(name)
                 # Windows names are case insensitive; reject ADS, links and device names.
                 if path.is_absolute() or '\\' in name or ':' in name or any(p in {'', '.', '..'} or p.endswith((' ', '.')) or re.fullmatch(r'(?i)(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\..*)?', p) for p in name.rstrip('/').split('/')):

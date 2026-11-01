@@ -2,7 +2,7 @@
   "baseCommit": "a66155dfdc0cf647dd368019f605d91689d48583",
   "version": "15.0.0",
   "schemaVersion": 1,
-  "sourceCommit": "01fdadc63aa0b101cc0850cb1eee18d29f750fa2",
+  "sourceCommit": "ccd884867840f2438a8f3271e1368ee7c8b718da",
   "files": {
     "COMPLETION_RECOVERY.md": "112dc90f60d88e52c052735bc1e9b80dcc0f8dc630bf7d99f74b94409f9a65c6",
     "GITHUB_UPGRADE_14_3.md": "522fc58c8caa9d48670cec2cb7b8e08d76c024a9886f01716e76c55f880e04a8",
@@ -24,8 +24,8 @@
     "desktop/configuration.py": "a9b49067469e393fa01482774c28a75dad75a91219f0ff213061d9170034f7aa",
     "desktop/entry.py": "8daf51575cc3bca020815108cd65e7ac2e224855c4cb4f488008ffcf6310737b",
     "desktop/installer.iss": "c5c342a1f39516f896992b3d22ef74301cccae0202c7efa9f276985dcc7ee8c2",
-    "desktop/manager.py": "6e9795abb5d28973e07ee7810c7ad6e7078cfa6ae8e444143f7ab24857e34e8f",
-    "desktop/releases.py": "60c6d8e56467b24485ecdf0d83282376f4f4da94d2816c4a5aafdb552a4300d2",
+    "desktop/manager.py": "a286ff6706443a1a70323221ff9f0718b94617544b67193593762fa92e88f4aa",
+    "desktop/releases.py": "48c4255de64e510348c4a5d9f8901c35a5702c769e29fb16794102a82db7a90d",
     "desktop/smoke_windows.py": "a3e473fce4fc0fd20d5ce24f3b4c3529b797cc13036f0af92022259ad018251e",
     "desktop/ui.py": "c475114278391ddb980f6f4d18ea822ef1d04745f7ca064cd939f808f7d511c6",
     "desktop/windows_job.py": "36472d131ea8a4fcd965b6584a9203a7da1f7b4ee390449e20c183ebe1582ebe",
@@ -49,7 +49,7 @@
     "tests/test_deep_research_overhaul.py": "75db5e20ef7d740240e709e85edba4400c7ed3290fdafe4230eace5992117104",
     "tests/test_gateway_browser_bridge.mjs": "673e8604bd44317355c9824213d1d1f6c9ce12eef81f7b093b75e2bc621568b0",
     "tests/test_gateway_completion_recovery.py": "b689685f9b6428ebe5b7c089494112a9c7c6ab41295a941c4dd08a3830e99c1f",
-    "tests/test_gateway_desktop.py": "2ababc0ae2026ec055cefb43ea2b2fe534d5602065b5d1909277bea2fa9806dc",
+    "tests/test_gateway_desktop.py": "06ce8fa368293544eed0290bcd4c1dc3c1153b8c651f73183e985043a259570e",
     "tests/test_gateway_general_routing.py": "b4ccf714844c92aa43c907f10737a90a5c410b32542365b7506c628998da0b09",
     "tests/test_gateway_multisearch.py": "94674cf1e6636b22f3afa96931dbdf0f8dd71811b72e9f64248abb9292440def",
     "tests/test_gateway_recovery_payload.py": "0af81fdf7cb8ca60b19f8edccce205a322eb41acdd6947e4d4e97a5bf993d9f3",
@@ -106,7 +106,7 @@
     "v14/package.py": "57a902e2efa276f1be032aa68a5af809f0c9f2ae2e6fd8ec16733a87ac1e6d56",
     "v14/research.py": "d9e35cee26ec14e5bd7b8248b15cba433d91dfdae32c4c9d20aa9ce4c6493318",
     "v14/results.py": "2a7c79fd6f8e038e902d6eba979905d072befc87ab8b18a72904e44728685cca",
-    "v14/service.py": "d25e22f2cc35b81ac349f4126cabd55458a728879aa5b31b8a29b030783d6b1f",
+    "v14/service.py": "874d6497eacc866c0d37faa27e0023eb07de8a5a6bc28e7fb8ec534e993d303d",
     "v14/state_lock.py": "5b58f0cf6d1493ab522361a6d1cfef89f0f6cd301eef1d1f557543d6c1cf7e07",
     "v14/tools.py": "528eeb0a680b257d3de4bb856afc67a1ddd493763a7d7ed0ba2e9c052fbceb63"
   }

@@ -17,8 +17,10 @@ Intent: ship a per-user Windows installer, exposed setup/settings, managed runti
 
 ## Validation
 
-- Gateway regression suite: 285 Python tests and 7 browser tests passed on Linux.
+- Gateway regression suite: 288 Python tests and 7 browser tests passed on Linux.
 - Canonical fast validation: 285 host tests plus policy, dependency, resource, regex and provenance checks passed.
 - Android gateway capability serialization: four Kotlin/JUnit host tests passed using the serialization compiler plugin. This is not an Android build or device test.
 - Windows workflow builds the setup EXE and update ZIP and runs actual installer/frozen-runtime/rollback/repair/uninstall smoke tests. Results are pending until that workflow completes.
 - Full Android build, interactive installer accessibility, physical phone/Tailscale interoperability and publisher code signing remain acceptance gates. No zero-defect or flawless-install claim is made.
+
+The first Windows run exposed two test portability problems: health polling timed out before Windows completed a refused-backend probe, and ZIP construction normalized backslashes. The regression now preserves raw archive names and waits for the bounded health response. Maintenance also resumes admission after a lost prepare/shutdown response and counts direct backend mutation requests.

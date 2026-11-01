@@ -170,13 +170,27 @@ class Supervisor:
             return True
         try:
             self.control('prepare')
+            self.control('shutdown')
+            self.child.wait(timeout=self.cfg['shutdown_seconds'] + 25)
+            return True
         except requests.HTTPError as exc:
             if exc.response.status_code == 409:
                 return False
+            self.restore_admission()
             raise
-        self.control('shutdown')
-        self.child.wait(timeout=self.cfg['shutdown_seconds'] + 25)
-        return True
+        except (requests.RequestException, subprocess.TimeoutExpired, ValueError):
+            # A lost response cannot strand a healthy runtime in maintenance mode.
+            # If shutdown already exited, reconcile that outcome without replaying it.
+            if self.child.poll() is not None:
+                return True
+            self.restore_admission()
+            raise
+
+    def restore_admission(self):
+        try:
+            self.control('resume')
+        except (requests.RequestException, ValueError):
+            self.log.warning('Could not restore admission after an interrupted maintenance request')
 
     def discard_failed_start(self):
         # Only invoked before resume: this process has never admitted new work.

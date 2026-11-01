@@ -94,7 +94,9 @@ class ReleaseTests(unittest.TestCase):
                 archive = Path(temp)/'update.zip'
                 with zipfile.ZipFile(archive, 'w') as zipped:
                     for name in names:
-                        zipped.writestr(name,b'x')
+                        info = zipfile.ZipInfo(name)
+                        info.filename = name  # Preserve malicious Windows separators in the archive bytes.
+                        zipped.writestr(info,b'x')
                 with self.assertRaises(ValueError):
                     releases.extract(archive, Path(temp)/'stage')
                 self.assertFalse((Path(temp)/'stage').exists())
@@ -220,6 +222,35 @@ class UpdateTransactionTests(unittest.TestCase):
         self.assertFalse((self.root/'request.json').exists())
 
 
+class StopRecoveryTests(unittest.TestCase):
+    def manager(self):
+        manager=Supervisor.__new__(Supervisor)
+        manager.child=Mock();manager.child.poll.return_value=None
+        manager.cfg={'shutdown_seconds':10};manager.log=Mock()
+        return manager
+
+    def test_lost_prepare_response_restores_admission_without_forcing_stop(self):
+        manager=self.manager();manager.control=Mock(side_effect=[requests.Timeout('lost prepare'), {}])
+        with self.assertRaises(requests.Timeout):
+            manager.stop()
+        self.assertEqual(['prepare','resume'],[c.args[0] for c in manager.control.call_args_list])
+        manager.child.terminate.assert_not_called()
+
+    def test_lost_shutdown_response_reconciles_exited_child(self):
+        manager=self.manager();manager.child.poll.side_effect=[None,0]
+        manager.control=Mock(side_effect=[{},requests.ConnectionError('lost shutdown')])
+        self.assertTrue(manager.stop())
+        self.assertEqual(['prepare','shutdown'],[c.args[0] for c in manager.control.call_args_list])
+
+    def test_shutdown_timeout_restores_admission_and_never_kills(self):
+        manager=self.manager();manager.control=Mock(return_value={})
+        manager.child.wait.side_effect=subprocess.TimeoutExpired('engine',35)
+        with self.assertRaises(subprocess.TimeoutExpired):
+            manager.stop()
+        manager.control.assert_called_with('resume')
+        manager.child.terminate.assert_not_called()
+
+
 class MaintenanceTests(unittest.TestCase):
     def test_prepare_does_not_cancel_requests_workers_or_persisted_work(self):
         state=ServiceState();runtime=SimpleNamespace(gateway_draining=False)
@@ -247,7 +278,7 @@ class MaintenanceTests(unittest.TestCase):
             async def send(message):
                 pass
             guard=LoadGuard(app,Config(),state)
-            task=asyncio.create_task(guard({'type':'http','method':'POST','path':'/v1/chat/completions'},receive,send))
+            task=asyncio.create_task(guard({'type':'http','method':'POST','path':'/completion'},receive,send))
             await entered.wait()
             self.assertEqual(1,state.snapshot()['activeRequests'])
             with patch('v14.maintenance.pending_work',return_value=0):
@@ -274,14 +305,14 @@ class MaintenanceTests(unittest.TestCase):
                         if child.poll() is not None:
                             log.seek(0);self.fail(log.read())
                         try:
-                            health=http.get(url,headers=headers,timeout=1)
+                            health=http.get(url,headers=headers,timeout=8)
                             if health.status_code==200:
                                 break
                         except requests.RequestException:
                             pass
                         time.sleep(.1)
                     else:
-                        self.fail('Engine startup timed out')
+                        log.seek(0);self.fail('Engine startup timed out: ' + log.read())
                     self.assertTrue(health.json()['runtimeHealthy'])
                     self.assertFalse(health.json()['ready'])
                     self.assertTrue(health.json()['service']['draining'])

@@ -18,11 +18,11 @@ def prepare(run=subprocess.run, now=time.monotonic, wait=time.sleep, ready_timeo
         raise ValueError('Emulator readiness budget must be between zero and 60 seconds')
     started = now()
     deadline = started + ready_timeout
-    def shell(*arguments):
+    def shell(*arguments, command_timeout=10):
         remaining = deadline - now()
         if remaining <= 0:
             raise TimeoutError('Emulator preparation exceeded its readiness budget')
-        result = run(['adb', 'shell', *arguments], check=True, text=True, capture_output=True, timeout=min(10, remaining))
+        result = run(['adb', 'shell', *arguments], check=True, text=True, capture_output=True, timeout=min(command_timeout, remaining))
         return result.stdout.strip()
     attempts, delay, component = 0, 1, 'not observed'
     while True:
@@ -60,10 +60,16 @@ def prepare(run=subprocess.run, now=time.monotonic, wait=time.sleep, ready_timeo
     installed = shell('cmd', 'package', 'resolve-activity', '--brief', '-n', TEST_HOME)
     if (installed.splitlines()[-1] if installed else '') != TEST_HOME:
         raise ValueError('The instrumentation home is missing; install the test APK before preparing the emulator; no home was changed')
+    selection_started = now()
     if component != TEST_HOME:
-        selected = shell('cmd', 'package', 'set-home-activity', '--user', '0', TEST_HOME)
+        # Android waits for an asynchronous RoleManager callback here. On cold
+        # API 34 runners this has exceeded the 10-second read-command limit.
+        # Give this single mutation the remaining readiness budget; never replay
+        # it or accept a timeout as success. The total budget remains <= 60s.
+        selected = shell('cmd', 'package', 'set-home-activity', '--user', '0', TEST_HOME, command_timeout=ready_timeout)
         if selected != 'Success':
             raise ValueError('Android did not acknowledge selecting the instrumentation home; inspect emulator state before retrying')
+    selection_seconds = round(now() - selection_started, 3)
     observed = shell('cmd', 'package', 'resolve-activity', '--brief', '-a', 'android.intent.action.MAIN', '-c', 'android.intent.category.HOME')
     if (observed.splitlines()[-1] if observed else '') != TEST_HOME:
         raise ValueError('The selected home does not resolve to the instrumentation fixture; inspect emulator state before retrying')
@@ -74,6 +80,7 @@ def prepare(run=subprocess.run, now=time.monotonic, wait=time.sleep, ready_timeo
         shell('am', 'force-stop', package)
     return {'schema_version': 2, 'status': 'PREPARED', 'home_component': component,
             'readiness_attempts': attempts, 'readiness_seconds': round(now() - started, 3),
+            'home_selection_seconds': selection_seconds,
             'selected_test_home': TEST_HOME, 'stopped_system_launcher': package if package in LAUNCHERS else None,
             'system_launcher_disabled_by_setup': False, 'app_under_test_changed': False,
             'system_error_dialogs_suppressed': False}

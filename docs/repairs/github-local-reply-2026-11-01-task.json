@@ -2,17 +2,17 @@
   "schema_version": 1,
   "repository": "tailscale-signin/GPT_Mobile_AI-improved",
   "base_branch": "main",
-  "base_sha": "be5d55930df8be6caad2380eea71b2f9a6bb0419",
+  "base_sha": "72c63f25dc4b2330611d06a8f0ba56a5dfd7c7e4",
   "branch": "fix/github-local-llama-empty-output-2026-10-31",
   "original_head": "915e3efd73fd4cc18606b41ca8e9e971dfcad4ed",
   "parent_pr": 770,
-  "parent_head": "4d5635a9fd3e498e5044d40d648851d8c7f71c8a",
+  "parent_head": "8c6534ae061f51d316d7cb0ba1d806a1d3990bea",
   "intent": "Integrate the prepared GitHub reply, title and UI changes with current runner safeguards; bind engineering-memory reuse to its source connection and retain measured costs for empty replies",
   "prepared_local_commit": "d55eb163877bbb238c957351091e82ed7aea34c7",
-  "status": "lifecycle_ui_and_preview_signing_repairs_integrated",
+  "status": "bounded_home_selection_repair_host_verified",
   "remaining": [
-    "Publish scoped follow-up and require all current-head CI",
-    "Merge after parent PRs 769 and 770; verify main ancestry and post-merge checks"
+    "Require all fresh exact-head CI after bounded emulator setup repair",
+    "Merge PR 771 after current main post-merge verification; verify final main ancestry and CI"
   ],
   "checks": {
     "canonical_fast": "283 tests passed plus repository policy, resources and dependency checks",
@@ -45,5 +45,27 @@
     "geniex_suite_failures": 0,
     "geniex_suite_skipped": 4,
     "fresh_revision_ci": "required"
+  },
+  "parent_merge_sha": "72c63f25dc4b2330611d06a8f0ba56a5dfd7c7e4",
+  "emulator_setup_followup": {
+    "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+    "base_branch": "main",
+    "base_sha": "72c63f25dc4b2330611d06a8f0ba56a5dfd7c7e4",
+    "working_branch": "fix/github-local-llama-empty-output-2026-10-31",
+    "expected_head": "b335cccf099b1bb6b20fb0759c5a2050bdac8f50",
+    "intent": "Allow asynchronous HOME selection to use the existing overall 60-second readiness budget; preserve one dispatch, acknowledgement, actual HOME/launch verification, failure reporting and all instrumentation tests.",
+    "evidence": [
+      {
+        "run": 41269269963,
+        "job": 124738480793
+      },
+      {
+        "run": 41272937740,
+        "job": 124749252478
+      }
+    ],
+    "aosp": "https://android.googlesource.com/platform/frameworks/base/+/71d57d976e3bad66b0ee2160215eec7815cca5cb/services/core/java/com/android/server/pm/PackageManagerShellCommand.java",
+    "checks": "17 emulator-setup behavior tests passed; new slow-selection regression fails against the prior implementation; canonical fast validation passed all 285 tests and policy/resource/dependency checks. Fresh exact-revision Android/emulator/security CI required.",
+    "physical_device": "Not performed"
   }
 }

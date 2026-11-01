@@ -141,17 +141,15 @@ class GitHubEvidencePolicyTest {
         assertTrue(text.contains("Not available / Not measured"))
     }
 
-    @Test fun revokedPermissionBlocksPublicationWhileMalformedExtractionProducesPartialEvidence() = runBlocking {
+    @Test fun revokedPermissionAndMalformedExtractionCannotPublishCompletion() = runBlocking {
         for (revoked in listOf(false, true)) {
             val gate = GitHubVerifiedSession(session("private"), GitHubEvidenceBook("b", "o/r", "main", emptySet()), "fix", { 8192 }, { session("not JSON") }, { check(!revoked) }, {})
             val events = gate.streamRound(emptyList(), emptyList()).toList()
-            assertEquals(revoked, events.any { it is ProviderEvent.Failed })
-            assertEquals(!revoked, events.any { it is ProviderEvent.Completed })
-            assertEquals(!revoked, events.any { it is ProviderEvent.TextDelta })
+            assertTrue(events.single() is ProviderEvent.Failed)
         }
     }
 
-    @Test fun failedOrTruncatedExtractorPublishesOnlyCurrentReceiptFactsWithoutRetry() = runBlocking {
+    @Test fun failedOrTruncatedExtractorKeepsTheTaskIncompleteWithoutPublishingDraftOrReceipts() = runBlocking {
         for (extractor in listOf(
             flowOf(ProviderEvent.TextDelta("private broken JSON"), ProviderEvent.Failed("output limit", errorCode = "OUTPUT_LIMIT")),
             flowOf(ProviderEvent.TextDelta("{\"claims\":"))
@@ -166,15 +164,9 @@ class GitHubEvidencePolicyTest {
                 }
             }, {}, {}, { 1000 })
             val events = gate.streamRound(emptyList(), emptyList()).toList()
-            val text = events.filterIsInstance<ProviderEvent.TextDelta>().joinToString { it.text }
             assertEquals(1, attempts)
-            assertTrue(text.contains("Partial evidence summary"))
-            assertTrue(text.contains("| Count | 3 |"))
-            assertFalse(text.contains("99"))
-            assertFalse(text.contains("private source"))
-            assertFalse(text.contains("private broken JSON"))
-            assertTrue(events.last() is ProviderEvent.Completed)
-            assertFalse(events.any { it is ProviderEvent.Failed })
+            assertTrue(events.none { it is ProviderEvent.TextDelta || it is ProviderEvent.Completed })
+            assertTrue(events.single() is ProviderEvent.Failed)
         }
     }
 
@@ -183,9 +175,25 @@ class GitHubEvidencePolicyTest {
         for (bad in listOf(receipt, JsonObject(receipt + ("trusted" to JsonPrimitive(false))), JsonObject(receipt + ("success" to JsonPrimitive(false))))) {
             val (text, report) = GitHubEvidencePolicy.partial(mapOf("source" to bad), 200_000, 0)
             assertFalse(text.contains("987654"))
+            assertTrue(text.contains("GitHub verification incomplete"))
+            assertTrue(text.contains("Continue or retry this task"))
             assertEquals(JsonPrimitive(true), report["partial"])
+            assertEquals(JsonPrimitive(true), report["resume_required"])
             assertEquals(JsonPrimitive(false), report["completion_verified"])
         }
+    }
+
+    @Test fun partialFallbackKeepsLowLevelCheckReceiptsOutOfTheConversation() {
+        val receipt = json(
+            """{"trusted":true,"success":true,"observed_at_ms":1000,"epoch":0,"result":{"state":"RUNNING","commit_sha":"${"a".repeat(40)}","check_runs":[{"id":124918855388,"name":"emulator (34, pixel_2)","html_url":"https://github.com/owner/repo/actions/runs/42/job/124918855388","status":"completed","conclusion":"success"}]}}"""
+        )
+        val (text, report) = GitHubEvidencePolicy.partial(mapOf("checks" to receipt), 1000, 0)
+        assertTrue(text.contains("GitHub verification incomplete"))
+        assertFalse(text.contains("124918855388"))
+        assertFalse(text.contains("actions/runs"))
+        assertFalse(text.contains("emulator (34, pixel_2)"))
+        assertEquals(JsonPrimitive(true), report["resume_required"])
+        assertTrue(report.getValue("claims").jsonArray.isNotEmpty())
     }
 
     @Test fun providerFailureStillReturnsAnExplicitPartialAnswerWithoutPublishingItsDraft() = runBlocking {
@@ -197,9 +205,9 @@ class GitHubEvidencePolicyTest {
         val failed = gate.streamRound(emptyList(), emptyList()).toList().single() as ProviderEvent.Failed
         assertEquals("403 forbidden", failed.message)
         val events = gate.retainedFailureResponse(failed).toList()
-        assertTrue(events.last() is ProviderEvent.Completed)
+        assertTrue(events.last() is ProviderEvent.Failed)
         val text = events.filterIsInstance<ProviderEvent.TextDelta>().joinToString { it.text }
-        assertTrue(text.contains("Partial evidence summary"))
+        assertTrue(text.contains("GitHub verification incomplete"))
         assertFalse(text.contains("unverified draft"))
     }
 
@@ -231,8 +239,7 @@ class GitHubEvidencePolicyTest {
         val gate = GitHubVerifiedSession(session("private"), GitHubEvidenceBook("b", "o/r", "main", emptySet()), "fix", { 8192 }, { extractor }, {}, {})
         val events = gate.streamRound(emptyList(), emptyList()).toList()
         assertEquals(1, attempts)
-        assertTrue(events.last() is ProviderEvent.Completed)
-        assertTrue(events.filterIsInstance<ProviderEvent.TextDelta>().single().text.contains("Partial evidence summary"))
+        assertTrue(events.single() is ProviderEvent.Failed)
     }
 
     @Test fun verdictStorageFailurePreventsEvenReceiptOnlyPublication() = runBlocking {

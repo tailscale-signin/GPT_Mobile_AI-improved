@@ -19,6 +19,8 @@ class GitHubReasoningPolicyTest {
         org.junit.Assert.assertEquals("github-claim-extraction", extraction.requestRole)
         org.junit.Assert.assertTrue(original.forRole("primary").maximizeReasoning)
         org.junit.Assert.assertFalse(original.forRole("github-review-verdict").maximizeReasoning)
+        org.junit.Assert.assertFalse(original.forRole("github-review-verdict").allowReasoning)
+        org.junit.Assert.assertTrue(original.forRole("github-review-repair").allowReasoning)
     }
 
     @Test fun primaryEngineeringControlsDoNotInheritLightweightDelegateDefaults() {

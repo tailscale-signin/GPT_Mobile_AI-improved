@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "0caa2eda240597031049db384eb6ab7b370ebe03",
+  "branch": "fix/github-verification-recovery-2026-11-01",
+  "intent": "Implement the fourteen findings from the build 133 status export: grounded reporting, bounded review recovery, task intent, paging and identity, serialization, privacy messaging, budgets and durable diagnostics.",
+  "status": "implemented_pending_android_ci",
+  "checks": {
+    "host_preflight": {
+      "command": "bash scripts/validate-local.sh fast",
+      "result": "passed",
+      "python_tests": 285
+    },
+    "focused_kotlin_host": {
+      "result": "passed",
+      "tests": 66,
+      "classes": [
+        "GitHubVerificationRecoveryTest",
+        "GitHubReviewedSessionTest",
+        "GitHubEvidencePolicyTest",
+        "GitHubAnswerPresentationTest",
+        "GitHubTaskCoverageTest",
+        "GitHubPaginationBoundaryTest",
+        "GitHubResultViewsStressTest"
+      ],
+      "scope": "Production Kotlin logic with platform/backend boundary stubs; not an Android build or live API test"
+    },
+    "formatting": "ktlint 1.3.1 changed Kotlin files passed",
+    "whitespace": "git diff --check passed"
+  },
+  "remaining": [
+    "Full Android unit tests, APK build and lint in CI",
+    "Real device/provider stress testing remains unexecuted"
+  ],
+  "solutions": [
+    "Render stress/test reports from deduplicated trusted receipts; zero executions produce no synthetic rates or timings.",
+    "Publish supported partial observations and preserve original task identity; distinguish answer availability from task acceptance.",
+    "Allow one explicit verdict-format repair, cap review passes at 32, persist blocked unchanged reviews and cache completed verdicts.",
+    "Bind numerical statements to exact fact pointers; reject numbers borrowed from unrelated fields and compact review metadata.",
+    "Accept only matching read selectors on saved cursors, including response detail and CI identities; preserve scope isolation.",
+    "Stop remote paging after has_more=false within a short freshness window; saved fragments and refreshed page-one reads remain available.",
+    "Use a deterministic three-read status sequence; existing continuation recovery supplies the original task.",
+    "Filter latest workflow and checks to the selected branch commit; historical runs do not advance branch-head evidence epochs.",
+    "Validate workflow/run/revision identities and honor workflow definition selectors.",
+    "Report successful, skipped and running checks separately; no inference of required-check compliance or merge readiness.",
+    "Retain oversized JSON text as bounded valid JSON with explicit truncation metadata.",
+    "Scope local-only privacy errors to the rejected tool while preserving the existing authorization boundary.",
+    "Use a conservative unknown Llama context ceiling, bounded status output, tools-disabled verdict reasoning, and the saved reasoning preference.",
+    "Persist safe timing and stage/failure metadata in receipts/checkpoints independently of verbose logs."
+  ]
+}

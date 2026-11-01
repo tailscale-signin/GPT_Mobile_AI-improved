@@ -22,6 +22,7 @@ internal class GitHubOperationTool(
 ) : AgentTool {
     override val managesExecutionBudget get() = backend.managesExecutionBudget
     override val definition = definition(operation, modelName)
+    private val pagination = GitHubPaginationBoundary()
 
     override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
         val started = System.nanoTime()
@@ -39,7 +40,7 @@ internal class GitHubOperationTool(
             result.errorCode?.let { put("error_code", it) }
         }
         dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("GitHubToolTrace", trace.toString())
-        return result
+        return result.copy(executionReceipt = JsonObject(result.executionReceipt.orEmpty() + ("tool_trace" to trace)))
     }
 
     private suspend fun executeOperation(callId: String, arguments: JsonObject): AgentToolResult {
@@ -52,6 +53,9 @@ internal class GitHubOperationTool(
     }
 
     private suspend fun executeNormalized(callId: String, arguments: JsonObject): AgentToolResult {
+        if (operation == "github_ci" && arguments["action"] == JsonPrimitive("status") && arguments["workflow_id"] != null && arguments["run_id"] == null && arguments["job_id"] == null && arguments["view_cursor"] == null) {
+            return AgentToolResult(callId, ToolResultContent.Text("Workflow status requires an observed run_id. Use action=runs with workflow_id first; commit status cannot be filtered by workflow_id. Nothing was dispatched."), true, errorCode = "INVALID_ARGUMENTS", dispatched = false)
+        }
         val wrongHandles = arguments.keys.intersect(setOf("cursor", "next_cursor", "evidence_id", "tracking_id")) - if (operation == "github_read" && "view_cursor" !in arguments) setOf("evidence_id") else emptySet()
         if (wrongHandles.isNotEmpty() && "view_cursor" !in arguments) {
             return AgentToolResult(callId, ToolResultContent.Text("${wrongHandles.sorted().joinToString()} cannot paginate this operation. Use the exact continuation_call returned by this tool. evidence_id only reopens source through github_read; it is never a pagination cursor. Nothing was dispatched."), true, errorCode = "INVALID_ARGUMENTS", dispatched = false)
@@ -203,6 +207,20 @@ internal class GitHubOperationTool(
         }
         val native = nativeArguments(operation, JsonObject(arguments - "response_detail"))
             ?: return AgentToolResult(callId, ToolResultContent.Text("Unsupported GitHub operation."), true, errorCode = "INVALID_ARGUMENTS", dispatched = false)
+        pagination.completedPage(operation, arguments)?.let { lastPage ->
+            return AgentToolResult(
+                callId,
+                ToolResultContent.Json(
+                    buildJsonObject {
+                        put("pagination_complete", true)
+                        put("last_remote_page", lastPage)
+                        put("message", "The retained response ended remote pagination. Read its saved view_cursor for local fragments, or refresh page 1 for a new remote observation.")
+                    }
+                ),
+                false,
+                dispatched = false
+            )
+        }
         val original = backend.execute(callId, native)
         val result = if (operation == "github_read" && original.isError && original.errorCode == "INVALID_ARGUMENTS" && original.content.toString().contains("Path is not in the pinned tree")) {
             val requestedRanges = (arguments["ranges"] as? JsonArray).orEmpty().mapNotNull { it as? JsonObject }
@@ -243,6 +261,7 @@ internal class GitHubOperationTool(
             is ToolResultContent.Text -> runCatching { kotlinx.serialization.json.Json.parseToJsonElement(content.text) as? JsonObject }.getOrNull()
             else -> null
         }
+        if (!result.isError && data != null) pagination.observe(operation, arguments, data)
         val paged = if (!result.isError && data?.get("has_more") == JsonPrimitive(true) && "continuation" !in data && operation != "github_search") {
             result.copy(content = ToolResultContent.Json(JsonObject(data + ("continuation" to JsonObject(native + ("page" to JsonPrimitive(((arguments["page"] as? JsonPrimitive)?.content?.toIntOrNull() ?: 1) + 1)))))))
         } else {

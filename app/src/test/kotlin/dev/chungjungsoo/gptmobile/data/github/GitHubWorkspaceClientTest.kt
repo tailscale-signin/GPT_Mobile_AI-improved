@@ -24,6 +24,40 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubWorkspaceClientTest {
+    @Test fun repositoryStatusReadsSelectedBranchAndFiltersWorkflowByItsCommit() = runTest {
+        val sha = "a".repeat(40)
+        val http = HttpClient(
+            MockEngine { request ->
+                when {
+                    request.url.encodedPath.endsWith("/commits/topic") -> respond("""{"sha":"$sha"}""")
+                    request.url.encodedPath.endsWith("/actions/runs") -> {
+                        assertEquals(sha, request.url.parameters["head_sha"])
+                        respond("""{"workflow_runs":[{"head_sha":"$sha","head_branch":"topic","status":"completed","conclusion":"success"}]}""")
+                    }
+                    request.url.encodedPath.endsWith("/pulls") -> respond("[]")
+                    request.url.encodedPath == "/search/issues" -> respond("""{"total_count":0}""")
+                    request.url.encodedPath == "/repos/o/r" -> respond("""{"full_name":"o/r","default_branch":"main"}""")
+                    else -> error("Unexpected status request: ${request.url}")
+                }
+            }
+        )
+        try {
+            val result = GitHubWorkspaceClient("", http).execute(
+                "repo_status",
+                buildJsonObject {
+                    put("owner", "o")
+                    put("repo", "r")
+                    put("ref", "topic")
+                }
+            ).jsonObject
+            assertEquals("topic", result.getValue("branch").jsonPrimitive.content)
+            assertEquals(sha, result.getValue("commit_sha").jsonPrimitive.content)
+            assertEquals(sha, result.getValue("repository").jsonObject.getValue("head").jsonObject.getValue("sha").jsonPrimitive.content)
+        } finally {
+            http.close()
+        }
+    }
+
     @Test fun identicalBodiesWithNewReviewedPreconditionsAreDistinctMutations() = runTest {
         var updated = "first"
         var writes = 0

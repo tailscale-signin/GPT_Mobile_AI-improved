@@ -37,7 +37,7 @@ data class RequestConstraints(
     /** Extraction is bounded formatting; engineering reasoning must leave room for visible JSON. */
     fun forRole(role: String): RequestConstraints = copy(
         requestRole = role,
-        allowReasoning = allowReasoning && role != "github-claim-extraction",
+        allowReasoning = allowReasoning && role != "github-claim-extraction" && (!role.startsWith("github-review") || role.endsWith("repair")),
         maximizeReasoning = maximizeReasoning && !role.startsWith("github-review") && role != "github-claim-extraction"
     )
 

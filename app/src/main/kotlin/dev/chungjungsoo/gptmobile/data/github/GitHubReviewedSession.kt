@@ -35,13 +35,18 @@ internal class GitHubReviewEvidence(private val maxBytes: Int = 16 * 1024 * 1024
             is ToolResultContent.Json -> body.value.toString()
             is ToolResultContent.ResourceLinks -> JsonArray(body.links.map { JsonPrimitive(it.uri) }).toString()
         }
+        val structured = runCatching { Json.parseToJsonElement(content) }.getOrElse { JsonPrimitive(content) }
+        val projected = (structured as? JsonObject)?.let {
+            GitHubResultProjection.project(call.name.substringBefore("__"), call.arguments, it)
+        } ?: structured
         val record = buildJsonObject {
             put("call_id", call.callId)
             put("tool", call.name)
             put("arguments", call.arguments)
             put("failed", result.isError)
             put("dispatched", result.dispatched)
-            put("result", content)
+            put("result", projected)
+            put("original_result_sha256", GitHubEvidenceBook.digest(content))
         }.toString()
         bytes += record.toByteArray(Charsets.UTF_8).size
         if (bytes > maxBytes || records.size >= 4096) overflow = true else records[call.callId] = record
@@ -79,8 +84,13 @@ internal class GitHubReviewedSession(
             return@flow
         }
         if (saved != null) {
+            val latest = evidence.snapshot()
+            if (saved.blockedReason != null && latest.all { it in saved.receipts }) {
+                emit(ProviderEvent.Failed("Saved review requires new evidence or a changed draft: ${saved.blockedReason}", errorCode = "GITHUB_REVIEW_BLOCKED", transportComplete = true))
+                return@flow
+            }
             progress("Resuming the saved review; completed GitHub operations are retained")
-            publishReviewed(saved.draft, saved.receipts).collect { emit(it) }
+            publishReviewed(saved.draft, (saved.receipts + latest).distinct()).collect { emit(it) }
             return@flow
         }
         val draft = StringBuilder()
@@ -168,7 +178,15 @@ internal class GitHubReviewedSession(
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: Exception) {
-            emit(ProviderEvent.Failed("GitHub answer withheld: ${failure.message.orEmpty().take(1200)} Saved tool results remain available; retry review or continue the task.", errorCode = "GITHUB_REVIEW_REQUIRED"))
+            val code = when (failure) {
+                is ReviewVerdictFailure -> "GITHUB_REVIEW_INVALID_VERDICT"
+                is ReviewPassFailure -> if (failure.splittable) "GITHUB_REVIEW_CAPACITY" else "GITHUB_REVIEW_UNAVAILABLE"
+                else -> "GITHUB_REVIEW_REQUIRED"
+            }
+            val blocked = failure !is ReviewPassFailure || failure.splittable
+            checkpoint?.failed(code, blocked)
+            val recovery = if (blocked) "Retained facts remain available; the unchanged draft will not be reviewed again." else "Retry can resume saved verdicts after model availability recovers."
+            emit(ProviderEvent.Failed("GitHub answer withheld: ${failure.message.orEmpty().take(1200)} $recovery", errorCode = code, transportComplete = true))
         }
     }
 
@@ -251,10 +269,7 @@ internal class GitHubReviewedSession(
         val prompt = payload(draft, records, emptyList(), emptyList(), "review")
         val response = checkpoint?.verdict(prompt)
         try {
-            val value = response ?: collectPass(prompt, "github-review", 32_768)
-            val parsed = verdict(value, records.map { it.first })
-            if (response == null) checkpoint?.verdict(prompt, value)
-            return parsed
+            return if (response != null) verdict(response, records.map { it.first }) else validatedPass(prompt, "github-review", records.map { it.first })
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: ReviewPassFailure) {
@@ -277,10 +292,7 @@ internal class GitHubReviewedSession(
         val prompt = payload(draft, emptyList(), claims, emptyList(), "consistency")
         try {
             val cached = checkpoint?.verdict(prompt)
-            val text = cached ?: collectPass(prompt, "github-review-consistency", 32_768)
-            val result = verdict(text, emptyList())
-            if (cached == null) checkpoint?.verdict(prompt, text)
-            return result
+            return if (cached != null) verdict(cached, emptyList()) else validatedPass(prompt, "github-review-consistency", emptyList())
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: ReviewPassFailure) {
@@ -292,6 +304,38 @@ internal class GitHubReviewedSession(
 
     private var reviewPasses = 0
     private class ReviewPassFailure(message: String, val splittable: Boolean) : IllegalStateException(message)
+    private class ReviewVerdictFailure(message: String) : IllegalStateException(message)
+
+    private suspend fun validatedPass(prompt: String, kind: String, ids: List<String>): Verdict {
+        var request = prompt
+        repeat(2) { attempt ->
+            val value = collectPass(request, kind, 32_768)
+            val parsed = try {
+                verdict(value, ids)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                if (attempt == 1) throw ReviewVerdictFailure("The reviewer did not return a valid verdict after one format repair.")
+                null
+            }
+            if (parsed != null) {
+                // Storage and cancellation failures are not malformed model output.
+                checkpoint?.verdict(prompt, value)
+                return parsed
+            }
+            progress("Repairing the review format once; saved operations are unchanged")
+            val original = Json.parseToJsonElement(prompt) as JsonObject
+            request = JsonObject(
+                original + (
+                    "format_repair" to buildJsonObject {
+                        put("required_format", "Return one JSON object with approved, reviewed_ids, issues and verified_claims. No prose or fences.")
+                        put("expected_reviewed_ids", JsonArray(ids.map(::JsonPrimitive)))
+                    }
+                    )
+            ).toString()
+        }
+        error("Review format repair exhausted")
+    }
 
     private fun payload(draft: String, records: List<Pair<String, String>>, claims: List<String>, issues: List<String>, phase: String): String = buildJsonObject {
         put("phase", phase)
@@ -314,7 +358,7 @@ internal class GitHubReviewedSession(
 
     private suspend fun collectPass(prompt: String, kind: String, cap: Int): String {
         if (measureInput(prompt) > minOf(inputTokenLimit, currentInputLimit())) throw ReviewPassFailure("The complete rendered review input exceeds the current context; split this batch.", true)
-        check(++reviewPasses <= 256) { "The review pass allowance is exhausted; resume from the saved verdicts." }
+        check(++reviewPasses <= 32) { "The bounded review allowance is exhausted; publish supported observations." }
         val output = StringBuilder()
         var completed = false
         var failure: String? = null

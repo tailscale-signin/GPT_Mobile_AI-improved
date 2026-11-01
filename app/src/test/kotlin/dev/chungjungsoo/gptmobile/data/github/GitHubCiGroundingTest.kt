@@ -25,6 +25,25 @@ class GitHubCiGroundingTest {
         else -> error("No source")
     }
 
+    @Test fun runStatusRejectsUnrelatedWorkflowAndRevision() = runTest {
+        val sha = "a".repeat(40)
+        val http = HttpClient(
+            MockEngine {
+                respond("""{"id":42,"workflow_id":10,"path":".github/workflows/build.yml","head_sha":"$sha","status":"completed","conclusion":"success"}""")
+            }
+        )
+        try {
+            val tool = GitHubTool("token", http)
+            for ((workflow, revision, rejected) in listOf(Triple("10", sha, false), Triple("11", sha, true), Triple("build.yml", "b".repeat(40), true))) {
+                val result = tool.execute("$workflow-$revision", json("""{"action":"get_workflow_run","owner":"o","repo":"r","run_id":42,"workflow_id":"$workflow","commit_sha":"$revision"}"""))
+                assertEquals(rejected, result.isError)
+                if (rejected) assertTrue(result.content.toString().contains("MISMATCH"))
+            }
+        } finally {
+            http.close()
+        }
+    }
+
     @Test fun definiteHttpRejectionAndEarlierAcceptedWritesKeepTheirEvidence() = runTest {
         val http = HttpClient(
             MockEngine { request ->

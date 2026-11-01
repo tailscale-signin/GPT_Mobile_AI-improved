@@ -40,7 +40,7 @@ internal class GitHubEvidenceBook(
         if (existing != null) {
             check(existing["binding"] == JsonPrimitive(binding) && existing["call_id"] == JsonPrimitive(call.callId)) { "Evidence binding changed" }
             val savedEpoch = (existing["epoch"] as? JsonPrimitive)?.longOrNull ?: 0
-            if (savedEpoch >= epoch && existing["immutable"] != JsonPrimitive(true)) {
+            if (savedEpoch >= epoch && existing["head_observation"] == JsonPrimitive(true)) {
                 (existing["source_head_sha"] as? JsonPrimitive)?.contentOrNull?.let { observedHead = it }
             }
             epoch = maxOf(epoch, savedEpoch)
@@ -66,6 +66,7 @@ internal class GitHubEvidenceBook(
         val head = (
             listOf("head_sha", "commit_sha").firstNotNullOfOrNull { (root?.get(it) as? JsonPrimitive)?.contentOrNull }
                 ?: ((root?.get("head") as? JsonObject)?.get("sha") as? JsonPrimitive)?.contentOrNull
+                ?: (((root?.get("repository") as? JsonObject)?.get("head") as? JsonObject)?.get("sha") as? JsonPrimitive)?.contentOrNull
             )
             ?.takeIf { it.matches(Regex("[a-fA-F0-9]{40}")) }
         val remoteChange = ((result.executionReceipt?.get("accepted_mutations") as? JsonPrimitive)?.longOrNull ?: 0) > 0 ||
@@ -73,9 +74,12 @@ internal class GitHubEvidenceBook(
             mutation &&
             result.dispatched &&
             !result.isError
+        val headObservation = !immutable &&
+            action in setOf("repo_status", "get_branch_head", "resolve_context", "branch_context") &&
+            call.arguments["commit_sha"] == null
         if (trusted && selected && targetBranch == branch && !result.sharedResult) {
-            if (remoteChange || !result.isError && !immutable && head != null && observedHead != null && head != observedHead) epoch++
-            if (!result.isError && head != null && !immutable) observedHead = head
+            if (remoteChange || !result.isError && headObservation && head != null && observedHead != null && head != observedHead) epoch++
+            if (!result.isError && head != null && (headObservation || remoteChange)) observedHead = head
         }
         val receipt = buildJsonObject {
             put("schema", "github.evidence.v1")
@@ -90,6 +94,7 @@ internal class GitHubEvidenceBook(
             put("observed_at_ms", sourceTime ?: if (result.sharedResult || !result.dispatched) 0 else now())
             put("epoch", epoch)
             put("source_head_sha", head?.let(::JsonPrimitive) ?: JsonNull)
+            put("head_observation", headObservation || remoteChange)
             put("immutable", immutable)
             put("trusted", trusted && selected)
             put("success", !result.isError && result.errorCode == null)

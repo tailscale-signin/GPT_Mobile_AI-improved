@@ -3647,9 +3647,9 @@ class ChatRepositoryImpl(
             openRouterModelRepository?.peekModels()
         }
         val advertisedLimits = dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterCatalogLimits.forRequest(platform.compatibleType.name, platform.apiUrl, platform.model, platform.openRouterRouting)
-        val profileBudget = budgetSettings.copy(contextTokens = minOf(budgetSettings.contextTokens, budgetSettings.profileContextCeilings[platform.uid] ?: Int.MAX_VALUE, advertisedLimits?.context ?: Int.MAX_VALUE, dev.chungjungsoo.gptmobile.data.agent.provider.ProviderRouteCapacity.context(platform) ?: Int.MAX_VALUE)).let { budget ->
+        val profileBudget = budgetSettings.copy(contextTokens = minOf(budgetSettings.contextTokens, budgetSettings.profileContextCeilings[platform.uid] ?: Int.MAX_VALUE, advertisedLimits?.context ?: Int.MAX_VALUE, dev.chungjungsoo.gptmobile.data.agent.provider.ProviderRouteCapacity.context(platform) ?: if (chatToolConfig?.github != null && platform.compatibleType == ClientType.LLAMA) 32_768 else Int.MAX_VALUE)).let { budget ->
             if (chatToolConfig?.github != null) {
-                budget.copy(outputTokens = dev.chungjungsoo.gptmobile.data.agent.provider.GitHubReasoningPolicy.outputBudget(budget.contextTokens, budget.outputTokens, platform.maxTokens))
+                budget.copy(outputTokens = if (dev.chungjungsoo.gptmobile.data.github.GitHubStatusRequest.matches(taskRecovery?.originalRequest ?: effectiveUserMessages.lastOrNull()?.content.orEmpty())) minOf(2048, budget.outputTokens.takeIf { it > 0 } ?: 2048) else dev.chungjungsoo.gptmobile.data.agent.provider.GitHubReasoningPolicy.outputBudget(budget.contextTokens, budget.outputTokens, platform.maxTokens))
             } else {
                 budget
             }
@@ -4087,8 +4087,8 @@ class ChatRepositoryImpl(
             queuePersistent = latestUser?.let { agentPersistenceDao.getChatRoom(it.chatId)?.isTemporary == false } == true,
             maxOutputTokens = resolvedOutputCap,
             allowTools = !editorialPass,
-            allowReasoning = !editorialPass,
-            maximizeReasoning = chatToolConfig?.github != null,
+            allowReasoning = !editorialPass && (chatToolConfig?.github == null || platform.reasoning),
+            maximizeReasoning = chatToolConfig?.github != null && platform.reasoning,
             allowGatewayLocalTools = false,
             combined = chatToolConfig?.combined
         )
@@ -4688,7 +4688,7 @@ class ChatRepositoryImpl(
                 }
             )
         }
-        val reviewEvidence = if (chatToolConfig?.github != null && platform.compatibleType == ClientType.LLAMA) dev.chungjungsoo.gptmobile.data.github.GitHubReviewEvidence() else null
+        val reviewEvidence = if (chatToolConfig?.github != null && platform.compatibleType == ClientType.LLAMA && !dev.chungjungsoo.gptmobile.data.github.GitHubStatusRequest.matches(latestUser?.content.orEmpty()) && !dev.chungjungsoo.gptmobile.data.github.GitHubTaskCoverage.matches(latestUser?.content.orEmpty())) dev.chungjungsoo.gptmobile.data.github.GitHubReviewEvidence() else null
         fun reviewOutputTokens(): Int = minOf(8192, minOf(limits.contextTokens, observedRequestContext.get() ?: 32_768) / 4).coerceAtLeast(256)
         fun reviewInputLimit(): Int = (minOf(limits.contextTokens, observedRequestContext.get() ?: 32_768).toLong() - reviewOutputTokens() - 1536).coerceIn(0, 1_048_576).toInt()
         suspend fun measureReview(prompt: String): Int = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {

@@ -175,7 +175,9 @@ fun ChatScreen(
     onOpenConversation: (Int, Boolean) -> Unit = { _, _ -> },
     onInspectContext: ((Int, String) -> Unit)? = null,
     showTopBar: Boolean = true,
-    allowResearchPanels: Boolean = true
+    allowResearchPanels: Boolean = true,
+    exportRequestedForChatId: Int? = null,
+    onExportHandled: () -> Unit = {}
 ) {
     ConversationViewport { viewportWidth, viewportHeight ->
         ChatScreenContent(
@@ -187,6 +189,8 @@ fun ChatScreen(
             onInspectContext = onInspectContext,
             showTopBar = showTopBar,
             allowResearchPanels = allowResearchPanels,
+            exportRequestedForChatId = exportRequestedForChatId,
+            onExportHandled = onExportHandled,
             viewportWidth = viewportWidth,
             viewportHeight = viewportHeight
         )
@@ -204,6 +208,8 @@ private fun ChatScreenContent(
     onInspectContext: ((Int, String) -> Unit)? = null,
     showTopBar: Boolean = true,
     allowResearchPanels: Boolean,
+    exportRequestedForChatId: Int?,
+    onExportHandled: () -> Unit,
     viewportWidth: Dp,
     viewportHeight: Dp
 ) {
@@ -316,6 +322,12 @@ private fun ChatScreenContent(
     var targetResponseOffset by remember(chatViewModel.targetMessageId) { mutableStateOf<Int?>(null) }
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     var showExportOptions by remember { mutableStateOf(false) }
+    LaunchedEffect(exportRequestedForChatId, chatRoom.id) {
+        if (exportRequestedForChatId != null && exportRequestedForChatId == chatRoom.id && chatRoom.id > 0) {
+            showExportOptions = true
+            onExportHandled()
+        }
+    }
     var showProfileManagement by rememberSaveable { mutableStateOf(false) }
     val freeProviderNotice by chatViewModel.freeProviderNotice.collectAsStateWithLifecycle()
     freeProviderNotice?.let { notice ->
@@ -524,7 +536,7 @@ private fun ChatScreenContent(
         pendingJumpKey = null
     }
     if (showExportOptions) {
-        ChatExportDialog(onDismiss = { showExportOptions = false }, debugMode = debugMode) { format ->
+        ChatExportDialog(onDismiss = { showExportOptions = false }, debugMode = debugMode, includeUserMessages = chatToolConfig.github != null) { format ->
             showExportOptions = false
             scope.launch { exportChat(context, chatViewModel, format) }
         }

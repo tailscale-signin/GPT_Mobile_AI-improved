@@ -137,6 +137,7 @@ class ConnectionDoctorViewModel @Inject constructor(
             val catalogKey = ApiCredentialRotator.parseKeys(rawCredential).firstOrNull()
             val resolvedBase = if (profile.compatibleType == ClientType.NVIDIA) NvidiaEndpoints.normalize(base) else base
             val modelsUrl = if (profile.compatibleType == ClientType.OLLAMA && !base.endsWith("/v1")) "$base/api/tags" else "$resolvedBase/models"
+            dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.checkAgain(profile.apiUrl)
             val discovery = try {
                 withTimeoutOrNull(5000L) {
                     val response = network().get(modelsUrl) { catalogKey?.let { bearerAuth(it) } }
@@ -151,6 +152,7 @@ class ConnectionDoctorViewModel @Inject constructor(
                 lines += "Model catalog unavailable or timed out. Serving-capacity checks continue independently."
             } else {
                 val (status, modelBody) = discovery
+                if (status in 200..299) dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.recordLocalHandshakeSuccess(profile.apiUrl)
                 lines += "Model discovery: HTTP $status (${modelBody.length} response characters)"
                 if (status == 200) {
                     if (profile.compatibleType == ClientType.NVIDIA) {

@@ -992,7 +992,7 @@ private fun createDisplayMathPlaceholder(
 private fun answerBodyStyle(): TextStyle {
     val base = MaterialTheme.typography.bodyMedium
     val scale = LocalAnswerTextScale.current
-    return base.copy(fontSize = base.fontSize * scale, lineHeight = base.lineHeight * scale)
+    return remember(base, scale) { base.copy(fontSize = base.fontSize * scale, lineHeight = base.lineHeight * scale) }
 }
 
 @Composable

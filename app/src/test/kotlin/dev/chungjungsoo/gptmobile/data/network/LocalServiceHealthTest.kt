@@ -14,6 +14,20 @@ class LocalServiceHealthTest {
 
     @After fun clear() = LocalServiceHealth.networkChanged()
 
+    @Test fun rejectedCooldownDoesNotExtendTheConnectionFailureWindow() {
+        val url = "http://100.64.0.2:8080/v1"
+        LocalServiceHealth.recordLocalFailure(url, SocketTimeoutException())
+        val before = LocalServiceHealth.retryAfterMillis(url)
+        val failure = assertThrows(java.io.IOException::class.java) { LocalServiceHealth.requireAvailable(url) }
+        LocalServiceHealth.recordLocalFailure(url, failure)
+        val after = LocalServiceHealth.retryAfterMillis(url)
+        assertTrue(before > 0)
+        assertTrue(after <= before)
+        assertTrue(failure.message.orEmpty().contains("retryAfterMs="))
+        LocalServiceHealth.checkAgain(url)
+        assertEquals(0L, LocalServiceHealth.retryAfterMillis(url))
+    }
+
     @Test fun timeoutDoesNotBlockAnotherPortAndHandshakeIsRequiredForHealthy() {
         LocalServiceHealth.recordFailure("http://100.64.0.2:8102/mcp", SocketTimeoutException())
         LocalServiceHealth.requireAvailable("http://100.64.0.2:8101/mcp")

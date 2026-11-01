@@ -137,6 +137,7 @@ fun GitHubWorkspaceScreen(
     val workspaceScroll = rememberScrollState()
     val setupScroll = rememberScrollState()
     var tab by rememberSaveable { mutableIntStateOf(3) }
+    var exportChatId by rememberSaveable { mutableStateOf<Int?>(null) }
     LaunchedEffect(tab, state.commitDetail) { workspaceScroll.scrollTo(0) }
     LaunchedEffect(tab, state.selection, state.headSha, state.busy, state.error) { viewModel.onSectionVisible(tab) }
     var repositoryMenu by remember { mutableStateOf(false) }
@@ -375,7 +376,9 @@ fun GitHubWorkspaceScreen(
                                             onOpenConversation = onOpenConversation,
                                             onReviewEvidenceAccess = onReviewEvidenceAccess,
                                             onNavigateToLocalModels = onNavigateToLocalModels,
-                                            registerExit = { leaveChat = it }
+                                            registerExit = { leaveChat = it },
+                                            exportRequested = exportChatId == chatId,
+                                            onExportHandled = { exportChatId = null }
                                         )
                                     }
                                 } else {
@@ -393,7 +396,10 @@ fun GitHubWorkspaceScreen(
                                 }
                             }
                             5 -> {
-                                GitHubProgrammerSettings(state, visibleProgrammer, programmer::selectProfile, programmer::setPrepareIndex, viewModel::prepareCodeIndex, programmer::setProfileSettings)
+                                GitHubProgrammerSettings(state, visibleProgrammer, programmer::selectProfile, programmer::setPrepareIndex, viewModel::prepareCodeIndex, programmer::setProfileSettings, onExport = {
+                                    exportChatId = visibleProgrammer.chatId
+                                    tab = 3
+                                })
                                 if (state.selection != null) {
                                     OutlinedTextField(branchName, { branchName = it }, label = { Text("New working branch") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                                     Button(onClick = {

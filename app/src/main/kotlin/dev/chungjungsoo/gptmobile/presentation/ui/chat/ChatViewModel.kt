@@ -2412,12 +2412,44 @@ class ChatViewModel @Inject constructor(
 
     suspend fun exportChat(format: ChatExportFormat = ChatExportFormat.MARKDOWN): Pair<String, String> {
         require(format != ChatExportFormat.DEBUG) { "Diagnostic exports use exportDebugFile so large histories stay off the heap." }
-        val exported = groupPersistedMessages(completeWindowMessages(_groupedMessages.value), enabledPlatformsInChat, _chatRoom.value.id)
-        val content = exported.assistantMessages.flatten()
-            .map { assistantExportText(it, format, debugMode = debugMode.value) }
-            .filter(String::isNotBlank)
-            .joinToString("\n\n")
-        val safeTitle = chatRoom.value.title.replace(Regex("[^\\p{L}\\p{N}._ -]"), "_").take(80)
+        val room = _chatRoom.value
+        val roomId = room.id
+        val github = _chatToolConfig.value.github
+        val runStates = _agentRunsById.value.values.filter { it.chatId == roomId }.map { it.status }
+        val visible = completeWindowMessages(_groupedMessages.value)
+        val live = agentRunCoordinator.streamMessages.value.values.filter { it.chatId == roomId }.toList()
+        val snapshot = chatRepository.fetchMessagesV2(roomId).associateBy { it.id }.toMutableMap().apply {
+            visible.filter { it.id > 0 && it.chatId == roomId }.forEach { put(it.id, it) }
+            live.filter { it.id > 0 }.forEach { put(it.id, chatRepository.resolveCombinedMessage(it)) }
+        }.values.toList().sortedWith(compareBy<MessageV2> { it.createdAt }.thenBy { it.id })
+        val exported = groupPersistedMessages(snapshot, enabledPlatformsInChat, roomId)
+        val content = if (github != null) {
+            val turns = exported.userMessages.mapIndexed { index, user ->
+                user.content to exported.assistantMessages.getOrNull(index).orEmpty().map { assistantExportText(it, format) }
+            }
+            val transcript = githubConversationExport(
+                room.title,
+                "${github.owner}/${github.repo}",
+                github.ref,
+                github.commitSha,
+                turns,
+                runStates,
+                java.time.Instant.now().toString(),
+                format
+            )
+            (
+                dev.chungjungsoo.gptmobile.data.diagnostics.redactChatDebugData(
+                    kotlinx.serialization.json.JsonPrimitive(transcript),
+                    _platformsInApp.value.mapNotNull { it.token }
+                ) as kotlinx.serialization.json.JsonPrimitive
+                ).content
+        } else {
+            exported.assistantMessages.flatten()
+                .map { assistantExportText(it, format, debugMode = debugMode.value) }
+                .filter(String::isNotBlank)
+                .joinToString("\n\n")
+        }
+        val safeTitle = room.title.replace(Regex("[^\\p{L}\\p{N}._ -]"), "_").take(80)
         return "export_${safeTitle}_${System.currentTimeMillis()}.${format.extension}" to content
     }
 

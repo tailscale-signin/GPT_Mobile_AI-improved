@@ -28,27 +28,27 @@ import dev.chungjungsoo.gptmobile.presentation.common.SettingsHelpIcon
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 
 @Composable
-internal fun ChatExportDialog(onDismiss: () -> Unit, debugMode: Boolean = false, onExport: (ChatExportFormat) -> Unit) {
+internal fun ChatExportDialog(onDismiss: () -> Unit, debugMode: Boolean = false, includeUserMessages: Boolean = false, onExport: (ChatExportFormat) -> Unit) {
     AlertDialog(
         onDismissRequest = onDismiss,
         icon = { Icon(Icons.Rounded.FileDownload, null, tint = MaterialTheme.colorScheme.primary) },
         title = { Text("Export conversation") },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                Text("Choose how to save this conversation.", style = MaterialTheme.typography.bodyMedium)
+                Text(if (includeUserMessages) "Save your messages and the selected AI replies. Active and failed responses are included as a snapshot." else "Choose how to save this conversation.", style = MaterialTheme.typography.bodyMedium)
                 ExportFormatCard(
                     "Plain text",
                     ".txt",
                     "Easy to read in any text editor",
                     Icons.Rounded.TextSnippet,
-                    "Saves readable text in a .txt file. Markdown formatting is removed, source links remain, and code stays readable. Exports the selected response revisions without prompts, thinking, or tool activity."
+                    if (includeUserMessages) "Includes your messages and selected AI replies in order, with repository and snapshot details. System prompts, thinking and tool activity are excluded." else "Saves readable text in a .txt file. Markdown formatting is removed, source links remain, and code stays readable. Exports the selected response revisions without prompts, thinking, or tool activity."
                 ) { onExport(ChatExportFormat.PLAIN_TEXT) }
                 ExportFormatCard(
                     "Markdown",
                     ".md",
                     "Keep headings, links, tables and code",
                     Icons.Rounded.Description,
-                    "Saves the original response formatting in a .md file. Open it in a Markdown editor to render headings, tables, source links, and code blocks. Exports the selected response revisions without prompts, thinking, or tool activity."
+                    if (includeUserMessages) "Includes your messages and selected AI replies with headings, tables, links and code. System prompts, thinking and tool activity are excluded." else "Saves the original response formatting in a .md file. Open it in a Markdown editor to render headings, tables, source links, and code blocks. Exports the selected response revisions without prompts, thinking, or tool activity."
                 ) { onExport(ChatExportFormat.MARKDOWN) }
                 if (debugMode) {
                     ExportFormatCard(

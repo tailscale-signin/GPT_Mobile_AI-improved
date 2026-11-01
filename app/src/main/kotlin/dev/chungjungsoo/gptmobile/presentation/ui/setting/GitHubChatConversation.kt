@@ -33,7 +33,9 @@ internal fun GitHubChatConversation(
     onOpenConversation: (Int) -> Unit,
     onReviewEvidenceAccess: () -> Unit,
     onNavigateToLocalModels: () -> Unit,
-    registerExit: (((() -> Unit) -> Unit)?) -> Unit
+    registerExit: (((() -> Unit) -> Unit)?) -> Unit,
+    exportRequested: Boolean = false,
+    onExportHandled: () -> Unit = {}
 ) {
     key(chatId) {
         val controller = rememberNavController()
@@ -69,7 +71,9 @@ internal fun GitHubChatConversation(
                         onReviewEvidenceAccess = onReviewEvidenceAccess,
                         onNavigateToLocalModels = onNavigateToLocalModels,
                         showTopBar = false,
-                        allowResearchPanels = false
+                        allowResearchPanels = false,
+                        exportRequestedForChatId = chatId.takeIf { exportRequested },
+                        onExportHandled = onExportHandled
                     )
                 }
             }

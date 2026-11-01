@@ -80,6 +80,21 @@ class GitHubTaskRecoveryTest {
         assertFalse(prompt.contains("untrusted continuation"))
     }
 
+    @Test fun unavailableLocalServerRetriesOnlyOnceAndHonorsCooldown() = runTest {
+        var rounds = 0
+        val session = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> = flow {
+                rounds++
+                emit(ProviderEvent.Failed("LOCAL_SERVICE_UNREACHABLE: CONNECT_TIMEOUT; retryAfterMs=4290"))
+            }
+        }
+        val events = AgentRunner(AgentRunLimits(githubTask = true)).run(session, emptyList()).toList()
+        assertEquals(2, rounds)
+        assertEquals(4290L, testScheduler.currentTime)
+        assertTrue(events.any { it is AgentRunEvent.Provider && it.event is ProviderEvent.Failed })
+        assertFalse(events.any { it is AgentRunEvent.Provider && it.event is ProviderEvent.Completed })
+    }
+
     @Test fun cooldownAndBoundsAreRespected() {
         assertEquals(15672L, GitHubTaskRecovery.delayMillis("LOCAL_SERVICE_UNREACHABLE: CONNECT_TIMEOUT; retryAfterMs=15672", 0))
         assertEquals(14031L, GitHubTaskRecovery.delayMillis("LOCAL_SERVICE_UNREACHABLE: CONNECT_TIMEOUT; retryAfterMs=14031", 0))
@@ -169,7 +184,7 @@ class GitHubTaskRecoveryTest {
             }
         }
         val events = AgentRunner(AgentRunLimits(githubTask = true)).run(offline, emptyList()).toList()
-        assertEquals(GitHubTaskRecovery.MAX_RECOVERIES + 1, rounds)
+        assertEquals(GitHubTaskRecovery.MAX_CONNECTION_RECOVERIES + 1, rounds)
         assertTrue(events.any { it is AgentRunEvent.Provider && it.event is ProviderEvent.Failed })
         val cancelled = object : AgentProviderSession {
             override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> = flow { throw CancellationException("Stopped") }

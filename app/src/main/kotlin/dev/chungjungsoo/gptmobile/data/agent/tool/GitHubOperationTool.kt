@@ -205,7 +205,10 @@ internal class GitHubOperationTool(
             ?: return AgentToolResult(callId, ToolResultContent.Text("Unsupported GitHub operation."), true, errorCode = "INVALID_ARGUMENTS", dispatched = false)
         val original = backend.execute(callId, native)
         val result = if (operation == "github_read" && original.isError && original.errorCode == "INVALID_ARGUMENTS" && original.content.toString().contains("Path is not in the pinned tree")) {
-            val range = (arguments["ranges"] as? JsonArray)?.firstOrNull() as? JsonObject
+            val requestedRanges = (arguments["ranges"] as? JsonArray).orEmpty().mapNotNull { it as? JsonObject }
+            val failureText = (original.content as? ToolResultContent.Text)?.text.orEmpty()
+            val rejectedPath = failureText.substringAfter("Path is not in the pinned tree:", "").lineSequence().firstOrNull()?.trim().orEmpty()
+            val range = requestedRanges.firstOrNull { (it["path"] as? JsonPrimitive)?.content == rejectedPath } ?: requestedRanges.firstOrNull()
             val path = (range?.get("path") as? JsonPrimitive)?.content.orEmpty()
             val searchName = "github_search" + definition.name.removePrefix(operation)
             original.copy(
@@ -223,7 +226,7 @@ internal class GitHubOperationTool(
                                         listOf("owner", "repo", "commit_sha").forEach { key -> arguments[key]?.let { put(key, it) } }
                                         put("mode", "paths")
                                         put("query", "*")
-                                        put("path_prefix", path.substringBeforeLast('/', ""))
+                                        path.substringBeforeLast('/', "").takeIf(String::isNotBlank)?.let { put("path_prefix", it) }
                                     }
                                 )
                             }

@@ -57,6 +57,27 @@ class GitHubOperationToolTest {
         assertTrue(observed.retainedContent.toString().contains("run-tests.yml"))
     }
 
+    @Test fun missingPinnedPathCorrectionTargetsTheRejectedRangeInABatch() = runBlocking {
+        val backend = object : AgentTool {
+            override val definition = AgentToolDefinition("github", "backend", buildJsonObject {})
+            override suspend fun execute(callId: String, arguments: JsonObject) = AgentToolResult(
+                callId,
+                ToolResultContent.Text("Path is not in the pinned tree: .github/workflows/run-tests.yml"),
+                true,
+                errorCode = "INVALID_ARGUMENTS",
+                dispatched = false
+            )
+        }
+        val tool = GitHubOperationTool("github_read", backend, "paths", modelName = "github_read__api")
+        val observed = tool.execute(
+            "read",
+            args("""{"commit_sha":"$sha","ranges":[{"path":"README.md","start_line":1,"end_line":20},{"path":".github/workflows/run-tests.yml","start_line":1,"end_line":20}]}""")
+        )
+        val arguments = result(observed)["data"]!!.jsonObject["correction_call"]!!.jsonObject["arguments"]!!.jsonObject
+        assertEquals(JsonPrimitive(".github/workflows"), arguments["path_prefix"])
+        assertEquals(JsonPrimitive(sha), arguments["commit_sha"])
+    }
+
     @Test fun compactResultsRetainOriginalEvidenceAndOfferFullDetail() = runBlocking {
         val backend = Backend().apply {
             body = args("""{"state":"PASSED","checks":1,"check_details":{"check_runs":[{"name":"unit","conclusion":"success","app":{"permissions":{"contents":"write"}}}]}}""")

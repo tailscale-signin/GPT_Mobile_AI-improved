@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.github
 
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -8,6 +9,17 @@ import kotlinx.serialization.json.put
 internal object GitHubEngineeringMemoryPolicy {
     fun scope(connection: String, revision: Long, profile: String, repository: String, branch: String, permission: String = "") = "github:" + GitHubEvidenceBook.digest(JsonArray(listOf(connection, revision.toString(), profile, repository.lowercase(java.util.Locale.ROOT), branch, permission).map(::JsonPrimitive)).toString())
     fun terms(text: String) = text.lowercase().split(Regex("[^\\p{L}\\p{N}_]+")).filter { it.length >= 3 }.toSet()
+    fun checkpoint(verdict: JsonObject): JsonObject? {
+        if (verdict["schema"] != JsonPrimitive("github.verification.v1") || (verdict["task"] as? JsonPrimitive)?.content.isNullOrBlank()) return null
+        return buildJsonObject {
+            put("task", verdict["task"] ?: JsonPrimitive(""))
+            put("task_outcome", verdict["task_outcome"] ?: JsonPrimitive("PARTIAL"))
+            put("operation_coverage", verdict["operation_coverage"] ?: JsonArray(emptyList()))
+            put("completion_verified", false)
+            put("next_action", "Resume unresolved requirements using retained receipt IDs. Refresh mutable CI/PR state; source reads are not test execution. Do not repeat a completed mutation.")
+        }
+    }
+
     fun requirements(task: String): JsonArray {
         val lines = task.lineSequence().map(String::trim).filter(String::isNotBlank).toList()
         // A long task remains one exact requirement; it is never silently truncated to the first N bullets.

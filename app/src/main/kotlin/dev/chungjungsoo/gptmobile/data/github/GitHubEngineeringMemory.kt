@@ -74,11 +74,19 @@ class GitHubEngineeringMemory @Inject constructor(
         if (!privateDestination && !settings.allowCloudEngineeringMemory) return "Engineering memory stays on this device. No historical repository memory was included in this cloud request."
         val rows = workspace.dao.engineeringMemory(scope).take(64)
         val candidates = rows.mapNotNull { row ->
-            workspace.protectedSynthesisCheckpoint(row.id)?.takeIf { it["scope"] == JsonPrimitive(scope) }?.let { row.id to it }
+            workspace.protectedSynthesisCheckpoint(row.id)?.takeIf { it["scope"] == JsonPrimitive(scope) && (it["kind"] != JsonPrimitive("task_checkpoint") || it["chat_id"] == JsonPrimitive(chatId)) }?.let { row.id to it }
         }.toMap()
+        val resume = task.trim().lowercase().trimEnd('.', '!') in setOf("continue", "resume", "keep going", "continue testing")
         val tokens = GitHubEngineeringMemoryPolicy.terms(task)
         val ranked = candidates.entries.sortedByDescending { (_, value) ->
-            GitHubEngineeringMemoryPolicy.terms(value["content"].toString()).intersect(tokens).size + if (value["kind"] == JsonPrimitive("requirements")) 1 else 0
+            GitHubEngineeringMemoryPolicy.terms(value["content"].toString()).intersect(tokens).size +
+                if (resume && value["kind"] == JsonPrimitive("task_checkpoint")) {
+                    100
+                } else if (value["kind"] == JsonPrimitive("requirements")) {
+                    1
+                } else {
+                    0
+                }
         }.take(48)
         val meanings = if (settings.engineeringMemory == GitHubEngineeringMemoryMode.HYBRID) {
             semantic.rankEngineering(task, scope, ranked.associate { it.key to it.value["content"].toString().take(4000) })
@@ -86,7 +94,8 @@ class GitHubEngineeringMemory @Inject constructor(
             null
         }
         val selected = ranked.sortedByDescending { entry ->
-            (meanings?.get(entry.key) ?: 0.0) * 10 + GitHubEngineeringMemoryPolicy.terms(entry.value["content"].toString()).intersect(tokens).size
+            (meanings?.get(entry.key) ?: 0.0) * 10 + GitHubEngineeringMemoryPolicy.terms(entry.value["content"].toString()).intersect(tokens).size +
+                if (resume && entry.value["kind"] == JsonPrimitive("task_checkpoint")) 100 else 0
         }
         val budget = budgetCharacters.coerceIn(0, 12_000)
         var remaining = budget
@@ -109,7 +118,32 @@ class GitHubEngineeringMemory @Inject constructor(
     }
 
     suspend fun observe(context: GitHubConversationContext, chatId: Int, receipt: JsonObject, settings: GitHubChatProfileOverride) {
-        if (!settings.githubTools || settings.engineeringMemory == GitHubEngineeringMemoryMode.SESSION_ONLY || receipt["schema"] != JsonPrimitive("github.evidence.v1") || receipt["trusted"] != JsonPrimitive(true)) return
+        if (!settings.githubTools || settings.engineeringMemory == GitHubEngineeringMemoryMode.SESSION_ONLY) return
+        GitHubEngineeringMemoryPolicy.checkpoint(receipt)?.let { checkpoint ->
+            val scope = scope(context)
+            val id = GitHubEvidenceBook.digest(receipt.toString())
+            workspace.saveProtectedSynthesisCheckpoint(
+                "engineering:$scope:coverage:$id",
+                chatId,
+                scope,
+                buildJsonObject {
+                    put("schema_version", 1)
+                    put("scope", scope)
+                    put("kind", "task_checkpoint")
+                    put("chat_id", chatId)
+                    put("commit_sha", context.commitSha)
+                    put("observed_at_ms", receipt["verified_at_ms"] ?: JsonPrimitive(0))
+                    put("source_receipt", "verification:$id")
+                    put("confidence", "HISTORICAL_COVERAGE_NOT_CURRENT_PROOF")
+                    put("content", checkpoint.toString())
+                    put("checkpoint", checkpoint)
+                },
+                appendOnly = true,
+                engineeringMemory = true
+            )
+            return
+        }
+        if (receipt["schema"] != JsonPrimitive("github.evidence.v1") || receipt["trusted"] != JsonPrimitive(true)) return
         val scope = scope(context)
         val id = (receipt["receipt_id"] as? JsonPrimitive)?.contentOrNull ?: return
         val key = "engineering:$scope:$id"

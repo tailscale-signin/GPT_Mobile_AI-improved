@@ -32,7 +32,11 @@ class GitHubReplayRecoveryTest {
         assertEquals("SAVED_VIEW_UNAVAILABLE", foreign.errorCode)
         assertFalse(foreign.dispatched)
         val wrongOperation = GitHubOperationTool("github_ci", backend, "owner", views = views).execute("wrong-operation", recovery)
-        assertEquals("SAVED_VIEW_UNAVAILABLE", wrongOperation.errorCode)
+        assertEquals("SAVED_VIEW_WRONG_OPERATION", wrongOperation.errorCode)
+        assertFalse(wrongOperation.dispatched)
+        val correction = (wrongOperation.content as ToolResultContent.Json).value.jsonObject["correction_call"]!!.jsonObject
+        assertEquals(JsonPrimitive("github_release"), correction["tool"])
+        assertEquals(recovery["view_cursor"], correction["arguments"]!!.jsonObject["view_cursor"])
         val cursor = recovery["view_cursor"]!!.jsonPrimitive.content.substringBeforeLast(':')
         for (suffix in listOf(":0", ":999999", ":1536:extra")) {
             val result = owner.execute("invalid-$suffix", buildJsonObject { put("view_cursor", cursor + suffix) })

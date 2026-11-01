@@ -35,6 +35,44 @@ class GitHubVerifiedSessionTest {
         override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flowOf(ProviderEvent.TextDelta(text), ProviderEvent.Completed)
     }
 
+    @Test fun isolatedCheckReceiptDoesNotStopRemainingStatusCollection() = runBlocking {
+        val book = GitHubEvidenceBook("binding", "o/r", "main", setOf("github_context"), now = { 1000L })
+        val call = ProviderEvent.ToolCall("checks", "github_context", Json.parseToJsonElement("""{"action":"checks"}""") as JsonObject)
+        book.observe(call, AgentToolResult("checks", ToolResultContent.Text("""{"state":"PASSED","checks":19}"""), false))
+        val provider = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flowOf(
+                ProviderEvent.ToolCall("prs", "github_pr", Json.parseToJsonElement("""{"action":"list"}""") as JsonObject),
+                ProviderEvent.Completed
+            )
+        }
+        val gate = GitHubVerifiedSession(provider, book, "status", { 8000 }, { error("No final answer yet") }, {}, {}, now = { 1000L })
+        val events = gate.streamRound(emptyList(), emptyList()).toList()
+        assertEquals(1, events.filterIsInstance<ProviderEvent.ToolCall>().size)
+        assertTrue(events.filterIsInstance<ProviderEvent.TextDelta>().isEmpty())
+    }
+
+    @Test fun testingReportsUseReceiptsWithoutAnotherModelAndKeepTaskPartial() = runBlocking {
+        val book = GitHubEvidenceBook("binding", "o/r", "main", setOf("github_read"), now = { 1000L })
+        val call = ProviderEvent.ToolCall("read", "github_read", Json.parseToJsonElement("""{"commit_sha":"${"a".repeat(40)}","ranges":[{"path":"Test.kt","start_line":1,"end_line":5}]}""") as JsonObject)
+        book.observe(call, AgentToolResult("read", ToolResultContent.Text("test source"), false))
+        val session = GitHubVerifiedSession(
+            answer("all tests passed"),
+            book,
+            "test all functionality",
+            { 8000 },
+            { error("Deterministic coverage must not call the extraction model") },
+            {},
+            {},
+            now = { 1000L }
+        )
+        val events = session.streamRound(emptyList(), emptyList()).toList()
+        val text = events.filterIsInstance<ProviderEvent.TextDelta>().single().text
+        assertTrue(text.contains("partial verification"))
+        assertTrue(text.contains("github_read / source read"))
+        assertFalse(text.contains("all tests passed"))
+        assertTrue(events.last() is ProviderEvent.Completed)
+    }
+
     @Test fun offlineProviderKeepsItsConnectionErrorInsteadOfBecomingAVerificationError() = kotlinx.coroutines.runBlocking {
         val provider = object : dev.chungjungsoo.gptmobile.data.agent.AgentProviderSession {
             override fun streamRound(tools: List<dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition>, exchanges: List<dev.chungjungsoo.gptmobile.data.agent.AgentToolExchange>) = kotlinx.coroutines.flow.flowOf(dev.chungjungsoo.gptmobile.data.agent.ProviderEvent.Completed)

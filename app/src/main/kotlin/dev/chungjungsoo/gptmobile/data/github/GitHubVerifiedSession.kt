@@ -36,7 +36,10 @@ internal class GitHubVerifiedSession(
         exchanges.forEach { exchange -> exchange.results.forEach { result -> exchange.calls.firstOrNull { it.callId == result.callId }?.let { evidence.observe(it, result) } } }
         if (GitHubStatusRequest.matches(task)) {
             val (receipts, epoch) = evidence.snapshot()
-            if (GitHubEvidencePolicy.status(receipts, now(), epoch) != null) {
+            val hasStatusSnapshot = receipts.values.any { receipt ->
+                (receipt["arguments"] as? JsonObject)?.get("action") == kotlinx.serialization.json.JsonPrimitive("status")
+            }
+            if (hasStatusSnapshot && GitHubEvidencePolicy.status(receipts, now(), epoch) != null) {
                 emitAll(publish(null))
                 return@flow
             }
@@ -95,13 +98,20 @@ internal class GitHubVerifiedSession(
             validatePublication()
             val (receipts, epoch) = evidence.snapshot()
             val status = if (GitHubStatusRequest.matches(task)) GitHubEvidencePolicy.status(receipts, now(), epoch) else null
-            val request = if (draft == null || status != null) {
+            val coverage = if (draft != null && GitHubTaskCoverage.matches(task) && GitHubTaskCoverage.rows(receipts).isNotEmpty()) {
+                withContext(computationDispatcher) {
+                    GitHubEvidencePolicy.testing(receipts, now(), epoch, task)
+                }
+            } else {
+                null
+            }
+            val request = if (draft == null || status != null || coverage != null) {
                 null
             } else {
                 progress("Verifying factual claims against exact tool receipts")
                 withContext(computationDispatcher) { verificationRequest(draft, receipts) }
             }
-            val (text, report) = status ?: if (request == null) partial(receipts, epoch) else extract(request, receipts, epoch)
+            val (text, report) = status ?: coverage ?: if (request == null) partial(receipts, epoch) else extract(request, receipts, epoch)
             validatePublication()
             evidence.retainVerdict(report)
             text to (report["partial"] == kotlinx.serialization.json.JsonPrimitive(true))

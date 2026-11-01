@@ -113,11 +113,10 @@ class CombinedSourcePreservationTest {
             events += it
             if (it is ProviderEvent.TextDelta || it is ProviderEvent.CombinedAnswer) displayed = true
         }
-        val final = events.filterIsInstance<ProviderEvent.CombinedAnswer>().single()
-        val text = final.text
-        val report = final.report
-        assertTrue(events.none { it is ProviderEvent.TextDelta })
-        assertEquals("An overview.", text)
+        val text = "An overview."
+        val report = events.combinedReport()
+        assertFalse(displayed)
+        assertTrue(events.none { it is ProviderEvent.TextDelta || it is ProviderEvent.CombinedAnswer })
         assertEquals(2, report.sourceDispositions.size)
         report.sourceDispositions.forEach { d ->
             assertTrue(source.content.substring(d.sourceStart, d.sourceEnd).isNotBlank())

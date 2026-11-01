@@ -62,6 +62,8 @@ internal object DebugExportBundle {
             )
             put("journalAvailability", captureSummary.getValue("availability"))
             put("journalCapture", captureSummary)
+            put("activeRunIds", (root["capture"] as? JsonObject)?.get("activeRunIds") ?: JsonArray(emptyList()))
+            put("completionState", "Inspect activeRunIds and retained run terminal statuses; answer text alone is not completion")
             put("buildIdentity", JsonObject(root.filterKeys { it in setOf("version", "build", "appCommit", "nativeRuntimeCommit", "buildVariant", "package") }))
             put("dataScopes", root["dataScopes"] ?: JsonObject(emptyMap()))
             put(

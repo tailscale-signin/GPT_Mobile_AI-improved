@@ -105,6 +105,8 @@ internal class LocalResearchWorkflow(
             )
         }
         fun budgetLimitNote(result: AgentToolResult): String = when {
+            result.combinedWorkBudgetExhausted -> (result.content as? ToolResultContent.Text)?.text
+                ?: "The Combined work allowance was reached; use retained evidence."
             result.toolCallBudgetExhausted -> {
                 val usage = if (result.toolCallBudgetUsed != null && result.toolCallBudgetLimit != null) {
                     " (${result.toolCallBudgetUsed}/${result.toolCallBudgetLimit} executable calls used)"
@@ -143,7 +145,7 @@ internal class LocalResearchWorkflow(
             return try {
                 tool.tool.execute("$callId:$suffix", arguments).also { result ->
                     rawBytes += result.content.researchText().toByteArray().size
-                    if (result.toolCallBudgetExhausted || result.outputBudgetExhausted) {
+                    if (result.combinedWorkBudgetExhausted || result.toolCallBudgetExhausted || result.outputBudgetExhausted) {
                         toolsExhausted = true
                         notes += budgetLimitNote(result)
                     }
@@ -325,7 +327,7 @@ internal class LocalResearchWorkflow(
                                         null
                                     }
                                     response?.let { budgeted ->
-                                        if (budgeted.toolCallBudgetExhausted || budgeted.outputBudgetExhausted) {
+                                        if (budgeted.combinedWorkBudgetExhausted || budgeted.toolCallBudgetExhausted || budgeted.outputBudgetExhausted) {
                                             toolsExhausted = true
                                             notes += budgetLimitNote(budgeted)
                                         }

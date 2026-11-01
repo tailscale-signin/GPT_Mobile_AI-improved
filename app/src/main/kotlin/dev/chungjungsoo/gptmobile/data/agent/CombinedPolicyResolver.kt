@@ -22,7 +22,7 @@ object CombinedPolicyResolver {
         require(settings.isSupported) { "This conversation uses a newer Combined settings version." }
         val append = singlePass && settings.continueLongAnswers
         require(!append || appendFeatureEnabled) { "COMBINED_APPEND_UNAVAILABLE: Continue long answers is unavailable in this build. Saved strict turns remain unchanged." }
-        val participants = participantUids.filter(String::isNotBlank).distinct()
+        val participants = CombinedRequestScope.participants(userPrompt, participantUids.filter(String::isNotBlank).distinct(), preferredOwnerUid, settings.adaptiveContributors && CombinedSynthesisPreferences.from(settings).sourceDiversity < 100, acceptedResearch != null)
         require(participants.isNotEmpty()) { "Select at least one Combined participant." }
         val requested = CombinedRequestedPolicy(
             version = if (append) 2 else 1,
@@ -72,7 +72,7 @@ object CombinedPolicyResolver {
         val defaultFinal = (listOf(700, 1400, 2500, 5000, 12_000)[stop].toLong() * (50L + detail) / 100L).coerceIn(256, Int.MAX_VALUE.toLong()).toInt()
         val explicitWords = Regex("(?i)\\b(?:exactly\\s+|about\\s+|approximately\\s+)?(\\d{1,7})[ -]+words?\\b")
             .find(requested.userPrompt)?.groupValues?.get(1)?.toLongOrNull()
-        val visibleGuide = explicitWords?.let { (it * 2L + 128).coerceAtMost(Int.MAX_VALUE.toLong()) } ?: defaultFinal.toLong()
+        val visibleGuide = explicitWords?.let { (it * 2L + 128).coerceAtMost(Int.MAX_VALUE.toLong()) } ?: CombinedRequestScope.defaultMaximumWords(requested.userPrompt)?.let { it * 2L + 128 } ?: defaultFinal.toLong()
         // PASSAGES_V3 includes decision and framing records in the provider output cap.
         // This capacity never changes the visible word contract or an explicit caller cap.
         val recordAllowance = maxOf(512L, visibleGuide / 3) + minOf(1024L, (requested.acceptedResearch?.sourceGoal ?: 0L) * 64L)

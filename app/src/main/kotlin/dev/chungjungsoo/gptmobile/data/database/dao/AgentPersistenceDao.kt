@@ -463,7 +463,13 @@ interface AgentPersistenceDao :
         val run = recoveryRun(runId) ?: return null
         if (run.status !in setOf("FAILED", "INTERRUPTED", "CANCELED")) return null
         val current = recoveryMessage(run.assistantMessageId) ?: return null
-        if (current.currentRunId != runId || current.ownershipFence != run.ownershipFence || current.content.isNotBlank() || current.revisions.getOrNull(current.activeRevisionIndex)?.content?.isNotBlank() == true) return current
+        if (current.currentRunId != runId || current.ownershipFence != run.ownershipFence || current.content.isNotBlank()) return current
+        val selected = current.revisions.getOrNull(current.activeRevisionIndex)
+        val assessment = current.timeline.lastOrNull { it.combinedQuality != null }?.combinedQuality
+        val emptyWriter = assessment?.issues?.contains("NO_FINAL_OUTPUT_FROM_WRITER") == true
+        // Keep a previous synthesis selected. A contributor must not masquerade
+        // as the unified answer when the writer returned no answer at all.
+        if (selected?.content?.isNotBlank() == true && (!emptyWriter || selected.runId?.startsWith("combined-synthesis:") == true)) return current
         val raw = run.synthesisSnapshot ?: return current
         if (run.synthesisKey != dev.chungjungsoo.gptmobile.data.research.researchHash(raw)) return current
         val snapshot = runCatching { kotlinx.serialization.json.Json { ignoreUnknownKeys = true }.decodeFromString<dev.chungjungsoo.gptmobile.data.agent.CombinedInputSnapshot>(raw) }.getOrNull() ?: return current
@@ -485,8 +491,26 @@ interface AgentPersistenceDao :
                     dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem(dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType.NOTICE, content = "Saved Combined draft restored. The answer is unfinished and has not passed final checks.", combinedQuality = report)
                 )
             )
+            // Recovery must restore the same prefix used by the retry integrity
+            // check, including when no streaming UI checkpoint was published.
+            preserveCombinedPrefix(restored)
             updateMessage(restored)
             return restored
+        }
+        if (emptyWriter && assessment != null) {
+            val notice = dev.chungjungsoo.gptmobile.data.agent.deterministicCombinedFallback(snapshot.sources, Int.MAX_VALUE, snapshot.answerContract?.maximumWords)
+            if (notice != null && assessment.answerDigest == dev.chungjungsoo.gptmobile.data.research.researchHash(notice)) {
+                dev.chungjungsoo.gptmobile.data.agent.CombinedAnswerPublication.validate(notice, assessment)
+                val restored = current.copy(
+                    content = notice,
+                    activeRevisionIndex = ACTIVE_REVISION_LATEST,
+                    timeline = current.timeline.filter { it.type != dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType.TEXT } +
+                        dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem(dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType.TEXT, content = notice)
+                )
+                preserveCombinedPrefix(restored)
+                updateMessage(restored)
+                return restored
+            }
         }
         val source = snapshot.sources.firstOrNull { it.platformUid == current.platformType && it.content.isNotBlank() } ?: return current
         val existing = current.revisions.indexOfFirst { revision ->

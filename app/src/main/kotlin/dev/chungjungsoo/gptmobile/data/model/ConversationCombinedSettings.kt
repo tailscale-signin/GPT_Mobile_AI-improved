@@ -24,7 +24,8 @@ data class ConversationCombinedSettings(
     val revision: Long = 0,
     val creativity: Float? = null,
     val preservedFields: JsonObject = JsonObject(emptyMap()),
-    val continueLongAnswers: Boolean = true
+    val continueLongAnswers: Boolean = true,
+    val adaptiveContributors: Boolean = true
 ) {
     val isSupported: Boolean get() = schemaVersion in 0..CURRENT_SCHEMA
 
@@ -62,8 +63,9 @@ object ConversationCombinedSettingsSerializer : KSerializer<ConversationCombined
             effort = (objectValue["effort"] as? JsonPrimitive)?.intOrNull ?: 50,
             revision = (objectValue["revision"] as? JsonPrimitive)?.longOrNull ?: 0,
             creativity = (objectValue["creativity"] as? JsonPrimitive)?.floatOrNull,
-            preservedFields = if (version in 0..ConversationCombinedSettings.CURRENT_SCHEMA) JsonObject(objectValue.filterKeys { it !in setOf("schemaVersion", "collectionBias", "effort", "revision", "creativity", "continueLongAnswers") }) else objectValue,
-            continueLongAnswers = (objectValue["continueLongAnswers"] as? JsonPrimitive)?.booleanOrNull ?: false
+            preservedFields = if (version in 0..ConversationCombinedSettings.CURRENT_SCHEMA) JsonObject(objectValue.filterKeys { it !in setOf("schemaVersion", "collectionBias", "effort", "revision", "creativity", "continueLongAnswers", "adaptiveContributors") }) else objectValue,
+            continueLongAnswers = (objectValue["continueLongAnswers"] as? JsonPrimitive)?.booleanOrNull ?: false,
+            adaptiveContributors = (objectValue["adaptiveContributors"] as? JsonPrimitive)?.booleanOrNull ?: false
         ).normalized()
     }
 
@@ -79,7 +81,7 @@ object ConversationCombinedSettingsSerializer : KSerializer<ConversationCombined
                     "effort" to JsonPrimitive(normalized.effort),
                     "revision" to JsonPrimitive(normalized.revision),
                     "creativity" to (normalized.creativity?.let(::JsonPrimitive) ?: kotlinx.serialization.json.JsonNull)
-                ) + if (normalized.continueLongAnswers) mapOf("continueLongAnswers" to JsonPrimitive(true)) else emptyMap()
+                ) + (if (normalized.adaptiveContributors) mapOf("adaptiveContributors" to JsonPrimitive(true)) else emptyMap()) + if (normalized.continueLongAnswers) mapOf("continueLongAnswers" to JsonPrimitive(true)) else emptyMap()
             )
         }
         (encoder as JsonEncoder).encodeJsonElement(payload)

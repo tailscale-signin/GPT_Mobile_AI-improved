@@ -90,17 +90,22 @@ internal object QueuedAnswerRecovery {
             layoutContract = CombinedLayoutContract.fromPrompt(frozen.prompt),
             revisionId = revision,
             researchObligations = CombinedResearchObligation.fromPrompt(frozen.prompt),
+            retainUnfinishedDraft = true,
             repair = { _, _ -> error("A saved remote result cannot authorize another model generation.") }
         )
         var bundle: ProviderEvent.CombinedAnswer? = null
+        var assessment: CombinedQualityReport? = null
         var failure: String? = null
         session.streamRound(emptyList(), emptyList()).collect { event ->
             if (event is ProviderEvent.CombinedAnswer) bundle = event
+            if (event is ProviderEvent.CombinedQuality && event.report.finalAssessment) assessment = event.report
             if (event is ProviderEvent.Failed) failure = event.message
         }
         val final = bundle ?: return QueuedAnswerRecoveryResult(previous, failure = failure ?: "QUEUE_RESULT_EMPTY: No usable answer was recovered from the saved job.", recordCheckpoint = recordCheckpoint)
         CombinedAnswerPublication.validate(final.text, final.report)
-        return QueuedAnswerRecoveryResult(final.text, final.report, failure, recordCheckpoint)
+        val report = assessment?.takeIf { it.answerDigest == final.report.answerDigest && it.revisionId == final.report.revisionId } ?: final.report
+        CombinedAnswerPublication.validate(final.text, report)
+        return QueuedAnswerRecoveryResult(final.text, report, failure, recordCheckpoint)
     }
 
     fun message(previous: MessageV2, recovered: QueuedAnswerRecoveryResult): MessageV2 {
@@ -109,7 +114,12 @@ internal object QueuedAnswerRecovery {
             AssistantTimelineItem(AssistantTimelineItemType.TEXT, content = recovered.text),
             AssistantTimelineItem(AssistantTimelineItemType.NOTICE, generation = GenerationReceipt(finishReason = "queue_complete")),
             AssistantTimelineItem(AssistantTimelineItemType.NOTICE, content = "The saved remote answer was imported without resubmitting the job.")
-        ) + listOfNotNull(recovered.report?.let { AssistantTimelineItem(AssistantTimelineItemType.NOTICE, combinedQuality = it) })
+        ) + listOfNotNull(
+            recovered.report?.let {
+                val displayReport = if (it.complete) it else CombinedCommittedDraft.fromFinal(recovered.text, it)
+                AssistantTimelineItem(AssistantTimelineItemType.NOTICE, combinedQuality = displayReport)
+            }
+        )
         return previous.copy(content = recovered.text, timeline = timeline)
     }
 

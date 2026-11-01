@@ -246,7 +246,7 @@ internal class MultiCrawlerTool(
             domainTurn(uri.host)
             val result = robotsReader.execute(callId, buildJsonObject { put("url", "$origin/robots.txt") })
             if (result.isError) {
-                if (result.toolCallBudgetExhausted || result.outputBudgetExhausted || result.errorCode?.contains("BUDGET_EXHAUSTED") == true) error("BUDGET_EXHAUSTED")
+                if (result.combinedWorkBudgetExhausted || result.toolCallBudgetExhausted || result.outputBudgetExhausted || result.errorCode?.contains("BUDGET_EXHAUSTED") == true) error("BUDGET_EXHAUSTED")
                 if (!result.content.toString().contains("HTTP 404")) return false
                 ""
             } else {

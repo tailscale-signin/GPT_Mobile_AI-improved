@@ -171,7 +171,7 @@ class ToolExecutionBudget(
                             val attemptId = "tool:${executionContext.role}:${executionContext.profileUid}:$statisticsRoot:$physicalIdentity"
                             val effectFingerprint = if (replayableRead || CombinedToolWork.isInspection(tool.definition) || AgentToolCapability.WEB_SEARCH in tool.definition.capabilities) null else combinedDigest(statisticsIdentity.key + ":" + dev.chungjungsoo.gptmobile.data.permissions.ScopedToolGrant.canonicalHash(arguments))
                             when (val admission = budget.reserve(requireNotNull(physicalContext), attemptId, CombinedResourceQuota(toolOperations = workUnits), effectFingerprint = effectFingerprint)) {
-                                is CombinedBudgetAdmission.Denied -> return failure(admission.reason).copy(toolCallBudgetExhausted = true)
+                                is CombinedBudgetAdmission.Denied -> return failure("Combined work allowance exhausted: ${admission.reason}. The configured tool-call limit was not the cause; use retained evidence.").copy(combinedWorkBudgetExhausted = true)
                                 is CombinedBudgetAdmission.Granted -> {
                                     sharedBudget = budget
                                     reservationId = attemptId
@@ -283,7 +283,7 @@ class ToolExecutionBudget(
                     throw cancellation
                 } catch (error: CombinedBudgetExceeded) {
                     reason = "COMBINED_BUDGET_EXHAUSTED"
-                    return@execution failure(error.reason).copy(toolCallBudgetExhausted = true)
+                    return@execution failure("Combined work allowance exhausted: ${error.reason}. Use retained evidence.").copy(combinedWorkBudgetExhausted = true)
                 } catch (rejected: dev.chungjungsoo.gptmobile.data.permissions.ToolAuthorizationRejected) {
                     // A deterministic refusal proves the child did not dispatch. It is
                     // neither an unknown write nor a provider reliability failure.

@@ -82,6 +82,19 @@ internal object CombinedFinalCheck {
     ): CombinedFinalAssessment {
         val checks = mutableListOf<CombinedAnswerCheck>()
         checks += duplicateStructureChecks(answer)
+        // Match a global retrieval statement, not an attributed contributor's
+        // failure ("Profile A could not retrieve any sources").
+        val sourceDenial = Regex("(?i)^(?:(?:I|we|the synthesis)\\s+)?(?:no (?:live |external |online )?sources? (?:were |was )?(?:retriev\\w*|available)|(?:could not|unable to) (?:retrieve|access|find) any (?:live |external )?sources?)")
+        val deniesSources = sentencesWithSpans(answer).any { (text, _) -> sourceDenial.containsMatchIn(text.trim()) }
+        if (deniesSources && evidence.records.any { it.retainedExcerpts.any { excerpt -> excerpt.readable } }) {
+            checks += CombinedAnswerCheck(
+                "SOURCE_STATUS_CONTRADICTS_EVIDENCE",
+                "EVIDENCE",
+                "FAIL",
+                material = true,
+                message = "Describe retrieval per source; a URL alone does not establish successful retrieval."
+            )
+        }
         val receipts = mutableListOf<CombinedVerificationReceipt>()
         val edges = mutableListOf<CombinedSupportEdge>()
         val needs = mutableListOf<CombinedVerificationNeed>()
@@ -275,14 +288,15 @@ internal object CombinedFinalCheck {
         if (policy.requestedLanguage != null) checks += CombinedAnswerCheck("LANGUAGE:${policy.requestedLanguage}", "REQUEST", "NEEDS_REVIEW", message = "Requested language is preserved in the frozen contract; deterministic lexical checks do not certify language")
         val finalConflicts = CombinedConflictDetector.scan(listOf(CombinedModelResponse("final", "Final", content = answer)))
         finalConflicts.candidates.forEach { conflict ->
-            // Reporting a disagreement is legitimate. A conflict cue remains a review need, not an automatic fact correction.
-            val explained = Regex("(?i)\\b(?:conflict|disagree|disputed|contradict|uncertain|unresolved|whereas|however|although|reported|claimed)\\b").containsMatchIn(conflict.leftText + " " + conflict.rightText)
+            // Explicitly qualified disagreements are legitimate. Unresolved aligned
+            // conflicts block checked publication without inventing a factual correction.
+            val explained = Regex("(?i)\\b(?:conflict|disagree|disputed|contradict|uncertain|unresolved|regional|varies|exceptions)\\b").containsMatchIn(conflict.leftText + " " + conflict.rightText)
             if (!explained) {
-                checks += CombinedAnswerCheck("FINAL_ALIGNED_CONFLICT:${conflict.leftClaimId}:${conflict.rightClaimId}", "CONFLICT", "NEEDS_VERIFICATION", message = conflict.kind)
+                checks += CombinedAnswerCheck("FINAL_ALIGNED_CONFLICT:${conflict.leftClaimId}:${conflict.rightClaimId}", "CONFLICT", "FAIL", material = true, message = conflict.kind)
                 needs += CombinedVerificationNeed(conflict.leftClaimId, conflict.leftText + "\n" + conflict.rightText, "Resolve the aligned ${conflict.kind.lowercase()} conflict in the draft")
             }
         }
-        if (!finalConflicts.complete) checks += CombinedAnswerCheck("CONFLICT_SCAN_INCOMPLETE", "CONFLICT", "NEEDS_VERIFICATION")
+        if (!finalConflicts.complete) checks += CombinedAnswerCheck("CONFLICT_SCAN_INCOMPLETE", "CONFLICT", "FAIL", material = true)
         return CombinedFinalAssessment(checks.distinctBy { it.id }, reviewed, receipts, edges.distinctBy { it.id }, needs.distinctBy { it.proposition to it.reason })
     }
 }

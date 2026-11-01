@@ -540,7 +540,7 @@ internal class AndroidResearchWorkflow(
         }
         val sourceIds = returnedIds.distinct()
         val outcome = when {
-            result.toolCallBudgetExhausted || result.outputBudgetExhausted -> ToolOutcome.BUDGET_EXHAUSTED
+            result.combinedWorkBudgetExhausted || result.toolCallBudgetExhausted || result.outputBudgetExhausted -> ToolOutcome.BUDGET_EXHAUSTED
             result.isError && isAuthFailure(result) -> ToolOutcome.AUTH_FAILED
             result.isError && isRateLimit(result) -> ToolOutcome.RATE_LIMITED
             result.isError -> ToolOutcome.FAILED
@@ -707,7 +707,7 @@ internal class AndroidResearchWorkflow(
     private fun account(result: AgentToolResult?) {
         if (result == null) return
         rawBytes = (rawBytes.toLong() + result.content.researchText().toByteArray().size).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
-        if (result.toolCallBudgetExhausted || result.outputBudgetExhausted) acquisitionExhausted = true
+        if (result.combinedWorkBudgetExhausted || result.toolCallBudgetExhausted || result.outputBudgetExhausted) acquisitionExhausted = true
     }
 
     private val expandedPapers = mutableSetOf<String>()
@@ -832,7 +832,7 @@ internal class AndroidResearchWorkflow(
                         "Abstract"
                     } else if (readable) {
                         "Partially read"
-                    } else if (result == null || result.toolCallBudgetExhausted || result.outputBudgetExhausted) {
+                    } else if (result == null || result.combinedWorkBudgetExhausted || result.toolCallBudgetExhausted || result.outputBudgetExhausted) {
                         "Deferred"
                     } else {
                         "Failed"
@@ -891,7 +891,7 @@ internal class AndroidResearchWorkflow(
             val status = when {
                 !allowed -> "Blocked"
                 result?.blockedPage() == true || access in setOf(ResearchAccessDisposition.CHALLENGE, ResearchAccessDisposition.AUTH_REQUIRED) -> "Blocked"
-                result == null || result.hasDnsFailure() || result.toolCallBudgetExhausted || result.outputBudgetExhausted -> "Deferred"
+                result == null || result.hasDnsFailure() || result.combinedWorkBudgetExhausted || result.toolCallBudgetExhausted || result.outputBudgetExhausted -> "Deferred"
                 !valid -> "Failed"
                 access == ResearchAccessDisposition.PREVIEW || passage != text || (payload as? JsonObject)?.get("truncated") == JsonPrimitive(true) -> "Partially read"
                 else -> "Read"
@@ -1023,7 +1023,7 @@ internal class AndroidResearchWorkflow(
                             // An explicit target-site denial is terminal for this page.
                             // Do not switch providers to retrieve it after access was refused.
                             if (last?.isError == true && readOutcome == ToolOutcome.BLOCKED) break
-                            if (last?.toolCallBudgetExhausted == true || last?.outputBudgetExhausted == true) break
+                            if (last?.combinedWorkBudgetExhausted == true || last?.toolCallBudgetExhausted == true || last?.outputBudgetExhausted == true) break
                             val text = last?.takeUnless { it.isError }?.pageEvidenceText().orEmpty()
                             if (text.length >= 80 && !looksLikeConsentOrScriptShell(text)) break
                         }

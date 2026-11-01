@@ -14,7 +14,7 @@ import kotlinx.serialization.json.Json
 internal object CombinedRecoverySnapshot {
     private val json = Json { ignoreUnknownKeys = true }
 
-    fun prepare(run: AgentRun, message: MessageV2, primaryUid: String?, platform: PlatformV2, segments: List<AnswerSegment>, providerWait: Boolean = false): CombinedInputSnapshot {
+    fun prepare(run: AgentRun, message: MessageV2, primaryUid: String?, platform: PlatformV2, segments: List<AnswerSegment>, providerWait: Boolean = false, durableRecordAnswer: String? = null): CombinedInputSnapshot {
         require(run.runId.startsWith("combined-synthesis:") && (run.status in setOf("COMPLETED", "FAILED", "CANCELED", "INTERRUPTED") || providerWait && run.status == "WAITING_PROVIDER_LIMIT")) { "The Combined writer is still active." }
         require(message.currentRunId == run.runId && message.ownershipFence == run.ownershipFence && message.id == run.assistantMessageId && message.chatId == run.chatId) { "The saved answer owner changed." }
         require(CombinedRecoveryFailure.retained(message.copy(activeRevisionIndex = dev.chungjungsoo.gptmobile.data.database.entity.ACTIVE_REVISION_LATEST), run.terminalError)?.category != CombinedRecoveryCategory.REQUIREMENTS_UNMET) {
@@ -53,7 +53,8 @@ internal object CombinedRecoverySnapshot {
             ""
         } else {
             AnswerSegmentChain.text(segments, run.runId, run.ownershipFence).also {
-                require(it == message.content) { "The saved answer and committed segments disagree; the answer was not replaced." }
+                val structuredCheckpointMatches = snapshot.deliveryProtocol == "PASSAGES_V3" && durableRecordAnswer == message.content
+                require(it == message.content || structuredCheckpointMatches) { "The saved answer and committed segments disagree; the answer was not replaced." }
             }
         }
         // Structured delivery is a complete new revision. Verify the archived prefix but do not

@@ -75,7 +75,7 @@ internal class SearchCrawlStage(
             } catch (_: Exception) {
                 null
             } ?: continue
-            if (result.toolCallBudgetExhausted || result.outputBudgetExhausted) break
+            if (result.combinedWorkBudgetExhausted || result.toolCallBudgetExhausted || result.outputBudgetExhausted) break
             if (result.isError) {
                 if (Regex("(?i)HTTP (401|403)|CHALLENGE|CAPTCHA|AUTH_REQUIRED|ROBOTS_DENIED|SOURCE_ACCESS_BLOCKED|unsafe DNS|outside allowed domain").containsMatchIn(result.errorCode.orEmpty() + result.content.toString())) break
                 continue

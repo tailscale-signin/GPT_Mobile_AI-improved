@@ -5348,7 +5348,15 @@ class ChatRepositoryImpl(
             }
             return@withContext next
         }
-        dev.chungjungsoo.gptmobile.data.agent.CombinedRecoverySnapshot.prepare(run, message, room.combinedPrimaryUid ?: room.activePlatform.firstOrNull(), acceptedProfile, agentPersistenceDao.answerSegments(runId))
+        val durableRecordAnswer = if (saved.deliveryProtocol == "PASSAGES_V3") {
+            agentPersistenceDao.combinedDeliveryCheckpoint(runId, saved.liveRevisionId(runId))?.renderedAnswer
+        } else {
+            null
+        }
+        dev.chungjungsoo.gptmobile.data.agent.CombinedRecoverySnapshot.prepare(
+            run, message, room.combinedPrimaryUid ?: room.activePlatform.firstOrNull(), acceptedProfile,
+            agentPersistenceDao.answerSegments(runId), durableRecordAnswer = durableRecordAnswer
+        )
     }
 
     override suspend fun prepareCombinedAppendResume(runId: String, platform: PlatformV2, decision: dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision): dev.chungjungsoo.gptmobile.data.agent.CombinedInputSnapshot? = withContext(Dispatchers.IO) {
@@ -5364,7 +5372,10 @@ class ChatRepositoryImpl(
         requireNotNull(saved.writerRequestPlan).validateProfile(acceptedProfile)
         val budget = combinedBudgets.open(requireNotNull(saved.combined)).snapshot()
         require(!budget.closed && !budget.cancelled) { "Combined turn is cancelled or closed." }
-        dev.chungjungsoo.gptmobile.data.agent.CombinedRecoverySnapshot.prepare(run, message, room.combinedPrimaryUid ?: room.activePlatform.firstOrNull(), acceptedProfile, agentPersistenceDao.answerSegments(runId), providerWait = true)
+        dev.chungjungsoo.gptmobile.data.agent.CombinedRecoverySnapshot.prepare(
+            run, message, room.combinedPrimaryUid ?: room.activePlatform.firstOrNull(), acceptedProfile,
+            agentPersistenceDao.answerSegments(runId), providerWait = true, durableRecordAnswer = checkpoint.renderedAnswer
+        )
     }
 
     override suspend fun fetchDebugRecords(chatId: Int): kotlinx.serialization.json.JsonObject = withContext(Dispatchers.IO) {

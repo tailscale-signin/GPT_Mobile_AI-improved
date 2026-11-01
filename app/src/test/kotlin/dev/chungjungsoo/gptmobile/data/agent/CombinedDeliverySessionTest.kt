@@ -17,7 +17,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CombinedDeliverySessionTest {
-    @Test fun failedOrUnterminatedRepairCannotReplaceCompletedOriginal() = runTest {
+    @Test fun failedOrUnterminatedRepairCannotPublishAnUncheckedAnswerAsFinal() = runTest {
         val original = "Original. ".repeat(20)
         for (terminal in listOf<ProviderEvent?>(ProviderEvent.Failed("timeout"), null)) {
             val repair = object : AgentProviderSession {
@@ -28,8 +28,11 @@ class CombinedDeliverySessionTest {
             }
             val wrapper = CombinedDeliverySession(session(original), sources, 10000, validateAccess = {}, originalRequest = "One fact under 10 words") { _, _ -> repair }
             val events = wrapper.streamRound(emptyList(), emptyList()).toList()
-            assertTrue(events.answer().isEmpty())
+            assertEquals(original, events.answer())
             assertFalse(events.quality().complete)
+            val draft = events.filterIsInstance<ProviderEvent.CombinedAnswer>().last().report
+            assertFalse(draft.finalAssessment)
+            assertEquals(CombinedCommittedDraft.STAGE, draft.assessmentStage)
             assertEquals(0, events.quality().repairAccepted)
             assertTrue(events.last() is ProviderEvent.Failed)
         }
@@ -207,13 +210,14 @@ class CombinedDeliverySessionTest {
         assertTrue(runCatching { wrapper.streamRound(emptyList(), emptyList()).collect { throw failure } }.exceptionOrNull() === failure)
     }
 
-    @Test fun providerFailureWithholdsUncheckedTextAndReportsInterruptedQuality() = runTest {
+    @Test fun providerFailureRetainsTextAsAnUncheckedDraftAndReportsInterruptedQuality() = runTest {
         val wrapper = CombinedDeliverySession(session("Partial answer.", ProviderEvent.Failed("Disconnected")), sources, 10000, validateAccess = {}) { _, _ -> error("No repair") }
         val events = wrapper.streamRound(emptyList(), emptyList()).toList()
-        assertEquals("", events.answer())
+        assertEquals("Partial answer.", events.answer())
         assertFalse(events.quality().complete)
         assertEquals("Partial answer.".length, events.quality().writerCharacters)
         assertEquals("INTERRUPTED", events.quality().status)
+        assertFalse(events.filterIsInstance<ProviderEvent.CombinedAnswer>().last().report.finalAssessment)
         assertTrue(events.last() is ProviderEvent.Failed)
     }
 

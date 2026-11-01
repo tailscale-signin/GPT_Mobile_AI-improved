@@ -536,6 +536,11 @@ internal class CombinedDeliverySession(
             emit(ProviderEvent.CombinedAnswer(accepted.text, finalReport))
         } else {
             emit(ProviderEvent.CombinedQuality(finalReport))
+            if (accepted.text.isNotBlank()) {
+                // Retain useful text as a visibly unfinished draft. It cannot satisfy
+                // the checked-final publication contract or complete the synthesis run.
+                emit(ProviderEvent.CombinedAnswer(accepted.text, CombinedCommittedDraft.fromFinal(accepted.text, finalReport)))
+            }
         }
         if (finalReport.issues.contains("HISTORICAL_PERIOD_COVERAGE_INCOMPLETE")) {
             emit(ProviderEvent.Notice("The retained historical survey is missing required periods. It remains a partial draft until those sections are completed and checked.", persistent = true))

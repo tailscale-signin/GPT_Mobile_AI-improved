@@ -93,5 +93,25 @@
       "4e69b6c4ef05685f3849efc2a68496e739b6aec7: reject partial GitHub publication when no retained evidence exists."
     ],
     "validation": "Fresh exact-revision CI is required; older, cancelled, failed or superseded runs do not count."
+  },
+  "ci_repair_round_2": {
+    "failed_head": "61e161fbf7bc82aca307b9d4c6efd46b13f75b94",
+    "observed": [
+      "GitHub evidence-policy regressions rejected explicit partial answers after extraction, formatter or terminal retained-response failures because the empty-evidence guard was broader than the oversized-request case.",
+      "GitHub progress summary semantics did not move downward because the IntOffset lambda overload applied a layer translation instead of layout placement."
+    ],
+    "failing_tests": [
+      "GitHubEvidencePolicyTest.providerFailureStillReturnsAnExplicitPartialAnswerWithoutPublishingItsDraft",
+      "GitHubEvidencePolicyTest.revokedPermissionBlocksWhileMalformedExtractionPublishesOnlyPartialEvidence",
+      "GitHubEvidencePolicyTest.stalledExtractorHasABoundedDeadlineAndReturnsPartialEvidence",
+      "GitHubVerificationRecoveryTest.supportedPartialAnswerCompletesPresentationAndPreservesOriginalTask",
+      "GitHubLiveProgressTest.repeatedSummaryStillEntersDownwardAfterOlderRowsAreTrimmed",
+      "GitHubLiveProgressTest.summaryIsWhiteAbovePreviewAndOnlyTheNewestBottomLineAnimates"
+    ],
+    "commits": [
+      "bf82434f69626935886cd783a9030361a3b5fba5: scope empty-evidence rejection to oversized draft/request construction without receipts while retaining explicit partial recovery answers.",
+      "630d014ebc2572d48903cee0c9ce4a89b8669622: use the Dp offset overload so the 300 ms downward summary entrance changes layout and semantic bounds."
+    ],
+    "validation": "The checkpoint commit becomes the final candidate revision. All applicable workflows must complete for that exact head; older, skipped-required, cancelled, failed, pending or superseded runs do not count."
   }
 }

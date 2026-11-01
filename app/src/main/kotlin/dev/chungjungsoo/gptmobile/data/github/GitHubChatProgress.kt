@@ -60,6 +60,8 @@ internal class GitHubChatProgress(task: String = "") {
     companion object {
         const val HEARTBEAT_MILLIS = 20_000L
         private fun currentActivity(name: String): String = when (name.substringBefore("__")) {
+            "web_search" -> "Searching the internet for relevant information."
+            "fetch_webpage" -> "Reading the relevant web page."
             "github_search" -> "Searching for the code and files related to the task."
             "github_read" -> "Reading the relevant source files."
             "github_context" -> "Checking the repository, branch and available evidence."
@@ -76,6 +78,7 @@ internal class GitHubChatProgress(task: String = "") {
                 name == "github_decide" && !failed -> "Your choice is saved. Continuing with your direction."
                 failed -> "A step needs attention. Checking how to continue."
                 shared -> "Using the information already gathered."
+                name in setOf("web_search", "fetch_webpage") -> "Web information is ready to review."
                 name in setOf("github_read", "github_search", "github_context") -> "Repository information is ready to review."
                 name in setOf("github_write", "github_stage_patch") -> "The change request has a result to review."
                 name == "github_ci" || name == "github_watch_checks" -> "Checking the latest build and test results."

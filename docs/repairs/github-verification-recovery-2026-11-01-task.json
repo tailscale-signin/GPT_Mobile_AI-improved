@@ -69,5 +69,16 @@
       "timeout_regression": "Fixed asynchronous process-state assertion; 15 repeated timeout regressions passed"
     },
     "integrated_parent_sha": "fe51ccf1a08602f0760a9e8176327ccf87dfc884"
+  },
+  "preview_icon_follow_up": {
+    "base_sha": "22f7ecd489009d85e069c4f3d871f973ec0456b0",
+    "intent": "Add process-matched outline icons to every GitHub preview line, aligned to the left and sharing preview color, opacity, fade and newest-row gradient.",
+    "status": "implemented_pending_android_ci",
+    "checks": {
+      "host_preflight": "passed (285 Python tests plus policy, resource, regex and whitespace checks)",
+      "focused_kotlin_host": "passed (79 tests with platform/backend boundary stubs)",
+      "formatting": "ktlint 1.3.1 passed, including new preview composable",
+      "android_ui_tests": "added icon count, activity selection, leading alignment, vertical centering and decorative accessibility assertions; awaiting Android CI"
+    }
   }
 }

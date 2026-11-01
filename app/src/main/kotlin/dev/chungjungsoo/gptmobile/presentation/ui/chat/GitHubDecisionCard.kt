@@ -31,7 +31,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.testTag
@@ -98,7 +97,6 @@ internal fun GitHubDecisionCard(decision: GitHubChatDecision, waiting: Boolean, 
 
 @Composable
 internal fun GitHubLiveProgressCard(timeline: List<dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem>, task: String = "") {
-    val colors = MaterialTheme.colorScheme
     val lines = timeline.filter { it.progressCheckpoint && it.content.isNotBlank() }
     val latestPreview = lines.lastIndex.takeIf { it >= 0 && !lines[it].statusSummary } ?: -1
     val motion = rememberGitHubProgressMotion(latestPreview >= 0)
@@ -112,38 +110,7 @@ internal fun GitHubLiveProgressCard(timeline: List<dev.chungjungsoo.gptmobile.da
                 if (item.statusSummary) {
                     GitHubActivitySummary(item.content)
                 } else {
-                    val opacity = remember { Animatable(0f) }
-                    LaunchedEffect(Unit) { opacity.animateTo(1f, tween(1500)) }
-                    val latest = index == latestPreview
-                    val previewColor = colors.onSurface.copy(alpha = 0.5f)
-                    Text(
-                        dev.chungjungsoo.gptmobile.data.github.GitHubProgressPresentation.preview(item.content).replace(Regex("\\s+"), " "),
-                        modifier = Modifier.testTag(if (latest) "github_latest_preview" else "github_previous_preview")
-                            .graphicsLayer {
-                                alpha = opacity.value
-                                compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen
-                            }
-                            .then(
-                                if (latest) {
-                                    Modifier.drawWithCache {
-                                        onDrawWithContent {
-                                            drawContent()
-                                            drawRect(
-                                                githubProgressBrush(size.width, motion.value, previewColor.copy(alpha = 1f), colors.primary),
-                                                blendMode = androidx.compose.ui.graphics.BlendMode.SrcIn
-                                            )
-                                        }
-                                    }
-                                } else {
-                                    Modifier
-                                }
-                            ),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = previewColor,
-                        maxLines = 1,
-                        softWrap = false,
-                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
-                    )
+                    GitHubActivityPreview(item.content, latest = index == latestPreview, motion = motion)
                 }
             }
         }

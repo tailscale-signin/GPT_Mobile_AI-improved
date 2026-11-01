@@ -16,6 +16,16 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubChatProgressTest {
+    @Test fun webToolActivityKeepsTheGlobeHintThroughCompletion() = kotlinx.coroutines.test.runTest {
+        for (tool in listOf("web_search__connection", "fetch_webpage")) {
+            val progress = GitHubChatProgress("Investigate the issue")
+            progress.observe(ApiState.GatewayProgressChanged(GatewayProgress(event = "tool_started", toolName = tool)))
+            val preview = progress.updates().take(2).toList().last().preview.orEmpty()
+            assertEquals(GitHubProgressPresentation.PreviewKind.WEB, GitHubProgressPresentation.previewKind(preview))
+            assertEquals(GitHubProgressPresentation.PreviewKind.WEB, GitHubProgressPresentation.previewKind(GitHubChatProgress.milestone(tool, false, false)))
+        }
+    }
+
     @Test fun progressNeverEchoesTaskReasoningOrGatewayDiagnostics() {
         val progress = GitHubChatProgress()
         progress.observe(ApiState.Thinking("private reasoning must never appear in the public status"))

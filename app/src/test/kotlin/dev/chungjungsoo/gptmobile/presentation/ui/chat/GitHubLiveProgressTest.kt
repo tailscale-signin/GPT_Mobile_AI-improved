@@ -6,6 +6,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
@@ -71,6 +72,34 @@ class GitHubLiveProgressTest {
         compose.setContent { MaterialTheme { GitHubLiveProgressCard(emptyList(), "status") } }
         compose.onNodeWithText("I’ll check the repository status, current branch, pull requests and latest checks.").assertExists()
         compose.onAllNodesWithTag("github_latest_preview").assertCountEquals(0)
+    }
+
+    @Test fun eachPreviewHasAnOutlineIconInOneAlignedLeadingColumn() {
+        compose.mainClock.autoAdvance = false
+        compose.setContent {
+            MaterialTheme {
+                GitHubLiveProgressCard(
+                    listOf(
+                        line("I’ll inspect the request.", true),
+                        line("Searching the internet for relevant information."),
+                        line("Examining source files."),
+                        line("Waiting for the build checks.")
+                    )
+                )
+            }
+        }
+        compose.mainClock.advanceTimeBy(1600)
+        compose.onAllNodesWithTag("github_preview_row").assertCountEquals(3)
+        val icons = listOf("web", "inspect", "wait").map { compose.onNodeWithTag("github_preview_icon_$it").fetchSemanticsNode() }
+        val previews = compose.onAllNodesWithTag("github_previous_preview").fetchSemanticsNodes() + compose.onNodeWithTag("github_latest_preview").fetchSemanticsNode()
+        icons.zip(previews).forEach { (icon, preview) ->
+            assertTrue(icon.boundsInRoot.right < preview.boundsInRoot.left)
+            assertEquals(icon.boundsInRoot.center.y, preview.boundsInRoot.center.y, 1f)
+            assertEquals(icons.first().boundsInRoot.left, icon.boundsInRoot.left, 0.01f)
+            assertEquals(previews.first().boundsInRoot.left, preview.boundsInRoot.left, 0.01f)
+            assertTrue("Decorative icons do not repeat the spoken activity", !icon.config.contains(SemanticsProperties.ContentDescription))
+        }
+        compose.onAllNodesWithTag("github_latest_preview").assertCountEquals(1)
     }
 
     @Test fun repeatedSummaryStillEntersDownwardAfterOlderRowsAreTrimmed() {

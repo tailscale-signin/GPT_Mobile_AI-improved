@@ -102,7 +102,8 @@ internal fun GitHubChatProgress(workspace: GitHubWorkspaceState, state: GitHubPr
     }
     val activeRuns = state.runs.filter { it.status !in GITHUB_TERMINAL_RUN_STATUSES }
     val activeIds = activeRuns.mapTo(hashSetOf()) { it.runId }
-    val active = workspace.busy || state.submitting || state.pending.any { !it.paused } || activeRuns.isNotEmpty()
+    val generating = state.submitting || state.pending.any { !it.paused } || activeRuns.isNotEmpty()
+    val active = workspace.busy || generating
     val currentTask = (activeRuns.maxByOrNull { it.createdAt } ?: state.runs.maxByOrNull { it.createdAt })?.userMessageId
     val taskRuns = state.runs.filter { it.userMessageId == currentTask }
     val fallbackStart = androidx.compose.runtime.saveable.rememberSaveable(state.chatId, active) { System.currentTimeMillis() }
@@ -122,8 +123,9 @@ internal fun GitHubChatProgress(workspace: GitHubWorkspaceState, state: GitHubPr
         githubPresentation = true,
         statusOverride = when {
             waiting -> state.progressDescription()
-            active -> "Response in progress"
+            generating -> "Response in progress"
             profileNotice != null -> profileNotice
+            workspace.busy -> "Refreshing the repository"
             !active -> state.progressDescription()
             else -> null
         }

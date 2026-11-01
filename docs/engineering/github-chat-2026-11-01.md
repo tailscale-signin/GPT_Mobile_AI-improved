@@ -1,7 +1,7 @@
 # GitHub chat privacy, presentation and diagnostics repair
 
-Repository: `tailscale-signin/GPT_Mobile_AI-improved`  
-Base: `main`, `2109afb8dbfd3e8913ad206c420aeb64bb39c971`  
+Repository: `tailscale-signin/GPT_Mobile_AI-improved`
+Base: `main`, `2109afb8dbfd3e8913ad206c420aeb64bb39c971`
 Branch: `fix/github-chat-privacy-performance-2026-11-01`
 
 ## Evidence and changes

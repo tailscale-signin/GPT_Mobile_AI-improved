@@ -36,14 +36,12 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import dev.chungjungsoo.gptmobile.data.github.GitHubChatDecision
 import dev.chungjungsoo.gptmobile.data.github.GitHubChatPresence
-import kotlin.math.roundToInt
 
 @Composable
 internal fun GitHubDecisionCard(decision: GitHubChatDecision, waiting: Boolean, onAnswer: (Int?, String?) -> Unit, onResume: () -> Unit, onStop: () -> Unit) {
@@ -123,7 +121,6 @@ internal fun GitHubLiveProgressCard(timeline: List<dev.chungjungsoo.gptmobile.da
 private fun GitHubActivitySummary(text: String) {
     val entry = remember { Animatable(0f) }
     LaunchedEffect(Unit) { entry.animateTo(1f, tween(300, easing = androidx.compose.animation.core.LinearEasing)) }
-    val travel = with(androidx.compose.ui.platform.LocalDensity.current) { 6.dp.toPx() }
     Text(
         text,
         style = MaterialTheme.typography.titleSmall,
@@ -131,7 +128,7 @@ private fun GitHubActivitySummary(text: String) {
         maxLines = 4,
         overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
         modifier = Modifier.testTag("github_activity_summary")
-            .offset { IntOffset(0, (-travel * (1f - entry.value)).roundToInt()) }
+            .offset(y = (-6).dp * (1f - entry.value))
             .semantics { liveRegion = androidx.compose.ui.semantics.LiveRegionMode.Polite }
     )
 }

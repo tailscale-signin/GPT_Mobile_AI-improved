@@ -342,8 +342,14 @@ private class StreamingMessageBuffer(
             modelAuthored = chunk.modelAuthored,
             statusSummary = true
         )
-        val existing = timeline.indexOfFirst { it.statusSummary }
-        if (existing < 0) timeline.add(0, item) else timeline[existing] = item
+        if (githubProgress) {
+            if (timeline.any { (it.statusSummary || it.progressCheckpoint) && it.content == item.content }) return
+            timeline += item.copy(statusSummary = false, progressCheckpoint = true)
+            boundGitHubProgress()
+        } else {
+            val existing = timeline.indexOfFirst { it.statusSummary }
+            if (existing < 0) timeline.add(0, item) else timeline[existing] = item
+        }
         timelineVersion++
     }
 
@@ -429,7 +435,7 @@ private class StreamingMessageBuffer(
     fun appendProgress(text: String, modelAuthored: Boolean) {
         flushTimelineText()
         val last = timeline.lastOrNull()
-        if (modelAuthored && last?.progressCheckpoint == true && !last.statusSummary) {
+        if (modelAuthored && last?.progressCheckpoint == true && (!githubProgress || last.modelAuthored) && !last.statusSummary) {
             val combined = (if (last.modelAuthored) last.content else "") + text
             timeline[timeline.lastIndex] = last.copy(content = if (githubProgress) combined.takeLast(4000) else combined, modelAuthored = true)
         } else {

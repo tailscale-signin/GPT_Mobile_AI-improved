@@ -396,6 +396,27 @@ class ToolBatchCheckpointTest {
         }
     }
 
+    @Test fun isolatedPersonalContextRejectsSavedArgumentsWithoutErasingDispatchEvidence() = runBlocking {
+        val directory = kotlin.io.path.createTempDirectory("batch-isolation").toFile()
+        val file = File(directory, "batch.json")
+        val call = ProviderEvent.ToolCall("id", "github_write", buildJsonObject { put("body", "derived personal context") })
+        try {
+            val journal = ToolBatchCheckpoint(file, "original-grant")
+            journal.requireFreshPersonalContext()
+            journal.enqueue(listOf(call))
+            journal.execute(call) { AgentToolResult(call.callId, ToolResultContent.Text("written"), false) }
+            journal.finish()
+            val before = file.readBytes()
+            val restored = ToolBatchCheckpoint(file, "original-grant")
+            assertTrue(runCatching { restored.requireFreshPersonalContext() }.isFailure)
+            assertTrue(before.contentEquals(file.readBytes()))
+            assertEquals(1, restored.recoverySnapshot().completedCount)
+            ToolBatchCheckpoint(File(directory, "new-turn.json"), "new-turn").requireFreshPersonalContext()
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
     @Test fun changedCallIdentityAndChangedAuthorizationCannotReuseTheJournal() = runBlocking {
         val directory = kotlin.io.path.createTempDirectory("batch-policy").toFile()
         val file = File(directory, "batch.json")

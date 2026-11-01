@@ -203,7 +203,7 @@ internal fun ToolServiceIcon(definition: ToolServiceDefinition, modifier: Modifi
     }
     Surface(modifier.size(46.dp), shape = RoundedCornerShape(15.dp), color = MaterialTheme.colorScheme.primaryContainer) {
         Box(contentAlignment = Alignment.Center) {
-            val drawable = McpBrandAssets.drawableFor(definition.iconName)
+            val drawable = if (definition.iconName == "github") dev.chungjungsoo.gptmobile.R.drawable.ic_github_outline else McpBrandAssets.drawableFor(definition.iconName)
             if (drawable != null) {
                 Icon(painterResource(drawable), null, Modifier.size(26.dp), tint = MaterialTheme.colorScheme.primary)
             } else {

@@ -170,7 +170,12 @@ internal fun NewChatProfileScreen(
         topBar = {
             Column {
                 CenterAlignedTopAppBar(
-                    title = { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.audit_choose_ai)) },
+                    title = {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Icon(conversationTypeIcon(kind), null, tint = MaterialTheme.colorScheme.primary)
+                            Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.audit_choose_ai))
+                        }
+                    },
                     navigationIcon = {
                         IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") }
                     },

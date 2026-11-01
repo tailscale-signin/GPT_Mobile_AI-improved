@@ -4,6 +4,12 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class GitHubProgressPresentationTest {
+    @Test fun previewHidesInternalExecutionVocabulary() {
+        assertEquals("Reviewing the work and checking the next step.", GitHubProgressPresentation.preview("Validating schema receipt before dispatch"))
+        assertEquals("Reviewing the source files.", GitHubProgressPresentation.preview("Reviewing the source files."))
+        assertEquals("", GitHubProgressPresentation.preview("  "))
+    }
+
     @Test fun heartbeatShowsCurrentActivityWithoutRepeatingItsTaskOrElapsedTime() {
         assertEquals("Checking workflows", GitHubProgressPresentation.activity("Implement the requested change\nChecking workflows · 47s elapsed\nVerified the branch"))
     }

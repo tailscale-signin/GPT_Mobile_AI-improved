@@ -1708,7 +1708,8 @@ class ChatRepositoryImpl(
     private suspend fun preparePersonalDataContext(
         users: List<MessageV2>,
         assistants: List<List<MessageV2>>,
-        chatToolConfig: ChatMcpToolConfig?
+        chatToolConfig: ChatMcpToolConfig?,
+        freshRepositoryTurn: Boolean = false
     ): dev.chungjungsoo.gptmobile.data.permissions.PersonalDataContext {
         val chatId = users.lastOrNull()?.chatId
         val labels = assistants.flatten().flatMap { message ->
@@ -1717,7 +1718,7 @@ class ChatRepositoryImpl(
                 dev.chungjungsoo.gptmobile.data.permissions.PersonalDataProvenance(sourceToolId = "memory", sourceProfileUid = message.platformType.orEmpty(), sourceRef = dev.chungjungsoo.gptmobile.data.research.researchHash("memory:${message.id}"), categories = setOf(dev.chungjungsoo.gptmobile.data.permissions.PersonalDataCategory.MEMORY), retentionChatId = chatId, localOnly = item.recalledFacts.any { it.localOnly })
             }
         }
-        val legacy = if (chatId != null && chatId > 0 && freeToolConsents != null) {
+        val legacy = if (!freshRepositoryTurn && chatId != null && chatId > 0 && freeToolConsents != null) {
             agentToolResolver.retainedPersonalDataSources(agentPersistenceDao.personalDataToolSources(chatId), chatId)
                 .filter { source -> labels.none { it.sourceToolId == source.sourceToolId && it.sourceProfileUid == source.sourceProfileUid } }
         } else {
@@ -1740,8 +1741,27 @@ class ChatRepositoryImpl(
         rebuildFence: dev.chungjungsoo.gptmobile.data.context.PreparationReplayFence,
         stage: dev.chungjungsoo.gptmobile.data.agent.AgentStageRequest?
     ): Flow<ApiState> = channelFlow {
-        val personalContext = preparePersonalDataContext(userMessages, assistantMessages, chatToolConfig)
+        val retainedPersonalContext = preparePersonalDataContext(userMessages, assistantMessages, chatToolConfig)
+        val repositoryHistory = chatToolConfig?.github?.let { github ->
+            dev.chungjungsoo.gptmobile.data.github.GitHubPersonalContextIsolation.project(userMessages, assistantMessages, github.connectionUid, retainedPersonalContext.snapshot())
+        }
+        val freshRepositoryTurn = repositoryHistory?.fresh == true
+        val userMessages = repositoryHistory?.users ?: userMessages
+        val assistantMessages = repositoryHistory?.assistants ?: assistantMessages
+        val personalContext = if (freshRepositoryTurn) preparePersonalDataContext(userMessages, assistantMessages, chatToolConfig, true) else retainedPersonalContext
+        if (chatToolConfig?.github != null) send(ApiState.GitHubRoundStarted)
+        if (freshRepositoryTurn) send(ApiState.Notice("Using your repository request without saved personal context.", persistent = false))
         val dispatchAuthority = dev.chungjungsoo.gptmobile.data.context.ConfiguredDispatchAuthority.capture(settingRepository, platform, userMessages.lastOrNull()?.chatId)
+        if (freshRepositoryTurn) {
+            userMessages.lastOrNull()?.let { user ->
+                dev.chungjungsoo.gptmobile.data.agent.ToolBatchCheckpoint.forTurn(
+                    context.filesDir,
+                    user.chatId,
+                    "${user.chatId}:${user.id}:${platform.uid}:${dispatchAuthority.revision}",
+                    persistent = agentPersistenceDao.getChatRoom(user.chatId)?.isTemporary == false
+                ).requireFreshPersonalContext()
+            }
+        }
         val writerGuard = stage?.writerRequestPlan?.let { dev.chungjungsoo.gptmobile.data.agent.CombinedWriterDispatchGuard(it) } ?: kotlin.coroutines.EmptyCoroutineContext
         withContext(dispatchAuthority + writerGuard + personalContext + dev.chungjungsoo.gptmobile.data.network.ProviderWaitContext { remaining -> send(ApiState.Notice("Provider rate-limited: retry in ${(remaining + 999) / 1000}s", persistent = false)) }) authorizedRun@{
             suspend fun emit(state: ApiState) = send(state)
@@ -1749,7 +1769,7 @@ class ChatRepositoryImpl(
                 val room = userMessages.lastOrNull()?.let { agentPersistenceDao.getChatRoom(it.chatId) }
                 journal.setRunPrivacy(runId, isTemporary = room?.isTemporary != false)
             }
-            val recovery = prepareRecoveryRequest(userMessages, assistantMessages, runId)
+            val recovery = if (freshRepositoryTurn) RecoveryRequest(userMessages, null, null, userMessages) else prepareRecoveryRequest(userMessages, assistantMessages, runId)
             if (recovery == null) {
                 emit(ApiState.Error("There is no saved task to resume. Send the original request before using Continue or Retry."))
                 return@authorizedRun
@@ -1760,7 +1780,7 @@ class ChatRepositoryImpl(
             val effectiveUserMessages = recovery.effectiveUserMessages
             val followUps = followUpInbox(this, platform, effectiveUserMessages.lastOrNull(), runId, chatToolConfig, effectiveUserMessages)
             val activity = AtomicReference("Preparing response")
-            val githubProgress = chatToolConfig?.github?.let { dev.chungjungsoo.gptmobile.data.github.GitHubChatProgress(taskRecovery?.originalRequest ?: effectiveUserMessages.lastOrNull()?.content.orEmpty()) }
+            val githubProgress = chatToolConfig?.github?.let { dev.chungjungsoo.gptmobile.data.github.GitHubChatProgress() }
             val traceSequences = java.util.concurrent.atomic.AtomicInteger()
             var delegatedTools = emptyList<ResolvedAgentTool>()
             suspend fun emitAll(states: Flow<ApiState>) = states.collect { state ->
@@ -2874,7 +2894,8 @@ class ChatRepositoryImpl(
         val latestUser = recallPreparation.latestUser
         val exclusions = admission.exclusions
         val memorySettings = factVault?.state?.value
-        val canRecallDocuments = preparationPlan.kind == dev.chungjungsoo.gptmobile.data.readiness.PreparationKind.REQUIRED_WORK &&
+        val canRecallDocuments = input.chatToolConfig?.github == null &&
+            preparationPlan.kind == dev.chungjungsoo.gptmobile.data.readiness.PreparationKind.REQUIRED_WORK &&
             !synthesisRun &&
             !privateConversation &&
             memorySettings?.enabled == true &&
@@ -2883,7 +2904,7 @@ class ChatRepositoryImpl(
             !platform.disableAllTools &&
             !platform.disableLocalTools
         val connectedMemoryTools = if (canRecallDocuments && memorySettings != null && !platform.excludesMemory()) ConnectedMemoryRecall.select(taskRoutedTools, memorySettings.settings) else emptyList()
-        val researchMemory = prepareResearchMemory(platform, researchTask, latestUser?.chatId, preparationPlan.kind == dev.chungjungsoo.gptmobile.data.readiness.PreparationKind.REQUIRED_WORK && !synthesisRun && !privateConversation)
+        val researchMemory = prepareResearchMemory(platform, researchTask, latestUser?.chatId, input.chatToolConfig?.github == null && preparationPlan.kind == dev.chungjungsoo.gptmobile.data.readiness.PreparationKind.REQUIRED_WORK && !synthesisRun && !privateConversation)
         val documentConsentGeneration = factVault?.recallGeneration()
         val documentRecall = measurePreparation(runId, PreparationPhase.SOURCE_COLLECTION) {
             if (exclusions.documents || platform.excludesMemory() || !canRecallDocuments) null else latestUser?.let { knowledge?.recall(it.chatId, it.content) }
@@ -3470,7 +3491,9 @@ class ChatRepositoryImpl(
         }
         val previousMemoryContext = effectiveUserMessages.dropLast(1).takeLast(2).joinToString("\n") { it.content.takeLast(1000) }
         val recalled = measurePreparation(runId, PreparationPhase.MEMORY_RECALL) {
-            if (preparationPlan.kind == dev.chungjungsoo.gptmobile.data.readiness.PreparationKind.REQUIRED_WORK) {
+            if (input.chatToolConfig?.github != null) {
+                FactRecall()
+            } else if (preparationPlan.kind == dev.chungjungsoo.gptmobile.data.readiness.PreparationKind.REQUIRED_WORK) {
                 recallPrimaryTurnMemory(latestUser, platform, synthesisRun, taskRecovery, effectiveUserMessages, exclusions.facts, emit)
             } else {
                 if (latestUser != null && !synthesisRun && !platform.excludesMemory()) {

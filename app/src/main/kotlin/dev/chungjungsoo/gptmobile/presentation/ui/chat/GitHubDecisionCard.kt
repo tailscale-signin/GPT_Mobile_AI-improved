@@ -1,11 +1,6 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -36,11 +31,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.drawWithCache
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
@@ -103,30 +94,26 @@ internal fun GitHubDecisionCard(decision: GitHubChatDecision, waiting: Boolean, 
 }
 
 @Composable
-internal fun GitHubLiveProgressCard(summary: String, milestones: List<String>) {
+internal fun GitHubLiveProgressCard(milestones: List<String>) {
     val colors = MaterialTheme.colorScheme
-    val opacity = remember { Animatable(0f) }
-    LaunchedEffect(Unit) { opacity.animateTo(1f, tween(1500)) }
-    val motion = rememberInfiniteTransition(label = "github_preview").animateFloat(0f, 1f, infiniteRepeatable(tween(1800, easing = LinearEasing), RepeatMode.Restart), label = "preview_pan")
-    val shades = listOf(colors.primary, colors.tertiary, colors.primary)
     Column(
-        Modifier.fillMaxWidth().padding(horizontal = 28.dp, vertical = 8.dp).testTag("github_live_activity")
-            .graphicsLayer {
-                alpha = opacity.value
-                compositingStrategy = CompositingStrategy.Offscreen
-            }
-            .drawWithCache {
-                onDrawWithContent {
-                    drawContent()
-                    val center = (motion.value * 2f - 0.5f) * size.width
-                    drawRect(Brush.linearGradient(shades, Offset(center - size.width / 2, 0f), Offset(center + size.width / 2, 0f)), blendMode = BlendMode.SrcIn)
-                }
-            },
+        Modifier.fillMaxWidth().padding(horizontal = 28.dp, vertical = 8.dp).testTag("github_live_activity"),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Text("Working in your repository", style = MaterialTheme.typography.titleSmall, color = colors.primary.copy(alpha = 0.5f))
-        Text(summary.ifBlank { "Preparing your task. Live updates appear here while work continues." }, style = MaterialTheme.typography.bodyMedium, color = colors.onSurface.copy(alpha = 0.5f))
-        milestones.distinct().takeLast(3).forEach { Text(it, style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant.copy(alpha = 0.5f)) }
+        // A streamed public update changes its text without restarting the fade on every token.
+        milestones.filter(String::isNotBlank).distinct().forEachIndexed { index, line ->
+            androidx.compose.runtime.key(index) {
+                val opacity = remember { Animatable(0f) }
+                LaunchedEffect(Unit) { opacity.animateTo(1f, tween(1500)) }
+                Text(
+                    line,
+                    modifier = Modifier.graphicsLayer { alpha = opacity.value },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = colors.onSurface.copy(alpha = 0.5f)
+                )
+            }
+        }
     }
 }
 

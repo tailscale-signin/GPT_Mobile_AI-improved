@@ -93,10 +93,7 @@ internal class PersonalDataContext(
                 toolId.startsWith("$connectionUid:") &&
                     localOnly.isNotEmpty() &&
                     localOnly.all {
-                        it.sourceToolId == "github_engineering_memory" &&
-                            it.sourceConnectionUid == connectionUid &&
-                            chatId != null &&
-                            it.retentionChatId == chatId
+                        dev.chungjungsoo.gptmobile.data.github.GitHubPersonalContextIsolation.repositoryMemory(it, connectionUid, chatId)
                     }
             } == true
         if (localOnly.isNotEmpty() && !authorizedGitHubMemoryReuse) return ToolAuthorizationRejected("PERSONAL_DATA_LOCAL_ONLY", "PERSONAL_DATA_LOCAL_ONLY: This conversation contains local-only saved context. External tools are unavailable before model dispatch. Start a conversation without that context to use an authorized GitHub connection; local model privacy does not grant permission to share saved personal data.")

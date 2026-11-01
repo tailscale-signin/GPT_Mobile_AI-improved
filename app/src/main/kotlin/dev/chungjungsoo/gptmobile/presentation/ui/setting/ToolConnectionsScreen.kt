@@ -35,7 +35,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Cable
-import androidx.compose.material.icons.rounded.Code
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Hub
@@ -596,7 +595,7 @@ private fun ToolProviderIcon(type: String, modifier: Modifier = Modifier) {
         ToolConnectionType.PERPLEXITY -> Icons.Rounded.Search
         ToolConnectionType.EXA -> Icons.Rounded.Search
         ToolConnectionType.BRAVE -> Icons.Rounded.Search
-        ToolConnectionType.GITHUB -> Icons.Rounded.Code
+        ToolConnectionType.GITHUB -> dev.chungjungsoo.gptmobile.presentation.ui.home.conversationTypeIcon(dev.chungjungsoo.gptmobile.data.model.NewChatType.GITHUB)
         ToolConnectionType.AMAZON_SERPAPI -> Icons.Rounded.Storefront
         else -> Icons.Rounded.Cable
     }

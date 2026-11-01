@@ -158,7 +158,11 @@ class GitHubWorkspaceViewModel @Inject constructor(
         tool = null
         credentialDigest = null
         pendingRecovery = null
-        _state.value = GitHubWorkspaceState(connection = connection)
+        _state.value = GitHubWorkspaceState(
+            connection = connection,
+            selection = initialContext?.repository,
+            headSha = initialContext?.commitSha.orEmpty()
+        )
         work {
             val current = connections.getConnection(connection.connectionUid) ?: error("Connection was removed.")
             require(current.type == ToolConnectionType.GITHUB) { "This connection is no longer a GitHub connection. Reopen the workspace with a GitHub connection." }

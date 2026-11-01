@@ -520,6 +520,7 @@ fun HomeScreen(
                                 }
                                 val isGenerating = activeChatIds.contains(chatRoom.id)
                                 val hasUnreadResponse = unreadChatIds.contains(chatRoom.id)
+                                val isGitHub = chatRoom.id in homeFeatures.conversationGitHub
                                 val isResearch = chatRoom.id in homeFeatures.researchChatIds || homeFeatures.conversationResearch[chatRoom.id]?.researchToggle == true
                                 var hasTriggeredHaptic by remember { mutableStateOf(false) }
                                 val dismissState = rememberSwipeToDismissBoxState(
@@ -565,6 +566,7 @@ fun HomeScreen(
                                         workProgress = conversationProgress[chatRoom.id],
                                         hasUnreadResponse = hasUnreadResponse,
                                         isResearch = isResearch,
+                                        isGitHub = isGitHub,
                                         usingPlatform = usingPlatform,
                                         profileLabels = chatProfileLabels,
                                         isServerChat = chatProfiles.singleOrNull()?.compatibleType in setOf(ClientType.OLLAMA, ClientType.LLAMA, ClientType.LITERT_LM),
@@ -614,6 +616,7 @@ fun HomeScreen(
                                         workProgress = conversationProgress[chatRoom.id],
                                         hasUnreadResponse = hasUnreadResponse,
                                         isResearch = isResearch,
+                                        isGitHub = isGitHub,
                                         usingPlatform = usingPlatform,
                                         profileLabels = chatProfileLabels,
                                         isServerChat = chatProfiles.singleOrNull()?.compatibleType in setOf(ClientType.OLLAMA, ClientType.LLAMA, ClientType.LITERT_LM),
@@ -1043,6 +1046,7 @@ fun FancySwipeChatCard(
     profileLabels: List<dev.chungjungsoo.gptmobile.data.model.ProfileLabel>,
     isServerChat: Boolean = false,
     isResearch: Boolean = false,
+    isGitHub: Boolean = false,
     onItemClick: () -> Unit,
     onItemLongClick: () -> Unit,
     revealingLabels: Boolean = false,
@@ -1201,6 +1205,7 @@ fun FancySwipeChatCard(
                 profileLabels = profileLabels,
                 isServerChat = isServerChat,
                 isResearch = isResearch,
+                isGitHub = isGitHub,
                 onItemClick = onItemClick,
                 onItemLongClick = onItemLongClick,
                 revealingLabels = revealingLabels,
@@ -1226,6 +1231,7 @@ internal fun ChatListItem(
     profileLabels: List<dev.chungjungsoo.gptmobile.data.model.ProfileLabel>,
     isServerChat: Boolean = false,
     isResearch: Boolean = false,
+    isGitHub: Boolean = false,
     onItemClick: () -> Unit,
     onItemLongClick: () -> Unit,
     revealingLabels: Boolean = false,
@@ -1322,7 +1328,7 @@ internal fun ChatListItem(
                                 CircularProgressIndicator(progress = { 1f }, modifier = Modifier.size(40.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.primary)
                             }
                         }
-                        ConversationModeSymbol(chatRoom, isResearch, hasUnreadResponse)
+                        ConversationModeSymbol(chatRoom, isResearch, hasUnreadResponse, isGitHub)
                         if (hasUnreadResponse) {
                             dev.chungjungsoo.gptmobile.presentation.common.AppGlassSurface(
                                 modifier = Modifier.align(AbsoluteAlignment.BottomRight).size(18.dp),
@@ -1355,9 +1361,10 @@ internal fun ChatListItem(
 private fun ConversationModeSymbol(
     chatRoom: ChatRoomV2,
     isResearch: Boolean,
-    hasUnreadResponse: Boolean
+    hasUnreadResponse: Boolean,
+    isGitHub: Boolean
 ) {
-    val type = conversationType(chatRoom, isResearch)
+    val type = conversationType(chatRoom, isResearch, isGitHub)
     Icon(
         conversationTypeIcon(type, hasUnreadResponse),
         "${type.title} · ${if (hasUnreadResponse) "unread reply" else "read"}",

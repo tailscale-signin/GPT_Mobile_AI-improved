@@ -17,6 +17,31 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ApiStateFlowExtensionsTest {
+    @Test fun githubActivityAppendsDistinctLinesWithoutReplacingEarlierUpdates() = runBlocking {
+        var timeline = emptyList<AssistantTimelineItem>()
+        flowOf(
+            ApiState.GitHubRoundStarted,
+            ApiState.ActivitySummary("Reading the repository."),
+            ApiState.ActivitySummary("Reviewing the results."),
+            ApiState.ActivitySummary("Reviewing the results."),
+            ApiState.Error("Interrupted")
+        ).collectApiStateUpdates(onUpdate = { _, _, items -> timeline = items })
+        assertEquals(listOf("Reading the repository.", "Reviewing the results."), timeline.filter { it.progressCheckpoint }.map { it.content })
+    }
+
+    @Test fun streamedModelProgressPreservesEarlierAutomaticActivity() = runBlocking {
+        var timeline = emptyList<AssistantTimelineItem>()
+        flowOf(
+            ApiState.GitHubRoundStarted,
+            ApiState.ActivitySummary("Reading the repository."),
+            ApiState.ProgressCheckpoint("Found ", modelAuthored = true),
+            ApiState.ProgressCheckpoint("the cause.", modelAuthored = true),
+            ApiState.Error("Interrupted")
+        ).collectApiStateUpdates(onUpdate = { _, _, items -> timeline = items })
+        assertEquals(listOf("Reading the repository.", "Found the cause."), timeline.filter { it.progressCheckpoint }.map { it.content })
+        assertTrue(!timeline.first { it.progressCheckpoint }.modelAuthored)
+    }
+
     @Test fun githubFinalAnswerReplacesEarlierProgressButKeepsToolReceipts() = runBlocking {
         var answer = ""
         var timeline = emptyList<AssistantTimelineItem>()

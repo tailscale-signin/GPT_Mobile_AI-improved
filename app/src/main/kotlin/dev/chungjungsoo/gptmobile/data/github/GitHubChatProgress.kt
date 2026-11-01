@@ -11,12 +11,8 @@ import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
 
 /** Public observable activity only; no model invocation is needed for the heartbeat. */
-internal class GitHubChatProgress(private val task: String, private val now: () -> Long = { System.nanoTime() / 1_000_000 }) {
-    private val started = now()
-    private var activity = "Preparing the repository task"
-    private var completed = 0
-    private var failed = 0
-    private var latest = ""
+internal class GitHubChatProgress {
+    private var activity = "Getting ready to work on your request."
 
     fun updates(): Flow<ApiState.ActivitySummary> = flow {
         while (true) {
@@ -26,40 +22,33 @@ internal class GitHubChatProgress(private val task: String, private val now: () 
     }
 
     @Synchronized fun observe(state: ApiState) {
-        when (state) {
-            is ApiState.GatewayProgressChanged -> {
-                activity = state.progress.message.orEmpty().take(240).ifBlank { activity }
-                completed = maxOf(completed, state.progress.usefulToolCalls ?: 0)
-                failed = maxOf(failed, state.progress.noProgress ?: 0)
+        activity = when (state) {
+            is ApiState.GatewayProgressChanged -> when (state.progress.event) {
+                "tool_started", "tool_formulating" -> "Looking through the repository."
+                "tool_completed" -> "Reviewing what I found."
+                "tool_failed" -> "Checking how to continue after a problem."
+                else -> activity
             }
-            is ApiState.ProgressCheckpoint -> if (state.text.isNotBlank()) latest = state.text.take(600)
-            is ApiState.Success -> activity = "Writing the current response"
-            is ApiState.GitHubRoundStarted -> activity = "Reviewing retained work and planning the next step"
-            is ApiState.Thinking -> activity = "The model is working on the task"
-            else -> Unit
+            is ApiState.Success -> "Putting the response together."
+            is ApiState.GitHubRoundStarted -> "Reviewing the work so far."
+            is ApiState.Thinking -> "Working through your request."
+            else -> activity
         }
     }
 
-    @Synchronized fun heartbeat(): String {
-        val elapsed = ((now() - started).coerceAtLeast(0) / 1000)
-        return buildString {
-            append(task.lineSequence().firstOrNull().orEmpty().take(160).ifBlank { "GitHub task" })
-            append("\n").append(activity).append(" · ").append(elapsed).append("s elapsed")
-            if (completed + failed > 0) append("\n").append(completed).append(" useful tool results; ").append(failed).append(" steps without progress.")
-            if (latest.isNotBlank()) append("\n").append(latest)
-        }
-    }
+    @Synchronized fun heartbeat(): String = activity
 
     companion object {
         const val HEARTBEAT_MILLIS = 5_000L
-        fun milestone(name: String, failed: Boolean, shared: Boolean): String {
-            val label = name.removePrefix("github_").replace('_', ' ').take(80)
-            return when {
-                name == "github_decide" && !failed -> "Your decision is saved. Continuing with your selected direction."
-                failed -> "The $label step reported a problem. Its result is retained for recovery."
-                shared -> "Retrieved a saved $label result without repeating the operation."
-                else -> "Received the $label result. Reviewing the findings and next steps."
-            }
+        fun milestone(name: String, failed: Boolean, shared: Boolean): String = when {
+            name == "github_decide" && !failed -> "Your choice is saved. Continuing with your direction."
+            failed -> "A step needs attention. Checking how to continue."
+            shared -> "Using the information already gathered."
+            name in setOf("github_read", "github_search", "github_context") -> "Repository information is ready to review."
+            name in setOf("github_write", "github_stage_patch") -> "The change request has a result to review."
+            name == "github_ci" || name == "github_watch_checks" -> "Checking the latest build and test results."
+            name == "github_pr" -> "Reviewing the pull request update."
+            else -> "Reviewing the latest result and the next step."
         }
     }
 }

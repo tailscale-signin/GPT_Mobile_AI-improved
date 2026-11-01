@@ -40,10 +40,7 @@ import kotlinx.serialization.json.jsonPrimitive
 @Composable
 fun GatewayEngineeringPanel(chatId: Int, context: GitHubConversationContext, profile: dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2?, model: GatewayEngineeringViewModel = hiltViewModel()) {
     val selectedProfile = profile?.takeIf { it.uid == context.mainProfileUid } ?: return
-    if (!dev.chungjungsoo.gptmobile.data.github.GitHubAutonomousEngineeringPolicy.enabled(selectedProfile)) {
-        Text("Autonomous engineering is unavailable for this profile. Choose an enabled local Llama, Ollama or on-device profile.", style = MaterialTheme.typography.bodySmall)
-        return
-    }
+    if (!dev.chungjungsoo.gptmobile.data.github.GitHubAutonomousEngineeringPolicy.enabled(selectedProfile)) return
     LaunchedEffect(chatId) { model.bind(chatId) }
     val state by model.state.collectAsStateWithLifecycle()
     var setup by remember { mutableStateOf(false) }

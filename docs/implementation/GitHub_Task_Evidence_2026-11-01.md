@@ -29,4 +29,3 @@ Intent: address the build 133 repository-status export: report operation coverag
 ## Remaining acceptance boundaries
 
 This change does not claim a measured speedup, complete application test coverage, successful live write/merge tests, or that every repository feature is complete. Full CI and device validation remain required. Autonomous work continues under the existing runner/checkpoint budgets and authorization; broad requests still need actual execution receipts to satisfy acceptance.
-

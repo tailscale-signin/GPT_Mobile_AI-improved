@@ -898,7 +898,7 @@ class AgentToolResolver @Inject constructor(
                 val id = resolved.connectionUid?.let { "$it:${resolved.realToolName}" } ?: resolved.realToolName
                 val control = resolved.realToolName in setOf("delegate_to_model", "read_recovery_context", "discover_tools")
                 val personal = !control && !implicitlyPublic(resolved)
-                val external = !control && (resolved.connectionUid != null || resolved.nativeGitHub || resolved.nativeMarketplace || resolved.tool.definition.capabilities.any { it in setOf(dev.chungjungsoo.gptmobile.data.agent.AgentToolCapability.WEB_SEARCH, dev.chungjungsoo.gptmobile.data.agent.AgentToolCapability.PAGE_READER) } || resolved.realToolName in setOf("web_search", "read_url", "news", "deep_research_search_papers", "deep_research_get_paper", "deep_research_read_paper", "deep_research_citations"))
+                val external = resolved.externalServiceId() != null
                 val rejection = if (external) personalContext?.externalToolRejection(consentPlatform, id) else null
                 if (rejection != null) {
                     dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("ToolCatalog", "TOOL_AUTHORIZATION_HIDDEN · tool=${resolved.modelToolName} · reason=${rejection.code} · state=PRECHECK_REJECTED · dispatched=false")

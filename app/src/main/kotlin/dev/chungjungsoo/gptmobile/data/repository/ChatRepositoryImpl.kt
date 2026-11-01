@@ -2830,13 +2830,10 @@ class ChatRepositoryImpl(
             sensitivity?.add(labels)
             emit(ApiState.Notice("", personalData = labels))
         }
-        // Recall can add local-only evidence after initial catalog resolution.
-        // Refuse the GitHub request before any model receives incompatible schemas.
+        // Engineering memory is hydrated after initial catalog resolution. Check
+        // actual external destinations again; local GitHub decisions transfer no data.
         if (chatToolConfig?.github != null) {
-            resolvedTools.filter { it.isGitHubTool() }.forEach { tool ->
-                val id = tool.connectionUid?.let { "$it:${tool.realToolName}" } ?: tool.realToolName
-                sensitivity?.validateExternalTool(platform, id)
-            }
+            dev.chungjungsoo.gptmobile.data.agent.tool.validateGitHubToolDestinations(platform, resolvedTools)
             AppLogRecorder.record("GitHub", "AUTONOMOUS_ENGINEERING_POLICY · availability=${if (dev.chungjungsoo.gptmobile.data.github.GitHubAutonomousEngineeringPolicy.enabled(platform)) "AVAILABLE" else "UNAVAILABLE"} · defaultEnabled=${dev.chungjungsoo.gptmobile.data.github.GitHubAutonomousEngineeringPolicy.enabled(platform)} · scope=GITHUB · assistPipelineIndependent=true")
         }
         // A frozen writer already contains its complete accepted instructions and evidence.

@@ -5,7 +5,7 @@
   "base_sha": "83afa7f113b29ad050c21d5bde5ea55da6dae602",
   "branch": "fix/github-verification-recovery-2026-11-01",
   "intent": "Implement the fourteen findings from the build 133 status export: grounded reporting, bounded review recovery, task intent, paging and identity, serialization, privacy messaging, budgets and durable diagnostics.",
-  "status": "implemented_pending_android_ci",
+  "status": "implemented_pending_exact_revision_ci_after_repair",
   "checks": {
     "host_preflight": {
       "command": "bash scripts/validate-local.sh fast",
@@ -58,7 +58,7 @@
       "Immediate task-specific introduction, then activity summaries every 20 seconds without another provider invocation",
       "White summaries append below previous faded preview lines in chronological order",
       "New summaries enter downward over 300 ms with linear easing",
-      "Preview opacity remains 50 percent; only the bottommost preview pans on the loading bar\u2019s 1800 ms cycle",
+      "Preview opacity remains 50 percent; only the bottommost preview pans on the loading bar’s 1800 ms cycle",
       "Repeated gradient endpoints avoid a visible wrap jump; completed, active and next-step text comes from observed events",
       "Stable progress identities preserve downward entry animations when old history is trimmed"
     ],
@@ -80,5 +80,18 @@
       "formatting": "ktlint 1.3.1 passed, including new preview composable",
       "android_ui_tests": "added icon count, activity selection, leading alignment, vertical centering and decorative accessibility assertions; awaiting Android CI"
     }
+  },
+  "ci_repair": {
+    "failed_head": "b6c4e08ce81f0a96ea7ea7e84f8992f68e343683",
+    "observed": [
+      "Two GitHubLiveProgress UI tests failed because graphics-layer translation was not represented in semantic bounds.",
+      "The oversized GitHub verification regression received partial text plus completion when no retained evidence existed.",
+      "Maven Central returned HTTP 429 while Robolectric fetched android-all-instrumented; this is external and is not treated as a passing test."
+    ],
+    "commits": [
+      "3d74b00fac0d6c29fa75994a7005144842914d3b: use layout-aware offset for the 300 ms downward summary entrance.",
+      "4e69b6c4ef05685f3849efc2a68496e739b6aec7: reject partial GitHub publication when no retained evidence exists."
+    ],
+    "validation": "Fresh exact-revision CI is required; older, cancelled, failed or superseded runs do not count."
   }
 }

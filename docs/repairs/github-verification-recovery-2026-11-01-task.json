@@ -49,5 +49,25 @@
     "Use a conservative unknown Llama context ceiling, bounded status output, tools-disabled verdict reasoning, and the saved reasoning preference.",
     "Persist safe timing and stage/failure metadata in receipts/checkpoints independently of verbose logs."
   ],
-  "integration_commit": "c62fc6373d27212e791256acc3035c1a631c67f7"
+  "integration_commit": "c62fc6373d27212e791256acc3035c1a631c67f7",
+  "activity_follow_up": {
+    "base_sha": "f64e744ad86f32ebea7294e6f93d075193d4af8f",
+    "intent": "Replace fixed GitHub placeholder with immediate task introduction and 20-second white activity summaries, followed by faded previews; animate only the latest bottom preview with the loading-bar cycle.",
+    "status": "implemented_pending_android_ci",
+    "behavior": [
+      "Immediate task-specific introduction, then activity summaries every 20 seconds without another provider invocation",
+      "White summaries append below previous faded preview lines in chronological order",
+      "New summaries enter downward over 300 ms with linear easing",
+      "Preview opacity remains 50 percent; only the bottommost preview pans on the loading bar\u2019s 1800 ms cycle",
+      "Repeated gradient endpoints avoid a visible wrap jump; completed, active and next-step text comes from observed events",
+      "Stable progress identities preserve downward entry animations when old history is trimmed"
+    ],
+    "checks": {
+      "host_preflight": "passed (285 Python tests plus policy, resource, regex and whitespace checks)",
+      "focused_kotlin_host": "passed (77 tests with platform/backend boundary stubs)",
+      "android_ui_tests": "added; awaiting full Android CI",
+      "timeout_regression": "Fixed asynchronous process-state assertion; 15 repeated timeout regressions passed"
+    },
+    "integrated_parent_sha": "fe51ccf1a08602f0760a9e8176327ccf87dfc884"
+  }
 }

@@ -1787,7 +1787,7 @@ class ChatRepositoryImpl(
             val effectiveUserMessages = recovery.effectiveUserMessages
             val followUps = followUpInbox(this, platform, effectiveUserMessages.lastOrNull(), runId, chatToolConfig, effectiveUserMessages)
             val activity = AtomicReference("Preparing response")
-            val githubProgress = chatToolConfig?.github?.let { dev.chungjungsoo.gptmobile.data.github.GitHubChatProgress() }
+            val githubProgress = chatToolConfig?.github?.let { dev.chungjungsoo.gptmobile.data.github.GitHubChatProgress(taskRecovery?.originalRequest ?: effectiveUserMessages.lastOrNull()?.content.orEmpty()) }
             val traceSequences = java.util.concurrent.atomic.AtomicInteger()
             var delegatedTools = emptyList<ResolvedAgentTool>()
             suspend fun emitAll(states: Flow<ApiState>) = states.collect { state ->
@@ -1824,7 +1824,7 @@ class ChatRepositoryImpl(
                 var nextTick = (System.nanoTime() / 1_000_000L) + 5000L
                 while (isActive) {
                     delay((nextTick - (System.nanoTime() / 1_000_000L)).coerceAtLeast(1L))
-                    nextTick = (System.nanoTime() / 1_000_000L) + dev.chungjungsoo.gptmobile.data.github.GitHubChatProgress.HEARTBEAT_MILLIS
+                    nextTick = (System.nanoTime() / 1_000_000L) + 5000L
                     val current = activity.get()
                     send(ApiState.ActivitySummary(current))
                     val summary = try {

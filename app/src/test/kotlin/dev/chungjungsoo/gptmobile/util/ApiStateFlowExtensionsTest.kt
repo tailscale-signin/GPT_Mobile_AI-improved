@@ -17,7 +17,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ApiStateFlowExtensionsTest {
-    @Test fun githubActivityAppendsDistinctLinesWithoutReplacingEarlierUpdates() = runBlocking {
+    @Test fun githubActivityPreservesRecurringWhiteSummariesWithoutReplacingEarlierUpdates() = runBlocking {
         var timeline = emptyList<AssistantTimelineItem>()
         flowOf(
             ApiState.GitHubRoundStarted,
@@ -26,7 +26,25 @@ class ApiStateFlowExtensionsTest {
             ApiState.ActivitySummary("Reviewing the results."),
             ApiState.Error("Interrupted")
         ).collectApiStateUpdates(onUpdate = { _, _, items -> timeline = items })
-        assertEquals(listOf("Reading the repository.", "Reviewing the results."), timeline.filter { it.progressCheckpoint }.map { it.content })
+        assertEquals(listOf("Reading the repository.", "Reviewing the results.", "Reviewing the results."), timeline.filter { it.progressCheckpoint }.map { it.content })
+        assertTrue(timeline.filter { it.progressCheckpoint }.all { it.statusSummary })
+        assertEquals(3, timeline.filter { it.progressCheckpoint }.mapNotNull { it.progressId }.distinct().size)
+    }
+
+    @Test fun githubSummaryAndPreviewRemainSeparateAcrossStreamingAndFailure() = runBlocking {
+        var timeline = emptyList<AssistantTimelineItem>()
+        flowOf(
+            ApiState.GitHubRoundStarted,
+            ApiState.ActivitySummary("I’ll inspect the settings screen.", preview = "Reading the relevant files."),
+            ApiState.ProgressCheckpoint("Examining ", modelAuthored = true),
+            ApiState.ProgressCheckpoint("the layout.", modelAuthored = true),
+            ApiState.ActivitySummary("The source is available; checking the layout.", preview = "Inspecting spacing."),
+            ApiState.Error("Interrupted")
+        ).collectApiStateUpdates(onUpdate = { _, _, items -> timeline = items })
+        val visible = timeline.filter { it.progressCheckpoint }
+        assertEquals(listOf(true, false, false, true, false), visible.map { it.statusSummary })
+        assertEquals("Examining the layout.", visible[2].content)
+        assertEquals("Inspecting spacing.", visible.last().content)
     }
 
     @Test fun streamedModelProgressPreservesEarlierAutomaticActivity() = runBlocking {
@@ -87,6 +105,7 @@ class ApiStateFlowExtensionsTest {
         }.collectApiStateUpdates(onUpdate = { _, _, items -> timeline = items })
         assertEquals(48, timeline.count { it.progressCheckpoint })
         assertTrue(timeline.filter { it.progressCheckpoint }.all { it.content.length <= 4000 })
+        assertEquals(48, timeline.filter { it.progressCheckpoint }.mapNotNull { it.progressId }.distinct().size)
     }
 
     @Test fun typedProviderLimitSurvivesReducerWithoutLosingPartialOutput() = runBlocking {

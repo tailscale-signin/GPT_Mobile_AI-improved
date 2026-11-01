@@ -343,8 +343,12 @@ private class StreamingMessageBuffer(
             statusSummary = true
         )
         if (githubProgress) {
-            if (timeline.any { (it.statusSummary || it.progressCheckpoint) && it.content == item.content }) return
-            timeline += item.copy(statusSummary = false, progressCheckpoint = true)
+            // Each scheduled update marks a new activity block, including an
+            // unchanged long-running step. Keep its white summary distinct.
+            timeline += item.copy(content = item.content.take(600), progressCheckpoint = true)
+            chunk.preview?.takeIf(String::isNotBlank)?.let { preview ->
+                timeline += AssistantTimelineItem(AssistantTimelineItemType.NOTICE, content = preview.take(4000), progressCheckpoint = true)
+            }
             boundGitHubProgress()
         } else {
             val existing = timeline.indexOfFirst { it.statusSummary }
@@ -379,6 +383,14 @@ private class StreamingMessageBuffer(
         if (!githubProgress) return
         var excess = timeline.count { it.progressCheckpoint } - 48
         if (excess > 0) timeline.removeAll { it.progressCheckpoint && excess-- > 0 }
+        // Retained rows keep their identity when the bounded history shifts;
+        // a repeated summary is still a new animated entry.
+        for (index in timeline.indices) {
+            val item = timeline[index]
+            if (item.progressCheckpoint && item.progressId == null) {
+                timeline[index] = item.copy(progressId = java.util.UUID.randomUUID().toString())
+            }
+        }
     }
 
     fun appendDelegation(chunk: ApiState.DelegationText) {

@@ -11,44 +11,77 @@ import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
 
 /** Public observable activity only; no model invocation is needed for the heartbeat. */
-internal class GitHubChatProgress {
-    private var activity = "Getting ready to work on your request."
+internal class GitHubChatProgress(task: String = "") {
+    private val taskLabel = GitHubProgressPresentation.taskLabel(task)
+    private val introduction = GitHubProgressPresentation.introduction(task)
+    private var activity = "Preparing to inspect the relevant repository details."
+    private var finished: String? = null
 
     fun updates(): Flow<ApiState.ActivitySummary> = flow {
+        emit(ApiState.ActivitySummary(introduction, preview = preview()))
         while (true) {
             delay(HEARTBEAT_MILLIS)
-            emit(ApiState.ActivitySummary(heartbeat()))
+            emit(update())
         }
     }
 
     @Synchronized fun observe(state: ApiState) {
         activity = when (state) {
             is ApiState.GatewayProgressChanged -> when (state.progress.event) {
-                "tool_started", "tool_formulating" -> "Looking through the repository."
-                "tool_completed" -> "Reviewing what I found."
-                "tool_failed" -> "Checking how to continue after a problem."
+                "tool_formulating" -> "Preparing the next repository operation."
+                "tool_started" -> currentActivity(state.progress.toolName.orEmpty())
+                "tool_completed", "tool_finished" -> {
+                    finished = milestone(state.progress.toolName.orEmpty(), false, false)
+                    "Reviewing the latest result and deciding what to check next."
+                }
+                "tool_failed" -> {
+                    finished = "A step needs attention."
+                    "Checking how to continue after the problem."
+                }
                 else -> activity
             }
             is ApiState.Success -> "Putting the response together."
             is ApiState.GitHubRoundStarted -> "Reviewing the work so far."
-            is ApiState.Thinking -> "Working through your request."
+            is ApiState.Thinking -> if (activity.startsWith("Preparing")) "Examining the request and planning the relevant checks." else activity
             else -> activity
         }
     }
 
-    @Synchronized fun heartbeat(): String = activity
+    @Synchronized fun heartbeat(): String = buildString {
+        append("For “$taskLabel”: ")
+        finished?.let { append(it).append(' ') }
+        append(activity)
+    }
+
+    @Synchronized private fun preview(): String = activity
+
+    @Synchronized private fun update(): ApiState.ActivitySummary = ApiState.ActivitySummary(heartbeat(), preview = activity).also { finished = null }
 
     companion object {
-        const val HEARTBEAT_MILLIS = 5_000L
-        fun milestone(name: String, failed: Boolean, shared: Boolean): String = when {
-            name == "github_decide" && !failed -> "Your choice is saved. Continuing with your direction."
-            failed -> "A step needs attention. Checking how to continue."
-            shared -> "Using the information already gathered."
-            name in setOf("github_read", "github_search", "github_context") -> "Repository information is ready to review."
-            name in setOf("github_write", "github_stage_patch") -> "The change request has a result to review."
-            name == "github_ci" || name == "github_watch_checks" -> "Checking the latest build and test results."
-            name == "github_pr" -> "Reviewing the pull request update."
-            else -> "Reviewing the latest result and the next step."
+        const val HEARTBEAT_MILLIS = 20_000L
+        private fun currentActivity(name: String): String = when (name.substringBefore("__")) {
+            "github_search" -> "Searching for the code and files related to the task."
+            "github_read" -> "Reading the relevant source files."
+            "github_context" -> "Checking the repository, branch and available evidence."
+            "github_ci", "github_watch_checks" -> "Inspecting the build and test results."
+            "github_pr" -> "Checking the pull request and its current review state."
+            "github_write", "github_stage_patch", "github_commit" -> "Working through the requested change and its safeguards."
+            "github_decide" -> "Waiting for your direction before continuing."
+            else -> "Looking through the repository information for the task."
+        }
+
+        fun milestone(toolName: String, failed: Boolean, shared: Boolean): String {
+            val name = toolName.substringBefore("__")
+            return when {
+                name == "github_decide" && !failed -> "Your choice is saved. Continuing with your direction."
+                failed -> "A step needs attention. Checking how to continue."
+                shared -> "Using the information already gathered."
+                name in setOf("github_read", "github_search", "github_context") -> "Repository information is ready to review."
+                name in setOf("github_write", "github_stage_patch") -> "The change request has a result to review."
+                name == "github_ci" || name == "github_watch_checks" -> "Checking the latest build and test results."
+                name == "github_pr" -> "Reviewing the pull request update."
+                else -> "Reviewing the latest result and the next step."
+            }
         }
     }
 }

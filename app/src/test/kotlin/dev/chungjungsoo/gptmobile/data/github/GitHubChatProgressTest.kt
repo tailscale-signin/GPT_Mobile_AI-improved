@@ -19,7 +19,7 @@ class GitHubChatProgressTest {
     @Test fun progressNeverEchoesTaskReasoningOrGatewayDiagnostics() {
         val progress = GitHubChatProgress()
         progress.observe(ApiState.Thinking("private reasoning must never appear in the public status"))
-        assertEquals("Working through your request.", progress.heartbeat())
+        assertTrue(progress.heartbeat().contains("Examining the request"))
         progress.observe(ApiState.GatewayProgressChanged(GatewayProgress(message = "schema dispatch error secret", usefulToolCalls = 3, noProgress = 1)))
         progress.observe(ApiState.ProgressCheckpoint("raw protocol checkpoint"))
         assertFalse(progress.heartbeat().contains("private reasoning"))
@@ -27,17 +27,42 @@ class GitHubChatProgressTest {
         assertFalse(progress.heartbeat().contains("checkpoint"))
         assertFalse(progress.heartbeat().contains("elapsed"))
         progress.observe(ApiState.Success("The answer"))
-        assertEquals("Putting the response together.", progress.heartbeat())
+        assertTrue(progress.heartbeat().contains("Putting the response together."))
         assertFalse(GitHubChatProgress.milestone("github_read", false, false).contains("github_read"))
     }
 
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     @Test
-    fun heartbeatContinuesEveryFiveSecondsWithoutProviderEvents() = kotlinx.coroutines.test.runTest {
+    fun taskIntroductionIsImmediateThenUpdatesRecurEveryTwentySecondsWithoutProviderEvents() = kotlinx.coroutines.test.runTest {
         val progress = GitHubChatProgress()
         val received = mutableListOf<Long>()
         progress.updates().take(3).collect { received += testScheduler.currentTime }
-        assertEquals(listOf(5_000L, 10_000L, 15_000L), received)
+        assertEquals(listOf(0L, 20_000L, 40_000L), received)
+    }
+
+    @Test fun summariesBindTheTaskToObservedActivityAndKeepPreviewSeparate() = kotlinx.coroutines.test.runTest {
+        val progress = GitHubChatProgress("Fix the loading bar")
+        val first = progress.updates().take(1).toList().single()
+        assertTrue(first.text.contains("Fix the loading bar"))
+        assertTrue(first.text.startsWith("I’ll"))
+        assertTrue(first.preview.orEmpty().contains("Preparing"))
+        progress.observe(ApiState.GatewayProgressChanged(GatewayProgress(event = "tool_started", toolName = "github_read__account")))
+        assertTrue(progress.heartbeat().contains("Reading the relevant source files"))
+        progress.observe(ApiState.GatewayProgressChanged(GatewayProgress(event = "tool_completed", toolName = "github_read__account")))
+        progress.observe(ApiState.GatewayProgressChanged(GatewayProgress(event = "tool_started", toolName = "github_ci__account")))
+        val update = progress.updates().take(2).toList().last()
+        assertTrue(update.text.contains("Repository information is ready to review"))
+        assertTrue(update.text.contains("Inspecting the build and test results"))
+        assertEquals("Inspecting the build and test results.", update.preview)
+        assertFalse(update.text.contains("passed") || update.text.contains("github_read"))
+    }
+
+    @Test fun failedWritesAndPrivateThinkingNeverBecomeCompletedWork() {
+        val progress = GitHubChatProgress("Repair the settings screen")
+        progress.observe(ApiState.GatewayProgressChanged(GatewayProgress(event = "tool_failed", toolName = "github_write")))
+        progress.observe(ApiState.Thinking("All changes succeeded; private reasoning"))
+        assertTrue(progress.heartbeat().contains("A step needs attention"))
+        assertFalse(progress.heartbeat().contains("succeeded") || progress.heartbeat().contains("private reasoning"))
     }
 
     @Test fun eachProviderRoundStartsAFreshPresentationAndPreservesEvents() = runBlocking {

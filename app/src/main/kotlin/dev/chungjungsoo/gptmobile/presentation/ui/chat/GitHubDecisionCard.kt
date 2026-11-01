@@ -31,9 +31,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -94,27 +97,74 @@ internal fun GitHubDecisionCard(decision: GitHubChatDecision, waiting: Boolean, 
 }
 
 @Composable
-internal fun GitHubLiveProgressCard(milestones: List<String>) {
+internal fun GitHubLiveProgressCard(timeline: List<dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem>, task: String = "") {
     val colors = MaterialTheme.colorScheme
+    val lines = timeline.filter { it.progressCheckpoint && it.content.isNotBlank() }
+    val latestPreview = lines.lastIndex.takeIf { it >= 0 && !lines[it].statusSummary } ?: -1
+    val motion = rememberGitHubProgressMotion(latestPreview >= 0)
     Column(
         Modifier.fillMaxWidth().padding(horizontal = 28.dp, vertical = 8.dp).testTag("github_live_activity"),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        Text("Working in your repository", style = MaterialTheme.typography.titleSmall, color = colors.primary.copy(alpha = 0.5f))
-        // A streamed public update changes its text without restarting the fade on every token.
-        milestones.filter(String::isNotBlank).distinct().forEachIndexed { index, line ->
-            androidx.compose.runtime.key(index) {
-                val opacity = remember { Animatable(0f) }
-                LaunchedEffect(Unit) { opacity.animateTo(1f, tween(1500)) }
-                Text(
-                    line,
-                    modifier = Modifier.graphicsLayer { alpha = opacity.value },
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = colors.onSurface.copy(alpha = 0.5f)
-                )
+        if (lines.none { it.statusSummary }) GitHubActivitySummary(dev.chungjungsoo.gptmobile.data.github.GitHubProgressPresentation.introduction(task))
+        lines.forEachIndexed { index, item ->
+            androidx.compose.runtime.key(item.progressId ?: index, item.statusSummary) {
+                if (item.statusSummary) {
+                    GitHubActivitySummary(item.content)
+                } else {
+                    val opacity = remember { Animatable(0f) }
+                    LaunchedEffect(Unit) { opacity.animateTo(1f, tween(1500)) }
+                    val latest = index == latestPreview
+                    val previewColor = colors.onSurface.copy(alpha = 0.5f)
+                    Text(
+                        dev.chungjungsoo.gptmobile.data.github.GitHubProgressPresentation.preview(item.content).replace(Regex("\\s+"), " "),
+                        modifier = Modifier.testTag(if (latest) "github_latest_preview" else "github_previous_preview")
+                            .graphicsLayer {
+                                alpha = opacity.value
+                                compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen
+                            }
+                            .then(
+                                if (latest) {
+                                    Modifier.drawWithCache {
+                                        onDrawWithContent {
+                                            drawContent()
+                                            drawRect(
+                                                githubProgressBrush(size.width, motion.value, previewColor.copy(alpha = 1f), colors.primary),
+                                                blendMode = androidx.compose.ui.graphics.BlendMode.SrcIn
+                                            )
+                                        }
+                                    }
+                                } else {
+                                    Modifier
+                                }
+                            ),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = previewColor,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                    )
+                }
             }
         }
     }
+}
+
+@Composable
+private fun GitHubActivitySummary(text: String) {
+    val entry = remember { Animatable(0f) }
+    LaunchedEffect(Unit) { entry.animateTo(1f, tween(300, easing = androidx.compose.animation.core.LinearEasing)) }
+    val travel = with(androidx.compose.ui.platform.LocalDensity.current) { 6.dp.toPx() }
+    Text(
+        text,
+        style = MaterialTheme.typography.titleSmall,
+        color = androidx.compose.ui.graphics.Color.White,
+        maxLines = 4,
+        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+        modifier = Modifier.testTag("github_activity_summary")
+            .graphicsLayer { translationY = -travel * (1f - entry.value) }
+            .semantics { liveRegion = androidx.compose.ui.semantics.LiveRegionMode.Polite }
+    )
 }
 
 @Composable

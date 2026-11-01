@@ -103,7 +103,8 @@ internal class RunDiagnosticJournal(
     private val sessionId: String = UUID.randomUUID().toString(),
     private val retentionMillis: Long = 7L * 86_400_000,
     private val maxStoredBytes: Long = 128L * 1024 * 1024,
-    private val maxSnapshotBytes: Long = 4L * 1024 * 1024
+    private val maxSnapshotBytes: Long = 4L * 1024 * 1024,
+    private val maxSnapshotEvents: Int = 4096
 ) {
     private val json = Json {
         encodeDefaults = true
@@ -320,9 +321,9 @@ internal class RunDiagnosticJournal(
         var snapshotBytes = 0L
         try {
             val prefixes = runIds.map { "journal-${identity(it)}-" }
-            for (reference in vault.references().filter { ref -> prefixes.any(ref::startsWith) }.sortedDescending()) {
+            for (reference in vault.references().filter { ref -> prefixes.any(ref::startsWith) }.sortedByDescending { it.split('-').getOrNull(2)?.toLongOrNull() ?: 0L }) {
                 try {
-                    if (snapshotBytes >= maxSnapshotBytes || events.size >= 4096) {
+                    if (snapshotBytes >= maxSnapshotBytes || events.size >= maxSnapshotEvents) {
                         missing++
                         continue
                     }
@@ -352,7 +353,9 @@ internal class RunDiagnosticJournal(
         } catch (_: Exception) {
             missing++
         }
-        val retained = (events + queued).distinctBy { it.eventId }.filter { it.runId in runIds && synchronized(lock) { it.runId !in privateRuns } && it.sequence <= (watermarks[it.streamId] ?: Long.MAX_VALUE) }.sortedWith(compareBy<RunDiagnosticEvent> { it.capturedAtMillis }.thenBy { it.streamId }.thenBy { it.sequence })
+        val candidates = (events + queued).distinctBy { it.eventId }.filter { it.runId in runIds && synchronized(lock) { it.runId !in privateRuns } && it.sequence <= (watermarks[it.streamId] ?: Long.MAX_VALUE) }.sortedWith(compareBy<RunDiagnosticEvent> { it.capturedAtMillis }.thenBy { it.streamId }.thenBy { it.sequence })
+        // Include queued events in the same cap and keep the newest evidence.
+        val retained = candidates.takeLast(maxSnapshotEvents)
         val frozen = retained.groupBy { it.streamId }.mapValues { (_, rows) -> rows.maxOf { it.sequence } } + watermarks
         return RunJournalSnapshot(
             events = retained,

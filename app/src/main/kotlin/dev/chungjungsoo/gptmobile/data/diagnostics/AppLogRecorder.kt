@@ -35,7 +35,8 @@ object AppLogRecorder {
     private const val RECENT_ENTRY_LIMIT = 2000
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val droppedRecords = java.util.concurrent.atomic.AtomicLong()
-    private val queue = Channel<AppLogEntry>(QUEUE_CAPACITY, BufferOverflow.DROP_OLDEST, onUndeliveredElement = { droppedRecords.incrementAndGet() })
+    private val captureEpoch = java.util.concurrent.atomic.AtomicLong()
+    private val queue = Channel<Pair<Long, AppLogEntry>>(QUEUE_CAPACITY, BufferOverflow.DROP_OLDEST, onUndeliveredElement = { droppedRecords.incrementAndGet() })
     private val mutableEnabled = MutableStateFlow(false)
     private val mutableEntries = MutableStateFlow<List<AppLogEntry>>(emptyList())
     private val mutableError = MutableStateFlow<String?>(null)
@@ -90,11 +91,15 @@ object AppLogRecorder {
         scope.launch {
             var publication: Job? = null
             for (entry in queue) {
-                val batch = mutableListOf(entry)
-                repeat(255) { queue.tryReceive().getOrNull()?.let(batch::add) }
-                val formatted = batch.joinToString("\n") { it.line() }
+                val queued = mutableListOf(entry)
+                repeat(255) { queue.tryReceive().getOrNull()?.let(queued::add) }
+                val batches = queued.groupBy { it.first }.mapValues { (_, entries) ->
+                    val batch = entries.map { it.second }
+                    batch to batch.joinToString("\n") { it.line() }
+                }
                 synchronized(fileLock) {
                     if (!mutableEnabled.value || privateSessions.isNotEmpty()) return@synchronized
+                    val (batch, formatted) = batches[captureEpoch.get()] ?: return@synchronized
                     batch.forEach(recent::addLast)
                     while (recent.size > RECENT_ENTRY_LIMIT) recent.removeFirst()
                     if (publication?.isActive != true) {
@@ -182,7 +187,8 @@ object AppLogRecorder {
 
     fun record(tag: String, message: String, level: String = "I") {
         if (!mutableEnabled.value || privateSessions.isNotEmpty()) return
-        queue.trySend(AppLogEntry(System.currentTimeMillis(), level, tag.take(64), diagnosticMessageForStorage(message)))
+        val epoch = captureEpoch.get()
+        queue.trySend(epoch to AppLogEntry(System.currentTimeMillis(), level, tag.take(64), diagnosticMessageForStorage(message)))
     }
 
     /** IO-thread startup markers survive an abort before the async log queue drains. */
@@ -207,6 +213,8 @@ object AppLogRecorder {
             RunDiagnostics.journal?.clear()
             dev.chungjungsoo.gptmobile.data.free.FreeProviderDiagnostics.clear()
             synchronized(fileLock) {
+                // Invalidate batches already drained for formatting outside this lock.
+                captureEpoch.incrementAndGet()
                 while (queue.tryReceive().isSuccess) Unit
                 recent.clear()
                 droppedRecords.set(0)
@@ -227,7 +235,7 @@ object AppLogRecorder {
             val pending = buildList {
                 repeat(QUEUE_CAPACITY) {
                     val entry = queue.tryReceive().getOrNull() ?: return@repeat
-                    if (mutableEnabled.value && privateSessions.isEmpty()) add(entry.line())
+                    if (entry.first == captureEpoch.get() && mutableEnabled.value && privateSessions.isEmpty()) add(entry.second.line())
                 }
             }
             if (pending.isNotEmpty()) append(pending.joinToString("\n"))

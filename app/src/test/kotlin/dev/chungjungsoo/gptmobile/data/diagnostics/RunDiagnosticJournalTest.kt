@@ -182,6 +182,38 @@ class RunDiagnosticJournalTest {
         assertEquals(1L, snapshot.missingSequences)
     }
 
+    @Test fun snapshotKeepsNewestRunInsteadOfSortingByHashedRunId() = runTest {
+        val vault = MemoryVault()
+        var time = 1_000_000L
+        val journal = RunDiagnosticJournal(vault, backgroundScope, now = { time }, maxSnapshotEvents = 1).apply {
+            enabled = true
+            setRunPrivacy("old", false)
+            setRunPrivacy("new", false)
+        }
+        journal.record("old", RunDiagnosticKind.REQUEST_SERIALIZED)
+        runCurrent()
+        time++
+        journal.record("new", RunDiagnosticKind.REQUEST_SERIALIZED)
+        runCurrent()
+        val snapshot = journal.snapshot(setOf("old", "new"))
+        assertEquals(listOf("new"), snapshot.events.map { it.runId })
+        assertEquals(1L, snapshot.missingSequences)
+    }
+
+    @Test fun snapshotEventCapIncludesPartialBatchesAndUnpersistedEvents() = runTest {
+        val vault = MemoryVault()
+        val journal = RunDiagnosticJournal(vault, backgroundScope, maxSnapshotEvents = 3).apply {
+            enabled = true
+            setRunPrivacy("run", false)
+        }
+        repeat(4) { journal.record("run", RunDiagnosticKind.REQUEST_SERIALIZED) }
+        runCurrent()
+        journal.record("run", RunDiagnosticKind.RUN_TERMINAL, successful = true)
+        val snapshot = journal.snapshot(setOf("run"))
+        assertEquals(listOf(3L, 4L, 5L), snapshot.events.map { it.sequence })
+        assertEquals(2L, snapshot.missingSequences)
+    }
+
     private class MemoryVault(val gate: CompletableDeferred<Unit>? = null, val failWrites: Boolean = false) : SecretVault {
         val rows = linkedMapOf<String, ByteArray>()
         override suspend fun put(secretRef: String, secret: ByteArray) {

@@ -129,7 +129,9 @@ class GitHubCheckWatchTest {
         val prompt = context.promptContext()
         assertTrue(prompt.contains("Pinned head: $head"))
         assertTrue(prompt.contains("2 changed file(s)"))
+        assertTrue(prompt.contains("one descriptive Markdown # title"))
         assertFalse(prompt.contains("untrusted continuation"))
         assertTrue(prompt.length < 2000)
+        assertTrue(context.promptContext("status").length < 2000)
     }
 }

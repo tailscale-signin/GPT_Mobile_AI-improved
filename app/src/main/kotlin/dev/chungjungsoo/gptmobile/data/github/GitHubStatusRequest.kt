@@ -13,5 +13,5 @@ internal object GitHubStatusRequest {
         "what is the repository status"
     )
 
-    const val INSTRUCTION = "Repository status request: inspect current repository/branch, recent commits, open pull requests and latest checks. Use at most four read-only calls, then answer. Do not read source files, resume an earlier task, make changes, or poll checks. Distinguish the latest workflow from all required checks; unknown working-tree or test results stay unknown."
+    const val INSTRUCTION = "Status: inspect the current repository/branch, recent commits, open PRs and latest checks with at most four read-only calls. Do not read source, resume work, edit or poll. Separate latest workflow from required checks; unknown worktree/tests stay unknown."
 }

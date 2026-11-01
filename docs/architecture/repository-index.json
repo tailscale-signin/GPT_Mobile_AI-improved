@@ -395,6 +395,7 @@
         ".github/workflows/debug-build.yml",
         ".github/workflows/device-validation.yml",
         ".github/workflows/gateway-stability.yml",
+        ".github/workflows/gateway-windows-installer.yml",
         ".github/workflows/geniex-preview.yml",
         ".github/workflows/gguf-native-smoke.yml",
         ".github/workflows/github-build-downloads.yml",

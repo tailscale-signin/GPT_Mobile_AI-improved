@@ -20,6 +20,7 @@ class Config:
     max_body_bytes: int = 16 * 1024 * 1024
     body_timeout: float = 30
     shutdown_grace: float = 10
+    management_token: str = field(default="", repr=False)
 
     def validate(self):
         if not 1 <= self.max_workers <= self.max_active_chats <= 64:
@@ -65,4 +66,5 @@ class Config:
                    max_workers=int(os.getenv('GATEWAY_MAX_WORKERS', '2')),
                    max_body_bytes=int(os.getenv('GATEWAY_MAX_BODY_BYTES', str(16 * 1024 * 1024))),
                    body_timeout=float(os.getenv('GATEWAY_BODY_TIMEOUT', '30')),
-                   shutdown_grace=float(os.getenv('GATEWAY_SHUTDOWN_GRACE', '10'))).validate()
+                   shutdown_grace=float(os.getenv('GATEWAY_SHUTDOWN_GRACE', '10')),
+                   management_token=os.getenv('GATEWAY_MANAGEMENT_TOKEN', '')).validate()

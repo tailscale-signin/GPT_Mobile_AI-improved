@@ -1,6 +1,6 @@
-# Local gateway 14.3.0
+# Local gateway 15.0.0
 
-`gateway.py` is the stable launcher for v14. Install the complete reviewed package, including `manifest-v14.json`, the `v14/` package, the retained v13 runtime and transport modules, `gateway_multisearch.py`, `gateway_security.py`, and the pinned requirements. See [V14_UPGRADE.md](V14_UPGRADE.md) for installation, validation, upgrades and rollback. `gateway_v13.py` is a retained compatibility runtime, not the current launcher.
+`gateway.py` is the stable launcher for Gateway 15 (the `v14/` module name is retained for compatibility). Install the complete reviewed package, including `manifest-v14.json`, the `v14/` package, the retained v13 runtime and transport modules, `gateway_multisearch.py`, `gateway_security.py`, and the pinned requirements. See [V14_UPGRADE.md](V14_UPGRADE.md) for installation, validation, upgrades and rollback. `gateway_v13.py` is a retained compatibility runtime, not the current launcher.
 
 Use Python 3.12 or newer and an isolated environment:
 
@@ -12,19 +12,12 @@ python -m pip install -r requirements.txt
 python -m unittest discover -s tests
 ```
 
-The server defaults to `127.0.0.1:8090`. Every model, job, diagnostics and control endpoint requires a paired-device bearer token. Credentials are stored as hashes. Pairing codes expire after five minutes and can be redeemed once.
+The server defaults to `127.0.0.1:8090`. Gateway 15 uses explicit key-free private access: direct loopback or a dedicated Tailscale Serve listener with an exact hostname and explicit user grants. Do not bind the gateway to a private/LAN/public interface; configuration validation rejects non-loopback binds. Remote administration is not permitted.
 
-For phone access, explicitly select the host's private interface. Prefer your authenticated private network (for example Tailscale), or configured HTTPS. Android accepts HTTP pairing only for private destinations. Do not forward this port publicly.
+For Windows, use the bundled installer and [desktop setup and update guide](desktop/README.md). It exposes backend, performance, Tailscale identity, startup and update controls and preserves user data across updates. For a manual Python installation, follow the trusted-proxy configuration in [V14_UPGRADE.md](V14_UPGRADE.md). Legacy paired bearer access is opt-in compatibility behavior, not the default.
 
-```powershell
-$env:GATEWAY_HOST="YOUR_PRIVATE_INTERFACE_IP"
-python gateway_security.py pair --name "My gateway" --url "http://YOUR_PRIVATE_INTERFACE_IP:8090/v1" --model "YOUR_MODEL_ID"
-python gateway.py
-```
 
-Open the generated `gptmobile://pair` link on Android. Preview the destination, fetch and save the configuration. The app puts the credential in its vault. The imported profile starts disabled for review.
-
-Manual setup: `python gateway_security.py issue --name "Phone"` prints a device ID and token once. Put the token in the profile API-key field. Do not place it in a URL or log. `python gateway_security.py list` lists devices without credentials. `python gateway_security.py revoke DEVICE_ID` invalidates subsequent requests immediately; an already authorized stream may finish.
+Legacy opt-in bearer setup (`GATEWAY_LEGACY_BEARER=true`): `python gateway_security.py issue --name "Phone"` prints a device ID and token once. Put the token in the profile API-key field. Do not place it in a URL or log. `python gateway_security.py list` lists devices without credentials. `python gateway_security.py revoke DEVICE_ID` invalidates subsequent requests immediately; an already authorized stream may finish.
 
 Jobs and request coalescing are device-scoped. Historical jobs without an owner are not assigned automatically. Pairing and serving must use the same `GATEWAY_AUTH_DB` when overriding it.
 
@@ -36,7 +29,7 @@ To update dependencies, edit `requirements.in`, resolve in a clean environment, 
 
 ### Independent delegation retries and reviewer isolation
 
-Install the complete v14 package on the server, validate its manifest, then restart using `gateway.py`. The historical `gateway_v12.1.py` launcher still loads v12. Each new delegated generation sends an `X-Gateway-Attempt-ID`; reconnects within that attempt retain it, while retries and output repairs receive new IDs. Singleflight now includes the attempt ID, completion budget, reasoning configuration, and tool policy, so a failed 768-token completion cannot be replayed as the next inference or a larger repair.
+Install the complete Gateway 15 package on the server, validate its manifest, then restart using `gateway.py`. The historical `gateway_v12.1.py` launcher still loads v12. Each new delegated generation sends an `X-Gateway-Attempt-ID`; reconnects within that attempt retain it, while retries and output repairs receive new IDs. Singleflight now includes the attempt ID, completion budget, reasoning configuration, and tool policy, so a failed 768-token completion cannot be replayed as the next inference or a larger repair.
 
 The app sends worker isolation headers even when reasoning is enabled. Reviewer requests have no tool catalog and explicitly disable gateway-local tools. Page crawling is app-owned; reviewers assess completed delegate evidence only. External Perplexity authentication failures and MCP initialization 404s still require correcting the configured key or endpoint; the app stops automatic repeated attempts and reports those configuration errors.
 

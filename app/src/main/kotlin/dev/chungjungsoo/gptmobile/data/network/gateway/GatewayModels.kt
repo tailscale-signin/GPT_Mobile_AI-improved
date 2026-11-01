@@ -35,17 +35,30 @@ data class GatewayCapabilities(
     val contractVersion: Int? = null,
     val auth: GatewayAuthCapabilities? = null,
     val identityScope: String? = null,
+    val desktop: GatewayDesktopCapabilities? = null,
     val memory: GatewayMemoryCapabilities? = null,
     val contracts: Map<String, List<String>> = emptyMap(),
     val features: Map<String, Boolean> = emptyMap()
 ) {
     val supportsKeyFreeConnection: Boolean
-        get() = contractVersion == 1 && gatewayVersion?.startsWith("14.") == true && auth?.apiKeyRequired == false
+        get() = contractVersion == 1 &&
+            gatewayVersion?.matches(Regex("(14|15)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)")) == true &&
+            auth?.apiKeyRequired == false &&
+            auth.mode in setOf("loopback", "trusted_proxy")
 
     fun supportsContract(name: String, version: String): Boolean = contracts[name]?.contains(version) == true
 
     fun supportsFeature(name: String): Boolean = features[name] == true
 }
+
+@Serializable
+data class GatewayDesktopCapabilities(
+    val managed: Boolean = false,
+    val maintenanceProtocol: Int = 0,
+    val stateSchema: Int = 0,
+    val updateAuthority: String? = null,
+    val idleUpdates: Boolean = false
+)
 
 @Serializable
 data class GatewayAuthCapabilities(

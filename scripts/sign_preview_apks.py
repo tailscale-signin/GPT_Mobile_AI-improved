@@ -23,12 +23,16 @@ def sign_previews(directory, apksigner, keystore, run=subprocess.run):
                  '--ks-pass', 'pass:android', '--key-pass', 'pass:android',
                  '--v2-signing-enabled', 'true', '--v3-signing-enabled', 'true',
                  '--out', str(signed), str(apk)], check=True, timeout=300)
-            verification = run([str(apksigner), 'verify', '--verbose', str(signed)],
+            # Check from API 24 so apksig actually verifies v2 as well as v3.
+            # With the app's API-31 minimum it otherwise checks only v3 and
+            # reports v2=false even when a valid v2 signature is present.
+            # This expands signature verification; it does not change the APK.
+            verification = run([str(apksigner), 'verify', '--verbose', '--min-sdk-version', '24', str(signed)],
                                check=True, timeout=300, capture_output=True, text=True)
             for scheme in ('v2', 'v3'):
                 if not any(line.startswith(f'Verified using {scheme} scheme ') and line.endswith(': true')
                            for line in verification.stdout.splitlines()):
-                    raise ValueError(f'{apk.name}: {scheme} signature was not verified')
+                    raise ValueError(f'{apk.name}: {scheme} signature was not verified\n{verification.stdout.strip()}')
             os.replace(signed, destination)
             if destination != apk:
                 apk.unlink()

@@ -19,7 +19,7 @@ class PreviewSigningTest(unittest.TestCase):
         self.signer.touch()
         self.key.touch()
 
-    def invoke(self, verify='Verified using v2 scheme (APK Signature Scheme v2): true\nVerified using v3 scheme (APK Signature Scheme v3): true', fail=None):
+    def invoke(self, verify='Verified using v2 scheme (APK Signature Scheme v2): true\nVerified using v3 scheme (APK Signature Scheme v3): true', fail=None, manifest_min_sdk=None):
         self.calls = []
         def run(command, **kwargs):
             self.calls.append(command)
@@ -29,7 +29,12 @@ class PreviewSigningTest(unittest.TestCase):
                 raise subprocess.CalledProcessError(1, command)
             if command[1] == 'sign':
                 Path(command[command.index('--out') + 1]).write_bytes(b'verified fixture')
-            return subprocess.CompletedProcess(command, 0, stdout=verify)
+            report = verify
+            if command[1] == 'verify' and manifest_min_sdk is not None:
+                minimum = int(command[command.index('--min-sdk-version') + 1]) if '--min-sdk-version' in command else manifest_min_sdk
+                if minimum >= 28:
+                    report = report.replace('Verified using v2 scheme (APK Signature Scheme v2): true', 'Verified using v2 scheme (APK Signature Scheme v2): false')
+            return subprocess.CompletedProcess(command, 0, stdout=report)
         return signing.sign_previews(self.root, self.signer, self.key, run)
 
     def test_every_split_is_signed_verified_and_promoted(self):
@@ -48,6 +53,11 @@ class PreviewSigningTest(unittest.TestCase):
                 self.invoke(fail=failure)
             self.assertEqual(b'original', apk.read_bytes())
             self.assertFalse((self.root / 'arm64.apk').exists())
+
+    def test_api31_manifest_still_verifies_both_requested_schemes(self):
+        (self.root / 'arm64-unsigned.apk').write_bytes(b'original')
+        self.assertEqual(1, self.invoke(manifest_min_sdk=31))
+        self.assertEqual(b'verified fixture', (self.root / 'arm64.apk').read_bytes())
 
     def test_missing_required_signature_cannot_be_promoted(self):
         apk = self.root / 'arm64-unsigned.apk'

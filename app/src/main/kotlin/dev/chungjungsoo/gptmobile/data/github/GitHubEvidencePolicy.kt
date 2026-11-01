@@ -68,12 +68,12 @@ internal object GitHubEvidencePolicy {
             when (claim.string("kind")) {
                 "fact" -> {
                     val result = verify(claim, receipts, now, epoch).also { checked += it }
-                    val source = "[${safe(result.string("receipt_id"))}] ${safe(result.string("pointer"))}"
+                    val source = label(result.string("pointer"))
                     when (result.string("status")) {
-                        "VERIFIED" -> "Verified · $source = ${safe(result.getValue("observed").toString())}"
-                        "CONTRADICTED" -> "Contradicted · $source — source reports ${safe(result.getValue("observed").toString())}."
-                        "STALE" -> "Not available / Not measured · $source — refresh required."
-                        else -> "Not available / Not measured · $source — no valid receipt."
+                        "VERIFIED" -> "| $source | ${display(result.getValue("observed"))} |"
+                        "CONTRADICTED" -> "- **Updated finding — $source:** the source reports ${display(result.getValue("observed"))}."
+                        "STALE" -> "- **$source:** Not available / Not measured — refresh required."
+                        else -> "- **$source:** Not available / Not measured — no valid receipt."
                     }
                 }
                 "inferred" -> {
@@ -84,18 +84,18 @@ internal object GitHubEvidencePolicy {
                     val sourceNumbers = results.flatMap { Regex("\\d+(?:\\.\\d+)?").findAll(it["observed"].toString()).map { n -> n.value }.toList() }.toSet()
                     if (refs.isEmpty() || refs.size > 8 || results.any { it.string("status") != "VERIFIED" } || !sourceNumbers.containsAll(numbers)) {
                         checked += buildJsonObject { put("status", "NOT_MEASURED") }
-                        "Not available / Not measured · interpretation lacks current supporting evidence."
+                        "- **Not available / Not measured:** interpretation lacks current supporting evidence."
                     } else {
                         checked += buildJsonObject {
                             put("status", "INFERRED")
                             put("sources", JsonArray(results))
                         }
-                        "Inferred (not a confirmed diagnosis) · ${safe(interpretation)} ${refs.joinToString { "[${safe(it.string("receipt_id"))}]" }}"
+                        "- **Interpretation:** ${safe(interpretation)} (not a confirmed diagnosis)"
                     }
                 }
                 "not_measured" -> {
                     checked += buildJsonObject { put("status", "NOT_MEASURED") }
-                    "Not available / Not measured · ${safe(claim.string("subject").take(160))}"
+                    "- **Not available / Not measured:** ${safe(claim.string("subject").take(160))}"
                 }
                 else -> error("Unsupported claim kind")
             }
@@ -108,7 +108,19 @@ internal object GitHubEvidencePolicy {
             put("completion_scope", "Field observations only. Feature acceptance and execution of unobserved tests are not inferred.")
         }
         val questions = (answer["questions"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.contentOrNull }.take(4)
-        val text = lines.joinToString("\n\n") + "\n\nFeature completion is not established by these observations. Unobserved tests and benchmarks: Not measured." + if (questions.isEmpty()) "" else "\n\nNext questions\n\n" + questions.joinToString("\n") { "- ${safe(it.take(240))}" }
+        val facts = lines.filter { it.startsWith("| ") }.distinct()
+        val notes = lines.filterNot { it.startsWith("| ") }.distinct()
+        val text = buildString {
+            append("# Repository update\n\n")
+            append(if (facts.isEmpty()) "Current repository facts could not be verified.\n" else "Here are the confirmed details from this request.\n")
+            if (facts.isNotEmpty()) {
+                append("\n## Confirmed details\n\n| Detail | Result |\n| --- | --- |\n")
+                append(facts.joinToString("\n")).append('\n')
+            }
+            if (notes.isNotEmpty()) append("\n## Findings and limits\n\n").append(notes.joinToString("\n")).append('\n')
+            append("\nUnobserved tests and benchmarks: **Not measured**. These observations do not establish feature completion.")
+            if (questions.isNotEmpty()) append("\n\n## Next steps\n\n").append(questions.joinToString("\n") { "- ${safe(it.take(240))}" })
+        }
         return text to report
     }
 
@@ -123,6 +135,7 @@ internal object GitHubEvidencePolicy {
             if (observedAt <= 0 || observedAt > now) continue
             if (receipt["immutable"] != JsonPrimitive(true) && (now - observedAt > MAX_AGE_MS || receipt["epoch"] != JsonPrimitive(epoch))) continue
             for ((pointer, value) in facts(receipt["result"] ?: JsonNull)) {
+                if (pointer in setOf("/schema", "/operation", "/local_page_complete") || "/graphql_rate_limit/" in pointer) continue
                 if (claims.size >= 16) break
                 val claim = buildJsonObject {
                     put("kind", "fact")
@@ -138,10 +151,56 @@ internal object GitHubEvidencePolicy {
             put("subject", "Full task outcome: response verification was unavailable. Inspect retained evidence or continue verification.")
         }
         val (text, report) = render(buildJsonObject { put("claims", JsonArray(claims)) }, receipts, now, epoch)
-        return "Partial evidence summary · response verification could not finish. No private draft was published.\n\n$text" to JsonObject(
+        return text.replace("# Repository update", "# Repository update\n\n**Partial evidence summary:** the response could not be fully verified. The confirmed details are preserved below.") to JsonObject(
             report + mapOf("partial" to JsonPrimitive(true), "fallback" to JsonPrimitive("receipt_only"))
         )
     }
+
+    fun status(receipts: Map<String, JsonObject>, now: Long, epoch: Long): Pair<String, JsonObject>? {
+        val claims = linkedMapOf<String, JsonObject>()
+        val statusPaths = setOf(
+            "/data/repository/full_name", "/data/repository/default_branch", "/data/repository/private",
+            "/data/repository/head/sha", "/data/repository/head/committed_at",
+            "/data/open_issue_count", "/data/open_pull_request_count",
+            "/data/latest_workflow/name", "/data/latest_workflow/status", "/data/latest_workflow/conclusion",
+            "/data/latest_workflow/head_branch", "/data/latest_workflow/head_sha", "/data/latest_workflow/html_url"
+        )
+        for ((id, receipt) in receipts.entries.reversed()) {
+            for ((pointer, value) in facts(receipt["result"] ?: JsonNull)) {
+                if (pointer !in statusPaths || pointer in claims) continue
+                val claim = buildJsonObject {
+                    put("kind", "fact")
+                    put("receipt_id", id)
+                    put("pointer", pointer)
+                    put("value", value)
+                }
+                if (verify(claim, receipts, now, epoch).string("status") == "VERIFIED") claims[pointer] = claim
+            }
+        }
+        if ("/data/repository/full_name" !in claims) return null
+        val (text, report) = render(buildJsonObject { put("claims", JsonArray(claims.values.toList())) }, receipts, now, epoch)
+        return text.replace("# Repository update", "# Repository status") +
+            "\n\nThe latest workflow is shown separately from overall branch health. Working-tree cleanliness and unobserved required checks are not inferred." to report
+    }
+
+    private fun label(pointer: String): String = when (pointer) {
+        "/data/repository/full_name" -> "Repository"
+        "/data/repository/default_branch" -> "Default branch"
+        "/data/repository/private" -> "Private repository"
+        "/data/repository/head/sha" -> "Latest commit"
+        "/data/repository/head/committed_at" -> "Commit date"
+        "/data/open_issue_count" -> "Open issues"
+        "/data/open_pull_request_count" -> "Open pull requests"
+        "/data/latest_workflow/name" -> "Latest workflow"
+        "/data/latest_workflow/status" -> "Workflow progress"
+        "/data/latest_workflow/conclusion" -> "Workflow result"
+        "/data/latest_workflow/head_branch" -> "Workflow branch"
+        "/data/latest_workflow/head_sha" -> "Workflow commit"
+        "/data/latest_workflow/html_url" -> "Workflow link"
+        else -> safe(pointer.trim('/').split('/').takeLast(2).joinToString(" · ") { it.replace('_', ' ').replaceFirstChar(Char::uppercase) })
+    }
+
+    private fun display(value: JsonElement): String = safe((value as? JsonPrimitive)?.contentOrNull ?: value.toString())
 
     fun catalog(receipts: Map<String, JsonObject>): JsonArray = JsonArray(
         receipts.map { (id, receipt) ->
@@ -160,7 +219,7 @@ internal object GitHubEvidencePolicy {
         }
     )
 
-    private fun safe(value: String) = value.replace(Regex("[\\p{Cntrl}<>]"), " ").replace("`", "'").replace("[", "(").replace("]", ")").replace("*", "").replace("#", "")
+    private fun safe(value: String) = value.replace(Regex("[\\p{Cntrl}<>]"), " ").replace("`", "'").replace("[", "(").replace("]", ")").replace("*", "").replace("#", "").replace("|", "\\|").replace("!", "")
     internal fun JsonObject.string(key: String) = (get(key) as? JsonPrimitive)?.contentOrNull.orEmpty()
 
     val INSTRUCTION = """

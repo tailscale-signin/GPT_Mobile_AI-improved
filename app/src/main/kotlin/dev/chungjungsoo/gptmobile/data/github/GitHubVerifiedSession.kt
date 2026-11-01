@@ -34,6 +34,13 @@ internal class GitHubVerifiedSession(
 ) : AgentProviderSession by delegate {
     override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> = flow {
         exchanges.forEach { exchange -> exchange.results.forEach { result -> exchange.calls.firstOrNull { it.callId == result.callId }?.let { evidence.observe(it, result) } } }
+        if (GitHubStatusRequest.matches(task)) {
+            val (receipts, epoch) = evidence.snapshot()
+            if (GitHubEvidencePolicy.status(receipts, now(), epoch) != null) {
+                emitAll(publish(null))
+                return@flow
+            }
+        }
         val draft = StringBuilder()
         var calls = false
         var completed = false
@@ -87,7 +94,8 @@ internal class GitHubVerifiedSession(
                 progress("Verifying factual claims against exact tool receipts")
                 withContext(computationDispatcher) { verificationRequest(draft, receipts) }
             }
-            val (text, report) = if (request == null) partial(receipts, epoch) else extract(request, receipts, epoch)
+            val status = if (GitHubStatusRequest.matches(task)) GitHubEvidencePolicy.status(receipts, now(), epoch) else null
+            val (text, report) = status ?: if (request == null) partial(receipts, epoch) else extract(request, receipts, epoch)
             validatePublication()
             evidence.retainVerdict(report)
             text

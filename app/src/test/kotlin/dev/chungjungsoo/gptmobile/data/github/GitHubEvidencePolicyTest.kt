@@ -169,7 +169,7 @@ class GitHubEvidencePolicyTest {
             val text = events.filterIsInstance<ProviderEvent.TextDelta>().joinToString { it.text }
             assertEquals(1, attempts)
             assertTrue(text.contains("Partial evidence summary"))
-            assertTrue(text.contains("/count = 3"))
+            assertTrue(text.contains("| Count | 3 |"))
             assertFalse(text.contains("99"))
             assertFalse(text.contains("private source"))
             assertFalse(text.contains("private broken JSON"))

@@ -35,6 +35,38 @@ class GitHubVerifiedSessionTest {
         override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flowOf(ProviderEvent.TextDelta(text), ProviderEvent.Completed)
     }
 
+    @Test fun statusPublishesCurrentFactsAfterOneReadWithoutAnotherModelOrVerifierRound() = runTest {
+        var rounds = 0
+        var executions = 0
+        var publicationChecks = 0
+        val read = object : AgentTool {
+            override val definition = AgentToolDefinition("github_context", "Status", JsonObject(emptyMap()))
+            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+                executions++
+                return AgentToolResult(callId, ToolResultContent.Json(Json.parseToJsonElement("""{"schema":"github.operation.v1","data":{"repository":{"full_name":"o/r","default_branch":"main"},"open_pull_request_count":0,"latest_workflow":{"name":"Build","status":"completed","conclusion":"success"}}}""")), false)
+            }
+        }
+        val provider = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                check(++rounds == 1) { "Status must not drift into source inspection" }
+                emit(ProviderEvent.ToolCall("status", "github_context", Json.parseToJsonElement("""{"action":"status"}""") as JsonObject))
+                emit(ProviderEvent.Completed)
+            }
+        }
+        val gate = GitHubVerifiedSession(provider, GitHubEvidenceBook("b", "o/r", "main", setOf("github_context"), { 1000 }), "status", { 8192 }, { error("Receipt-based status needs no model formatter") }, { publicationChecks++ }, {}, { 1000 }, StandardTestDispatcher(testScheduler))
+        val events = AgentRunner(AgentRunLimits(githubTask = true)).run(gate, listOf(read)).toList()
+        val published = events.filterIsInstance<AgentRunEvent.Provider>().map { it.event }
+        val text = published.filterIsInstance<ProviderEvent.TextDelta>().single().text
+        assertEquals(1, rounds)
+        assertEquals(1, executions)
+        assertEquals(2, publicationChecks)
+        assertTrue(text.startsWith("# Repository status"))
+        assertTrue(text.contains("| Open pull requests | 0 |"))
+        assertTrue(text.contains("| Workflow result | success |"))
+        assertFalse(text.contains("/data/") || text.contains("ev_") || text.contains("clean state"))
+        assertEquals(ProviderEvent.Completed, published.last())
+    }
+
     @Test fun runnerRetriesTransientFailuresBeforePublishingWithoutRepeatingCompletedTools() = runTest {
         for (persistent in listOf(false, true)) {
             var rounds = 0

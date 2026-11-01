@@ -306,7 +306,11 @@ fun NavGraphBuilder.newChatNavigation(navController: NavHostController, revealOr
     ) {
         MultiChatWorkspaceScreen(
             onBack = { navController.navigateUp() },
-            onOpenConversation = { id, regenerate -> navController.navigate("chat_room/$id?regenerate=$regenerate") },
+            onOpenConversation = { id, regenerate ->
+                navController.navigate("chat_room/$id?regenerate=$regenerate") {
+                    popUpTo(Route.MULTI_CHAT_WORKSPACE) { inclusive = true }
+                }
+            },
             onReviewEvidenceAccess = { navController.navigate(Route.TOOL_CONNECTIONS) },
             onNavigateToLocalModels = { navController.navigate(Route.LOCAL_MODELS + "?marketplace=true") }
         )
@@ -803,11 +807,10 @@ fun NavGraphBuilder.githubChatNavigation(navController: NavHostController, toolC
             )
         } else {
             androidx.activity.compose.BackHandler { navController.navigateUp() }
-            Column(Modifier.fillMaxSize()) {
-                androidx.compose.material3.Text("Connect and enable GitHub in Plugins & Tools to start GitHub chat.")
-                androidx.compose.material3.TextButton(onClick = { navController.navigate(Route.TOOL_CONNECTIONS) }) { androidx.compose.material3.Text("Set up GitHub") }
-                androidx.compose.material3.TextButton(onClick = { navController.navigateUp() }) { androidx.compose.material3.Text("Back") }
-            }
+            dev.chungjungsoo.gptmobile.presentation.ui.setting.GitHubSetupWelcome(
+                onConnect = { navController.navigate(Route.TOOL_CONNECTIONS) },
+                onBack = { navController.navigateUp() }
+            )
         }
     }
 }

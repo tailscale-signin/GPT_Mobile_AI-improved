@@ -25,7 +25,9 @@ data class GitHubConversationContext(
     }
 
     /** Request-local scope only; this does not grant tools, credentials or write access. */
-    fun promptContext(): String = buildString {
+    fun promptContext(request: String = ""): String = buildString {
+        if (GitHubStatusRequest.matches(request)) append(GitHubStatusRequest.INSTRUCTION).append('\n')
+        append("Presentation: start every reply with one descriptive Markdown # title and a short plain-language outcome. Use ## sections, concise bullets and small tables for comparable details. Put unknowns and next steps in their own sections. Preserve evidence accuracy; avoid internal field paths and tool identifiers in prose.\n")
         append("GitHub workspace: $owner/$repo\nBranch: $ref\nPinned head: $commitSha\n")
         append("Local workspace edits: ${stagedFileCount?.let { if (it == 0) "clean at observation" else "$it changed file(s) or staged patch(es)" } ?: "not observed"}\n")
         observedAtMillis?.let { append("Snapshot observed at epoch ms: $it\n") }

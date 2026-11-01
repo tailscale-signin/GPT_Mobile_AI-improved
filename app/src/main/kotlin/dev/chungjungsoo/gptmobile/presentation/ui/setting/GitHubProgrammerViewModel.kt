@@ -110,7 +110,9 @@ class GitHubProgrammerViewModel @Inject constructor(
                 if (existingId != null) {
                     val existing = database.agentPersistenceDao().getChatRoom(existingId)
                     val bound = settings.getFeatureSettings().conversationGitHub[existingId]
-                    if (existing != null && !existing.isTemporary && existing.activePlatform == listOf(context.mainProfileUid) && bound?.sameWorkspace(context) == true) {
+                    if (existing != null && !existing.isTemporary && bound?.sameWorkspace(context) == true) {
+                        val normalized = dev.chungjungsoo.gptmobile.data.github.GitHubChatMembership.normalize(existing, context)
+                        if (normalized != existing) chats.updateChatPlatforms(normalized, listOf(context.mainProfileUid))
                         observeConversation(existingId)
                         return@withLock
                     }
@@ -198,7 +200,7 @@ class GitHubProgrammerViewModel @Inject constructor(
                     else -> features.conversationGitHub.filterValues { it.sameWorkspace(context) }.keys
                 }
                 val room = candidates.sortedDescending().firstNotNullOfOrNull { id ->
-                    database.agentPersistenceDao().getChatRoom(id)?.takeIf { (session.chatId == it.id || !it.isArchived) && !it.isTemporary && it.activePlatform == listOf(uid) }
+                    database.agentPersistenceDao().getChatRoom(id)?.takeIf { (session.chatId == it.id || !it.isArchived) && !it.isTemporary }
                 }
                 if (session != selection.value || workspace != destination.value) return@collect
                 if (room != null && context != null) migrateComposerDraft(room, context)

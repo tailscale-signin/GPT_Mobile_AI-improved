@@ -215,7 +215,7 @@ class HomeViewModel @Inject constructor(
     private val _activeChatIds = MutableStateFlow<Set<Int>>(emptySet())
     val activeChatIds = _activeChatIds.asStateFlow()
     val completedGenerations = combine(completionStore.items, featureSettings) { rows, features ->
-        homeUnreadReplies(rows, features.multiChatWorkspaces)
+        homeUnreadReplies(rows, emptyMap())
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
     val unreadChatIds = completedGenerations.map { rows -> rows.mapTo(mutableSetOf()) { it.visibleChatId } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptySet())
@@ -352,8 +352,7 @@ class HomeViewModel @Inject constructor(
             .launchIn(viewModelScope)
 
         combine(agentRunCoordinator.activeRuns, featureSettings) { runs, features ->
-            val roots = features.multiChatWorkspaces.flatMap { (root, children) -> children.map { it to root } }.toMap()
-            runs.values.mapTo(mutableSetOf()) { roots[it.chatId] ?: it.chatId }
+            runs.values.mapTo(mutableSetOf()) { it.chatId }
         }
             .onEach { newActiveIds ->
                 _activeChatIds.update { newActiveIds }
@@ -529,16 +528,9 @@ class HomeViewModel @Inject constructor(
         }
     }
 
-    private suspend fun hiddenWorkspaceChildIds(): Set<Int> {
-        val groups = settingRepository.getFeatureSettings().multiChatWorkspaces
-        return groups.values.flatten().toSet() - groups.keys
-    }
+    private suspend fun hiddenWorkspaceChildIds(): Set<Int> = emptySet()
 
-    private suspend fun workspaceRooms(chat: ChatRoomV2): List<ChatRoomV2> {
-        val memberIds = settingRepository.getFeatureSettings().multiChatWorkspaces[chat.id] ?: return listOf(chat)
-        val byId = (chatRepository.fetchChatListV2() + chatRepository.fetchArchivedChatListV2()).associateBy { it.id }
-        return memberIds.mapNotNull(byId::get).ifEmpty { listOf(chat) }
-    }
+    private suspend fun workspaceRooms(chat: ChatRoomV2): List<ChatRoomV2> = listOf(chat)
 
     private suspend fun forgetWorkspaceMappings(rooms: List<ChatRoomV2>) {
         val ids = rooms.mapTo(mutableSetOf()) { it.id }

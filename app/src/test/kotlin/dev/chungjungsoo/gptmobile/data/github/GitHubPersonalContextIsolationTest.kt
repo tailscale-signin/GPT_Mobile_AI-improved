@@ -54,6 +54,17 @@ class GitHubPersonalContextIsolationTest {
         assertTrue(legacy.fresh)
     }
 
+    @Test fun changingToARemoteProfileDropsLocalRepositoryMemoryAndDerivedReplies() {
+        val current = MessageV2(chatId = 7, content = "status", platformType = null)
+        val remote = GitHubPersonalContextIsolation.project(listOf(current), history(repository), "github-connection", emptyList(), privateDestination = false)
+        assertTrue(remote.fresh)
+        assertTrue(remote.assistants.isEmpty())
+        assertTrue(remote.users == listOf(current))
+        val local = GitHubPersonalContextIsolation.project(listOf(current), history(repository), "github-connection", emptyList(), privateDestination = true)
+        assertFalse(local.fresh)
+        assertTrue(local.assistants.isNotEmpty())
+    }
+
     @Test fun ordinaryRepositoryHistoryRemainsAvailable() {
         assertFalse(GitHubPersonalContextIsolation.requiresFreshTurn(listOf(listOf(MessageV2(content = "Read source file", platformType = "local"))), "github-connection", 7))
     }

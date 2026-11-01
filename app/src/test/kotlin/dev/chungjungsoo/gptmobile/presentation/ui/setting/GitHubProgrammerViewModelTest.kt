@@ -100,6 +100,19 @@ class GitHubProgrammerViewModelTest {
         }
     }
 
+    @Test fun reopeningALegacyMergedGitHubRoomRepairsItWithoutCreatingANewConversation() = runBlocking {
+        val context = dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext("github", "owner", "repo", "feature", "a".repeat(40), "coder")
+        val merged = room.copy(enabledPlatform = listOf("coder", "remote"), activePlatform = listOf("coder", "remote"))
+        coEvery { database.agentPersistenceDao().getChatRoom(42) } returns merged
+        coEvery { chats.updateChatPlatforms(any(), listOf("coder")) } answers { firstArg() }
+        features.value = features.value.copy(conversationGitHub = mapOf(42 to context))
+        withTimeout(5000) { model.state.first { it.chatId == 42 && it.draftLoaded } }
+        model.ensureConversation().join()
+        coVerify(exactly = 1) { chats.updateChatPlatforms(match { it.id == 42 && it.enabledPlatform == listOf("coder") }, listOf("coder")) }
+        coVerify(exactly = 0) { chats.createDraftChat(any(), any(), any(), any()) }
+        assertEquals(42, model.state.value.chatId)
+    }
+
     @Test fun deletedPreparedRoomIsReplacedInsteadOfReopened() = runBlocking {
         withTimeout(5000) { model.state.first { it.draftLoaded } }
         model.ensureConversation().join()

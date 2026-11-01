@@ -1,5 +1,6 @@
 """Bounded admission and worker accounting, independent of model/tool policy."""
 import asyncio
+import os
 import threading
 import time
 import uuid
@@ -16,13 +17,15 @@ class ServiceState:
         self.lock = threading.RLock()
         self.draining = False
         self.workers = {}
+        self.active_requests = 0
+        self.maintenance_generation = 0
         self.rejected = 0
         self.runtime = None
 
     def snapshot(self):
         with self.lock:
             return {'draining': self.draining, 'activeWorkers': len(self.workers),
-                    'maxWorkers': self.max_workers, 'rejectedWorkers': self.rejected}
+                    'activeRequests': self.active_requests, 'maxWorkers': self.max_workers, 'rejectedWorkers': self.rejected}
 
     def install(self, runtime):
         self.runtime = runtime
@@ -78,8 +81,8 @@ class ServiceState:
         async def lifecycle(app):
             state_lock = None
             with self.lock:
-                self.draining = False
-                runtime.gateway_draining = False
+                self.draining = os.getenv("GATEWAY_START_QUIESCED") == "1"
+                runtime.gateway_draining = self.draining
             # Database validation and recovery must finish before HTTP admission.
             try:
                 database_path = getattr(runtime, "GATEWAY_JOB_DB_PATH", None)
@@ -119,7 +122,7 @@ class LoadGuard:
         self.active = 0  # ASGI event-loop owned; no await between check and increment.
 
     async def __call__(self, scope, receive, send):
-        if scope['type'] != 'http' or scope.get('method') != 'POST' or (scope.get('path') not in {'/v1/chat/completions', '/chat/completions'} and not scope.get('path', '').removeprefix('/v1').startswith('/gateway/engineering/')):
+        if scope['type'] != 'http' or scope.get('method') in {'GET', 'HEAD', 'OPTIONS'} or scope.get('path') == '/gateway/admin/maintenance':
             return await self.app(scope, receive, send)
         trace = uuid.uuid4().hex
         async def reject(code, status):
@@ -128,9 +131,13 @@ class LoadGuard:
                 headers['Retry-After'] = '2'
             await JSONResponse({'error': {'code': code}, 'traceId': trace}, status_code=status,
                                headers=headers)(scope, receive, send)
-        if self.state.snapshot()['draining'] or self.active >= self.config.max_active_chats:
+        with self.state.lock:
+            accepted = not self.state.draining and self.active < self.config.max_active_chats
+            if accepted:
+                self.active += 1
+                self.state.active_requests += 1
+        if not accepted:
             return await reject('gateway_busy', 503)
-        self.active += 1
         try:
             chunks, size = [], 0
             deadline = time.monotonic() + self.config.body_timeout
@@ -164,4 +171,6 @@ class LoadGuard:
                 await send(message)
             await self.app(scope, buffered_receive, traced_send)
         finally:
-            self.active -= 1
+            with self.state.lock:
+                self.active -= 1
+                self.state.active_requests -= 1

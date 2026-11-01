@@ -458,7 +458,7 @@ class EngineeringService:
         def work():
             while not self.stop.is_set():
                 try:
-                    for job_id in self.store.due():
+                    for job_id in ([] if getattr(self.store.runtime, "gateway_draining", False) else self.store.due()):
                         if self.stop.is_set():
                             break
                         self.tick(job_id)

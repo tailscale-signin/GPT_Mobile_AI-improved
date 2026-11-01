@@ -29,6 +29,12 @@ class PrincipalResolver:
             local_peer = False
         if not local_peer:
             return None
+        if scope.get("path") == "/gateway/admin/maintenance":
+            token = self.config.management_token
+            forwarded = any(k.startswith("tailscale-") or k in {"forwarded", "x-forwarded-for", "x-forwarded-host", "origin", "cookie", "sec-fetch-site"} for k in headers)
+            if forwarded or not token or not hmac.compare_digest(headers.get("x-gateway-management", ""), token):
+                return None
+            return Principal("local:manager", frozenset({"chat"}), True)
         if self.config.legacy_bearer and headers.get("authorization", "").lower().startswith("bearer "):
             device = await asyncio.to_thread(self.store.authenticate, headers["authorization"][7:])
             return Principal(device, frozenset({"chat", "jobs", "tools"}), self.config.mode == "loopback") if device else None
@@ -59,7 +65,7 @@ class Admission:
         async def deny(code, status=403):
             await JSONResponse({"error": {"code": code}}, status_code=status, headers={"Cache-Control": "no-store", "X-Gateway-Admission-Error": code})(scope, receive, send)
         pairs = [(k.decode("latin1").lower(), v.decode("latin1")) for k, v in scope.get("headers", [])]
-        sensitive = {"host", "origin", "authorization", "tailscale-user-login", "x-gateway-csrf"}
+        sensitive = {"host", "origin", "authorization", "tailscale-user-login", "x-gateway-csrf", "x-gateway-management"}
         if any(sum(k == name for k, _ in pairs) > 1 for name in sensitive):
             return await deny("duplicate_admission_header", 400)
         headers = dict(pairs)
@@ -78,8 +84,8 @@ class Admission:
         engineering_path = path.startswith("/gateway/engineering/")
         if engineering_path and not principal.local_admin and "engineering" not in principal.scopes:
             return await deny("engineering_scope_required")
-        if self.config.mode == "trusted_proxy":
-            public_reads = {"/models", "/gateway/capabilities", "/gateway/ready", "/gateway/live", "/gateway/v13", "/gateway/v14", "/gateway/connections", "/gateway/tools", "/gateway/session"}
+        if self.config.mode == "trusted_proxy" and not principal.local_admin:
+            public_reads = {"/models", "/gateway/capabilities", "/gateway/ready", "/gateway/live", "/gateway/v13", "/gateway/v14", "/gateway/v15", "/gateway/connections", "/gateway/tools", "/gateway/session"}
             job_path = path == "/gateway/jobs" or path.startswith("/gateway/jobs/")
             if scope["method"] in {"GET", "HEAD"}:
                 if path not in public_reads and not job_path and not engineering_path:

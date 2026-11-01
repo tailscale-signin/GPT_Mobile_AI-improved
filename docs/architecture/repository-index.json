@@ -146,11 +146,11 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSessionCachesTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubTaskCoverageTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubToolCompletenessTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubVerificationRecoveryTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubVerifiedSessionTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubWorkflowDispatchTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubWorkspaceClientTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubWorkspaceDraftStoreTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubWorkspaceDraftStoreTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubVerificationRecoveryTest.kt"
       ]
     },
     "engineering": {
@@ -206,7 +206,6 @@
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubGitSaga.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubOperationArguments.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubOperationTool.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubPaginationBoundary.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubProviderPolicy.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubResultViews.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubTool.kt",
@@ -262,7 +261,8 @@
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/WebSearchEngineAdapter.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/WebSearchResults.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/WebSearchTool.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/WebToolClassification.kt"
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/WebToolClassification.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubPaginationBoundary.kt"
       ]
     },
     "workspace_ui": {
@@ -397,6 +397,7 @@
         ".github/workflows/debug-build.yml",
         ".github/workflows/device-validation.yml",
         ".github/workflows/gateway-stability.yml",
+        ".github/workflows/gateway-windows-installer.yml",
         ".github/workflows/geniex-preview.yml",
         ".github/workflows/gguf-native-smoke.yml",
         ".github/workflows/github-build-downloads.yml",

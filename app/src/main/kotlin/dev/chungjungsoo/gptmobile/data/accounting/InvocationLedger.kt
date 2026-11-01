@@ -256,6 +256,8 @@ class InvocationLedger @Inject constructor(
             var firstToolRecorded = false
             var visibleBytes = 0L
             var reasoningBytes = 0L
+            var hasVisibleAnswer = false
+            var completedWithoutAnswer = false
             val inputCounter = ProviderUsageCounter()
             val outputCounter = ProviderUsageCounter()
             fun retainedInput(): Int = if (measuredUsageSource(inputSource)) input ?: record.inputTokens else maxOf(input ?: 0, record.inputTokens)
@@ -280,6 +282,10 @@ class InvocationLedger @Inject constructor(
                                 visibleFingerprint?.append(event.text)
                                 visibleBytes += size
                                 generatedBytes += size
+                                hasVisibleAnswer = hasVisibleAnswer || event.text.any { !it.isWhitespace() }
+                            }
+                            is ProviderEvent.CombinedAnswer -> {
+                                hasVisibleAnswer = hasVisibleAnswer || event.text.any { !it.isWhitespace() }
                             }
                             is ProviderEvent.ToolCall -> if (!firstToolRecorded) {
                                 firstToolRecorded = true
@@ -316,7 +322,10 @@ class InvocationLedger @Inject constructor(
                                 finishReason = event.finishReason?.take(80) ?: finishReason
                                 settingsConfirmed = settingsConfirmed || event.effectiveSettingsConfirmed
                             }
-                            ProviderEvent.Completed -> if (status !in setOf("FAILED", "PARTIAL", "WAITING_REMOTE_JOB")) status = "COMPLETED"
+                            ProviderEvent.Completed -> if (status !in setOf("FAILED", "PARTIAL", "WAITING_REMOTE_JOB")) {
+                                completedWithoutAnswer = !hasVisibleAnswer && !firstToolRecorded
+                                status = if (completedWithoutAnswer) "FAILED" else "COMPLETED"
+                            }
                             is ProviderEvent.Failed -> {
                                 status = when {
                                     event.errorCode == "QUEUE_JOB_PENDING" -> "WAITING_REMOTE_JOB"
@@ -389,7 +398,7 @@ class InvocationLedger @Inject constructor(
                         )
                     )
                     val recordedOutput = if (entirelyUnsent) 0 else retainedOutput()
-                    dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Model", "Finished ${record.id} · incidentId=${record.id} · status=$status · durationMs=${(System.nanoTime() - started) / 1_000_000} · output=$recordedOutput · estimated=${estimatedUsage()} · inputSource=$inputSource · outputSource=$outputSource · visibleBytes=$visibleBytes · reasoningBytes=$reasoningBytes · usageBreakdownReliable=false · reportedReasoningTokens=${providerReasoningTokens ?: "unknown"} · toolCallTokens=unknown · visibleOutputTokens=unknown · finishReason=${finishReason ?: "unreported"} · settingsConfirmed=$settingsConfirmed · parentRunId=$parentRunId · turnKey=$turnKey · requestKind=$kind", if (status in setOf("COMPLETED", "CANCELED", "WAITING_REMOTE_JOB")) "I" else "W")
+                    dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Model", "Finished ${record.id} · incidentId=${record.id} · status=$status · completionDisposition=${if (completedWithoutAnswer) "EMPTY_VISIBLE_OUTPUT" else "NORMAL"} · durationMs=${(System.nanoTime() - started) / 1_000_000} · output=$recordedOutput · estimated=${estimatedUsage()} · inputSource=$inputSource · outputSource=$outputSource · visibleBytes=$visibleBytes · reasoningBytes=$reasoningBytes · usageBreakdownReliable=false · reportedReasoningTokens=${providerReasoningTokens ?: "unknown"} · toolCallTokens=unknown · visibleOutputTokens=unknown · finishReason=${finishReason ?: "unreported"} · settingsConfirmed=$settingsConfirmed · parentRunId=$parentRunId · turnKey=$turnKey · requestKind=$kind", if (status in setOf("COMPLETED", "CANCELED", "WAITING_REMOTE_JOB")) "I" else "W")
                     try {
                         if (retainAccounting) {
                             val observation = record.copy(
@@ -408,7 +417,7 @@ class InvocationLedger @Inject constructor(
                                 observedOutputTokens = output?.toLong(),
                                 costMicros = if (entirelyUnsent) {
                                     0
-                                } else if (status == "COMPLETED" && !estimatedUsage()) {
+                                } else if (status in setOf("COMPLETED", "EMPTY_OUTPUT") && !estimatedUsage()) {
                                     price?.cost(requireNotNull(input), requireNotNull(output))
                                 } else {
                                     record.costMicros

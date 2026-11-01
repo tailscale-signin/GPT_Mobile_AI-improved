@@ -33,7 +33,8 @@ data class PersonalDataToolSource(val profileUid: String, val toolName: String, 
 internal class PersonalDataContext(
     val chatId: Int?,
     private val grants: FreeModelToolConsentStore?,
-    initial: List<PersonalDataProvenance> = emptyList()
+    initial: List<PersonalDataProvenance> = emptyList(),
+    private val authorizedLocalOnlyGitHubConnectionUid: String? = null
 ) : AbstractCoroutineContextElement(Key) {
     companion object Key : CoroutineContext.Key<PersonalDataContext>
     private val labels = linkedMapOf<String, PersonalDataProvenance>()
@@ -78,7 +79,15 @@ internal class PersonalDataContext(
     fun validateExternalTool(profile: PlatformV2, toolId: String) {
         val retained = snapshot()
         if (retained.isEmpty()) return
-        check(retained.none { it.localOnly }) { "PERSONAL_DATA_LOCAL_ONLY: External tool arguments are blocked for local-only context." }
+        val localOnly = retained.filter { it.localOnly }
+        // GitHub mode may reuse its own local engineering memory with the same
+        // explicitly selected GitHub connection. This exception does not extend
+        // to other local-only sources or to remote model profiles.
+        val authorizedGitHubMemoryReuse = profile.isPrivateDestination() &&
+            authorizedLocalOnlyGitHubConnectionUid?.let { connectionUid ->
+                toolId.startsWith("$connectionUid:") && localOnly.isNotEmpty() && localOnly.all { it.sourceToolId == "github_engineering_memory" }
+            } == true
+        check(localOnly.isEmpty() || authorizedGitHubMemoryReuse) { "PERSONAL_DATA_LOCAL_ONLY: External tool arguments are blocked for local-only context." }
         if (ProviderPrivacyPolicy.forProfile(profile) == null && retained.none { it.sourceRecipients.isNotEmpty() }) return
         // No inferred redaction can prove a model-generated query excludes all source facts.
         // Require an explicit service grant, or keep this request local and explain the gap.

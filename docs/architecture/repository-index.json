@@ -243,6 +243,7 @@
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/SharedLocationFix.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/SharedToolCallBroker.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/SnippetFingerprint.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/ToolDataDestinations.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/ToolResolutionDiagnostics.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/UnifiedMemoryTool.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/UniversalMarketplaceTool.kt",

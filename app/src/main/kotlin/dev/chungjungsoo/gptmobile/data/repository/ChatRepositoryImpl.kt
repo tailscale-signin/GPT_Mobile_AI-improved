@@ -1336,7 +1336,7 @@ class ChatRepositoryImpl(
         val childRunner = dev.chungjungsoo.gptmobile.data.agent.AgentRunner(
             childLimits,
             checkpoint = childChatId?.let { id ->
-                dev.chungjungsoo.gptmobile.data.agent.ToolBatchCheckpoint.forTurn(context.filesDir, id, "$turnKey:${target.uid}:$requestRole:${dev.chungjungsoo.gptmobile.data.research.researchHash(task)}:${dispatchAuthority.revision}", agentPersistenceDao.getChatRoom(id)?.isTemporary == false)
+                dev.chungjungsoo.gptmobile.data.agent.ToolBatchCheckpoint.forTurn(context.filesDir, id, "$turnKey:${target.uid}:$requestRole:${dev.chungjungsoo.gptmobile.data.research.researchHash(task)}:${dispatchAuthority.revision}", agentPersistenceDao.getChatRoom(id)?.isTemporary == false, jobContext = chatToolConfig.github?.let { github -> dev.chungjungsoo.gptmobile.data.agent.ToolBatchJobContext(task, requestRole, "${github.owner}/${github.repo}", github.ref, github.commitSha) })
             }
         )
         val startedAtMs = System.currentTimeMillis()
@@ -1992,7 +1992,7 @@ class ChatRepositoryImpl(
                     var exposedTools = dispatchPreparation.exposedTools
                     val projectInstructions = dispatchPreparation.projectInstructions
                     val quickRepliesEnabled = dispatchPreparation.quickRepliesEnabled
-                    fun baseSystemPrompt() = buildPrimarySystemPrompt(platform, exposedTools, resolvedTools.isNotEmpty(), localResearch, processingOwnership, synthesisRun, chatToolConfig?.combined, latestUser, limits.contextTokens, quickRepliesEnabled, projectInstructions, taskRecovery, reviewedPreparationUnavailable, chatToolConfig?.research?.researchToggle == true) + chatToolConfig?.github?.let { "\n" + it.promptContext() }.orEmpty()
+                    fun baseSystemPrompt() = buildPrimarySystemPrompt(platform, exposedTools, resolvedTools.isNotEmpty(), localResearch, processingOwnership, synthesisRun, chatToolConfig?.combined, latestUser, limits.contextTokens, quickRepliesEnabled, projectInstructions, taskRecovery, reviewedPreparationUnavailable, chatToolConfig?.research?.researchToggle == true) + chatToolConfig?.github?.let { "\n" + it.promptContext() + dev.chungjungsoo.gptmobile.data.github.GitHubAutonomousEngineeringPolicy.instruction(platform, it) }.orEmpty()
                     val memorySettings = dispatchPreparation.memory.memorySettings
                     val connectedMemoryTools = dispatchPreparation.memory.connectedMemoryTools
                     val researchMemory = dispatchPreparation.memory.researchMemory
@@ -2797,7 +2797,7 @@ class ChatRepositoryImpl(
             ?.takeUnless { it.isTemporary }?.project?.instructions.orEmpty() + "\n" + engineeringContext
         val responseFeatures = settingRepository.getFeatureSettings()
         val quickRepliesEnabled = responseFeatures.smartSuggestions
-        fun baseSystemPrompt() = buildPrimarySystemPrompt(platform, exposedTools, resolvedTools.isNotEmpty(), localResearch, processingOwnership, synthesisRun, chatToolConfig?.combined, latestUser, limits.contextTokens, quickRepliesEnabled, projectInstructions, taskRecovery, reviewedPreparationUnavailable, chatToolConfig?.research?.researchToggle == true) + chatToolConfig?.github?.let { "\n" + it.promptContext() }.orEmpty()
+        fun baseSystemPrompt() = buildPrimarySystemPrompt(platform, exposedTools, resolvedTools.isNotEmpty(), localResearch, processingOwnership, synthesisRun, chatToolConfig?.combined, latestUser, limits.contextTokens, quickRepliesEnabled, projectInstructions, taskRecovery, reviewedPreparationUnavailable, chatToolConfig?.research?.researchToggle == true) + chatToolConfig?.github?.let { "\n" + it.promptContext() + dev.chungjungsoo.gptmobile.data.github.GitHubAutonomousEngineeringPolicy.instruction(platform, it) }.orEmpty()
         val memoryPreparation = preparePrimaryDispatchMemory(input, admission, toolPreparation, recallPreparation, taskRoutedTools)
         val researchMemory = memoryPreparation.researchMemory
         val documentContext = memoryPreparation.documentContext
@@ -2809,6 +2809,15 @@ class ChatRepositoryImpl(
             }
             sensitivity?.add(labels)
             emit(ApiState.Notice("", personalData = labels))
+        }
+        // Recall can add local-only evidence after initial catalog resolution.
+        // Refuse the GitHub request before any model receives incompatible schemas.
+        if (chatToolConfig?.github != null) {
+            resolvedTools.filter { it.isGitHubTool() }.forEach { tool ->
+                val id = tool.connectionUid?.let { "$it:${tool.realToolName}" } ?: tool.realToolName
+                sensitivity?.validateExternalTool(platform, id)
+            }
+            AppLogRecorder.record("GitHub", "AUTONOMOUS_ENGINEERING_POLICY · availability=${if (dev.chungjungsoo.gptmobile.data.github.GitHubAutonomousEngineeringPolicy.enabled(platform)) "AVAILABLE" else "UNAVAILABLE"} · defaultEnabled=${dev.chungjungsoo.gptmobile.data.github.GitHubAutonomousEngineeringPolicy.enabled(platform)} · scope=GITHUB · assistPipelineIndependent=true")
         }
         // A frozen writer already contains its complete accepted instructions and evidence.
         // New memory, project or time wrappers must not change its admitted request.
@@ -4041,7 +4050,8 @@ class ChatRepositoryImpl(
         val editorialPass = runId.startsWith("combined-synthesis:")
         val capKey = "${platform.compatibleType}|${platform.apiUrl}|${platform.model}|${platform.openRouterRouting.orEmpty()}"
         val routeOutputCap = dev.chungjungsoo.gptmobile.data.agent.provider.ProviderRouteCapacity.output(platform, effectiveOutputCap)
-        val resolvedOutputCap = if (writerPlan != null) routeOutputCap else dev.chungjungsoo.gptmobile.data.agent.responseOutputAllowance(limits.copy(outputTokens = requestedOutputTokens ?: limits.outputTokens), routeOutputCap)
+        val requestedCap = if (writerPlan != null) routeOutputCap else dev.chungjungsoo.gptmobile.data.agent.responseOutputAllowance(limits.copy(outputTokens = requestedOutputTokens ?: limits.outputTokens), routeOutputCap)
+        val resolvedOutputCap = if (chatToolConfig?.github != null || exposedTools.isNotEmpty()) dev.chungjungsoo.gptmobile.data.context.ReplayAllowance.allocate(limits.contextTokens, contextPlan.promptTokens, requestedCap ?: 4096, 4096).also { check(it.output > 0 && it.replay > 0) { "TOOL_EVIDENCE_CONTEXT_BUDGET: The prompt, a useful reply and its tool receipts do not fit together. Narrow the prompt or schemas before starting tool work." } }.output else requestedCap
         val requestConstraints = RequestConstraints(
             originalRequestLineage = latestUser?.content?.let { dev.chungjungsoo.gptmobile.data.research.researchHash(it) },
             contextCeiling = limits.contextTokens.takeIf { it < Int.MAX_VALUE },
@@ -4081,7 +4091,8 @@ class ChatRepositoryImpl(
             if (recalled.facts.isNotEmpty()) send(ApiState.MemoryRecalled(recalled.references))
             val passCombined = prepareCombinedDeliveryWork(combinedOverride ?: chatToolConfig?.combined, kind, runId, platform.uid, turns, invocationPlatform.systemPrompt.orEmpty(), listOfNotNull(passOutputTokens, requestConstraints.maxOutputTokens).minOrNull())
             val constraints = (if (textOnly) requestConstraints.withoutTools() else requestConstraints)
-                .copy(requestRole = kind, combined = passCombined, continuationPrefixDigest = continuationPrefixDigest)
+                .copy(combined = passCombined, continuationPrefixDigest = continuationPrefixDigest)
+                .forRole(kind)
                 .let { original ->
                     if (passOutputTokens != null) {
                         original.copy(maxOutputTokens = minOf(original.maxOutputTokens ?: passOutputTokens, passOutputTokens))
@@ -4433,6 +4444,7 @@ class ChatRepositoryImpl(
                     (kotlinx.serialization.json.Json.parseToJsonElement(frozen.prompt) as? kotlinx.serialization.json.JsonObject)?.get("source_preservation")?.toString() == "\"FULL_SPANS_V1\""
                 }.getOrDefault(false),
                 originalRequest = frozen.userMessage.content,
+                outputTokenAllowance = frozen.writerRequestPlan?.effectiveOutputTokens,
                 onStage = { phase -> frozen.combined?.let { combinedBudgets.open(it).recordDeliveryPhase(phase) } },
                 evidence = combinedRecoveryEvidence(frozen, runId) {
                     dispatchAuthority.validate()
@@ -4640,8 +4652,32 @@ class ChatRepositoryImpl(
             )
         }
         val reviewEvidence = if (chatToolConfig?.github != null && platform.compatibleType == ClientType.LLAMA) dev.chungjungsoo.gptmobile.data.github.GitHubReviewEvidence() else null
-        fun reviewOutputTokens(): Int = minOf(4096, minOf(limits.contextTokens, observedRequestContext.get() ?: Int.MAX_VALUE) / 8).coerceAtLeast(256)
-        fun reviewInputLimit(): Int = (minOf(limits.contextTokens, observedRequestContext.get() ?: Int.MAX_VALUE).toLong() - dev.chungjungsoo.gptmobile.data.context.TextTokenEstimate.estimate(requestPlatform.systemPrompt.orEmpty() + dev.chungjungsoo.gptmobile.data.github.GitHubReviewedSession.INSTRUCTION) - reviewOutputTokens() - 512).coerceIn(0, 1_048_576).toInt()
+        fun reviewOutputTokens(): Int = minOf(8192, minOf(limits.contextTokens, observedRequestContext.get() ?: 32_768) / 4).coerceAtLeast(256)
+        fun reviewInputLimit(): Int = (minOf(limits.contextTokens, observedRequestContext.get() ?: 32_768).toLong() - reviewOutputTokens() - 1536).coerceIn(0, 1_048_576).toInt()
+        suspend fun measureReview(prompt: String): Int = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+            val system = requestPlatform.systemPrompt.orEmpty() + "\n" + dev.chungjungsoo.gptmobile.data.github.GitHubReviewedSession.INSTRUCTION
+            dev.chungjungsoo.gptmobile.data.context.TextTokenEstimate.estimate(
+                buildJsonObject {
+                    put("model", platform.model)
+                    put(
+                        "messages",
+                        kotlinx.serialization.json.JsonArray(
+                            listOf(
+                                buildJsonObject {
+                                    put("role", "system")
+                                    put("content", system)
+                                },
+                                buildJsonObject {
+                                    put("role", "user")
+                                    put("content", prompt)
+                                }
+                            )
+                        )
+                    )
+                    put("response_format", dev.chungjungsoo.gptmobile.data.github.GitHubReviewSchema.format)
+                }.toString()
+            )
+        }
         val reviewedSession = if (reviewEvidence != null) {
             val reviewUser = requireNotNull(latestUser) { "GITHUB_REVIEW_REQUIRED: The original task is missing; no answer can be published." }
             dev.chungjungsoo.gptmobile.data.github.GitHubReviewedSession(
@@ -4650,6 +4686,24 @@ class ChatRepositoryImpl(
                 reviewUser.content,
                 inputTokenLimit = reviewInputLimit(),
                 currentInputLimit = ::reviewInputLimit,
+                measureInput = ::measureReview,
+                checkpoint = workspace?.let { store ->
+                    val github = requireNotNull(chatToolConfig?.github)
+                    val binding = dev.chungjungsoo.gptmobile.data.research.researchHash("${reviewUser.chatId}:${reviewUser.id}:${platform.uid}:${github.connectionUid}:${github.owner}/${github.repo}:${github.ref}:${dispatchAuthority.revision}")
+                    dev.chungjungsoo.gptmobile.data.github.GitHubReviewCheckpoint(
+                        reviewUser.content,
+                        read = { id ->
+                            dispatchAuthority.validate()
+                            check(validateSavedEvidence())
+                            store.protectedSynthesisCheckpoint("github-review:$binding:$id")
+                        },
+                        write = { id, value ->
+                            dispatchAuthority.validate()
+                            check(validateSavedEvidence())
+                            store.saveProtectedSynthesisCheckpoint("github-review:$binding:$id", reviewUser.chatId, runId, value)
+                        }
+                    )
+                },
                 openReview = { prompt, kind ->
                     openPrimarySession(
                         listOf(ConversationTurn(reviewUser.copy(content = prompt, attachments = emptyList()), null, true)),
@@ -4716,7 +4770,7 @@ class ChatRepositoryImpl(
                 maxReplayResultTokens = if (chatToolConfig?.github != null) minOf(limits.contextTokens / 16, 32_768).coerceAtLeast(64) else delegationSettings.primaryReplayResultTokens
             ),
             checkpoint = latestUser?.let { user ->
-                dev.chungjungsoo.gptmobile.data.agent.ToolBatchCheckpoint.forTurn(context.filesDir, user.chatId, "${user.chatId}:${user.id}:${platform.uid}:${dispatchAuthority.revision}", persistent = agentPersistenceDao.getChatRoom(user.chatId)?.isTemporary == false)
+                dev.chungjungsoo.gptmobile.data.agent.ToolBatchCheckpoint.forTurn(context.filesDir, user.chatId, "${user.chatId}:${user.id}:${platform.uid}:${dispatchAuthority.revision}", persistent = agentPersistenceDao.getChatRoom(user.chatId)?.isTemporary == false, jobContext = chatToolConfig?.github?.let { github -> dev.chungjungsoo.gptmobile.data.agent.ToolBatchJobContext(user.effectiveContent(), "GITHUB_ENGINEERING", "${github.owner}/${github.repo}", github.ref, github.commitSha) })
             },
             healthCatalog = catalog,
             retryUndispatchedBudgetFailures = retryUndispatchedBudgetFailures,
@@ -4740,7 +4794,7 @@ class ChatRepositoryImpl(
         val text = engineeringMemory.prepare(github, user.chatId, "${user.chatId}:${user.id}", user.content, preferences, platform.isPrivateDestination(), minOf(12_000, contextTokens / 4))
         if (text.isNotBlank() && (platform.isPrivateDestination() || preferences.allowCloudEngineeringMemory)) {
             val labels = listOf(
-                dev.chungjungsoo.gptmobile.data.permissions.PersonalDataProvenance(sourceToolId = "github_engineering_memory", sourceProfileUid = platform.uid, sourceRef = dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook.digest(text), categories = setOf(dev.chungjungsoo.gptmobile.data.permissions.PersonalDataCategory.PRIVATE_CONTENT), retentionChatId = user.chatId, localOnly = !preferences.allowCloudEngineeringMemory)
+                dev.chungjungsoo.gptmobile.data.permissions.PersonalDataProvenance(sourceToolId = "github_engineering_memory", sourceProfileUid = platform.uid, sourceRef = dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook.digest(text), categories = setOf(dev.chungjungsoo.gptmobile.data.permissions.PersonalDataCategory.PRIVATE_CONTENT), retentionChatId = user.chatId, localOnly = !preferences.allowCloudEngineeringMemory, sourceConnectionUid = github.connectionUid)
             )
             kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.permissions.PersonalDataContext]?.add(labels)
             emit(ApiState.Notice("", personalData = labels))
@@ -5356,7 +5410,19 @@ class ChatRepositoryImpl(
             }
             return@withContext next
         }
-        dev.chungjungsoo.gptmobile.data.agent.CombinedRecoverySnapshot.prepare(run, message, room.combinedPrimaryUid ?: room.activePlatform.firstOrNull(), acceptedProfile, agentPersistenceDao.answerSegments(runId))
+        val durableRecordAnswer = if (saved.deliveryProtocol == "PASSAGES_V3") {
+            agentPersistenceDao.combinedDeliveryCheckpoint(runId, saved.liveRevisionId(runId))?.renderedAnswer
+        } else {
+            null
+        }
+        dev.chungjungsoo.gptmobile.data.agent.CombinedRecoverySnapshot.prepare(
+            run = run,
+            message = message,
+            primaryUid = room.combinedPrimaryUid ?: room.activePlatform.firstOrNull(),
+            platform = acceptedProfile,
+            segments = agentPersistenceDao.answerSegments(runId),
+            durableRecordAnswer = durableRecordAnswer
+        )
     }
 
     override suspend fun prepareCombinedAppendResume(runId: String, platform: PlatformV2, decision: dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision): dev.chungjungsoo.gptmobile.data.agent.CombinedInputSnapshot? = withContext(Dispatchers.IO) {
@@ -5372,7 +5438,15 @@ class ChatRepositoryImpl(
         requireNotNull(saved.writerRequestPlan).validateProfile(acceptedProfile)
         val budget = combinedBudgets.open(requireNotNull(saved.combined)).snapshot()
         require(!budget.closed && !budget.cancelled) { "Combined turn is cancelled or closed." }
-        dev.chungjungsoo.gptmobile.data.agent.CombinedRecoverySnapshot.prepare(run, message, room.combinedPrimaryUid ?: room.activePlatform.firstOrNull(), acceptedProfile, agentPersistenceDao.answerSegments(runId), providerWait = true)
+        dev.chungjungsoo.gptmobile.data.agent.CombinedRecoverySnapshot.prepare(
+            run = run,
+            message = message,
+            primaryUid = room.combinedPrimaryUid ?: room.activePlatform.firstOrNull(),
+            platform = acceptedProfile,
+            segments = agentPersistenceDao.answerSegments(runId),
+            providerWait = true,
+            durableRecordAnswer = checkpoint.renderedAnswer
+        )
     }
 
     override suspend fun fetchDebugRecords(chatId: Int): kotlinx.serialization.json.JsonObject = withContext(Dispatchers.IO) {

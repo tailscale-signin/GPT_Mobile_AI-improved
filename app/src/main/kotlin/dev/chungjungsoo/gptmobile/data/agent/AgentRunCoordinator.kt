@@ -740,6 +740,7 @@ class AgentRunCoordinator @Inject constructor(
         var lastCheckpointAt = 0L
         var firstAnswerCheckpoint = false
         var committedForHandoff = false
+        var completedCombinedPublication = false
         var researchLifecycle: dev.chungjungsoo.gptmobile.data.research.ResearchDispatchLifecycle? = null
         suspend fun traceReducedOutput(message: MessageV2) {
             dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.let { journal ->
@@ -867,10 +868,25 @@ class AgentRunCoordinator @Inject constructor(
                         // checkpoint cannot subsequently overwrite the attribution bundle.
                         checkpoints.drain()
                         val bundled = assistantMessage.copy(content = content, thoughts = thoughts, timeline = recoveryMarkers + timeline)
-                        val committed = withContext(NonCancellable) { chatRepository.checkpointCombinedAnswer(bundled) }
+                        val report = timeline.lastOrNull { it.combinedQuality != null }?.combinedQuality
+                        val checkedFinal = report?.let { it.finalAssessment && it.complete && it.protocolComplete && !it.correctionRequired && it.semanticCoverageVerified } == true
+                        // The writer is already terminal and all checks have finished. Commit
+                        // the checked body and COMPLETED status together before making it visible.
+                        val publicationTime = currentEpochSeconds()
+                        val publication = if (checkedFinal) terminalAgentMessage(bundled, null, publicationTime).withCombinedOutcome(AgentRunStatus.COMPLETED) else bundled
+                        val contributors = publication.combinedSources.mapTo(hashSetOf()) { it.platformUid }
+                        require(report?.passages.orEmpty().all { contributors.containsAll(it.profileUids) && it.links.all { link -> contributors.containsAll(link.profileUids) } }) { "COMBINED_FINAL_CONTRIBUTOR_REFERENCE_MISSING" }
+                        val committed = withContext(NonCancellable) {
+                            if (checkedFinal) {
+                                chatRepository.commitAgentRun(publication, request.runId, AgentRunStatus.COMPLETED, publicationTime, null)
+                            } else {
+                                chatRepository.checkpointCombinedAnswer(bundled)
+                            }
+                        }
+                        if (committed && checkedFinal) completedCombinedPublication = true
                         checkpoints = newCheckpoints()
                         if (committed) {
-                            assistantMessage = bundled
+                            assistantMessage = publication
                             firstAnswerCheckpoint = true
                             lastCheckpointAt = SystemClock.elapsedRealtime()
                         }
@@ -917,7 +933,11 @@ class AgentRunCoordinator @Inject constructor(
                 val terminalMessage = terminalAgentMessage(assistantMessage, terminal.error.takeUnless { waitingRemote }, completedAt).withCombinedOutcome(terminal.status)
                 val committed = withContext(NonCancellable) {
                     traceReducedOutput(terminalMessage)
-                    chatRepository.commitAgentRun(terminalMessage, request.runId, terminal.status, completedAt, terminal.error)
+                    if (completedCombinedPublication && terminal.status == AgentRunStatus.COMPLETED) {
+                        true
+                    } else {
+                        chatRepository.commitAgentRun(terminalMessage, request.runId, terminal.status, completedAt, terminal.error)
+                    }
                 }
                 if (committed && waitingRemote) {
                     _notices.tryEmit(AgentRunNotice(request.chatId, request.runId, "The remote job is still waiting. Its job ID and any answer are saved; check its status or continue without this profile.", true))

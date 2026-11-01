@@ -6,6 +6,13 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class DiagnosticIncidentClassificationTest {
+    @Test fun transportFallbackPreservesComponentAndRecoveryClassifications() {
+        assertEquals("transport_availability", classifyDiagnostic("I", "Gateway", "Unexpected end of stream").category)
+        assertEquals("native_operation_failure", classifyDiagnostic("I", "LocalModel", "SEND_FAILED · unexpected end of stream").category)
+        assertEquals("mcp_connectivity", classifyDiagnostic("I", "MCP", "Health · state=UNREACHABLE · error=Failed to connect").category)
+        assertFalse(classifyDiagnostic("I", "Network", "CONNECTIVITY_RECOVERED · previous=unexpected end of stream").actionable)
+    }
+
     @Test fun platformCleanupIsNotConfusedWithApplicationFailures() {
         assertFalse(classifyDiagnostic("E", "Android", "E/ImeBackDispatcher(123): Ime callback not found. Ignoring unregisterReceivedCallback. callbackId: 42").actionable)
         assertFalse(classifyDiagnostic("W", "Android", "W/InteractionJankMonitor(123): Initializing without READ_DEVICE_CONFIG permission. enabled=false, interval=1").actionable)

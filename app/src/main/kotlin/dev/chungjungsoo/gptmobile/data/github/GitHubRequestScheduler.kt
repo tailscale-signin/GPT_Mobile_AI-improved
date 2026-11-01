@@ -5,6 +5,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
@@ -13,10 +14,11 @@ class GitHubRequestScheduler(
     private val concurrency: Int = 2,
     private val maxQueued: Int = 64,
     private val maxJoined: Int = 64,
-    private val maxPriorityBypasses: Int = 8
+    private val maxPriorityBypasses: Int = 8,
+    private val queueTimeoutMillis: Long = 30_000
 ) {
     init {
-        require(concurrency > 0 && maxQueued >= 0 && maxJoined >= 0 && maxPriorityBypasses >= 0)
+        require(concurrency > 0 && maxQueued >= 0 && maxJoined >= 0 && maxPriorityBypasses >= 0 && queueTimeoutMillis > 0)
     }
 
     /** This particular HTTP request never entered its dispatch block. Earlier receipts still apply. */
@@ -28,6 +30,7 @@ class GitHubRequestScheduler(
                 "GITHUB_WAITING_CAPACITY: request queue is full; retry after current requests complete."
             }
         )
+    internal class AdmissionRejected(message: String) : IllegalStateException(message)
     private val circuit = GitHubRequestCircuit()
     private data class Waiter(val priority: Int, val sequence: Long, val ready: CompletableDeferred<Unit>, var bypasses: Int = 0)
     private val lock = Any()
@@ -42,6 +45,7 @@ class GitHubRequestScheduler(
     private val bytes = AtomicLong()
     private val joined = AtomicLong()
     private val cacheHits = AtomicLong()
+    private val queueRejections = AtomicLong()
 
     suspend fun <T> execute(key: String? = null, priority: Int = 0, block: suspend () -> T): T {
         currentCoroutineContext().ensureActive()
@@ -110,7 +114,16 @@ class GitHubRequestScheduler(
             }
         } ?: return
         try {
-            waiter.ready.await()
+            if (withTimeoutOrNull(queueTimeoutMillis) {
+                    waiter.ready.await()
+                    true
+                } != true
+            ) {
+                val granted = synchronized(lock) { !queue.remove(waiter) }
+                if (granted) release()
+                queueRejections.incrementAndGet()
+                throw AdmissionRejected("GITHUB_WAITING_CAPACITY: request queue deadline expired. No request was dispatched; retry after current requests complete.")
+            }
         } catch (cancelled: CancellationException) {
             val granted = synchronized(lock) { !queue.remove(waiter) }
             if (granted) release()
@@ -150,6 +163,8 @@ class GitHubRequestScheduler(
             put("cache_hits", cacheHits.get())
             put("active_requests", active)
             put("queued_requests", queue.size)
+            put("queue_rejections", queueRejections.get())
+            put("queue_timeout_ms", queueTimeoutMillis)
             put("waiting_shared_reads", waitingJoins)
             put("queue_capacity", maxQueued)
             put("shared_waiter_capacity", maxJoined)

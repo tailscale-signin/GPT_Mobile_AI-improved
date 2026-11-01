@@ -43,6 +43,19 @@ internal class GitHubOperationTool(
     }
 
     private suspend fun executeOperation(callId: String, arguments: JsonObject): AgentToolResult {
+        val normalized = try {
+            if ("view_cursor" in arguments) arguments else (backend as? GitHubTool)?.normalizeOperationRepository(arguments) ?: arguments
+        } catch (invalid: IllegalArgumentException) {
+            return AgentToolResult(callId, ToolResultContent.Text(invalid.message.orEmpty()), true, errorCode = "INVALID_ARGUMENTS", dispatched = false)
+        }
+        return executeNormalized(callId, normalized)
+    }
+
+    private suspend fun executeNormalized(callId: String, arguments: JsonObject): AgentToolResult {
+        val wrongHandles = arguments.keys.intersect(setOf("cursor", "next_cursor", "evidence_id", "tracking_id")) - if (operation == "github_read" && "view_cursor" !in arguments) setOf("evidence_id") else emptySet()
+        if (wrongHandles.isNotEmpty() && "view_cursor" !in arguments) {
+            return AgentToolResult(callId, ToolResultContent.Text("${wrongHandles.sorted().joinToString()} cannot paginate this operation. Use the exact continuation_call returned by this tool. evidence_id only reopens source through github_read; it is never a pagination cursor. Nothing was dispatched."), true, errorCode = "INVALID_ARGUMENTS", dispatched = false)
+        }
         if ("view_cursor" in arguments) {
             // Providers often carry repository/action defaults into a saved-page call.
             // Validate those against the retained read instead of forcing a model repair loop.
@@ -153,7 +166,7 @@ internal class GitHubOperationTool(
         if (operation == "github_pr") {
             val action = (arguments["action"] as? JsonPrimitive)?.content.orEmpty().ifBlank { "context" }
             val requiredFields = when (action) {
-                "context", "comments", "reviews" -> listOf("pull_number")
+                "headers", "context", "comments", "reviews" -> listOf("pull_number")
                 "create" -> listOf("title", "head", "base")
                 "update", "merge" -> listOf("pull_number", "expected_head_sha")
                 "comment" -> listOf("pull_number", "body", "expected_head_sha")
@@ -251,6 +264,7 @@ internal class GitHubOperationTool(
                     else -> return null
                 }
                 "github_pr" -> when (requested) {
+                    "headers" -> "pr_headers"
                     "", "context" -> "pr_context"
                     "list" -> "list_pull_requests"
                     "comments" -> "get_pull_request_comments"
@@ -296,6 +310,7 @@ internal class GitHubOperationTool(
                     else -> return null
                 }
                 "github_issue" -> when (requested) {
+                    "headers" -> "issue_headers"
                     "" -> if (args["issue_number"] == null) "list_issues" else "issue_context"
                     "list" -> "list_issues"
                     "context" -> "issue_context"
@@ -525,7 +540,7 @@ internal class GitHubOperationTool(
                     }
                 }
                 "github_pr" -> {
-                    properties["action"] = choice("list", "context", "comments", "reviews", "create", "update", "comment", "reply", "review", "merge")
+                    properties["action"] = choice("list", "headers", "context", "comments", "reviews", "create", "update", "comment", "reply", "review", "merge")
                     properties["pull_number"] = field("integer")
                     properties["state"] = choice("open", "closed", "all")
                     listOf("title", "body", "head", "base", "expected_head_sha", "expected_base_sha").forEach { properties[it] = field("string") }
@@ -613,7 +628,7 @@ internal class GitHubOperationTool(
                     properties["page"] = field("integer")
                 }
                 "github_issue" -> {
-                    properties["action"] = choice("list", "context", "comments", "history", "create", "update")
+                    properties["action"] = choice("list", "headers", "context", "comments", "history", "create", "update")
                     properties["issue_number"] = field("integer")
                     properties["page"] = field("integer")
                     listOf("title", "body", "expected_updated_at").forEach { properties[it] = field("string") }
@@ -623,14 +638,14 @@ internal class GitHubOperationTool(
             val description = when (operation) {
                 "github_context" -> "Inspect repo, branches, commits, checks, evidence. changes needs base_sha; commit returns 30 summaries. include_patches adds excerpts."
                 "github_search" -> "Search pinned code/paths. patterns: * between literals; fuzzy: one identifier. Check coverage."
-                "github_read" -> "Read pinned ranges (1-based, <=2000 lines) or evidence_id; saved pages use view_cursor alone."
+                "github_read" -> "Read pinned ranges (1-based, <=2000 lines), evidence_id or view_cursor alone. Discover paths first; expired handles: github_context action=recovery."
                 "github_stage_patch" -> "Stage an exact replacement with target_file, search_snippet and replacement_snippet, or SHA-checked edits. Reads the pinned blob and rejects ambiguous anchors. Returns immutable version/stage_id and preserves publication receipts. Supply restore_stage_id alone to select a saved local patch at the same branch/base. Commit on a permitted working branch using its current expected_head_sha."
                 "github_commit" -> "Create a working branch, commit a validated stage_id, or delete_branch with expected_head_sha after dependency inspection. Deletion blocks selected/default/protected branches, unmerged commits, open PRs and active runs. GitHub deletion is not an atomic SHA lease."
                 "github_write" -> "Every files item requires a repository-relative path (for example app/src/main/kotlin/.../MainActivity.kt), never an absolute path or directory. Stage up to 20 UTF-8 file creations, replacements or deletions for exact user approval and one atomic commit on a working branch. Supply expected_head_sha and expected_blob_sha for existing files. Replacements require content; deletions require delete=true and no content. Never write to the default branch."
-                "github_pr" -> "Canonical pull-request tool (also known as github_pull_request). Use action=list to discover pull_number; context/comments/reviews require it. Read PR files, checks and review threads; explicitly post inline review comments, reply to review comments, update/comment/create, or merge after all checks pass. Writes require the current expected head SHA."
+                "github_pr" -> "Canonical pull-request tool (also known as github_pull_request). Use list to discover pull_number. Prefer headers for title/state/head/base only; it uses a minimal API field selection with no bodies or threads. Use context for files/checks and include_health=true for merge readiness. Use github_watch_checks once for ongoing CI; do not repeatedly poll from the model. Writes require the current expected head SHA."
                 "github_ci" -> "Discover workflows, then runs (100/page), then jobs using run_id. job/logs require job_id; artifacts requires run_id. status inspects run_id/job_id or selected commit/ref checks. Empty collections are valid. definitions reads pinned YAML outlines. Logs use start_line/end_line/start_offset continuations. dispatch requires a discovered workflow_id and explicit ref; a run_id is not a workflow_id. rerun/rerun_failed_jobs retries failed jobs only; rerun_all retries the full completed run. Never cancel an active run to force a retry. Follow continuation_call exactly."
                 "github_watch_checks" -> "Subscribe once to background CI updates for pr_number and/or run_id in this saved chat. Pins the current head and posts native chat status updates without model polling turns. A moved PR head requires a new subscription."
-                "github_issue" -> "List issues (PRs excluded), or inspect issue_number with context/comments/history. An open_issue_count is not issue inspection. Create/update requires exact approval; update needs expected_updated_at. Timeline is not a full body-edit history."
+                "github_issue" -> "List issues (PRs excluded). Prefer headers for title/state/updated_at without bodies or comments; use context/comments/history only when those details are needed. Create/update requires exact approval; update needs expected_updated_at. Timeline is not a full body-edit history."
                 else -> "Inspect release notes (detail), tags/annotations (tag), paginated tags/list, create_tag or explicitly publish the selected release."
             } + " Follow continuation_call. Pair owner+repo."
             return AgentToolDefinition(

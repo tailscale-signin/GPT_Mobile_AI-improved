@@ -78,7 +78,7 @@ internal fun GitHubEvidenceButton(chatId: Int) {
     val rows by model.rows.collectAsStateWithLifecycle()
     val selected by model.selected.collectAsStateWithLifecycle()
     var open by remember(chatId) { mutableStateOf(false) }
-    TextButton(onClick = { open = true }) { Text("Verified Engineering · Evidence") }
+    TextButton(onClick = { open = true }) { Text("Receipts") }
     if (open) {
         ModalBottomSheet(onDismissRequest = { open = false }) {
             LazyColumn(Modifier.fillMaxWidth().padding(16.dp)) {

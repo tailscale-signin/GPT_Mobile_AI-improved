@@ -143,6 +143,8 @@ internal object StreamingDebugBundle {
                 val summary = dev.chungjungsoo.gptmobile.data.diagnostics.JournalCaptureSummary.describe(JsonObject(journalMetadata).takeIf { journalPresent }, journalEventCount, capture as? JsonObject)
                 put("journalAvailability", summary.getValue("availability"))
                 put("journalCapture", summary)
+                put("activeRunIds", (capture as? JsonObject)?.get("activeRunIds") ?: JsonArray(emptyList()))
+                put("completionState", "Inspect activeRunIds and retained run terminal statuses; answer text alone is not completion")
                 put("buildIdentity", JsonObject(buildIdentity))
                 put("dataScopes", dataScopes)
                 put("journalGaps", JsonObject(gaps))

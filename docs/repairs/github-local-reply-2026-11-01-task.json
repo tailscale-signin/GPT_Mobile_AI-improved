@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "be5d55930df8be6caad2380eea71b2f9a6bb0419",
+  "branch": "fix/github-local-llama-empty-output-2026-10-31",
+  "original_head": "915e3efd73fd4cc18606b41ca8e9e971dfcad4ed",
+  "parent_pr": 770,
+  "parent_head": "5946dc466026b327e7678f7adf866d1425f01382",
+  "intent": "Integrate the prepared GitHub reply, title and UI changes with current runner safeguards; bind engineering-memory reuse to its source connection and retain measured costs for empty replies",
+  "prepared_local_commit": "d55eb163877bbb238c957351091e82ed7aea34c7",
+  "status": "implementation_reviewed_ci_pending",
+  "remaining": [
+    "Publish scoped follow-up and require all current-head CI",
+    "Merge after parent PRs 769 and 770; verify main ancestry and post-merge checks"
+  ],
+  "checks": {
+    "canonical_fast": "278 tests passed plus repository policy, resources and dependency checks",
+    "targeted_host": "2 behavior tests passed against production provenance and title code; platform, grant and tool boundaries stubbed",
+    "ktlint": "changed Kotlin passed after correcting condition wrapping",
+    "android": "Not run locally: JDK 21 and Android SDK 37 unavailable. Require current-head Android, emulator, native, security, GenieX and Required verification workflows.",
+    "physical_device": "Not performed"
+  }
+}

@@ -7,7 +7,7 @@ internal fun normalizeGitHubRepository(owner: String?, repo: String?): Pair<Stri
     val cleanOwner = owner?.trim()?.takeIf { it.isNotEmpty() }
     val input = repo?.trim()?.takeIf { it.isNotEmpty() } ?: return cleanOwner to null
     val fullName = if (input.startsWith("https://")) {
-        val uri = URI(input)
+        val uri = URI.create(input)
         require(uri.host == "github.com" && uri.userInfo == null && uri.port == -1 && uri.query == null && uri.fragment == null) {
             "Use a github.com repository URL without credentials, query or fragment."
         }

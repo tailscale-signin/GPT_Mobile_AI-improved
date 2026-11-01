@@ -15,6 +15,78 @@ import org.junit.Assert.assertNotNull
 import org.junit.Test
 
 class LlamaCapacityRepositoryTest {
+    @Test fun explicitModelCapacityDoesNotRequireAnOptionalTemplateAndCannotConfirmReasoning() = runTest {
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+            val http = HttpClient(MockEngine { respond("""{"model_alias":"test-model","build_info":"fixture","default_generation_settings":{"n_ctx":8192}}""") })
+            try {
+                val repository = LlamaCapacityRepository({ http })
+                val config = ProviderRequestConfig("http://127.0.0.1:29769/v1", null)
+                val capacity = repository.discover(config, "test-model")!!
+                assertEquals(8192L, capacity.contextTokens)
+                org.junit.Assert.assertNull(repository.reasoningControl(config, "test-model", capacity))
+            } finally {
+                http.close()
+            }
+        }
+    }
+
+    @Test fun reviewSchemaSupportIsObservedOnceAndBoundToTheVerifiedModelRoute() = runTest {
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+            var schemas = 0
+            val http = HttpClient(
+                MockEngine { request ->
+                    if (request.url.encodedPath == "/props") {
+                        respond("""{"model_alias":"test-model","build_info":"fixture-build","chat_template":"plain","default_generation_settings":{"n_ctx":8192}}""")
+                    } else {
+                        schemas++
+                        val body = Json.parseToJsonElement((request.body as TextContent).text).jsonObject
+                        assertEquals("json_schema", body["response_format"]!!.jsonObject["type"]!!.toString().trim('"'))
+                        respond("""{"choices":[{"message":{"content":"{\"ok\":true}"}}]}""")
+                    }
+                }
+            )
+            try {
+                val repository = LlamaCapacityRepository({ http })
+                val config = ProviderRequestConfig("http://127.0.0.1:29766/v1", null)
+                val capacity = repository.discover(config, "test-model")!!
+                org.junit.Assert.assertTrue(repository.supportsReviewSchema(config, "test-model", capacity))
+                org.junit.Assert.assertTrue(repository.supportsReviewSchema(config, "test-model", capacity))
+                assertEquals(1, schemas)
+                val anotherAccount = config.copy(token = "another-account")
+                val anotherCapacity = repository.discover(anotherAccount, "test-model")!!
+                org.junit.Assert.assertTrue(repository.supportsReviewSchema(anotherAccount, "test-model", anotherCapacity))
+                assertEquals(2, schemas)
+            } finally {
+                http.close()
+            }
+        }
+    }
+
+    @Test fun ignoredSchemaIsNotEnabledAndItsFailureIsNegativelyCached() = runTest {
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+            var schemas = 0
+            val http = HttpClient(
+                MockEngine { request ->
+                    if (request.url.encodedPath == "/props") {
+                        respond("""{"model_alias":"test-model","build_info":"fixture-build","chat_template":"plain","default_generation_settings":{"n_ctx":8192}}""")
+                    } else {
+                        schemas++
+                        respond("""{"choices":[{"message":{"content":"{\"ok\":false}"}}]}""")
+                    }
+                }
+            )
+            try {
+                val repository = LlamaCapacityRepository({ http })
+                val config = ProviderRequestConfig("http://127.0.0.1:29767/v1", null)
+                val capacity = repository.discover(config, "test-model")!!
+                repeat(2) { org.junit.Assert.assertFalse(repository.supportsReviewSchema(config, "test-model", capacity)) }
+                assertEquals(1, schemas)
+            } finally {
+                http.close()
+            }
+        }
+    }
+
     @Test fun propsAndTemplateProbesRecoverOnceAndReuseVerifiedRouteCache() = runTest {
         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
             var props = 0

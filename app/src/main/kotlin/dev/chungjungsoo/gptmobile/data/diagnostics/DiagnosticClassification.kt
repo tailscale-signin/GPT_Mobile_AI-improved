@@ -76,6 +76,7 @@ internal fun classifyDiagnostic(level: String?, tag: String?, message: String): 
             text.startsWith("connected") ->
             DiagnosticClassification("recovery", "info", false, "reported_success")
         tag == "AppCrash" || "fatal exception" in text || level == "F" -> DiagnosticClassification("fatal", "critical", true)
+        Regex("unexpected end of stream|broken pipe|unknownhostexception|unable to resolve host|connectexception|failed to connect|connect timeout", RegexOption.IGNORE_CASE).containsMatchIn(text) -> DiagnosticClassification("transport_availability", "warning", true, "bounded_route_recovery")
         level !in setOf("E", "W") && tag in setOf("Frame", "Rendering") && text.startsWith("frame_timing") ->
             if (significantFrameWindow(message)) DiagnosticClassification("performance", "warning", true, "profile_main_thread_and_rendering") else DiagnosticClassification("performance_sample", "info", false)
         level == "E" -> DiagnosticClassification("error", "error", true)

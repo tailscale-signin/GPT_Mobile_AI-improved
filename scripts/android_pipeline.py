@@ -28,8 +28,9 @@ def command_for(runtime, variant, phase):
         command += ['--tests', '*RenderTest']
     # Release compiler/R8 memory before the separate packaging process. Bound the
     # common pool as well as Gradle workers; ApkFlinger uses both on cold builds.
+    parallelism = 2 if phase in ('package', 'bundle', 'debug') else 1
     command.append('-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m '
-                   '-Djava.util.concurrent.ForkJoinPool.common.parallelism=1 -XX:+UseG1GC -Dfile.encoding=UTF-8')
+                   f'-Djava.util.concurrent.ForkJoinPool.common.parallelism={parallelism} -XX:+UseG1GC -Dfile.encoding=UTF-8')
     return command
 
 
@@ -50,7 +51,8 @@ def execute(runtime, variant, phase, output, run=subprocess.run):
     atomic_json(output, checkpoint)
     try:
         code = run([sys.executable, 'scripts/build_metrics.py', '--label', f'{runtime}-{variant}-{phase}',
-                    '--output', str(metrics), '--', sys.executable, 'scripts/gradle_retry.py', '--', *command]).returncode
+                    '--output', str(metrics), '--', sys.executable, 'scripts/gradle_retry.py',
+                    '--timeout-seconds', str(5160 if phase in ('package', 'bundle') else 1380), '--', *command]).returncode
         checkpoint.update(status='COMPLETED' if code == 0 else 'FAILED', exit_code=code)
         return code
     finally:

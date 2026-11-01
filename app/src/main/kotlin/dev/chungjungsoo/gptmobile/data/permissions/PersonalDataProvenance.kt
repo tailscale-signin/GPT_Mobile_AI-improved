@@ -23,7 +23,8 @@ data class PersonalDataProvenance(
     val retentionChatId: Int? = null,
     val rangeStart: Long? = null,
     val rangeEnd: Long? = null,
-    val localOnly: Boolean = false
+    val localOnly: Boolean = false,
+    val sourceConnectionUid: String? = null
 )
 
 /** A bounded metadata projection also detects legacy tool results without reading their bodies. */
@@ -46,7 +47,7 @@ internal class PersonalDataContext(
     fun add(values: List<PersonalDataProvenance>) {
         values.forEach { value ->
             check(value.version == 1 && value.sourceToolId.isNotBlank() && value.categories.isNotEmpty()) { "PERSONAL_DATA_PROVENANCE_INVALID: Review the saved evidence before sharing." }
-            val identity = researchHash("${value.sourceToolId}|${value.sourceProfileUid}|${value.categories.sortedBy { it.name }}|${value.localOnly}|${value.rangeStart}|${value.rangeEnd}|${value.sourceRecipients.sorted()}|${value.retentionChatId}")
+            val identity = researchHash("${value.sourceToolId}|${value.sourceProfileUid}|${value.categories.sortedBy { it.name }}|${value.localOnly}|${value.rangeStart}|${value.rangeEnd}|${value.sourceRecipients.sorted()}|${value.retentionChatId}|${value.sourceConnectionUid}")
             check(identity in labels || labels.size < 512) { "PERSONAL_DATA_SCOPE_TOO_LARGE: Start a new conversation with the selected evidence." }
             labels[identity] = value
         }
@@ -77,24 +78,33 @@ internal class PersonalDataContext(
 
     /** A model recipient grant does not authorize a different search, map or plugin service. */
     fun validateExternalTool(profile: PlatformV2, toolId: String) {
+        externalToolRejection(profile, toolId)?.let { throw it }
+    }
+
+    /** The catalog and execution use the same live source/service decision. Local inference alone is not a denial. */
+    fun externalToolRejection(profile: PlatformV2, toolId: String): ToolAuthorizationRejected? {
         val retained = snapshot()
-        if (retained.isEmpty()) return
+        if (retained.isEmpty()) return null
         val localOnly = retained.filter { it.localOnly }
-        // GitHub mode may reuse its own local engineering memory with the same
-        // explicitly selected GitHub connection. This exception does not extend
-        // to other local-only sources or to remote model profiles.
+        // Repository memory may return only to its original, explicitly selected
+        // GitHub connection. Legacy unbound labels remain local-only.
         val authorizedGitHubMemoryReuse = profile.isPrivateDestination() &&
-            authorizedLocalOnlyGitHubConnectionUid?.let { connectionUid ->
-                toolId.startsWith("$connectionUid:") && localOnly.isNotEmpty() && localOnly.all { it.sourceToolId == "github_engineering_memory" }
+            authorizedLocalOnlyGitHubConnectionUid?.takeIf { it.isNotBlank() }?.let { connectionUid ->
+                toolId.startsWith("$connectionUid:") &&
+                    localOnly.isNotEmpty() &&
+                    localOnly.all {
+                        it.sourceToolId == "github_engineering_memory" &&
+                            it.sourceConnectionUid == connectionUid &&
+                            chatId != null &&
+                            it.retentionChatId == chatId
+                    }
             } == true
-        check(localOnly.isEmpty() || authorizedGitHubMemoryReuse) { "PERSONAL_DATA_LOCAL_ONLY: External tool arguments are blocked for local-only context." }
-        if (ProviderPrivacyPolicy.forProfile(profile) == null && retained.none { it.sourceRecipients.isNotEmpty() }) return
+        if (localOnly.isNotEmpty() && !authorizedGitHubMemoryReuse) return ToolAuthorizationRejected("PERSONAL_DATA_LOCAL_ONLY", "PERSONAL_DATA_LOCAL_ONLY: This conversation contains local-only saved context. External tools are unavailable before model dispatch. Start a conversation without that context to use an authorized GitHub connection; local model privacy does not grant permission to share saved personal data.")
+        if (ProviderPrivacyPolicy.forProfile(profile) == null && retained.none { it.sourceRecipients.isNotEmpty() }) return null
         // No inferred redaction can prove a model-generated query excludes all source facts.
         // Require an explicit service grant, or keep this request local and explain the gap.
         val grant = grants?.grantFor(profile, toolId, chatId)
-        check(grant != null && "tool-service:$toolId" in grant.downstreamRecipients && retained.all { grant.categories.containsAll(it.categories) && covers(grant, it) }) {
-            "PERSONAL_DATA_SERVICE_PERMISSION_REQUIRED: This conversation contains personal context. Its derived query cannot be sent to $toolId without permission for that service. Use a new conversation with a nonpersonal query, or keep the work with the approved model."
-        }
+        return if (grant != null && "tool-service:$toolId" in grant.downstreamRecipients && retained.all { grant.categories.containsAll(it.categories) && covers(grant, it) }) null else ToolAuthorizationRejected("PERSONAL_DATA_SERVICE_PERMISSION_REQUIRED", "PERSONAL_DATA_SERVICE_PERMISSION_REQUIRED: This conversation contains personal context. Its derived query cannot be sent to $toolId without permission for that service. Use a new conversation with a nonpersonal query, or keep the work with the approved model.")
     }
 
     private fun covers(grant: PersonalDataGrant, label: PersonalDataProvenance): Boolean {

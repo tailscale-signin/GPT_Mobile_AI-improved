@@ -145,3 +145,20 @@ internal class IntelligentToolBatch(private val window: AdaptiveBatchWindow, pri
         }
     }
 }
+
+/** Admission may run prerequisites alone, but never a dependent whose sources were excluded. */
+internal fun dependencyClosedPlan(plan: ToolBatchPlan, nodes: List<ToolBatchNode>, retainedIds: Set<String> = emptySet()): ToolBatchPlan {
+    val admitted = plan.executable.mapTo(hashSetOf()) { it.callId }
+    val dependencies = nodes.associate { it.call.callId to it.dependencies }
+    do {
+        val excluded = admitted.filter { !admitted.containsAll(dependencies[it].orEmpty()) }
+        admitted.removeAll(excluded.toSet())
+    } while (excluded.isNotEmpty())
+    val removed = plan.executable.filter { it.callId !in admitted }
+    return plan.copy(
+        executable = plan.executable.filter { it.callId in admitted },
+        deferred = plan.deferred + removed,
+        dependencyDeferredIds = removed.mapTo(hashSetOf()) { it.callId },
+        acceptedByName = plan.acceptedByName.mapValues { (key, count) -> (count - removed.count { it.callId !in retainedIds && toolRepeatKey(it) == key }).coerceAtLeast(0) }
+    )
+}

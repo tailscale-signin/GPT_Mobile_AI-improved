@@ -112,7 +112,7 @@ class CombinedSinglePassTest {
         assertFalse(budget.reopenContributor("p"))
     }
 
-    @Test fun failedContractRunsLocalChecksWithoutVerifierOrRepairAndRetainsOutput() = runTest {
+    @Test fun failedContractRunsLocalChecksWithoutVerifierOrRepairAndWithholdsOutput() = runTest {
         var generations = 0
         val original = "1. One reason.\n2. Another reason."
         val base = object : AgentProviderSession {
@@ -125,7 +125,7 @@ class CombinedSinglePassTest {
         val session = CombinedDeliverySession(base, listOf(CombinedModelResponse("p", "Primary", content = original)), 10000, validateAccess = {}, originalRequest = "List the top 10 reasons", combined = context().forRole(CombinedRunRole.SYNTHESIS), verify = { error("Verifier must never run") }, repairDraft = { error("Repair must never run") }) { _, _ -> error("Legacy repair must never run") }
         val events = session.streamRound(emptyList(), emptyList()).toList()
         assertEquals(1, generations)
-        assertEquals(original, events.combinedAnswerText())
+        assertEquals("", events.combinedAnswerText())
         val report = events.combinedReport()
         assertFalse(report.complete)
         assertEquals("PARTIAL", report.deliveredScopeStatus)

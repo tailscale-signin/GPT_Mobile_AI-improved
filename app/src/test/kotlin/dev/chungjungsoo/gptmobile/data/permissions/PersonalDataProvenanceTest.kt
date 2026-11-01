@@ -53,6 +53,38 @@ class PersonalDataProvenanceTest {
         assertThrows(IllegalStateException::class.java) { context.validateModel(profile("kilo", FreeAiProvider.KILO)) }
     }
 
+    @Test fun inferencePrivacyAndConnectorAuthorizationUseIndependentDecisions() = runTest {
+        val local = PlatformV2(uid = "local", name = "Local", apiUrl = "http://127.0.0.1:8080/v1", model = "local", compatibleType = ClientType.LLAMA)
+        val remote = profile()
+        for (destination in listOf(local, remote)) {
+            assertEquals(null, PersonalDataContext(7, store).externalToolRejection(destination, "github_pr"))
+        }
+        val context = PersonalDataContext(7, store, listOf(memory().copy(localOnly = true)))
+        context.validateModel(local)
+        assertThrows(IllegalStateException::class.java) { context.validateModel(remote) }
+        for (destination in listOf(local, remote)) {
+            val decision = context.externalToolRejection(destination, "github_pr")
+            assertEquals("PERSONAL_DATA_LOCAL_ONLY", decision?.code)
+            val thrown = assertThrows(ToolAuthorizationRejected::class.java) { context.validateExternalTool(destination, "github_pr") }
+            assertEquals(decision?.code, thrown.code)
+        }
+        var dispatches = 0
+        val child = object : AgentTool {
+            override val definition = AgentToolDefinition("github_pr", "", JsonObject(emptyMap()))
+            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+                dispatches++
+                return AgentToolResult(callId, ToolResultContent.Text("unexpected"), false)
+            }
+        }
+        val guarded = dev.chungjungsoo.gptmobile.data.agent.ToolExecutionBudget(dev.chungjungsoo.gptmobile.data.agent.AgentRunLimits()).bind(ProvenanceGuardedTool(child, local, "github_pr", personal = true, external = true) { null })
+        withContext(context) {
+            val result = guarded.execute("blocked", JsonObject(emptyMap()))
+            assertEquals("PERSONAL_DATA_LOCAL_ONLY", result.errorCode)
+            assertTrue(!result.dispatched)
+        }
+        assertEquals(0, dispatches)
+    }
+
     @Test fun publicSearchWorksUntilPersonalEvidenceCouldBeCopiedIntoItsDerivedArguments() = runTest {
         val profile = profile()
         store.grant(profile, "memory", chatId = 7)
@@ -70,11 +102,51 @@ class PersonalDataProvenanceTest {
             guarded.execute("public", JsonObject(emptyMap()))
             context.add(listOf(memory()))
             val blocked = runCatching { guarded.execute("derived", JsonObject(emptyMap())) }.exceptionOrNull()
-            assertTrue(blocked?.message.orEmpty().startsWith("PERSONAL_DATA_SERVICE_PERMISSION_REQUIRED"))
+            assertTrue(blocked is ToolAuthorizationRejected)
+            assertEquals("PERSONAL_DATA_SERVICE_PERMISSION_REQUIRED", (blocked as ToolAuthorizationRejected).code)
         }
         assertEquals(1, searches)
         // The same evidence remains usable with its explicitly approved model recipient.
         context.validateModel(profile)
+    }
+
+    @Test fun `local GitHub memory is reusable only by the authorized GitHub connector`() = runTest {
+        val local = PlatformV2(uid = "llama", name = "Local Llama", apiUrl = "http://127.0.0.1:8080/v1", model = "qwen", compatibleType = ClientType.LLAMA)
+        val githubMemory = PersonalDataProvenance(
+            sourceToolId = "github_engineering_memory",
+            sourceProfileUid = local.uid,
+            sourceRef = "repository-memory",
+            sourceConnectionUid = "github-connection",
+            categories = setOf(PersonalDataCategory.PRIVATE_CONTENT),
+            retentionChatId = 7,
+            localOnly = true
+        )
+        val context = PersonalDataContext(7, store, listOf(githubMemory), authorizedLocalOnlyGitHubConnectionUid = "github-connection")
+
+        withContext(context) {
+            context.validateExternalTool(local, "github-connection:github_read")
+            assertThrows(IllegalStateException::class.java) { context.validateExternalTool(local, "other-connection:github_read") }
+        }
+        val remote = profile("remote")
+        val remoteContext = PersonalDataContext(7, store, listOf(githubMemory), authorizedLocalOnlyGitHubConnectionUid = "github-connection")
+        withContext(remoteContext) {
+            assertThrows(IllegalStateException::class.java) { remoteContext.validateExternalTool(remote, "github-connection:github_read") }
+        }
+        for (unbound in listOf(
+            githubMemory.copy(sourceConnectionUid = null),
+            githubMemory.copy(sourceConnectionUid = "previous-connection"),
+            githubMemory.copy(retentionChatId = 8)
+        )) {
+            val retained = PersonalDataContext(7, store, listOf(githubMemory, unbound), authorizedLocalOnlyGitHubConnectionUid = "github-connection")
+            assertEquals("PERSONAL_DATA_LOCAL_ONLY", retained.externalToolRejection(local, "github-connection:github_read")?.code)
+        }
+        val switched = PersonalDataContext(7, store, listOf(githubMemory), authorizedLocalOnlyGitHubConnectionUid = "other-connection")
+        assertEquals("PERSONAL_DATA_LOCAL_ONLY", switched.externalToolRejection(local, "other-connection:github_read")?.code)
+        val unrelatedLocalMemory = githubMemory.copy(sourceToolId = "memory")
+        val unrelatedContext = PersonalDataContext(7, store, listOf(unrelatedLocalMemory), authorizedLocalOnlyGitHubConnectionUid = "github-connection")
+        withContext(unrelatedContext) {
+            assertThrows(IllegalStateException::class.java) { unrelatedContext.validateExternalTool(local, "github-connection:github_read") }
+        }
     }
 
     @Test fun resultAndDurableCheckpointKeepLabelsAfterSummaryOrCacheCopies() = runTest {

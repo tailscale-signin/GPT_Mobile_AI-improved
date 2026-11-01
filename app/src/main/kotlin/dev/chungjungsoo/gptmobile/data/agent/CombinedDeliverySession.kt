@@ -40,6 +40,7 @@ internal class CombinedDeliverySession(
     private val verify: suspend (CombinedVerificationRequest) -> CombinedEvidenceLedger? = { null },
     private val replace: suspend (CombinedReplacementCandidate) -> Boolean = { false },
     private val repairDraft: (suspend (CombinedRepairRequest) -> AgentProviderSession)? = null,
+    private val outputTokenAllowance: Int? = null,
     private val repair: suspend (String, List<CombinedContentCoverage.Unit>) -> AgentProviderSession
 ) : AgentProviderSession {
     override val handlesToolsInternally = false
@@ -110,6 +111,9 @@ internal class CombinedDeliverySession(
                             usage = CombinedReportedUsage(event.inputTokens?.takeIf { it >= 0 } ?: usage?.inputTokens, event.outputTokens?.takeIf { it >= 0 } ?: usage?.outputTokens, if (event.inputTokens != null) event.inputSource else usage?.inputSource ?: "unknown", if (event.outputTokens != null) event.outputSource else usage?.outputSource ?: "unknown")
                         }
                         emit(event)
+                        if (outputTokenAllowance != null && (event.outputTokens ?: 0) > outputTokenAllowance) {
+                            terminal = ProviderEvent.Failed("COMBINED_OUTPUT_LIMIT_EXCEEDED: Provider output exceeded the admitted $outputTokenAllowance-token allowance.", errorCode = "COMBINED_OUTPUT_LIMIT_EXCEEDED")
+                        }
                     }
                     is ProviderEvent.Failed -> terminal = event
                     ProviderEvent.Completed -> if (terminal == null) terminal = event
@@ -217,7 +221,7 @@ internal class CombinedDeliverySession(
                 version = 6,
                 answerDigest = researchHash(candidate.text),
                 claimMapping = mapping,
-                complete = candidate.text.isNotBlank() && providerComplete && framingValid && !material && violations.isEmpty() && !unresolvedResearch && checked.requiredFailures.isEmpty() && semanticCoverageVerified,
+                complete = candidate.text.isNotBlank() && providerComplete && framingValid && !material && violations.isEmpty() && !unresolvedResearch && checked.requiredFailures.isEmpty() && checked.verificationNeeds.isEmpty() && semanticCoverageVerified,
                 status = when {
                     candidate.text.isBlank() -> "FAILED"
                     !providerComplete -> "INTERRUPTED"
@@ -449,9 +453,20 @@ internal class CombinedDeliverySession(
                 deterministicFallback = true
             }
         }
+        if (!progressive && committedPrefix.isEmpty()) {
+            val cleaned = withContext(Dispatchers.Default) { CombinedTextDeduplicator.removeRepeatedParagraphs(accepted.text) }
+            if (cleaned != accepted.text) {
+                // Ignore old passage offsets during reassessment, but retain protocol
+                // errors and decisions: editing text cannot repair malformed framing.
+                accepted = accepted.copy(text = cleaned, assembledLocally = true)
+                violations = policy.violations(cleaned)
+                assessment = assess(accepted)
+                correctionRequired = assessment.correctionRequired || assessment.requiredFailures.isNotEmpty()
+            }
+        }
         var ceilingEnforced = false
         val ceiling = policy.maximumWords
-        if (!recordProtocol && !progressive && committedPrefix.isEmpty() && ceiling != null && visibleWordCount(accepted.text) > ceiling) {
+        if (!progressive && committedPrefix.isEmpty() && ceiling != null && visibleWordCount(accepted.text) > ceiling) {
             val bounded = withContext(Dispatchers.Default) { enforceCombinedWordCeiling(accepted.text, ceiling) }
             accepted = accepted.copy(text = bounded, assembledLocally = true)
             violations = policy.violations(bounded)
@@ -516,10 +531,16 @@ internal class CombinedDeliverySession(
         val failedChecks = assessment.checks.filter { it.result != "PASS" }.map { it.id }
         fun counts(label: String, total: Int): String = "${label}Total=$total · ${label}Retained=${minOf(32, total)} · ${label}Omitted=${(total - 32).coerceAtLeast(0)}"
         AppLogRecorder.record("CombinedSynthesis", "SYNTHESIS_CHECK_DETAILS · revision=${finalReport.revisionId} · assessedDigest=${finalReport.answerDigest} · failedChecks=${failedChecks.take(32)} · ${counts("failedChecks", failedChecks.size)} · issues=${finalReport.issues.take(32)} · ${counts("issues", finalReport.issues.size)} · included=${sources.map { it.platformUid }.take(32)} · ${counts("included", sources.size)} · represented=${finalReport.representedProfileUids.take(32)} · ${counts("represented", finalReport.representedProfileUids.size)} · uniquePassages=${linkedPassages.count { it.profileUids.size == 1 }} · sharedPassages=${linkedPassages.count { it.profileUids.size > 1 }} · unlinkedPassages=${finalReport.passages.size - linkedPassages.size} · sourceRejections=${finalReport.sourceLinkRejections.entries.take(32).associate { it.toPair() }} · ${counts("sourceRejections", finalReport.sourceLinkRejections.size)} · length=${finalReport.lengthCompliance} · scope=${finalReport.topicCoverage} · delivery=${finalReport.deliveredScopeStatus} · facts=${finalReport.verificationStatus}")
-        if (accepted.text.isNotBlank()) {
+        val publishable = finalReport.complete && !finalReport.correctionRequired && finalReport.semanticCoverageVerified
+        if (accepted.text.isNotBlank() && publishable) {
             emit(ProviderEvent.CombinedAnswer(accepted.text, finalReport))
         } else {
             emit(ProviderEvent.CombinedQuality(finalReport))
+            if (accepted.text.isNotBlank()) {
+                // Retain useful text as a visibly unfinished draft. It cannot satisfy
+                // the checked-final publication contract or complete the synthesis run.
+                emit(ProviderEvent.CombinedAnswer(accepted.text, CombinedCommittedDraft.fromFinal(accepted.text, finalReport)))
+            }
         }
         if (finalReport.issues.contains("HISTORICAL_PERIOD_COVERAGE_INCOMPLETE")) {
             emit(ProviderEvent.Notice("The retained historical survey is missing required periods. It remains a partial draft until those sections are completed and checked.", persistent = true))

@@ -81,7 +81,7 @@ class CombinedEditorialPreparationTest {
         val bounded = CombinedSectionPlan.create(maximum, emptyList())
         assertEquals(3, bounded.size)
         assertEquals(99, bounded.sumOf { it.targetWords!! })
-        assertTrue(CombinedSectionPlan.create(CombinedAnswerPolicy.from("Explain the findings"), emptyList()).all { it.targetWords == null })
+        assertTrue(CombinedSectionPlan.create(CombinedAnswerPolicy.from("Give a comprehensive explanation of the findings"), emptyList()).all { it.targetWords == null })
         val explicit = CombinedSectionPlan.create(CombinedAnswerPolicy.from("Use 101 words; cover these topics: causes, effects"), emptyList())
         assertEquals(listOf("causes", "effects"), explicit.map { it.label })
         assertEquals(listOf(51, 50), explicit.map { it.targetWords })

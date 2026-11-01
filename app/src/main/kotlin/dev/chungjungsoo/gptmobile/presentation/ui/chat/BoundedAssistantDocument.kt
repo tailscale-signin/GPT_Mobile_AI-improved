@@ -15,6 +15,7 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
@@ -29,6 +30,8 @@ import dev.chungjungsoo.gptmobile.data.diagnostics.CombinedOperationTrace
 import dev.chungjungsoo.gptmobile.data.research.researchHash
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -50,6 +53,8 @@ internal class CombinedDocumentPageCache(private val load: suspend (Int, Int) ->
         requireNotNull(pages[index]) { "COMBINED_DOCUMENT_PAGE_MISSING" }
     }
 }
+
+private data class InlineDocumentSnapshot(val text: String, val frames: List<CombinedMarkdownFrame>, val wording: CombinedWordingPresentation?)
 
 private data class DocumentPageState(val block: CombinedDocumentBlock? = null, val failed: Boolean = false)
 
@@ -108,22 +113,30 @@ internal fun BoundedInlineAssistantDocument(
     wording: CombinedWordingPresentation?,
     proseColor: Color?,
     outputTrace: dev.chungjungsoo.gptmobile.data.diagnostics.OutputTraceOwner? = null,
-    articleCards: @Composable (String) -> Unit = {}
+    articleCards: @Composable (String) -> Unit = {},
+    streaming: Boolean = false
 ) {
-    val ranges by produceState<List<CombinedMarkdownFrame>?>(null, text) {
-        value = withContext(Dispatchers.Default) { CombinedMarkdownPaging.frames(text).toList() }
+    // Keep text and ranges in one committed snapshot. A replacement can shrink the
+    // answer; old offsets must never index the newer text while preparation runs.
+    val latest by rememberUpdatedState(Triple(text, streaming, wording))
+    val snapshot by produceState<InlineDocumentSnapshot?>(null, identity) {
+        snapshotFlow { latest }.conflate().collect {
+            if (latest.second) kotlinx.coroutines.delay(500)
+            val (body, _, presentation) = latest
+            value = withContext(Dispatchers.Default) { InlineDocumentSnapshot(body, CombinedMarkdownPaging.frames(body).toList(), presentation) }
+        }
     }
-    val ready = ranges
+    val ready = snapshot
     if (ready == null) {
         LinearProgressIndicator(Modifier.fillMaxWidth())
     } else {
-        DocumentViewport(identity, ready.size, wording, proseColor, { index ->
+        DocumentViewport(identity, ready.frames.size, ready.wording, proseColor, { index ->
             withContext(Dispatchers.Default) {
-                val range = ready[index]
-                val block = text.substring(range.start, range.end)
-                CombinedDocumentBlock(index, range.start, block, researchHash(block), CombinedDocuments.slicePassages(text, range.start, range.end, wording?.passages.orEmpty()), range.openingFence, range.closingFence, range.tableHeader)
+                val range = ready.frames[index]
+                val block = ready.text.substring(range.start, range.end)
+                CombinedDocumentBlock(index, range.start, block, researchHash(block), CombinedDocuments.slicePassages(ready.text, range.start, range.end, ready.wording?.passages.orEmpty()), range.openingFence, range.closingFence, range.tableHeader)
             }
-        }, outputTrace, articleCards)
+        }, outputTrace, articleCards, streaming = streaming)
     }
 }
 
@@ -136,7 +149,8 @@ private fun DocumentViewport(
     page: suspend (Int) -> CombinedDocumentBlock,
     outputTrace: dev.chungjungsoo.gptmobile.data.diagnostics.OutputTraceOwner?,
     articleCards: @Composable (String) -> Unit,
-    onVisiblePage: (() -> Unit)? = null
+    onVisiblePage: (() -> Unit)? = null,
+    streaming: Boolean = false
 ) {
     if (count == 0) return
     val viewport = (LocalConfiguration.current.screenHeightDp * 0.7f).coerceAtLeast(240f).dp
@@ -173,7 +187,7 @@ private fun DocumentViewport(
                             }
                         )
                     }
-                    ChatMarkdown(adaptiveAnswerLength = if (count == 1) display.length else 1200, content = display, contentIdentity = "$identity:$index:${block.digest}", wording = presentation, outputTrace = outputTrace?.copy(partId = "${outputTrace.partId}:block:$index:${block.digest}"), proseColor = proseColor, streaming = false, modifier = Modifier.padding(vertical = 8.dp), minimumPendingHeight = viewport, onContentDrawn = onVisiblePage)
+                    ChatMarkdown(adaptiveAnswerLength = if (count == 1) display.length else 1200, content = display, contentIdentity = "$identity:$index:${block.digest}", wording = presentation, outputTrace = outputTrace?.copy(partId = "${outputTrace.partId}:block:$index:${block.digest}"), proseColor = proseColor, streaming = streaming && index == count - 1, animateStreaming = !streaming, modifier = Modifier.padding(vertical = 8.dp), minimumPendingHeight = viewport, onContentDrawn = onVisiblePage)
                     articleCards(block.text)
                 }
                 loaded.failed -> Text("This part of the saved answer could not be opened.", color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(vertical = 12.dp))

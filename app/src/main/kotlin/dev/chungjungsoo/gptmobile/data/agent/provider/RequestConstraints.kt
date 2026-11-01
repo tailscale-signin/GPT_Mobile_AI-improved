@@ -34,6 +34,13 @@ data class RequestConstraints(
         require(continuationPrefixDigest == null || continuationPrefixDigest.matches(Regex("[a-f0-9]{64}")))
     }
 
+    /** Extraction is bounded formatting; engineering reasoning must leave room for visible JSON. */
+    fun forRole(role: String): RequestConstraints = copy(
+        requestRole = role,
+        allowReasoning = allowReasoning && role != "github-claim-extraction",
+        maximizeReasoning = maximizeReasoning && !role.startsWith("github-review") && role != "github-claim-extraction"
+    )
+
     /** Text-only continuation changes tool access, never the accepted reasoning policy. */
     fun withoutTools(): RequestConstraints = copy(allowTools = false, allowGatewayLocalTools = false)
 

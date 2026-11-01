@@ -345,7 +345,7 @@ class CombinedTurnBudget(
             var available = allowance(next, pool, owner).minusFloor(charged(next, pool, null))
             if (!resources.fits(available)) {
                 val renewed = renewFor(next, context, resources)
-                    ?: return@withLock CombinedBudgetAdmission.Denied("Optional Combined work allowance reached; retain completed evidence and finish the accepted task.")
+                    ?: return@withLock CombinedBudgetAdmission.Denied("Optional Combined work allowance reached: remaining=${available.toolOperations} tool operations, ${available.inputTokens} input tokens, ${available.generatedTokens} generated tokens; requested=${resources.toolOperations}/${resources.inputTokens}/${resources.generatedTokens}. Retain completed evidence and finish the accepted task.")
                 next = renewed
                 available = allowance(next, pool, owner).minusFloor(charged(next, pool, null))
                 if (!resources.fits(available)) return@withLock CombinedBudgetAdmission.Denied("The next request must be a bounded batch within the renewed tranche.")

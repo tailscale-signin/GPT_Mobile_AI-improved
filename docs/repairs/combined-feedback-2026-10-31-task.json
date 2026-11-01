@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "be5d55930df8be6caad2380eea71b2f9a6bb0419",
+  "branch": "fix/combined-quality-budget-rendering-2026-10-31",
+  "intent": "Implement the supplied Combined Mode quality, retry, tool alignment, budget, streaming and export feedback",
+  "status": "integrated_review_ci_pending",
+  "checks": {
+    "kotlin_host": {
+      "passed": 398,
+      "scope": "tool runner, budgets, settings and new feedback policy regressions; Android boundaries stubbed"
+    },
+    "fast": "passed again after audit: 276 Python tests plus CI/dependency/resource/regex/provenance checks",
+    "android": "blocked: Gradle distribution download network unreachable; JDK 21 and SDK 37 also required",
+    "combined_delivery_host": {
+      "passed": 90,
+      "scope": "actual delivery, final checks, source mapping, synthesis prompts, policy and turn-budget code; Android/logging/research-ingestion boundaries stubbed"
+    }
+  },
+  "remaining": [
+    "Require all applicable integrated-revision checks and merge parent PR #769 before #770; physical-device profiling remains unmeasured"
+  ],
+  "publication": {
+    "state": "ready_for_review",
+    "branch": "fix/combined-quality-budget-rendering-2026-10-31",
+    "code_commit": "34c08adb7206ef423bc6802ae2121e8ad5e1d8be",
+    "reviewed_local_commit": "85a2f3ab0db4373fd5fc5464efab200b24372669",
+    "reviewed_tree": "39875a10d9f3d39468b667917b5e55c47b2833f3",
+    "pr_number": 770,
+    "pr_url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/770",
+    "draft": false,
+    "source_tree_verified": true,
+    "authorization": "User authorized reviewing, correcting, validating and merging all current and newly added draft PRs into main.",
+    "method": "Connected GitHub app; local Git has no credentials."
+  },
+  "review_followup": {
+    "base_head": "49a9813e4bf314f7499a1af6591294bf4c37a000",
+    "intent": "Prevent incidental token counts and request IDs from disabling retries as endpoint or billing errors",
+    "validation": "Production classifier and scope behavior regressions plus ktlint; current-head Android CI required"
+  },
+  "dependencies": [
+    {
+      "pr": 769,
+      "head": "09fc11cbbfc7c7eca0989f214e9982b1c0c1cd2c"
+    }
+  ],
+  "integration_review": {
+    "intent": "Preserve GitHub unsent-authorization recovery and Combined optional-work budget classification in the shared runner",
+    "conflicts_resolved": [
+      "AgentRunner.kt: exclude both authorization/pre-dispatch failures and Combined work exhaustion from reliability circuits",
+      "ToolExecutionBudget.kt: retain Combined work exhaustion flag and typed authorization handling"
+    ],
+    "validation": "278 canonical fast tests; changed Kotlin formatting; full integrated Android and behavioral CI pending"
+  }
+}

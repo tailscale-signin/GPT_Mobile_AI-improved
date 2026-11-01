@@ -132,7 +132,7 @@ jobs:
             wait "$watchdog_pid" 2>/dev/null || true
           }
           trap cleanup_watchdog EXIT
-          python3 scripts/build_metrics.py --label geniex-package --output build/geniex-validation/package-metrics.json -- python3 scripts/gradle_retry.py -- -PgeniexRuntime=true -PnativeMemorySmoke=true :app:assembleNativeSmoke --no-daemon --max-workers=1 --console=plain --info --stacktrace --profile '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -Djava.util.concurrent.ForkJoinPool.common.parallelism=2 -XX:+UseG1GC -Dfile.encoding=UTF-8' 2>&1 | tee build/geniex-validation/package.log
+          python3 scripts/build_metrics.py --label geniex-package --output build/geniex-validation/package-metrics.json -- python3 scripts/gradle_retry.py --timeout-seconds 5160 -- -PgeniexRuntime=true -PnativeMemorySmoke=true :app:assembleNativeSmoke --no-daemon --max-workers=1 --console=plain --info --stacktrace --profile '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -Djava.util.concurrent.ForkJoinPool.common.parallelism=2 -XX:+UseG1GC -Dfile.encoding=UTF-8' 2>&1 | tee build/geniex-validation/package.log
       - name: Audit minified GenieX native stack
         run: |
           python3 scripts/check_local_runtime_apk.py --native-stack geniex app/build/outputs/apk/nativeSmoke/*.apk

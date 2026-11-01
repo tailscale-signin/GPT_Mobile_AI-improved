@@ -397,7 +397,7 @@ class AgentToolResolver @Inject constructor(
             }
         }
 
-        val finalized = finalizeResolvedTools(resolved, profileUid, platform, featureSettings, bindings, chatToolConfig, freeProfile, disableRemote, disableLocal, onConnectionError, chatId = userMessage?.chatId, consentPlatform = consentPlatform)
+        val finalized = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { finalizeResolvedTools(resolved, profileUid, platform, featureSettings, bindings, chatToolConfig, freeProfile, disableRemote, disableLocal, onConnectionError, chatId = userMessage?.chatId, consentPlatform = consentPlatform, personalContext = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.permissions.PersonalDataContext]) }
         val catalogTask = githubCatalogTask(profileUid, scopedGitHubMessage(userMessage, chatToolConfig?.github), hasGitHubRepositoryContext)
         val coldBindings = if (cachedCataloguesOnly && allowRemoteMcp && userMessage != null) {
             bindings.filter { binding ->
@@ -450,7 +450,7 @@ class AgentToolResolver @Inject constructor(
             // Recheck after I/O. Old grants/credentials cannot publish tools to a newer turn authority.
             val refreshed = GitHubChatPolicy.features(settingRepository.getFeatureSettings(), profileUid, chatToolConfig?.github)
             check(settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }?.let { GitHubChatPolicy.platform(it, refreshed, chatToolConfig?.github) } == platform && refreshed == live && toolConnectionRepository.listBindingsWithConnections(profileUid) == currentBindings) { "Tool permissions changed during discovery." }
-            val admitted = finalizeResolvedTools(loaded, profileUid, platform, live, currentBindings, chatToolConfig, freeProfile, disableRemote, disableLocal, onConnectionError, finalized.filter { it.nativeGitHub }, chatId = userMessage?.chatId, consentPlatform = consentPlatform)
+            val admitted = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { finalizeResolvedTools(loaded, profileUid, platform, live, currentBindings, chatToolConfig, freeProfile, disableRemote, disableLocal, onConnectionError, finalized.filter { it.nativeGitHub }, chatId = userMessage?.chatId, consentPlatform = consentPlatform, personalContext = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.permissions.PersonalDataContext]) }
             admitted.forEach { next ->
                 val previous = finalized.firstOrNull { it.modelToolName == next.modelToolName } ?: discovered[next.modelToolName]
                 check(previous == null || previous.connectionUid == next.connectionUid && previous.realToolName == next.realToolName) { "Ambiguous discovered tool alias; no action dispatched." }
@@ -721,7 +721,8 @@ class AgentToolResolver @Inject constructor(
         onConnectionError: (String) -> Unit,
         nativeGitHubAlternatives: List<ResolvedAgentTool> = emptyList(),
         chatId: Int? = null,
-        consentPlatform: PlatformV2? = platform
+        consentPlatform: PlatformV2? = platform,
+        personalContext: dev.chungjungsoo.gptmobile.data.permissions.PersonalDataContext? = null
     ): List<ResolvedAgentTool> {
         fun implicitlyPublic(tool: ResolvedAgentTool): Boolean {
             if (tool.nativeGitHub) return !tool.nativeGitHubAuthenticated
@@ -892,13 +893,24 @@ class AgentToolResolver @Inject constructor(
                     canReuseResult = { permitted() && previous?.invoke() != false }
                 )
             }
-            .map { resolved ->
-                if (consentPlatform == null) return@map resolved
+            .mapNotNull { resolved ->
+                if (consentPlatform == null) return@mapNotNull resolved
                 val id = resolved.connectionUid?.let { "$it:${resolved.realToolName}" } ?: resolved.realToolName
                 val control = resolved.realToolName in setOf("delegate_to_model", "read_recovery_context", "discover_tools")
                 val personal = !control && !implicitlyPublic(resolved)
                 val external = !control && (resolved.connectionUid != null || resolved.nativeGitHub || resolved.nativeMarketplace || resolved.tool.definition.capabilities.any { it in setOf(dev.chungjungsoo.gptmobile.data.agent.AgentToolCapability.WEB_SEARCH, dev.chungjungsoo.gptmobile.data.agent.AgentToolCapability.PAGE_READER) } || resolved.realToolName in setOf("web_search", "read_url", "news", "deep_research_search_papers", "deep_research_get_paper", "deep_research_read_paper", "deep_research_citations"))
-                resolved.copy(tool = dev.chungjungsoo.gptmobile.data.permissions.ProvenanceGuardedTool(resolved.tool, consentPlatform, id, personal, external) { freeModelToolConsentStore?.grantFor(consentPlatform, id, chatId) })
+                val rejection = if (external) personalContext?.externalToolRejection(consentPlatform, id) else null
+                if (rejection != null) {
+                    dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("ToolCatalog", "TOOL_AUTHORIZATION_HIDDEN · tool=${resolved.modelToolName} · reason=${rejection.code} · state=PRECHECK_REJECTED · dispatched=false")
+                    onConnectionError(rejection.message.orEmpty())
+                    if (chatToolConfig?.github != null && (resolved.nativeGitHub || resolved.connectionUid == chatToolConfig.github.connectionUid)) throw rejection
+                    return@mapNotNull null
+                }
+                val previous = resolved.canReuseResult
+                resolved.copy(
+                    tool = dev.chungjungsoo.gptmobile.data.permissions.ProvenanceGuardedTool(resolved.tool, consentPlatform, id, personal, external) { freeModelToolConsentStore?.grantFor(consentPlatform, id, chatId) },
+                    canReuseResult = { (!external || personalContext?.externalToolRejection(consentPlatform, id) == null) && previous?.invoke() != false }
+                )
             }
             .map { resolved -> if (statistics == null) resolved else resolved.copy(tool = observedChild(resolved.tool, resolved.realToolName, resolved.connectionUid)) }
             .sortedBy { it.modelToolName }

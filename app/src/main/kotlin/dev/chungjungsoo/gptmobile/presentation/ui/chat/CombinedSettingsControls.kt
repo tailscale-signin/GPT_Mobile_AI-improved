@@ -72,6 +72,13 @@ fun CombinedSettingsControls(
         )
         val preferences = dev.chungjungsoo.gptmobile.data.agent.CombinedSynthesisPreferences.from(normalized)
         Text("Synthesis preferences · your explicit instructions take precedence", style = MaterialTheme.typography.titleSmall)
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Adaptive contributors", style = MaterialTheme.typography.titleSmall)
+                Text("Use up to three selected profiles for simple questions, including your primary. Research uses all selected profiles.", style = MaterialTheme.typography.bodySmall)
+            }
+            Switch(normalized.adaptiveContributors, { onChange(normalized.copy(adaptiveContributors = it)) }, enabled = enabled && normalized.isSupported)
+        }
         CombinedPolicySlider(
             "Completeness",
             preferences.completeness,

@@ -102,4 +102,25 @@ class CombinedAnswerPublicationTest {
             assertFalse(exposed)
         }
     }
+
+    @Test fun checkedBodyWithoutTerminalOutcomeCannotBecomeVisibleOrDurable() = runBlocking {
+        for (terminal in listOf<ApiState?>(null, ApiState.Error("Connection lost"))) {
+            var committed = false
+            var visible = ""
+            val stream = kotlinx.coroutines.flow.flow {
+                emit(ApiState.CombinedAnswer(body, report))
+                terminal?.let { emit(it) }
+            }
+            val outcome = stream.collectApiStateUpdates(
+                onUpdate = { text, _, _ -> visible = text },
+                onCombinedAnswer = { _, _, _ ->
+                    committed = true
+                    true
+                }
+            )
+            assertFalse(committed)
+            assertFalse(visible.contains(body))
+            assertFalse(outcome == ApiStateFlowOutcome.Completed)
+        }
+    }
 }

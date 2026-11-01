@@ -98,7 +98,7 @@ internal class GenerationSafety(private val characterLimit: Int, private val det
     }
 }
 
-internal fun AgentProviderSession.withGenerationSafety(safety: GenerationSafety): AgentProviderSession = object : AgentProviderSession {
+internal fun AgentProviderSession.withGenerationSafety(safety: GenerationSafety): AgentProviderSession = object : AgentProviderSession by this {
     override val handlesToolsInternally = this@withGenerationSafety.handlesToolsInternally
     override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> = flow {
         safety.apply(this@withGenerationSafety.streamRound(tools, exchanges)).collect { emit(it) }

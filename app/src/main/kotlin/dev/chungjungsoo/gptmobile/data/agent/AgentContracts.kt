@@ -127,7 +127,8 @@ data class AgentToolResult(
     val media: List<AgentToolMedia> = emptyList(),
     val optionalAssistKey: String? = null,
     val personalData: List<dev.chungjungsoo.gptmobile.data.permissions.PersonalDataProvenance> = emptyList(),
-    val executionReceipt: JsonObject? = null
+    val executionReceipt: JsonObject? = null,
+    val combinedWorkBudgetExhausted: Boolean = false
 )
 
 /** Managed content reference, never an arbitrary local path or remote download instruction. */
@@ -195,6 +196,9 @@ interface AgentProviderSession {
         tools: List<AgentToolDefinition>,
         exchanges: List<AgentToolExchange>
     ): Flow<ProviderEvent>
+
+    /** Called only after runner recovery ends, with no pending calls. Must not dispatch operations. */
+    fun retainedFailureResponse(failure: ProviderEvent.Failed): Flow<ProviderEvent> = kotlinx.coroutines.flow.flowOf(failure)
 }
 
 sealed interface AgentRunEvent {

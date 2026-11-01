@@ -65,6 +65,10 @@ class AgentRunner(
     private val onToolResult: (suspend (ProviderEvent.ToolCall, AgentToolResult) -> Unit)? = null
 ) {
     fun run(session: AgentProviderSession, tools: List<AgentTool>, dynamicTools: () -> List<AgentTool> = { emptyList() }, selectDefinitions: (List<AgentToolDefinition>) -> List<AgentToolDefinition> = { it }): Flow<AgentRunEvent> = flow {
+        if (tools.isNotEmpty() && !session.handlesToolsInternally && limits.maxReplayTokens <= 0) {
+            emit(AgentRunEvent.Provider(ProviderEvent.Failed("No actionable tool receipt fits the replay budget. Reallocate stage output or narrow schemas before starting tool work.", errorCode = "REPLAY_EVIDENCE_REQUIRED")))
+            return@flow
+        }
         if (tools.groupBy { it.definition.name }.any { it.value.size > 1 }) {
             emit(failed("Ambiguous tool aliases: resolve duplicate model-facing names before execution."))
             return@flow
@@ -384,7 +388,15 @@ class AgentRunner(
             kotlinx.coroutines.delay(1000)
             return RoundRecovery(exposedDefinitions, limits.githubTask, finalize)
         }
-        emit(AgentRunEvent.Provider(ProviderEvent.Failed(roundFailure, round.progressDeadline, round.errorCode, round.failureTransportComplete, round.providerLimit)))
+        val failure = ProviderEvent.Failed(roundFailure, round.progressDeadline, round.errorCode, round.failureTransportComplete, round.providerLimit)
+        if (limits.githubTask && round.calls.isEmpty()) {
+            session.retainedFailureResponse(failure).collect { event ->
+                if (event is ProviderEvent.Completed) checkpoint?.finish()
+                emit(AgentRunEvent.Provider(event))
+            }
+        } else {
+            emit(AgentRunEvent.Provider(failure))
+        }
         return null
     }
 
@@ -432,7 +444,10 @@ class AgentRunner(
         // dependent actions after the answer has been returned to the model.
         val toolsForBatch = if (calls.any { it.name in questionNames }) executableToolByName.filterKeys { it in questionNames } else executableToolByName
         val batchAllowance = if (calls.any { it.name in questionNames }) minOf(1, remainingCalls) else remainingCalls
-        val plan = planToolBatch(calls, batchAllowance, toolsForBatch.keys, toolCallsByName, blockedReadScopes, MAX_SAME_TOOL_CALLS_PER_RUN, restoredRetained, ::failureScope)
+        // Deferred mutations cannot become prerequisites of the decision that
+        // must be answered before those mutations may be planned.
+        val dependencyCalls = if (calls.any { it.name in questionNames }) calls.filter { it.name in questionNames } else calls
+        val plan = dependencyClosedPlan(planToolBatch(calls, batchAllowance, toolsForBatch.keys, toolCallsByName, blockedReadScopes, MAX_SAME_TOOL_CALLS_PER_RUN, restoredRetained, ::failureScope), planIntelligentBatch(dependencyCalls, toolsForBatch), restoredRetained)
         val executableCalls = plan.executable
         val deferredCalls = plan.deferred
         val perToolSuppressedIds = plan.perToolSuppressedIds
@@ -460,7 +475,7 @@ class AgentRunner(
                 emit(AgentRunEvent.ToolFinished(call, result))
             },
             progress = { emit(AgentRunEvent.BatchProgress(it)) },
-            plannedCalls = calls
+            plannedCalls = dependencyCalls
         )
         if (!finalResponseRequested && !retriedWithoutTools) {
             val update = admitDiscoveredTools(dynamicTools(), toolByName, executableToolByName, exposedDefinitions, initialSchemaTokens, consecutiveToolFailures, toolCallsByName, replayTokens, selectDefinitions) ?: return null
@@ -479,8 +494,14 @@ class AgentRunner(
                 AppLogRecorder.record("Agent", "TOOL_FAILURE_CIRCUIT_OPEN · tool=$toolName · failures=${consecutiveToolFailures[toolName]}", "W")
             }
         }
+        val authorizationStops = executableCalls.zip(executedResults).filter { (_, result) -> result.isError && ToolResultEnvelope.isAuthorizationRejection(result.errorCode) }.map { it.first.name }.toSet()
+        if (authorizationStops.isNotEmpty()) {
+            executableToolByName = executableToolByName.filterKeys { it !in authorizationStops }
+            exposedDefinitions = exposedDefinitions.filterNot { it.name in authorizationStops }
+            authorizationStops.forEach { name -> AppLogRecorder.record("Agent", "TOOL_AUTHORIZATION_STOP · tool=$name · action=review_authorization · providerCircuitChanged=false") }
+        }
 
-        val deferredResults = deferredToolResults(deferredCalls, hostSuppressedIds, perToolSuppressedIds, plan.unavailableIds, executableToolByName.keys, exchanges)
+        val deferredResults = deferredToolResults(deferredCalls, hostSuppressedIds, perToolSuppressedIds, plan.unavailableIds, executableToolByName.keys, exchanges).map { result -> if (result.callId in plan.dependencyDeferredIds) ToolResultEnvelope.error(result.callId, "DEPENDENCY_DEFERRED", "This dependent remains undispatched because a prerequisite was not admitted. Complete the missing read or correct its arguments before resuming this saved dependency group.") else result }
         deferredCalls.zip(deferredResults).forEach { (call, result) -> checkpoint?.complete(call, result) }
         val canReadOtherSources = (plan.unavailableIds.isNotEmpty() && executableToolByName.isNotEmpty()) ||
             hostSuppressedIds.isNotEmpty() ||
@@ -600,6 +621,13 @@ class AgentRunner(
         ) {
             AppLogRecorder.record("Agent", "SEARCH_ROUTED_TO_AGGREGATE · requested=${call.name} · assigned=web_search")
             call.copy(name = "web_search", arguments = dev.chungjungsoo.gptmobile.data.agent.tool.legacySearchArguments(call.arguments))
+        } else if (call.name == "web_search" && call.name !in executableToolByName) {
+            val candidates = executableToolByName.values.filter {
+                AgentToolCapability.WEB_SEARCH in it.definition.capabilities &&
+                    Regex("^mcp__[A-Za-z0-9_-]+__web_search$").matches(it.definition.name) &&
+                    ToolArgumentValidator.errors(call.arguments, it.definition.inputSchema).isEmpty()
+            }
+            candidates.singleOrNull()?.let { call.copy(name = it.definition.name) } ?: call
         } else {
             call
         }
@@ -675,6 +703,7 @@ class AgentRunner(
             }
         val unproductiveDiscoveryRounds = if (noNewTools) previousDiscoveryRounds + 1 else 0
         val repeatedDiscoveryStalled = unproductiveDiscoveryRounds >= 2
+        val combinedWorkBudgetExhausted = allResults.any { it.combinedWorkBudgetExhausted }
         val outputBudgetExhausted = allResults.any { it.outputBudgetExhausted }
         val toolCallBudgetExhausted = allResults.any { it.toolCallBudgetExhausted }
         val sharedCallBudgetResult = allResults
@@ -702,6 +731,7 @@ class AgentRunner(
             repeatedDiscoveryStalled ||
             roundLimitReached ||
             contextNearLimit ||
+            combinedWorkBudgetExhausted ||
             outputBudgetExhausted ||
             toolCallBudgetExhausted ||
             (executionToolCallLimit < Int.MAX_VALUE && toolCallCount >= executionToolCallLimit)
@@ -720,6 +750,10 @@ class AgentRunner(
         } else if (roundLimitReached) {
             finalResponseRequested = true
             emit(AgentRunEvent.Notice(ROUND_LIMIT_FINAL_RESPONSE_NOTICE, persistent = false))
+        } else if (combinedWorkBudgetExhausted) {
+            finalResponseRequested = true
+            val denial = allResults.firstOrNull { it.combinedWorkBudgetExhausted }?.let(::toolResultText).orEmpty()
+            emit(AgentRunEvent.Notice(denial.ifBlank { "Combined work allowance exhausted. Finishing with retained evidence." }, persistent = true))
         } else if (toolCallBudgetExhausted && outputBudgetExhausted) {
             finalResponseRequested = true
             val callUsed = sharedCallBudgetResult?.toolCallBudgetUsed ?: toolCallCount
@@ -897,6 +931,10 @@ class AgentRunner(
         // Keep provider failures separate from downstream collector failures. In
         // particular, never emit usage from finally after cancellation or a failed emit.
         flow {
+            if (exchanges.isNotEmpty() && limits.maxReplayTokens <= 0) {
+                emit(ProviderEvent.Failed("No actionable tool receipt fits this request. Lower the stage output reservation or narrow the schemas before continuing; saved evidence was retained.", errorCode = "REPLAY_EVIDENCE_REQUIRED"))
+                return@flow
+            }
             val rawReplayTokens = ToolExchangeCompactor.estimateTokens(exchanges)
             val replayExchanges = ToolExchangeCompactor.compact(
                 exchanges = exchanges,
@@ -1038,7 +1076,15 @@ class AgentRunner(
     }
 
     private fun countsTowardToolFailureCircuit(result: AgentToolResult): Boolean {
-        if (!result.isError || result.outputBudgetExhausted || result.toolCallBudgetExhausted) return false
+        if (!result.isError ||
+            !result.dispatched ||
+            result.combinedWorkBudgetExhausted ||
+            result.outputBudgetExhausted ||
+            result.toolCallBudgetExhausted ||
+            ToolResultEnvelope.isAuthorizationRejection(result.errorCode)
+        ) {
+            return false
+        }
         val text = when (val content = result.content) {
             is ToolResultContent.Text -> content.text
             is ToolResultContent.Json -> content.value.toString()
@@ -1062,7 +1108,7 @@ class AgentRunner(
             .groupBy(keySelector = { failureScope(it.first) }, valueTransform = { it.second })
             .forEach { (toolName, roundResults) ->
                 val failures = when {
-                    roundResults.any { result -> result.isError && terminalToolFailure(toolResultText(result)) } -> MAX_CONSECUTIVE_TOOL_FAILURES
+                    roundResults.any { result -> result.isError && result.dispatched && !ToolResultEnvelope.isAuthorizationRejection(result.errorCode) && terminalToolFailure(toolResultText(result)) } -> MAX_CONSECUTIVE_TOOL_FAILURES
                     roundResults.any { !it.isError } -> 0
                     roundResults.none(::countsTowardToolFailureCircuit) -> consecutiveToolFailures[toolName] ?: 0
                     else -> (consecutiveToolFailures[toolName] ?: 0) + 1
@@ -1112,7 +1158,7 @@ class AgentRunner(
             nodes,
             dispatch = { call ->
                 if (call.callId in blocked) {
-                    return@execute ToolResultEnvelope.error(call.callId, "DEPENDENCY_FAILED", "A prerequisite was deferred by admission. This operation was not dispatched; replan after the missing read completes.")
+                    return@execute ToolResultEnvelope.error(call.callId, "DEPENDENCY_DEFERRED", "A prerequisite was deferred by admission. This operation was not dispatched; replan after the missing read completes.")
                 }
                 val signature = call.name + ":" + dev.chungjungsoo.gptmobile.data.permissions.ScopedToolGrant.canonicalHash(call.arguments)
                 suspend fun dispatch(): AgentToolResult = if (synchronized(unknownOutcomes) { signature in unknownOutcomes }) {
@@ -1236,6 +1282,8 @@ class AgentRunner(
             throw error
         } catch (error: dev.chungjungsoo.gptmobile.data.research.ResearchProviderDeferred) {
             throw error
+        } catch (rejected: dev.chungjungsoo.gptmobile.data.permissions.ToolAuthorizationRejected) {
+            ToolResultEnvelope.error(call.callId, rejected.code, rejected.message.orEmpty())
         } catch (error: Exception) {
             AgentToolResult(
                 callId = call.callId,

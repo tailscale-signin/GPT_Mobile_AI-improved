@@ -3458,10 +3458,17 @@ class ChatViewModel @Inject constructor(
             ?.trim()
             .orEmpty()
         val currentTitle = room.title.trim()
+        val githubContext = _chatToolConfig.value.github
+        val isDefaultGitHubTitle = githubContext != null &&
+            (
+                currentTitle.equals(githubContext.repo, ignoreCase = true) ||
+                    currentTitle.equals("${githubContext.owner}/${githubContext.repo}", ignoreCase = true)
+                )
         if (currentTitle.isNotBlank() &&
             currentTitle != "Untitled Chat" &&
             initialUserTitle.isNotBlank() &&
-            currentTitle != initialUserTitle
+            currentTitle != initialUserTitle &&
+            !isDefaultGitHubTitle
         ) {
             lastAutoTitleUserTurnCount = userTurnCount
             return
@@ -3494,7 +3501,10 @@ class ChatViewModel @Inject constructor(
             }
         }
 
-        val userContext = grouped.userMessages.firstOrNull()?.content?.trim()?.takeIf(String::isNotBlank) ?: return
+        val rawUserContext = grouped.userMessages.firstOrNull()?.content?.trim()?.takeIf(String::isNotBlank) ?: return
+        val userContext = githubContext?.let {
+            dev.chungjungsoo.gptmobile.data.conversation.GitHubConversationSubject.task(rawUserContext, it.owner, it.repo, it.ref)
+        } ?: rawUserContext
         val assistantContext = latestAssistantMessages
             .map { it.effectiveContent().trim() }
             .filter(String::isNotBlank)
@@ -3518,9 +3528,12 @@ class ChatViewModel @Inject constructor(
                 }
                 val cleaned = dev.chungjungsoo.gptmobile.data.conversation.ConversationSubject.clean(aiTitle.orEmpty())
                     ?: dev.chungjungsoo.gptmobile.data.conversation.ConversationSubject.clean(userContext)
-                if (cleaned != null && !_chatRoom.value.isTitleCustomized) {
-                    _chatRoom.update { it.copy(title = cleaned, isTitleCustomized = true) }
-                    chatRepository.updateChatTitle(_chatRoom.value, cleaned, isCustomized = true)
+                val subject = githubContext?.let {
+                    dev.chungjungsoo.gptmobile.data.conversation.GitHubConversationSubject.format(it.repo, cleaned, userContext)
+                } ?: cleaned
+                if (subject != null && !_chatRoom.value.isTitleCustomized) {
+                    _chatRoom.update { it.copy(title = subject, isTitleCustomized = true) }
+                    chatRepository.updateChatTitle(_chatRoom.value, subject, isCustomized = true)
                     lastAutoTitleUserTurnCount = 1
                 }
             } finally {

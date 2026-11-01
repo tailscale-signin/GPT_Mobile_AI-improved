@@ -21,6 +21,8 @@ class CombinedResponseBudgetTest {
         assertFalse(isRecoverableStreamFailure("429 rate limit: Software caused connection abort"))
         assertFalse(isRecoverableStreamFailure("LLM7 has reached its free allowance. Try again in 85492 seconds"))
         assertFalse(isRecoverableStreamFailure("Connection refused"))
+        assertFalse(isRecoverableStreamFailure("HTTP 410 Gone after timeout"))
+        assertFalse(isRecoverableStreamFailure("Anthropic credit balance too low; connection reset"))
         assertFalse(isRecoverableStreamFailure("SSL certificate handshake error"))
     }
 }

@@ -20,6 +20,35 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class InvocationLedgerTest {
+    @Test fun `empty visible completion is recorded as failed instead of completed`() = runTest {
+        val saved = mutableListOf<ModelInvocation>()
+        val dao = mockk<InvocationDao>(relaxed = true)
+        every { dao.recent() } returns flowOf(emptyList())
+        coEvery { dao.save(any()) } answers { saved += firstArg<ModelInvocation>() }
+        val database = mockk<ChatDatabaseV2>()
+        every { database.invocationDao() } returns dao
+        val providerEvents = listOf(
+            ProviderEvent.ThinkingDelta("private reasoning only"),
+            ProviderEvent.Usage(inputTokens = 20, outputTokens = 30),
+            ProviderEvent.Completed
+        )
+        val settings = mockk<dev.chungjungsoo.gptmobile.data.repository.SettingRepository>()
+        coEvery { settings.getFeatureSettings() } returns dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings(
+            spendBudget = SpendBudgetSettings(prices = mapOf("profile" to ModelPrice("model", 1_000_000, 2_000_000, "Test", System.currentTimeMillis())))
+        )
+        val provider = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flowOf(*providerEvents.toTypedArray())
+        }
+
+        val events = InvocationLedger(database, settings).wrap(provider, "parent", "turn", "CUSTOM", "model", "primary", 100, 500, 1000, "profile")
+            .streamRound(emptyList(), emptyList()).toList()
+
+        assertEquals(providerEvents, events)
+        assertEquals("FAILED", saved.single().status)
+        assertEquals(80L, saved.single().costMicros)
+        assertEquals(30, saved.single().outputTokens)
+    }
+
     @Test fun localPollingEndPersistsRemoteWaitInsteadOfInventingAGenerationFailure() = runTest {
         val saved = mutableListOf<ModelInvocation>()
         val dao = mockk<InvocationDao>(relaxed = true)

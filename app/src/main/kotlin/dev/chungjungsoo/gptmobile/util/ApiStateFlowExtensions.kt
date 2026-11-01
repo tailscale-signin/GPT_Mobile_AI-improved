@@ -93,6 +93,14 @@ internal suspend fun Flow<ApiState>.collectApiStateUpdates(
 ): ApiStateFlowOutcome {
     val buffer = StreamingMessageBuffer(nanoTimeProvider, publishIntervalMillis)
     var isCompletedSuccessfully = false
+    var pendingCombinedAnswer: ApiState.CombinedAnswer? = null
+    suspend fun publishCombined(chunk: ApiState.CombinedAnswer) {
+        dev.chungjungsoo.gptmobile.data.agent.CombinedAnswerPublication.validate(chunk.text, chunk.report, chunk.formatVersion)
+        val timeline = buffer.combinedAnswerTimeline(chunk.text, chunk.report)
+        check(onCombinedAnswer(chunk.text, buffer.thoughtText(), timeline)) { "COMBINED_FINAL_PUBLICATION_REJECTED" }
+        buffer.replaceCombinedAnswer(chunk.text, chunk.report)
+        buffer.publishNow(onUpdate)
+    }
     var terminalError: String? = null
     var providerLimit: dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision? = null
     var errorCode: String? = null
@@ -134,12 +142,9 @@ internal suspend fun Flow<ApiState>.collectApiStateUpdates(
                 }
                 is ApiState.CombinedAnswer -> {
                     dev.chungjungsoo.gptmobile.data.agent.CombinedAnswerPublication.validate(chunk.text, chunk.report, chunk.formatVersion)
-                    // Prepare without mutating the visible buffer. A failed or stale checkpoint
-                    // must never leak an uncommitted final document through the finally flush.
-                    val timeline = buffer.combinedAnswerTimeline(chunk.text, chunk.report)
-                    check(onCombinedAnswer(chunk.text, buffer.thoughtText(), timeline)) { "COMBINED_FINAL_PUBLICATION_REJECTED" }
-                    buffer.replaceCombinedAnswer(chunk.text, chunk.report)
-                    buffer.publishNow(onUpdate)
+                    // A checked final is staged until the producer confirms its terminal
+                    // outcome. Committed draft passages can still appear while writing.
+                    if (chunk.report.complete) pendingCombinedAnswer = chunk else publishCombined(chunk)
                 }
 
                 is ApiState.TokenUsage -> {
@@ -211,10 +216,13 @@ internal suspend fun Flow<ApiState>.collectApiStateUpdates(
                 }
 
                 ApiState.Done -> {
+                    pendingCombinedAnswer?.let { publishCombined(it) }
+                    pendingCombinedAnswer = null
                     isCompletedSuccessfully = true
                 }
 
                 is ApiState.Error -> {
+                    pendingCombinedAnswer = null
                     providerLimit = chunk.providerLimit
                     errorCode = chunk.errorCode
                     chunk.progressDeadline?.let(buffer::appendProgressDeadline)
@@ -285,7 +293,9 @@ private class StreamingMessageBuffer(
     private var githubProgress = false
     private var pendingTimelineIndex = -1
     private val pendingTimelineText = StringBuilder()
-    val hasResponse: Boolean get() = dev.chungjungsoo.gptmobile.data.conversation.AnswerProjection.hasAnswer(content.toString())
+    private var contentSnapshot: String? = null
+    private fun currentContent(): String = contentSnapshot ?: content.toString().also { contentSnapshot = it }
+    val hasResponse: Boolean get() = dev.chungjungsoo.gptmobile.data.conversation.AnswerProjection.hasAnswer(currentContent())
     private var lastPublishedAtNanos = 0L
     private var hasPublishedAnswer = false
     private var publishedThoughtLength = 0
@@ -346,6 +356,7 @@ private class StreamingMessageBuffer(
                 timeline[index] = item.copy(type = AssistantTimelineItemType.NOTICE, content = item.content.take(4000), progressCheckpoint = true, modelAuthored = true)
             }
         }
+        contentSnapshot = null
         content.setLength(0)
         boundGitHubProgress()
         timelineVersion++
@@ -391,6 +402,7 @@ private class StreamingMessageBuffer(
 
     fun appendContent(chunk: String) {
         if (chunk.isNotEmpty()) {
+            contentSnapshot = null
             content.append(chunk)
             appendTimelineText(AssistantTimelineItemType.TEXT, chunk)
         }
@@ -490,6 +502,7 @@ private class StreamingMessageBuffer(
 
     fun replaceResearch(text: String) {
         flushTimelineText()
+        contentSnapshot = null
         content.setLength(0)
         pendingTimelineIndex = -1
         pendingTimelineText.setLength(0)
@@ -515,6 +528,7 @@ private class StreamingMessageBuffer(
 
     fun replaceCombinedAnswer(text: String, report: dev.chungjungsoo.gptmobile.data.agent.CombinedQualityReport) {
         flushTimelineText()
+        contentSnapshot = null
         content.setLength(0)
         pendingTimelineIndex = -1
         pendingTimelineText.setLength(0)
@@ -565,7 +579,7 @@ private class StreamingMessageBuffer(
         publishedAtNanos: Long
     ) {
         flushTimelineText()
-        onUpdate(content.toString(), thoughts.toString(), timeline.toList())
+        onUpdate(currentContent(), thoughts.toString(), timeline.toList())
         hasPublishedAnswer = hasPublishedAnswer || hasResponse
         publishedContentLength = content.length
         publishedThoughtLength = thoughts.length

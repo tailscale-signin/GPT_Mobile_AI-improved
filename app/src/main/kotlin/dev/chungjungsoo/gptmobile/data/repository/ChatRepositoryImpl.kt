@@ -212,6 +212,9 @@ internal fun estimateDelegatedInputTokens(estimate: Int, providerFailure: String
 internal fun orderPrimaryTools(tools: List<ResolvedAgentTool>): List<ResolvedAgentTool> =
     tools.sortedWith(compareBy<ResolvedAgentTool> { !it.isGitHubTool() }.thenBy { delegatedToolPriority(it) }.thenBy { it.modelToolName })
 
+internal fun localOnlyDispatchAllowed(privateDestination: Boolean, recalledLocalOnly: Boolean, historyLocalOnly: Boolean): Boolean =
+    privateDestination || !recalledLocalOnly && !historyLocalOnly
+
 class ChatRepositoryImpl(
     private val context: Context,
     private val chatRoomV2Dao: ChatRoomV2Dao,
@@ -4108,9 +4111,13 @@ class ChatRepositoryImpl(
             val invocationPlatform = if (extraInstruction.isBlank()) requestPlatform else requestPlatform.withSystemPrompt(requestPlatform.systemPrompt.orEmpty() + "\n" + extraInstruction)
             kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.agent.CombinedWriterDispatchGuard]?.validatePreparedRequest(invocationPlatform, turns)
             factVault?.validateRecall(recalled, latestUser?.chatId ?: 0, platform.isPrivateDestination())
-            if (platform.compatibleType != ClientType.LITERT_LM) {
-                require(recalled.facts.none { it.localOnly } && turns.none { turn -> turn.assistantMessage?.containsLocalOnlyMemory() == true }) { "This history contains local-only memory. Continue with a local AI profile or start a conversation without that history." }
-            }
+            require(
+                localOnlyDispatchAllowed(
+                    privateDestination = platform.isPrivateDestination(),
+                    recalledLocalOnly = recalled.facts.any { it.localOnly },
+                    historyLocalOnly = turns.any { turn -> turn.assistantMessage?.containsLocalOnlyMemory() == true }
+                )
+            ) { "This history contains local-only memory. Continue with a local AI profile or start a conversation without that history." }
             if (recalled.facts.isNotEmpty()) send(ApiState.MemoryRecalled(recalled.references))
             val passCombined = prepareCombinedDeliveryWork(combinedOverride ?: chatToolConfig?.combined, kind, runId, platform.uid, turns, invocationPlatform.systemPrompt.orEmpty(), listOfNotNull(passOutputTokens, requestConstraints.maxOutputTokens).minOrNull())
             val constraints = (if (textOnly) requestConstraints.withoutTools() else requestConstraints)

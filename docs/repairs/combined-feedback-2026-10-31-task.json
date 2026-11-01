@@ -42,7 +42,7 @@
   "dependencies": [
     {
       "pr": 769,
-      "head": "09fc11cbbfc7c7eca0989f214e9982b1c0c1cd2c"
+      "head": "7d5a05c94a9cba88501522f3ac7becc11a7664a1"
     }
   ],
   "integration_review": {
@@ -51,7 +51,8 @@
       "AgentRunner.kt: exclude both authorization/pre-dispatch failures and Combined work exhaustion from reliability circuits",
       "ToolExecutionBudget.kt: retain Combined work exhaustion flag and typed authorization handling"
     ],
-    "validation": "278 canonical fast tests; changed Kotlin formatting; full integrated Android and behavioral CI pending"
+    "validation": "278 canonical fast tests; changed Kotlin formatting; full integrated Android and behavioral CI pending",
+    "geniex_signing_repair": "Integrated #769 signing isolation, explicit v2/v3 verification and measured bounded packaging memory. Full new-revision CI required."
   },
   "ci_repair": {
     "head": "5946dc466026b327e7678f7adf866d1425f01382",
@@ -60,5 +61,17 @@
     "failures": 14,
     "intent": "Withhold rejected checked synthesis; preserve terminal assessment separately from explicit draft display and queued recovery. Retain word ceilings and archived legacy continuation budgets.",
     "verification": "278 canonical host tests, changed Kotlin formatting and whitespace passed. Android behavior regressions await CI; no old-head result counts as new-head success."
+  },
+  "lifecycle_repair": {
+    "head": "3d78ce5e1c2cf2c2a7a81deb5b2b94507caea047",
+    "base_sha": "be5d55930df8be6caad2380eea71b2f9a6bb0419",
+    "parent_pr": 769,
+    "run": 41258618469,
+    "job": 124707138575,
+    "tests_completed": 5818,
+    "failures": 2,
+    "skipped": 4,
+    "intent": "Restore answer segments together with a validated partial checkpoint, and show the explicit failed-synthesis notice instead of promoting a contributor after a zero-output writer. Keep previous synthesis revisions selected and preserve original failure details.",
+    "verification": "278 canonical host tests, changed Kotlin formatting and whitespace passed. Two strengthened Room lifecycle regressions await full Android CI."
   }
 }

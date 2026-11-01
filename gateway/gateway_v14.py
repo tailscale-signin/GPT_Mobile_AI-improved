@@ -68,11 +68,13 @@ service.install(runtime)
 engineering = EngineeringService(EngineeringStore(runtime), GitHubEngineeringBackend(runtime))
 engineering.authorized = lambda job: principal_authorized(config, job['principal'], device_store)
 engineering.backend.cancelled = lambda job_id: (engineering.store.get(job_id) or {}).get('state') == 'CANCELLED'
-app = FastAPI(title="Private Gateway v14", version=VERSION, lifespan=engineering.lifecycle(service.lifespan(runtime, config.shutdown_grace)),
+app = FastAPI(title="Private Gateway 15", version=VERSION, lifespan=engineering.lifecycle(service.lifespan(runtime, config.shutdown_grace)),
               docs_url="/gateway/docs", openapi_url="/gateway/openapi.json")
 app.add_middleware(LoadGuard, config=config, state=service)
 app.add_middleware(Admission, config=config)
 install_engineering_routes(app, engineering)
+from v14.maintenance import install_maintenance
+install_maintenance(app, runtime, service, engineering)
 
 
 @app.post("/v1/chat/completions")
@@ -140,6 +142,8 @@ def capabilities():
     result.update({"gatewayVersion": VERSION, "contractVersion": 1,
                    "build": {"sourceCommit": manifest["sourceCommit"], "manifestVersion": 1, "status": "development"},
                    "auth": {"mode": config.mode, "apiKeyRequired": False, "legacyBearerEnabled": config.legacy_bearer},
+                   "desktop": {"managed": bool(config.management_token), "maintenanceProtocol": 1,
+                               "stateSchema": 1, "updateAuthority": "local-manager", "idleUpdates": True},
                    "identityScope": "user" if config.mode == "trusted_proxy" else "local-machine",
                    "memory": {"authority": "client", "protocolVersion": 1, "workspaceAdapterEnabled": False},
                    "supportedMcpEras": ["legacy"], "eventVersions": [runtime.GATEWAY_PROGRESS_PROTOCOL],
@@ -165,6 +169,8 @@ def v14_capabilities():
     return capabilities()
 
 
+@app.get("/gateway/v15")
+@app.get("/v1/gateway/v15")
 @app.get("/gateway/v14")
 @app.get("/v1/gateway/v14")
 def v14_contract():
@@ -269,8 +275,10 @@ def main():
     # Forwarded headers cannot rewrite the socket identity used for admission.
     runtime.logger.info("Gateway %s: mode=%s, key-free access, source=%s, browser bridge=%s",
                         VERSION, config.mode, manifest["sourceCommit"][:12], config.mode == "loopback")
-    uvicorn.run(app, host=config.host, port=config.port, proxy_headers=False,
-                timeout_graceful_shutdown=config.shutdown_grace + 5)
+    server = uvicorn.Server(uvicorn.Config(app, host=config.host, port=config.port, proxy_headers=False,
+                            timeout_graceful_shutdown=config.shutdown_grace + 5))
+    app.state.server = server
+    server.run()
 
 
 if __name__ == "__main__":

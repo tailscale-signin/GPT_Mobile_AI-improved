@@ -53,3 +53,8 @@ __pycache__/
 gateway/*.sqlite3*
 gateway/.gateway-v14.lock
 gateway/.venv/
+
+# Generated desktop distributions
+/dist/
+/build/
+Gateway_v*_Implementation.zip

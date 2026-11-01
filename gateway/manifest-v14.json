@@ -2,7 +2,7 @@
   "baseCommit": "a66155dfdc0cf647dd368019f605d91689d48583",
   "version": "15.0.0",
   "schemaVersion": 1,
-  "sourceCommit": "f9e48cfbd5a1f432b6950c31688aa384049ca825",
+  "sourceCommit": "f6e5d1da467e241b3e0e6739cd802781baf8940c",
   "files": {
     "COMPLETION_RECOVERY.md": "112dc90f60d88e52c052735bc1e9b80dcc0f8dc630bf7d99f74b94409f9a65c6",
     "GITHUB_UPGRADE_14_3.md": "522fc58c8caa9d48670cec2cb7b8e08d76c024a9886f01716e76c55f880e04a8",
@@ -49,7 +49,7 @@
     "tests/test_deep_research_overhaul.py": "75db5e20ef7d740240e709e85edba4400c7ed3290fdafe4230eace5992117104",
     "tests/test_gateway_browser_bridge.mjs": "673e8604bd44317355c9824213d1d1f6c9ce12eef81f7b093b75e2bc621568b0",
     "tests/test_gateway_completion_recovery.py": "b689685f9b6428ebe5b7c089494112a9c7c6ab41295a941c4dd08a3830e99c1f",
-    "tests/test_gateway_desktop.py": "c956080447e63d6bc82d86164d0d9d3755b7a97e811e38cd6331eef68bcfe86e",
+    "tests/test_gateway_desktop.py": "1956f3a7ea5beb2e8aa447efb47d3d0886e20172bd003abd379fe889a6cd4eda",
     "tests/test_gateway_general_routing.py": "b4ccf714844c92aa43c907f10737a90a5c410b32542365b7506c628998da0b09",
     "tests/test_gateway_multisearch.py": "94674cf1e6636b22f3afa96931dbdf0f8dd71811b72e9f64248abb9292440def",
     "tests/test_gateway_recovery_payload.py": "0af81fdf7cb8ca60b19f8edccce205a322eb41acdd6947e4d4e97a5bf993d9f3",
@@ -106,7 +106,7 @@
     "v14/package.py": "57a902e2efa276f1be032aa68a5af809f0c9f2ae2e6fd8ec16733a87ac1e6d56",
     "v14/research.py": "d9e35cee26ec14e5bd7b8248b15cba433d91dfdae32c4c9d20aa9ce4c6493318",
     "v14/results.py": "2a7c79fd6f8e038e902d6eba979905d072befc87ab8b18a72904e44728685cca",
-    "v14/service.py": "0c37e1c86b6f7fb8c959b8a5609828483231f0ffce7ab4cddb390996ca4e3870",
+    "v14/service.py": "1b48119d6f598969dfeb433cd0aa72b7aa684c5b27d9647a2f652dcb7cbc5543",
     "v14/state_lock.py": "5b58f0cf6d1493ab522361a6d1cfef89f0f6cd301eef1d1f557543d6c1cf7e07",
     "v14/tools.py": "528eeb0a680b257d3de4bb856afc67a1ddd493763a7d7ed0ba2e9c052fbceb63"
   }

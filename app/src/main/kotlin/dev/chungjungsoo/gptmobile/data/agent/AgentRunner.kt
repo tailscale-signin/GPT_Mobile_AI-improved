@@ -360,7 +360,15 @@ class AgentRunner(
                 emit(AgentRunEvent.Notice("The provider could not repair its tool format. Generating a text answer from completed GitHub operations; their actions will not be repeated.", persistent = false))
                 return RoundRecovery(emptyList(), restoreRound = true, finalize = true)
             }
-            emit(AgentRunEvent.Provider(ProviderEvent.Failed(roundFailure, round.progressDeadline, errorCode = "TOOL_PROTOCOL_INVALID_FRAME")))
+            val failure = ProviderEvent.Failed(roundFailure, round.progressDeadline, errorCode = "TOOL_PROTOCOL_INVALID_FRAME")
+            if (limits.githubTask && hasToolWork && round.calls.isEmpty()) {
+                session.retainedFailureResponse(failure).collect { event ->
+                    if (event is ProviderEvent.Completed) checkpoint?.finish()
+                    emit(AgentRunEvent.Provider(event))
+                }
+            } else {
+                emit(AgentRunEvent.Provider(failure))
+            }
             return null
         }
         if (limits.githubTask && !session.handlesToolsInternally && !finalResponseRequested) {

@@ -39,6 +39,9 @@ interface ChatRoomV2Dao : RunPolicySnapshotAccess {
     @Query("UPDATE chats_v2 SET enabled_platform = :history, active_platform = :active, updated_at = :updatedAt WHERE chat_id = :chatId")
     suspend fun updatePlatforms(chatId: Int, history: List<String>, active: List<String>, updatedAt: Long)
 
+    @Query("UPDATE chats_v2 SET enabled_platform = :profile, active_platform = :profile, conversation_mode = 'STANDARD', combined_primary_uid = NULL, updated_at = :updatedAt WHERE chat_id = :chatId")
+    suspend fun updateGitHubProfile(chatId: Int, profile: List<String>, updatedAt: Long)
+
     @Query("UPDATE chats_v2 SET is_temporary = :enabled WHERE chat_id = :chatId")
     suspend fun rawUpdateTemporary(chatId: Int, enabled: Boolean)
 

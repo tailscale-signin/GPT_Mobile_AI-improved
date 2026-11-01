@@ -1200,6 +1200,10 @@ private fun ConnectionDetailsStep(
     onAllowCleartextChange: (Boolean) -> Unit,
     onClearCredentialChange: (Boolean) -> Unit
 ) {
+    if (provider?.type == ToolConnectionType.GITHUB) {
+        GitHubSetupOverview(step = 1)
+        Spacer(Modifier.height(20.dp))
+    }
     val normalizedAlias = ToolConnectionsViewModel.normalizeAlias(alias)
     val isAliasInvalid = alias.isNotBlank() && !ToolConnectionsViewModel.isValidAlias(normalizedAlias)
     val aliasError = stringResource(R.string.stable_alias_error)

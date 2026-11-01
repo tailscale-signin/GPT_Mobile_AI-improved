@@ -236,6 +236,7 @@ fun OpponentChatBubble(
     isFavorite: Boolean = false,
     debugMode: Boolean = false,
     showExecutionTrace: Boolean = true,
+    responseIcon: (@Composable () -> Unit)? = null,
     profileColorIdentity: dev.chungjungsoo.gptmobile.data.model.ProfileColorIdentity? = null,
     debugMemorySources: Map<String, DebugMemorySource> = emptyMap(),
     invocations: List<dev.chungjungsoo.gptmobile.data.accounting.ModelInvocation> = emptyList(),
@@ -267,23 +268,24 @@ fun OpponentChatBubble(
     originalSource: CombinedOriginalSourceReader? = null,
     loadCombinedBlocks: suspend (dev.chungjungsoo.gptmobile.data.database.entity.CombinedManifestReference, Int, Int) -> List<dev.chungjungsoo.gptmobile.data.agent.CombinedDocumentBlock> = { _, _, _ -> emptyList() }
 ) {
+    val effectiveExecutionTrace = debugMode && showExecutionTrace
     var activityExpanded by rememberSaveable(contentIdentity) { mutableStateOf(false) }
     val bubbleColor = animateColorAsState(
-        targetValue = if (activityExpanded) MaterialTheme.colorScheme.primary.copy(alpha = if (isFavorite) 0.138f else 0.069f) else Color.Transparent,
+        targetValue = if (debugMode && activityExpanded) MaterialTheme.colorScheme.primary.copy(alpha = if (isFavorite) 0.138f else 0.069f) else Color.Transparent,
         animationSpec = tween(durationMillis = 1000),
         label = "activityBackground"
     ).value
     val noticeMessages = remember(runNotices, timeline, isLoading) {
         visibleChatRunNotices(runNotices, timelineNoticeMessages(timeline), isLoading)
     }
-    val visibleThoughts = remember(showExecutionTrace, showReasoning, thoughts, text, isLoading) {
+    val visibleThoughts = remember(effectiveExecutionTrace, showReasoning, thoughts, text, isLoading) {
         // Do not rescan the entire growing answer on the UI thread for each streaming token.
         // Native reasoning deltas remain visible; legacy inline thinking is parsed on completion.
-        if (showExecutionTrace && showReasoning) thoughts.ifBlank { if (isLoading) "" else ThinkingParser.extractThinking(text).thinking.orEmpty() } else ""
+        if (effectiveExecutionTrace && showReasoning) thoughts.ifBlank { if (isLoading) "" else ThinkingParser.extractThinking(text).thinking.orEmpty() } else ""
     }
-    val processToolEvents = if (showExecutionTrace) toolEvents else emptyList()
-    val contentTimeline = remember(timeline, showReasoning, showExecutionTrace) {
-        timeline.filter { if (showExecutionTrace) showReasoning || it.type != AssistantTimelineItemType.THINKING else it.type == AssistantTimelineItemType.TEXT }
+    val processToolEvents = if (effectiveExecutionTrace) toolEvents else emptyList()
+    val contentTimeline = remember(timeline, showReasoning, effectiveExecutionTrace) {
+        timeline.filter { if (effectiveExecutionTrace) showReasoning || it.type != AssistantTimelineItemType.THINKING else it.type == AssistantTimelineItemType.TEXT }
     }
     val (telemetryNotice, nonTelemetryNotices) = remember(noticeMessages) {
         extractTelemetryNotice(noticeMessages)
@@ -392,9 +394,9 @@ fun OpponentChatBubble(
             add(BubbleAction(stringResource(if (isFavorite) R.string.unfavorite else R.string.favorite), if (isFavorite) Icons.Rounded.Star else Icons.Rounded.StarBorder, !isLoading, onFavoriteClick))
             add(BubbleAction(stringResource(R.string.edit), Icons.Rounded.Edit, canEdit && !isLoading, onEditClick))
         }
-        onInspectContext?.let { add(BubbleAction(stringResource(R.string.bubble_context), Icons.Rounded.Description, !isLoading, it)) }
+        onInspectContext?.takeIf { debugMode }?.let { add(BubbleAction(stringResource(R.string.bubble_context), Icons.Rounded.Description, !isLoading, it)) }
         add(BubbleAction(retryLabel ?: stringResource(R.string.retry), Icons.Rounded.Refresh, canRetry && !isLoading, onRetryClick))
-        if (showExecutionTrace && hasDetails) add(BubbleAction(stringResource(R.string.details), Icons.Rounded.HelpOutline) { activityExpanded = !activityExpanded })
+        if (effectiveExecutionTrace && hasDetails) add(BubbleAction(stringResource(R.string.details), Icons.Rounded.HelpOutline) { activityExpanded = !activityExpanded })
     }
     BubbleActionHost(identity = contentIdentity, actions = actions) {
         Column(modifier = modifier) {
@@ -412,7 +414,7 @@ fun OpponentChatBubble(
                         )
                 ) {
                     AnimatedVisibility(
-                        visible = showExecutionTrace && activityExpanded && generationTiming != null,
+                        visible = effectiveExecutionTrace && activityExpanded && generationTiming != null,
                         enter = fadeIn(tween(1000)),
                         exit = fadeOut(tween(500))
                     ) {
@@ -440,7 +442,8 @@ fun OpponentChatBubble(
                         contentIdentity = contentIdentity,
                         isLoading = isLoading,
                         debugMode = debugMode,
-                        showExecutionTrace = showExecutionTrace,
+                        showExecutionTrace = effectiveExecutionTrace,
+                        responseIcon = responseIcon,
                         debugSettings = debugSettings,
                         debugMemorySources = debugMemorySources,
                         showReasoning = showReasoning,
@@ -493,7 +496,7 @@ fun OpponentChatBubble(
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
                     )
 
-                    if (showExecutionTrace && debugMode && activityExpanded) {
+                    if (effectiveExecutionTrace && debugMode && activityExpanded) {
                         ChatDebugDiagnosticsCard(
                             agentRun = agentRun,
                             telemetryNotice = telemetryNotice,
@@ -633,7 +636,7 @@ fun OpponentChatBubble(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         AnimatedVisibility(
-                            visible = activityExpanded && formattedTime.isNotBlank(),
+                            visible = debugMode && activityExpanded && formattedTime.isNotBlank(),
                             enter = fadeIn(tween(1000)),
                             exit = fadeOut(tween(1000))
                         ) {

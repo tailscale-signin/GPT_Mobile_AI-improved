@@ -906,7 +906,7 @@ private fun ChatScreenContent(
                         }
                     }
                     chatToolConfig.github?.let { github ->
-                        item(key = "gateway-engineering-jobs") { GatewayEngineeringPanel(chatRoom.id, github, appAllPlatforms.firstOrNull { it.uid == github.mainProfileUid }) }
+                        item(key = "gateway-engineering-jobs") { GatewayEngineeringPanel(chatRoom.id, github, appAllPlatforms.firstOrNull { it.uid == github.mainProfileUid }, debugMode = debugMode) }
                     }
                     items(visibleGitHubDecisions.size, key = { "github-decision-${visibleGitHubDecisions[it].id}" }) { index ->
                         val decision = visibleGitHubDecisions[index]
@@ -1503,7 +1503,7 @@ internal fun ChatMessagePair(
                         select = { next -> if (hasCombinedTabs) onCombinedProfileClick(combinedProfiles.getOrNull(next - 1)?.uid) else onPlatformClick(messageIndex, next) }
                     )
             ) {
-                if (!hasCombinedTabs) {
+                if (!hasCombinedTabs && !LocalChatProgressInHeader.current) {
                     GPTMobileIcon(loading = shouldShowReplyLoadingIndicator(isActiveMessage, loadingStates))
                 }
                 if (isCombinedConversation && combinedSynthesisIndex < 0) {
@@ -1617,6 +1617,11 @@ internal fun ChatMessagePair(
                     isFavorite = selectedAssistantMessage?.isFavorite ?: false,
                     debugMode = debugMode,
                     showExecutionTrace = !isCombinedConversation,
+                    responseIcon = if (LocalChatProgressInHeader.current && !hasCombinedTabs) {
+                        { GPTMobileIcon(loading = isCurrentPlatformLoading) }
+                    } else {
+                        null
+                    },
                     profileColorIdentity = selectedProfile?.uid?.let(combinedIdentities::get).takeIf { isSourceResponse },
                     invocations = invocationDiagnostics.filter { it.parentRunId == selectedRunId },
                     debugSettings = debugSettings,
@@ -1706,7 +1711,7 @@ internal fun ChatMessagePair(
                 assistantTimeline.lastOrNull { it.runError != null }?.runError?.let { error ->
                     Column(Modifier.fillMaxWidth().padding(12.dp)) {
                         Text(stringResource(R.string.audit_response_interrupted), style = MaterialTheme.typography.titleSmall)
-                        dev.chungjungsoo.gptmobile.presentation.common.DetailsSection { Text(error, style = MaterialTheme.typography.bodySmall) }
+                        if (debugMode) dev.chungjungsoo.gptmobile.presentation.common.DetailsSection { Text(error, style = MaterialTheme.typography.bodySmall) }
                         if (error.contains("QUEUE_") && selectedRunId != null) TextButton(onClick = { onCheckQueuedRun(selectedRunId) }) { Text(stringResource(R.string.audit_check_status)) }
                         if (!hasCombinedTabs) TextButton(onClick = { onRetry(messageIndex, displayPlatformIndex) }, enabled = isIdle && canUseChat) { Text(stringResource(R.string.audit_generate_again)) }
                     }

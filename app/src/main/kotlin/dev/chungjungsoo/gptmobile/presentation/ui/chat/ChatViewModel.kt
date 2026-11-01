@@ -826,6 +826,7 @@ class ChatViewModel @Inject constructor(
     fun setPlatformMembership(platformUid: String, active: Boolean) = updatePlatformMembership(platformUid, active, offerUndo = false)
 
     private fun updatePlatformMembership(platformUid: String, active: Boolean, offerUndo: Boolean) {
+        if (_chatToolConfig.value.github != null) return
         // Reserve the change before launching: a queued turn must not dispatch with
         // membership that has not yet been persisted or given a stable response slot.
         pendingRunDispatches += 1
@@ -2944,7 +2945,7 @@ class ChatViewModel @Inject constructor(
                     _combinedSettingsSaveState.value = dev.chungjungsoo.gptmobile.data.model.CombinedSettingsSaveUiState(dev.chungjungsoo.gptmobile.data.model.CombinedSettingsSavePhase.FAILED, error.message)
                 }
             }
-            val room = if (chatRoomId == 0) {
+            var room = if (chatRoomId == 0) {
                 ChatRoomV2(
                     id = 0,
                     title = "Untitled Chat",
@@ -2960,6 +2961,10 @@ class ChatViewModel @Inject constructor(
                 savedStateHandle["combinedConversationIdentity"] = _combinedConversationIdentity.value
             }
             val features = settingRepository.getFeatureSettings()
+            features.conversationGitHub[room.id]?.let { github ->
+                val normalized = dev.chungjungsoo.gptmobile.data.github.GitHubChatMembership.normalize(room, github)
+                if (normalized != room) room = chatRepository.updateChatPlatforms(normalized, listOf(github.mainProfileUid))
+            }
             _chatToolConfig.update {
                 val workspace = features.conversationGitHub[room.id]
                 it.copy(

@@ -59,6 +59,7 @@ internal fun AssistantChronologicalContent(
     proseColor: androidx.compose.ui.graphics.Color? = null,
     debugMode: Boolean,
     showExecutionTrace: Boolean = true,
+    responseIcon: (@Composable () -> Unit)? = null,
     debugMemorySources: Map<String, DebugMemorySource> = emptyMap(),
     debugSettings: AppFeatureSettings = AppFeatureSettings(),
     showReasoning: Boolean,
@@ -74,6 +75,7 @@ internal fun AssistantChronologicalContent(
     originalSource: CombinedOriginalSourceReader? = null,
     loadCombinedBlocks: suspend (dev.chungjungsoo.gptmobile.data.database.entity.CombinedManifestReference, Int, Int) -> List<dev.chungjungsoo.gptmobile.data.agent.CombinedDocumentBlock> = { _, _, _ -> emptyList() }
 ) {
+    val effectiveExecutionTrace = debugMode && showExecutionTrace
     val events = remember(toolEvents) { toolEvents.associateBy { it.sequence } }
     val recalledSources = remember(timeline, toolEvents, debugMemorySources, debugMode, debugSettings.debugShowMemoryRecall) {
         if (debugMode && debugSettings.debugShowMemoryRecall) {
@@ -87,7 +89,7 @@ internal fun AssistantChronologicalContent(
         }
     }
     val legacy = timeline.isEmpty() || timeline.any { it.type == AssistantTimelineItemType.LEGACY_ORDER }
-    val items = if (!showExecutionTrace) {
+    val items = if (!effectiveExecutionTrace) {
         if (fallbackText.isBlank()) emptyList() else listOf(AssistantTimelineItem(AssistantTimelineItemType.TEXT, fallbackText))
     } else if (legacy) {
         buildList {
@@ -112,8 +114,9 @@ internal fun AssistantChronologicalContent(
         }
     )
     Column(Modifier.fillMaxWidth().padding(12.dp)) {
-        if (showExecutionTrace || isLoading && !LocalChatProgressInHeader.current) {
+        if (responseIcon != null || effectiveExecutionTrace || isLoading && !LocalChatProgressInHeader.current) {
             Row(verticalAlignment = Alignment.CenterVertically) {
+                responseIcon?.invoke()
                 Column(Modifier.weight(1f)) {
                     if (isLoading && !LocalChatProgressInHeader.current) {
                         ChatGenerationProgress(toolEvents, items)
@@ -121,7 +124,7 @@ internal fun AssistantChronologicalContent(
                         androidx.compose.foundation.layout.Spacer(Modifier.fillMaxWidth())
                     }
                 }
-                if (showExecutionTrace) {
+                if (effectiveExecutionTrace && (timeline.any { it.type != AssistantTimelineItemType.TEXT } || fallbackThoughts.isNotBlank() || toolEvents.isNotEmpty())) {
                     IconButton(onClick = { onExpandedChange(!expanded) }) {
                         Icon(if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, if (expanded) "Collapse activity" else "Expand activity", tint = MaterialTheme.colorScheme.primary)
                     }
@@ -151,7 +154,7 @@ internal fun AssistantChronologicalContent(
                             if (isLoading) delay(32)
                             value = withContext(Dispatchers.Default) { prepareAssistantDisplay(item.content, combinedWording != null) }
                         }
-                        if (showExecutionTrace && expanded && showReasoning && preparedDisplay.thinking.isNotBlank()) {
+                        if (effectiveExecutionTrace && expanded && showReasoning && preparedDisplay.thinking.isNotBlank()) {
                             Text(preparedDisplay.thinking, Modifier.padding(vertical = 8.dp), style = MaterialTheme.typography.bodySmall)
                         }
                         val citationText = preparedDisplay.citationText

@@ -7,21 +7,21 @@ import dev.chungjungsoo.gptmobile.data.permissions.PersonalDataProvenance
 internal object GitHubPersonalContextIsolation {
     data class RequestHistory(val users: List<MessageV2>, val assistants: List<List<MessageV2>>, val fresh: Boolean)
 
-    fun project(users: List<MessageV2>, history: List<List<MessageV2>>, connectionUid: String, retained: List<PersonalDataProvenance>): RequestHistory {
+    fun project(users: List<MessageV2>, history: List<List<MessageV2>>, connectionUid: String, retained: List<PersonalDataProvenance>, privateDestination: Boolean = true): RequestHistory {
         val chatId = users.lastOrNull()?.chatId
-        val fresh = requiresFreshTurn(history, connectionUid, chatId) ||
-            retained.any { it.localOnly && !repositoryMemory(it, connectionUid, chatId) }
+        val fresh = requiresFreshTurn(history, connectionUid, chatId, privateDestination) ||
+            retained.any { it.localOnly && (!privateDestination || !repositoryMemory(it, connectionUid, chatId)) }
         return if (fresh) RequestHistory(users.takeLast(1), emptyList(), true) else RequestHistory(users, history, false)
     }
 
-    fun requiresFreshTurn(history: List<List<MessageV2>>, connectionUid: String, chatId: Int?): Boolean =
+    fun requiresFreshTurn(history: List<List<MessageV2>>, connectionUid: String, chatId: Int?, privateDestination: Boolean = true): Boolean =
         history.flatten().any { message ->
             val items = message.timeline + message.revisions.flatMap { it.timeline }
             message.combinedSources.any { it.localOnly } ||
                 items.any { item ->
                     item.recalledFacts.any { it.localOnly } ||
                         item.personalData.any { label ->
-                            label.localOnly && !repositoryMemory(label, connectionUid, chatId)
+                            label.localOnly && (!privateDestination || !repositoryMemory(label, connectionUid, chatId))
                         }
                 }
         }

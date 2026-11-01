@@ -135,6 +135,7 @@ fun GitHubWorkspaceScreen(
     val clipboard = LocalClipboard.current
     val scope = rememberCoroutineScope()
     val workspaceScroll = rememberScrollState()
+    val setupScroll = rememberScrollState()
     var tab by rememberSaveable { mutableIntStateOf(3) }
     LaunchedEffect(tab, state.commitDetail) { workspaceScroll.scrollTo(0) }
     LaunchedEffect(tab, state.selection, state.headSha, state.busy, state.error) { viewModel.onSectionVisible(tab) }
@@ -229,8 +230,13 @@ fun GitHubWorkspaceScreen(
             },
             bottomBar = {}
         ) { padding ->
-            Column(Modifier.fillMaxSize().padding(padding)) {
-                if (tab == 5 || state.appAuthorization && state.selection == null) {
+            Column(Modifier.fillMaxSize().padding(padding).then(if (state.selection == null) Modifier.verticalScroll(setupScroll) else Modifier)) {
+                if (state.selection == null) {
+                    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+                        GitHubSetupOverview(step = 2)
+                    }
+                }
+                if (tab == 5 || state.selection == null) {
                     Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
                         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             state.recoveryRepository?.let { repository ->
@@ -322,6 +328,7 @@ fun GitHubWorkspaceScreen(
                         }
                     }
                 }
+                if (state.selection == null) return@Column
                 if (tab != 5) {
                     listOfNotNull(state.error, visibleProgrammer.error).distinct().joinToString("\n").takeIf(String::isNotBlank)?.let { error ->
                         Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall, modifier = Modifier.fillMaxWidth().heightIn(max = 80.dp).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp))

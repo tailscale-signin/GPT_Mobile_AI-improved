@@ -192,11 +192,7 @@ fun HomeScreen(
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     val homeFeatures by homeViewModel.featureSettings.collectAsStateWithLifecycle()
     val openExistingChat: (ChatRoomV2, Int?) -> Unit = { room, target ->
-        if (target == null && homeFeatures.multiChatWorkspaces.containsKey(room.id)) {
-            navigateToWorkspace(room.id)
-        } else {
-            onExistingChatClick(room, target)
-        }
+        onExistingChatClick(room, target)
     }
     val currentTab by homeViewModel.currentTab.collectAsStateWithLifecycle()
     val chatListState by homeViewModel.chatListState.collectAsStateWithLifecycle()

@@ -212,6 +212,9 @@ internal fun estimateDelegatedInputTokens(estimate: Int, providerFailure: String
 internal fun orderPrimaryTools(tools: List<ResolvedAgentTool>): List<ResolvedAgentTool> =
     tools.sortedWith(compareBy<ResolvedAgentTool> { !it.isGitHubTool() }.thenBy { delegatedToolPriority(it) }.thenBy { it.modelToolName })
 
+internal fun localOnlyDispatchAllowed(privateDestination: Boolean, recalledLocalOnly: Boolean, historyLocalOnly: Boolean): Boolean =
+    privateDestination || !recalledLocalOnly && !historyLocalOnly
+
 class ChatRepositoryImpl(
     private val context: Context,
     private val chatRoomV2Dao: ChatRoomV2Dao,
@@ -1741,9 +1744,13 @@ class ChatRepositoryImpl(
         rebuildFence: dev.chungjungsoo.gptmobile.data.context.PreparationReplayFence,
         stage: dev.chungjungsoo.gptmobile.data.agent.AgentStageRequest?
     ): Flow<ApiState> = channelFlow {
+        if (chatToolConfig?.github?.let { it.mainProfileUid != platform.uid } == true) {
+            send(ApiState.Error("GitHub chat can dispatch only its selected AI profile."))
+            return@channelFlow
+        }
         val retainedPersonalContext = preparePersonalDataContext(userMessages, assistantMessages, chatToolConfig)
         val repositoryHistory = chatToolConfig?.github?.let { github ->
-            dev.chungjungsoo.gptmobile.data.github.GitHubPersonalContextIsolation.project(userMessages, assistantMessages, github.connectionUid, retainedPersonalContext.snapshot())
+            dev.chungjungsoo.gptmobile.data.github.GitHubPersonalContextIsolation.project(userMessages, assistantMessages, github.connectionUid, retainedPersonalContext.snapshot(), platform.isPrivateDestination())
         }
         val freshRepositoryTurn = repositoryHistory?.fresh == true
         val userMessages = repositoryHistory?.users ?: userMessages
@@ -2012,7 +2019,7 @@ class ChatRepositoryImpl(
                     var exposedTools = dispatchPreparation.exposedTools
                     val projectInstructions = dispatchPreparation.projectInstructions
                     val quickRepliesEnabled = dispatchPreparation.quickRepliesEnabled
-                    fun baseSystemPrompt() = buildPrimarySystemPrompt(platform, exposedTools, resolvedTools.isNotEmpty(), localResearch, processingOwnership, synthesisRun, chatToolConfig?.combined, latestUser, limits.contextTokens, quickRepliesEnabled, projectInstructions, taskRecovery, reviewedPreparationUnavailable, chatToolConfig?.research?.researchToggle == true) + chatToolConfig?.github?.let { "\n" + it.promptContext() + dev.chungjungsoo.gptmobile.data.github.GitHubAutonomousEngineeringPolicy.instruction(platform, it) }.orEmpty()
+                    fun baseSystemPrompt() = buildPrimarySystemPrompt(platform, exposedTools, resolvedTools.isNotEmpty(), localResearch, processingOwnership, synthesisRun, chatToolConfig?.combined, latestUser, limits.contextTokens, quickRepliesEnabled, projectInstructions, taskRecovery, reviewedPreparationUnavailable, chatToolConfig?.research?.researchToggle == true) + chatToolConfig?.github?.let { "\n" + it.promptContext(latestUser?.content.orEmpty()) + dev.chungjungsoo.gptmobile.data.github.GitHubAutonomousEngineeringPolicy.instruction(platform, it) }.orEmpty()
                     val memorySettings = dispatchPreparation.memory.memorySettings
                     val connectedMemoryTools = dispatchPreparation.memory.connectedMemoryTools
                     val researchMemory = dispatchPreparation.memory.researchMemory
@@ -2817,7 +2824,7 @@ class ChatRepositoryImpl(
             ?.takeUnless { it.isTemporary }?.project?.instructions.orEmpty() + "\n" + engineeringContext
         val responseFeatures = settingRepository.getFeatureSettings()
         val quickRepliesEnabled = responseFeatures.smartSuggestions
-        fun baseSystemPrompt() = buildPrimarySystemPrompt(platform, exposedTools, resolvedTools.isNotEmpty(), localResearch, processingOwnership, synthesisRun, chatToolConfig?.combined, latestUser, limits.contextTokens, quickRepliesEnabled, projectInstructions, taskRecovery, reviewedPreparationUnavailable, chatToolConfig?.research?.researchToggle == true) + chatToolConfig?.github?.let { "\n" + it.promptContext() + dev.chungjungsoo.gptmobile.data.github.GitHubAutonomousEngineeringPolicy.instruction(platform, it) }.orEmpty()
+        fun baseSystemPrompt() = buildPrimarySystemPrompt(platform, exposedTools, resolvedTools.isNotEmpty(), localResearch, processingOwnership, synthesisRun, chatToolConfig?.combined, latestUser, limits.contextTokens, quickRepliesEnabled, projectInstructions, taskRecovery, reviewedPreparationUnavailable, chatToolConfig?.research?.researchToggle == true) + chatToolConfig?.github?.let { "\n" + it.promptContext(latestUser?.content.orEmpty()) + dev.chungjungsoo.gptmobile.data.github.GitHubAutonomousEngineeringPolicy.instruction(platform, it) }.orEmpty()
         val memoryPreparation = preparePrimaryDispatchMemory(input, admission, toolPreparation, recallPreparation, taskRoutedTools)
         val researchMemory = memoryPreparation.researchMemory
         val documentContext = memoryPreparation.documentContext
@@ -4105,9 +4112,13 @@ class ChatRepositoryImpl(
             val invocationPlatform = if (extraInstruction.isBlank()) requestPlatform else requestPlatform.withSystemPrompt(requestPlatform.systemPrompt.orEmpty() + "\n" + extraInstruction)
             kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.agent.CombinedWriterDispatchGuard]?.validatePreparedRequest(invocationPlatform, turns)
             factVault?.validateRecall(recalled, latestUser?.chatId ?: 0, platform.isPrivateDestination())
-            if (platform.compatibleType != ClientType.LITERT_LM) {
-                require(recalled.facts.none { it.localOnly } && turns.none { turn -> turn.assistantMessage?.containsLocalOnlyMemory() == true }) { "This history contains local-only memory. Continue with a local AI profile or start a conversation without that history." }
-            }
+            require(
+                localOnlyDispatchAllowed(
+                    privateDestination = platform.isPrivateDestination(),
+                    recalledLocalOnly = recalled.facts.any { it.localOnly },
+                    historyLocalOnly = turns.any { turn -> turn.assistantMessage?.containsLocalOnlyMemory() == true }
+                )
+            ) { "This history contains local-only memory. Continue with a local AI profile or start a conversation without that history." }
             if (recalled.facts.isNotEmpty()) send(ApiState.MemoryRecalled(recalled.references))
             val passCombined = prepareCombinedDeliveryWork(combinedOverride ?: chatToolConfig?.combined, kind, runId, platform.uid, turns, invocationPlatform.systemPrompt.orEmpty(), listOfNotNull(passOutputTokens, requestConstraints.maxOutputTokens).minOrNull())
             val constraints = (if (textOnly) requestConstraints.withoutTools() else requestConstraints)
@@ -4149,6 +4160,12 @@ class ChatRepositoryImpl(
                     advertisedTools = if (textOnly) emptyList() else contextPlan.tools,
                     progressSettings = progressSettings
                 )
+            }.let { session ->
+                if (platform.compatibleType in setOf(ClientType.LLAMA, ClientType.OLLAMA) && !session.handlesToolsInternally) {
+                    dev.chungjungsoo.gptmobile.data.agent.provider.LocalNativeToolFrameSession(session)
+                } else {
+                    session
+                }
             }.withNormalizedAssistantText(latestUser?.content.orEmpty())
             val preparedSearch = kotlinx.coroutines.currentCoroutineContext()[AppSearchContext]?.sourceCount?.let { it > 0 } == true
             val observed = object : AgentProviderSession by raw {
@@ -4779,6 +4796,7 @@ class ChatRepositoryImpl(
                 contextTokens = limits.contextTokens,
                 githubTask = chatToolConfig?.github != null || effectiveTools.any { it.isGitHubTool() } && isGitHubTask(latestUser?.content.orEmpty()),
                 runTimeoutMillis = minOf(customRunner.limits.runTimeoutMillis, budgetSettings.generationTimeoutMinutes.takeIf { it > 0 }?.toLong()?.times(60_000) ?: Long.MAX_VALUE),
+                maxToolCalls = if (chatToolConfig?.github != null && dev.chungjungsoo.gptmobile.data.github.GitHubStatusRequest.matches(latestUser?.content.orEmpty())) minOf(4, customRunner.limits.maxToolCalls) else customRunner.limits.maxToolCalls,
                 maxObservedToolCalls = if (chatToolConfig?.github != null) maxOf(customRunner.limits.maxObservedToolCalls, 4096) else customRunner.limits.maxObservedToolCalls,
                 maxRetainedEvidenceTokens = if (chatToolConfig?.github != null) minOf(limits.contextTokens / 3, 262_144) else customRunner.limits.maxRetainedEvidenceTokens,
                 maxGeneratedCharacters = budgetSettings.responseCharacterLimit,
@@ -4809,6 +4827,7 @@ class ChatRepositoryImpl(
 
     private suspend fun engineeringMemoryContext(platform: PlatformV2, tools: ChatMcpToolConfig?, user: MessageV2?, contextTokens: Int, emit: suspend (ApiState) -> Unit): String {
         val github = tools?.github ?: return ""
+        if (dev.chungjungsoo.gptmobile.data.github.GitHubStatusRequest.matches(user?.content.orEmpty())) return ""
         if (user == null || engineeringMemory == null || agentPersistenceDao.getChatRoom(user.chatId)?.isTemporary != false) return ""
         val preferences = settingRepository.getFeatureSettings().githubProfileOverrides[platform.uid] ?: dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride()
         val text = engineeringMemory.prepare(github, user.chatId, "${user.chatId}:${user.id}", user.content, preferences, platform.isPrivateDestination(), minOf(12_000, contextTokens / 4))
@@ -5805,14 +5824,20 @@ class ChatRepositoryImpl(
     override suspend fun updateChatPlatforms(chatRoom: ChatRoomV2, platformUids: List<String>): ChatRoomV2 {
         val activeProfiles = platformUids.filter(String::isNotBlank).distinct()
         require(activeProfiles.isNotEmpty()) { "A conversation must keep at least one AI profile." }
-        val stableProfileSlots = (chatRoom.enabledPlatform + activeProfiles).filter(String::isNotBlank).distinct()
-        val updated = chatRoom.copy(
+        val github = settingRepository.getFeatureSettings().conversationGitHub[chatRoom.id]
+        require(github == null || dev.chungjungsoo.gptmobile.data.github.GitHubChatMembership.accepts(activeProfiles, github)) { "GitHub chat uses one AI profile. Change it in GitHub settings." }
+        val stableProfileSlots = if (github != null) listOf(github.mainProfileUid) else (chatRoom.enabledPlatform + activeProfiles).filter(String::isNotBlank).distinct()
+        val updated = (github?.let { dev.chungjungsoo.gptmobile.data.github.GitHubChatMembership.normalize(chatRoom, it) } ?: chatRoom).copy(
             enabledPlatform = stableProfileSlots,
             activePlatform = activeProfiles,
             updatedAt = System.currentTimeMillis() / 1000
         )
         if (chatRoom.id > 0) {
-            chatRoomV2Dao.updatePlatforms(updated.id, updated.enabledPlatform, updated.activePlatform, updated.updatedAt)
+            if (github != null) {
+                chatRoomV2Dao.updateGitHubProfile(updated.id, updated.activePlatform, updated.updatedAt)
+            } else {
+                chatRoomV2Dao.updatePlatforms(updated.id, updated.enabledPlatform, updated.activePlatform, updated.updatedAt)
+            }
         }
         return updated
     }

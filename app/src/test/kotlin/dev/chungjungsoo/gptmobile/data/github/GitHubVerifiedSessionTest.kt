@@ -35,6 +35,38 @@ class GitHubVerifiedSessionTest {
         override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flowOf(ProviderEvent.TextDelta(text), ProviderEvent.Completed)
     }
 
+    @Test fun statusPublishesCurrentFactsAfterOneReadWithoutAnotherModelOrVerifierRound() = runTest {
+        var rounds = 0
+        var executions = 0
+        var publicationChecks = 0
+        val read = object : AgentTool {
+            override val definition = AgentToolDefinition("github_context", "Status", JsonObject(emptyMap()))
+            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+                executions++
+                return AgentToolResult(callId, ToolResultContent.Json(Json.parseToJsonElement("""{"schema":"github.operation.v1","data":{"repository":{"full_name":"o/r","default_branch":"main"},"open_pull_request_count":0,"latest_workflow":{"name":"Build","status":"completed","conclusion":"success"}}}""")), false)
+            }
+        }
+        val provider = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                check(++rounds == 1) { "Status must not drift into source inspection" }
+                emit(ProviderEvent.ToolCall("status", "github_context", Json.parseToJsonElement("""{"action":"status"}""") as JsonObject))
+                emit(ProviderEvent.Completed)
+            }
+        }
+        val gate = GitHubVerifiedSession(provider, GitHubEvidenceBook("b", "o/r", "main", setOf("github_context"), { 1000 }), "status", { 8192 }, { error("Receipt-based status needs no model formatter") }, { publicationChecks++ }, {}, { 1000 }, StandardTestDispatcher(testScheduler))
+        val events = AgentRunner(AgentRunLimits(githubTask = true)).run(gate, listOf(read)).toList()
+        val published = events.filterIsInstance<AgentRunEvent.Provider>().map { it.event }
+        val text = published.filterIsInstance<ProviderEvent.TextDelta>().single().text
+        assertEquals(1, rounds)
+        assertEquals(1, executions)
+        assertEquals(2, publicationChecks)
+        assertTrue(text.startsWith("# Repository status"))
+        assertTrue(text.contains("| Open pull requests | 0 |"))
+        assertTrue(text.contains("| Workflow result | success |"))
+        assertFalse(text.contains("/data/") || text.contains("ev_") || text.contains("clean state"))
+        assertEquals(ProviderEvent.Completed, published.last())
+    }
+
     @Test fun runnerRetriesTransientFailuresBeforePublishingWithoutRepeatingCompletedTools() = runTest {
         for (persistent in listOf(false, true)) {
             var rounds = 0
@@ -79,6 +111,36 @@ class GitHubVerifiedSessionTest {
             assertEquals(persistent, text.contains("Partial evidence summary"))
             assertFalse(text.contains("private candidate"))
         }
+    }
+
+    @Test fun exhaustedToolFrameRepairPublishesRetainedFactsWithoutRepeatingTheRead() = runTest {
+        var rounds = 0
+        var dispatches = 0
+        val read = object : AgentTool {
+            override val definition = AgentToolDefinition("github_read", "Read", JsonObject(emptyMap()))
+            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+                dispatches++
+                return AgentToolResult(callId, ToolResultContent.Json(JsonObject(mapOf("count" to JsonPrimitive(3)))), false)
+            }
+        }
+        val source = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                if (++rounds == 1) {
+                    emit(ProviderEvent.ToolCall("read", "github_read", JsonObject(emptyMap())))
+                    emit(ProviderEvent.Completed)
+                } else {
+                    emit(ProviderEvent.Failed("Unparsed tool-call markup", errorCode = "TOOL_PROTOCOL_INVALID_FRAME"))
+                }
+            }
+        }
+        val gate = GitHubVerifiedSession(source, GitHubEvidenceBook("b", "o/r", "main", setOf("github_read"), { 1000 }), "inspect", { 8192 }, { error("No formatter after exhausted repair") }, {}, {}, { 1000 }, StandardTestDispatcher(testScheduler))
+        val events = AgentRunner(AgentRunLimits(githubTask = true)).run(gate, listOf(read)).toList().filterIsInstance<AgentRunEvent.Provider>().map { it.event }
+        assertEquals(4, rounds)
+        assertEquals(1, dispatches)
+        assertTrue(events.filterIsInstance<ProviderEvent.TextDelta>().single().text.contains("| Count | 3 |"))
+        assertTrue(events.filterIsInstance<ProviderEvent.TextDelta>().single().text.contains("Partial evidence summary"))
+        assertEquals(ProviderEvent.Completed, events.last())
+        assertFalse(events.any { it is ProviderEvent.Failed })
     }
 
     @Test fun terminalFallbackRechecksPermissionAndCannotPublishAfterRevocation() = runTest {

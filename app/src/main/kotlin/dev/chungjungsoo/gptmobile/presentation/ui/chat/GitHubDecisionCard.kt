@@ -101,8 +101,9 @@ internal fun GitHubLiveProgressCard(milestones: List<String>) {
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Text("Working in your repository", style = MaterialTheme.typography.titleSmall, color = colors.primary.copy(alpha = 0.5f))
-        milestones.filter(String::isNotBlank).distinct().forEach { line ->
-            androidx.compose.runtime.key(line) {
+        // A streamed public update changes its text without restarting the fade on every token.
+        milestones.filter(String::isNotBlank).distinct().forEachIndexed { index, line ->
+            androidx.compose.runtime.key(index) {
                 val opacity = remember { Animatable(0f) }
                 LaunchedEffect(Unit) { opacity.animateTo(1f, tween(1500)) }
                 Text(

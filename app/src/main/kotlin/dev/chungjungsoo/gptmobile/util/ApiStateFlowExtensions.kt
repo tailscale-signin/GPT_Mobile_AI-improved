@@ -435,8 +435,8 @@ private class StreamingMessageBuffer(
     fun appendProgress(text: String, modelAuthored: Boolean) {
         flushTimelineText()
         val last = timeline.lastOrNull()
-        if (modelAuthored && last?.progressCheckpoint == true && !last.statusSummary) {
-            val combined = (if (last.modelAuthored) last.content else "") + text
+        if (modelAuthored && last?.progressCheckpoint == true && last.modelAuthored && !last.statusSummary) {
+            val combined = last.content + text
             timeline[timeline.lastIndex] = last.copy(content = if (githubProgress) combined.takeLast(4000) else combined, modelAuthored = true)
         } else {
             timeline += AssistantTimelineItem(

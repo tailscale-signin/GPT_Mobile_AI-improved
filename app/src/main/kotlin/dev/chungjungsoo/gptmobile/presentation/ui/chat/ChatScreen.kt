@@ -902,7 +902,7 @@ private fun ChatScreenContent(
                     if (activeMessage != null) {
                         item(key = "github-live-progress") {
                             val timeline = activeMessage.effectiveTimeline()
-                            GitHubLiveProgressCard(timeline.filter { it.progressCheckpoint && !it.modelAuthored }.map { dev.chungjungsoo.gptmobile.data.github.GitHubProgressPresentation.preview(it.content) })
+                            GitHubLiveProgressCard(timeline.filter { it.progressCheckpoint }.map { dev.chungjungsoo.gptmobile.data.github.GitHubProgressPresentation.preview(it.content) })
                         }
                     }
                     chatToolConfig.github?.let { github ->

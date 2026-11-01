@@ -84,6 +84,8 @@ timeout 240s adb shell am instrument -w -r -e class dev.chungjungsoo.gptmobile.p
 audit_status=${PIPESTATUS[0]}
 timeout 180s adb shell am instrument -w -r -e class dev.chungjungsoo.gptmobile.data.localmodel.NativeModelSourceInstrumentedTest dev.melo.gptmobile.improved.test/androidx.test.runner.AndroidJUnitRunner | tee "$acceptance_output/model-source-instrumentation.txt"
 model_source_status=${PIPESTATUS[0]}
+timeout 180s adb shell am instrument -w -r -e class dev.chungjungsoo.gptmobile.data.security.SecretVaultInstrumentedTest dev.melo.gptmobile.improved.test/androidx.test.runner.AndroidJUnitRunner | tee "$acceptance_output/secret-vault-instrumentation.txt"
+secret_vault_status=${PIPESTATUS[0]}
 set -e
 adb logcat -d > "$acceptance_output/logcat.txt"
 settings_home_artifact_status=0
@@ -103,6 +105,7 @@ for conversation_theme in light dark; do
     adb exec-out run-as dev.melo.gptmobile.improved cat "files/conversation-glass-$conversation_state-$conversation_theme.png" > "$acceptance_output/conversation-glass-$conversation_state-$conversation_theme.png"
   done
 done
+if [ "$secret_vault_status" -ne 0 ]; then exit "$secret_vault_status"; fi
 if [ "$model_source_status" -ne 0 ]; then exit "$model_source_status"; fi
 if [ "$swipe_status" -ne 0 ]; then exit "$swipe_status"; fi
 if [ "$audit_status" -ne 0 ]; then exit "$audit_status"; fi
@@ -131,6 +134,8 @@ from pathlib import Path
 sys.path.insert(0, 'scripts')
 from check_native_memory_smoke import check_instrumentation
 folder = Path('app/build/acceptance-0950')
+for test in ('roundTripOverwriteAndDelete', 'rejectsUnsafeReferencesAndOversizedSecrets', 'rejectsMalformedRecords', 'oversizedRecordIsRejectedBeforeAllocationAndSizeDoesNotRequireAKey', 'rejectsRecordMovedToAnotherReference', 'missingKeystoreKey_preservesEncryptedRecord'):
+    check_instrumentation(folder / 'secret-vault-instrumentation.txt', 'dev.chungjungsoo.gptmobile.data.security.SecretVaultInstrumentedTest', test)
 for test in ('readableDescriptorWithDeniedPathCanBeExplicitlyImported', 'compatibleSourceRemainsInPlaceAndProbeDoesNotOwnItsDescriptor', 'oversizedFileIsRejectedInsteadOfOfferingAnImpossibleCopy'):
     check_instrumentation(folder / 'model-source-instrumentation.txt', 'dev.chungjungsoo.gptmobile.data.localmodel.NativeModelSourceInstrumentedTest', test)
 for test in ('horizontalSwipeSwitchesProfilesAndVerticalScrollDoesNot', 'rtlSwipeUsesReadingDirectionAndDoesNotWrap'):

@@ -42,7 +42,7 @@
   "dependencies": [
     {
       "pr": 769,
-      "head": "7d5a05c94a9cba88501522f3ac7becc11a7664a1"
+      "head": "25c7bc962023d16d557754d58379b973f26007ec"
     }
   ],
   "integration_review": {
@@ -51,8 +51,8 @@
       "AgentRunner.kt: exclude both authorization/pre-dispatch failures and Combined work exhaustion from reliability circuits",
       "ToolExecutionBudget.kt: retain Combined work exhaustion flag and typed authorization handling"
     ],
-    "validation": "278 canonical fast tests; changed Kotlin formatting; full integrated Android and behavioral CI pending",
-    "geniex_signing_repair": "Integrated #769 signing isolation, explicit v2/v3 verification and measured bounded packaging memory. Full new-revision CI required."
+    "validation": "283 canonical fast tests; source-equivalent recovery tests passed on prior reviewed head; fresh integrated Android CI required",
+    "geniex_signing_repair": "Integrates explicit API-24-through-current signature verification so an API-31 APK verifies both v2 and v3. Both signatures remain mandatory."
   },
   "ci_repair": {
     "head": "5946dc466026b327e7678f7adf866d1425f01382",
@@ -73,5 +73,17 @@
     "skipped": 4,
     "intent": "Restore answer segments together with a validated partial checkpoint, and show the explicit failed-synthesis notice instead of promoting a contributor after a zero-output writer. Keep previous synthesis revisions selected and preserve original failure details.",
     "verification": "278 canonical host tests, changed Kotlin formatting and whitespace passed. Two strengthened Room lifecycle regressions await full Android CI."
+  },
+  "verified_lifecycle_evidence": {
+    "head": "6c57fd89a9fbaee5f64dfe3ecdedeef345cc7699",
+    "run": 41261487789,
+    "artifact": 13065888436,
+    "lifecycle_tests": 13,
+    "failures": 0,
+    "skipped": 0,
+    "geniex_suite_tests": 5818,
+    "geniex_suite_failures": 0,
+    "geniex_suite_skipped": 4,
+    "fresh_revision_ci": "required"
   }
 }

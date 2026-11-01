@@ -6,7 +6,7 @@
   "branch": "fix/github-local-llama-empty-output-2026-10-31",
   "original_head": "915e3efd73fd4cc18606b41ca8e9e971dfcad4ed",
   "parent_pr": 770,
-  "parent_head": "6c57fd89a9fbaee5f64dfe3ecdedeef345cc7699",
+  "parent_head": "4d5635a9fd3e498e5044d40d648851d8c7f71c8a",
   "intent": "Integrate the prepared GitHub reply, title and UI changes with current runner safeguards; bind engineering-memory reuse to its source connection and retain measured costs for empty replies",
   "prepared_local_commit": "d55eb163877bbb238c957351091e82ed7aea34c7",
   "status": "lifecycle_ui_and_preview_signing_repairs_integrated",
@@ -15,13 +15,13 @@
     "Merge after parent PRs 769 and 770; verify main ancestry and post-merge checks"
   ],
   "checks": {
-    "canonical_fast": "282 tests passed plus repository policy, resources and dependency checks",
+    "canonical_fast": "283 tests passed plus repository policy, resources and dependency checks",
     "targeted_host": "2 behavior tests passed against production provenance and title code; platform, grant and tool boundaries stubbed",
     "ktlint": "changed Kotlin passed after correcting condition wrapping",
     "android": "Not run locally: JDK 21 and Android SDK 37 unavailable. Require current-head Android, emulator, native, security, GenieX and Required verification workflows.",
     "physical_device": "Not performed"
   },
-  "parent_repair": "Integrates Combined lifecycle draft-prefix and failed-writer notice restoration, plus isolated and verified GenieX preview signing. Fresh current-head Android CI is required.",
+  "parent_repair": "Integrates Combined lifecycle recovery and explicit API-24-through-current verification of both v2/v3 GenieX signatures. Fresh exact-revision Android CI required.",
   "ci_followup": {
     "head": "7206f53189c95a83e7f4d834dec4f26160485cf6",
     "base_sha": "be5d55930df8be6caad2380eea71b2f9a6bb0419",
@@ -32,5 +32,18 @@
     "skipped": 4,
     "intent": "Integrate the parent Combined lifecycle fixes and align two stale UI assertions with the requested repo-only title and loading-bar-only Response in progress label. Strengthen the UI test to detect duplicate labels with the running composer present.",
     "validation": "Changed Kotlin formatting and canonical host checks; exact-revision Robolectric/Android checks remain pending."
+  },
+  "verified_ui_evidence": {
+    "head": "c9a8b6b7ae8af259eebc16a9cd19d29b9e6bb210",
+    "run": 41261667172,
+    "artifact": 13066337283,
+    "home_tests": 7,
+    "viewmodel_tests": 8,
+    "failures": 0,
+    "skipped": 0,
+    "geniex_suite_tests": 5821,
+    "geniex_suite_failures": 0,
+    "geniex_suite_skipped": 4,
+    "fresh_revision_ci": "required"
   }
 }

@@ -61,3 +61,17 @@ verification failures and retaining the original file after a failed sign
 or verification. Canonical host checks pass (282 tests). Actual Android
 packaging and cryptographic verification must pass on the new exact head;
 no physical-device qualification has been performed.
+
+
+## Explicit v2 verification for an API-31 APK (2026-11-01)
+
+Repository: tailscale-signin/GPT_Mobile_AI-improved. Branch: feat/github-operation-resilience-2026-10-31. Base: main at be5d55930df8be6caad2380eea71b2f9a6bb0419. Reviewed head: 7d5a05c94a9cba88501522f3ac7becc11a7664a1.
+
+Run 41261441842/job 124715358285 successfully completed unsigned minified packaging, including packageNativeSmoke in about 18 seconds. The later signature check rejected the API-31 APK because apksig selects v3 and leaves v2 unverified for that minimum. Android build-tools 37.0.0 reproduces this behavior on a signed synthetic APK: verification with minimum 31 reports v2=false/v3=true; minimum 24 verifies both. AOSP ApkVerifier explicitly checks v2 only when the verification minimum is below Android P or no newer signature was found.
+
+Intent: expand the verifier range to API 24 so both required signature schemes are actually checked. Both positive signature results and successful verifier exit remain mandatory; the APK manifest and runtime minimum remain intact. Include verifier output on failure, and retain a behavior regression for the API-31 selection case. Require fresh exact-head CI after this correction; no physical-device qualification is claimed.
+
+
+Validation: all 283 canonical host tests passed. A synthetic APK compiled with the official Android 37 platform resources, minSdkVersion 31 and targetSdkVersion 37, was signed and both v2/v3 signatures verified with Android build-tools 37.0.0. This verifies the signing helper and its real command boundary; full app CI is still required.
+
+Reference: https://android.googlesource.com/platform/tools/apksig/+/master/src/main/java/com/android/apksig/ApkVerifier.java (v2 selection in ApkVerifier).

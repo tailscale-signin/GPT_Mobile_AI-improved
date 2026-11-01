@@ -22,12 +22,21 @@ import dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog as Alert
 
 @Composable
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
-fun ConnectionDoctorDialog(onDismiss: () -> Unit, model: ConnectionDoctorViewModel = hiltViewModel()) {
+fun ConnectionDoctorDialog(onDismiss: () -> Unit, model: ConnectionDoctorViewModel = hiltViewModel(), initialProfileUid: String? = null) {
     val detectedContext by model.detectedContext.collectAsStateWithLifecycle()
     val selectedNvidia by model.lastInspectedNvidia.collectAsStateWithLifecycle()
     val deadlineProfile by model.deadlineProfile.collectAsStateWithLifecycle()
     val deadlineSettings by model.deadlineSettings.collectAsStateWithLifecycle()
     val profiles by model.profiles.collectAsStateWithLifecycle()
+    var inspectedInitial by rememberSaveable(initialProfileUid) { mutableStateOf(false) }
+    androidx.compose.runtime.LaunchedEffect(initialProfileUid, profiles) {
+        if (!inspectedInitial && initialProfileUid != null) {
+            profiles.firstOrNull { it.uid == initialProfileUid }?.let {
+                inspectedInitial = true
+                model.inspect(it)
+            }
+        }
+    }
     val report by model.report.collectAsStateWithLifecycle()
     val contextReport by model.contextReport.collectAsStateWithLifecycle()
     val diagnosticReport by model.diagnosticReport.collectAsStateWithLifecycle()

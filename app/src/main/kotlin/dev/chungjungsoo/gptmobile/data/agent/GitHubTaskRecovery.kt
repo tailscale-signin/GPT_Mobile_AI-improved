@@ -3,11 +3,16 @@ package dev.chungjungsoo.gptmobile.data.agent
 /** Bounded recovery of the current model round, retaining tool receipts and authorization. */
 internal object GitHubTaskRecovery {
     const val MAX_RECOVERIES = 6
+    const val MAX_CONNECTION_RECOVERIES = 1
+
+    fun isConnectionUnavailable(message: String): Boolean = message.contains("LOCAL_SERVICE_UNREACHABLE", true)
+
+    fun recoveryLimit(message: String): Int = if (isConnectionUnavailable(message)) MAX_CONNECTION_RECOVERIES else MAX_RECOVERIES
     private val retryAfter = Regex("(?i)retryAfterMs\\s*[=:]\\s*(\\d+)")
     private val blockedStatus = Regex("(?<!\\d)(?:401|403|429)(?!\\d)")
 
     fun delayMillis(message: String, recoveries: Int): Long? {
-        if (recoveries >= MAX_RECOVERIES) return null
+        if (recoveries >= recoveryLimit(message)) return null
         val text = message.lowercase()
         if (listOf("personal_data_", "precheck_rejected", "permission_denied", "permission_revoked", "auth_required", "auth_failed", "invalid_arguments", "unsupported_operation").any { it in text }) return null
         if (blockedStatus.containsMatchIn(text) || listOf("rate limit", "certificate", "handshake", "unauthorized", "context limit", "cancelled by user").any { it in text }) return null

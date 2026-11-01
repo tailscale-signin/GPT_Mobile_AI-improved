@@ -22,17 +22,19 @@ internal fun assistantExportText(message: MessageV2, format: ChatExportFormat, d
     val response = dev.chungjungsoo.gptmobile.data.conversation.ConversationSubject.withoutMetadata(ThinkingParser.extractThinking(text).response).trim()
     val visible = if (message.effectiveRunId()?.startsWith("combined-synthesis:") == true || message.effectiveCombinedSources().isNotEmpty()) combinedVisibleAnswer(response, debugMode = false) else response
     if (format == ChatExportFormat.MARKDOWN) return visible
-    return visible
-        .replace(Regex("(?m)^\\s*```[^\\n]*$"), "")
-        .replace(Regex("(?m)^\\s*#{1,6}\\s+"), "")
-        .replace(Regex("!?\\[([^\\]]+)]\\(([^)]+)\\)")) { "${it.groupValues[1]} (${it.groupValues[2]})" }
-        .replace(Regex("\\*\\*(.+?)\\*\\*"), "$1")
-        .replace(Regex("__(.+?)__"), "$1")
-        .replace(Regex("(?<!\\w)\\*([^*\\n]+)\\*(?!\\w)"), "$1")
-        .replace(Regex("(?<!\\w)_([^_\\n]+)_(?!\\w)"), "$1")
-        .replace(Regex("~~(.+?)~~"), "$1")
-        .replace(Regex("`([^`\\n]+)`"), "$1")
-        .replace(Regex("(?m)^>\\s?"), "")
-        .replace(Regex("\\n{3,}"), "\n\n")
-        .trim()
+    return plainChatExportText(visible)
 }
+
+internal fun plainChatExportText(text: String): String = text
+    .replace(Regex("(?m)^\\s*```[^\\n]*$"), "")
+    .replace(Regex("(?m)^\\s*#{1,6}\\s+"), "")
+    .replace(Regex("!?\\[([^\\]]+)]\\(([^)]+)\\)")) { "${it.groupValues[1]} (${it.groupValues[2]})" }
+    .replace(Regex("\\*\\*(.+?)\\*\\*"), "$1")
+    .replace(Regex("__(.+?)__"), "$1")
+    .replace(Regex("(?<!\\w)\\*([^*\\n]+)\\*(?!\\w)"), "$1")
+    .replace(Regex("(?<!\\w)_([^_\\n]+)_(?!\\w)"), "$1")
+    .replace(Regex("~~(.+?)~~"), "$1")
+    .replace(Regex("`([^`\\n]+)`"), "$1")
+    .replace(Regex("(?m)^>\\s?"), "")
+    .replace(Regex("\\n{3,}"), "\n\n")
+    .trim()

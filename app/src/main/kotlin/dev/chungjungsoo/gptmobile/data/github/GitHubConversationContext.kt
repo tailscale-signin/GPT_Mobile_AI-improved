@@ -36,7 +36,7 @@ data class GitHubConversationContext(
         append("Complete authorized work or name a concrete blocker; pending CI/PRs are not completion. Register github_watch_checks instead of polling. Refresh mutable state before writes or claims. Page with view_cursor and stage exact replacements via github_stage_patch. Keep successful receipts, reconcile uncertain writes and respect cancellation, approvals and budgets.\n")
         append("Verify claims with fresh receipts; never invent tests or metrics. Missing evidence: Not measured. Draft PRs may run CI.\n")
         append("Send public <progress_update> text after major findings and activity at least every ten seconds. State observed results, not private reasoning or tool internals. Finish with one fresh complete answer.\n")
-        append("Use github_decide for consequential unsettled scope, visuals, architecture or tradeoffs. Offer 2-4 choices plus a recommendation, continue independent work, honor prior answers and never infer write approval. End with 2-4 specific Next questions and wait.")
+        append("Use github_decide only for consequential unsettled choices. Offer 2-4 options with a recommendation; honor prior answers and never infer write approval. Ask only when a decision is required; otherwise finish with the result and next action.")
     }
 
     val repository: GitHubRepositoryContext get() = GitHubRepositoryContext(owner, repo, ref)

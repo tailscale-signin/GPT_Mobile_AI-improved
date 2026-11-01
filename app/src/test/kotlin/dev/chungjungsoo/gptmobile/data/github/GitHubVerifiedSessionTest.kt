@@ -35,6 +35,18 @@ class GitHubVerifiedSessionTest {
         override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flowOf(ProviderEvent.TextDelta(text), ProviderEvent.Completed)
     }
 
+    @Test fun offlineProviderKeepsItsConnectionErrorInsteadOfBecomingAVerificationError() = kotlinx.coroutines.runBlocking {
+        val provider = object : dev.chungjungsoo.gptmobile.data.agent.AgentProviderSession {
+            override fun streamRound(tools: List<dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition>, exchanges: List<dev.chungjungsoo.gptmobile.data.agent.AgentToolExchange>) = kotlinx.coroutines.flow.flowOf(dev.chungjungsoo.gptmobile.data.agent.ProviderEvent.Completed)
+        }
+        val gate = GitHubVerifiedSession(provider, GitHubEvidenceBook("b", "o/r", "main", emptySet()), "fix", { 8192 }, { error("must not verify an offline model") }, {}, {})
+        val failure = dev.chungjungsoo.gptmobile.data.agent.ProviderEvent.Failed("LOCAL_SERVICE_UNREACHABLE: CONNECT_TIMEOUT")
+        val events = gate.retainedFailureResponse(failure).toList()
+        val terminal = events.single() as dev.chungjungsoo.gptmobile.data.agent.ProviderEvent.Failed
+        assertEquals("LOCAL_SERVICE_UNREACHABLE", terminal.errorCode)
+        assertEquals(failure.message, terminal.message)
+    }
+
     @Test fun statusPublishesCurrentFactsAfterOneReadWithoutAnotherModelOrVerifierRound() = runTest {
         var rounds = 0
         var executions = 0

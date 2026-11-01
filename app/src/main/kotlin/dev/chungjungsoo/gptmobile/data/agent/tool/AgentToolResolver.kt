@@ -110,7 +110,7 @@ class AgentToolResolver @Inject constructor(
                     // missing/revoked OAuth raises a capability error and never opens an authorization UI.
                     if (connection.authType != ToolConnectionAuthType.OAUTH || connection.secretRef != null) {
                         try {
-                            discoverMcpTools(connection)
+                            discoverMcpTools(connection, passiveBackoff = true)
                         } catch (cancelled: CancellationException) {
                             throw cancelled
                         } catch (_: Exception) { }
@@ -120,11 +120,11 @@ class AgentToolResolver @Inject constructor(
         }
     }
 
-    suspend fun discoverMcpTools(connection: ToolConnection, forceRefresh: Boolean = false, awaitCompletion: Boolean = false): List<Tool> {
+    suspend fun discoverMcpTools(connection: ToolConnection, forceRefresh: Boolean = false, awaitCompletion: Boolean = false, passiveBackoff: Boolean = false): List<Tool> {
         if (!forceRefresh && !awaitCompletion) mcpClientManager.peekToolsForConnection(connection.connectionUid, connection.endpointUrl, connection.allowCleartext)?.let { return it }
         val config = mcpConfig(connection)
         return try {
-            mcpClientManager.listTools(config, forceRefresh, awaitCompletion)
+            mcpClientManager.listTools(config, forceRefresh, awaitCompletion, passiveBackoff)
         } catch (error: Exception) {
             if (connection.authType != ToolConnectionAuthType.OAUTH || !error.isUnauthorized()) throw error
             mcpClientManager.listTools(

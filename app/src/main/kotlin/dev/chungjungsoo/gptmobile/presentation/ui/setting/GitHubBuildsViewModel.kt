@@ -189,13 +189,13 @@ constructor(
     }
 
     fun download(build: GitHubApkBuild) =
-        action {
+        backgroundAction {
             val destination = mutableState.value
             require(build.owner.equals(destination.owner, ignoreCase = true) && build.repo.equals(destination.repo, ignoreCase = true))
             downloadManager.enqueue(destination.connectionUid, build)
         }
 
-    fun retry(downloadKey: String) = action { downloadManager.retry(downloadKey) }
+    fun retry(downloadKey: String) = backgroundAction { downloadManager.retry(downloadKey) }
 
     fun cancel(downloadKey: String) = action { downloadManager.cancel(downloadKey) }
 
@@ -250,6 +250,19 @@ constructor(
     fun dismissNotice() = mutableState.update { it.copy(actionError = null, savedFileName = null) }
 
     fun reportError(error: Exception) = mutableState.update { it.copy(actionError = error.message.orEmpty().take(1500)) }
+
+    private fun backgroundAction(block: suspend () -> Unit) {
+        mutableState.update { it.copy(actionError = null, savedFileName = null) }
+        viewModelScope.launch {
+            try {
+                block()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                reportError(error)
+            }
+        }
+    }
 
     private fun action(block: () -> Unit) {
         mutableState.update { it.copy(actionError = null, savedFileName = null) }

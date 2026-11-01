@@ -383,7 +383,7 @@ class AgentRunner(
             if (recoveryDelay != null) {
                 state.githubRecoveries++
 
-                emit(AgentRunEvent.Notice("Waiting for the GitHub chat provider; resuming the saved task in ${(recoveryDelay + 999) / 1000}s (${state.githubRecoveries}/${GitHubTaskRecovery.MAX_RECOVERIES}). Completed tool actions are retained.", persistent = false))
+                emit(AgentRunEvent.Notice("Waiting for the GitHub chat provider; resuming the saved task in ${(recoveryDelay + 999) / 1000}s (${state.githubRecoveries}/${GitHubTaskRecovery.recoveryLimit(roundFailure)}). Completed tool actions are retained.", persistent = false))
                 kotlinx.coroutines.delay(recoveryDelay)
                 return RoundRecovery(exposedDefinitions, limits.githubTask, finalize)
             }

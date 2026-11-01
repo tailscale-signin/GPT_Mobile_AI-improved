@@ -78,6 +78,7 @@ object ResilientStreamingClient {
 
     fun isRetryable(throwable: Throwable): Boolean {
         val causes = generateSequence(throwable) { it.cause?.takeUnless { cause -> cause === it } }.take(8).toList()
+        if (causes.any { it.message.orEmpty().contains("LOCAL_SERVICE_UNREACHABLE", true) }) return false
         if (causes.any { it is CancellationException || it is javax.net.ssl.SSLHandshakeException || it is javax.net.ssl.SSLPeerUnverifiedException || it is java.security.cert.CertificateException }) return false
         var current: Throwable? = throwable
         repeat(8) {

@@ -72,6 +72,11 @@ internal object LocalServiceHealth {
         }
     }
 
+    fun retryAfterMillis(url: String): Long {
+        val uri = endpoint(url) ?: return 0
+        return listOf(key(uri), dnsKey(uri)).mapNotNull(states::get).maxOfOrNull { (it.until - now()).coerceAtLeast(0) } ?: 0
+    }
+
     fun health(url: String): ConnectionHealth {
         val uri = endpoint(url) ?: return ConnectionHealth.UNKNOWN
         return states[dnsKey(uri)]?.takeIf { it.until > now() }?.health ?: states[key(uri)]?.health ?: ConnectionHealth.UNKNOWN
@@ -109,7 +114,7 @@ internal object LocalServiceHealth {
     }
 
     fun recordFailure(url: String, failure: Throwable) {
-        if (failure is kotlinx.coroutines.CancellationException) return
+        if (failure is kotlinx.coroutines.CancellationException || failure.message.orEmpty().startsWith("LOCAL_SERVICE_UNREACHABLE:")) return
         val uri = endpoint(url) ?: return
         val health = classify(failure)
         if (endpointLocality(url) == EndpointLocality.EXTERNAL) dev.chungjungsoo.gptmobile.data.research.academic.ResearchConnectivityGate.shared.failed(uri.host, failure)
@@ -132,7 +137,7 @@ internal object LocalServiceHealth {
             Socket().use { it.connect(InetSocketAddress(uri.host, port(uri)), 1_000) }
         } catch (failure: IOException) {
             recordFailure(url, failure)
-            throw IOException("LOCAL_SERVICE_UNREACHABLE: ${classify(failure)}; endpoint=${uri.host}:${port(uri)}; TCP probe failed; configured endpoint was preserved", failure)
+            throw IOException("LOCAL_SERVICE_UNREACHABLE: ${classify(failure)}; endpoint=${uri.host}:${port(uri)}; retryAfterMs=${retryAfterMillis(url)}; TCP probe failed; configured endpoint was preserved", failure)
         }
     }
 }

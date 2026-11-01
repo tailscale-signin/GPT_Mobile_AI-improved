@@ -185,7 +185,7 @@ class McpClientManager internal constructor(
         }
     }
 
-    suspend fun listTools(config: McpConnectionConfig, forceRefresh: Boolean = false, awaitCompletion: Boolean = false): List<Tool> {
+    suspend fun listTools(config: McpConnectionConfig, forceRefresh: Boolean = false, awaitCompletion: Boolean = false, passiveBackoff: Boolean = false): List<Tool> {
         val policyEpoch = dev.chungjungsoo.gptmobile.data.readiness.ReadinessInvalidation.epoch
         if (healthSnapshot(config.connectionUid).state == McpConnectionHealthState.AUTHENTICATION_REQUIRED && providerCooldowns[config.connectionUid]?.first == config.validatedKey()) throw McpAuthenticationRequiredException()
         val key = config.validatedKey() + ":" + policyEpoch
@@ -194,6 +194,12 @@ class McpClientManager internal constructor(
         ready?.let {
             catalogueIdentities[config.connectionUid] = policyEpoch to key
             return it.value
+        }
+        val connectionHealth = healthSnapshot(config.connectionUid)
+        if (passiveBackoff && !forceRefresh && !awaitCompletion && (connectionHealth.nextRetryAtMs ?: 0) > nowMs()) {
+            // Optional discovery must not wait on a known-down endpoint. Its existing
+            // health controller owns recovery; execution still validates live access.
+            return peekToolsForConnection(config.connectionUid, config.endpointUrl, config.allowCleartext).orEmpty()
         }
         val producer = synchronized(catalogueProducers) {
             catalogueProducers[key] ?: catalogueScope.async(start = kotlinx.coroutines.CoroutineStart.LAZY) {

@@ -4773,7 +4773,7 @@ class ChatRepositoryImpl(
                         listOf(ConversationTurn(user.copy(content = prompt, attachments = emptyList()), null, true)),
                         kind = "github-claim-extraction",
                         textOnly = true,
-                        passOutputTokens = reviewOutputTokens(),
+                        passOutputTokens = minOf(reviewOutputTokens(), 4096),
                         extraInstruction = dev.chungjungsoo.gptmobile.data.github.GitHubEvidencePolicy.INSTRUCTION
                     )
                 },
@@ -5498,6 +5498,17 @@ class ChatRepositoryImpl(
                     throw cancelled
                 } catch (_: Exception) {
                     entry.copy(title = entry.title + " · protected context unavailable")
+                }
+            } else if (entry.kind in setOf("github_evidence", "synthesis_checkpoint") &&
+                (entry.id.startsWith("github-evidence:") || entry.id.startsWith("github-review:"))
+            ) {
+                try {
+                    val payload = workspace?.protectedSynthesisCheckpoint(entry.id)
+                    entry.copy(payload = payload?.toString() ?: "{\"availability\":\"Protected GitHub evidence unavailable\"}")
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    entry.copy(payload = "{\"availability\":\"Protected GitHub evidence could not be read\"}")
                 }
             } else {
                 entry

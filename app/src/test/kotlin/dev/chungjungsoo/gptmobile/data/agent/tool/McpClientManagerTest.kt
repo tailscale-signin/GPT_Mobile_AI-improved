@@ -61,6 +61,29 @@ class McpClientManagerTest {
         }
     }
 
+    @Test fun `passive warm-up reuses backoff without hiding interactive failures`() = runBlocking {
+        var requests = 0
+        val client = HttpClient(
+            io.ktor.client.engine.mock.MockEngine {
+                requests++
+                respond("Unavailable", io.ktor.http.HttpStatusCode.ServiceUnavailable)
+            }
+        ) { install(SSE) }
+        val manager = McpClientManager(client, modern = ModernMcpTransport(client))
+        val config = McpConnectionConfig("passive-backoff", "https://example.com/mcp", false)
+        try {
+            assertTrue(runCatching { manager.listTools(config) }.isFailure)
+            val first = requests
+            assertTrue(first > 0)
+            assertTrue(manager.listTools(config, passiveBackoff = true).isEmpty())
+            assertEquals(first, requests)
+            assertTrue(runCatching { manager.listTools(config) }.exceptionOrNull() is McpBackoffException)
+        } finally {
+            manager.closeAll()
+            client.close()
+        }
+    }
+
     @Test fun `authentication failure stops repeat discovery until credentials change`() = runBlocking {
         var requests = 0
         val client = HttpClient(

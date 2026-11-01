@@ -82,19 +82,25 @@ internal class GitHubVerifiedSession(
         emitAll(publish(draft.toString()))
     }
 
-    override fun retainedFailureResponse(failure: ProviderEvent.Failed): Flow<ProviderEvent> = publish(null, terminalFallback = true)
+    override fun retainedFailureResponse(failure: ProviderEvent.Failed): Flow<ProviderEvent> =
+        if (dev.chungjungsoo.gptmobile.data.agent.GitHubTaskRecovery.isConnectionUnavailable(failure.message)) {
+            // A failed connection is not a claim-verification failure. Keep its actionable cause.
+            kotlinx.coroutines.flow.flowOf(failure.copy(errorCode = "LOCAL_SERVICE_UNREACHABLE"))
+        } else {
+            publish(null, terminalFallback = true)
+        }
 
     private fun publish(draft: String?, terminalFallback: Boolean = false): Flow<ProviderEvent> = flow {
         val publication = try {
             validatePublication()
             val (receipts, epoch) = evidence.snapshot()
-            val request = if (draft == null) {
+            val status = if (GitHubStatusRequest.matches(task)) GitHubEvidencePolicy.status(receipts, now(), epoch) else null
+            val request = if (draft == null || status != null) {
                 null
             } else {
                 progress("Verifying factual claims against exact tool receipts")
                 withContext(computationDispatcher) { verificationRequest(draft, receipts) }
             }
-            val status = if (GitHubStatusRequest.matches(task)) GitHubEvidencePolicy.status(receipts, now(), epoch) else null
             val (text, report) = status ?: if (request == null) partial(receipts, epoch) else extract(request, receipts, epoch)
             validatePublication()
             evidence.retainVerdict(report)
@@ -145,7 +151,7 @@ internal class GitHubVerifiedSession(
             check(verifiedComplete) { "Claim extraction was interrupted" }
             withContext(computationDispatcher) {
                 val answer = Json.parseToJsonElement(response.toString().trim()) as? JsonObject ?: error("Claim extraction was not structured")
-                GitHubEvidencePolicy.render(answer, receipts, now(), epoch)
+                GitHubEvidencePolicy.render(answer, receipts, now(), epoch, task)
             }
         } ?: partial(receipts, epoch)
     } catch (cancelled: CancellationException) {
@@ -156,7 +162,7 @@ internal class GitHubVerifiedSession(
     }
 
     private fun verificationRequest(draft: String, receipts: Map<String, JsonObject>): String? {
-        val limit = inputLimit()
+        val hardLimit = inputLimit()
         fun payload(catalog: List<kotlinx.serialization.json.JsonElement>) = buildJsonObject {
             put("task", task)
             put("candidate", draft)
@@ -166,19 +172,17 @@ internal class GitHubVerifiedSession(
             put("coverage", "Full originals remain in the encrypted ledger. Omitted source is not proof; unresolved claims must remain Not measured.")
         }.toString()
         var request = payload(emptyList())
-        if (TextTokenEstimate.estimate(request) > limit) return null
-        val catalog = GitHubEvidencePolicy.catalog(receipts).reversed()
-        var low = 0
-        var high = catalog.size
-        // Keep the newest fitting prefix in logarithmic serialization passes.
-        while (low < high) {
-            val count = low + (high - low + 1) / 2
-            val candidate = payload(catalog.take(count))
+        val baseTokens = TextTokenEstimate.estimate(request)
+        if (baseTokens > hardLimit) return null
+        val limit = minOf(hardLimit, maxOf(6_000, baseTokens + 2_048))
+        val catalog = GitHubVerificationCatalog.select(kotlinx.serialization.json.JsonArray(GitHubEvidencePolicy.catalog(receipts).reversed()), "$task\n$draft")
+        val selected = mutableListOf<kotlinx.serialization.json.JsonElement>()
+        // A large receipt must not prevent later, smaller evidence from being considered.
+        for (entry in catalog) {
+            val candidate = payload(selected + entry)
             if (TextTokenEstimate.estimate(candidate) <= limit) {
-                low = count
+                selected += entry
                 request = candidate
-            } else {
-                high = count - 1
             }
         }
         return request.takeIf { TextTokenEstimate.estimate(it) <= inputLimit() }

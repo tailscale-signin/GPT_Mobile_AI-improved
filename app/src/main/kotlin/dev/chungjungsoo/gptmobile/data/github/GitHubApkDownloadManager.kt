@@ -70,28 +70,30 @@ class GitHubApkDownloadManager @Inject constructor(@ApplicationContext private v
 
     fun key(connectionUid: String, buildId: String): String = GitHubApkTransferPolicy.downloadKey(connectionUid, buildId)
 
-    @Synchronized
-    fun enqueue(connectionUid: String, build: GitHubApkBuild): String {
-        require(!build.expired) { "This workflow artifact has expired. Choose a newer build." }
-        GitHubApkTransferPolicy.requireRepository(build.owner, build.repo)
-        require(build.assetId > 0 && build.sizeBytes in 0..GitHubApkTransferPolicy.MAX_TRANSFER_BYTES) { "This build exceeds the 2 GB download limit." }
-        GitHubApkTransferPolicy.expectedSha256(build.digest)
-        if (build.source == GitHubBuildSource.RELEASE) GitHubApkTransferPolicy.safeApkName(build.fileName)
-        val downloadKey = key(connectionUid, build.id)
-        val record = GitHubApkDownloadRecord(
-            connectionUid, build.id, build.owner, build.repo, build.source, build.assetId,
-            build.title.take(200), build.fileName.take(250), build.sizeBytes, build.digest,
-            build.branch?.take(250), build.commitSha?.take(64), build.releaseTag?.take(200), build.createdAt.take(80)
-        )
-        GitHubApkDownloadStore.saveRecord(context, downloadKey, record)
-        enqueueKey(downloadKey)
-        return downloadKey
+    suspend fun enqueue(connectionUid: String, build: GitHubApkBuild): String = withContext(Dispatchers.IO) {
+        synchronized(this@GitHubApkDownloadManager) {
+            require(!build.expired) { "This workflow artifact has expired. Choose a newer build." }
+            GitHubApkTransferPolicy.requireRepository(build.owner, build.repo)
+            require(build.assetId > 0 && build.sizeBytes in 0..GitHubApkTransferPolicy.MAX_TRANSFER_BYTES) { "This build exceeds the 2 GB download limit." }
+            GitHubApkTransferPolicy.expectedSha256(build.digest)
+            if (build.source == GitHubBuildSource.RELEASE) GitHubApkTransferPolicy.safeApkName(build.fileName)
+            val downloadKey = key(connectionUid, build.id)
+            val record = GitHubApkDownloadRecord(
+                connectionUid, build.id, build.owner, build.repo, build.source, build.assetId,
+                build.title.take(200), build.fileName.take(250), build.sizeBytes, build.digest,
+                build.branch?.take(250), build.commitSha?.take(64), build.releaseTag?.take(200), build.createdAt.take(80)
+            )
+            GitHubApkDownloadStore.saveRecord(context, downloadKey, record)
+            enqueueKey(downloadKey)
+            downloadKey
+        }
     }
 
-    @Synchronized
-    fun retry(downloadKey: String) {
-        requireNotNull(GitHubApkDownloadStore.record(context, downloadKey)) { "This download is no longer available. Refresh builds." }
-        enqueueKey(downloadKey)
+    suspend fun retry(downloadKey: String) = withContext(Dispatchers.IO) {
+        synchronized(this@GitHubApkDownloadManager) {
+            requireNotNull(GitHubApkDownloadStore.record(context, downloadKey)) { "This download is no longer available. Refresh builds." }
+            enqueueKey(downloadKey)
+        }
     }
 
     fun cancel(downloadKey: String) {

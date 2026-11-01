@@ -267,6 +267,18 @@ class MaintenanceTests(unittest.TestCase):
             self.assertTrue(prepare(runtime,state,engineering))
         self.assertTrue(runtime.gateway_draining)
 
+    def test_stale_prepare_cannot_redrain_after_resume(self):
+        state=ServiceState();runtime=SimpleNamespace(gateway_draining=False)
+        generation=state.maintenance_generation
+        with state.lock:
+            state.maintenance_generation += 1
+            state.draining = False
+            runtime.gateway_draining = False
+        with patch('v14.maintenance.pending_work',return_value=0):
+            self.assertFalse(prepare(runtime,state,SimpleNamespace(),generation))
+        self.assertFalse(state.draining)
+        self.assertFalse(runtime.gateway_draining)
+
     def test_request_body_in_flight_blocks_prepare_and_accounting_recovers(self):
         async def run():
             state=ServiceState();entered=asyncio.Event();release=asyncio.Event()

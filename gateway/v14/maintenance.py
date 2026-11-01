@@ -15,9 +15,12 @@ def pending_work(runtime, engineering):
     return engineering.store.tx(count)
 
 
-def prepare(runtime, state, engineering):
-    # Same lock used to admit HTTP requests and acquire worker slots.
+def prepare(runtime, state, engineering, generation=None):
+    # Same lock used to admit HTTP requests and acquire worker slots. The
+    # generation fence prevents a timed-out prepare from draining after resume.
     with state.lock:
+        if generation is not None and state.maintenance_generation != generation:
+            return False
         if state.active_requests or state.workers or pending_work(runtime, engineering):
             return False
         state.draining = True
@@ -48,10 +51,13 @@ def install_maintenance(app, runtime, state, engineering):
         except (ValueError, AttributeError):
             return JSONResponse({'error': 'invalid_command'}, status_code=400)
         if command == 'prepare':
-            if not await asyncio.to_thread(prepare, runtime, state, engineering):
+            with state.lock:
+                generation = state.maintenance_generation
+            if not await asyncio.to_thread(prepare, runtime, state, engineering, generation):
                 return JSONResponse({'error': 'work_in_progress'}, status_code=409)
         elif command == 'resume':
             with state.lock:
+                state.maintenance_generation += 1
                 state.draining = False
                 runtime.gateway_draining = False
         elif command == 'shutdown':

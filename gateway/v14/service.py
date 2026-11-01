@@ -18,6 +18,7 @@ class ServiceState:
         self.draining = False
         self.workers = {}
         self.active_requests = 0
+        self.maintenance_generation = 0
         self.rejected = 0
         self.runtime = None
 

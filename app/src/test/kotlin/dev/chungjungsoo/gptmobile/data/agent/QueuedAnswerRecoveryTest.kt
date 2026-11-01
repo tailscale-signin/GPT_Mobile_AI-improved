@@ -118,6 +118,12 @@ class QueuedAnswerRecoveryTest {
             assertFalse(recovered.report.complete)
             assertEquals("UNMET", recovered.report.lengthCompliance)
             assertTrue(recovered.failure.orEmpty().startsWith("COMBINED_REQUIREMENTS_UNMET:"))
+            val displayed = QueuedAnswerRecovery.message(MessageV2(chatId = 1, platformType = "p", content = ""), recovered)
+            val draft = displayed.timeline.mapNotNull { it.combinedQuality }.last()
+            assertEquals(CombinedCommittedDraft.STAGE, draft.assessmentStage)
+            assertFalse(draft.complete)
+            assertFalse(draft.finalAssessment)
+            CombinedAnswerPublication.validate(displayed.content, draft)
         }
     }
 

@@ -95,7 +95,7 @@ class CombinedClaimInventoryWireTest {
         assertTrue(CombinedResponseBudget.continuationLimit(ordinary.toString(), 128, null) > 1)
         CombinedClaimInventoryWire.validatePrompt("Complete frozen legacy prompt")
         assertEquals(0, CombinedCoverage("Complete frozen legacy prompt").manifest("").getValue("totalItems").jsonPrimitive.content.toInt())
-        assertTrue(CombinedResponseBudget.continuationLimit("Complete frozen legacy prompt", 128, null) > 1)
+        assertEquals(1, CombinedResponseBudget.continuationLimit("Complete frozen legacy prompt", 128, null))
     }
 
     @Test fun unsupportedOrMalformedDeclaredRowsFailEveryInventoryConsumer() {

@@ -28,7 +28,9 @@ class CombinedDeliverySessionTest {
             }
             val wrapper = CombinedDeliverySession(session(original), sources, 10000, validateAccess = {}, originalRequest = "One fact under 10 words") { _, _ -> repair }
             val events = wrapper.streamRound(emptyList(), emptyList()).toList()
-            assertEquals(original, events.answer())
+            assertEquals(enforceCombinedWordCeiling(original.trimEnd(), 9), events.answer())
+            assertTrue(visibleWordCount(events.answer()) < 10)
+            assertFalse(events.answer().contains("Partial replacement"))
             assertFalse(events.quality().complete)
             val draft = events.filterIsInstance<ProviderEvent.CombinedAnswer>().last().report
             assertFalse(draft.finalAssessment)

@@ -6,10 +6,10 @@
   "branch": "fix/github-local-llama-empty-output-2026-10-31",
   "original_head": "915e3efd73fd4cc18606b41ca8e9e971dfcad4ed",
   "parent_pr": 770,
-  "parent_head": "5946dc466026b327e7678f7adf866d1425f01382",
+  "parent_head": "3d78ce5e1c2cf2c2a7a81deb5b2b94507caea047",
   "intent": "Integrate the prepared GitHub reply, title and UI changes with current runner safeguards; bind engineering-memory reuse to its source connection and retain measured costs for empty replies",
   "prepared_local_commit": "d55eb163877bbb238c957351091e82ed7aea34c7",
-  "status": "implementation_reviewed_ci_pending",
+  "status": "parent_ci_repair_integrated",
   "remaining": [
     "Publish scoped follow-up and require all current-head CI",
     "Merge after parent PRs 769 and 770; verify main ancestry and post-merge checks"
@@ -20,5 +20,6 @@
     "ktlint": "changed Kotlin passed after correcting condition wrapping",
     "android": "Not run locally: JDK 21 and Android SDK 37 unavailable. Require current-head Android, emulator, native, security, GenieX and Required verification workflows.",
     "physical_device": "Not performed"
-  }
+  },
+  "parent_repair": "Integrates checked-synthesis publication and queued-recovery fixes after 14 failures on parent head 5946dc4; require fresh current-head CI."
 }

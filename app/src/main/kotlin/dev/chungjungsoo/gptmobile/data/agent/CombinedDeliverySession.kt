@@ -41,6 +41,7 @@ internal class CombinedDeliverySession(
     private val replace: suspend (CombinedReplacementCandidate) -> Boolean = { false },
     private val repairDraft: (suspend (CombinedRepairRequest) -> AgentProviderSession)? = null,
     private val outputTokenAllowance: Int? = null,
+    private val retainUnfinishedDraft: Boolean = false,
     private val repair: suspend (String, List<CombinedContentCoverage.Unit>) -> AgentProviderSession
 ) : AgentProviderSession {
     override val handlesToolsInternally = false
@@ -532,15 +533,21 @@ internal class CombinedDeliverySession(
         fun counts(label: String, total: Int): String = "${label}Total=$total · ${label}Retained=${minOf(32, total)} · ${label}Omitted=${(total - 32).coerceAtLeast(0)}"
         AppLogRecorder.record("CombinedSynthesis", "SYNTHESIS_CHECK_DETAILS · revision=${finalReport.revisionId} · assessedDigest=${finalReport.answerDigest} · failedChecks=${failedChecks.take(32)} · ${counts("failedChecks", failedChecks.size)} · issues=${finalReport.issues.take(32)} · ${counts("issues", finalReport.issues.size)} · included=${sources.map { it.platformUid }.take(32)} · ${counts("included", sources.size)} · represented=${finalReport.representedProfileUids.take(32)} · ${counts("represented", finalReport.representedProfileUids.size)} · uniquePassages=${linkedPassages.count { it.profileUids.size == 1 }} · sharedPassages=${linkedPassages.count { it.profileUids.size > 1 }} · unlinkedPassages=${finalReport.passages.size - linkedPassages.size} · sourceRejections=${finalReport.sourceLinkRejections.entries.take(32).associate { it.toPair() }} · ${counts("sourceRejections", finalReport.sourceLinkRejections.size)} · length=${finalReport.lengthCompliance} · scope=${finalReport.topicCoverage} · delivery=${finalReport.deliveredScopeStatus} · facts=${finalReport.verificationStatus}")
         val publishable = finalReport.complete && !finalReport.correctionRequired && finalReport.semanticCoverageVerified
+        // Legacy interactive editing can retain a failed revision for another attempt.
+        // Checked synthesis withholds rejected output; only explicit saved-result
+        // recovery may retain it as a non-final draft.
+        val legacyDraft = combined == null && maxRepairRounds > 0 && !preserveSourceContent && !structured && answerContract == null
         if (accepted.text.isNotBlank() && publishable) {
             emit(ProviderEvent.CombinedAnswer(accepted.text, finalReport))
         } else {
-            emit(ProviderEvent.CombinedQuality(finalReport))
-            if (accepted.text.isNotBlank()) {
+            if (accepted.text.isNotBlank() && !deterministicFallback && (retainUnfinishedDraft || legacyDraft)) {
                 // Retain useful text as a visibly unfinished draft. It cannot satisfy
                 // the checked-final publication contract or complete the synthesis run.
                 emit(ProviderEvent.CombinedAnswer(accepted.text, CombinedCommittedDraft.fromFinal(accepted.text, finalReport)))
             }
+            // Draft display metadata must not replace the revision's terminal
+            // assessment or turn a completed-but-short answer into a parser failure.
+            emit(ProviderEvent.CombinedQuality(finalReport))
         }
         if (finalReport.issues.contains("HISTORICAL_PERIOD_COVERAGE_INCOMPLETE")) {
             emit(ProviderEvent.Notice("The retained historical survey is missing required periods. It remains a partial draft until those sections are completed and checked.", persistent = true))

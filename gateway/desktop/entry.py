@@ -17,9 +17,11 @@ from v14.state_lock import StateDirectoryLock
 
 def main():
     parser = argparse.ArgumentParser(description='GPT Mobile Gateway desktop manager')
-    parser.add_argument('command', choices=['supervise', 'settings', 'configure', 'serve-engine', 'validate-engine', 'stop', 'restart', 'check', 'install'])
+    parser.add_argument('command', choices=['supervise', 'settings', 'configure', 'validate-settings', 'serve-engine', 'validate-engine', 'stop', 'restart', 'check', 'install'])
     parser.add_argument('--root', required=True, type=Path)
     parser.add_argument('--version')
+    parser.add_argument('--quiet', action='store_true')
+    parser.add_argument('--error-file', type=Path)
     parser.add_argument('--settings-file', type=Path)
     args = parser.parse_args()
     root = args.root.resolve()
@@ -32,6 +34,9 @@ def main():
         os.environ.update(env)
         sys.argv = ['gateway.py', 'serve' if args.command == 'serve-engine' else 'validate-config']
         runpy.run_path(str(SOURCE / 'gateway.py'), run_name='__main__')
+        return 0
+    if args.command == 'validate-settings':
+        load(root) if (root / 'settings.json').exists() else validate(json.loads(args.settings_file.read_text(encoding='utf-8-sig')))
         return 0
     if args.command == 'configure':
         # Installer only writes config/pointer after the existing supervisor has stopped.
@@ -67,7 +72,9 @@ if __name__ == '__main__':
     except Exception as error:
         print(str(error), file=sys.stderr)
         # No silent errors from desktop shortcuts/installer's hidden child process.
-        if os.name == 'nt':
+        if '--error-file' in sys.argv:
+            Path(sys.argv[sys.argv.index('--error-file') + 1]).write_text(str(error), encoding='utf-8-sig')
+        if os.name == 'nt' and '--quiet' not in sys.argv:
             import ctypes
             ctypes.windll.user32.MessageBoxW(None, str(error), 'Gateway could not complete the operation', 0x10)
         sys.exit(1)

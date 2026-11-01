@@ -81,6 +81,17 @@ class SettingsTests(unittest.TestCase):
             self.assertEqual([path], list(Path(temp).iterdir()))
 
 
+    def test_settings_preflight_rejects_invalid_origin_without_writing_installation(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp)/'install';settings=Path(temp)/'chosen.json'
+            settings.write_text('{"backend":"http://remote.example"}')
+            result=subprocess.run([sys.executable,str(Path(__file__).resolve().parents[1]/'desktop'/'entry.py'),
+                'validate-settings','--root',str(root),'--settings-file',str(settings),'--quiet'],capture_output=True,text=True,timeout=10)
+            self.assertNotEqual(0,result.returncode)
+            self.assertIn('HTTPS',result.stderr)
+            self.assertFalse(root.exists())
+
+
 class ReleaseTests(unittest.TestCase):
     def test_only_newer_stable_compatible_official_digest_assets(self):
         bad = [metadata('15.0.0'), metadata('14.99.0'), metadata('16.0.0'), metadata(digest=None), metadata(size=0), metadata(browser_download_url='https://evil.example/file')]

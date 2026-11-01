@@ -25,7 +25,7 @@ On Windows x64 with Python 3.12 and Inno Setup 6:
 
 ```powershell
 python -m pip install --require-hashes -r gateway/requirements.txt
-python -m pip install PyInstaller==6.22.3
+python -m pip install --require-hashes -r gateway/desktop/requirements-build.txt
 python gateway/build_v14_package.py --manifest-only
 python gateway/desktop/build_windows.py
 python gateway/desktop/smoke_windows.py

@@ -17,10 +17,15 @@ Intent: ship a per-user Windows installer, exposed setup/settings, managed runti
 
 ## Validation
 
-- Gateway regression suite: 289 Python tests and 7 browser tests passed on Linux.
+- Gateway regression suite: 290 Python tests and 7 browser tests passed on Linux.
 - Canonical fast validation: 285 host tests plus policy, dependency, resource, regex and provenance checks passed.
 - Android gateway capability serialization: four Kotlin/JUnit host tests passed using the serialization compiler plugin. This is not an Android build or device test.
 - Windows workflow builds the setup EXE and update ZIP and runs actual installer/frozen-runtime/rollback/repair/uninstall smoke tests. Results are pending until that workflow completes.
 - Full Android build, interactive installer accessibility, physical phone/Tailscale interoperability and publisher code signing remain acceptance gates. No zero-defect or flawless-install claim is made.
 
 The first Windows run exposed two test portability problems: health polling timed out before Windows completed a refused-backend probe, and ZIP construction normalized backslashes. The regression now preserves raw archive names and waits for the bounded health response. Maintenance also resumes admission after a lost prepare/shutdown response, fences late prepare completion so it cannot re-enter draining, and counts direct backend mutation requests.
+
+
+Windows Python 3.12/3.13 gateway/authentication suites pass. The actual EXE built and fresh installation, frozen startup with an offline backend, failed-candidate rollback and repair preservation passed. The first installer smoke run reached uninstall but did not observe pointer cleanup before the uninstaller bootstrap returned; explicit cleanup and bounded completion polling were added. Packaging dependencies now have upstream-verified hashes, the installer validates settings before modifying the installation, and the bundled runtime advertises its exact build commit. Final Windows smoke evidence remains pending.
+
+Integration note: PR #777 merged into main; PR #778 was retargeted to main at `0caa2eda240597031049db384eb6ab7b370ebe03`. Concurrent review commit `f6e5d1da467e241b3e0e6739cd802781baf8940c` is retained, including its late-prepare generation fence.

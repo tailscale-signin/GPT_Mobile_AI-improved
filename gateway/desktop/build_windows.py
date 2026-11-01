@@ -20,6 +20,7 @@ def main():
     if sys.platform != 'win32' or platform.machine().lower() not in {'amd64', 'x86_64'}:
         raise SystemExit('Build the Windows installer on a Windows x64 runner')
     manifest = validate_package(GATEWAY)
+    source_commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
     output = ROOT / 'dist' / 'windows'
     output.mkdir(parents=True, exist_ok=True)
     staging = ROOT / 'build' / 'gateway-source'
@@ -31,6 +32,7 @@ def main():
         target = staging / name
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(GATEWAY / name, target)
+    (staging / 'build-info.json').write_text(json.dumps({'sourceCommit': source_commit, 'status': 'bundled', 'platform': 'windows-x64'}), encoding='utf-8')
     subprocess.run([sys.executable, '-m', 'PyInstaller', '--noconfirm', '--clean', '--onedir', '--console', '--noupx',
         '--name', 'Gateway', '--distpath', str(output), '--workpath', str(ROOT / 'build' / 'pyinstaller'),
         '--specpath', str(ROOT / 'build'), '--paths', str(GATEWAY), '--add-data', str(staging) + os.pathsep + '.',
@@ -39,7 +41,7 @@ def main():
         '--copy-metadata', 'fastapi', '--copy-metadata', 'uvicorn', '--copy-metadata', 'requests', '--copy-metadata', 'httpx',
         str(GATEWAY / 'desktop' / 'entry.py')], check=True)
     bundle = output / 'Gateway'
-    release = dict(version=VERSION, stateSchema=1, bootstrapProtocol=1, sourceCommit=manifest['sourceCommit'],
+    release = dict(version=VERSION, stateSchema=1, bootstrapProtocol=1, sourceCommit=source_commit,
         files={p.relative_to(bundle).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(bundle.rglob('*')) if p.is_file()})
     (bundle / 'release.json').write_text(json.dumps(release, indent=2), encoding='utf-8')
     from desktop.releases import validate_release

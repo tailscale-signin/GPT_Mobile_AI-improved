@@ -15,7 +15,7 @@ source_commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, 
 # can live inside the checkout without entering a source or installer package.
 tracked = subprocess.check_output(["git", "ls-files", "--cached", "--others", "--exclude-standard", "--", "gateway"], cwd=root.parent, encoding="utf-8").splitlines()
 paths = sorted({root.parent / name for name in tracked if (root.parent / name).is_file()
-    and ((root.parent / name).suffix in {".py", ".md", ".ps1", ".json", ".js", ".mjs", ".iss"} or (root.parent / name).name in {"requirements.txt", "requirements.in"})
+    and ((root.parent / name).suffix in {".py", ".md", ".ps1", ".json", ".js", ".mjs", ".iss"} or (root.parent / name).name in {"requirements.txt", "requirements.in", "requirements-build.txt"})
     and (root.parent / name).name not in {"manifest-v14.json", "gateway_settings.json", "settings.json", "mcp_config.json"}})
 
 base_commit = "a66155dfdc0cf647dd368019f605d91689d48583"

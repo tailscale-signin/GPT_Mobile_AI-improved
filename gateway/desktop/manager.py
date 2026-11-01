@@ -227,7 +227,7 @@ class Supervisor:
             # Validation cannot migrate or lock the live journal.
             isolated = Path(temp) / 'preflight'
             atomic_json(isolated / 'settings.json', self.cfg)
-            result = subprocess.run([str(unpacked / 'Gateway.exe'), 'validate-engine', '--root', str(isolated)],
+            result = subprocess.run([str(unpacked / 'Gateway.exe'), 'validate-engine', '--root', str(isolated), '--quiet'],
                 env=environment(isolated, self.cfg), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT, timeout=45, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
             if result.returncode:

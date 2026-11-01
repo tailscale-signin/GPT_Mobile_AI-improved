@@ -72,9 +72,13 @@ def main():
             assert json.loads((root/'settings.json').read_text(encoding='utf-8'))==cfg
             assert (root/'data'/'preserve.txt').read_text()=='user data'
             results.append('repair install retains settings and persistent data')
-            subprocess.run([str(root/'unins000.exe'),'/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART'],check=True,timeout=120)
+            subprocess.run([str(root/'unins000.exe'),'/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',f'/LOG={output / "uninstall.log"}'],check=True,timeout=120)
+            # Inno relocates its uninstaller; the original bootstrap may exit first.
+            deadline=time.monotonic()+60
+            while (root/'current.json').exists() and time.monotonic()<deadline:
+                time.sleep(.2)
             assert (root/'data'/'preserve.txt').read_text()=='user data'
-            assert not (root/'current.json').exists()
+            assert not (root/'current.json').exists(), (output/'uninstall.log').read_text(encoding='utf-8',errors='replace')[-10000:]
             results.append('uninstall retains user data and removes active version pointer')
         finally:
             if child.poll() is None:

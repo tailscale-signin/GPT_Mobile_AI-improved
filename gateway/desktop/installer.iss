@@ -43,12 +43,14 @@ Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile
 Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File ""{app}\Start-Gateway.ps1"" -Command settings"; Description: "Open Gateway settings and status"; Flags: nowait postinstall skipifsilent unchecked
 
 [UninstallDelete]
+Type: files; Name: "{app}\current.json"
 Type: filesandordirs; Name: "{app}\releases"
 
 [Code]
 var
   ConnectionPage, PerformancePage, TailnetPage: TInputQueryWizardPage;
   UpdatePage: TInputOptionWizardPage;
+  RuntimePrepared: Boolean;
 
 function J(Value: String): String;
 begin
@@ -117,24 +119,49 @@ begin
     Result := Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'), '-NoProfile -ExecutionPolicy Bypass -File "' + Root + '\Start-Gateway.ps1" -Command stop', Root, SW_HIDE, ewWaitUntilTerminated, Code) and (Code = 0);
 end;
 
-function PrepareToInstall(var NeedsRestart: Boolean): String;
+function WriteWizardSettings: String;
+var Settings, Mode, Access, TempFile: String; Lines: TArrayOfString;
 begin
-  Result := '';
-  if not StopInstalled(ExpandConstant('{app}')) then Result := 'Gateway has active work or could not stop. Finish or cancel that work in the app, then retry installation. No process has been forcibly closed.';
-end;
-
-procedure CurStepChanged(CurStep: TSetupStep);
-var Settings, Mode, Access, TempFile: String; Code: Integer; Lines: TArrayOfString;
-begin
-  if CurStep = ssPostInstall then begin
     Mode := 'notify'; if UpdatePage.SelectedValueIndex = 1 then Mode := 'auto'; if UpdatePage.SelectedValueIndex = 2 then Mode := 'off';
     Access := 'loopback'; if TailnetPage.Values[0] <> '' then Access := 'tailscale';
     Settings := '{"backend":' + J(ConnectionPage.Values[0]) + ',"port":' + IntToStr(StrToIntDef(ConnectionPage.Values[1], 8090)) + ',"mcp_config":' + J(ConnectionPage.Values[2]) + ',"workers":' + PerformancePage.Values[0] + ',"active_chats":' + PerformancePage.Values[1] + ',"shutdown_seconds":' + PerformancePage.Values[2] + ',"access":' + J(Access) + ',"tailnet_host":' + J(TailnetPage.Values[0]) + ',"tailnet_user":' + J(TailnetPage.Values[1]) + ',"update_mode":' + J(Mode) + ',"start_at_login":' + B(WizardIsTaskSelected('startup')) + ',"engineering":' + B(WizardIsTaskSelected('engineering')) + '}';
     TempFile := ExpandConstant('{tmp}\gateway-settings.json');
     SetArrayLength(Lines, 1); Lines[0] := Settings;
     if not SaveStringsToUTF8File(TempFile, Lines, False) then RaiseException('Could not save setup settings.');
-    if not Exec(ExpandConstant('{app}\releases\{#GatewayVersion}\Gateway.exe'), 'configure --root "' + ExpandConstant('{app}') + '" --version {#GatewayVersion} --settings-file "' + TempFile + '"', '', SW_HIDE, ewWaitUntilTerminated, Code) or (Code <> 0) then
-      RaiseException('Gateway configuration was not activated. Correct the settings and rerun setup; existing data is preserved.');
+    Result := TempFile;
+end;
+
+function ConfigurationError: String;
+var Lines: TArrayOfString;
+begin
+  Result := 'Gateway configuration is invalid. Check the backend origin and private-access settings.';
+  if LoadStringsFromFile(ExpandConstant('{tmp}\gateway-config-error.txt'), Lines) and (GetArrayLength(Lines) > 0) then Result := Lines[0];
+end;
+
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var Code: Integer; TempFile, Validator: String;
+begin
+  Result := '';
+  TempFile := WriteWizardSettings;
+  if not RuntimePrepared then begin
+    ExtractTemporaryFiles('{app}\releases\{#GatewayVersion}\*');
+    RuntimePrepared := True;
+  end;
+  Validator := ExpandConstant('{tmp}\') + '{app}\releases\{#GatewayVersion}\Gateway.exe';
+  if not Exec(Validator, 'validate-settings --root "' + ExpandConstant('{app}') + '" --settings-file "' + TempFile + '" --quiet --error-file "' + ExpandConstant('{tmp}\gateway-config-error.txt') + '"', '', SW_HIDE, ewWaitUntilTerminated, Code) or (Code <> 0) then begin
+    Result := ConfigurationError;
+    Exit;
+  end;
+  if not StopInstalled(ExpandConstant('{app}')) then Result := 'Gateway has active work or could not stop. Finish or cancel that work in the app, then retry installation. No process has been forcibly closed.';
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+var TempFile: String; Code: Integer;
+begin
+  if CurStep = ssPostInstall then begin
+    TempFile := WriteWizardSettings;
+    if not Exec(ExpandConstant('{app}\releases\{#GatewayVersion}\Gateway.exe'), 'configure --root "' + ExpandConstant('{app}') + '" --version {#GatewayVersion} --settings-file "' + TempFile + '" --quiet --error-file "' + ExpandConstant('{tmp}\gateway-config-error.txt') + '"', '', SW_HIDE, ewWaitUntilTerminated, Code) or (Code <> 0) then
+      RaiseException(ConfigurationError);
   end;
 end;
 

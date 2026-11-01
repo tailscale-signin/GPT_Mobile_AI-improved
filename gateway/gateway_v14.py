@@ -1,5 +1,7 @@
 """v14 composition root over the characterized v13 execution engine."""
 import argparse
+import sys
+import re
 import asyncio
 import json
 import importlib.metadata
@@ -138,9 +140,15 @@ def cancel(job_id: str):
 
 
 def capabilities():
+    build = {"sourceCommit": manifest["sourceCommit"], "manifestVersion": 1, "status": "development"}
+    if getattr(sys, 'frozen', False):
+        packaged_build = json.loads((Path(__file__).parent / 'build-info.json').read_text(encoding='utf-8'))
+        if not re.fullmatch('[a-f0-9]{40}', packaged_build.get('sourceCommit', '')):
+            raise ValueError('Invalid build provenance')
+        build.update(packaged_build)
     result = runtime.gateway_capabilities()
     result.update({"gatewayVersion": VERSION, "contractVersion": 1,
-                   "build": {"sourceCommit": manifest["sourceCommit"], "manifestVersion": 1, "status": "development"},
+                   "build": build,
                    "auth": {"mode": config.mode, "apiKeyRequired": False, "legacyBearerEnabled": config.legacy_bearer},
                    "desktop": {"managed": bool(config.management_token), "maintenanceProtocol": 1,
                                "stateSchema": 1, "updateAuthority": "local-manager", "idleUpdates": True},

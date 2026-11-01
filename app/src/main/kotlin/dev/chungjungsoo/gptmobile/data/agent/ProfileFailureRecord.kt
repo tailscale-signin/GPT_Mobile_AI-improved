@@ -19,6 +19,8 @@ data class ProfileFailureRecord(
     val resourceKeys: Set<String> = emptySet()
 ) {
     companion object {
+        private val httpStatus = Regex("""(?i)\b(?:HTTP(?:/\d(?:\.\d)?)?(?:\s+(?:error|status)(?:\s+code)?)?|status(?:\s+code)?|statusCode|responseCode)["']?(?:\s*[:=]\s*|\s+)(\d{3})\b""")
+
         fun classify(details: String, demoExcluded: Boolean = false): ProfileFailureRecord {
             val epoch = Regex("(?i)rate limited until ([0-9]{10,16})").find(details)?.groupValues?.get(1)?.toLongOrNull()
                 ?.let { if (it < 100_000_000_000L) it * 1000 else it }
@@ -27,8 +29,9 @@ data class ProfileFailureRecord(
             val retryAt = iso ?: epoch
             val unavailablePolicy = details.contains("POLICY_SNAPSHOT_", true)
             val incompatible = demoExcluded || listOf("enforceable", "unsupported", "budget-blocked", "demo exclusion", "demo endpoint", "demo model", "demo provider", "TOOL_CHOICE_MISMATCH", "RESEARCH_CONFIGURATION_CHANGED", "COMBINED_OUTPUT_ALLOWANCE_CHANGED", "Profile is disabled", "PROFILE_DISABLED", "PROFILE_REMOVED", "PROFILE_CONFIGURATION_CHANGED", "PROFILE_IDENTITY_AMBIGUOUS", "DISPATCH_POLICY_CHANGED", "Unknown Free route").any { details.contains(it, true) }
-            val permanentEndpoint = Regex("(?i)\\b410\\b|endpoint.{0,40}(?:retired|removed|gone)|model.{0,30}(?:decommissioned|retired)").containsMatchIn(details)
-            val billing = Regex("(?i)credit balance|insufficient (?:credits|funds|balance)|billing.{0,30}(?:required|disabled|exhausted)|payment required|\\b402\\b").containsMatchIn(details)
+            val statuses = httpStatus.findAll(details).map { it.groupValues[1] }.toSet()
+            val permanentEndpoint = "410" in statuses || details.trim() == "410" || Regex("(?i)\\b410\\s+Gone\\b|endpoint.{0,40}(?:retired|removed|gone)|model.{0,30}(?:decommissioned|retired)").containsMatchIn(details)
+            val billing = "402" in statuses || details.trim() == "402" || Regex("(?i)credit balance|insufficient (?:credits|funds|balance)|billing.{0,30}(?:required|disabled|exhausted)|payment required").containsMatchIn(details)
             val category = when {
                 permanentEndpoint -> "ENDPOINT_RETIRED"
                 billing -> "BILLING_UNAVAILABLE"

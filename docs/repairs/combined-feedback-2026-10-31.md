@@ -36,3 +36,10 @@ Intent: address the supplied partial-export feedback without treating its retain
 - Updated prior delivery tests to assert the new withholding behavior for interrupted or unrepaired answers.
 
 - Re-ran canonical fast validation after the audit: 276 Python tests and all fast preflights passed. Formatting and whitespace checks passed on the changed Kotlin files.
+
+## Merge review follow-up
+
+The failure classifier now requires HTTP status context for numeric 402/410 codes.
+Incidental output-token counts, byte counts and request identifiers cannot disable
+retry as a retired endpoint or billing failure. Existing explicit provider error
+messages remain terminal. Production classifier regressions cover both cases.

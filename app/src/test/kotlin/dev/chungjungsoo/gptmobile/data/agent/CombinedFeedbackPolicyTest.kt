@@ -27,6 +27,10 @@ class CombinedFeedbackPolicyTest {
         for ((details, category) in listOf(
             "HTTP 410 Gone" to "ENDPOINT_RETIRED",
             "HTTP 410 timeout" to "ENDPOINT_RETIRED",
+            "HTTP/1.1 410" to "ENDPOINT_RETIRED",
+            "Request failed with status: 410" to "ENDPOINT_RETIRED",
+            "{\"status\":410}" to "ENDPOINT_RETIRED",
+            "HTTP status code 402" to "BILLING_UNAVAILABLE",
             "Your credit balance is too low to access the Anthropic API" to "BILLING_UNAVAILABLE",
             "402 Payment required" to "BILLING_UNAVAILABLE",
             "Insufficient credits; quota exhausted" to "BILLING_UNAVAILABLE"
@@ -37,5 +41,13 @@ class CombinedFeedbackPolicyTest {
         }
         assertTrue(ProfileFailureRecord.classify("503 temporarily overloaded").retryAllowed)
         assertEquals("RATE_LIMIT", ProfileFailureRecord.classify("429 rate limited").category)
+    }
+
+    @Test fun tokenCountsAndRequestIdsDoNotDisableProviderRetries() {
+        for (details in listOf("timeout after 410 tokens", "connection closed after 402 bytes", "NO_VISIBLE_ANSWER: output_tokens=410", "NO_VISIBLE_ANSWER: request_id=402", "HTTP 503: received 410 tokens before timeout")) {
+            val failure = ProfileFailureRecord.classify(details)
+            assertTrue(details, failure.retryAllowed)
+            assertFalse(details, failure.category in setOf("ENDPOINT_RETIRED", "BILLING_UNAVAILABLE"))
+        }
     }
 }

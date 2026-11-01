@@ -113,6 +113,36 @@ class GitHubVerifiedSessionTest {
         }
     }
 
+    @Test fun exhaustedToolFrameRepairPublishesRetainedFactsWithoutRepeatingTheRead() = runTest {
+        var rounds = 0
+        var dispatches = 0
+        val read = object : AgentTool {
+            override val definition = AgentToolDefinition("github_read", "Read", JsonObject(emptyMap()))
+            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+                dispatches++
+                return AgentToolResult(callId, ToolResultContent.Json(JsonObject(mapOf("count" to JsonPrimitive(3)))), false)
+            }
+        }
+        val source = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                if (++rounds == 1) {
+                    emit(ProviderEvent.ToolCall("read", "github_read", JsonObject(emptyMap())))
+                    emit(ProviderEvent.Completed)
+                } else {
+                    emit(ProviderEvent.Failed("Unparsed tool-call markup", errorCode = "TOOL_PROTOCOL_INVALID_FRAME"))
+                }
+            }
+        }
+        val gate = GitHubVerifiedSession(source, GitHubEvidenceBook("b", "o/r", "main", setOf("github_read"), { 1000 }), "inspect", { 8192 }, { error("No formatter after exhausted repair") }, {}, {}, { 1000 }, StandardTestDispatcher(testScheduler))
+        val events = AgentRunner(AgentRunLimits(githubTask = true)).run(gate, listOf(read)).toList().filterIsInstance<AgentRunEvent.Provider>().map { it.event }
+        assertEquals(4, rounds)
+        assertEquals(1, dispatches)
+        assertTrue(events.filterIsInstance<ProviderEvent.TextDelta>().single().text.contains("| Count | 3 |"))
+        assertTrue(events.filterIsInstance<ProviderEvent.TextDelta>().single().text.contains("Partial evidence summary"))
+        assertEquals(ProviderEvent.Completed, events.last())
+        assertFalse(events.any { it is ProviderEvent.Failed })
+    }
+
     @Test fun terminalFallbackRechecksPermissionAndCannotPublishAfterRevocation() = runTest {
         val source = object : AgentProviderSession {
             override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flowOf(ProviderEvent.Failed("403 forbidden"))

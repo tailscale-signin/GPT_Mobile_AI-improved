@@ -1744,8 +1744,9 @@ class ChatRepositoryImpl(
         rebuildFence: dev.chungjungsoo.gptmobile.data.context.PreparationReplayFence,
         stage: dev.chungjungsoo.gptmobile.data.agent.AgentStageRequest?
     ): Flow<ApiState> = channelFlow {
-        chatToolConfig?.github?.let { github ->
-            require(github.mainProfileUid == platform.uid) { "GitHub chat can dispatch only its selected AI profile." }
+        if (chatToolConfig?.github?.let { it.mainProfileUid != platform.uid } == true) {
+            send(ApiState.Error("GitHub chat can dispatch only its selected AI profile."))
+            return@channelFlow
         }
         val retainedPersonalContext = preparePersonalDataContext(userMessages, assistantMessages, chatToolConfig)
         val repositoryHistory = chatToolConfig?.github?.let { github ->

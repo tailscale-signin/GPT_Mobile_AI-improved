@@ -131,6 +131,7 @@ internal class GitHubVerifiedSession(
             val (text, report) = status ?: coverage ?: if (request == null) partial(receipts, epoch, failureCode ?: "GITHUB_EXTRACTION_UNAVAILABLE") else extract(request, receipts, epoch)
             validatePublication()
             val partial = report["partial"] == kotlinx.serialization.json.JsonPrimitive(true)
+            check(receipts.isNotEmpty() || !partial) { "No retained GitHub evidence is available for publication" }
             val retained = if (partial && terminalFallback) JsonObject(report + ("resume_required" to kotlinx.serialization.json.JsonPrimitive(true))) else report
             evidence.retainVerdict(retained)
             (if (partial && terminalFallback) "**GitHub verification incomplete.**\n\n$text" else text) to partial

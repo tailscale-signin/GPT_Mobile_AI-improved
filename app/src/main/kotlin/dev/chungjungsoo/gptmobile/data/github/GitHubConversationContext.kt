@@ -26,6 +26,7 @@ data class GitHubConversationContext(
 
     /** Request-local scope only; this does not grant tools, credentials or write access. */
     fun promptContext(request: String = ""): String = buildString {
+        if (GitHubTaskCoverage.matches(request)) append("Testing: maintain a checklist of requested tool/actions and features. Execute available authorized checks; reading tests is only inspection. Discover exact paths first. Reuse pinned reads; follow the exact continuation_call tool and arguments. Preserve successful and failed receipts. Continue unfinished authorized work; ask only for a concrete blocker. Report execution coverage separately from generation completion.\n")
         if (GitHubStatusRequest.matches(request)) append(GitHubStatusRequest.INSTRUCTION).append('\n')
         append("Presentation: begin with one descriptive Markdown # title and a plain-language outcome. Use concise ## sections, bullets and small tables. Separate unknowns and next steps; ground every claim.\n")
         append("GitHub workspace: $owner/$repo\nBranch: $ref\nPinned head: $commitSha\n")

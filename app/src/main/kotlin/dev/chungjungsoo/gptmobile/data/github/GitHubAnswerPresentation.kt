@@ -6,6 +6,7 @@ internal object GitHubAnswerPresentation {
         val text = task.lowercase()
         return when {
             GitHubStatusRequest.matches(task) -> "Repository status"
+            GitHubTaskCoverage.matches(task) -> "GitHub verification report"
             listOf("review", "pull request", " pr ").any { it in text } -> "Repository review"
             listOf("fix", "implement", "add", "change", "build").any { it in text } -> "Implementation update"
             listOf("why", "explain", "investigate", "issue", "error", "analy").any { it in text } -> "Investigation findings"

@@ -33,6 +33,43 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubOperationToolTest {
+    @Test fun missingPinnedPathProvidesDiscoveryInsteadOfAnotherGuessedRead() = runBlocking {
+        val backend = object : AgentTool {
+            override val definition = AgentToolDefinition("github", "backend", buildJsonObject {})
+            override suspend fun execute(callId: String, arguments: JsonObject) = AgentToolResult(
+                callId,
+                ToolResultContent.Text("Path is not in the pinned tree: .github/workflows/run-tests.yml"),
+                true,
+                errorCode = "INVALID_ARGUMENTS",
+                dispatched = false
+            )
+        }
+        val tool = GitHubOperationTool("github_read", backend, "paths", modelName = "github_read__api")
+        val observed = tool.execute("read", args("""{"commit_sha":"$sha","ranges":[{"path":".github/workflows/run-tests.yml","start_line":1,"end_line":20}]}"""))
+        assertTrue(observed.isError)
+        assertFalse(observed.dispatched)
+        val correction = result(observed)["data"]!!.jsonObject["correction_call"]!!.jsonObject
+        assertEquals(JsonPrimitive("github_search__api"), correction["tool"])
+        val arguments = correction["arguments"]!!.jsonObject
+        assertEquals(JsonPrimitive(".github/workflows"), arguments["path_prefix"])
+        assertEquals(JsonPrimitive(sha), arguments["commit_sha"])
+        valid("github_search", arguments)
+        assertTrue(observed.retainedContent.toString().contains("run-tests.yml"))
+    }
+
+    @Test fun compactResultsRetainOriginalEvidenceAndOfferFullDetail() = runBlocking {
+        val backend = Backend().apply {
+            body = args("""{"state":"PASSED","checks":1,"check_details":{"check_runs":[{"name":"unit","conclusion":"success","app":{"permissions":{"contents":"write"}}}]}}""")
+        }
+        val tool = GitHubOperationTool("github_context", backend, "projection")
+        val compact = tool.execute("compact", args("""{"action":"checks","commit_sha":"$sha"}"""))
+        assertFalse(compact.content.toString().contains("permissions"))
+        assertTrue(compact.retainedContent.toString().contains("permissions"))
+        val full = tool.execute("full", args("""{"action":"checks","commit_sha":"$sha","response_detail":"full"}"""))
+        assertTrue(full.content.toString().contains("permissions"))
+        assertFalse(backend.calls.last().containsKey("response_detail"))
+    }
+
     @Test fun searchSavedPagesAcceptOnlyUnchangedSelectorsWithoutDispatch() = runBlocking {
         val backend = Backend().also { it.body = JsonPrimitive("search evidence ".repeat(2000)) }
         val tool = GitHubOperationTool("github_search", backend, "search-context", views = GitHubResultViews(pageBytes = 2048))
@@ -647,7 +684,8 @@ class GitHubOperationToolTest {
         val foreign = GitHubOperationTool("github_read", backend, "task-B", views = views).execute("foreign", cursor)
         val other = GitHubOperationTool("github_search", backend, "task-A", views = views).execute("other", cursor)
         assertEquals("SAVED_VIEW_UNAVAILABLE", foreign.errorCode)
-        assertEquals("SAVED_VIEW_UNAVAILABLE", other.errorCode)
+        assertEquals("SAVED_VIEW_WRONG_OPERATION", other.errorCode)
+        assertFalse(other.dispatched)
         assertFalse(foreign.dispatched)
         assertEquals(1, backend.calls.size)
     }

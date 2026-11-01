@@ -18,11 +18,11 @@ internal object GitHubVerificationCatalog {
             val text = "$path $value".lowercase()
             return (if (key in useful) 8 else 0) - (if (key in internal) 12 else 0) + terms.count { it in text }.coerceAtMost(16)
         }
-        return catalog.mapNotNull { it as? JsonObject }.map { receipt ->
+        val ranked = catalog.mapNotNull { it as? JsonObject }.map { receipt ->
             val facts = receipt["facts"] as? JsonObject ?: JsonObject(emptyMap())
             val excerpts = receipt["excerpts"] as? JsonObject ?: JsonObject(emptyMap())
             val selectedFacts = facts.entries.sortedByDescending { score(it.key, it.value) }.take(32).associate { it.toPair() }
-            val selectedExcerpts = excerpts.entries.sortedByDescending { score(it.key, it.value) }.take(2).associate { it.toPair() }
+            val selectedExcerpts = excerpts.entries.sortedByDescending { score(it.key, it.value) }.take(if (GitHubTaskCoverage.matches(focus)) 0 else 2).associate { it.toPair() }
             JsonObject(
                 receipt + mapOf(
                     "facts" to JsonObject(selectedFacts),
@@ -34,5 +34,8 @@ internal object GitHubVerificationCatalog {
         }.sortedByDescending { receipt ->
             (receipt["facts"] as? JsonObject).orEmpty().entries.maxOfOrNull { score(it.key, it.value) } ?: 0
         }
+        // Cover each operation before spending the context on repeated reads of one file.
+        val groups = ranked.groupBy { "${it["tool"]}:${(it["arguments"] as? JsonObject)?.get("action")}" }
+        return groups.values.map { it.first() } + groups.values.flatMap { it.drop(1) }
     }
 }

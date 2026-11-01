@@ -25,10 +25,13 @@ internal object GitHubEvidenceExcerpts {
         val revision = listOf(receipt["source_head_sha"], root?.get("commit_sha"), root?.get("head_sha"), arguments?.get("commit_sha"), arguments?.get("ref"), receipt["branch"], root?.get("sha"))
             .mapNotNull { (it as? JsonPrimitive)?.contentOrNull }.firstOrNull { sha.matches(it) } ?: return emptyMap()
         val found = linkedMapOf<String, JsonObject>()
-        fun visit(value: JsonElement, pointer: String, depth: Int, resource: String, firstLine: Int) {
+        fun visit(value: JsonElement, pointer: String, depth: Int, resource: String, firstLine: Int, sourceRevision: String) {
             if (found.size >= MAX_EXCERPTS || depth > 8) return
             when (value) {
                 is JsonObject -> {
+                    // A commit-list item's SHA owns its message; a file blob SHA is not a commit revision.
+                    val itemRevision = (value["sha"] as? JsonPrimitive)?.contentOrNull
+                        ?.takeIf { value["commit"] is JsonObject && sha.matches(it) } ?: sourceRevision
                     val path = (value["path"] as? JsonPrimitive)?.contentOrNull ?: resource
                     val start = (value["start_line"] as? JsonPrimitive)?.intOrNull?.coerceAtLeast(1) ?: firstLine
                     for ((key, child) in value) {
@@ -47,7 +50,7 @@ internal object GitHubEvidenceExcerpts {
                                 found[id] = buildJsonObject {
                                     put("value", chunk)
                                     put("resource", path.ifBlank { next })
-                                    put("revision", revision)
+                                    put("revision", itemRevision)
                                     put("start_line", offset)
                                     put("end_line", end)
                                     put(
@@ -65,15 +68,15 @@ internal object GitHubEvidenceExcerpts {
                                 offset += lines.size
                             }
                         } else if (key !in fields) {
-                            visit(child, next, depth + 1, path, start)
+                            visit(child, next, depth + 1, path, start, itemRevision)
                         }
                     }
                 }
-                is JsonArray -> value.take(32).forEachIndexed { index, child -> visit(child, "$pointer/$index", depth + 1, resource, firstLine) }
+                is JsonArray -> value.take(32).forEachIndexed { index, child -> visit(child, "$pointer/$index", depth + 1, resource, firstLine, sourceRevision) }
                 else -> Unit
             }
         }
-        visit(result, "", 0, "", 1)
+        visit(result, "", 0, "", 1, revision)
         return found
     }
 }

@@ -22,6 +22,23 @@ class GitHubResultViewsStressTest {
     private fun data(result: AgentToolResult) = (result.content as ToolResultContent.Json).value.jsonObject
     private fun cursor(page: JsonObject) = page["continuation_call"]!!.jsonObject["arguments"]!!.jsonObject["view_cursor"]!!.jsonPrimitive.content
 
+    @Test fun wrongOperationProvidesExactCorrectionOnlyInsideAuthorizedScope() {
+        val views = GitHubResultViews(pageBytes = 2048)
+        val raw = AgentToolResult("first", ToolResultContent.Json(JsonPrimitive("results ".repeat(1000))), false)
+        val first = data(views.present("scope", "github_ci", "github_ci__account", raw))
+        val issued = cursor(first)
+        val wrong = views.read("scope", "github_read", "github_read__account", issued, "wrong")
+        assertEquals("SAVED_VIEW_WRONG_OPERATION", wrong.errorCode)
+        assertFalse(wrong.dispatched)
+        val correction = data(wrong)["correction_call"]!!.jsonObject
+        assertEquals(JsonPrimitive("github_ci__account"), correction["tool"])
+        assertEquals(JsonPrimitive(issued), correction["arguments"]!!.jsonObject["view_cursor"])
+        assertFalse(views.read("scope", "github_ci", "github_ci__account", issued, "corrected").isError)
+        val foreign = views.read("different-scope", "github_read", "github_read__account", issued, "foreign")
+        assertEquals("SAVED_VIEW_UNAVAILABLE", foreign.errorCode)
+        assertFalse(foreign.content.toString().contains("correction_call"))
+    }
+
     @Test fun everySavedErrorPageKeepsItsFailureClassificationWithoutRedispatch() {
         val views = GitHubResultViews(pageBytes = 2048)
         val raw = AgentToolResult("first", ToolResultContent.Json(JsonPrimitive("failure ".repeat(1000))), true, errorCode = "GITHUB_WRITE_BLOCKED")

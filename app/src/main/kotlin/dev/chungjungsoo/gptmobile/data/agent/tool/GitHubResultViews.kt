@@ -21,7 +21,7 @@ internal class GitHubResultViews(
     init {
         require(pageBytes >= 2048)
     }
-    private data class Entry(val scope: String, val operation: String, val fragments: List<JsonObject>, val metadata: JsonObject, val continuations: List<JsonObject>, val expires: Long, val bytes: Int, val originalError: Boolean, val originalErrorCode: String?, val pageBytes: Int, val context: JsonObject, val issuedCursors: MutableSet<String> = mutableSetOf())
+    private data class Entry(val scope: String, val operation: String, val modelName: String, val fragments: List<JsonObject>, val metadata: JsonObject, val continuations: List<JsonObject>, val expires: Long, val bytes: Int, val originalError: Boolean, val originalErrorCode: String?, val pageBytes: Int, val context: JsonObject, val issuedCursors: MutableSet<String> = mutableSetOf())
     private val entries = LinkedHashMap<String, Entry>()
     private var retainedBytes = 0
     private class FragmentCapacity : RuntimeException()
@@ -96,7 +96,7 @@ internal class GitHubResultViews(
         val retained = buffer.bytes + metadata.toString().toByteArray().size * 2L + lastContinuations.sumOf { it.toString().toByteArray().size * 2L + 256 } + context.toString().toByteArray().size * 2L + 1024
         if (retained > capacityBytes) return overflow(upstream, operation, modelName, value, request)
         while (entries.isNotEmpty() && (entries.size >= 32 || retainedBytes + retained > capacityBytes)) evict(entries.keys.first())
-        val entry = Entry(scope, operation, fragments, metadata, lastContinuations, now() + 10 * 60_000, retained.toInt(), upstream.isError, upstream.errorCode, pageBytes, context)
+        val entry = Entry(scope, operation, modelName, fragments, metadata, lastContinuations, now() + 10 * 60_000, retained.toInt(), upstream.isError, upstream.errorCode, pageBytes, context)
         entries[id] = entry
         retainedBytes += entry.bytes
         if (small.toString().toByteArray().size <= pageBytes) {
@@ -115,6 +115,22 @@ internal class GitHubResultViews(
         val entry = parts.firstOrNull()?.let(entries::get)
         val offset = parts.getOrNull(1)?.toIntOrNull()
         val requestedBytes = if (parts.size == 3) parts[2].toIntOrNull() else entry?.pageBytes
+        // Reveal a correction only for a cursor already issued in this authorized scope.
+        if (entry != null && entry.scope == scope && cursor in entry.issuedCursors && entry.operation != operation) {
+            return AgentToolResult(
+                callId,
+                ToolResultContent.Json(
+                    buildJsonObject {
+                        put("schema", "github.arguments.v1")
+                        put("message", "This cursor belongs to another operation. Use the exact correction_call; no operation was dispatched.")
+                        put("correction_call", savedCall(entry.modelName, cursor))
+                    }
+                ),
+                true,
+                errorCode = "SAVED_VIEW_WRONG_OPERATION",
+                dispatched = false
+            )
+        }
         if (parts.size !in 2..3 || entry == null || offset == null || requestedBytes == null || requestedBytes !in 1024..entry.pageBytes || entry.scope != scope || entry.operation != operation || offset !in entry.fragments.indices || cursor !in entry.issuedCursors) {
             val evidenceRecovery = if (operation == "github_read") " Reopen retained source with evidence_id and no view_cursor." else ""
             return AgentToolResult(callId, ToolResultContent.Text("This saved GitHub view is unavailable or outside the authorized conversation. Use the exact continuation_call from the latest result in this conversation; never invent or reuse a cursor from another account or conversation.$evidenceRecovery For an expired immutable read, request a smaller range at the same commit_sha. Reconcile a prior mutation using its receipt; do not repeat the mutation to recover output."), true, errorCode = "SAVED_VIEW_UNAVAILABLE", dispatched = false)

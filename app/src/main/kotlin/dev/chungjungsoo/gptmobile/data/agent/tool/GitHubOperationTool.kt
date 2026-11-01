@@ -201,9 +201,40 @@ internal class GitHubOperationTool(
                 )
             }
         }
-        val native = nativeArguments(operation, arguments)
+        val native = nativeArguments(operation, JsonObject(arguments - "response_detail"))
             ?: return AgentToolResult(callId, ToolResultContent.Text("Unsupported GitHub operation."), true, errorCode = "INVALID_ARGUMENTS", dispatched = false)
-        val result = backend.execute(callId, native)
+        val original = backend.execute(callId, native)
+        val result = if (operation == "github_read" && original.isError && original.errorCode == "INVALID_ARGUMENTS" && original.content.toString().contains("Path is not in the pinned tree")) {
+            val range = (arguments["ranges"] as? JsonArray)?.firstOrNull() as? JsonObject
+            val path = (range?.get("path") as? JsonPrimitive)?.content.orEmpty()
+            val searchName = "github_search" + definition.name.removePrefix(operation)
+            original.copy(
+                content = ToolResultContent.Json(
+                    buildJsonObject {
+                        put("error_code", "INVALID_ARGUMENTS")
+                        put("message", "Requested path is absent from the pinned tree. Discover existing paths before reading; no write was dispatched.")
+                        put(
+                            "correction_call",
+                            buildJsonObject {
+                                put("tool", searchName)
+                                put(
+                                    "arguments",
+                                    buildJsonObject {
+                                        listOf("owner", "repo", "commit_sha").forEach { key -> arguments[key]?.let { put(key, it) } }
+                                        put("mode", "paths")
+                                        put("query", "*")
+                                        put("path_prefix", path.substringBeforeLast('/', ""))
+                                    }
+                                )
+                            }
+                        )
+                    }
+                ),
+                retainedContent = original.retainedContent ?: original.content
+            )
+        } else {
+            original
+        }
         val data = when (val content = result.content) {
             is ToolResultContent.Json -> content.value as? JsonObject
             is ToolResultContent.Text -> runCatching { kotlinx.serialization.json.Json.parseToJsonElement(content.text) as? JsonObject }.getOrNull()
@@ -215,7 +246,14 @@ internal class GitHubOperationTool(
             result
         }
         val outputAllowance = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.agent.ToolOutputAllowance]?.bytes ?: 8 * 1024
-        return views.present(scope, operation, definition.name, paged, arguments, maxPageBytes = outputAllowance)
+        val body = (paged.content as? ToolResultContent.Json)?.value as? JsonObject ?: data
+        val projected = body?.let { dev.chungjungsoo.gptmobile.data.github.GitHubResultProjection.project(operation, arguments, it) }
+        val presented = if (projected != null && projected != body && !paged.isError) {
+            paged.copy(content = ToolResultContent.Json(projected), retainedContent = paged.retainedContent ?: paged.content)
+        } else {
+            paged
+        }
+        return views.present(scope, operation, definition.name, presented, arguments, maxPageBytes = outputAllowance)
     }
 
     companion object {
@@ -635,10 +673,11 @@ internal class GitHubOperationTool(
                     properties["state"] = choice("open", "closed", "all")
                 }
             }
+            if (operation in setOf("github_context", "github_ci", "github_pr")) properties["response_detail"] = choice("compact", "full")
             val description = when (operation) {
-                "github_context" -> "Inspect repo, branches, commits, checks, evidence. changes needs base_sha; commit returns 30 summaries. include_patches adds excerpts."
+                "github_context" -> "Inspect repo/commits/checks; changes needs base_sha. response_detail=full includes metadata."
                 "github_search" -> "Search pinned code/paths. patterns: * between literals; fuzzy: one identifier. Check coverage."
-                "github_read" -> "Read pinned ranges (1-based, <=2000 lines), evidence_id or view_cursor alone. Discover paths first; expired handles: github_context action=recovery."
+                "github_read" -> "Read pinned ranges (1-based, <=2000 lines) or evidence_id. Discover paths first. view_cursor alone replays saved pages."
                 "github_stage_patch" -> "Stage an exact replacement with target_file, search_snippet and replacement_snippet, or SHA-checked edits. Reads the pinned blob and rejects ambiguous anchors. Returns immutable version/stage_id and preserves publication receipts. Supply restore_stage_id alone to select a saved local patch at the same branch/base. Commit on a permitted working branch using its current expected_head_sha."
                 "github_commit" -> "Create a working branch, commit a validated stage_id, or delete_branch with expected_head_sha after dependency inspection. Deletion blocks selected/default/protected branches, unmerged commits, open PRs and active runs. GitHub deletion is not an atomic SHA lease."
                 "github_write" -> "Every files item requires a repository-relative path (for example app/src/main/kotlin/.../MainActivity.kt), never an absolute path or directory. Stage up to 20 UTF-8 file creations, replacements or deletions for exact user approval and one atomic commit on a working branch. Supply expected_head_sha and expected_blob_sha for existing files. Replacements require content; deletions require delete=true and no content. Never write to the default branch."

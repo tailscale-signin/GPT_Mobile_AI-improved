@@ -2,7 +2,7 @@
   "schema_version": 1,
   "repository": "tailscale-signin/GPT_Mobile_AI-improved",
   "base_branch": "main",
-  "base_sha": "0caa2eda240597031049db384eb6ab7b370ebe03",
+  "base_sha": "83afa7f113b29ad050c21d5bde5ea55da6dae602",
   "branch": "fix/github-verification-recovery-2026-11-01",
   "intent": "Implement the fourteen findings from the build 133 status export: grounded reporting, bounded review recovery, task intent, paging and identity, serialization, privacy messaging, budgets and durable diagnostics.",
   "status": "implemented_pending_android_ci",
@@ -48,5 +48,6 @@
     "Scope local-only privacy errors to the rejected tool while preserving the existing authorization boundary.",
     "Use a conservative unknown Llama context ceiling, bounded status output, tools-disabled verdict reasoning, and the saved reasoning preference.",
     "Persist safe timing and stage/failure metadata in receipts/checkpoints independently of verbose logs."
-  ]
+  ],
+  "integration_commit": "c62fc6373d27212e791256acc3035c1a631c67f7"
 }

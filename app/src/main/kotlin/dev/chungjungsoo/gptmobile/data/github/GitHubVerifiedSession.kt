@@ -82,10 +82,10 @@ internal class GitHubVerifiedSession(
         emitAll(publish(draft.toString()))
     }
 
-    override fun retainedFailureResponse(failure: ProviderEvent.Failed): Flow<ProviderEvent> = publish(null)
+    override fun retainedFailureResponse(failure: ProviderEvent.Failed): Flow<ProviderEvent> = publish(null, terminalFallback = true)
 
-    private fun publish(draft: String?): Flow<ProviderEvent> = flow {
-        val text = try {
+    private fun publish(draft: String?, terminalFallback: Boolean = false): Flow<ProviderEvent> = flow {
+        val publication = try {
             validatePublication()
             val (receipts, epoch) = evidence.snapshot()
             val request = if (draft == null) {
@@ -98,7 +98,7 @@ internal class GitHubVerifiedSession(
             val (text, report) = status ?: if (request == null) partial(receipts, epoch) else extract(request, receipts, epoch)
             validatePublication()
             evidence.retainVerdict(report)
-            text
+            text to (report["partial"] == kotlinx.serialization.json.JsonPrimitive(true))
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: Exception) {
@@ -106,8 +106,20 @@ internal class GitHubVerifiedSession(
             return@flow
         }
         // Collector exceptions must propagate unchanged; they are not formatter failures.
-        emit(ProviderEvent.TextDelta(text))
-        emit(ProviderEvent.Completed)
+        val (text, partial) = publication
+        if (partial) {
+            if (terminalFallback) emit(ProviderEvent.TextDelta(text))
+            emit(
+                ProviderEvent.Failed(
+                    "GitHub response verification remained incomplete. Saved receipts and the task checkpoint are available for continuation.",
+                    errorCode = "GITHUB_EVIDENCE_REQUIRED",
+                    transportComplete = true
+                )
+            )
+        } else {
+            emit(ProviderEvent.TextDelta(text))
+            emit(ProviderEvent.Completed)
+        }
     }
 
     private suspend fun partial(receipts: Map<String, JsonObject>, epoch: Long): Pair<String, JsonObject> = withContext(computationDispatcher) {

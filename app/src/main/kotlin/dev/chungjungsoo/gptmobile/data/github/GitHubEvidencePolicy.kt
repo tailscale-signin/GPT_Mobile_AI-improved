@@ -150,9 +150,20 @@ internal object GitHubEvidencePolicy {
             put("kind", "not_measured")
             put("subject", "Full task outcome: response verification was unavailable. Inspect retained evidence or continue verification.")
         }
-        val (text, report) = render(buildJsonObject { put("claims", JsonArray(claims)) }, receipts, now, epoch)
-        return text.replace("# Repository update", "# Repository update\n\n**Partial evidence summary:** the response could not be fully verified. The confirmed details are preserved below.") to JsonObject(
-            report + mapOf("partial" to JsonPrimitive(true), "fallback" to JsonPrimitive("receipt_only"))
+        val (_, report) = render(buildJsonObject { put("claims", JsonArray(claims)) }, receipts, now, epoch)
+        val text = """
+            # GitHub verification incomplete
+
+            The repository response was not published as a completed update because its final claims could not be verified.
+
+            Saved GitHub observations and the task checkpoint were retained. Continue or retry this task to refresh the exact revision and remaining checks. This fallback does not establish a merge, successful checks, or feature completion.
+        """.trimIndent()
+        return text to JsonObject(
+            report + mapOf(
+                "partial" to JsonPrimitive(true),
+                "fallback" to JsonPrimitive("receipt_only"),
+                "resume_required" to JsonPrimitive(true)
+            )
         )
     }
 

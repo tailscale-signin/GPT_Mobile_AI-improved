@@ -105,10 +105,11 @@ class GitHubVerifiedSessionTest {
             assertEquals(if (persistent) GitHubTaskRecovery.MAX_RECOVERIES + 2 else 3, rounds)
             assertEquals(if (persistent) 0 else 1, extractions)
             val published = events.filterIsInstance<AgentRunEvent.Provider>().map { it.event }
-            assertTrue(published.last() is ProviderEvent.Completed)
-            assertFalse(published.any { it is ProviderEvent.Failed })
+            assertEquals(persistent, published.last() is ProviderEvent.Failed)
+            assertEquals(!persistent, published.last() is ProviderEvent.Completed)
             val text = published.filterIsInstance<ProviderEvent.TextDelta>().single().text
-            assertEquals(persistent, text.contains("Partial evidence summary"))
+            assertEquals(persistent, text.contains("GitHub verification incomplete"))
+            assertFalse(text.contains("| Count | 3 |"))
             assertFalse(text.contains("private candidate"))
         }
     }
@@ -137,10 +138,9 @@ class GitHubVerifiedSessionTest {
         val events = AgentRunner(AgentRunLimits(githubTask = true)).run(gate, listOf(read)).toList().filterIsInstance<AgentRunEvent.Provider>().map { it.event }
         assertEquals(4, rounds)
         assertEquals(1, dispatches)
-        assertTrue(events.filterIsInstance<ProviderEvent.TextDelta>().single().text.contains("| Count | 3 |"))
-        assertTrue(events.filterIsInstance<ProviderEvent.TextDelta>().single().text.contains("Partial evidence summary"))
-        assertEquals(ProviderEvent.Completed, events.last())
-        assertFalse(events.any { it is ProviderEvent.Failed })
+        assertTrue(events.filterIsInstance<ProviderEvent.TextDelta>().single().text.contains("GitHub verification incomplete"))
+        assertFalse(events.filterIsInstance<ProviderEvent.TextDelta>().single().text.contains("| Count | 3 |"))
+        assertTrue(events.last() is ProviderEvent.Failed)
     }
 
     @Test fun terminalFallbackRechecksPermissionAndCannotPublishAfterRevocation() = runTest {
@@ -179,8 +179,7 @@ class GitHubVerifiedSessionTest {
         for (largeTask in listOf(false, true)) {
             val gate = GitHubVerifiedSession(answer(if (largeTask) "private" else "private".repeat(1000)), GitHubEvidenceBook("b", "o/r", "main", emptySet()), if (largeTask) "task".repeat(1000) else "task", { 512 }, { error("oversized request must not be dispatched") }, {}, {})
             val events = gate.streamRound(emptyList(), emptyList()).toList()
-            assertTrue(events.last() is ProviderEvent.Completed)
-            assertTrue(events.filterIsInstance<ProviderEvent.TextDelta>().single().text.contains("Partial evidence summary"))
+            assertTrue(events.single() is ProviderEvent.Failed)
         }
     }
 
@@ -200,7 +199,7 @@ class GitHubVerifiedSessionTest {
                 assertEquals(JsonPrimitive(19), catalog.first().jsonObject.getValue("facts").jsonObject["/count"])
                 answer("""{"claims":[{"kind":"not_measured","subject":"Feature acceptance"}]}""")
             }, {}, {}, { 1000 })
-            assertTrue(gate.streamRound(emptyList(), emptyList()).toList().last() is ProviderEvent.Completed)
+            assertEquals(shrink, gate.streamRound(emptyList(), emptyList()).toList().last() is ProviderEvent.Failed)
             assertEquals(if (shrink) 0 else 1, extractions)
         }
     }

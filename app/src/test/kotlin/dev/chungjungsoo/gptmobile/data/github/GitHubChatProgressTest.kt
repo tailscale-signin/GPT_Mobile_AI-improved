@@ -16,25 +16,25 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubChatProgressTest {
-    @Test fun silentProviderStillHasElapsedActivityWithoutInventedFindingsOrReasoning() {
-        var time = 0L
-        val progress = GitHubChatProgress("Improve the repository", now = { time })
+    @Test fun progressNeverEchoesTaskReasoningOrGatewayDiagnostics() {
+        val progress = GitHubChatProgress()
         progress.observe(ApiState.Thinking("private reasoning must never appear in the public status"))
-        time = 10_000L
-        assertTrue(GitHubChatProgress.HEARTBEAT_MILLIS <= 10_000)
-        assertTrue(progress.heartbeat().contains("10s elapsed"))
+        assertEquals("Working through your request.", progress.heartbeat())
+        progress.observe(ApiState.GatewayProgressChanged(GatewayProgress(message = "schema dispatch error secret", usefulToolCalls = 3, noProgress = 1)))
+        progress.observe(ApiState.ProgressCheckpoint("raw protocol checkpoint"))
         assertFalse(progress.heartbeat().contains("private reasoning"))
-        assertFalse(progress.heartbeat().contains("useful tool results"))
-        progress.observe(ApiState.GatewayProgressChanged(GatewayProgress(message = "Reading files", usefulToolCalls = 3, noProgress = 1)))
-        progress.observe(ApiState.ProgressCheckpoint("Found the missing validation."))
-        assertTrue(progress.heartbeat().contains("3 useful tool results; 1 steps without progress"))
-        assertTrue(progress.heartbeat().contains("Found the missing validation"))
+        assertFalse(progress.heartbeat().contains("schema"))
+        assertFalse(progress.heartbeat().contains("checkpoint"))
+        assertFalse(progress.heartbeat().contains("elapsed"))
+        progress.observe(ApiState.Success("The answer"))
+        assertEquals("Putting the response together.", progress.heartbeat())
+        assertFalse(GitHubChatProgress.milestone("github_read", false, false).contains("github_read"))
     }
 
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     @Test
     fun heartbeatContinuesEveryFiveSecondsWithoutProviderEvents() = kotlinx.coroutines.test.runTest {
-        val progress = GitHubChatProgress("Long task", now = { testScheduler.currentTime })
+        val progress = GitHubChatProgress()
         val received = mutableListOf<Long>()
         progress.updates().take(3).collect { received += testScheduler.currentTime }
         assertEquals(listOf(5_000L, 10_000L, 15_000L), received)

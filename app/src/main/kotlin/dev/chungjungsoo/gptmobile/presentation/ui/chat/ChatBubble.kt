@@ -623,10 +623,6 @@ fun OpponentChatBubble(
                         }
                     }
 
-                    if (isLoading && LocalChatProgressInHeader.current) {
-                        GeneratingEllipsis(Modifier.padding(horizontal = 16.dp))
-                    }
-
                     // Minimal transparent continuation chip & bottom-right aligned timestamp
                     val isContinueVisible = isLastMessage && showContinueAction && onContinueClick != null && !continueDismissed && !isUserTyping && !isLoading
                     Row(

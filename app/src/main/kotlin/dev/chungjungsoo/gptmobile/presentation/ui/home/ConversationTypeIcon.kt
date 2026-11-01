@@ -9,7 +9,8 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2
 import dev.chungjungsoo.gptmobile.data.database.entity.ConversationMode
 import dev.chungjungsoo.gptmobile.data.model.NewChatType
 
-internal fun conversationType(room: ChatRoomV2, research: Boolean): NewChatType = when {
+internal fun conversationType(room: ChatRoomV2, research: Boolean, github: Boolean = false): NewChatType = when {
+    github -> NewChatType.GITHUB
     research -> NewChatType.RESEARCH
     room.conversationMode == ConversationMode.COMBINED -> NewChatType.COMBINED
     room.enabledPlatform.size > 1 -> NewChatType.MULTI_CHAT
@@ -18,7 +19,7 @@ internal fun conversationType(room: ChatRoomV2, research: Boolean): NewChatType 
 
 @DrawableRes
 private fun conversationIconResource(type: NewChatType, unread: Boolean): Int = when (type) {
-    NewChatType.GITHUB -> if (unread) R.drawable.ic_conversation_chat_unread else R.drawable.ic_conversation_chat_seen
+    NewChatType.GITHUB -> if (unread) R.drawable.ic_github else R.drawable.ic_github_outline
     NewChatType.RESEARCH -> if (unread) R.drawable.ic_conversation_research_unread else R.drawable.ic_conversation_research_seen
     NewChatType.COMBINED -> if (unread) R.drawable.ic_conversation_combined_unread else R.drawable.ic_conversation_combined_seen
     NewChatType.MULTI_CHAT -> if (unread) R.drawable.ic_conversation_multi_unread else R.drawable.ic_conversation_multi_seen

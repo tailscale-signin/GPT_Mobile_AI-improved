@@ -46,7 +46,7 @@ internal object GitHubChatPolicy {
     fun features(original: AppFeatureSettings, uid: String, context: GitHubConversationContext?): AppFeatureSettings {
         val config = settings(original, uid, context) ?: return original
         val workspace = requireNotNull(context)
-        val states = mapOf(ToolPluginId.GITHUB to config.githubTools, ToolPluginId.connection(workspace.connectionUid) to config.githubTools, ToolPluginId.WEB_SEARCH to config.webSearch, ToolPluginId.READ_URL to config.webSearch)
+        val states = mapOf(ToolPluginId.GITHUB to config.githubTools, ToolPluginId.connection(workspace.connectionUid) to config.githubTools, ToolPluginId.WEB_SEARCH to config.webSearch, ToolPluginId.READ_URL to config.webSearch, ToolPluginId.LOCAL_MEMORY to false)
         val behavior = original.profileBehavior[uid] ?: ProfileBehaviorSettings()
         val budget = original.tokenBudget.copy(
             contextTokens = if (config.maximumContext) 1_048_576 else original.tokenBudget.contextTokens,
@@ -75,7 +75,7 @@ internal object GitHubChatPolicy {
             if (config.githubTools) add(connection)
             if (config.webSearch) addAll(setOf("web_search", "read_url"))
         }
-        val controlled = setOf(connection, "github_decide", "web_search", "read_url")
+        val controlled = setOf(connection, "github_decide", "web_search", "read_url", "memory", "memory_recall", "memory_capture", "memory_search", "memory_read_document")
         return request.copy(allowAllByDefault = false, enabledToolIds = (request.enabledToolIds - controlled) + enabled, disabledToolIds = (request.disabledToolIds - controlled) + (controlled - enabled), maxTools = maxOf(request.maxTools ?: 0, 64), maxToolCalls = callLimit(config.engineeringMode), reasoning = true)
     }
 }

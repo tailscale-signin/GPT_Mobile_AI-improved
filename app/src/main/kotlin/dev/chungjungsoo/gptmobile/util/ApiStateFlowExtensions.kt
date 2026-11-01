@@ -342,8 +342,14 @@ private class StreamingMessageBuffer(
             modelAuthored = chunk.modelAuthored,
             statusSummary = true
         )
-        val existing = timeline.indexOfFirst { it.statusSummary }
-        if (existing < 0) timeline.add(0, item) else timeline[existing] = item
+        if (githubProgress) {
+            if (timeline.any { (it.statusSummary || it.progressCheckpoint) && it.content == item.content }) return
+            timeline += item.copy(statusSummary = false, progressCheckpoint = true)
+            boundGitHubProgress()
+        } else {
+            val existing = timeline.indexOfFirst { it.statusSummary }
+            if (existing < 0) timeline.add(0, item) else timeline[existing] = item
+        }
         timelineVersion++
     }
 

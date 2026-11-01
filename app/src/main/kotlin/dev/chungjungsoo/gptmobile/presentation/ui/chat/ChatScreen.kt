@@ -902,7 +902,7 @@ private fun ChatScreenContent(
                     if (activeMessage != null) {
                         item(key = "github-live-progress") {
                             val timeline = activeMessage.effectiveTimeline()
-                            GitHubLiveProgressCard(timeline.lastOrNull { it.statusSummary }?.content.orEmpty(), timeline.filter { it.progressCheckpoint }.map { it.content })
+                            GitHubLiveProgressCard(timeline.filter { it.progressCheckpoint && !it.modelAuthored }.map { dev.chungjungsoo.gptmobile.data.github.GitHubProgressPresentation.preview(it.content) })
                         }
                     }
                     chatToolConfig.github?.let { github ->
@@ -911,6 +911,11 @@ private fun ChatScreenContent(
                     items(visibleGitHubDecisions.size, key = { "github-decision-${visibleGitHubDecisions[it].id}" }) { index ->
                         val decision = visibleGitHubDecisions[index]
                         GitHubDecisionCard(decision, decision.id in githubWaiting, { option, answer -> chatViewModel.answerGitHubDecision(decision.id, option, answer) }, { chatViewModel.resumeGitHubDecision(decision.id) }, { chatViewModel.stopGitHubDecision(decision.id) })
+                    }
+                    if (activeMessage != null) {
+                        item(key = "github-working-indicator") {
+                            GeneratingEllipsis(Modifier.padding(horizontal = 28.dp, vertical = 8.dp).testTag("github_working_indicator"))
+                        }
                     }
                 }
                 items(pendingPrompts.size, key = { "queued-${pendingPrompts[it].id}" }) { index ->

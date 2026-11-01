@@ -99,8 +99,16 @@ fun GitHubWorkspaceScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val programmerState by programmer.state.collectAsStateWithLifecycle()
     LaunchedEffect(state.connection?.connectionUid, state.selection, state.headSha, state.commits, state.staged, state.editorDrafts, state.patchStage) { programmer.bind(state) }
-    val commandContext = programmerState.context?.takeIf { it.connectionUid == connection.connectionUid && it.owner == state.selection?.owner && it.repo == state.selection?.repo && it.ref == state.selection?.ref }
-    val visibleProgrammer = if (commandContext != null) programmerState else programmerState.copy(context = null, chatId = null, messages = emptyList(), runs = emptyList(), events = emptyList(), approvals = emptyList(), pending = emptyList(), draftLoaded = false)
+    // Mount an existing conversation immediately from its saved scope. Remote freshness
+    // still gates workspace edits, and all tools revalidate authority before dispatch.
+    val savedContext = initialContext?.takeIf {
+        initialChatId != null &&
+            initialChatId > 0 &&
+            it.connectionUid == connection.connectionUid &&
+            (state.selection == null || state.selection == it.repository)
+    }
+    val commandContext = programmerState.context?.takeIf { it.connectionUid == connection.connectionUid && it.owner == state.selection?.owner && it.repo == state.selection?.repo && it.ref == state.selection?.ref } ?: savedContext
+    val visibleProgrammer = if (commandContext != null) programmerState.copy(context = commandContext, chatId = programmerState.chatId ?: initialChatId.takeIf { savedContext != null }) else programmerState.copy(context = null, chatId = null, messages = emptyList(), runs = emptyList(), events = emptyList(), approvals = emptyList(), pending = emptyList(), draftLoaded = false)
     val engineeringModel: dev.chungjungsoo.gptmobile.presentation.ui.chat.GatewayEngineeringViewModel = hiltViewModel()
     val engineering by engineeringModel.state.collectAsStateWithLifecycle()
     LaunchedEffect(visibleProgrammer.chatId) { visibleProgrammer.chatId?.let(engineeringModel::bind) }

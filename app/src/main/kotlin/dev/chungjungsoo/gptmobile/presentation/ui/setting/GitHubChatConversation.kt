@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
@@ -90,6 +91,15 @@ internal fun GitHubProgrammerState.progressDescription(): String {
 /** Pinned under the repository title on every workspace tab. */
 @Composable
 internal fun GitHubChatProgress(workspace: GitHubWorkspaceState, state: GitHubProgrammerState, engineeringJob: dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringJob? = null) {
+    val profile = state.profiles.firstOrNull { it.uid == state.context?.mainProfileUid }
+    var profileNotice by androidx.compose.runtime.remember(state.chatId, profile?.uid) { androidx.compose.runtime.mutableStateOf<String?>(null) }
+    androidx.compose.runtime.LaunchedEffect(state.chatId, profile?.uid) {
+        if (profile != null && !dev.chungjungsoo.gptmobile.data.github.GitHubAutonomousEngineeringPolicy.enabled(profile)) {
+            profileNotice = "Chat is ready. Choose a local AI for autonomous work."
+            kotlinx.coroutines.delay(4000)
+            profileNotice = null
+        }
+    }
     val activeRuns = state.runs.filter { it.status !in GITHUB_TERMINAL_RUN_STATUSES }
     val activeIds = activeRuns.mapTo(hashSetOf()) { it.runId }
     val active = workspace.busy || state.submitting || state.pending.any { !it.paused } || activeRuns.isNotEmpty()
@@ -111,9 +121,9 @@ internal fun GitHubChatProgress(workspace: GitHubWorkspaceState, state: GitHubPr
         engineeringJob = engineeringJob,
         githubPresentation = true,
         statusOverride = when {
-            workspace.busy -> "Loading GitHub workspace"
             waiting -> state.progressDescription()
             active -> "Response in progress"
+            profileNotice != null -> profileNotice
             !active -> state.progressDescription()
             else -> null
         }

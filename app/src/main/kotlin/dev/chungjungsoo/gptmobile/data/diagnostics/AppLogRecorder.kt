@@ -58,7 +58,7 @@ object AppLogRecorder {
             process = null
             reader?.cancel()
             reader = null
-            synchronized(fileLock) { while (queue.tryReceive().isSuccess) Unit }
+            while (queue.tryReceive().isSuccess) Unit
             if (mutableEnabled.value) mutableError.value = "Logging is paused for a temporary conversation. Toggle tracking after leaving it to restart Android log capture."
         } else {
             privateSessions.remove(owner)
@@ -90,10 +90,11 @@ object AppLogRecorder {
         scope.launch {
             var publication: Job? = null
             for (entry in queue) {
+                val batch = mutableListOf(entry)
+                repeat(255) { queue.tryReceive().getOrNull()?.let(batch::add) }
+                val formatted = batch.joinToString("\n") { it.line() }
                 synchronized(fileLock) {
                     if (!mutableEnabled.value || privateSessions.isNotEmpty()) return@synchronized
-                    val batch = mutableListOf(entry)
-                    repeat(255) { queue.tryReceive().getOrNull()?.let(batch::add) }
                     batch.forEach(recent::addLast)
                     while (recent.size > RECENT_ENTRY_LIMIT) recent.removeFirst()
                     if (publication?.isActive != true) {
@@ -104,7 +105,7 @@ object AppLogRecorder {
                             }
                         }
                     }
-                    runCatching { append(batch.joinToString("\n") { it.line() }) }.onFailure { mutableError.value = "Unable to save logs. Check available storage." }
+                    runCatching { append(formatted) }.onFailure { mutableError.value = "Unable to save logs. Check available storage." }
                 }
                 // Drain persistence continuously. Delaying the consumer caused dropped
                 // records during bursts; only UI publication is throttled above.

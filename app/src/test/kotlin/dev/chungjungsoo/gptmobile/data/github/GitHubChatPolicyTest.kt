@@ -39,6 +39,10 @@ class GitHubChatPolicyTest {
         assertTrue(tools.isToolEnabled("web_search"))
         assertTrue(tools.isToolEnabled("github_decide"))
         assertFalse(tools.isToolEnabled("unrelated-tool"))
+        val withPersonalMemory = requireNotNull(GitHubChatPolicy.tools(ChatMcpToolConfig(github = context, enabledToolIds = setOf("memory", "memory_recall", "memory_read_document")), features, "p"))
+        assertFalse(withPersonalMemory.isToolEnabled("memory"))
+        assertFalse(withPersonalMemory.isToolEnabled("memory_recall"))
+        assertFalse(withPersonalMemory.isToolEnabled("memory_read_document"))
         assertFalse(context.autoApproveTools)
     }
 

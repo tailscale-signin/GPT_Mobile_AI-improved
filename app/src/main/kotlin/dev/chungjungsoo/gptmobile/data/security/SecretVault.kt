@@ -25,6 +25,9 @@ interface SecretVault {
     suspend fun read(secretRef: String): ByteArray?
     suspend fun delete(secretRef: String)
     suspend fun references(): Set<String> = emptySet()
+
+    /** Physical bytes for retention accounting; null means an implementation has no metadata. */
+    suspend fun storedSize(secretRef: String): Long? = null
 }
 
 class SecretVaultException(message: String, cause: Throwable? = null) : Exception(message, cause)
@@ -79,12 +82,28 @@ class AndroidSecretVault private constructor(
 
             try {
                 val record = try {
-                    atomicFile.openRead().use { input -> input.readBytes() }
+                    atomicFile.openRead().use { input ->
+                        val length = input.channel.size()
+                        if (length !in MIN_RECORD_BYTES.toLong()..MAX_RECORD_BYTES.toLong()) {
+                            throw SecretVaultException("Credential record is invalid.")
+                        }
+                        val bytes = ByteArray(length.toInt())
+                        var offset = 0
+                        while (offset < bytes.size) {
+                            val count = input.read(bytes, offset, bytes.size - offset)
+                            if (count < 0) {
+                                bytes.fill(0)
+                                throw SecretVaultException("Credential record is incomplete.")
+                            }
+                            offset += count
+                        }
+                        bytes
+                    }
                 } catch (_: FileNotFoundException) {
                     return@withLock null
                 }
                 try {
-                    val (iv, ciphertext) = decodeRecord(record)
+                    val (iv, ciphertextOffset) = decodeRecord(record)
                     try {
                         val cipher = Cipher.getInstance(CIPHER_TRANSFORMATION)
                         val key = getExistingKey() ?: run {
@@ -96,7 +115,7 @@ class AndroidSecretVault private constructor(
                             throw SecretVaultException("Encryption key is unavailable; the encrypted record has been preserved.")
                         }
                         cipher.bindTo(secretRef)
-                        cipher.doFinal(ciphertext).also { plaintext ->
+                        cipher.doFinal(record, ciphertextOffset, record.size - ciphertextOffset).also { plaintext ->
                             if (plaintext.size > MAX_SECRET_BYTES) {
                                 plaintext.fill(0)
                                 throw SecretVaultException("Credential record is invalid.")
@@ -104,7 +123,6 @@ class AndroidSecretVault private constructor(
                         }
                     } finally {
                         iv.fill(0)
-                        ciphertext.fill(0)
                     }
                 } finally {
                     record.fill(0)
@@ -123,6 +141,17 @@ class AndroidSecretVault private constructor(
                 file.name.removeSuffix(".bak").takeIf { it.endsWith(".vault") }
                     ?.removeSuffix(".vault")?.takeIf(SECRET_REF_PATTERN::matches)
             }.toSet()
+        }
+    }
+
+    override suspend fun storedSize(secretRef: String): Long? = withContext(Dispatchers.IO) {
+        requireValidReference(secretRef)
+        mutex.withLock {
+            try {
+                AtomicFile(recordFile(secretRef)).openRead().use { it.channel.size() }
+            } catch (_: FileNotFoundException) {
+                null
+            }
         }
     }
 
@@ -181,7 +210,7 @@ class AndroidSecretVault private constructor(
         }
     }
 
-    private fun decodeRecord(record: ByteArray): Pair<ByteArray, ByteArray> {
+    private fun decodeRecord(record: ByteArray): Pair<ByteArray, Int> {
         if (record.size !in MIN_RECORD_BYTES..MAX_RECORD_BYTES) {
             throw SecretVaultException("Credential record is invalid.")
         }
@@ -199,8 +228,7 @@ class AndroidSecretVault private constructor(
             throw SecretVaultException("Credential record is invalid.")
         }
         val iv = ByteArray(ivSize).also(buffer::get)
-        val ciphertext = ByteArray(ciphertextSize).also(buffer::get)
-        return iv to ciphertext
+        return iv to buffer.position()
     }
 
     private fun recordFile(secretRef: String): File = File(directory, "$secretRef.vault")

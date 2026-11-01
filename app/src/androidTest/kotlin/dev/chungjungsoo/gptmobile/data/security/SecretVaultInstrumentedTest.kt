@@ -67,6 +67,17 @@ class SecretVaultInstrumentedTest {
     }
 
     @Test
+    fun oversizedRecordIsRejectedBeforeAllocationAndSizeDoesNotRequireAKey() = runBlocking {
+        val secretRef = "oversized_record"
+        val record = File(context.noBackupFilesDir, "$directoryName/$secretRef.vault")
+        record.parentFile?.mkdirs()
+        java.io.RandomAccessFile(record, "rw").use { it.setLength(32L * 1024 * 1024) }
+        assertTrue(vault.storedSize(secretRef) == 32L * 1024 * 1024)
+        assertFails<SecretVaultException> { vault.read(secretRef) }
+        assertTrue(record.exists())
+    }
+
+    @Test
     fun rejectsRecordMovedToAnotherReference() = runBlocking {
         val firstRef = "profile_first"
         val secondRef = "profile_second"

@@ -100,6 +100,7 @@ private fun AppNavHost(
     onLaunchOAuth: (String) -> Unit
 ) {
     var newChatOrigin by remember { mutableStateOf(androidx.compose.ui.geometry.Offset.Unspecified) }
+    val conversationRouter: dev.chungjungsoo.gptmobile.presentation.ui.chat.ConversationRoutingViewModel = hiltViewModel()
     NavHost(
         modifier = Modifier
             .fillMaxSize()
@@ -121,7 +122,7 @@ private fun AppNavHost(
         startScreenNavigation(navController)
         setupNavigation(navController)
         settingNavigation(navController, toolConnectionsViewModel, onLaunchOAuth)
-        chatScreenNavigation(navController, toolConnectionsViewModel)
+        chatScreenNavigation(navController, toolConnectionsViewModel, conversationRouter)
         githubChatNavigation(navController, toolConnectionsViewModel)
     }
 }
@@ -312,7 +313,7 @@ fun NavGraphBuilder.newChatNavigation(navController: NavHostController, revealOr
     }
 }
 
-fun NavGraphBuilder.chatScreenNavigation(navController: NavHostController, toolConnectionsViewModel: ToolConnectionsViewModel) {
+internal fun NavGraphBuilder.chatScreenNavigation(navController: NavHostController, toolConnectionsViewModel: ToolConnectionsViewModel, router: dev.chungjungsoo.gptmobile.presentation.ui.chat.ConversationRoutingViewModel) {
     composable(
         Route.CHAT_ROOM,
         arguments = listOf(
@@ -330,7 +331,6 @@ fun NavGraphBuilder.chatScreenNavigation(navController: NavHostController, toolC
             }
         )
     ) {
-        val router: dev.chungjungsoo.gptmobile.presentation.ui.chat.ConversationRoutingViewModel = hiltViewModel()
         val routing by router.state.collectAsStateWithLifecycle()
         val chatId = it.arguments?.getInt("chatRoomId") ?: 0
         val githubDestination = routing?.githubDestination(chatId)

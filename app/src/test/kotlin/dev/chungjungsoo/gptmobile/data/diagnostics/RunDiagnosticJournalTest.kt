@@ -152,6 +152,36 @@ class RunDiagnosticJournalTest {
         assertTrue(journal.snapshot(setOf("run")).events.isEmpty())
     }
 
+    @Test fun retentionUsesMetadataWithoutDecryptingStoredBatches() = runTest {
+        val vault = MemoryVault()
+        var time = 1_000_000L
+        val journal = RunDiagnosticJournal(vault, backgroundScope, now = { time }, maxStoredBytes = 1).apply {
+            enabled = true
+            setRunPrivacy("run", false)
+        }
+        repeat(5) {
+            time += 60_001
+            journal.record("run", RunDiagnosticKind.REQUEST_SERIALIZED)
+            runCurrent()
+        }
+        assertEquals(0, vault.readCount)
+        assertTrue(vault.rows.isEmpty())
+    }
+
+    @Test fun snapshotReportsOmittedBatchesInsteadOfExhaustingHeap() = runTest {
+        val vault = MemoryVault()
+        val journal = RunDiagnosticJournal(vault, backgroundScope, maxSnapshotBytes = 1).apply {
+            enabled = true
+            setRunPrivacy("run", false)
+        }
+        journal.record("run", RunDiagnosticKind.REQUEST_SERIALIZED)
+        runCurrent()
+        val snapshot = journal.snapshot(setOf("run"))
+        assertTrue(snapshot.events.isEmpty())
+        assertEquals(1, snapshot.missingBatches)
+        assertEquals(1L, snapshot.missingSequences)
+    }
+
     private class MemoryVault(val gate: CompletableDeferred<Unit>? = null, val failWrites: Boolean = false) : SecretVault {
         val rows = linkedMapOf<String, ByteArray>()
         override suspend fun put(secretRef: String, secret: ByteArray) {
@@ -159,7 +189,12 @@ class RunDiagnosticJournalTest {
             check(!failWrites)
             rows[secretRef] = secret.copyOf()
         }
-        override suspend fun read(secretRef: String) = rows[secretRef]?.copyOf()
+        var readCount = 0
+        override suspend fun storedSize(secretRef: String) = rows[secretRef]?.size?.toLong()
+        override suspend fun read(secretRef: String): ByteArray? {
+            readCount++
+            return rows[secretRef]?.copyOf()
+        }
         override suspend fun delete(secretRef: String) {
             rows.remove(secretRef)
         }

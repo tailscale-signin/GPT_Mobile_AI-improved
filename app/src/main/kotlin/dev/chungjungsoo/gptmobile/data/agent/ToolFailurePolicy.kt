@@ -10,6 +10,8 @@ internal fun terminalToolFailure(message: String): Boolean =
         "calls are used up",
         "rate limit exceeded",
         "github is cooling down",
+        "github_primary_rate_limited",
+        "github_secondary_rate_limited",
         "github_operation_blocked",
         "daily quota exceeded",
         "quota exhausted",

@@ -14,6 +14,24 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class MemoryAutonomyTest {
+    @Test fun localFallbackDoesNotMarkTheSemanticStageCompleteForTheSameSource() = runTest {
+        val repository = repository()
+        repository.setEnabled(true)
+        val message = MessageV2(id = 71, chatId = 7, content = "I prefer Kotlin.", platformType = null)
+        var extractions = 0
+        repository.enrichTurn(message, completeSemantic = false) { source ->
+            extractions++
+            dev.chungjungsoo.gptmobile.data.memory.MemoryEnrichmentContract.localFallback(source)
+        }
+        repository.enrichTurn(message) { source ->
+            extractions++
+            dev.chungjungsoo.gptmobile.data.memory.MemoryEnrichmentContract.localFallback(source)
+        }
+        repository.enrichTurn(message) { error("The completed semantic stage must not be repeated") }
+        assertEquals(2, extractions)
+        assertEquals(1, repository.state.value.facts.size)
+    }
+
     private fun repository(): FactVaultRepository = FactVaultRepository(
         object : SecretVault {
             private val values = mutableMapOf<String, ByteArray>()

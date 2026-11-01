@@ -7,7 +7,6 @@ import androidx.work.NetworkType
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import dagger.hilt.android.qualifiers.ApplicationContext
-import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import java.util.UUID
@@ -43,14 +42,14 @@ class GatewayEngineeringRepository @Inject constructor(
     private suspend fun config(binding: GatewayEngineeringBinding): ProviderRequestConfig {
         val profile = settings.fetchPlatformV2s().singleOrNull { it.uid == binding.profileUid && it.enabled }
             ?: error("The saved engineering AI profile is unavailable. The gateway job is retained.")
-        check(profile.compatibleType == ClientType.LLAMA && profile.apiUrl.trimEnd('/') == binding.endpoint) { "The AI profile now points to another gateway. Restore the original connection to reconnect to this job." }
+        check(GitHubAutonomousEngineeringPolicy.supportsSavedJobs(profile) && profile.apiUrl.trimEnd('/') == binding.endpoint) { "The saved job requires its original local Llama or Ollama engineering connection. Restore that profile to reconnect." }
         return ProviderRequestConfig(profile.apiUrl, profile.token, profileUid = profile.uid)
     }
 
     suspend fun start(chatId: Int, context: GitHubConversationContext, base: String, branch: String, objective: String, options: GatewayEngineeringSettings) {
         require(objective.isNotBlank() && objective.length <= 16000 && branch != base)
         val profile = settings.fetchPlatformV2s().single { it.uid == context.mainProfileUid && it.enabled }
-        require(profile.compatibleType == ClientType.LLAMA) { "Select a llama gateway AI profile to start an autonomous job." }
+        require(GitHubAutonomousEngineeringPolicy.supportsSavedJobs(profile)) { "Autonomous jobs require a local Llama or Ollama engineering profile. Remote profiles cannot start them." }
         val preferences = settings.getFeatureSettings().githubProfileOverrides[profile.uid] ?: GitHubChatProfileOverride()
         val principal = client.principal(ProviderRequestConfig(profile.apiUrl, profile.token, profileUid = profile.uid))
         val binding = GatewayEngineeringBinding(

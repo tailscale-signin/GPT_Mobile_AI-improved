@@ -33,7 +33,7 @@ data class PromptBudgetReceipt(
     val dominantComponent: PromptBudgetComponent? get() = components.maxByOrNull { it.tokens }
 
     fun explain(): String = buildString {
-        append("prompt=$promptTokens, safety=$safetyTokens, tool-result reserve=$toolResultReserveTokens, ")
+        append("promptTokens=$promptTokens, safetyTokens=$safetyTokens, toolResultReserveTokens=$toolResultReserveTokens, ")
         append("output=${outputAllowanceTokens ?: "unknown"}, context=${contextTokens ?: "unknown"}")
         dominantComponent?.let { append("; largest input component: ${it.name} (${it.tokens} estimated tokens)") }
     }

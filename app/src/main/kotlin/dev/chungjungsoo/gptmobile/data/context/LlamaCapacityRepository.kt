@@ -3,6 +3,7 @@ package dev.chungjungsoo.gptmobile.data.context
 import dev.chungjungsoo.gptmobile.data.network.LocalEndpointConnectionPolicy
 import dev.chungjungsoo.gptmobile.data.network.NetworkClient
 import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
+import dev.chungjungsoo.gptmobile.data.network.boundedMetadata
 import dev.chungjungsoo.gptmobile.data.research.researchHash
 import io.ktor.client.call.body
 import io.ktor.client.request.bearerAuth
@@ -33,6 +34,7 @@ internal class LlamaCapacityRepository(private val client: () -> io.ktor.client.
     private data class Metadata(val capacity: CapacitySnapshot, val template: String, val buildKnown: Boolean)
     private val cache = RouteCapabilityCache<Metadata>(now)
     private val reasoningCache = RouteCapabilityCache<ReasoningTemplateControl>(now)
+    private val schemaCache = RouteCapabilityCache<Boolean>(now, negativeTtl = 60_000L)
 
     suspend fun discover(config: ProviderRequestConfig, model: String): CapacitySnapshot? = metadata(config, model)?.capacity
 
@@ -45,19 +47,19 @@ internal class LlamaCapacityRepository(private val client: () -> io.ktor.client.
                     val uri = URI(route)
                     require(uri.scheme in setOf("http", "https") && uri.host != null && uri.rawQuery == null && uri.rawFragment == null && uri.userInfo == null)
                     val endpoint = route.removeSuffix("/v1") + "/props"
-                    val response = LocalEndpointConnectionPolicy.probe(config.apiUrl) {
-                        client().get(endpoint) {
+                    val (response, body) = LocalEndpointConnectionPolicy.probe(config.apiUrl) {
+                        val response = client().get(endpoint) {
                             config.token?.takeIf { it.isNotBlank() }?.let { bearerAuth(it) }
                             parameter("model", model)
                             parameter("autoload", "false")
                             if (LocalEndpointConnectionPolicy.freshConnection(config.apiUrl)) header(HttpHeaders.Connection, "close")
-                        }.also { it.body<String>() }
+                        }
+                        response to response.boundedMetadata(1_000_000)
                     }
                     if (response.status.value != 200) return@withTimeoutOrNull null
-                    val body = response.body<String>()
                     val capacity = parseLlamaCapacity(body, config, model, now()) ?: return@withTimeoutOrNull null
                     val root = Json.parseToJsonElement(body) as JsonObject
-                    Metadata(capacity, (root["chat_template"] as JsonPrimitive).content, (root["build_info"] as? JsonPrimitive)?.contentOrNull?.isNotBlank() == true)
+                    Metadata(capacity, (root["chat_template"] as? JsonPrimitive)?.contentOrNull.orEmpty(), (root["build_info"] as? JsonPrimitive)?.contentOrNull?.isNotBlank() == true)
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled
@@ -92,6 +94,52 @@ internal class LlamaCapacityRepository(private val client: () -> io.ktor.client.
             }
         }
     }
+
+    suspend fun supportsReviewSchema(config: ProviderRequestConfig, model: String, capacity: CapacitySnapshot): Boolean =
+        schemaCache.getOrLoad(researchHash(capacity.fingerprint.toString())) {
+            try {
+                withTimeoutOrNull(10_000L) {
+                    val control = reasoningControl(config, model, capacity)
+                    val response = client().post(config.apiUrl.trim().trimEnd('/').removeSuffix("/v1") + "/v1/chat/completions") {
+                        config.token?.takeIf { it.isNotBlank() }?.let { bearerAuth(it) }
+                        contentType(ContentType.Application.Json)
+                        if (LocalEndpointConnectionPolicy.freshConnection(config.apiUrl)) header(HttpHeaders.Connection, "close")
+                        setBody(
+                            buildJsonObject {
+                                put("model", model)
+                                put("stream", false)
+                                put("max_tokens", 64)
+                                put(
+                                    "messages",
+                                    JsonArray(
+                                        listOf(
+                                            buildJsonObject {
+                                                put("role", "user")
+                                                put("content", "Return only {\"ok\":false}.")
+                                            }
+                                        )
+                                    )
+                                )
+                                put("response_format", dev.chungjungsoo.gptmobile.data.github.GitHubReviewSchema.probeFormat)
+                                control?.let { put("chat_template_kwargs", buildJsonObject { put(it.parameter, false) }) }
+                            }.toString()
+                        )
+                    }
+                    val body = response.boundedMetadata(64 * 1024)
+                    if (response.status.value != 200) return@withTimeoutOrNull null
+                    val root = Json.parseToJsonElement(body) as? JsonObject ?: return@withTimeoutOrNull null
+                    val first = (root["choices"] as? JsonArray)?.firstOrNull() as? JsonObject
+                    val message = first?.get("message") as? JsonObject
+                    val text = (message?.get("content") as? JsonPrimitive)?.contentOrNull ?: return@withTimeoutOrNull null
+                    // The prompt asks for false; only an enforced schema permits true.
+                    if (Json.parseToJsonElement(text.trim()) == buildJsonObject { put("ok", true) }) true else null
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                null
+            }
+        } == true
 
     private suspend fun applyTemplate(config: ProviderRequestConfig, model: String, control: ReasoningTemplateControl, enabled: Boolean): String? {
         val endpoint = config.apiUrl.trim().trimEnd('/').removeSuffix("/v1") + "/apply-template"
@@ -131,6 +179,7 @@ internal class LlamaCapacityRepository(private val client: () -> io.ktor.client.
     fun invalidate() {
         cache.invalidate()
         reasoningCache.invalidate()
+        schemaCache.invalidate()
     }
 }
 
@@ -143,7 +192,8 @@ internal fun parseLlamaCapacity(body: String, config: ProviderRequestConfig, mod
     if (resolved != null && resolved != model) return null
     val generation = root["default_generation_settings"] as? JsonObject ?: return null
     val allocation = (generation["n_ctx"] as? JsonPrimitive)?.longOrNull?.takeIf { it in 256L..1_048_576L } ?: return null
-    val template = (root["chat_template"] as? JsonPrimitive)?.contentOrNull ?: return null
+    val template = (root["chat_template"] as? JsonPrimitive)?.contentOrNull.orEmpty()
+    if (template.isBlank() && resolved == null) return null
     val revision = researchHash(listOf(root["model_path"], root["build_info"], root["runtime_epoch"]).joinToString("|"))
     return CapacitySnapshot(
         RuntimeFingerprint(config.profileUid ?: "unbound", "sha256:${researchHash(config.apiUrl.trim().trimEnd('/'))}", researchHash(config.token.orEmpty()), model, resolved ?: model, revision, researchHash(template), "n_ctx=$allocation;slots=${root["total_slots"]}"),

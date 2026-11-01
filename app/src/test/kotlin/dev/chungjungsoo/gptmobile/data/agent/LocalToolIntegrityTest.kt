@@ -35,16 +35,29 @@ class LocalToolIntegrityTest {
     }
 
     @Test
-    fun unchangedInvalidCallsStopAndSmallEvidenceIsNotRewritten() = runBlocking {
+    fun invalidCallsStayUnsentAndCorrectedCallsPreserveEvidence() = runBlocking {
+        var dispatches = 0
+        val small = ToolResultContent.Text("Exact observation")
         val bound = ToolExecutionBudget(AgentRunLimits()).bind(object : AgentTool {
             override val definition = AgentToolDefinition("unsubscribe", "Mutation fixture", schema)
-            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult = error("Must not dispatch")
+            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+                dispatches++
+                return AgentToolResult(callId, small, false)
+            }
         })
         val arguments = JsonObject(emptyMap())
-        assertEquals("INVALID_ARGUMENTS", bound.execute("first", arguments).errorCode)
-        assertEquals("INVALID_ARGUMENTS", bound.execute("second", arguments).errorCode)
-        assertEquals("REPEATED_FAILURE", bound.execute("third", arguments).errorCode)
-        val small = ToolResultContent.Text("Exact observation")
+        repeat(4) { attempt ->
+            val rejected = bound.execute("invalid-$attempt", arguments)
+            assertEquals("INVALID_ARGUMENTS", rejected.errorCode)
+            assertFalse(rejected.dispatched)
+            assertEquals("PRECHECK_REJECTED", ToolResultEnvelope.executionState(rejected))
+        }
+        assertEquals(0, dispatches)
+        val corrected = bound.execute("corrected", buildJsonObject { put("id", "entry") })
+        assertEquals(1, dispatches)
+        assertFalse(corrected.isError)
+        assertTrue(corrected.dispatched)
+        assertEquals(small, corrected.content)
         assertEquals(small, ToolResultEnvelope.compact(small, 1024))
     }
 

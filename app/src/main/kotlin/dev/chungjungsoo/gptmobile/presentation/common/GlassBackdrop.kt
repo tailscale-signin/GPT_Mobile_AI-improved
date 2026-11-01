@@ -56,9 +56,9 @@ fun GlassBackdropHost(content: @Composable () -> Unit) {
 
 /** Isolates in-page controls from other destinations while popups retain the window backdrop. */
 @Composable
-internal fun GlassBackdropBox(modifier: Modifier = Modifier, content: @Composable BoxScope.() -> Unit) {
+internal fun GlassBackdropBox(modifier: Modifier = Modifier, blurEnabled: Boolean = true, content: @Composable BoxScope.() -> Unit) {
     val state = rememberHazeState()
-    CompositionLocalProvider(LocalInlineGlassBackdrop provides state) {
+    CompositionLocalProvider(LocalInlineGlassBackdrop provides state, LocalGlassBackdropActive provides (LocalGlassBackdropActive.current && blurEnabled)) {
         Box(modifier, content = content)
     }
 }

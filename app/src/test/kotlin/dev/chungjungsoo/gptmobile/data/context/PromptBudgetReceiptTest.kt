@@ -62,7 +62,7 @@ class PromptBudgetReceiptTest {
         val rejection = runCatching {
             RequestAdmission.prepare("payload", "primary", CapacitySnapshot(runtime, 4096), measurement, 901, "permission", promptBudget = budget.copy(outputAllowanceTokens = 901))
         }.exceptionOrNull()
-        assertTrue(rejection?.message.orEmpty().contains("tool-result reserve=100"))
+        assertTrue(rejection?.message.orEmpty().contains("toolResultReserveTokens=100"))
     }
 
     @Test fun bridgeSchemasAreAttributedOnceEvenWhenEmbeddedInSystemInstructions() {

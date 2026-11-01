@@ -104,7 +104,12 @@ fun GitHubWorkspaceScreen(
     val engineeringModel: dev.chungjungsoo.gptmobile.presentation.ui.chat.GatewayEngineeringViewModel = hiltViewModel()
     val engineering by engineeringModel.state.collectAsStateWithLifecycle()
     LaunchedEffect(visibleProgrammer.chatId) { visibleProgrammer.chatId?.let(engineeringModel::bind) }
-    val engineeringJob = engineering.bindings.lastOrNull { it.chatId == visibleProgrammer.chatId && it.job?.terminal == false }?.job
+    val engineeringProfile = visibleProgrammer.profiles.firstOrNull { it.uid == commandContext?.mainProfileUid }
+    val engineeringJob = if (dev.chungjungsoo.gptmobile.data.github.GitHubAutonomousEngineeringPolicy.supportsSavedJobs(engineeringProfile)) {
+        engineering.bindings.lastOrNull { it.chatId == visibleProgrammer.chatId && it.profileUid == engineeringProfile?.uid && it.job?.terminal == false }?.job
+    } else {
+        null
+    }
     LaunchedEffect(connection.connectionUid, initialProfileUid, initialChatId) {
         programmer.configureSession(initialProfileUid, initialChatId, newConversation)
     }

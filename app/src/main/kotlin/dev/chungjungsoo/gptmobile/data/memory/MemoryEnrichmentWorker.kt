@@ -44,6 +44,14 @@ class MemoryEnrichmentWorker @AssistedInject constructor(
             if (scope.isTemporary || !state.enabled || !state.settings.learningEnabled || !state.settings.localModelLearning) {
                 return outcome("SKIPPED", "DISABLED_OR_TEMPORARY")
             }
+            val useLocalFallback = runtime.loadedEngineSpec() == null
+            if (useLocalFallback) {
+                vault.enrichTurn(message, completeSemantic = false) { source -> MemoryEnrichmentContract.localFallback(source) }
+                MemoryEnrichmentQueue.markWaiting(applicationContext, inputData)
+                MemoryEnrichmentQueue.markFallbackCompleted(applicationContext, inputData)
+                AppLogRecorder.record("Memory", "ENRICHMENT_LOCAL_FALLBACK · message=${message.id} · sourcePersisted=true · semanticReady=false · modelLoaded=false · wakeTrigger=MODEL_AVAILABLE")
+                return outcome("WAITING_FOR_MODEL", "LOCAL_FALLBACK_COMPLETED")
+            }
             if (dev.chungjungsoo.gptmobile.data.readiness.ReadinessWorkloadSignals.active.value > 0 || dev.chungjungsoo.gptmobile.data.localruntime.InferenceAdmission.isExclusiveBusy) return finish("RUNTIME_BUSY")
             if (MemoryEnrichmentQueue.runtimeCoolingDown(applicationContext, runtime)) return finish("RUNTIME_BUSY")
             // load() already synchronizes changed facts. Full index rebuild is a user action,
@@ -166,7 +174,7 @@ class MemoryEnrichmentWorker @AssistedInject constructor(
 
     private fun outcome(status: String, reason: String): Result {
         if (status != "RETRY") failureAttempts.edit().remove(id.toString()).apply()
-        if (reason !in setOf("NO_LOADED_MODEL", "RUNTIME_BUSY") && !reason.endsWith(":RETRIES_EXHAUSTED")) MemoryEnrichmentQueue.clearWaiting(applicationContext, inputData.getInt("messageId", 0))
+        if (reason !in setOf("NO_LOADED_MODEL", "RUNTIME_BUSY", "LOCAL_FALLBACK_COMPLETED") && !reason.endsWith(":RETRIES_EXHAUSTED")) MemoryEnrichmentQueue.clearWaiting(applicationContext, inputData.getInt("messageId", 0))
         AppLogRecorder.record(
             "Memory",
             "ENRICHMENT_$status · message=${inputData.getInt("messageId", 0)} · attempt=$runAttemptCount · reason=$reason",

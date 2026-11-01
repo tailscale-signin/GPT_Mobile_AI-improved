@@ -17,6 +17,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -121,7 +122,7 @@ class GitHubProgrammerHomeTest {
                 }
             }
         }
-        compose.onNodeWithText(job.message).assertIsDisplayed()
+        compose.onNodeWithTag("github_loading_activity").assertContentDescriptionEquals(job.message).assertIsDisplayed()
         compose.onNodeWithText("25:01:01").assertIsDisplayed()
     }
 

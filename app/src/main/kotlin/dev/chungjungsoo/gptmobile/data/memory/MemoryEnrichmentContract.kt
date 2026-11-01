@@ -6,6 +6,24 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 
 internal object MemoryEnrichmentContract {
+    /** Literal first-person statements only; no model, paraphrase or inferred fact. */
+    fun localFallback(source: String): JsonObject {
+        val observations = source.take(6000).split(Regex("(?<=[.!?])\\s+|\\n+"))
+            .map(String::trim).filter { it.length in 8..240 && !it.endsWith('?') }
+            .mapNotNull { quote ->
+                val lower = quote.lowercase(java.util.Locale.ROOT)
+                val kind = when {
+                    lower.startsWith("i prefer ") -> "preference"
+                    lower.startsWith("my name is ") || lower.startsWith("i live in ") -> "profile"
+                    lower.startsWith("i am working on ") -> "project"
+                    lower.startsWith("my goal is ") -> "goal"
+                    else -> return@mapNotNull null
+                }
+                JsonObject(mapOf("quote" to JsonPrimitive(quote), "kind" to JsonPrimitive(kind)))
+            }.distinct().take(6)
+        return JsonObject(mapOf("observations" to JsonArray(observations)))
+    }
+
     fun repair(output: String, source: String): JsonObject? {
         if (output.length > 32_768) return null
         val text = output.trim().removePrefix("```JSON").removePrefix("```json").removePrefix("```").removeSuffix("```").trim()

@@ -250,6 +250,11 @@ class InvocationLedger @Inject constructor(
             var inputSource = "estimated"
             var outputSource = "estimated"
             var actualRuntime: String? = null
+            var actualAccelerator: String? = null
+            var serverRequestId: String? = null
+            var serializedOutputCap: Int? = null
+            var localContextTokens: Long? = null
+            var reasoningState: String? = null
             var generatedBytes = 0L
             val visibleFingerprint = dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.takeIf { it.enabled }?.let { dev.chungjungsoo.gptmobile.data.diagnostics.OutputFingerprintAccumulator() }
             var firstReasoningRecorded = false
@@ -295,6 +300,10 @@ class InvocationLedger @Inject constructor(
                                 generatedBytes += size
                             }
                             is ProviderEvent.RequestConfigured -> {
+                                actualAccelerator = event.actualAccelerator ?: actualAccelerator
+                                serializedOutputCap = event.serializedOutputTokens ?: serializedOutputCap
+                                localContextTokens = event.localAdmissionReceipt?.contextTokens?.toLong() ?: localContextTokens
+                                reasoningState = event.reasoningEffort ?: reasoningState
                                 event.localAdmissionReceipt?.let { receipt ->
                                     dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.record(parentRunId, dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.REQUEST_SERIALIZED, role = dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticRole.from(kind), invocationId = record.id, localAdmissionReceipt = receipt, contextTokens = receipt.contextTokens.toLong(), successful = receipt.accepted)
                                 }
@@ -316,6 +325,7 @@ class InvocationLedger @Inject constructor(
                                 finishReason = event.finishReason?.take(80) ?: finishReason
                                 settingsConfirmed = settingsConfirmed || event.effectiveSettingsConfirmed
                             }
+                            is ProviderEvent.GatewayMetadataCaptured -> serverRequestId = event.metadata.requestId ?: serverRequestId
                             ProviderEvent.Completed -> if (status !in setOf("FAILED", "PARTIAL", "WAITING_REMOTE_JOB")) status = "COMPLETED"
                             is ProviderEvent.Failed -> {
                                 status = when {
@@ -389,6 +399,26 @@ class InvocationLedger @Inject constructor(
                         )
                     )
                     val recordedOutput = if (entirelyUnsent) 0 else retainedOutput()
+                    val admission = dispatch.receipts.lastOrNull()
+                    val providerReceipt = ProviderCallReceipt(
+                        clientRequestId = record.id,
+                        serverRequestId = serverRequestId,
+                        finishReason = finishReason,
+                        inputTokens = input,
+                        outputTokens = output,
+                        inputSource = inputSource,
+                        outputSource = outputSource,
+                        usageConfirmed = !estimatedUsage(),
+                        contextTokens = localContextTokens ?: admission?.contextTokens,
+                        contextSource = if (localContextTokens != null) "LOCAL_RUNTIME" else admission?.capacityProvenance?.name ?: "UNVERIFIED",
+                        outputCap = admission?.outputTokens?.coerceAtMost(Int.MAX_VALUE.toLong())?.toInt() ?: serializedOutputCap ?: outputLimit,
+                        outputCapSource = if (admission?.outputTokens != null || serializedOutputCap != null) "SERIALIZED_REQUEST" else "CONFIGURED",
+                        reasoningState = reasoningState,
+                        settingsConfirmed = settingsConfirmed,
+                        runtime = actualRuntime,
+                        accelerator = actualAccelerator
+                    ).json()
+                    dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Model", "PROVIDER_RECEIPT · receipt=$providerReceipt")
                     dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Model", "Finished ${record.id} · incidentId=${record.id} · status=$status · durationMs=${(System.nanoTime() - started) / 1_000_000} · output=$recordedOutput · estimated=${estimatedUsage()} · inputSource=$inputSource · outputSource=$outputSource · visibleBytes=$visibleBytes · reasoningBytes=$reasoningBytes · usageBreakdownReliable=false · reportedReasoningTokens=${providerReasoningTokens ?: "unknown"} · toolCallTokens=unknown · visibleOutputTokens=unknown · finishReason=${finishReason ?: "unreported"} · settingsConfirmed=$settingsConfirmed · parentRunId=$parentRunId · turnKey=$turnKey · requestKind=$kind", if (status in setOf("COMPLETED", "CANCELED", "WAITING_REMOTE_JOB")) "I" else "W")
                     try {
                         if (retainAccounting) {

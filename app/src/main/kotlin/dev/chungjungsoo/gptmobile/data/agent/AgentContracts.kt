@@ -196,6 +196,9 @@ interface AgentProviderSession {
         tools: List<AgentToolDefinition>,
         exchanges: List<AgentToolExchange>
     ): Flow<ProviderEvent>
+
+    /** Called only after runner recovery ends, with no pending calls. Must not dispatch operations. */
+    fun retainedFailureResponse(failure: ProviderEvent.Failed): Flow<ProviderEvent> = kotlinx.coroutines.flow.flowOf(failure)
 }
 
 sealed interface AgentRunEvent {

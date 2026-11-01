@@ -76,16 +76,19 @@ internal class PersonalDataContext(
 
     /** A model recipient grant does not authorize a different search, map or plugin service. */
     fun validateExternalTool(profile: PlatformV2, toolId: String) {
+        externalToolRejection(profile, toolId)?.let { throw it }
+    }
+
+    /** The catalog and execution use the same live source/service decision. Local inference alone is not a denial. */
+    fun externalToolRejection(profile: PlatformV2, toolId: String): ToolAuthorizationRejected? {
         val retained = snapshot()
-        if (retained.isEmpty()) return
-        check(retained.none { it.localOnly }) { "PERSONAL_DATA_LOCAL_ONLY: External tool arguments are blocked for local-only context." }
-        if (ProviderPrivacyPolicy.forProfile(profile) == null && retained.none { it.sourceRecipients.isNotEmpty() }) return
+        if (retained.isEmpty()) return null
+        if (retained.any { it.localOnly }) return ToolAuthorizationRejected("PERSONAL_DATA_LOCAL_ONLY", "PERSONAL_DATA_LOCAL_ONLY: This conversation contains local-only saved context. External tools are unavailable before model dispatch. Start a conversation without that context to use an authorized GitHub connection; local model privacy does not grant permission to share saved personal data.")
+        if (ProviderPrivacyPolicy.forProfile(profile) == null && retained.none { it.sourceRecipients.isNotEmpty() }) return null
         // No inferred redaction can prove a model-generated query excludes all source facts.
         // Require an explicit service grant, or keep this request local and explain the gap.
         val grant = grants?.grantFor(profile, toolId, chatId)
-        check(grant != null && "tool-service:$toolId" in grant.downstreamRecipients && retained.all { grant.categories.containsAll(it.categories) && covers(grant, it) }) {
-            "PERSONAL_DATA_SERVICE_PERMISSION_REQUIRED: This conversation contains personal context. Its derived query cannot be sent to $toolId without permission for that service. Use a new conversation with a nonpersonal query, or keep the work with the approved model."
-        }
+        return if (grant != null && "tool-service:$toolId" in grant.downstreamRecipients && retained.all { grant.categories.containsAll(it.categories) && covers(grant, it) }) null else ToolAuthorizationRejected("PERSONAL_DATA_SERVICE_PERMISSION_REQUIRED", "PERSONAL_DATA_SERVICE_PERMISSION_REQUIRED: This conversation contains personal context. Its derived query cannot be sent to $toolId without permission for that service. Use a new conversation with a nonpersonal query, or keep the work with the approved model.")
     }
 
     private fun covers(grant: PersonalDataGrant, label: PersonalDataProvenance): Boolean {

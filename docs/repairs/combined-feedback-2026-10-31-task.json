@@ -5,7 +5,7 @@
   "base_sha": "be5d55930df8be6caad2380eea71b2f9a6bb0419",
   "branch": "fix/combined-quality-budget-rendering-2026-10-31",
   "intent": "Implement the supplied Combined Mode quality, retry, tool alignment, budget, streaming and export feedback",
-  "status": "reviewed_ready_ci_pending",
+  "status": "integrated_review_ci_pending",
   "checks": {
     "kotlin_host": {
       "passed": 398,
@@ -19,7 +19,7 @@
     }
   },
   "remaining": [
-    "Review applicable current-head Android and CI checks before marking ready; device profiling remains unmeasured"
+    "Require all applicable integrated-revision checks and merge parent PR #769 before #770; physical-device profiling remains unmeasured"
   ],
   "publication": {
     "state": "ready_for_review",
@@ -38,5 +38,19 @@
     "base_head": "49a9813e4bf314f7499a1af6591294bf4c37a000",
     "intent": "Prevent incidental token counts and request IDs from disabling retries as endpoint or billing errors",
     "validation": "Production classifier and scope behavior regressions plus ktlint; current-head Android CI required"
+  },
+  "dependencies": [
+    {
+      "pr": 769,
+      "head": "09fc11cbbfc7c7eca0989f214e9982b1c0c1cd2c"
+    }
+  ],
+  "integration_review": {
+    "intent": "Preserve GitHub unsent-authorization recovery and Combined optional-work budget classification in the shared runner",
+    "conflicts_resolved": [
+      "AgentRunner.kt: exclude both authorization/pre-dispatch failures and Combined work exhaustion from reliability circuits",
+      "ToolExecutionBudget.kt: retain Combined work exhaustion flag and typed authorization handling"
+    ],
+    "validation": "278 canonical fast tests; changed Kotlin formatting; full integrated Android and behavioral CI pending"
   }
 }

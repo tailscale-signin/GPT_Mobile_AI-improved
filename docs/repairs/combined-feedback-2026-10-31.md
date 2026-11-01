@@ -43,3 +43,8 @@ The failure classifier now requires HTTP status context for numeric 402/410 code
 Incidental output-token counts, byte counts and request identifiers cannot disable
 retry as a retired endpoint or billing failure. Existing explicit provider error
 messages remain terminal. Production classifier regressions cover both cases.
+
+PR #769 is integrated as a parent for qualification before merging. The two
+conflicts preserve both Combined optional-work exhaustion and GitHub
+pre-dispatch authorization handling. The merged source passes 278 canonical
+fast tests and changed-source ktlint; full integrated Android CI is pending.

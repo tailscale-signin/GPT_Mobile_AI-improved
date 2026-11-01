@@ -18,6 +18,24 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubToolBudgetTest {
+    @Test fun privacyRejectionIsUnsentTerminalAndNeverAnUnknownWrite() = runTest {
+        var attempts = 0
+        val tool = ToolExecutionBudget(AgentRunLimits(maxToolCalls = 10)).bind(object : AgentTool {
+            override val definition = AgentToolDefinition("github_write", "", JsonObject(emptyMap()))
+            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+                attempts++
+                throw dev.chungjungsoo.gptmobile.data.permissions.ToolAuthorizationRejected("PERSONAL_DATA_LOCAL_ONLY", "PERSONAL_DATA_LOCAL_ONLY: sharing blocked")
+            }
+        })
+        for (id in listOf("first", "changed")) {
+            val result = tool.execute(id, buildJsonObject { put("request", id) })
+            assertFalse(result.dispatched)
+            assertEquals("PERSONAL_DATA_LOCAL_ONLY", result.errorCode)
+            assertFalse(result.errorCode in ToolResultEnvelope.unknownOutcomeCodes)
+        }
+        assertEquals(1, attempts)
+    }
+
     @Test fun privateReviewReceivesTheOriginalReceiptBeforeSharedBudgetTruncation() = runTest {
         val original = "source line\n".repeat(10000) + "Important finding at the end"
         val evidence = dev.chungjungsoo.gptmobile.data.github.GitHubReviewEvidence()

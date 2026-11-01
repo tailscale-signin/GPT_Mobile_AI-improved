@@ -81,6 +81,23 @@ class GitHubTool(
             connectionUid = connectionUid, conversationId = conversationId, taskId = taskId, persistentState = persistentState, stateStore = stateStore, scheduler = scheduler, engineeringPrepare = engineeringPrepare
         )
     }
+    internal suspend fun normalizeOperationRepository(arguments: JsonObject): JsonObject {
+        listOf("owner", "repo").forEach { key ->
+            arguments[key]?.takeUnless { it == kotlinx.serialization.json.JsonNull }?.let { value ->
+                require(value is JsonPrimitive && value.isString) { "$key must be a repository name string." }
+            }
+        }
+        val (owner, repo) = dev.chungjungsoo.gptmobile.data.github.normalizeGitHubRepository((arguments["owner"] as? JsonPrimitive)?.takeIf { it.isString }?.content, (arguments["repo"] as? JsonPrimitive)?.takeIf { it.isString }?.content)
+        val selected = workspaceClient.taskContext() ?: repositoryContext
+        if (owner != null && repo == null) require(selected != null && owner.equals(selected.owner, true)) { "A partial owner must match the selected repository; supply both owner and repo to select another repository." }
+        if (repo != null && owner == null) require(selected != null && repo.equals(selected.repo, true)) { "A partial repo must match the selected repository; supply both owner and repo to select another repository." }
+        return buildJsonObject {
+            arguments.filterKeys { it !in setOf("owner", "repo") }.forEach { (key, value) -> put(key, value) }
+            (owner ?: selected?.owner)?.let { put("owner", it) }
+            (repo ?: selected?.repo)?.let { put("repo", it) }
+        }
+    }
+
     internal fun operations(): List<GitHubOperationTool> {
         val suffix = modelToolName.removePrefix("github").takeIf { it.startsWith("__") }.orEmpty()
         val scope = GitHubResultViews.scope(apiToken, connectionUid, conversationId, taskId)
@@ -577,6 +594,8 @@ class GitHubTool(
                     }
                 }
                 val result = workspaceClient.execute(action, arguments)
+                val checkpoint = result as? JsonObject
+                if (checkpoint != null && (checkpoint["status"] as? JsonPrimitive)?.content in setOf("RECONCILE_REQUIRED", "EXECUTION_IN_PROGRESS")) return executionResult(callId, checkpoint)
                 return successResult(callId, result.toString())
             }
             when (action) {
@@ -1172,7 +1191,7 @@ class GitHubTool(
                     else -> status
                 }
             },
-            dispatched = completed && !replayed,
+            dispatched = checkpoint["dispatched"]?.jsonPrimitive?.booleanOrNull ?: (completed && !replayed),
             sharedResult = replayed
         )
     }
@@ -1346,6 +1365,42 @@ class GitHubTool(
         return null
     }
 
+    private fun existingBranchResult(callId: String, branch: String, sha: String, existing: JsonObject, arguments: JsonObject): AgentToolResult {
+        val existingSha = existing["object"]?.jsonObject?.get("sha")?.jsonPrimitive?.content.orEmpty()
+        require(existing["ref"]?.jsonPrimitive?.content == "refs/heads/$branch" && existingSha.matches(Regex("[a-fA-F0-9]{40}"))) { "Existing branch could not be verified." }
+        return AgentToolResult(
+            callId,
+            ToolResultContent.Json(
+                buildJsonObject {
+                    put("branch", branch)
+                    put("already_exists", true)
+                    put("created", false)
+                    put("head_sha", existingSha)
+                    put("expected_head_sha", existingSha)
+                    put("matches_requested_base", existingSha == sha)
+                    put("reconciled", existingSha == sha)
+                    put(
+                        "recovery_call",
+                        buildJsonObject {
+                            put("tool", "github_context" + modelToolName.removePrefix("github"))
+                            put(
+                                "arguments",
+                                buildJsonObject {
+                                    put("action", "resolve")
+                                    listOf("owner", "repo").forEach { key -> arguments[key]?.let { put(key, it) } }
+                                    put("ref", branch)
+                                    put("refresh", true)
+                                }
+                            )
+                        }
+                    )
+                    put("message", "The remote ref was verified without changing it. Select this branch explicitly to continue; a different head is not proof that this request created it.")
+                }
+            ),
+            isError = false
+        )
+    }
+
     private suspend fun handleCreateBranch(callId: String, arguments: JsonObject): AgentToolResult {
         requireToken()
         val owner = arguments["owner"]?.jsonPrimitive?.content?.trim().orEmpty()
@@ -1365,6 +1420,12 @@ class GitHubTool(
         val sha = jsonParser.parseToJsonElement(baseText).jsonObject["object"]?.jsonObject?.get("sha")?.jsonPrimitive?.content
             ?: return errorResult(callId, "Base branch did not return a commit SHA.")
         require(arguments["expected_head_sha"]?.jsonPrimitive?.content.let { it.isNullOrBlank() || it == sha }) { "The base branch changed; resolve its current head before creating a branch." }
+        // A previous acknowledgement may have been lost. Resolve the target before
+        // another POST; a branch collision is a state observation, not a retry signal.
+        val existingResponse = getGitHubApi("$BASE_URL/repos/$owner/$repo/git/ref/heads/${GitHubWorkspaceClient.segment(branch)}")
+        val existingText = existingResponse.bodyAsText()
+        if (existingResponse.status.isSuccess()) return existingBranchResult(callId, branch, sha, jsonParser.parseToJsonElement(existingText).jsonObject, arguments)
+        if (existingResponse.status.value != 404) return classifyGitHubHttpFailure(callId, "create_branch", arguments, existingResponse, existingText)
         val response = writeGitHubApi(
             "$BASE_URL/repos/$owner/$repo/git/refs",
             HttpMethod.Post,
@@ -1378,39 +1439,7 @@ class GitHubTool(
             val existingResponse = getGitHubApi("$BASE_URL/repos/$owner/$repo/git/ref/heads/${GitHubWorkspaceClient.segment(branch)}")
             val existingText = existingResponse.bodyAsText()
             if (!existingResponse.status.isSuccess()) return classifyGitHubHttpFailure(callId, "create_branch", arguments, existingResponse, existingText)
-            val existing = jsonParser.parseToJsonElement(existingText).jsonObject
-            val existingSha = existing["object"]?.jsonObject?.get("sha")?.jsonPrimitive?.content.orEmpty()
-            require(existing["ref"]?.jsonPrimitive?.content == "refs/heads/$branch" && existingSha.matches(Regex("[a-fA-F0-9]{40}"))) { "Existing branch could not be verified." }
-            return AgentToolResult(
-                callId,
-                ToolResultContent.Json(
-                    buildJsonObject {
-                        put("branch", branch)
-                        put("already_exists", true)
-                        put("created", false)
-                        put("head_sha", existingSha)
-                        put("matches_requested_base", existingSha == sha)
-                        put("message", "The branch already exists. Its head was read and no ref was changed. Select it explicitly to continue, or choose a different new branch name.")
-                        put(
-                            "recovery_call",
-                            buildJsonObject {
-                                put("tool", "github_context" + modelToolName.removePrefix("github"))
-                                put(
-                                    "arguments",
-                                    buildJsonObject {
-                                        put("action", "resolve")
-                                        put("owner", owner)
-                                        put("repo", repo)
-                                        put("ref", branch)
-                                        put("refresh", true)
-                                    }
-                                )
-                            }
-                        )
-                    }
-                ),
-                isError = false
-            )
+            return existingBranchResult(callId, branch, sha, jsonParser.parseToJsonElement(existingText).jsonObject, arguments)
         }
         return if (response.status.isSuccess()) {
             val receipt = jsonParser.parseToJsonElement(text).jsonObject
@@ -1554,6 +1583,20 @@ class GitHubTool(
     ): AgentToolResult {
         if (throwable is dev.chungjungsoo.gptmobile.data.github.GitHubExecutionBlocked) return executionResult(callId, throwable.checkpoint)
         val detail = throwable.localizedMessage ?: throwable.message ?: "Unknown error"
+        if (throwable is dev.chungjungsoo.gptmobile.data.github.GitHubRequestScheduler.AdmissionRejected) {
+            return AgentToolResult(callId, ToolResultContent.Text(detail), true, errorCode = "GITHUB_WAITING_CAPACITY", dispatched = false)
+        }
+        if (detail.startsWith("EVIDENCE_UNAVAILABLE:")) {
+            return AgentToolResult(callId, ToolResultContent.Text(detail), true, errorCode = "EVIDENCE_UNAVAILABLE", dispatched = false)
+        }
+        if (throwable is java.io.IOException) {
+            val uncertain = action in MUTATING_ACTIONS
+            return AgentToolResult(callId, ToolResultContent.Text(if (uncertain) "GitHub connection interrupted. The write outcome is uncertain; reconcile the saved remote ref/tree or receipt before retrying." else "GitHub connection interrupted after bounded read retries. Retry this read when the connection recovers."), true, errorCode = if (throwable is dev.chungjungsoo.gptmobile.data.github.GitHubReadRetry.HttpFailure) "GITHUB_TRANSIENT_SERVER" else "GITHUB_TRANSIENT_NETWORK", dispatched = true)
+        }
+        val normalized = detail.substringBefore(" · ")
+        if (normalized in setOf("GITHUB_PRIMARY_RATE_LIMITED", "GITHUB_SECONDARY_RATE_LIMITED", "GITHUB_ENDPOINT_PERMISSION_REQUIRED", "GITHUB_FORBIDDEN_UNKNOWN")) {
+            return AgentToolResult(callId, ToolResultContent.Text(detail), true, errorCode = normalized)
+        }
         if (throwable is dev.chungjungsoo.gptmobile.data.github.GitHubRequestScheduler.Capacity) {
             // A compound tool may already have completed earlier HTTP operations. Keep
             // their receipts authoritative instead of marking the entire tool undispatched.
@@ -1616,6 +1659,11 @@ class GitHubTool(
         val githubMessage = runCatching {
             jsonParser.parseToJsonElement(body).jsonObject["message"]?.jsonPrimitive?.content
         }.getOrNull()?.takeIf { it.isNotBlank() }
+        val category = dev.chungjungsoo.gptmobile.data.github.GitHubFailurePolicy.classify(response.status.value, githubMessage.orEmpty(), response.headers["X-RateLimit-Remaining"], response.headers["Retry-After"], response.headers["X-GitHub-SSO"])
+        if (dev.chungjungsoo.gptmobile.data.github.GitHubFailurePolicy.isRateLimited(category)) {
+            if (category == "GITHUB_SECONDARY_RATE_LIMITED") rateLimits.cooldown(dev.chungjungsoo.gptmobile.data.github.GitHubReadRetry.retryAfterMillis(response.headers["Retry-After"])?.let { it / 1000 + if (it % 1000 == 0L) 0 else 1 } ?: 60)
+            return AgentToolResult(callId, ToolResultContent.Text("$category · GitHub HTTP ${response.status.value}. Respect Retry-After or quota reset; use the retained receipts. This is not evidence of a permission deficit."), true, errorCode = category)
+        }
         val detail = buildString {
             append("GitHub API returned HTTP ")
             append(response.status.value)
@@ -1654,12 +1702,14 @@ class GitHubTool(
                 response.status.value in setOf(403, 409, 422) &&
                 Regex("(?i)protected branch|branch protection|repository rule|GH006|GH013").containsMatchIn(githubMessage.orEmpty()) ->
                 errorResult(callId, "GITHUB_BRANCH_RULES_BLOCKED · $detail. Use a permitted working branch and PR; changing token scope does not override repository rules.")
+            category == "GITHUB_FORBIDDEN_UNKNOWN" ->
+                AgentToolResult(callId, ToolResultContent.Text("$detail. GitHub did not identify whether this is a token, installation, organization or repository policy denial. No automatic retry or permission change was requested."), true, errorCode = category)
             action in MUTATING_ACTIONS && response.status.value == 403 ->
                 errorResult(callId, writeDeniedMessage(action, arguments, detail))
             response.status.value == 404 ->
                 errorResult(callId, notFoundMessage(action, arguments, detail))
             else ->
-                errorResult(callId, "$detail: ${truncate(body, 500)}")
+                AgentToolResult(callId, ToolResultContent.Text("$detail: ${truncate(body, 500)}"), true, errorCode = category)
         }
     }
 
@@ -1747,6 +1797,7 @@ class GitHubTool(
             throw dev.chungjungsoo.gptmobile.data.github.GitHubRequestRejected(0, rejected.message ?: "Request admission failed before dispatch")
         }
         scheduler.recordRequest()
+        dev.chungjungsoo.gptmobile.data.github.GitHubMutationAttempts.dispatched()
         dev.chungjungsoo.gptmobile.data.github.GitHubDispatchAccounting.started(true)
         httpClient.request(url) {
             this.method = method
@@ -1757,6 +1808,7 @@ class GitHubTool(
             header(HttpHeaders.Authorization, "Bearer $apiToken")
             setBody(body.toString())
         }.also {
+            if (it.status.value in 400..499 && it.status.value != 408) dev.chungjungsoo.gptmobile.data.github.GitHubMutationAttempts.rejected()
             dev.chungjungsoo.gptmobile.data.github.GitHubDispatchAccounting.responded(true, it.status.value)
             rateLimits.record(it.headers, it.status.value)
             if (it.status.value == 401) authenticationRejected.set(true)

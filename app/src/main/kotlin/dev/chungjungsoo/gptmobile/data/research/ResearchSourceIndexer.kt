@@ -103,6 +103,7 @@ internal class ResearchSourceIndexer(
                         val existing = dao.outboxById(examinationId)
                         if (existing == null) {
                             dao.outbox(dev.chungjungsoo.gptmobile.data.research.feature.ResearchOutbox(examinationId, Json.encodeToString(scheduled), System.currentTimeMillis()))
+                            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("ResearchExamine", "OUTBOX_ENQUEUED · row=$examinationId · durable=true · origin=${request.origin} · needed=$needed")
                             scheduledAny = true
                         } else if (needed) {
                             // Progress saves must preserve blocked/paused state and its accepted owner.

@@ -5354,8 +5354,12 @@ class ChatRepositoryImpl(
             null
         }
         dev.chungjungsoo.gptmobile.data.agent.CombinedRecoverySnapshot.prepare(
-            run, message, room.combinedPrimaryUid ?: room.activePlatform.firstOrNull(), acceptedProfile,
-            agentPersistenceDao.answerSegments(runId), durableRecordAnswer = durableRecordAnswer
+            run = run,
+            message = message,
+            primaryUid = room.combinedPrimaryUid ?: room.activePlatform.firstOrNull(),
+            platform = acceptedProfile,
+            segments = agentPersistenceDao.answerSegments(runId),
+            durableRecordAnswer = durableRecordAnswer
         )
     }
 
@@ -5373,8 +5377,13 @@ class ChatRepositoryImpl(
         val budget = combinedBudgets.open(requireNotNull(saved.combined)).snapshot()
         require(!budget.closed && !budget.cancelled) { "Combined turn is cancelled or closed." }
         dev.chungjungsoo.gptmobile.data.agent.CombinedRecoverySnapshot.prepare(
-            run, message, room.combinedPrimaryUid ?: room.activePlatform.firstOrNull(), acceptedProfile,
-            agentPersistenceDao.answerSegments(runId), providerWait = true, durableRecordAnswer = checkpoint.renderedAnswer
+            run = run,
+            message = message,
+            primaryUid = room.combinedPrimaryUid ?: room.activePlatform.firstOrNull(),
+            platform = acceptedProfile,
+            segments = agentPersistenceDao.answerSegments(runId),
+            providerWait = true,
+            durableRecordAnswer = checkpoint.renderedAnswer
         )
     }
 

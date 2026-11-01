@@ -912,11 +912,7 @@ private fun ChatScreenContent(
                         val decision = visibleGitHubDecisions[index]
                         GitHubDecisionCard(decision, decision.id in githubWaiting, { option, answer -> chatViewModel.answerGitHubDecision(decision.id, option, answer) }, { chatViewModel.resumeGitHubDecision(decision.id) }, { chatViewModel.stopGitHubDecision(decision.id) })
                     }
-                    if (activeMessage != null) {
-                        item(key = "github-working-indicator") {
-                            GeneratingEllipsis(Modifier.padding(horizontal = 28.dp, vertical = 8.dp).testTag("github_working_indicator"))
-                        }
-                    }
+                    githubWorkingIndicator(isGenerating = activeMessage != null)
                 }
                 items(pendingPrompts.size, key = { "queued-${pendingPrompts[it].id}" }) { index ->
                     QueuedPromptBubble(pendingPrompts[index], chatViewModel::editQueuedPrompt, chatViewModel::removeQueuedPrompt, chatViewModel::pauseQueuedPrompt, followUpProgress[pendingPrompts[index].id])

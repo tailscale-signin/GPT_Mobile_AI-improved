@@ -8,7 +8,9 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -20,6 +22,15 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.unit.dp
 import kotlin.math.PI
 import kotlin.math.sin
+
+/** Keep the working cursor after response updates and repository decision cards. */
+internal fun LazyListScope.githubWorkingIndicator(isGenerating: Boolean) {
+    if (isGenerating) {
+        item(key = "github-working-indicator") {
+            GeneratingEllipsis(Modifier.padding(horizontal = 28.dp, vertical = 8.dp))
+        }
+    }
+}
 
 /** A draw-only cursor: it is never appended to the saved or copied answer. */
 @Composable

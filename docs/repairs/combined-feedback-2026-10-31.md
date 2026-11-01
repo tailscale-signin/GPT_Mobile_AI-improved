@@ -1,7 +1,7 @@
 # Combined feedback repair — 2026-10-31
 
-Repository: `tailscale-signin/GPT_Mobile_AI-improved`  
-Base: `main` at `be5d55930df8be6caad2380eea71b2f9a6bb0419`  
+Repository: `tailscale-signin/GPT_Mobile_AI-improved`
+Base: `main` at `be5d55930df8be6caad2380eea71b2f9a6bb0419`
 Branch: `fix/combined-quality-budget-rendering-2026-10-31`
 
 Intent: address the supplied partial-export feedback without treating its retained events as a complete capture or claiming measured device improvements.

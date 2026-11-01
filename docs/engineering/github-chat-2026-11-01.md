@@ -20,3 +20,14 @@ Reviewed all 6,795 records in the supplied build 133 diagnostic export. One uniq
 - Isolated Kotlin behavior suite compiles the actual journal, privacy policy/projection and GitHub progress sources with platform boundary stubs. Covers retention without decryption, bounded snapshots, private-context projection, same-connection reuse, heartbeat privacy and presentation.
 - Added reducer behavior regression for append-only status lines and Android instrumentation coverage for oversized vault files and metadata reads without a key.
 - Changed Kotlin files formatted with ktlint. No Android device/emulator is available here. Local Gradle bootstrap cannot download its distribution through this runner's Java network path; full Android compilation and device timing/animation checks are not claimed.
+
+## PR implementation review
+
+Review of `1f600a1370cb105f7ca2b3559515832ed5fc0bbf` found and repaired these edge cases:
+
+- Streaming model progress now appends after automatic activity rather than replacing that earlier line. Public model progress remains visible through the plain-language preview filter; streamed text does not restart the fade on every token. A reducer regression covers interleaved activity and streamed text.
+- Diagnostic snapshots select batches by capture time across runs and apply the event cap after combining stored and queued events. Regressions cover cross-run ordering, a partial batch and pending terminal events.
+- Log batches carry a capture epoch, so clearing diagnostics invalidates batches already drained for formatting without holding the writer lock during formatting.
+- A privacy-isolated retry rejects an existing tool checkpoint before model dispatch. Saved arguments/results are not silently restored, and earlier operation receipts remain intact for reconciliation. A checkpoint regression covers finished calls as well as a fresh request.
+
+Host validation: 285 Python checks and 24 isolated Kotlin journal/privacy/progress tests passed; the Kotlin harness uses platform boundary stubs and does not substitute for the complete Android suite. Full reducer/checkpoint regressions, Android compilation and applicable CI must pass on the final revision before merge. Physical-device timing and animations remain unmeasured.

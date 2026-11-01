@@ -1752,6 +1752,16 @@ class ChatRepositoryImpl(
         if (chatToolConfig?.github != null) send(ApiState.GitHubRoundStarted)
         if (freshRepositoryTurn) send(ApiState.Notice("Using your repository request without saved personal context.", persistent = false))
         val dispatchAuthority = dev.chungjungsoo.gptmobile.data.context.ConfiguredDispatchAuthority.capture(settingRepository, platform, userMessages.lastOrNull()?.chatId)
+        if (freshRepositoryTurn) {
+            userMessages.lastOrNull()?.let { user ->
+                dev.chungjungsoo.gptmobile.data.agent.ToolBatchCheckpoint.forTurn(
+                    context.filesDir,
+                    user.chatId,
+                    "${user.chatId}:${user.id}:${platform.uid}:${dispatchAuthority.revision}",
+                    persistent = agentPersistenceDao.getChatRoom(user.chatId)?.isTemporary == false
+                ).requireFreshPersonalContext()
+            }
+        }
         val writerGuard = stage?.writerRequestPlan?.let { dev.chungjungsoo.gptmobile.data.agent.CombinedWriterDispatchGuard(it) } ?: kotlin.coroutines.EmptyCoroutineContext
         withContext(dispatchAuthority + writerGuard + personalContext + dev.chungjungsoo.gptmobile.data.network.ProviderWaitContext { remaining -> send(ApiState.Notice("Provider rate-limited: retry in ${(remaining + 999) / 1000}s", persistent = false)) }) authorizedRun@{
             suspend fun emit(state: ApiState) = send(state)

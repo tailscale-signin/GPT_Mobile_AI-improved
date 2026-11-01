@@ -106,6 +106,14 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String, 
         memory = state
     }
     private suspend fun <T> locked(action: () -> T): T = withContext(Dispatchers.IO) { mutex.withLock { action() } }
+
+    /** Isolation must not restore arguments/results derived from the removed history. */
+    suspend fun requireFreshPersonalContext() = locked {
+        check(read().entries.isEmpty()) {
+            "This saved attempt may contain personal context. Send a new repository request. Earlier operations remain recorded and must be reconciled before repeating writes."
+        }
+    }
+
     suspend fun pending(): List<ProviderEvent.ToolCall> = locked {
         val state = read()
         state.pending.map { state.entries.getValue(it).call.event() }

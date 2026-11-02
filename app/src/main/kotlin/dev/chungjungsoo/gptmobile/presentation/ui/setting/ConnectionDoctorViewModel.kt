@@ -98,14 +98,16 @@ class ConnectionDoctorViewModel @Inject constructor(
         finish("Context ceiling saved for this profile. Your global context budget still applies.")
     }
     val profiles = settings.observePlatformV2s().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-    private val preferences = context.getSharedPreferences("connection_doctor", Context.MODE_PRIVATE)
     val report = MutableStateFlow("Choose a profile to check its connection. Benchmarks are in Debug and Statistics → Benchmarks.")
     val contextReport = MutableStateFlow("Inspect a profile to see verified and declared context limits.")
     val diagnosticReport = MutableStateFlow("Inspection does not generate an answer or reconfigure the server.")
     private val llamaCapacity = dev.chungjungsoo.gptmobile.data.context.LlamaCapacityRepository(network)
     init {
         // Older versions persisted arbitrary inspection text in plaintext preferences.
-        preferences.edit().remove("last_inspection").apply()
+        viewModelScope.launch(Dispatchers.IO) {
+            context.getSharedPreferences("connection_doctor", Context.MODE_PRIVATE)
+                .edit().remove("last_inspection").apply()
+        }
     }
     val busy = MutableStateFlow(false)
     private var job: Job? = null

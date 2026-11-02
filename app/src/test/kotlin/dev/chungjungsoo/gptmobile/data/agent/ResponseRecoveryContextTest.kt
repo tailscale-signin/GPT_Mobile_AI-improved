@@ -16,6 +16,18 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ResponseRecoveryContextTest {
+    @Test fun unknownRecordReturnsScopedIndexAndExecutableCorrection() = runTest {
+        val recovery = ResponseRecoveryContext(listOf(run), emptyList(), emptyList())
+        val response = recovery.tool().execute("bad", buildJsonObject { put("evidence_id", "invented") })
+        assertTrue(response.isError)
+        assertFalse(response.dispatched)
+        val body = (response.content as ToolResultContent.Json).value.jsonObject
+        val correction = body.getValue("correction_call").jsonObject
+        assertEquals("read_recovery_context", correction.getValue("tool").jsonPrimitive.content)
+        val corrected = recovery.tool().execute("corrected", correction.getValue("arguments").jsonObject)
+        assertFalse(corrected.isError)
+    }
+
     @Test fun typedAnswerContinuationAvoidsEmbeddingTheSameDraftInTheRequiredCurrentTask() = runTest {
         var allowed = true
         val answer = "Saved answer paragraph. ".repeat(2000)

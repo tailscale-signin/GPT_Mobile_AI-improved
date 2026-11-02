@@ -63,6 +63,7 @@ internal class GitHubDispatchAccounting : AbstractCoroutineContextElement(Key) {
             result.isError && accepted > 0 -> "PARTIAL_ACCEPTED"
             accepted > 0 -> "ACCEPTED"
             rejected > 0 -> "REJECTED"
+            result.isError && mutations == 0 && reads > 0 && !mutation -> "READ_FAILED"
             result.isError && mutations == 0 -> "PREFLIGHT_REJECTED"
             reads > 0 -> "OBSERVED"
             else -> "LOCAL_OR_REPLAYED"

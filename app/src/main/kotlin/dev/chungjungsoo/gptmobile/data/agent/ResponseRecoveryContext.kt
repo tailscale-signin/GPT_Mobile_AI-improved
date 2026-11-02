@@ -348,7 +348,48 @@ internal class ResponseRecoveryContext(
             val offset = if ("offset" in arguments) (arguments["offset"] as? JsonPrimitive)?.intOrNull else 0
             val length = if ("length" in arguments) (arguments["length"] as? JsonPrimitive)?.intOrNull else 8000
             if (offset == null || offset < 0 || length == null || length !in 1..16000) return AgentToolResult(callId, ToolResultContent.Text("Invalid saved evidence range. Use a non-negative integer offset and length from 1 through 16000, optionally encoded as decimal strings."), true, dispatched = false, errorCode = "INVALID_ARGUMENTS")
-            val page = runCatching { corpus.read(offset, length, evidenceId) }.getOrElse { return AgentToolResult(callId, ToolResultContent.Text("Invalid saved evidence ID or offset; use a returned record ID and next_offset."), true, dispatched = false, errorCode = "INVALID_ARGUMENTS") }
+            val page = runCatching { corpus.read(offset, length, evidenceId) }.getOrElse {
+                return AgentToolResult(
+                    callId,
+                    ToolResultContent.Json(
+                        buildJsonObject {
+                            put("message", "Invalid saved evidence ID or offset. Use an exact record ID below, or restart the corpus at offset=0. Nothing was dispatched.")
+                            put("corpus_revision", corpus.revision)
+                            put(
+                                "records",
+                                JsonArray(
+                                    corpus.records.take(32).map { record ->
+                                        buildJsonObject {
+                                            put("evidence_id", record.id)
+                                            put("kind", record.kind)
+                                            put("characters", record.text.length)
+                                            put("aliases", JsonArray(record.aliases.take(4).map(::JsonPrimitive)))
+                                        }
+                                    }
+                                )
+                            )
+                            put(
+                                "correction_call",
+                                buildJsonObject {
+                                    put("tool", definition.name)
+                                    put(
+                                        "arguments",
+                                        buildJsonObject {
+                                            put("offset", 0)
+                                            put("length", length)
+                                            put("corpus_revision", corpus.revision)
+                                            corpusReference?.let { put("corpus_reference", it) }
+                                        }
+                                    )
+                                }
+                            )
+                        }
+                    ),
+                    true,
+                    dispatched = false,
+                    errorCode = "INVALID_ARGUMENTS"
+                )
+            }
             return AgentToolResult(
                 callId,
                 ToolResultContent.Json(

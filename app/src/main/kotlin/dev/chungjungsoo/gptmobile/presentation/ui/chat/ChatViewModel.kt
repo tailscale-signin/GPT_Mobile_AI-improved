@@ -2356,7 +2356,31 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-    suspend fun exportDebugFile(directory: java.io.File): java.io.File = dev.chungjungsoo.gptmobile.data.diagnostics.JavaHeapWorkGate.run("debug-export") {
+    suspend fun exportDebugFile(directory: java.io.File): java.io.File = try {
+        exportFullDebugFile(directory)
+    } catch (_: dev.chungjungsoo.gptmobile.data.diagnostics.JavaHeapWorkDeferred) {
+        // Do not hydrate all tool receipts or message revisions on a nearly full heap.
+        // A clearly labelled partial bundle still lets the user report the failure.
+        dev.chungjungsoo.gptmobile.data.diagnostics.JavaHeapWorkGate.run("compact-debug-export", minimumHeadroomBytes = 2L * 1024 * 1024) {
+            check(debugMode.value) { "Enable Debug mode to export diagnostic conversation data." }
+            val credentials = _platformsInApp.value.mapNotNull { it.token }
+            withContext(Dispatchers.IO) {
+                CompactDebugBundle.write(
+                    directory,
+                    _chatRoom.value.id,
+                    dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.entries.value.asSequence().map { entry ->
+                        val redacted = dev.chungjungsoo.gptmobile.data.diagnostics.redactChatDebugData(
+                            kotlinx.serialization.json.JsonPrimitive(entry.line()),
+                            credentials
+                        )
+                        (redacted as kotlinx.serialization.json.JsonPrimitive).content
+                    }
+                )
+            }
+        }
+    }
+
+    private suspend fun exportFullDebugFile(directory: java.io.File): java.io.File = dev.chungjungsoo.gptmobile.data.diagnostics.JavaHeapWorkGate.run("debug-export") {
         check(debugMode.value) { "Enable Debug mode to export diagnostic conversation data." }
         val room = _chatRoom.value
         val visible = persistableMessages(_groupedMessages.value)

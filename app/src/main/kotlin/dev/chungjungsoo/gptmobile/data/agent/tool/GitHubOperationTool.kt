@@ -444,11 +444,17 @@ internal class GitHubOperationTool(
                 else -> emptyList()
             }
             fun field(type: String) = buildJsonObject { put("type", type) }
-            fun integer(min: Int = 1, max: Int = Int.MAX_VALUE, description: String = "") = buildJsonObject {
+            fun integer(
+                min: Int = 1,
+                max: Int = Int.MAX_VALUE,
+                description: String = "",
+                default: Int? = null
+            ) = buildJsonObject {
                 put("type", "integer")
                 put("minimum", min)
                 put("maximum", max)
                 if (description.isNotBlank()) put("description", description)
+                default?.let { put("default", it) }
             }
             fun choice(vararg names: String) = buildJsonObject {
                 put("type", "string")
@@ -465,10 +471,11 @@ internal class GitHubOperationTool(
                     properties["stage_id"] = field("string")
                     properties["refresh"] = field("boolean")
                     properties["page"] = field("integer")
-                    properties["per_page"] = integer(1, 100, "Commit files per page; default 30.")
+                    properties["per_page"] = integer(1, 100, default = 30)
                     properties["include_patches"] = field("boolean")
                 }
                 "github_search" -> {
+                    properties["action"] = choice("search", "search_repository", "search_code")
                     properties["path_prefix"] = field("string")
                     properties["query"] = buildJsonObject {
                         put("type", "string")
@@ -489,18 +496,8 @@ internal class GitHubOperationTool(
                     }
                     listOf("min_lines", "max_lines").forEach { properties[it] = field("integer") }
                     properties["context_lines"] = integer(0, 100)
-                    properties["max_new_blobs"] = buildJsonObject {
-                        put("type", "integer")
-                        put("minimum", 1)
-                        put("maximum", 100)
-                        put("description", "New blobs; default 16.")
-                    }
-                    properties["batch_size"] = buildJsonObject {
-                        put("type", "integer")
-                        put("minimum", 1)
-                        put("maximum", 1000)
-                        put("description", "Candidate files; default 1000.")
-                    }
+                    properties["max_new_blobs"] = integer(1, 100, default = 16)
+                    properties["batch_size"] = integer(1, 1000, default = 1000)
                     properties["page"] = field("integer")
                 }
                 "github_read" -> {
@@ -643,7 +640,8 @@ internal class GitHubOperationTool(
                         )
                     }
                     properties["draft"] = field("boolean")
-                    properties["page"] = field("integer")
+                    properties["per_page"] = integer(1, 100, "Pull requests per page; default 20.")
+                    properties["page"] = integer(1, 1000)
                     properties["check_page"] = field("integer")
                     properties["include_patches"] = field("boolean")
                     properties["include_files"] = field("boolean")
@@ -710,9 +708,9 @@ internal class GitHubOperationTool(
             }
             if (operation in setOf("github_context", "github_ci", "github_pr")) properties["response_detail"] = choice("compact", "full")
             val description = when (operation) {
-                "github_context" -> "Inspect repo/commits/checks; changes needs base_sha. response_detail=full includes metadata."
-                "github_search" -> "Search pinned code/paths. patterns: * between literals; fuzzy: one identifier. Check coverage."
-                "github_read" -> "Read pinned ranges (1-based, <=2000 lines) or evidence_id. Discover paths first. view_cursor alone replays saved pages."
+                "github_context" -> "Inspect repo, commits and checks; changes needs base_sha. full adds metadata."
+                "github_search" -> "Search pinned code/paths; patterns uses *; fuzzy uses one identifier. Check coverage."
+                "github_read" -> "Read pinned ranges (1-based, <=2000 lines) or evidence_id. Find paths first; replay saved pages with view_cursor only."
                 "github_stage_patch" -> "Stage an exact replacement with target_file, search_snippet and replacement_snippet, or SHA-checked edits. Reads the pinned blob and rejects ambiguous anchors. Returns immutable version/stage_id and preserves publication receipts. Supply restore_stage_id alone to select a saved local patch at the same branch/base. Commit on a permitted working branch using its current expected_head_sha."
                 "github_commit" -> "Create a working branch, commit a validated stage_id, or delete_branch with expected_head_sha after dependency inspection. Deletion blocks selected/default/protected branches, unmerged commits, open PRs and active runs. GitHub deletion is not an atomic SHA lease."
                 "github_write" -> "Every files item requires a repository-relative path (for example app/src/main/kotlin/.../MainActivity.kt), never an absolute path or directory. Stage up to 20 UTF-8 file creations, replacements or deletions for exact user approval and one atomic commit on a working branch. Supply expected_head_sha and expected_blob_sha for existing files. Replacements require content; deletions require delete=true and no content. Never write to the default branch."

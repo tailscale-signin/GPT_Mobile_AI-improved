@@ -2006,6 +2006,9 @@ private suspend fun exportChat(context: Context, chatViewModel: ChatViewModel, f
                 }
             }
         }
+        if (file.name.startsWith("partial-diagnostics-")) {
+            Toast.makeText(context, "Memory is low. Sharing partial diagnostics with recent logs; full conversation history was omitted.", Toast.LENGTH_LONG).show()
+        }
         val uri = withContext(Dispatchers.IO) { getUriForFile(context, "${context.packageName}.fileprovider", file) }
         val shareIntent = Intent(Intent.ACTION_SEND).apply {
             type = format.mimeType
@@ -2022,6 +2025,8 @@ private suspend fun exportChat(context: Context, chatViewModel: ChatViewModel, f
         context.startActivity(chooser)
     } catch (e: kotlinx.coroutines.CancellationException) {
         throw e
+    } catch (_: dev.chungjungsoo.gptmobile.data.diagnostics.JavaHeapWorkDeferred) {
+        Toast.makeText(context, "Not enough memory to export yet. Stop generation or reopen the chat, then try again.", Toast.LENGTH_LONG).show()
     } catch (e: Exception) {
         Log.e("ChatExport", "Failed to export chat", e)
         Toast.makeText(context, "Failed to export chat", Toast.LENGTH_SHORT).show()

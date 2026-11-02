@@ -838,10 +838,11 @@ class GitHubTool(
             return errorResult(callId, "Parameters 'owner' and 'repo' are required.")
         }
         val page = arguments["page"]?.jsonPrimitive?.intOrNull ?: 1
-        require(page in 1..1000)
+        val perPage = arguments["per_page"]?.jsonPrimitive?.intOrNull ?: 20
+        require(page in 1..1000 && perPage in 1..100)
         val state = arguments["state"]?.jsonPrimitive?.content ?: "all"
         require(state in setOf("open", "closed", "all")) { "state must be open, closed or all." }
-        val response = getGitHubApi("$BASE_URL/repos/$owner/$repo/pulls?state=$state&per_page=20&page=$page")
+        val response = getGitHubApi("$BASE_URL/repos/$owner/$repo/pulls?state=$state&per_page=$perPage&page=$page")
         val text = response.bodyAsText()
         if (!response.status.isSuccess()) {
             return errorResult(callId, "GitHub API returned HTTP ${response.status.value}: ${truncate(text, 500)}")
@@ -862,9 +863,9 @@ class GitHubTool(
             buildJsonObject {
                 put("pull_requests", summary)
                 put("page", page)
-                put("per_page", 20)
-                put("has_more", items.size == 20 && page < 1000)
-                if (items.size == 20 && page < 1000) {
+                put("per_page", perPage)
+                put("has_more", items.size == perPage && page < 1000)
+                if (items.size == perPage && page < 1000) {
                     put(
                         "continuation",
                         buildJsonObject {
@@ -873,6 +874,7 @@ class GitHubTool(
                             put("repo", repo)
                             put("state", state)
                             put("page", page + 1)
+                            put("per_page", perPage)
                         }
                     )
                 }

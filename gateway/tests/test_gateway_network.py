@@ -73,7 +73,7 @@ class NetworkAdmissionTests(unittest.TestCase):
 
     def test_remote_cannot_access_admin_even_with_management_secret(self):
         client = self.client()
-        for path in ['/gateway/admin/maintenance', '/v1/gateway/admin/maintenance']:
+        for path in ['/gateway/admin/maintenance', '/v1/gateway/admin/maintenance', '/gateway/admin/dashboard', '/v1/gateway/admin/dashboard']:
             self.assertEqual(401, client.get(path, headers={'X-Gateway-Management': 'local-supervisor-secret'}).status_code)
         for path in ['/gateway/mcp/restart/tools', '/gateway/tools/refresh', '/props']:
             self.assertEqual(403, client.post(path).status_code)
@@ -81,11 +81,11 @@ class NetworkAdmissionTests(unittest.TestCase):
 
     def test_specific_interface_manager_uses_secret_and_cannot_be_forwarded(self):
         client = self.client(peer='192.168.1.100', bind='192.168.1.100')
-        path = '/gateway/admin/maintenance'
-        self.assertEqual(401, client.get(path).status_code)
-        headers = {'X-Gateway-Management': 'local-supervisor-secret'}
-        self.assertEqual(200, client.get(path, headers=headers).status_code)
-        self.assertEqual(401, client.get(path, headers=dict(headers, **{'X-Forwarded-For': '127.0.0.1'})).status_code)
+        for path in ['/gateway/admin/maintenance', '/gateway/admin/dashboard']:
+            self.assertEqual(401, client.get(path).status_code)
+            headers = {'X-Gateway-Management': 'local-supervisor-secret'}
+            self.assertEqual(200, client.get(path, headers=headers).status_code)
+            self.assertEqual(401, client.get(path, headers=dict(headers, **{'X-Forwarded-For': '127.0.0.1'})).status_code)
 
     def test_engineering_requires_explicit_enable_and_shared_identity(self):
         path = '/gateway/engineering/capabilities'
@@ -155,7 +155,7 @@ class NetworkSettingsTests(unittest.TestCase):
 
     def test_firewall_removal_does_not_require_readable_settings(self):
         with tempfile.TemporaryDirectory() as temp, \
-                patch('desktop.firewall.os.name', 'nt'), \
+                patch('desktop.firewall.os', SimpleNamespace(**dict(vars(os), name='nt'))), \
                 patch.dict(os.environ, {'SystemRoot': temp}), \
                 patch('desktop.firewall.ctypes.windll',
                       SimpleNamespace(shell32=SimpleNamespace(IsUserAnAdmin=lambda: True)),
@@ -193,6 +193,7 @@ class LiveNetworkTests(unittest.TestCase):
         class BackendHealth(BaseHTTPRequestHandler):
             def do_GET(self):
                 self.send_response(503)
+                self.send_header('Content-Length', '0')
                 self.end_headers()
 
             def log_message(self, _format, *args):
@@ -211,8 +212,9 @@ class LiveNetworkTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             with socket.socket() as sock:
-                sock.bind((interface, 0))
+                sock.bind(('0.0.0.0', 0))
                 port = sock.getsockname()[1]
+            self.assertNotEqual(backend.server_port, port)
             for bind in bindings:
                 # A local deterministic backend keeps the health probe fast on every runner.
                 cfg = validate({'bind_host': bind, 'port': port, 'backend': backend_url,
@@ -249,7 +251,18 @@ class LiveNetworkTests(unittest.TestCase):
                             self.assertEqual(403, http.get(url, headers={'Host': 'untrusted.example'}, timeout=2).status_code)
                             control = 'http://' + authority(control_host(cfg), port) + '/gateway/admin/maintenance'
                             self.assertEqual(401, http.get(control, timeout=2).status_code)
-                            self.assertEqual(200, http.get(control, headers={'X-Gateway-Management': 'manager-test-secret'}, timeout=2).status_code)
+                            health = http.get(control, headers={'X-Gateway-Management': 'manager-test-secret'}, timeout=(2, 8))
+                            self.assertEqual(200, health.status_code)
+                            self.assertTrue(health.json()['runtimeHealthy'])
+                            self.assertFalse(health.json()['ready'])
+                            self.assertEqual('unavailable', health.json()['checks']['backend'])
+                            dashboard_url = control.replace('/maintenance', '/dashboard')
+                            self.assertEqual(401, http.get(dashboard_url, timeout=2).status_code)
+                            observed = http.get(dashboard_url, headers={'X-Gateway-Management': 'manager-test-secret'}, timeout=5)
+                            self.assertEqual(200, observed.status_code)
+                            self.assertGreater(observed.json()['requests'], 0)
+                            self.assertNotIn('manager-test-secret', observed.text)
+                            self.assertIsNone(observed.json()['historyError'])
                             self.assertEqual(cfg, load(root))
                         finally:
                             child.terminate()

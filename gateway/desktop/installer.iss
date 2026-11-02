@@ -22,6 +22,7 @@ CloseApplications=no
 RestartApplications=no
 UninstallDisplayIcon={app}\releases\{#GatewayVersion}\Gateway.exe
 SetupLogging=yes
+SetupIconFile=assets\gateway.ico
 
 [Files]
 Source: "..\..\dist\windows\Gateway\*"; DestDir: "{app}\releases\{#GatewayVersion}"; Flags: recursesubdirs createallsubdirs ignoreversion
@@ -30,11 +31,14 @@ Source: "README.md"; DestDir: "{app}"; Flags: ignoreversion
 
 [Tasks]
 Name: "startup"; Description: "Start Gateway when I sign in"; Flags: checkedonce
+Name: "desktopicon"; Description: "Create a desktop dashboard shortcut"; Flags: unchecked
 Name: "engineering"; Description: "Allow network devices to run engineering tasks"; Flags: unchecked
 
 Name: "firewall"; Description: "Allow Gateway from the local subnet on Private networks (Windows administrator approval)"; Flags: unchecked
 
 [Icons]
+Name: "{group}\Gateway Dashboard"; Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File ""{app}\Start-Gateway.ps1"" -Command dashboard"; WorkingDir: "{app}"; IconFilename: "{app}\releases\{#GatewayVersion}\Gateway.exe"; AppUserModelID: "GPTMobile.Gateway"
+Name: "{autodesktop}\GPT Mobile Gateway"; Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File ""{app}\Start-Gateway.ps1"" -Command dashboard"; WorkingDir: "{app}"; IconFilename: "{app}\releases\{#GatewayVersion}\Gateway.exe"; AppUserModelID: "GPTMobile.Gateway"; Tasks: desktopicon
 Name: "{group}\Start Gateway"; Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File ""{app}\Start-Gateway.ps1"""; WorkingDir: "{app}"
 Name: "{group}\Gateway Settings"; Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File ""{app}\Start-Gateway.ps1"" -Command settings"; WorkingDir: "{app}"
 Name: "{group}\Gateway Logs"; Filename: "{app}\logs"
@@ -42,7 +46,7 @@ Name: "{group}\Uninstall Gateway"; Filename: "{uninstallexe}"
 
 [Run]
 Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File ""{app}\Start-Gateway.ps1"""; Description: "Start Gateway"; Flags: nowait postinstall skipifsilent
-Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File ""{app}\Start-Gateway.ps1"" -Command settings"; Description: "Open Gateway settings and status"; Flags: nowait postinstall skipifsilent unchecked
+Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File ""{app}\Start-Gateway.ps1"" -Command dashboard"; Description: "Open the live Gateway dashboard"; Flags: nowait postinstall skipifsilent
 
 [UninstallDelete]
 Type: files; Name: "{app}\current.json"

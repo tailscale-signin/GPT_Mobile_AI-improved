@@ -75,3 +75,13 @@ Fresh exact-revision CI is required. The earlier Linux failures, successful Wind
 The next exact-head Linux matrix reached a later path operation: after the elevated firewall command succeeds, the marker path was still joined through a pre-existing `pathlib.Path` while Windows mode was simulated. Marker joining and idempotent removal now use `os.path.join` and `os.unlink`; the real Windows behavior is unchanged, while the cross-platform regression can complete. The package manifest records the repaired source and hash.
 
 Fresh exact-revision CI is required. The failed Linux matrix and all earlier superseded runs do not count.
+
+### Desktop dashboard implementation (2026-11-02)
+
+Continuing PR #780 on base `83afa7f113b29ad050c21d5bde5ea55da6dae602`, after reconciling branch head `7d58bbfb182aa87025407a27a45719cfbb3e0e5e`. The user expanded the request to include a themed Windows taskbar/tray dashboard. Key-free phone access remains unchanged.
+
+Implemented native notification-area icon and branded taskbar/Start-menu/optional desktop shortcuts, plus Overview, Devices, Recent activity, Search jobs and GitHub jobs views using the Android default teal/cyan/purple palette and existing robot artwork. The supervisor polls a locally authenticated metadata endpoint off the request path. ASGI observation preserves streaming and records actual socket peers; tool observation preserves return values and exceptions. Bounded activity metadata survives restart, and stale snapshots are visibly offline. The dashboard supports filtering, row details and start/restart/stop/settings. Installer stop closes desktop windows before replacement. No browser dashboard or extra GUI dependency was introduced.
+
+The Windows firewall regression test now replaces only its module's OS reference, avoiding global `os.name` mutation that made Linux pathlib construct Windows paths. Live network probes use a deterministic separate HTTP 503 backend and assert runtime health independently of model readiness.
+
+Validation before publication: network tests 14 passed/1 LAN-interface skip; dashboard behavior tests 9 passed; canonical `validate-local.sh fast` passed (285 host tests). All five Tk views were rendered under a virtual display with fixture data and row details checked. Windows CI now renders the frozen UI, saves its screenshot, checks native tray registration/cleanup, and verifies supervisor snapshots alongside existing installer/network/firewall/repair/rollback/uninstall smoke tests. Exact-head Windows/Android CI and physical phone acceptance remain pending; no production installer release is claimed.

@@ -54,6 +54,29 @@ def main():
             state=wait_state(root,'running')
             assert state['backend'] != 'ready'
             results.append('frozen runtime healthy with offline model backend')
+            deadline = time.monotonic() + 20
+            while not (root / 'dashboard.json').exists() and time.monotonic() < deadline:
+                time.sleep(.2)
+            observation = json.loads((root / 'dashboard.json').read_text(encoding='utf-8'))
+            assert observation['service']['activeWorkers'] == 0
+            assert observation['historyError'] is None
+            assert (root / 'data' / 'activity.json').exists()
+            subprocess.run([str(exe), 'dashboard', '--root', str(root), '--smoke-ui', '--quiet'], check=True, timeout=45)
+            ui = json.loads((root / 'dashboard-ui-smoke.json').read_text(encoding='utf-8'))
+            assert ui['pages'] == ['Overview', 'Devices', 'Recent activity', 'Search jobs', 'GitHub jobs']
+            assert ui['width'] >= 1120 and ui['height'] >= 720
+            shutil.copy2(root / 'dashboard-preview.png', output / 'dashboard-preview.png')
+            results.append('frozen themed dashboard renders all views; observer persists metadata; UI closes without stopping gateway')
+            assert child.poll() is None
+            from desktop.tray import TrayIcon
+            tray = TrayIcon(lambda: 'Gateway smoke test', {})
+            tray.start()
+            assert tray.ready.wait(10), 'Tray thread did not initialize'
+            assert tray.error is None, tray.error
+            assert tray.available, 'Windows notification-area icon was not registered'
+            tray.close()
+            assert not tray.thread.is_alive(), 'Tray thread did not shut down'
+            results.append('native Windows notification-area icon registers and shuts down cleanly')
             request(root,'stop');assert child.wait(timeout=40)==0
             cfg = validate(dict(cfg, bind_host='0.0.0.0'))
             atomic_json(root/'settings.json', cfg)

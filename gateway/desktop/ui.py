@@ -15,10 +15,27 @@ FIELDS = [
     ('update_interval_hours', 'Update check interval (hours)')]
 
 
-def show(root):
+def show(root, parent=None):
+    if parent is not None:
+        return _show(root, parent)
+    from v14.state_lock import StateDirectoryLock, StateDirectoryAlreadyOwned
+    lock = StateDirectoryLock(Path(root) / 'settings-ui' / 'owner')
+    try:
+        lock.acquire()
+    except StateDirectoryAlreadyOwned:
+        return
+    try:
+        return _show(root)
+    finally:
+        lock.release()
+
+
+def _show(root, parent=None):
     root = Path(root)
     cfg = load(root)
-    window = tk.Tk()
+    window = tk.Toplevel(parent) if parent else tk.Tk()
+    from desktop import theme
+    theme.apply(window)
     window.title('GPT Mobile Gateway · Settings')
     window.minsize(660, 670)
     frame = ttk.Frame(window, padding=22)
@@ -97,4 +114,7 @@ def show(root):
     ttk.Button(network, text='Remove firewall rule…', command=lambda: firewall(True)).pack(side='left', padx=3)
     frame.columnconfigure(1, weight=1)
     refresh()
-    window.mainloop()
+    from desktop.window_lifecycle import watch
+    watch(window, root, window.destroy)
+    if parent is None:
+        window.mainloop()

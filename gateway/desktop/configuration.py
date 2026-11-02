@@ -118,6 +118,7 @@ def environment(root, cfg, management_token=''):
                GATEWAY_ALLOWED_HOSTS=json.dumps(hosts),
                GATEWAY_ALLOWED_ORIGINS=json.dumps([] if cfg['access'] == 'network' else ['http://' + h for h in hosts]),
                GATEWAY_REMOTE_ENGINEERING=str(cfg['engineering']).lower(), GATEWAY_MANAGEMENT_TOKEN=management_token,
+               GATEWAY_ACTIVITY_STATE=str(data / 'activity.json'),
                GATEWAY_JOB_DB=str(data / 'jobs.sqlite3'), GATEWAY_AUTH_DB=str(data / 'auth.sqlite3'),
                GATEWAY_MAX_WORKERS=str(cfg['workers']), GATEWAY_MAX_ACTIVE_CHATS=str(cfg['active_chats']),
                GATEWAY_SHUTDOWN_GRACE=str(cfg['shutdown_seconds']),

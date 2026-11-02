@@ -1,5 +1,6 @@
 """v14 composition root over the characterized v13 execution engine."""
 import argparse
+import os
 import sys
 import re
 import asyncio
@@ -32,6 +33,7 @@ from v14.batch import install_batch
 from v14.catalog import install_catalog_cache
 from v14.browser import BOOTSTRAP_PATH, install_browser_proxy
 from v14.service import ServiceState, LoadGuard
+from v14.activity import ActivityTracker, ActivityMiddleware, desktop_snapshot
 from v14.mcp import install_mcp_resilience
 from v14.health import readiness, diagnostics
 from v14.journal import backup_database
@@ -67,16 +69,24 @@ install_github_fast_path(runtime)
 install_batch(runtime)
 service = ServiceState(config.max_workers)
 service.install(runtime)
+activity = ActivityTracker(os.getenv("GATEWAY_ACTIVITY_STATE"))
+activity.install_tools(runtime)
 engineering = EngineeringService(EngineeringStore(runtime), GitHubEngineeringBackend(runtime))
 engineering.authorized = lambda job: principal_authorized(config, job['principal'], device_store)
 engineering.backend.cancelled = lambda job_id: (engineering.store.get(job_id) or {}).get('state') == 'CANCELLED'
 app = FastAPI(title="Private Gateway 15", version=VERSION, lifespan=engineering.lifecycle(service.lifespan(runtime, config.shutdown_grace)),
               docs_url="/gateway/docs", openapi_url="/gateway/openapi.json")
 app.add_middleware(LoadGuard, config=config, state=service)
+app.add_middleware(ActivityMiddleware, tracker=activity)
 app.add_middleware(Admission, config=config)
 install_engineering_routes(app, engineering)
 from v14.maintenance import install_maintenance
 install_maintenance(app, runtime, service, engineering)
+
+
+@app.get("/gateway/admin/dashboard")
+async def dashboard_snapshot():
+    return await asyncio.to_thread(desktop_snapshot, runtime, service, activity)
 
 
 @app.post("/v1/chat/completions")

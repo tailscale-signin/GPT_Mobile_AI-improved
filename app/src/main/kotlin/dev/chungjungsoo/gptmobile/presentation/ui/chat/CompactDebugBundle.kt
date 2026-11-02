@@ -1,6 +1,8 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
+import java.io.BufferedWriter
 import java.io.File
+import java.io.OutputStreamWriter
 import java.util.UUID
 import java.util.zip.ZipEntry
 import java.util.zip.ZipFile
@@ -22,7 +24,7 @@ internal object CompactDebugBundle {
                 zip.write(manifest.toByteArray(Charsets.UTF_8))
                 zip.closeEntry()
                 zip.putNextEntry(ZipEntry("recent-app-logs.txt"))
-                val writer = zip.bufferedWriter(Charsets.UTF_8, 4096)
+                val writer = BufferedWriter(OutputStreamWriter(zip, Charsets.UTF_8), 4096)
                 redactedLines.forEach { line -> writer.append(line).append('\n') }
                 writer.flush()
                 zip.closeEntry()

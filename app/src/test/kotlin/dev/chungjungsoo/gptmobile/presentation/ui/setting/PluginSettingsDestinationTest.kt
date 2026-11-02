@@ -11,6 +11,7 @@ class PluginSettingsDestinationTest {
     @Test fun canonicalCatalogueHasAnExplicitRouteForEveryIntegratedService() {
         ToolServiceCatalog.integrated.forEach { assertNotEquals(it.id, PluginSettingsDestination.UNAVAILABLE, pluginSettingsDestination(it)) }
         assertEquals(PluginSettingsDestination.DEEP_RESEARCH, pluginSettingsDestination(ToolServiceCatalog.integrated.single { it.id == ToolPluginId.DEEP_RESEARCH }))
+        assertEquals(PluginSettingsDestination.VOICE, pluginSettingsDestination(ToolServiceCatalog.integrated.single { it.id == ToolPluginId.VOICE_CHAT }))
     }
 
     @Test fun unknownOrRemovedPluginsHaveARecoverableDestination() {

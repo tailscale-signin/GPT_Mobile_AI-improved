@@ -42,5 +42,15 @@
       "result": "The Windows Python 3.13 v14 suite exceeded 120 seconds with partial test output hidden. Gateway stability passed at subsequent head 8f30edeaf6e06559a66f33f207377633b281a455; no production root cause established.",
       "change": "Verbose test identity, scheduled thread traceback before the unchanged deadline, and preserved partial output on timeout. Timeout remains a failed suite."
     }
+  },
+  "settings_route_repair": {
+    "starting_head": "467e2d12fd2b96eca4854009bf562b5cfe35fb0e",
+    "base_sha": "2ae52c78ddae2a5470d8a0ee7dc93b6a9101f65a",
+    "job_id": 125049701388,
+    "artifact_id": 13110539226,
+    "failure": "PluginSettingsDestinationTest.canonicalCatalogueHasAnExplicitRouteForEveryIntegratedService rejected voice_chat as UNAVAILABLE. Audit ran 5927 tests: one failure and four skipped.",
+    "intent": "Route Voice Chat configuration to an explicit voice settings dialog with the existing enable control and session guidance; keep irrelevant tool execution limits out of voice settings.",
+    "validation": "Existing catalogue regression extended with the explicit VOICE destination. Full Android checks must pass on the published candidate.",
+    "host_validation": "287 fast tests plus CI policy, dependency, secret, regex and resource checks passed; changed Kotlin passes ktlint 1.3.1 and git diff --check."
   }
 }

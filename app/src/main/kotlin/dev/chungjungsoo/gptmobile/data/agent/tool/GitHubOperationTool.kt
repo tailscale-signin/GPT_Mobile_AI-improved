@@ -658,7 +658,11 @@ internal class GitHubOperationTool(
                 }
                 "github_pr" -> {
                     properties["action"] = choice("list", "headers", "context", "comments", "reviews", "create", "update", "comment", "reply", "review", "merge")
-                    properties["pull_number"] = field("integer")
+                    properties["pull_number"] = buildJsonObject {
+                        put("type", "integer")
+                        put("minimum", 1)
+                        put("description", "Required for headers/context/comments/reviews and updates. Discover an existing pull_number with action=list first; never invent one.")
+                    }
                     properties["state"] = choice("open", "closed", "all")
                     listOf("title", "body", "head", "base", "expected_head_sha", "expected_base_sha").forEach { properties[it] = field("string") }
                     properties["comment_id"] = field("integer")
@@ -747,7 +751,11 @@ internal class GitHubOperationTool(
                 }
                 "github_issue" -> {
                     properties["action"] = choice("list", "headers", "context", "comments", "history", "create", "update")
-                    properties["issue_number"] = field("integer")
+                    properties["issue_number"] = buildJsonObject {
+                        put("type", "integer")
+                        put("minimum", 1)
+                        put("description", "Required for headers/context/comments/history/update. Discover an existing issue_number with action=list first; never invent one.")
+                    }
                     properties["page"] = field("integer")
                     listOf("title", "body", "expected_updated_at").forEach { properties[it] = field("string") }
                     properties["state"] = choice("open", "closed", "all")

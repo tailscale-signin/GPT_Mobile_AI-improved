@@ -16,6 +16,14 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubChatProgressTest {
+    @Test fun summaryExplainsObservedWorkWithoutEchoingTheQuestionOrInventingCompletion() {
+        val progress = GitHubChatProgress("Why did this fail?")
+        progress.observe(ApiState.GatewayProgressChanged(GatewayProgress(event = "tool_started", toolName = "github_read")))
+        assertTrue(progress.heartbeat().contains("where the behavior originates"))
+        assertFalse(progress.heartbeat().contains("Why did this fail"))
+        assertFalse(progress.heartbeat().contains("passed"))
+    }
+
     @Test fun webToolActivityKeepsTheGlobeHintThroughCompletion() = kotlinx.coroutines.test.runTest {
         for (tool in listOf("web_search__connection", "fetch_webpage")) {
             val progress = GitHubChatProgress("Investigate the issue")
@@ -53,7 +61,8 @@ class GitHubChatProgressTest {
     @Test fun summariesBindTheTaskToObservedActivityAndKeepPreviewSeparate() = kotlinx.coroutines.test.runTest {
         val progress = GitHubChatProgress("Fix the loading bar")
         val first = progress.updates().take(1).toList().single()
-        assertTrue(first.text.contains("Fix the loading bar"))
+        assertFalse(first.text.contains("Fix the loading bar"))
+        assertTrue(first.text.contains("trace the affected code"))
         assertTrue(first.text.startsWith("I’ll"))
         assertTrue(first.preview.orEmpty().contains("Preparing"))
         progress.observe(ApiState.GatewayProgressChanged(GatewayProgress(event = "tool_started", toolName = "github_read__account")))

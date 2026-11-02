@@ -253,31 +253,31 @@ object AppLogRecorder {
                 historicalExitMetadata(context).forEach { line ->
                     output.appendLine(if (structured) structuredDiagnosticLine(line, "android_exit_history", exportedAtMillis = exportedAt) else line)
                 }
+                val seen = mutableSetOf<String>()
                 dev.chungjungsoo.gptmobile.data.free.FreeProviderDiagnostics.snapshot().forEach { failure ->
                     val line = providerFailureLine(failure)
                     val identity = diagnosticEventIdentity(line)
                     val association = incidents.accept(line, identity, null)
-                    output.appendLine(if (structured) structuredDiagnosticLine(line, "provider_failure", captureIdentity = identity, incidentId = association.id, incidentRoot = association.first, exportedAtMillis = exportedAt) else line)
+                    output.appendLine(if (structured) structuredDiagnosticLine(line, "provider_failure", duplicate = !seen.add(identity), captureIdentity = identity, incidentId = association.id, incidentRoot = association.first, exportedAtMillis = exportedAt) else line)
                 }
                 LocalRuntimeIncidentHistory.snapshot().forEach { incident ->
                     val line = runtimeIncidentLine(incident)
                     val identity = diagnosticEventIdentity(line)
                     val association = incidents.accept(line, identity, null)
-                    output.appendLine(if (structured) structuredDiagnosticLine(line, "runtime_incident_history", captureIdentity = identity, incidentId = association.id, incidentRoot = association.first, exportedAtMillis = exportedAt) else line)
+                    output.appendLine(if (structured) structuredDiagnosticLine(line, "runtime_incident_history", duplicate = !seen.add(identity), captureIdentity = identity, incidentId = association.id, incidentRoot = association.first, exportedAtMillis = exportedAt) else line)
                 }
-                val seen = mutableSetOf<String>()
                 var parent: String? = null
                 var sequence = 0
                 snapshot.forEach { (source, bytes) ->
                     bytes.inputStream().bufferedReader().useLines { lines ->
                         lines.forEachIndexed { index, line ->
                             val root = Regex("^\\S+ [VDIWEF]/[^:]+: ").containsMatchIn(line)
-                            val explicit = Regex("(?:^|: | · )eventId=([a-zA-Z0-9-]+)").find(line)?.groupValues?.get(1)
+                            val explicit = Regex("(?:^|: | · )eventId=([a-zA-Z0-9_.:-]+)").find(line)?.groupValues?.get(1)
                             if (root) {
                                 parent = explicit ?: "$source:$index"
                                 sequence = 0
                             } else {
-                                Regex("(?:^| · )parentEventId=([a-zA-Z0-9-]+)").find(line)?.groupValues?.get(1)?.let { parent = it }
+                                Regex("(?:^| · )parentEventId=([a-zA-Z0-9_.:-]+)").find(line)?.groupValues?.get(1)?.let { parent = it }
                                 sequence = Regex("(?:^| · )sequence=([0-9]+)").find(line)?.groupValues?.get(1)?.toIntOrNull() ?: (sequence + 1)
                             }
                             val identity = if (root) parent!! else "${parent ?: source}:$sequence"

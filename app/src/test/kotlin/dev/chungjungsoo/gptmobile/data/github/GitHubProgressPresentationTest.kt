@@ -4,6 +4,11 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class GitHubProgressPresentationTest {
+    @Test fun previewComparisonUsesDisplayedTextAndNormalizedWhitespace() {
+        assertEquals(GitHubProgressPresentation.lineKey("Reading the source files."), GitHubProgressPresentation.lineKey("  READING   the source files... "))
+        assertEquals(GitHubProgressPresentation.lineKey("Reviewing schema receipt"), GitHubProgressPresentation.lineKey("Reviewing dispatch checkpoint"))
+    }
+
     @Test fun previewSymbolsDistinguishWebFileEditsChecksAndWaiting() {
         val examples = mapOf(
             "Searching the internet for relevant information." to GitHubProgressPresentation.PreviewKind.WEB,

@@ -219,6 +219,8 @@ internal class ResponseRecoveryContext(
             ) {
                 return tool.execute(callId, actual)
             }
+            // Catalogue discovery has no external side effect and is essential to reconciliation.
+            if (realName == ProgressiveToolCatalog.NAME || definition.name == ProgressiveToolCatalog.NAME) return tool.execute(callId, actual)
             val nativeRead = dev.chungjungsoo.gptmobile.data.permissions.GitHubAuthorizationBoundary.isReplayableRead(realName, actual) &&
                 !dev.chungjungsoo.gptmobile.data.permissions.GitHubAuthorizationBoundary.isBranchSelection(realName, actual)
             val immutableNative = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.immutableRead(realName, actual)
@@ -237,6 +239,15 @@ internal class ResponseRecoveryContext(
                 sensitivity?.add(labels)
                 return AgentToolResult(callId, ToolResultContent.Text(match.recoveryResult().orEmpty()), false, traceContent = ToolResultContent.Text(match.displayResult().orEmpty()), sharedResult = true, dispatched = false, personalData = (labels + sensitivity?.snapshot().orEmpty()).distinct())
             }
+            val rejected = candidates.lastOrNull { event ->
+                event.isError &&
+                    ToolResultCheckpoint.execution(event)?.let { receipt ->
+                        receipt["phase"] == kotlinx.serialization.json.JsonPrimitive("PREFLIGHT_REJECTED") &&
+                            receipt["error_code"] == kotlinx.serialization.json.JsonPrimitive("INVALID_ARGUMENTS") &&
+                            receipt["requires_reconciliation"] == kotlinx.serialization.json.JsonPrimitive(false)
+                    } == true
+            }
+            if (rejected != null) return AgentToolResult(callId, ToolResultContent.Text("The unchanged request was previously rejected before dispatch. Correct its arguments and use a new call ID. " + rejected.recoveryResult().orEmpty()), true, sharedResult = true, dispatched = false, errorCode = "INVALID_ARGUMENTS")
             val unresolved = candidates.filter { event ->
                 // Only a persisted native dispatch receipt can prove an earlier failure harmless.
                 val receipt = ToolResultCheckpoint.execution(event)

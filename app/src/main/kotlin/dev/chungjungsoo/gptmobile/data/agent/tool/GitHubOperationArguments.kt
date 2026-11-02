@@ -16,6 +16,11 @@ internal object GitHubOperationArguments {
         fun positive(key: String) {
             if (key in args && text(key).toLongOrNull()?.let { it > 0 } != true) errors += "$key must be a positive integer ID returned by discovery"
         }
+        for (key in listOf("commit_sha", "expected_head_sha", "head_sha", "tree_sha")) {
+            if (key in args && (!text(key).matches(Regex("[a-fA-F0-9]{40}|[a-fA-F0-9]{64}")) || text(key).all { it == '0' })) {
+                errors += "$key must be a real commit/tree SHA, not a placeholder; discover the current head with github_context action=branch before retrying"
+            }
+        }
         when (operation) {
             "github_watch_checks" -> {
                 positive("pr_number")
@@ -34,7 +39,7 @@ internal object GitHubOperationArguments {
                     val start = (range["start_line"] as? JsonPrimitive)?.content?.toIntOrNull()
                     val end = (range["end_line"] as? JsonPrimitive)?.content?.toIntOrNull()
                     if (start == null || end == null || start < 1 || end < start || end.toLong() - start >= 2000) {
-                        errors += "ranges[$index] needs positive, ordered start_line/end_line spanning at most 2000 lines"
+                        errors += "ranges[$index] needs positive, ordered start_line/end_line spanning at most 2000 lines; split larger reads into consecutive ranges such as 1..2000, 2001..4000"
                     }
                 }
             }
@@ -93,7 +98,9 @@ internal object GitHubOperationArguments {
             "github_issue" -> {
                 positive("issue_number")
                 when (text("action")) {
-                    "headers", "context", "comments", "history" -> required("issue_number")
+                    "headers", "context", "comments", "history" -> if (text("issue_number").isBlank()) {
+                        errors += "issue_number is required; use github_issue action=list to discover an existing issue number before retrying"
+                    }
                     "create" -> required("title")
                     "update" -> {
                         required("issue_number", "expected_updated_at")

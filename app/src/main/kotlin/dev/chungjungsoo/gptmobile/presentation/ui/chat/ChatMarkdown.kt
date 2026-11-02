@@ -995,19 +995,25 @@ private fun answerBodyStyle(): TextStyle {
 }
 
 @Composable
-private fun chatMarkdownTypography() = markdownTypography(
-    h1 = MaterialTheme.typography.headlineMedium,
-    h2 = MaterialTheme.typography.headlineSmall,
-    h3 = MaterialTheme.typography.titleLarge,
-    h4 = MaterialTheme.typography.titleMedium,
-    h5 = MaterialTheme.typography.titleSmall,
-    h6 = MaterialTheme.typography.labelLarge,
-    text = answerBodyStyle(),
-    paragraph = answerBodyStyle(),
-    ordered = answerBodyStyle(),
-    bullet = answerBodyStyle(),
-    list = answerBodyStyle()
-)
+private fun chatMarkdownTypography() = run {
+    val typography = MaterialTheme.typography
+    val body = answerBodyStyle()
+    remember(typography, body) {
+        markdownTypography(
+            h1 = typography.headlineMedium,
+            h2 = typography.headlineSmall,
+            h3 = typography.titleLarge,
+            h4 = typography.titleMedium,
+            h5 = typography.titleSmall,
+            h6 = typography.labelLarge,
+            text = body,
+            paragraph = body,
+            ordered = body,
+            bullet = body,
+            list = body
+        )
+    }
+}
 
 @Composable
 private fun DefaultParagraph(

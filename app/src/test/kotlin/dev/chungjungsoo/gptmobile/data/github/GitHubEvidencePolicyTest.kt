@@ -24,6 +24,21 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubEvidencePolicyTest {
+    @Test fun explicitContinuationRestoresOriginalReceiptsWithoutRefreshingTheirTime() = runBlocking {
+        val stored = linkedMapOf<String, JsonObject>()
+        val book = GitHubEvidenceBook("binding", "owner/repo", "main", setOf("github_ci"), { 1000 }, save = { id, value -> stored[id] = value })
+        book.observe(ProviderEvent.ToolCall("read", "github_ci", json("""{"action":"status"}""")), AgentToolResult("read", ToolResultContent.Json(json("""{"count":3}""")), false))
+        val next = GitHubEvidenceBook("binding", "owner/repo", "main", setOf("github_ci"), { 200000 }, load = { stored[it] }, retainedIds = { stored.keys.toList() })
+        next.restore()
+        next.restore()
+        val (receipts, epoch) = next.snapshot()
+        assertEquals(1, receipts.size)
+        assertEquals(0L, epoch)
+        assertEquals(JsonPrimitive(1000), receipts.values.single()["observed_at_ms"])
+        val foreign = GitHubEvidenceBook("other-binding", "owner/repo", "main", setOf("github_ci"), load = { stored[it] }, retainedIds = { stored.keys.toList() })
+        assertTrue(runCatching { foreign.restore() }.isFailure)
+    }
+
     @Test fun cachedObservationKeepsItsOriginalTimeInsteadOfBecomingFreshProof() = runBlocking {
         val book = GitHubEvidenceBook("binding", "owner/repo", "main", setOf("github_ci"), { 200_000 })
         book.observe(ProviderEvent.ToolCall("cached", "github_ci", json("""{"action":"status"}""")), AgentToolResult("cached", ToolResultContent.Json(json("""{"count":3}""")), false, dispatched = false, executionReceipt = json("""{"source_observed_at_ms":1000,"cached_read_observations":1}""")))

@@ -10,7 +10,8 @@ class RunTokenUsageTest {
         val usage = RunTokenUsage.from(listOf(primary, primary, row("review", "github-review", 50, 5), row("extract", "github-claim-extraction", 30, 3), row("repair", "recovery", 40, 4), row("unknown", "recovery", null, null)))
         assertEquals(220, usage.inputTokens)
         assertEquals(32, usage.outputTokens)
-        assertEquals(252, usage.totalTokens)
+        assertEquals(252, usage.measuredSubtotalTokens)
+        assertEquals(null, usage.totalTokens)
         assertEquals(1, usage.unmeasuredInvocations)
     }
 

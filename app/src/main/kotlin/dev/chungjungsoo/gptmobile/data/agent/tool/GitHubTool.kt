@@ -1600,12 +1600,15 @@ class GitHubTool(
         if (detail.startsWith("EVIDENCE_UNAVAILABLE:")) {
             return AgentToolResult(callId, ToolResultContent.Text(detail), true, errorCode = "EVIDENCE_UNAVAILABLE", dispatched = false)
         }
+        if (throwable is dev.chungjungsoo.gptmobile.data.github.GitHubHeaderLookupFailure) {
+            return AgentToolResult(callId, ToolResultContent.Json(throwable.details), true, errorCode = throwable.code, dispatched = true)
+        }
         if (throwable is java.io.IOException) {
             val uncertain = action in MUTATING_ACTIONS
             return AgentToolResult(callId, ToolResultContent.Text(if (uncertain) "GitHub connection interrupted. The write outcome is uncertain; reconcile the saved remote ref/tree or receipt before retrying." else "GitHub connection interrupted after bounded read retries. Retry this read when the connection recovers."), true, errorCode = if (throwable is dev.chungjungsoo.gptmobile.data.github.GitHubReadRetry.HttpFailure) "GITHUB_TRANSIENT_SERVER" else "GITHUB_TRANSIENT_NETWORK", dispatched = true)
         }
         val normalized = detail.substringBefore(" · ")
-        if (normalized in setOf("GITHUB_PRIMARY_RATE_LIMITED", "GITHUB_SECONDARY_RATE_LIMITED", "GITHUB_ENDPOINT_PERMISSION_REQUIRED", "GITHUB_FORBIDDEN_UNKNOWN")) {
+        if (normalized in setOf("GITHUB_PRIMARY_RATE_LIMITED", "GITHUB_SECONDARY_RATE_LIMITED", "GITHUB_ENDPOINT_PERMISSION_REQUIRED", "GITHUB_FORBIDDEN_UNKNOWN", "GITHUB_VALIDATION_FAILED", "GITHUB_AUTHENTICATION_REQUIRED", "GITHUB_SSO_REQUIRED", "GITHUB_NOT_FOUND")) {
             return AgentToolResult(callId, ToolResultContent.Text(detail), true, errorCode = normalized)
         }
         if (throwable is dev.chungjungsoo.gptmobile.data.github.GitHubRequestScheduler.Capacity) {

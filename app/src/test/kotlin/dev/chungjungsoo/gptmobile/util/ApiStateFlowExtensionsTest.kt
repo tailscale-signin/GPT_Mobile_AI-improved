@@ -17,7 +17,22 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ApiStateFlowExtensionsTest {
-    @Test fun githubActivityPreservesRecurringWhiteSummariesWithoutReplacingEarlierUpdates() = runBlocking {
+    @Test fun duplicatePreviewsAreSuppressedAcrossSummariesAndCheckpointEvents() = runBlocking {
+        var timeline = emptyList<AssistantTimelineItem>()
+        flowOf(
+            ApiState.GitHubRoundStarted,
+            ApiState.ActivitySummary("Locating the implementation.", preview = "Reading the source files."),
+            ApiState.ProgressCheckpoint("  Reading   the source files... "),
+            ApiState.ActivitySummary("Comparing dependencies.", preview = "Reading the source files."),
+            ApiState.ProgressCheckpoint("Inspecting the build results."),
+            ApiState.ProgressCheckpoint("Reading the source files."),
+            ApiState.Error("Interrupted")
+        ).collectApiStateUpdates(onUpdate = { _, _, items -> timeline = items })
+        assertEquals(listOf("Reading the source files.", "Inspecting the build results.", "Reading the source files."), timeline.filter { it.progressCheckpoint && !it.statusSummary }.map { it.content })
+        assertEquals(2, timeline.count { it.statusSummary })
+    }
+
+    @Test fun githubActivitySuppressesUnchangedSummariesWithoutReplacingEarlierUpdates() = runBlocking {
         var timeline = emptyList<AssistantTimelineItem>()
         flowOf(
             ApiState.GitHubRoundStarted,
@@ -26,9 +41,9 @@ class ApiStateFlowExtensionsTest {
             ApiState.ActivitySummary("Reviewing the results."),
             ApiState.Error("Interrupted")
         ).collectApiStateUpdates(onUpdate = { _, _, items -> timeline = items })
-        assertEquals(listOf("Reading the repository.", "Reviewing the results.", "Reviewing the results."), timeline.filter { it.progressCheckpoint }.map { it.content })
+        assertEquals(listOf("Reading the repository.", "Reviewing the results."), timeline.filter { it.progressCheckpoint }.map { it.content })
         assertTrue(timeline.filter { it.progressCheckpoint }.all { it.statusSummary })
-        assertEquals(3, timeline.filter { it.progressCheckpoint }.mapNotNull { it.progressId }.distinct().size)
+        assertEquals(2, timeline.filter { it.progressCheckpoint }.mapNotNull { it.progressId }.distinct().size)
     }
 
     @Test fun githubSummaryAndPreviewRemainSeparateAcrossStreamingAndFailure() = runBlocking {

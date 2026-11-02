@@ -25,11 +25,17 @@ internal object GitHubProgressPresentation {
             .trim().take(120).dropLastWhile(Char::isHighSurrogate).trimEnd().ifBlank { "your repository request" }
     }
 
-    fun introduction(task: String): String = if (GitHubStatusRequest.matches(task)) {
-        "I’ll check the repository status, current branch, pull requests and latest checks."
-    } else {
-        "I’ll look into “${taskLabel(task)}”, starting with the relevant code and current repository state."
+    fun introduction(task: String): String = when {
+        GitHubStatusRequest.matches(task) -> "I’ll check the repository status, current branch, pull requests and latest checks."
+        GitHubTaskCoverage.matches(task) -> "I’ll map the available GitHub operations, check their results and report failures separately from tests that were actually executed."
+        Regex("(?i)\\b(?:fix|repair|debug|resolve)\\b").containsMatchIn(task) -> "I’ll trace the affected code, check the failure conditions and identify the smallest change that addresses the cause."
+        Regex("(?i)\\b(?:review|examine|investigate|post[- ]?mortem|diagnos[a-z]*)\\b").containsMatchIn(task) -> "I’ll compare the available evidence with the implementation, identify what interrupted the work and prioritize the remaining issues."
+        else -> "I’ll establish the repository state, locate the relevant implementation and check what is needed to complete the request."
     }
+
+    /** Compare displayed lines, including whitespace and formatting differences. */
+    fun lineKey(text: String): String = preview(text).replace(Regex("\\s+"), " ").trim().trimEnd('.', '…').lowercase(java.util.Locale.ROOT)
+
     private val duration = Regex("""\b\d{1,4}:\d{2}(?::\d{2})?\b|\b\d+\s*(?:ms|s|seconds?|minutes?|hours?)\s+elapsed\b|\belapsed\s*[:=]\s*\d+\s*(?:ms|s|seconds?|minutes?|hours?)?""", RegexOption.IGNORE_CASE)
     private val prefix = Regex("""^status\b\s*(?:[:·|—-]\s*)?""", RegexOption.IGNORE_CASE)
 

@@ -345,11 +345,14 @@ private class StreamingMessageBuffer(
             statusSummary = true
         )
         if (githubProgress) {
-            // Each scheduled update marks a new activity block, including an
-            // unchanged long-running step. Keep its white summary distinct.
-            timeline += item.copy(content = item.content.take(600), progressCheckpoint = true)
+            val priorSummary = timeline.lastOrNull { it.statusSummary }
+            if (priorSummary?.content != item.content.take(600)) {
+                timeline += item.copy(content = item.content.take(600), progressCheckpoint = true)
+            }
             chunk.preview?.takeIf(String::isNotBlank)?.let { preview ->
-                timeline += AssistantTimelineItem(AssistantTimelineItemType.NOTICE, content = preview.take(4000), progressCheckpoint = true)
+                if (!repeatsGitHubPreview(preview)) {
+                    timeline += AssistantTimelineItem(AssistantTimelineItemType.NOTICE, content = preview.take(4000), progressCheckpoint = true)
+                }
             }
             boundGitHubProgress()
         } else {
@@ -385,8 +388,7 @@ private class StreamingMessageBuffer(
         if (!githubProgress) return
         var excess = timeline.count { it.progressCheckpoint } - 48
         if (excess > 0) timeline.removeAll { it.progressCheckpoint && excess-- > 0 }
-        // Retained rows keep their identity when the bounded history shifts;
-        // a repeated summary is still a new animated entry.
+        // Retained rows keep their identity when the bounded history shifts.
         for (index in timeline.indices) {
             val item = timeline[index]
             if (item.progressCheckpoint && item.progressId == null) {
@@ -446,8 +448,16 @@ private class StreamingMessageBuffer(
         timelineVersion += 1
     }
 
+    private fun repeatsGitHubPreview(text: String): Boolean {
+        if (!githubProgress) return false
+        val previous = timeline.lastOrNull { it.progressCheckpoint && !it.statusSummary } ?: return false
+        return dev.chungjungsoo.gptmobile.data.github.GitHubProgressPresentation.lineKey(previous.content) ==
+            dev.chungjungsoo.gptmobile.data.github.GitHubProgressPresentation.lineKey(text.take(4000))
+    }
+
     fun appendProgress(text: String, modelAuthored: Boolean) {
         flushTimelineText()
+        if (!modelAuthored && repeatsGitHubPreview(text)) return
         val last = timeline.lastOrNull()
         if (modelAuthored && last?.progressCheckpoint == true && (!githubProgress || last.modelAuthored) && !last.statusSummary) {
             val combined = (if (last.modelAuthored) last.content else "") + text

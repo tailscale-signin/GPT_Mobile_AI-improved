@@ -15,10 +15,12 @@ internal class AnswerValidationSession(
     private val replaceDraft: (suspend (String, String) -> Boolean)? = null,
     private val rewrite: suspend (String, List<String>, List<AgentToolExchange>) -> AgentProviderSession
 ) : AgentProviderSession {
-    private var publishedDraft = ""
+    private var visibleDraft = ""
     override val handlesToolsInternally: Boolean get() = initial.handlesToolsInternally
 
     override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> = flow {
+        // Buffered tool-round prose is not a published revision of the next round.
+        var publishedDraft = if (replaceDraft == null) "" else visibleDraft
         suspend fun publish(text: String) {
             if (text.isBlank()) return
             if (publishedDraft.isEmpty()) {
@@ -27,6 +29,7 @@ internal class AnswerValidationSession(
                 check(replaceDraft?.invoke(dev.chungjungsoo.gptmobile.data.research.researchHash(publishedDraft), text) == true) { "ANSWER_REVISION_OWNER_CHANGED: The existing draft was preserved." }
             }
             publishedDraft = text
+            if (replaceDraft != null) visibleDraft = text
         }
         var active = initial
         var retained = ""
@@ -48,6 +51,7 @@ internal class AnswerValidationSession(
                             if (attempt == 0 && replaceDraft != null) {
                                 emit(event)
                                 publishedDraft += event.text
+                                visibleDraft = publishedDraft
                             }
                         }
                         ProviderEvent.Completed -> completed = true

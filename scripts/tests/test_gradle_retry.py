@@ -30,7 +30,19 @@ class GradleRetryTest(unittest.TestCase):
             self.assertEqual(['attempt'], counter.read_text().splitlines())
             child = int(pid_file.read_text())
             status = pathlib.Path(f'/proc/{child}/stat')
-            self.assertTrue(not status.exists() or status.read_text().split(') ', 1)[1].startswith('Z'))
+            # SIGKILL delivery and /proc teardown are asynchronous, even after
+            # the descendant closes stdout. Give the kernel a bounded window.
+            stopped = False
+            deadline = time.monotonic() + 1
+            while time.monotonic() < deadline:
+                try:
+                    stopped = status.read_text().split(') ', 1)[1].startswith('Z')
+                except FileNotFoundError:
+                    stopped = True
+                if stopped:
+                    break
+                time.sleep(.01)
+            self.assertTrue(stopped, 'Timed-out descendant is still running')
 
     def test_dependency_backoff_uses_the_same_total_deadline(self):
         with tempfile.TemporaryDirectory() as directory:

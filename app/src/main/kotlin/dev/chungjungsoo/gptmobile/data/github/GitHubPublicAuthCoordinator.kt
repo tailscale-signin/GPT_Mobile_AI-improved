@@ -62,6 +62,8 @@ class GitHubPublicAuthCoordinator internal constructor(
     private val pendingMutex = Mutex()
     private val credentialMutexes = java.util.concurrent.ConcurrentHashMap<String, Mutex>()
     private fun credentialMutex(uid: String) = credentialMutexes.computeIfAbsent(uid) { Mutex() }
+    private fun ToolConnection.matchesAuthorizationSnapshot(other: ToolConnection): Boolean =
+        copy(createdAt = other.createdAt, updatedAt = other.updatedAt) == other
 
     fun canAuthorize(connection: ToolConnection): Boolean = configuration.configured && connection.type == "GITHUB" && connection.authType == "OAUTH" && (connection.oauthClientId.isNullOrBlank() || connection.oauthClientId == configuration.clientId)
     fun acceptsCallback(value: String) = configuration.acceptsCallback(value)
@@ -73,7 +75,7 @@ class GitHubPublicAuthCoordinator internal constructor(
         check(canAuthorize(connection)) { "Public GitHub sign-in is not configured for this connection." }
         clientFactory().use { client ->
             val start = client.begin(connectionUid)
-            check(connections.getConnection(connectionUid) == connection) { "GitHub connection changed. Start sign-in again." }
+            check(connections.getConnection(connectionUid)?.matchesAuthorizationSnapshot(connection) == true) { "GitHub connection changed. Start sign-in again." }
             put(PENDING_REFERENCE, PendingRecord(start.pending, connection), PendingRecord.serializer())
             start.authorizationUri
         }
@@ -81,7 +83,7 @@ class GitHubPublicAuthCoordinator internal constructor(
 
     suspend fun pendingConnectionUid(): String? = pendingMutex.withLock {
         val pending = read(PENDING_REFERENCE, PendingRecord.serializer()) ?: return@withLock null
-        if (pending.authorization.expiresAt <= clock() || pending.authorization.clientId != configuration.clientId || pending.authorization.brokerOrigin != configuration.brokerOrigin || pending.authorization.callbackUri != configuration.callbackUri || connections.getConnection(pending.connection.connectionUid) != pending.connection) {
+        if (pending.authorization.expiresAt <= clock() || pending.authorization.clientId != configuration.clientId || pending.authorization.brokerOrigin != configuration.brokerOrigin || pending.authorization.callbackUri != configuration.callbackUri || connections.getConnection(pending.connection.connectionUid)?.matchesAuthorizationSnapshot(pending.connection) != true) {
             vault.delete(PENDING_REFERENCE)
             return@withLock null
         }
@@ -115,7 +117,7 @@ class GitHubPublicAuthCoordinator internal constructor(
     suspend fun complete(callback: String): Account = pendingMutex.withLock {
         val pending = read(PENDING_REFERENCE, PendingRecord.serializer()) ?: error("GitHub sign-in is no longer pending. Start again.")
         val connection = pending.connection
-        check(connections.getConnection(connection.connectionUid) == connection) { "GitHub connection changed. Start sign-in again." }
+        check(connections.getConnection(connection.connectionUid)?.matchesAuthorizationSnapshot(connection) == true) { "GitHub connection changed. Start sign-in again." }
         clientFactory().use { client ->
             try {
                 client.validateCallback(pending.authorization, callback)
@@ -136,7 +138,7 @@ class GitHubPublicAuthCoordinator internal constructor(
     }
 
     internal suspend fun completeDevice(connection: ToolConnection, clientId: String, credential: GitHubOAuthCredential): Account = credentialMutex(connection.connectionUid).withLock {
-        check(connection.type == "GITHUB" && connection.authType == "OAUTH" && connections.getConnection(connection.connectionUid) == connection && GitHubDeviceAuthClient.validClientId(clientId)) { "GitHub connection changed. Start sign-in again." }
+        check(connection.type == "GITHUB" && connection.authType == "OAUTH" && connections.getConnection(connection.connectionUid)?.matchesAuthorizationSnapshot(connection) == true && GitHubDeviceAuthClient.validClientId(clientId)) { "GitHub connection changed. Start sign-in again." }
         val account = verifyAccount(connection, credential.accessToken)
         save(connection, credential, account, clientId, "DEVICE")
         account
@@ -215,7 +217,7 @@ class GitHubPublicAuthCoordinator internal constructor(
             rotated.accessToken
         } catch (failure: Exception) {
             withContext(NonCancellable) {
-                if (connections.getConnection(connection.connectionUid) == connection && session(connection.connectionUid)?.refreshOperationId == operationId) {
+                if (connections.getConnection(connection.connectionUid)?.matchesAuthorizationSnapshot(connection) == true && session(connection.connectionUid)?.refreshOperationId == operationId) {
                     put(sessionReference(connection.connectionUid), rotating.copy(refreshState = "REAUTH_REQUIRED"), Session.serializer())
                 }
             }
@@ -225,7 +227,7 @@ class GitHubPublicAuthCoordinator internal constructor(
     }
 
     private suspend fun save(connection: ToolConnection, credential: GitHubOAuthCredential, account: Account, clientId: String = configuration.clientId, refreshMethod: String = "BROKER") = dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceMutations.mutex.withLock {
-        check(connections.getConnection(connection.connectionUid) == connection) { "GitHub connection changed before credentials could be saved. Reconnect." }
+        check(connections.getConnection(connection.connectionUid)?.matchesAuthorizationSnapshot(connection) == true) { "GitHub connection changed before credentials could be saved. Reconnect." }
         put(bindingReference(connection.connectionUid), account, Account.serializer())
         val bytes = credential.accessToken.encodeToByteArray()
         try {

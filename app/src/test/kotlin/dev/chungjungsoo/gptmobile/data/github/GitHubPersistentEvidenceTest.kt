@@ -27,6 +27,24 @@ import org.junit.Test
 class GitHubPersistentEvidenceTest {
     private val fetchCounterLock = Any()
 
+    @Test fun workflowDefinitionSelectionHonorsFilenameAndNumericWorkflowId() = runTest {
+        for (selector in listOf("build.yml", ".github/workflows/build.yml", "10")) {
+            val client = session(GitHubRepositoryStateStore(), request = { path ->
+                when {
+                    "/commits/" in path -> commit(head, headTree)
+                    "/git/trees/" in path -> tree(listOf(item(".github/workflows/build.yml", sha(1), 40), item(".github/workflows/release.yml", sha(2), 40)))
+                    "/actions/workflows/10" in path -> buildJsonObject { put("path", ".github/workflows/build.yml") }
+                    path.endsWith("/git/blobs/${sha(1)}") -> blob(sha(1), "name: Build\non: [push]\njobs: {}")
+                    else -> error("Unselected workflow must not be read: $path")
+                }
+            })
+            val result = client.execute("workflow_catalog", "owner", "repo", args("workflow_id" to JsonPrimitive(selector))).jsonObject
+            assertEquals(JsonPrimitive(".github/workflows/build.yml"), result.getValue("workflows").jsonArray.single().jsonObject["path"])
+            assertEquals(JsonPrimitive(1), result["total_count"])
+            assertEquals(JsonPrimitive("workflow_files_at_commit"), result["inventory_scope"])
+        }
+    }
+
     @Test fun previousTurnSourceReopensWithoutRebindingTheCurrentRevision() = runTest {
         val store = GitHubRepositoryStateStore()
         var latest = head

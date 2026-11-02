@@ -24,6 +24,14 @@ internal object ToolObservationRetention {
             is ToolResultContent.Text -> {
                 if (budget < 128) return ToolResultContent.Text(truncateUtf8(value.text, budget))
                 if (value.text.length <= budget / 4 || value.text.take(budget + 1).toByteArray().size <= budget && value.text.length <= budget) return value
+                // JSON transported as text must stay parseable after retention. Never
+                // append an excerpt footer inside a serialized object or array.
+                val structured = if (value.text.trimStart().firstOrNull() in setOf('{', '[')) {
+                    runCatching { kotlinx.serialization.json.Json.parseToJsonElement(value.text) }.getOrNull()
+                } else {
+                    null
+                }
+                if (structured is JsonObject || structured is JsonArray) return content(ToolResultContent.Json(structured), budget)
                 var referenceBytes = budget / 2 - 64
                 val references = Regex("https?://[^\\s<>\\\"]{1,2048}(?=[\\s<>\\\"]|$)").findAll(value.text).take(32).map { it.value }.distinct().filter {
                     val bytes = it.toByteArray().size + 1

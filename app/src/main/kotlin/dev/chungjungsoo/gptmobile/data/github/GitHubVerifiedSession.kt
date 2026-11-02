@@ -34,6 +34,19 @@ internal class GitHubVerifiedSession(
 ) : AgentProviderSession by delegate {
     override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> = flow {
         exchanges.forEach { exchange -> exchange.results.forEach { result -> exchange.calls.firstOrNull { it.callId == result.callId }?.let { evidence.observe(it, result) } } }
+        if (GitHubStatusRequest.matches(task) && tools.isNotEmpty()) {
+            val (receipts, _) = evidence.snapshot()
+            val next = GitHubStatusRequest.nextCall(tools, receipts)
+            if (next != null) {
+                emit(next)
+                emit(ProviderEvent.Completed)
+                return@flow
+            }
+            if (receipts.isNotEmpty()) {
+                emitAll(publish(null))
+                return@flow
+            }
+        }
         if (GitHubStatusRequest.matches(task)) {
             val (receipts, epoch) = evidence.snapshot()
             val hasStatusSnapshot = receipts.values.any { receipt ->
@@ -75,6 +88,10 @@ internal class GitHubVerifiedSession(
         if (failed || !completed) {
             // The runner owns retries and protocol repair. Do not turn a transient
             // failure into completion before that policy has had a chance to run.
+            if (!calls && providerFailure?.errorCode?.startsWith("GITHUB_REVIEW_") == true) {
+                emitAll(publish(null, failureCode = providerFailure.errorCode))
+                return@flow
+            }
             emit(providerFailure ?: ProviderEvent.Failed("GitHub response ended before verification. Receipts remain available.", errorCode = "GITHUB_EVIDENCE_REQUIRED"))
             return@flow
         }
@@ -90,15 +107,15 @@ internal class GitHubVerifiedSession(
             // A failed connection is not a claim-verification failure. Keep its actionable cause.
             kotlinx.coroutines.flow.flowOf(failure.copy(errorCode = "LOCAL_SERVICE_UNREACHABLE"))
         } else {
-            publish(null, terminalFallback = true)
+            publish(null, terminalFallback = true, failureCode = failure.errorCode)
         }
 
-    private fun publish(draft: String?, terminalFallback: Boolean = false): Flow<ProviderEvent> = flow {
+    private fun publish(draft: String?, terminalFallback: Boolean = false, failureCode: String? = null): Flow<ProviderEvent> = flow {
         val publication = try {
             validatePublication()
             val (receipts, epoch) = evidence.snapshot()
             val status = if (GitHubStatusRequest.matches(task)) GitHubEvidencePolicy.status(receipts, now(), epoch) else null
-            val coverage = if (draft != null && GitHubTaskCoverage.matches(task) && GitHubTaskCoverage.rows(receipts).isNotEmpty()) {
+            val coverage = if (GitHubTaskCoverage.matches(task)) {
                 withContext(computationDispatcher) {
                     GitHubEvidencePolicy.testing(receipts, now(), epoch, task)
                 }
@@ -111,10 +128,14 @@ internal class GitHubVerifiedSession(
                 progress("Verifying factual claims against exact tool receipts")
                 withContext(computationDispatcher) { verificationRequest(draft, receipts) }
             }
-            val (text, report) = status ?: coverage ?: if (request == null) partial(receipts, epoch) else extract(request, receipts, epoch)
+            val (text, report) = status ?: coverage ?: if (request == null) partial(receipts, epoch, failureCode ?: "GITHUB_EXTRACTION_UNAVAILABLE") else extract(request, receipts, epoch)
             validatePublication()
-            evidence.retainVerdict(report)
-            text to (report["partial"] == kotlinx.serialization.json.JsonPrimitive(true))
+            val partial = report["partial"] == kotlinx.serialization.json.JsonPrimitive(true)
+            val oversizedWithoutEvidence = draft != null && status == null && coverage == null && request == null && receipts.isEmpty()
+            check(!oversizedWithoutEvidence) { "No retained GitHub evidence is available for publication" }
+            val retained = if (partial && terminalFallback) JsonObject(report + ("resume_required" to kotlinx.serialization.json.JsonPrimitive(true))) else report
+            evidence.retainVerdict(retained)
+            (if (partial && terminalFallback) "**GitHub verification incomplete.**\n\n$text" else text) to partial
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: Exception) {
@@ -123,12 +144,12 @@ internal class GitHubVerifiedSession(
         }
         // Collector exceptions must propagate unchanged; they are not formatter failures.
         val (text, partial) = publication
-        if (partial) {
-            if (terminalFallback) emit(ProviderEvent.TextDelta(text))
+        if (partial && terminalFallback) {
+            emit(ProviderEvent.TextDelta(text))
             emit(
                 ProviderEvent.Failed(
                     "GitHub response verification remained incomplete. Saved receipts and the task checkpoint are available for continuation.",
-                    errorCode = "GITHUB_EVIDENCE_REQUIRED",
+                    errorCode = failureCode ?: "GITHUB_EVIDENCE_REQUIRED",
                     transportComplete = true
                 )
             )
@@ -138,8 +159,8 @@ internal class GitHubVerifiedSession(
         }
     }
 
-    private suspend fun partial(receipts: Map<String, JsonObject>, epoch: Long): Pair<String, JsonObject> = withContext(computationDispatcher) {
-        GitHubEvidencePolicy.partial(receipts, now(), epoch)
+    private suspend fun partial(receipts: Map<String, JsonObject>, epoch: Long, failureCode: String? = null): Pair<String, JsonObject> = withContext(computationDispatcher) {
+        GitHubEvidencePolicy.partial(receipts, now(), epoch, task, failureCode)
     }
 
     private suspend fun extract(request: String, receipts: Map<String, JsonObject>, epoch: Long): Pair<String, JsonObject> = try {
@@ -163,12 +184,12 @@ internal class GitHubVerifiedSession(
                 val answer = Json.parseToJsonElement(response.toString().trim()) as? JsonObject ?: error("Claim extraction was not structured")
                 GitHubEvidencePolicy.render(answer, receipts, now(), epoch, task)
             }
-        } ?: partial(receipts, epoch)
+        } ?: partial(receipts, epoch, "GITHUB_EXTRACTION_TIMEOUT")
     } catch (cancelled: CancellationException) {
         throw cancelled
     } catch (_: Exception) {
         // Permission, ledger and persistence failures remain outside this boundary.
-        partial(receipts, epoch)
+        partial(receipts, epoch, "GITHUB_EXTRACTION_INVALID_RESPONSE")
     }
 
     private fun verificationRequest(draft: String, receipts: Map<String, JsonObject>): String? {

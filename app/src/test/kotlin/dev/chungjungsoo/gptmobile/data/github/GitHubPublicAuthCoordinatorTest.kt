@@ -195,6 +195,8 @@ class GitHubPublicAuthCoordinatorTest {
         Fixture().use { f ->
             f.coordinator().begin("github")
             assertTrue(f.vault.read(GitHubPublicAuthCoordinator.PENDING_REFERENCE) != null)
+            // Database audit timestamps may advance while the durable authorization is pending.
+            f.connection = f.connection.copy(createdAt = f.connection.createdAt + 1, updatedAt = f.connection.updatedAt + 1)
             val restarted = f.coordinator()
             assertEquals("1", restarted.complete(f.validCallback()).id)
             assertEquals(null, f.vault.read(GitHubPublicAuthCoordinator.PENDING_REFERENCE))

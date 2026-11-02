@@ -333,11 +333,20 @@ internal class GitHubRepositorySession(
 
     private suspend fun workflowCatalog(context: GitHubTaskSnapshot, args: JsonObject): JsonObject {
         val tree = tree(context)
+        val requestedWorkflow = args.s("workflow_id")
+        val selectedPath = if (requestedWorkflow.toLongOrNull() != null) {
+            request("${root(context.owner, context.repo)}/actions/workflows/${GitHubWorkspaceClient.segment(requestedWorkflow)}").jsonObject.s("path")
+                .also { require(it.startsWith(".github/workflows/")) { "Workflow metadata has no repository definition path." } }
+        } else {
+            requestedWorkflow.takeIf { it.isNotBlank() }?.let { ".github/workflows/${normalizeGitHubWorkflowSelector(it)}" }
+        }
         val workflows = tree["tree"]!!.jsonArray.map { it.jsonObject }.filter {
             it.s("type") == "blob" &&
                 it.s("path").startsWith(".github/workflows/") &&
-                it.s("path").substringAfter(".github/workflows/").let { name -> '/' !in name && (name.endsWith(".yml") || name.endsWith(".yaml")) }
+                it.s("path").substringAfter(".github/workflows/").let { name -> '/' !in name && (name.endsWith(".yml") || name.endsWith(".yaml")) } &&
+                (selectedPath == null || it.s("path") == selectedPath)
         }.distinctBy { it.s("path") }.sortedBy { it.s("path") }
+        require(selectedPath == null || workflows.isNotEmpty()) { "The selected workflow has no definition at the pinned revision." }
         val cursor = args.s("index_cursor").ifBlank { "0" }.toInt().also { require(it in 0..workflows.size) }
         val selected = workflows.drop(cursor).take(4)
         val rows = selected.map { file ->
@@ -367,6 +376,7 @@ internal class GitHubRepositorySession(
             put("commit_sha", context.commitSha)
             put("workflows", JsonArray(rows))
             put("total_count", workflows.size)
+            put("inventory_scope", "workflow_files_at_commit")
             put("tree_complete", tree["truncated"]?.jsonPrimitive?.booleanOrNull != true)
             put("has_more", next < workflows.size)
             if (next < workflows.size) {
@@ -376,6 +386,7 @@ internal class GitHubRepositorySession(
                         put("action", "workflow_catalog")
                         put("commit_sha", context.commitSha)
                         put("index_cursor", next)
+                        args["workflow_id"]?.let { put("workflow_id", it) }
                     }
                 )
             }

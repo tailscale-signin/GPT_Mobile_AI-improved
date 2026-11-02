@@ -10,10 +10,13 @@ import kotlinx.serialization.json.put
 /** Historical operation coverage; never upgrades an API observation into executed test coverage. */
 internal object GitHubTaskCoverage {
     private val testing = Regex("(?i)^(?:please\\s+)?(?:test\\b|do\\s+testing\\b|run\\s+(?:all\\s+)?tests?\\b|(?:verify|validate)\\s+(?:all\\s+)?(?:tools|functionality|integrations)\\b)")
-    fun matches(task: String) = testing.containsMatchIn(task)
+    private val stress = Regex("(?i)^(?:please\\s+)?(?:(?:do|run|perform|execute)\\s+(?:a\\s+|the\\s+)?)?(?:stress[- ]?test|benchmark|load[- ]?test)\\b")
+    fun matches(task: String) = testing.containsMatchIn(task) || stress.containsMatchIn(task)
 
-    fun rows(receipts: Map<String, JsonObject>): List<JsonObject> = receipts.values
-        .filter { it["trusted"] == JsonPrimitive(true) }
+    fun rows(receipts: Map<String, JsonObject>): List<JsonObject> = receipts.entries
+        .filter { it.value["trusted"] == JsonPrimitive(true) }
+        .distinctBy { it.value.text("call_id").ifBlank { it.value.text("receipt_id").ifBlank { it.key } } }
+        .map { it.value }
         .groupBy { receipt ->
             val args = receipt["arguments"] as? JsonObject
             val tool = receipt.text("tool").substringBefore("__")
@@ -43,7 +46,7 @@ internal object GitHubTaskCoverage {
         append("**Task outcome: partial verification.** The table records observed tool operations, including failures. It does not establish that every feature or test suite passed.\n\n")
         val rows = rows(receipts)
         if (rows.isEmpty()) {
-            append("No trusted GitHub operation receipts are available for this task.\n")
+            append("**Test not executed.** No trusted GitHub operation receipts are available for this task. No success rate or timing measurement is available.\n")
         } else {
             append("| Tool / operation | Successful observations | Failed observations | Recorded errors |\n| --- | ---: | ---: | --- |\n")
             rows.forEach { row ->

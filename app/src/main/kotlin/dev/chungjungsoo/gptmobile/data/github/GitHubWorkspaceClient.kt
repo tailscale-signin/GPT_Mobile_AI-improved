@@ -307,7 +307,7 @@ class GitHubWorkspaceClient(
             }
             "get_repository" -> request(root)
             "write_capabilities" -> writeCapabilities(root)
-            "repo_status" -> repoStatus(owner, repo, root)
+            "repo_status" -> repoStatus(owner, repo, root, args)
             "list_branches" -> pageResult(request("$root/branches?$pagination"), page)
             "get_branch_head" -> request("$root/git/ref/heads/${segment(required("branch"))}")
             "browse_files" -> browseFiles(root, refQuery, field("path"), page)
@@ -445,13 +445,24 @@ class GitHubWorkspaceClient(
         }
     }
 
-    private suspend fun repoStatus(owner: String, repo: String, root: String): JsonObject {
+    private suspend fun repoStatus(owner: String, repo: String, root: String, args: JsonObject): JsonObject {
         val graphql = if (token.isNotBlank()) runCatching { repoStatusGraphQl(owner, repo) }.getOrNull() else null
-        val latestRun = runCatching { request("$root/actions/runs?per_page=1").jsonObject }.getOrNull()
+        val selectedRef = args["ref"]?.jsonPrimitive?.content ?: args["branch"]?.jsonPrimitive?.content ?: "HEAD"
+        val selectedCommit = runCatching { request("$root/commits/${segment(selectedRef)}").jsonObject }.getOrNull()
+        val selectedSha = selectedCommit?.get("sha")?.jsonPrimitive?.content
+        val runFilter = selectedSha?.let { "head_sha=${segment(it)}" } ?: "branch=${segment(selectedRef)}"
+        val latestRun = runCatching { request("$root/actions/runs?per_page=1&$runFilter").jsonObject }.getOrNull()
+        fun selectedRepository(repository: JsonObject): JsonObject = JsonObject(
+            repository - "head" + buildMap {
+                selectedSha?.let { put("head", buildJsonObject { put("sha", it) }) }
+            }
+        )
         val workflow = latestRun?.get("workflow_runs")?.jsonArray?.firstOrNull()?.jsonObject
         if (graphql != null) {
             return buildJsonObject {
-                graphql.forEach { (key, value) -> put(key, value) }
+                graphql.forEach { (key, value) -> put(key, if (key == "repository" && value is JsonObject) selectedRepository(value) else value) }
+                put("branch", selectedRef)
+                selectedSha?.let { put("commit_sha", it) }
                 workflow?.let {
                     put("latest_workflow", project(it, "id", "name", "event", "status", "conclusion", "head_branch", "head_sha", "html_url", "created_at", "updated_at"))
                 }
@@ -463,7 +474,9 @@ class GitHubWorkspaceClient(
         val issueQuery = segment("repo:$owner/$repo is:issue is:open")
         val issues = runCatching { request("/search/issues?q=$issueQuery&per_page=1").jsonObject }.getOrNull()
         return buildJsonObject {
-            put("repository", project(metadata, "full_name", "default_branch", "private", "visibility", "pushed_at", "html_url"))
+            put("repository", selectedRepository(project(metadata, "full_name", "default_branch", "private", "visibility", "pushed_at", "html_url")))
+            put("branch", selectedRef)
+            selectedSha?.let { put("commit_sha", it) }
             put("open_issue_count", issues?.get("total_count") ?: JsonNull)
             put("open_pull_requests", compactPullRequests(pulls))
             workflow?.let {

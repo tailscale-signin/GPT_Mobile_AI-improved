@@ -127,5 +127,17 @@
       "35a005434bdd413f6c0727e400537a5425f7a3ac: place the summary offset outside its test-tag semantics modifier so accessibility/test bounds follow the 300 ms downward entrance."
     ],
     "validation": "This checkpoint commit becomes the final candidate revision. All applicable workflows must complete for that exact head; older, skipped-required, cancelled, failed, pending or superseded runs do not count."
+  },
+  "ci_repair_round_4": {
+    "failed_head": "1ad0da8c5ecc2800c80874e3f544dec11f2cd57d",
+    "observed": [
+      "A durable pending GitHub sign-in could fail after process restart because full ToolConnection equality included createdAt and updatedAt audit timestamps.",
+      "The production failure was GitHubPublicAuthCoordinatorTest.processRestartCanCompletePendingSignInExactlyOnce with 'GitHub connection changed. Start sign-in again.'"
+    ],
+    "commits": [
+      "4a8b10f8d6bcde2a2ef399217b1f1c6bbc8e5554: compare authorization snapshots while ignoring only connection audit timestamps.",
+      "ce7801f611a0543acc2d7a5b1f1d6f94111e310a: cover restart completion after database timestamp churn."
+    ],
+    "validation": "The checkpoint commit becomes the final candidate revision. All applicable workflows must complete for that exact head; older, skipped-required, cancelled, failed, pending or superseded runs do not count."
   }
 }

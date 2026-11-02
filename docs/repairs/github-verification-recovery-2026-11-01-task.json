@@ -113,5 +113,19 @@
       "630d014ebc2572d48903cee0c9ce4a89b8669622: use the Dp offset overload so the 300 ms downward summary entrance changes layout and semantic bounds."
     ],
     "validation": "The checkpoint commit becomes the final candidate revision. All applicable workflows must complete for that exact head; older, skipped-required, cancelled, failed, pending or superseded runs do not count."
+  },
+  "ci_repair_round_3": {
+    "failed_head": "a2321ca89c233834d4c036c717048643b29042c4",
+    "observed": [
+      "The Dp offset changed the summary's child layout, but the test-tag semantics wrapper was still outside that offset and therefore reported stationary bounds."
+    ],
+    "failing_tests": [
+      "GitHubLiveProgressTest.repeatedSummaryStillEntersDownwardAfterOlderRowsAreTrimmed",
+      "GitHubLiveProgressTest.summaryIsWhiteAbovePreviewAndOnlyTheNewestBottomLineAnimates"
+    ],
+    "commits": [
+      "35a005434bdd413f6c0727e400537a5425f7a3ac: place the summary offset outside its test-tag semantics modifier so accessibility/test bounds follow the 300 ms downward entrance."
+    ],
+    "validation": "This checkpoint commit becomes the final candidate revision. All applicable workflows must complete for that exact head; older, skipped-required, cancelled, failed, pending or superseded runs do not count."
   }
 }

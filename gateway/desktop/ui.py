@@ -56,6 +56,7 @@ def show(root):
             status.set('Start Gateway to see its status.')
         window.after(2000, refresh)
     def save():
+        nonlocal cfg
         try:
             updated = dict(cfg)
             for name, variable in values.items():
@@ -63,6 +64,7 @@ def show(root):
             updated = validate(updated)
             startup_registration(root, updated['start_at_login'])
             atomic_json(root / 'settings.json', updated)
+            cfg = updated
             messagebox.showinfo('Settings saved', 'Settings saved. Restart when your active work is complete.')
         except Exception as error:
             messagebox.showerror('Check settings', str(error))

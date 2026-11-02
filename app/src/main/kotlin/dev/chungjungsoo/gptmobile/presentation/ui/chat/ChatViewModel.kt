@@ -2365,10 +2365,13 @@ class ChatViewModel @Inject constructor(
             check(debugMode.value) { "Enable Debug mode to export diagnostic conversation data." }
             val credentials = _platformsInApp.value.mapNotNull { it.token }
             withContext(Dispatchers.IO) {
-                CompactDebugBundle.write(directory, _chatRoom.value.id,
+                CompactDebugBundle.write(
+                    directory,
+                    _chatRoom.value.id,
                     dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.entries.value.asSequence().map { entry ->
                         (dev.chungjungsoo.gptmobile.data.diagnostics.redactChatDebugData(
-                            kotlinx.serialization.json.JsonPrimitive(entry.line()), credentials
+                            kotlinx.serialization.json.JsonPrimitive(entry.line()),
+                            credentials
                         ) as kotlinx.serialization.json.JsonPrimitive).content
                     }
                 )

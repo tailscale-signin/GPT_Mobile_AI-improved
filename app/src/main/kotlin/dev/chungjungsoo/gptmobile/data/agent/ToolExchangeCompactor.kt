@@ -6,8 +6,8 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.intOrNull
 
 /**
  * Builds a bounded replay view of tool exchanges for subsequent model rounds.
@@ -106,12 +106,14 @@ internal object ToolExchangeCompactor {
         var length = minOf(text.length, (maxCharacters - JsonObject(metadata).toString().length - 100).coerceAtLeast(0))
         while (true) {
             if (length in 1 until text.length && text[length - 1].isHighSurrogate() && text[length].isLowSurrogate()) length--
-            val compact = JsonObject(metadata + mapOf(
-                "saved_work" to JsonPrimitive(text.take(length)),
-                "next_offset" to JsonPrimitive(offset + length),
-                "complete" to JsonPrimitive(false),
-                "replay_truncated" to JsonPrimitive(true)
-            ))
+            val compact = JsonObject(
+                metadata + mapOf(
+                    "saved_work" to JsonPrimitive(text.take(length)),
+                    "next_offset" to JsonPrimitive(offset + length),
+                    "complete" to JsonPrimitive(false),
+                    "replay_truncated" to JsonPrimitive(true)
+                )
+            )
             if (compact.toString().length <= maxCharacters || length == 0) return ToolResultContent.Json(compact)
             length /= 2
         }

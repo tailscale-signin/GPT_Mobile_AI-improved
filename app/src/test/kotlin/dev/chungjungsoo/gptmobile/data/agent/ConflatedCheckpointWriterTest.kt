@@ -15,7 +15,10 @@ class ConflatedCheckpointWriterTest {
         val writer = ConflatedCheckpointWriter<Int>(this, minimumIntervalMillis = 500) { committed += it }
         writer.offer(0)
         runCurrent()
-        repeat(100) { writer.offer(it + 1); runCurrent() }
+        repeat(100) {
+            writer.offer(it + 1)
+            runCurrent()
+        }
         assertEquals(listOf(0), committed)
         advanceTimeBy(500)
         runCurrent()

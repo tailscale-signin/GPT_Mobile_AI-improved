@@ -12,9 +12,16 @@ class CompactDebugBundleTest {
         val directory = Files.createTempDirectory("compact-export").toFile()
         try {
             var consumed = 0
-            val file = CompactDebugBundle.write(directory, 22, sequence {
-                repeat(2000) { consumed++; yield("redacted record $it") }
-            })
+            val file = CompactDebugBundle.write(
+                directory,
+                22,
+                sequence {
+                    repeat(2000) {
+                        consumed++
+                        yield("redacted record $it")
+                    }
+                }
+            )
             assertEquals(2000, consumed)
             ZipFile(file).use { zip ->
                 val manifest = zip.getInputStream(zip.getEntry("manifest.json")).bufferedReader().use { it.readText() }
@@ -33,10 +40,16 @@ class CompactDebugBundleTest {
     @Test fun failedExportPublishesNothingAndCleansStaging() {
         val directory = Files.createTempDirectory("compact-export-failure").toFile()
         try {
-            val failure = runCatching { CompactDebugBundle.write(directory, 22, sequence {
-                yield("first")
-                error("storage unavailable")
-            }) }.exceptionOrNull()
+            val failure = runCatching {
+                CompactDebugBundle.write(
+                    directory,
+                    22,
+                    sequence {
+                        yield("first")
+                        error("storage unavailable")
+                    }
+                )
+            }.exceptionOrNull()
             assertEquals("storage unavailable", failure?.message)
             assertTrue(directory.listFiles().orEmpty().isEmpty())
         } finally {

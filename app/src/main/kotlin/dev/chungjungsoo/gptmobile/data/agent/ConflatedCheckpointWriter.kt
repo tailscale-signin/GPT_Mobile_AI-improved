@@ -14,7 +14,9 @@ internal class ConflatedCheckpointWriter<T>(
     private val minimumIntervalMillis: Long = 0,
     private val write: suspend (T) -> Unit
 ) {
-    init { require(minimumIntervalMillis >= 0) }
+    init {
+        require(minimumIntervalMillis >= 0)
+    }
     private data class Pending<T>(val value: T, val queuedAt: Long)
     private val queue = Channel<Pending<T>>(Channel.CONFLATED)
     private val failure = AtomicReference<Throwable?>()

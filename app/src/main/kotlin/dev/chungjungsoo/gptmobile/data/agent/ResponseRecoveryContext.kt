@@ -351,26 +351,43 @@ internal class ResponseRecoveryContext(
             val page = runCatching { corpus.read(offset, length, evidenceId) }.getOrElse {
                 return AgentToolResult(
                     callId,
-                    ToolResultContent.Json(buildJsonObject {
-                        put("message", "Invalid saved evidence ID or offset. Use an exact record ID below, or restart the corpus at offset=0. Nothing was dispatched.")
-                        put("corpus_revision", corpus.revision)
-                        put("records", JsonArray(corpus.records.take(32).map { record -> buildJsonObject {
-                            put("evidence_id", record.id)
-                            put("kind", record.kind)
-                            put("characters", record.text.length)
-                            put("aliases", JsonArray(record.aliases.take(4).map(::JsonPrimitive)))
-                        } }))
-                        put("correction_call", buildJsonObject {
-                            put("tool", definition.name)
-                            put("arguments", buildJsonObject {
-                                put("offset", 0)
-                                put("length", length)
-                                put("corpus_revision", corpus.revision)
-                                corpusReference?.let { put("corpus_reference", it) }
-                            })
-                        })
-                    }),
-                    true, dispatched = false, errorCode = "INVALID_ARGUMENTS"
+                    ToolResultContent.Json(
+                        buildJsonObject {
+                            put("message", "Invalid saved evidence ID or offset. Use an exact record ID below, or restart the corpus at offset=0. Nothing was dispatched.")
+                            put("corpus_revision", corpus.revision)
+                            put(
+                                "records",
+                                JsonArray(
+                                    corpus.records.take(32).map { record ->
+                                        buildJsonObject {
+                                            put("evidence_id", record.id)
+                                            put("kind", record.kind)
+                                            put("characters", record.text.length)
+                                            put("aliases", JsonArray(record.aliases.take(4).map(::JsonPrimitive)))
+                                        }
+                                    }
+                                )
+                            )
+                            put(
+                                "correction_call",
+                                buildJsonObject {
+                                    put("tool", definition.name)
+                                    put(
+                                        "arguments",
+                                        buildJsonObject {
+                                            put("offset", 0)
+                                            put("length", length)
+                                            put("corpus_revision", corpus.revision)
+                                            corpusReference?.let { put("corpus_reference", it) }
+                                        }
+                                    )
+                                }
+                            )
+                        }
+                    ),
+                    true,
+                    dispatched = false,
+                    errorCode = "INVALID_ARGUMENTS"
                 )
             }
             return AgentToolResult(

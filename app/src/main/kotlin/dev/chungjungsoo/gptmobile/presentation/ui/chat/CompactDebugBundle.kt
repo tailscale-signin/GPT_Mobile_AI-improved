@@ -16,9 +16,10 @@ internal object CompactDebugBundle {
         try {
             ZipOutputStream(staging.outputStream().buffered()).use { zip ->
                 zip.putNextEntry(ZipEntry("manifest.json"))
-                zip.write(("{\"schema\":\"gptmobile.compact-diagnostics.v1\",\"chatId\":$chatId," +
+                val manifest = "{\"schema\":\"gptmobile.compact-diagnostics.v1\",\"chatId\":$chatId," +
                     "\"capturedFully\":false,\"reason\":\"JAVA_HEAP_PRESSURE\"," +
-                    "\"scope\":\"recent_app_logs_only\",\"omitted\":[\"conversation\",\"tool_receipts\",\"research\",\"profiles\"]}").toByteArray(Charsets.UTF_8))
+                    "\"scope\":\"recent_app_logs_only\",\"omitted\":[\"conversation\",\"tool_receipts\",\"research\",\"profiles\"]}"
+                zip.write(manifest.toByteArray(Charsets.UTF_8))
                 zip.closeEntry()
                 zip.putNextEntry(ZipEntry("recent-app-logs.txt"))
                 val writer = zip.bufferedWriter(Charsets.UTF_8, 4096)

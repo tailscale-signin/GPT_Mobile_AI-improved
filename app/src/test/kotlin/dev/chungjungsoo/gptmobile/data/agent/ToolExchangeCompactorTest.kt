@@ -2,8 +2,8 @@ package dev.chungjungsoo.gptmobile.data.agent
 
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -13,15 +13,21 @@ class ToolExchangeCompactorTest {
     @Test fun compactSavedPageRetainsRevisionAndResumesAtFirstOmittedCharacter() {
         val text = "Retained evidence 😀 ".repeat(2000)
         val call = ProviderEvent.ToolCall("read", "read_recovery_context", buildJsonObject { put("offset", 100) })
-        val result = AgentToolResult("read", ToolResultContent.Json(buildJsonObject {
-            put("corpus_revision", "revision")
-            put("evidence_id", "record")
-            put("offset", 100)
-            put("next_offset", 100 + text.length)
-            put("total_characters", 100 + text.length)
-            put("complete", true)
-            put("saved_work", text)
-        }), false)
+        val result = AgentToolResult(
+            "read",
+            ToolResultContent.Json(
+                buildJsonObject {
+                    put("corpus_revision", "revision")
+                    put("evidence_id", "record")
+                    put("offset", 100)
+                    put("next_offset", 100 + text.length)
+                    put("total_characters", 100 + text.length)
+                    put("complete", true)
+                    put("saved_work", text)
+                }
+            ),
+            false
+        )
         val replay = ToolExchangeCompactor.compact(listOf(AgentToolExchange(listOf(call), listOf(result))), 1000, 400)
         val page = (replay.single().results.single().content as ToolResultContent.Json).value as JsonObject
         val retained = (page.getValue("saved_work") as JsonPrimitive).content

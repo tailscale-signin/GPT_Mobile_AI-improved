@@ -28,42 +28,11 @@ internal class GitHubOperationTool(
     override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
         val started = System.nanoTime()
         val previous = synchronized(rejectedCalls) { rejectedCalls[arguments] }
-        val first = previous?.copy(callId = callId, sharedResult = true) ?: executeOperation(callId, arguments)
-        val correction = ((first.content as? ToolResultContent.Json)?.value as? JsonObject)?.get("correction_call") as? JsonObject
-        val corrected = correction?.get("arguments") as? JsonObject
-        // Replace the argument object, never merge invalid fresh-read fields into a saved-page read.
-        // executeNormalized validates the cursor and its credential/connection/chat scope again.
-        val result = if (previous == null &&
-            first.isError &&
-            !first.dispatched &&
-            first.errorCode == "INVALID_ARGUMENTS" &&
-            correction?.get("tool") == JsonPrimitive(definition.name) &&
-            corrected?.keys == setOf("view_cursor") &&
-            corrected != arguments &&
-            corrected["view_cursor"] == arguments["view_cursor"]
-        ) {
-            val replacement = executeNormalized(callId, corrected)
-            replacement.copy(
-                executionReceipt = JsonObject(
-                    replacement.executionReceipt.orEmpty() + buildJsonObject {
-                        put(
-                            "precheck_rejection",
-                            buildJsonObject {
-                                put("code", first.errorCode.orEmpty())
-                                put("dispatched", false)
-                                put("retryable", false)
-                                put("arguments", arguments)
-                                put("correction_call", requireNotNull(correction))
-                            }
-                        )
-                        put("corrected_arguments", corrected)
-                        put("correction_attempts", 1)
-                    }
-                )
-            )
-        } else {
-            first
-        }
+        // Reuse an identical pre-dispatch rejection so a provider cannot spin on
+        // the same invalid call. Never execute the suggested correction on its
+        // behalf: saved-view selectors are an authorization boundary, and only
+        // the caller can submit the exact cursor-only correction.
+        val result = previous?.copy(callId = callId, sharedResult = true) ?: executeOperation(callId, arguments)
         if (result.isError && !result.dispatched && result.errorCode == "INVALID_ARGUMENTS") {
             synchronized(rejectedCalls) {
                 rejectedCalls[arguments] = result

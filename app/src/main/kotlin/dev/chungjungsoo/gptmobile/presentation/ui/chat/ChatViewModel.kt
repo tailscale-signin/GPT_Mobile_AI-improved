@@ -2369,10 +2369,11 @@ class ChatViewModel @Inject constructor(
                     directory,
                     _chatRoom.value.id,
                     dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.entries.value.asSequence().map { entry ->
-                        (dev.chungjungsoo.gptmobile.data.diagnostics.redactChatDebugData(
+                        val redacted = dev.chungjungsoo.gptmobile.data.diagnostics.redactChatDebugData(
                             kotlinx.serialization.json.JsonPrimitive(entry.line()),
                             credentials
-                        ) as kotlinx.serialization.json.JsonPrimitive).content
+                        )
+                        (redacted as kotlinx.serialization.json.JsonPrimitive).content
                     }
                 )
             }

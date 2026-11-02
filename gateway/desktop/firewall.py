@@ -22,7 +22,7 @@ def apply(root, remove=False):
         cfg = load(root)
         if cfg['access'] != 'network':
             raise ValueError('Choose a network listen address and save settings first')
-    powershell = str(Path(os.environ['SystemRoot']) / 'System32/WindowsPowerShell/v1.0/powershell.exe')
+    powershell = os.path.join(os.environ['SystemRoot'], 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
     args = ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File',
             str(Path(__file__).with_name('Firewall.ps1')), '-RuleName', rule_name(root)]
     args += ['-Remove'] if remove else ['-Port', str(cfg['port']), '-BindAddress', cfg['bind_host']]

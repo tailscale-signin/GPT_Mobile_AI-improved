@@ -4,6 +4,9 @@ import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.buildJsonObject
 
 /**
@@ -74,6 +77,7 @@ internal object ToolExchangeCompactor {
                         if (raw.length <= maxChars) result else result.copy(content = GitHubReplayRecovery.compact(result.content, maxChars) ?: result.content)
                     result.isError && exchangeIndex < exchanges.lastIndex ->
                         result.copy(content = ToolResultContent.Text(compactText(raw, minOf(maxChars, 480))))
+                    recoveryPage(result.content) != null -> result.copy(content = compactRecoveryPage(requireNotNull(recoveryPage(result.content)), maxChars))
                     raw.length <= maxChars -> result
                     else -> result.copy(content = ToolResultContent.Text(compactText(raw, maxChars)))
                 }
@@ -86,6 +90,31 @@ internal object ToolExchangeCompactor {
         // call/result pairs newest-first and evict older pairs. This makes maxReplayTokens
         // an actual upper bound instead of a warning threshold.
         return if (estimateTokens(compacted) <= hardBudget) compacted else hardBound(compacted, hardBudget)
+    }
+
+    private fun recoveryPage(content: ToolResultContent): JsonObject? =
+        (content as? ToolResultContent.Json)?.value?.let { it as? JsonObject }?.takeIf {
+            it["saved_work"] is JsonPrimitive && it["corpus_revision"] != null && it["next_offset"] != null
+        }
+
+    /** Keep the exact unread offset when compacting a saved page; never skip its omitted tail. */
+    private fun compactRecoveryPage(page: JsonObject, maxCharacters: Int): ToolResultContent {
+        if (page.toString().length <= maxCharacters) return ToolResultContent.Json(page)
+        val text = (page["saved_work"] as JsonPrimitive).content
+        val offset = (page["offset"] as? JsonPrimitive)?.intOrNull ?: return ToolResultContent.Json(page)
+        val metadata = page - "saved_work"
+        var length = minOf(text.length, (maxCharacters - JsonObject(metadata).toString().length - 100).coerceAtLeast(0))
+        while (true) {
+            if (length in 1 until text.length && text[length - 1].isHighSurrogate() && text[length].isLowSurrogate()) length--
+            val compact = JsonObject(metadata + mapOf(
+                "saved_work" to JsonPrimitive(text.take(length)),
+                "next_offset" to JsonPrimitive(offset + length),
+                "complete" to JsonPrimitive(false),
+                "replay_truncated" to JsonPrimitive(true)
+            ))
+            if (compact.toString().length <= maxCharacters || length == 0) return ToolResultContent.Json(compact)
+            length /= 2
+        }
     }
 
     private fun hardBound(exchanges: List<AgentToolExchange>, hardBudget: Int): List<AgentToolExchange> {

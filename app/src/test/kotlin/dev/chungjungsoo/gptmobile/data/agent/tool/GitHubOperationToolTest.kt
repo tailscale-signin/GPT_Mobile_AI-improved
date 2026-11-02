@@ -33,6 +33,33 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubOperationToolTest {
+    @Test fun prPageSizeAndReadOnlySearchAliasesReachTheirAdvertisedBackend() = runBlocking {
+        val observed = mutableListOf<JsonObject>()
+        val backend = object : AgentTool {
+            override val definition = AgentToolDefinition("github", "backend", buildJsonObject {})
+            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+                observed += arguments
+                return AgentToolResult(callId, ToolResultContent.Json(buildJsonObject { put("ok", true) }), false)
+            }
+        }
+        val pr = GitHubOperationTool("github_pr", backend, "diagnostic-contract")
+        val input = args("""{"action":"list","per_page":50,"page":2}""")
+        valid("github_pr", input)
+        assertFalse(pr.execute("list", input).isError)
+        assertEquals(JsonPrimitive(50), observed.last()["per_page"])
+        assertEquals(JsonPrimitive("list_pull_requests"), observed.last()["action"])
+        val search = GitHubOperationTool("github_search", backend, "diagnostic-contract")
+        for (action in listOf("search", "search_repository", "search_code")) {
+            val query = args("""{"action":"$action","query":"checkpoint","commit_sha":"$sha"}""")
+            valid("github_search", query)
+            assertFalse(search.execute(action, query).isError)
+            assertEquals(JsonPrimitive("search_repository"), observed.last()["action"])
+        }
+        val before = observed.size
+        assertTrue(search.execute("unsafe", args("""{"action":"delete","query":"checkpoint"}""")).isError)
+        assertEquals(before, observed.size)
+    }
+
     @Test fun missingPinnedPathProvidesDiscoveryInsteadOfAnotherGuessedRead() = runBlocking {
         val backend = object : AgentTool {
             override val definition = AgentToolDefinition("github", "backend", buildJsonObject {})

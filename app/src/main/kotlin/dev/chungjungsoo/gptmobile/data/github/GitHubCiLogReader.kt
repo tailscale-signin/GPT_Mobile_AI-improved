@@ -34,6 +34,7 @@ internal class GitHubCiLogReader(private val client: HttpClient, private val tok
                     val host = target.host.lowercase()
                     require(host == "api.github.com" || host.endsWith(".githubusercontent.com") || host.endsWith(".blob.core.windows.net") || host.endsWith(".amazonaws.com")) { "CI log redirect is outside GitHub artifact storage." }
                     scheduler.recordRequest()
+                    GitHubDispatchAccounting.started(mutation = false)
                     val response = network.get(url) {
                         header(HttpHeaders.UserAgent, "GPT-Mobile-App")
                         if (host == "api.github.com") {
@@ -42,6 +43,7 @@ internal class GitHubCiLogReader(private val client: HttpClient, private val tok
                             if (token.isNotBlank()) header(HttpHeaders.Authorization, "Bearer $token")
                         }
                     }
+                    GitHubDispatchAccounting.responded(mutation = false, status = response.status.value)
                     val channel = response.bodyAsChannel()
                     try {
                         if (response.status.value in setOf(301, 302, 303, 307, 308)) {

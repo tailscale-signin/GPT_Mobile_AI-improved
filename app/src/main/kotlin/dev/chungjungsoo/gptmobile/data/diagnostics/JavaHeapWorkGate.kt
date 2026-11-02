@@ -24,12 +24,12 @@ object JavaHeapWorkGate {
     val activeOperations: String get() = operations.values.sorted().joinToString(",")
     val headroomBytes: Long get() = (runtime.maxMemory() - (runtime.totalMemory() - runtime.freeMemory())).coerceAtLeast(0)
 
-    suspend fun <T> run(operation: String, block: suspend () -> T): T {
+    suspend fun <T> run(operation: String, minimumHeadroomBytes: Long? = null, block: suspend () -> T): T {
         // A reader can invoke an extractor without acquiring the same permit twice.
         if (currentCoroutineContext()[Permit] != null) return block()
         return permits.withPermit {
             currentCoroutineContext().ensureActive()
-            val required = maxOf(16 * MIB, runtime.maxMemory() / 8)
+            val required = minimumHeadroomBytes?.coerceAtLeast(MIB) ?: maxOf(16 * MIB, runtime.maxMemory() / 8)
             if (headroomBytes < required) throw JavaHeapWorkDeferred()
             val id = sequence.incrementAndGet()
             operations[id] = operation.take(96)

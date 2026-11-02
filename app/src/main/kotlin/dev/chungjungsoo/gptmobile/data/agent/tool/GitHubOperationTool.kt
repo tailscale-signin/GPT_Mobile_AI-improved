@@ -469,6 +469,7 @@ internal class GitHubOperationTool(
                     properties["include_patches"] = field("boolean")
                 }
                 "github_search" -> {
+                    properties["action"] = choice("search", "search_repository", "search_code")
                     properties["path_prefix"] = field("string")
                     properties["query"] = buildJsonObject {
                         put("type", "string")
@@ -643,7 +644,8 @@ internal class GitHubOperationTool(
                         )
                     }
                     properties["draft"] = field("boolean")
-                    properties["page"] = field("integer")
+                    properties["per_page"] = integer(1, 100, "Pull requests per page; default 20.")
+                    properties["page"] = integer(1, 1000)
                     properties["check_page"] = field("integer")
                     properties["include_patches"] = field("boolean")
                     properties["include_files"] = field("boolean")

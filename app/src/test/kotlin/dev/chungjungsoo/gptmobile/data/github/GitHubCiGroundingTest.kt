@@ -8,6 +8,7 @@ import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
 import io.ktor.http.HttpStatusCode
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
@@ -23,6 +24,27 @@ class GitHubCiGroundingTest {
         is ToolResultContent.Json -> value.value.jsonObject
         is ToolResultContent.Text -> json(value.text)
         else -> error("No source")
+    }
+
+    @Test fun missingLogIsRecordedAsSentReadWithHttpStatus() = runTest {
+        val http = HttpClient(MockEngine { respond("missing", HttpStatusCode.NotFound) })
+        val accounting = GitHubDispatchAccounting()
+        try {
+            withContext(accounting) {
+                val failure = runCatching {
+                    GitHubCiLogReader(http, "token", GitHubRequestScheduler(), GitHubResponseCache())
+                        .read("/repos/a/r/actions/jobs/9/logs", false)
+                }.exceptionOrNull()
+                assertTrue(failure?.message.orEmpty().contains("404"))
+            }
+            val result = accounting.finish(AgentToolResult("logs", ToolResultContent.Text("missing"), true, dispatched = false), mutation = false)
+            assertTrue(result.dispatched)
+            assertEquals("READ_FAILED", result.executionReceipt?.get("phase")?.jsonPrimitive?.content)
+            assertEquals("1", result.executionReceipt?.get("read_requests")?.jsonPrimitive?.content)
+            assertEquals("404", result.executionReceipt?.get("http_status")?.jsonPrimitive?.content)
+        } finally {
+            http.close()
+        }
     }
 
     @Test fun runStatusRejectsUnrelatedWorkflowAndRevision() = runTest {

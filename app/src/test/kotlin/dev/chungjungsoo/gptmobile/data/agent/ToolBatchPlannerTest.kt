@@ -1,11 +1,21 @@
 package dev.chungjungsoo.gptmobile.data.agent
 
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ToolBatchPlannerTest {
+    @Test fun savedEvidencePaginationDoesNotConsumeTheSameInvocationRepeatLimit() {
+        val first = ProviderEvent.ToolCall("first", "read_recovery_context", buildJsonObject { put("offset", 0) })
+        val next = first.copy(callId = "next", arguments = buildJsonObject { put("offset", 8000) })
+        val plan = planToolBatch(listOf(first, next), 40, setOf(first.name), mapOf(toolRepeatKey(first) to 3), emptySet(), 24) { it.name }
+        assertEquals(listOf(next), plan.executable)
+        assertEquals(setOf(first.callId), plan.perToolSuppressedIds)
+    }
+
     @Test fun retainedCallsAfterQueuedCallsDoNotIncreaseFreshDispatchCapacity() {
         val calls = listOf("fresh-1", "fresh-2", "retained").map { ProviderEvent.ToolCall(it, "write", JsonObject(emptyMap())) }
         val plan = planToolBatch(calls, 1, setOf("write"), emptyMap(), emptySet(), 24, setOf("retained")) { it.name }

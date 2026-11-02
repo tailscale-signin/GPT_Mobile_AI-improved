@@ -747,7 +747,7 @@ class AgentRunCoordinator @Inject constructor(
                 withContext(Dispatchers.Default) { journal.traceOutput(request.runId, dev.chungjungsoo.gptmobile.data.diagnostics.OutputTraceBoundary.REDUCER, message.content, fence = message.ownershipFence) }
             }
         }
-        fun newCheckpoints() = ConflatedCheckpointWriter<MessageV2>(this) { snapshot ->
+        fun newCheckpoints() = ConflatedCheckpointWriter<MessageV2>(this, minimumIntervalMillis = 500) { snapshot ->
             traceReducedOutput(snapshot)
             chatRepository.updateAgentMessage(snapshot)
         }

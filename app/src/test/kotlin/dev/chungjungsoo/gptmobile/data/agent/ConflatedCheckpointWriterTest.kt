@@ -2,6 +2,7 @@ package dev.chungjungsoo.gptmobile.data.agent
 
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -9,6 +10,21 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ConflatedCheckpointWriterTest {
+    @Test fun fastDatabaseStillCoalescesTokenUpdatesAndFlushesLatestAtDrain() = runTest {
+        val committed = mutableListOf<Int>()
+        val writer = ConflatedCheckpointWriter<Int>(this, minimumIntervalMillis = 500) { committed += it }
+        writer.offer(0)
+        runCurrent()
+        repeat(100) { writer.offer(it + 1); runCurrent() }
+        assertEquals(listOf(0), committed)
+        advanceTimeBy(500)
+        runCurrent()
+        assertEquals(listOf(0, 100), committed)
+        writer.offer(101)
+        writer.drain()
+        assertEquals(listOf(0, 100, 101), committed)
+    }
+
     @Test fun slowWritesKeepOnlyNewestPendingSnapshotAndDrainBeforeTerminal() = runTest {
         val release = CompletableDeferred<Unit>()
         val committed = mutableListOf<String>()

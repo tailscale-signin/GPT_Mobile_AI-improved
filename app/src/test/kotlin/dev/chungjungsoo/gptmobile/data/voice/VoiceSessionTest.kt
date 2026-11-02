@@ -163,8 +163,12 @@ class VoiceSessionTest {
         session.close()
         listener.final("Late")
         old?.invoke()
+        session.mute()
+        session.speaker()
+        session.mute()
         session.resume()
         assertEquals(listOf("Hello"), prompts)
+        assertEquals(2, audio.listeners.size)
         assertTrue(audio.closed)
         assertEquals(VoicePhase.CLOSED, session.state.phase)
     }

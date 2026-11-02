@@ -131,6 +131,7 @@ class VoiceSession(
     }
 
     fun mute() {
+        if (state.phase == VoicePhase.CLOSED) return
         update(state.copy(muted = !state.muted))
         if (state.phase == VoicePhase.SPEAKING || state.phase == VoicePhase.THINKING) return
         if (state.muted) {
@@ -141,6 +142,7 @@ class VoiceSession(
         }
     }
     fun speaker() {
+        if (state.phase == VoicePhase.CLOSED) return
         update(state.copy(speaker = !state.speaker))
         if (!state.speaker && state.phase == VoicePhase.SPEAKING) resume()
     }

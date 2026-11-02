@@ -27,5 +27,20 @@
     "intent": "Validate Gateway/voice changes together with GitHub verification recovery; retain pidfd exit observation when integrating the older /proc timeout-test repair.",
     "main_sha": "2ae52c78ddae2a5470d8a0ee7dc93b6a9101f65a",
     "validation": "285-test host validation passed on the combined source tree; all relevant CI must pass on the published candidate."
+  },
+  "follow_up_review": {
+    "starting_head": "8f30edeaf6e06559a66f33f207377633b281a455",
+    "intent": "Keep a closed voice session terminal after microphone/speaker interactions; retain useful Windows test-timeout diagnostics without increasing deadlines or retrying test failures.",
+    "validation": {
+      "focused_voice": "16 Kotlin/JUnit tests passed, including three Robolectric speech-adapter tests",
+      "host_fast": "287 tests and all preflight checks passed",
+      "gateway": "313 Python passed, one local LAN-interface skip; seven browser tests passed"
+    },
+    "windows_timeout": {
+      "observed_job": 125047514046,
+      "older_head": "fb23aab21098626cd8a76c60224e644cf9fb9b9c",
+      "result": "The Windows Python 3.13 v14 suite exceeded 120 seconds with partial test output hidden. Gateway stability passed at subsequent head 8f30edeaf6e06559a66f33f207377633b281a455; no production root cause established.",
+      "change": "Verbose test identity, scheduled thread traceback before the unchanged deadline, and preserved partial output on timeout. Timeout remains a failed suite."
+    }
   }
 }

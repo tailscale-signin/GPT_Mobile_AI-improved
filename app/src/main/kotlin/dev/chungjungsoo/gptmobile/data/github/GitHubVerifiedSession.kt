@@ -159,7 +159,7 @@ internal class GitHubVerifiedSession(
             )
             evidence.retainVerdict(retained)
             val cause = originalFailure?.let { "**Task interrupted:** ${it.message}\n\n" }.orEmpty()
-            Triple(cause + text, partial, (report["failure_code"] as? kotlinx.serialization.json.JsonPrimitive)?.content?.takeUnless { it == "null" })
+            Publication(cause + text, partial, retained)
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: Exception) {
@@ -167,9 +167,11 @@ internal class GitHubVerifiedSession(
             return@flow
         }
         // Collector exceptions must propagate unchanged; they are not formatter failures.
-        val (text, partial, extractionCode) = publication
+        val (text, partial, report) = publication
+        emit(ProviderEvent.TextDelta(text))
+        evidence.retainVerdict(JsonObject(report + ("response_delivered" to kotlinx.serialization.json.JsonPrimitive(true))))
+        val extractionCode = (report["failure_code"] as? kotlinx.serialization.json.JsonPrimitive)?.content?.takeUnless { it == "null" }
         if (partial) {
-            emit(ProviderEvent.TextDelta(text))
             emit(
                 ProviderEvent.Failed(
                     originalFailure?.message ?: "Partial response delivered. The requested task remains incomplete; saved receipts and the task checkpoint are available for continuation.",
@@ -180,10 +182,11 @@ internal class GitHubVerifiedSession(
                 )
             )
         } else {
-            emit(ProviderEvent.TextDelta(text))
             emit(ProviderEvent.Completed)
         }
     }
+
+    private data class Publication(val text: String, val partial: Boolean, val report: JsonObject)
 
     private suspend fun partial(receipts: Map<String, JsonObject>, epoch: Long, failureCode: String? = null): Pair<String, JsonObject> = withContext(computationDispatcher) {
         GitHubEvidencePolicy.partial(receipts, now(), epoch, task, failureCode)

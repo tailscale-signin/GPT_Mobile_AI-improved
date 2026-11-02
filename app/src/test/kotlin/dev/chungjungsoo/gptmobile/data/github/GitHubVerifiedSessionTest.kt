@@ -75,6 +75,7 @@ class GitHubVerifiedSessionTest {
         assertEquals("PARTIAL", terminal.taskOutcome)
         assertTrue(events.filterIsInstance<ProviderEvent.TextDelta>().single().text.contains(failure.message))
         val report = reports.last()
+        assertEquals(JsonPrimitive(true), report["response_delivered"])
         assertTrue(report.toString().contains("inspect checks and recent changes"))
         assertTrue(report.toString().contains("original_failure"))
     }

@@ -134,7 +134,8 @@ internal object GitHubEvidencePolicy {
             put("claims", JsonArray(checked))
             put("completion_verified", false)
             put("partial", true)
-            put("response_delivered", true)
+            put("response_prepared", true)
+            put("response_delivered", false)
             put("claims_verified", checked.isNotEmpty() && checked.all { it.string("status") == "VERIFIED" })
             put("task_outcome", "PARTIAL")
             put("task", task)
@@ -293,7 +294,7 @@ internal object GitHubEvidencePolicy {
             "Recent commits" to observed("github_context", "commits") { it["commit_sha"] == currentSha && it["items"] is JsonArray },
             "Open pull requests (draft/ready)" to observed("github_pr", "list") { it["items"] is JsonArray },
             "Checks and statuses for the current commit" to observed("github_context", "checks") { currentSha != null && it["commit_sha"] == currentSha && "checks" in it && "statuses" in it },
-            "Latest workflow" to claims.keys.any { it.endsWith("/latest_workflow/head_sha") }
+            "Latest workflow" to listOf("head_sha", "head_branch", "status").all { field -> claims.keys.any { it.endsWith("/latest_workflow/$field") } }
         )
         val missing = coverage.filterValues { !it }.keys
         val coverageRows = coverage.map { (item, available) ->

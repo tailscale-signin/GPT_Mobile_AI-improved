@@ -1,10 +1,17 @@
 package dev.chungjungsoo.gptmobile.data.agent.tool
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubOperationToolSelectionTest {
+    @Test fun statusAliasesExposeTheCompleteBoundedReadCatalog() {
+        for (task in listOf("status", "status of repo", "github status")) {
+            assertEquals(setOf("github_context", "github_pr"), GitHubOperationTool.taskTools(task))
+        }
+    }
+
     @Test
     fun commitRequestsExposeCommitAndWriteTools() {
         listOf(

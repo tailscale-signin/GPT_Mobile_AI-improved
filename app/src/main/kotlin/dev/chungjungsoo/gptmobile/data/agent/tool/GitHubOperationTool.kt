@@ -435,6 +435,7 @@ internal class GitHubOperationTool(
         }
 
         fun taskTools(task: String): Set<String> {
+            if (dev.chungjungsoo.gptmobile.data.github.GitHubStatusRequest.matches(task)) return linkedSetOf("github_context", "github_pr")
             val text = task.lowercase(java.util.Locale.ROOT).replace("github_pull_request", "github_pr")
             val explicitlyNamed = names.filter { name ->
                 Regex("(?<![a-z0-9_])" + Regex.escape(name) + "(?:__[a-z0-9_-]+)?(?![a-z0-9_])").containsMatchIn(text)

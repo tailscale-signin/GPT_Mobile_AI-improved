@@ -1748,6 +1748,12 @@ class ChatRepositoryImpl(
             send(ApiState.Error("GitHub chat can dispatch only its selected AI profile."))
             return@channelFlow
         }
+        val greeting = userMessages.lastOrNull()
+        if (chatToolConfig?.github != null && stage == null && greeting?.attachments.isNullOrEmpty() && dev.chungjungsoo.gptmobile.data.github.GitHubStatusRequest.isGreeting(greeting?.content.orEmpty())) {
+            send(ApiState.Success("Hello! How can I help?"))
+            send(ApiState.Done)
+            return@channelFlow
+        }
         val retainedPersonalContext = preparePersonalDataContext(userMessages, assistantMessages, chatToolConfig)
         val repositoryHistory = chatToolConfig?.github?.let { github ->
             dev.chungjungsoo.gptmobile.data.github.GitHubPersonalContextIsolation.project(userMessages, assistantMessages, github.connectionUid, retainedPersonalContext.snapshot(), platform.isPrivateDestination())

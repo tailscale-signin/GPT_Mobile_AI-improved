@@ -53,3 +53,11 @@ This document is the reviewable implementation checkpoint. Runtime recovery cont
 - Release-scope validation is already inconsistent at the selected main baseline: its October 31 base omits later main changes from allowedPaths. This patch does not rewrite historical release qualification or bypass that gate.
 
 - CI identified a stale architecture index after adding the new sources; the branch now includes the generated refresh. Broader regressions also verified invalid cursor byte ceilings, the four-blob default with full continuation/cache coverage, and the ordinary schema ceiling (997 estimated tokens in that test).
+
+## CI repair after c3cdf4e4d4a52954d17c6c8c6a2b23f856f1010e
+
+The complete Android unit-test job reported 6,004 tests, 84 failures and four skips. The retained failures identify two regressions introduced by this branch: serialization inferred `SortedMap` for normalized plugin settings, and OpenAI/Groq adapters emitted finish-reason usage already owned by their assembler. The preparation failure propagated through ordinary chat, Combined runs and provider-wait recovery; the earlier host runner harness does not cover those Android repository integration paths.
+
+The policy projection now builds an ordered JSON object of effective nondefault grants directly, without polymorphic JVM map serialization. It preserves opt-in grants and explicit revocations while making explicit defaults and insertion order immaterial. Focused host regressions cover empty and sorted-map inputs, default equivalence, serializable output, grants and revocations; both pass. An integration regression exercises `ConfiguredDispatchAuthority.policyFields` with actual feature settings. Existing exact event-sequence tests in `ProviderAdaptersTest` retain one terminal usage event and exact tool-call identity; duplicate adapter emissions were removed rather than weakening those assertions.
+
+Repair validation: the two focused JVM policy tests and all 287 fast host checks pass. Changed-file formatting, architecture index and whitespace checks pass. The full Android CI suite is rerun on the repair commit; its eventual result must be read from that commit's checks rather than inferred from these host results.

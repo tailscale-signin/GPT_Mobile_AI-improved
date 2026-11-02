@@ -17,6 +17,11 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ConfiguredDispatchAuthorityTest {
+    @Test fun policyFieldsSerializeNonDefaultPluginGrantsWithoutSortedMapPolymorphism() {
+        val settings = AppFeatureSettings(toolPluginStates = sortedMapOf("second" to false, "first" to false))
+        assertEquals("{\"first\":false,\"second\":false}", ConfiguredDispatchAuthority.policyFields(settings, "p", 1).getValue("tools").toString())
+    }
+
     @Test fun explicitToolDefaultsDoNotInvalidateAnActiveRequestButRevocationsDo() {
         val before = AppFeatureSettings()
         val defaults = before.copy(toolPluginStates = mapOf("news" to before.isToolPluginEnabled("news")))

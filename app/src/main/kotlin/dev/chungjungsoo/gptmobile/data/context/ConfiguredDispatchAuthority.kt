@@ -121,7 +121,7 @@ internal object ConfiguredDispatchAuthority {
             put("plugins", Json.encodeToJsonElement(features.pluginExecution))
             // Persisting an explicit default is not a permission change. Keep
             // every nondefault grant/revocation, including opt-in services.
-            put("tools", Json.encodeToJsonElement(features.toolPluginStates.filter { (id, enabled) -> enabled != (id !in dev.chungjungsoo.gptmobile.data.model.ToolPluginId.optInServices) }.toSortedMap()))
+            put("tools", ToolPluginPolicyProjection.project(features.toolPluginStates, dev.chungjungsoo.gptmobile.data.model.ToolPluginId.optInServices))
             put("remoteMcp", features.remoteMcpConnections)
             put("location", features.deviceLocationTool)
             put("assist", features.localAssist)

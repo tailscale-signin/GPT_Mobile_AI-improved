@@ -65,6 +65,10 @@ jobs:
         timeout-minutes: 10
         run: python3 scripts/check_model_configuration_cache.py
 
+      - name: Provision verified Robolectric runtimes
+        timeout-minutes: 10
+        run: python3 scripts/provision_robolectric_sdks.py
+
       # Cold compilation consumed about 15 minutes of the old 25-minute test
       # deadline. Bound compilation separately so the complete suite can finish.
       - name: Compile unit tests in a separate process

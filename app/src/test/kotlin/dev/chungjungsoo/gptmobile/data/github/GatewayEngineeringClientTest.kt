@@ -27,6 +27,21 @@ class GatewayEngineeringClientTest {
         followRedirects = false
     }
 
+    @Test fun directNetworkIpAndHostnameDoNotRequireCredentials() = runTest {
+        for (host in listOf("192.168.1.100", "my-pc.local", "[fd00::10]")) {
+            val direct = ProviderRequestConfig("http://$host:8090/v1", null)
+            http(
+                MockEngine { request ->
+                    assertEquals("http://$host:8090/v1/gateway/engineering/capabilities", request.url.toString())
+                    assertNull(request.headers["Authorization"])
+                    respond("""{"enabled":true,"principal_id":"network:shared"}""", HttpStatusCode.OK)
+                }
+            ).use { http ->
+                assertEquals("network:shared", GatewayEngineeringClient(http).principal(direct))
+            }
+        }
+    }
+
     @Test fun unsupportedInferenceEndpointIsCachedSeparatelyFromAnotherGatewayIdentity() = runTest {
         var calls = 0
         http(

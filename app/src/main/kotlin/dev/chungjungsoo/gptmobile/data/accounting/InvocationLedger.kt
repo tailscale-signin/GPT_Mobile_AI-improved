@@ -146,6 +146,11 @@ class InvocationLedger @Inject constructor(
         return (saved.associateBy { it.id } + active.value.filterKeys { it in ids }).values.toList()
     }
 
+    internal suspend fun measuredRunUsage(turnKey: String, runId: String): RunTokenUsage? {
+        val records = dao.forRootBudget(turnKey).filter { it.parentRunId == runId }
+        return records.takeIf { it.isNotEmpty() }?.let { RunTokenUsage.from(it) }
+    }
+
     /** Product statistics are available independently of diagnostic logging. */
     fun usageForChat(chatId: Int): Flow<List<ModelInvocation>> = combine(dao.observeForChat(chatId), active) { saved, live ->
         val scoped = live.values.filter { it.turnKey.substringBefore(':') == chatId.toString() || saved.any { row -> row.id == it.id } }

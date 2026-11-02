@@ -204,6 +204,18 @@ class V13IntegrationTests(_IntegrationBase):
         self.gateway.app.middleware_stack = None
         self.temp.cleanup()
 
+    def test_context_guard_requires_runtime_allocation_not_training_capacity(self):
+        response = Mock(ok=True)
+        response.json.return_value = {'model': {'n_ctx_train': 131072}}
+        with patch.object(self.gateway, 'context_props_cache', {}), patch.object(self.gateway, 'http_get', return_value=response), patch.object(self.gateway, 'CONTEXT_GUARD_ENABLED', True):
+            with self.assertRaises(GatewayContractError) as failure:
+                self.gateway.apply_context_guard({'model': 'fixture'}, 'chat', 'hello', 1)
+            self.assertEqual('context_capacity_unverified', failure.exception.code)
+        response.json.return_value = {'default_generation_settings': {'n_ctx': 8192}, 'model': {'n_ctx_train': 131072}}
+        with patch.object(self.gateway, 'context_props_cache', {}), patch.object(self.gateway, 'http_get', return_value=response):
+            self.assertEqual(8192, self.gateway.get_llama_context_limit('fixture'))
+            self.assertTrue(self.gateway.context_props_cache['fixture']['verified'])
+
     def test_empty_answer_synthesis_is_bounded_and_never_claims_verified_research(self):
         body = request()
         empty = Mock(status_code=200, ok=True)

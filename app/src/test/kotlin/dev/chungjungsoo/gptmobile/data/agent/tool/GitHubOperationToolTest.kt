@@ -276,6 +276,21 @@ class GitHubOperationToolTest {
         assertTrue(context.promptContext().contains("GitHub workspace: owner/repo\nBranch: feature"))
     }
 
+    @Test fun unchangedPrecheckRejectionReusesFailureHistoryWithoutDispatch() = runBlocking {
+        val backend = Backend()
+        val tool = GitHubOperationTool("github_read", backend, "task")
+        val invalid = args("""{"view_cursor":"not-a-cursor"}""")
+        val first = tool.execute("first", invalid)
+        val replay = tool.execute("retry", invalid)
+        assertTrue(first.isError)
+        assertTrue(replay.isError)
+        assertFalse(first.sharedResult)
+        assertTrue(replay.sharedResult)
+        assertFalse(replay.dispatched)
+        assertEquals("retry", replay.callId)
+        assertTrue(backend.calls.isEmpty())
+    }
+
     @Test fun numericViewCursorExplainsRecoveryWithoutDispatch() = runBlocking {
         val backend = Backend()
         val operation = GitHubOperationTool("github_read", backend, "invalid-cursor")
@@ -298,9 +313,10 @@ class GitHubOperationToolTest {
         clock = 18 * 60_000L
         assertFalse(read.execute("active-again", cursor).isError)
         val mixed = read.execute("mixed", JsonObject(cursor + ("commit_sha" to JsonPrimitive(sha))))
-        assertEquals("INVALID_ARGUMENTS", mixed.errorCode)
+        assertFalse(mixed.isError)
         assertFalse(mixed.dispatched)
-        val correction = (mixed.content as ToolResultContent.Json).value.jsonObject.getValue("correction_call").jsonObject
+        assertEquals(cursor, mixed.executionReceipt?.get("corrected_arguments"))
+        val correction = mixed.executionReceipt!!.getValue("precheck_rejection").jsonObject.getValue("correction_call").jsonObject
         assertEquals(cursor, correction.getValue("arguments"))
         assertEquals("github_read", correction.getValue("tool").jsonPrimitive.content)
         clock = 29 * 60_000L
@@ -324,9 +340,11 @@ class GitHubOperationToolTest {
         assertTrue(saved.sharedResult)
         for (changed in listOf("owner" to JsonPrimitive("other"), "repo" to JsonPrimitive("other"), "commit_sha" to JsonPrimitive("b".repeat(40)), "action" to JsonPrimitive("merge"))) {
             val refused = tool.execute("wrong-${changed.first}", JsonObject(matching + changed))
-            assertEquals("INVALID_ARGUMENTS", refused.errorCode)
+            assertFalse(refused.isError)
             assertFalse(refused.dispatched)
-            assertEquals(cursor, (refused.content as ToolResultContent.Json).value.jsonObject.getValue("correction_call").jsonObject.getValue("arguments"))
+            assertTrue(refused.sharedResult)
+            assertEquals(cursor, refused.executionReceipt?.get("corrected_arguments"))
+            assertEquals(JsonPrimitive(1), refused.executionReceipt?.get("correction_attempts"))
         }
         val foreign = GitHubOperationTool("github_pr", backend, "other-task", views = views).execute("foreign", matching)
         assertEquals("SAVED_VIEW_UNAVAILABLE", foreign.errorCode)

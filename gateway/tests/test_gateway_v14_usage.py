@@ -60,6 +60,25 @@ class UsageTests(unittest.TestCase):
         self.assertEqual((response, 10), runtime.post_llama_model_round({}))
         runtime.logger.warning.assert_called_once()
 
+    def test_tray_snapshot_keeps_measured_usage_and_activity_together(self):
+        from v14.activity import ActivityTracker, desktop_snapshot
+        from desktop.dashboard_model import read_snapshot, rows
+        from desktop.configuration import atomic_json
+        self.store.record({'usage': {'completion_tokens': 250}})
+        tracker = ActivityTracker(now=lambda: self.now)
+        activity_id = tracker.begin('search', 'web__search')
+        tracker.finish(activity_id, 'completed')
+        runtime = SimpleNamespace(gateway_usage=self.store, GATEWAY_DURABLE_JOBS=False)
+        snapshot = desktop_snapshot(runtime, SimpleNamespace(snapshot=lambda: {'activeWorkers': 0}), tracker)
+        root = Path(self.temp.name)
+        atomic_json(root / 'dashboard.json', snapshot)
+        atomic_json(root / 'status.json', {'state': 'running'})
+        displayed = read_snapshot(root, now=self.now)
+        self.assertTrue(displayed['fresh'])
+        self.assertEqual(250, displayed['usage']['outputTokens'])
+        self.assertEqual('web__search', rows(displayed, 'Search jobs')[0]['title'])
+        self.assertEqual(7, len(displayed['usage']['days']))
+
     def test_recent_activity_does_not_expose_prompt_or_result_content(self):
         runtime = SimpleNamespace(gateway_usage=self.store, job_registry_lock=threading.RLock(), job_registry={
             'job': {'job_id': 'job', 'mode': 'repo', 'model': 'local', 'status': 'running', 'updated_at': self.now,

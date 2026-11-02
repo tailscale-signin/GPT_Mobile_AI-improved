@@ -231,6 +231,21 @@ class GitHubWorkspaceClient(
                 buildJsonObject {
                     result.forEach { (key, value) -> put(key, value) }
                     put("commit_sha", pinned)
+                    put(
+                        "recent_commits",
+                        buildJsonArray {
+                            items.jsonArray.take(5).forEach { raw ->
+                                val item = raw.jsonObject
+                                add(
+                                    buildJsonObject {
+                                        put("sha", item["sha"] ?: JsonNull)
+                                        put("subject", item["commit"]?.jsonObject?.get("message")?.jsonPrimitive?.content.orEmpty().lineSequence().firstOrNull().orEmpty().take(240))
+                                        put("committed_at", item["commit"]?.jsonObject?.get("committer")?.jsonObject?.get("date") ?: JsonNull)
+                                    }
+                                )
+                            }
+                        }
+                    )
                     val commits = items.jsonArray.map { it.jsonObject }
                     val loaded = commits.map { it["sha"]?.jsonPrimitive?.content.orEmpty() }.toSet()
                     put(
@@ -458,10 +473,22 @@ class GitHubWorkspaceClient(
             }
         )
         val workflow = latestRun?.get("workflow_runs")?.jsonArray?.firstOrNull()?.jsonObject
+        val availability = buildJsonObject {
+            put("current_ref", if (selectedSha == null) "Current ref could not be resolved" else "observed")
+            put(
+                "latest_workflow",
+                when {
+                    latestRun == null -> "Workflow read was unavailable"
+                    workflow == null -> "No workflow run was returned for the selected ref"
+                    else -> "observed"
+                }
+            )
+        }
         if (graphql != null) {
             return buildJsonObject {
                 graphql.forEach { (key, value) -> put(key, if (key == "repository" && value is JsonObject) selectedRepository(value) else value) }
                 put("branch", selectedRef)
+                put("status_availability", availability)
                 selectedSha?.let { put("commit_sha", it) }
                 workflow?.let {
                     put("latest_workflow", project(it, "id", "name", "event", "status", "conclusion", "head_branch", "head_sha", "html_url", "created_at", "updated_at"))
@@ -476,6 +503,7 @@ class GitHubWorkspaceClient(
         return buildJsonObject {
             put("repository", selectedRepository(project(metadata, "full_name", "default_branch", "private", "visibility", "pushed_at", "html_url")))
             put("branch", selectedRef)
+            put("status_availability", availability)
             selectedSha?.let { put("commit_sha", it) }
             put("open_issue_count", issues?.get("total_count") ?: JsonNull)
             put("open_pull_requests", compactPullRequests(pulls))

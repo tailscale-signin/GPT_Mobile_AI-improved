@@ -5,6 +5,30 @@ import sys
 from pathlib import Path
 
 
+def run_suite(root, pattern, timeout=120):
+    # Print the blocked test and all Python thread stacks before the hard
+    # deadline. Keep the deadline and failure result, including on Windows.
+    runner = ('import faulthandler,runpy; '
+              f'faulthandler.dump_traceback_later({max(1, timeout - 20)}); '
+              'runpy.run_module("unittest", run_name="__main__")')
+    try:
+        result = subprocess.run([sys.executable, '-u', '-c', runner, 'discover', '-v', '-s', str(root / 'tests'), '-p', pattern],
+                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, encoding='utf-8', timeout=timeout,
+                                env=dict(os.environ, PYTHONIOENCODING='utf-8'))
+    except subprocess.TimeoutExpired as error:
+        output = error.output or ''
+        if isinstance(output, bytes):
+            output = output.decode('utf-8', errors='replace')
+        print(f'{pattern}: FAILED (suite exceeded {timeout}s)', flush=True)
+        print(output, flush=True)
+        return False
+    summary = [line for line in result.stdout.splitlines() if line.startswith(('Ran ', 'OK', 'FAILED'))]
+    print(pattern + ': ' + '; '.join(summary), flush=True)
+    if result.returncode:
+        print(result.stdout, flush=True)
+    return result.returncode == 0
+
+
 def main():
     sys.stdout.reconfigure(encoding='utf-8')
     sys.stderr.reconfigure(encoding='utf-8')
@@ -13,13 +37,7 @@ def main():
     suites = [p.name for p in sorted((root / 'tests').glob('test_gateway_*.py')) if not p.name.startswith('test_gateway_v14')]
     suites.append('test_gateway_v14*.py')
     for pattern in suites:
-        result = subprocess.run([sys.executable, '-m', 'unittest', 'discover', '-s', str(root / 'tests'), '-p', pattern],
-                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, encoding='utf-8', timeout=120,
-                                env=dict(os.environ, PYTHONIOENCODING='utf-8'))
-        summary = [line for line in result.stdout.splitlines() if line.startswith(('Ran ', 'OK', 'FAILED'))]
-        print(pattern + ': ' + '; '.join(summary), flush=True)
-        if result.returncode:
-            print(result.stdout)
+        if not run_suite(root, pattern):
             failures.append(pattern)
     result = subprocess.run(['node', '--test', str(root / 'tests/test_gateway_browser_bridge.mjs')], timeout=30)
     if result.returncode:

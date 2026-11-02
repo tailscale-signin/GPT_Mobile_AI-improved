@@ -474,6 +474,25 @@ fun ToolConnectionsScreen(
             }
         if (pluginSettingsDestination(plugin) == PluginSettingsDestination.DEEP_RESEARCH) {
             DeepResearchSettingsScreen(onClose = { pluginSettings = null })
+        } else if (pluginSettingsDestination(plugin) == PluginSettingsDestination.VOICE) {
+            AlertDialog(
+                onDismissRequest = { pluginSettings = null },
+                title = { Text("Voice Chat") },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Text("Enable Voice Chat", Modifier.weight(1f))
+                            Switch(
+                                checked = features.isToolPluginEnabled(ToolPluginId.VOICE_CHAT),
+                                onCheckedChange = { viewModel.setPluginEnabled(ToolPluginId.VOICE_CHAT, it) }
+                            )
+                        }
+                        Text("Open Voice Chat beside New Chat and choose an AI profile. Microphone, speaker and interruption controls are available during the conversation.")
+                        Text("Microphone access is requested when you open a voice session. Audio stops when you leave the screen or background the app. Android speech services may use the network.")
+                    }
+                },
+                confirmButton = { TextButton(onClick = { pluginSettings = null }) { Text("Close") } }
+            )
         } else if (plugin == null || pluginSettingsDestination(plugin) == PluginSettingsDestination.UNAVAILABLE) {
             AlertDialog(
                 onDismissRequest = { pluginSettings = null },

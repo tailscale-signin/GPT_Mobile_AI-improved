@@ -98,11 +98,15 @@ def install_usage(runtime):
     runtime.post_llama_model_round = measured
 
 
-def dashboard_snapshot(runtime):
+def usage_snapshot(runtime):
     try:
-        usage = runtime.gateway_usage.snapshot()
+        return runtime.gateway_usage.snapshot()
     except (AttributeError, OSError, sqlite3.Error):
-        usage = {'available': False, 'outputTokens': None, 'tokensPerSecond': None, 'days': []}
+        return {'available': False, 'outputTokens': None, 'tokensPerSecond': None, 'days': []}
+
+
+def dashboard_snapshot(runtime):
+    usage = usage_snapshot(runtime)
     with runtime.job_registry_lock:
         jobs = sorted(runtime.job_registry.values(), key=lambda job: job.get('updated_at') or 0, reverse=True)[:8]
         # Never expose prompts, tool arguments, credentials or generated text here.

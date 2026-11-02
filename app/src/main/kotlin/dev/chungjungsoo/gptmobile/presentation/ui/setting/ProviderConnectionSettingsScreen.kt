@@ -198,6 +198,11 @@ fun ProviderConnectionSettingsScreen(
                                 value = apiUrl,
                                 onValueChange = { apiUrl = it },
                                 label = { Text("API HTTP Base URL") },
+                                supportingText = if (connection.compatibleType == ClientType.LLAMA) {
+                                    { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.gateway_network_connection_hint)) }
+                                } else {
+                                    null
+                                },
                                 leadingIcon = { Icon(Icons.Rounded.Link, contentDescription = null) },
                                 modifier = Modifier.fillMaxWidth(),
                                 singleLine = true,

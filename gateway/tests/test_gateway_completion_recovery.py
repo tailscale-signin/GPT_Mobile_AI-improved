@@ -86,6 +86,20 @@ class CompletionRecoveryTests(unittest.TestCase):
         config.update(options)
         return post_chat(session, "http://backend", body or payload(), **config)
 
+    def test_private_backend_first_output_is_not_publication_latency(self):
+        progress = []
+        stream = lines({'choices': [{'delta': {'reasoning_content': 'private'}, 'finish_reason': None}]},
+                       {'choices': [{'delta': {'content': 'Answer'}, 'finish_reason': 'stop'}]},
+                       {'choices': [], 'usage': {'prompt_tokens': 2, 'completion_tokens': 3}})
+        data = self.run_chat(Session(Response(stream=stream)), progress=progress.append).json()
+        first = [event for event in progress if event['event'] == 'backend_first_output']
+        self.assertEqual(1, len(first))
+        self.assertFalse(first[0]['user_visible'])
+        self.assertIsNotNone(data['gateway_timing']['backend_first_output_ms'])
+        self.assertIsNone(data['gateway_timing']['first_user_visible_text_ms'])
+        self.assertLessEqual(data['gateway_timing']['backend_first_output_ms'], data['gateway_timing']['backend_completion_ms'])
+        self.assertNotIn('private', json.dumps(progress))
+
     def test_single_tool_policy_does_not_mutate_caller(self):
         body = payload()
         original = copy.deepcopy(body)

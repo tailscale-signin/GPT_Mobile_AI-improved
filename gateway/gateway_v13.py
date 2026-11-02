@@ -12645,7 +12645,6 @@ def _extract_numeric_n_ctx(
             "n_ctx",
             "slot_n_ctx",
             "context_size",
-            "n_ctx_train",
         )
 
         for key in preferred:
@@ -12701,6 +12700,7 @@ def get_llama_context_limit(
 
         if (
             cached
+            and cached.get("verified", False)
             and now - cached[
                 "at"
             ]
@@ -12742,6 +12742,7 @@ def get_llama_context_limit(
             f"{e}"
         )
 
+    verified = bool(n_ctx)
     if not n_ctx:
         n_ctx = CONTEXT_FALLBACK_N_CTX
 
@@ -12753,6 +12754,8 @@ def get_llama_context_limit(
                 now,
             "n_ctx":
                 int(n_ctx),
+            "verified": verified,
+            "source": "backend_props" if verified else "configured_fallback",
         }
 
     return int(
@@ -13508,6 +13511,10 @@ def apply_context_guard(payload, workflow_profile, user_text, round_number, prog
     if not CONTEXT_GUARD_ENABLED:
         return {"changed": False, "tokens": None, "n_ctx": None}
     n_ctx = get_llama_context_limit(payload.get("model"))
+    with context_props_cache_lock:
+        capacity = context_props_cache.get(str(payload.get("model") or "default"), {})
+    if not capacity.get("verified"):
+        raise GatewayContractError("The active backend context allocation could not be confirmed through /props. Check the backend connection before retrying.", "context_capacity_unverified", 503)
     report = fit_context(payload, n_ctx, lambda candidate: count_chat_input_tokens(candidate, prefer_exact=True),
                          default_output=CONTEXT_DEFAULT_MAX_TOKENS, emergency=emergency)
     if report["changed"]:

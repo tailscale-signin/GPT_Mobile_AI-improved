@@ -256,7 +256,8 @@ class OpenAIAPIImpl @Inject constructor(
                                     error = ErrorDetail(
                                         message = if (free?.acceptsUserToken == true || response.status.value !in setOf(401, 402, 403)) config.readableProviderError(errorMessage, response.status.value.toString()) else errorMessage,
                                         type = config.freeDiagnostics?.category?.name ?: "http_error",
-                                        code = response.status.value.toString(),
+                                        code = (structuredProviderFailure(errorBody)?.get("code") as? kotlinx.serialization.json.JsonPrimitive)?.content ?: response.status.value.toString(),
+                                        failureDetails = structuredProviderFailure(errorBody),
                                         providerLimit = providerLimitDecision(config, request.model, receivedAssistantPayload || receivedGatewayToolActivity, FreeProviderException(config.freeDiagnostics?.category ?: FreeFailureCategory.REQUEST_INVALID, "HTTP ${response.status.value}"))
                                     )
                                 )
@@ -406,7 +407,7 @@ class OpenAIAPIImpl @Inject constructor(
                             val chunk = decoded.error?.let { error ->
                                 val category = providerPayloadFailure(error.code, error.message, preparedRequest.toolChoice, !preparedRequest.tools.isNullOrEmpty())
                                 config.freeDiagnostics?.category = category
-                                decoded.copy(error = error.copy(message = "${category.name}: " + config.readableProviderError(providerErrorDetails(data, error.message, config.token), error.code), type = category.name.lowercase()))
+                                decoded.copy(error = error.copy(message = "${category.name}: " + config.readableProviderError(providerErrorDetails(data, error.message, config.token), error.code), type = category.name.lowercase(), failureDetails = structuredProviderFailure(data)))
                             } ?: decoded
                             val observedChunk = chunk.copy(reasoningControlReceipt = reasoningControlReceipt)
                             if (free != null && !chunk.model.isNullOrBlank() && resolvedFreeModel != chunk.model) {
@@ -493,7 +494,7 @@ class OpenAIAPIImpl @Inject constructor(
             if (e is CancellationException || e is dev.chungjungsoo.gptmobile.data.agent.ToolDefinitionsRejectedException) throw e
             LocalServiceHealth.recordLocalFailure(config.apiUrl, e)
             val errorMessage = if (e.message.orEmpty().startsWith("LOCAL_SERVICE_UNREACHABLE:")) {
-                e.message.orEmpty() + ". Local server offline or unreachable; check the server/Tailscale and use Test connection to retry immediately."
+                e.message.orEmpty() + ". Local server offline or unreachable; check the server listen address, port and firewall, then use Test connection to retry immediately."
             } else {
                 when (e) {
                     is java.net.UnknownHostException -> config.freeProvider?.let { "${it.displayName}: DNS could not resolve ${java.net.URI(it.apiUrl).host}. Check this provider's availability and your connection; no alternate host was contacted." } ?: "Network error: Unable to resolve host."
@@ -655,7 +656,7 @@ class OpenAIAPIImpl @Inject constructor(
             if (e is CancellationException || e is dev.chungjungsoo.gptmobile.data.agent.ToolDefinitionsRejectedException) throw e
             LocalServiceHealth.recordLocalFailure(config.apiUrl, e)
             val errorMessage = if (e.message.orEmpty().startsWith("LOCAL_SERVICE_UNREACHABLE:")) {
-                e.message.orEmpty() + ". Local server offline or unreachable; check the server/Tailscale and use Test connection to retry immediately."
+                e.message.orEmpty() + ". Local server offline or unreachable; check the server listen address, port and firewall, then use Test connection to retry immediately."
             } else {
                 when (e) {
                     is java.net.UnknownHostException -> "Network error: Unable to resolve host."

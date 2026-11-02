@@ -1,0 +1,87 @@
+# Gateway key-free network listener
+
+Repository: tailscale-signin/GPT_Mobile_AI-improved
+Base: main at 83afa7f113b29ad050c21d5bde5ea55da6dae602
+Working branch: feat/gateway-network-listener-no-tailscale-2026-11-01
+Starting branch head: ff34d32a52f7ffecdb8a678b4d9f60a66ab853b5
+
+## Implemented behavior
+
+- Desktop listener selects localhost, a specific IPv4/IPv6 interface, or all interfaces (`0.0.0.0` / `::`). Port and address persist across restarts. Supervisor maintenance and port-conflict checks use the selected interface.
+- Network mode is deliberately key-free (`open_network`), with `apiKeyRequired=false`. Android connects by PC IP or hostname with an empty API key. Incoming identity/forwarding/API-key headers never choose a principal or grant administrative privileges.
+- Network clients share `network:shared` job ownership; historical local/private jobs remain stored under their original principal. Network engineering requires the visible engineering option. Maintenance still uses an independent, process-local supervisor secret and rejects remote peers; users do not configure it.
+- Installer and Settings replace the Tailscale identity controls with listen-address controls. Legacy settings retain backend, port, concurrency, update policy, startup preference, MCP path, and old identity fields for recovery, but migrate to localhost. Manual legacy proxy mode remains supported on loopback only.
+- Windows Firewall is an explicit action, never part of startup or automatic updates. Its installation-specific rule allows the saved TCP port only on Private networks from LocalSubnet. Settings can reapply/remove it; uninstall removes the recorded rule through the current runtime. Administrator approval is requested by Windows only when this action is selected.
+- Android connection forms explain direct addressing and the empty API-key field. Connection Doctor recognizes open-network capability metadata; unreachable-server guidance references listener/port/firewall rather than Tailscale.
+- Exact destination IPs and configured hostname aliases are admitted. Browser origins, arbitrary DNS hosts and remote administrative/configuration/debug surfaces remain restricted.
+
+## Validation performed locally
+
+- `python3 gateway/check_gateway.py`: 304 Python tests discovered; 303 passed, one physical-LAN test skipped because this host exposes no bindable LAN IPv4 interface. Seven JavaScript browser tests passed.
+- The socket integration test started the real gateway on `0.0.0.0`, connected without Authorization, restarted from persisted settings, and confirmed the shared-network capability and manager-only maintenance boundary.
+- `bash scripts/validate-local.sh fast`: passed, including 285 host regression tests, dependency/CI/secret policy checks, Android regex checks, resources and diff whitespace.
+- ktlint on all changed Kotlin files: passed.
+- Targeted Android Gradle tests were attempted but could not start: Gradle 9.8.0 download failed with `Network is unreachable`. This host has JDK 17 and no Android SDK 37, so it cannot establish Android build success.
+
+## Target-environment gates
+
+The Windows workflow runs the network tests, builds the actual Inno Setup/PyInstaller package, then exercises the frozen key-free listener across restarts, firewall creation/scope/removal, repair install, rollback and uninstall. These Windows checks and the Android build must be verified on the resulting PR. Physical Android-to-Windows interoperability, interactive UAC/installer accessibility and corporate firewall behavior still require target-device acceptance. No installer binary or production release is claimed by this source implementation.
+
+Anyone who can reach the open listener can use its enabled models/tools and shared network jobs. It is intended for a trusted LAN/private VPN. Public access requires a separately authenticated HTTPS proxy; TLS alone does not restrict access.
+
+
+## Review repair checkpoint
+
+Review of draft head `20c279acbfe6adf9ace5b78b437cd66fcb4d80a6` found and repaired two desktop lifecycle defects:
+
+- Firewall removal no longer requires a readable settings file, so uninstall or recovery can remove the installation-specific rule after settings corruption. A regression test covers the settings-independent removal command.
+- Repeated Settings saves retain the most recently persisted values instead of rebuilding later edits from the window's original snapshot.
+- Gateway package-integrity hashes were refreshed after these scoped source and test repairs.
+
+Fresh exact-revision CI is required for the resulting checkpoint. Older, cancelled, failed, pending, skipped-required or superseded runs do not count.
+
+
+
+## CI repair checkpoint
+
+Exact-head CI at `a440918001b3f2f796cb1705703f5d786bd508d9` exposed two environment-dependent failures:
+
+- Firewall command construction now uses `os.path.join`, so the Linux stability matrix can exercise the Windows removal path without causing `pathlib.Path` to instantiate `WindowsPath` on Linux.
+- Live Windows listener tests probe the listener itself as the configured backend, avoiding the invalid assumption that loopback port 1 always refuses immediately. The same key-free LAN, host-admission, management-secret and restart assertions remain.
+- Gateway package-integrity hashes were refreshed for the production and test repairs.
+
+Fresh exact-revision CI is required for this checkpoint. It must also be rerun after the preceding PR advances `main`; no older, cancelled, failed, pending, skipped-required or superseded run counts.
+
+## Windows live-test repair checkpoint
+
+The first Windows repair still configured the listener as its own backend, which the production safety validation correctly rejects because the backend must use a distinct port and non-loopback HTTP backends are prohibited. The live network test now starts a deterministic loopback health server on an ephemeral port, so every runner receives an immediate health response without depending on a black-holed port or creating a routing cycle. Gateway package-integrity metadata now records the exact repaired test content and its source revision.
+
+Fresh exact-revision CI is required for the resulting checkpoint. Physical Android-to-Windows connectivity and interactive installer/UAC behavior remain target-device acceptance work and are not claimed by this review.
+
+## Cross-platform firewall-path repair checkpoint
+
+Exact-head Gateway stability and repository-contract jobs exposed one remaining `pathlib.Path` reconstruction after the test switches the process into simulated Windows mode. The firewall script location now uses `os.path.dirname` and `os.path.join`, avoiding a Linux `WindowsPath` construction while preserving the same installed script target on Windows. The package manifest records the repaired production file.
+
+Fresh exact-revision CI is required; the failed and superseded runs do not count.
+
+## Cross-platform firewall rule-name repair checkpoint
+
+The remaining Linux matrix failure came from `rule_name()` constructing a new `pathlib.Path` after the test switched `os.name` to simulated Windows mode. Rule naming now normalizes `os.fspath(root)` through `os.path.abspath` and case folding, preserving deterministic installation-specific names without instantiating an incompatible `WindowsPath`. The package manifest records the exact repaired production file and source revision.
+
+Fresh exact-revision CI is required. The earlier Linux failures, successful Windows-only jobs, and all superseded runs do not count for this checkpoint.
+
+## Firewall marker-path repair checkpoint
+
+The next exact-head Linux matrix reached a later path operation: after the elevated firewall command succeeds, the marker path was still joined through a pre-existing `pathlib.Path` while Windows mode was simulated. Marker joining and idempotent removal now use `os.path.join` and `os.unlink`; the real Windows behavior is unchanged, while the cross-platform regression can complete. The package manifest records the repaired source and hash.
+
+Fresh exact-revision CI is required. The failed Linux matrix and all earlier superseded runs do not count.
+
+### Desktop dashboard implementation (2026-11-02)
+
+Continuing PR #780 on base `83afa7f113b29ad050c21d5bde5ea55da6dae602`, after reconciling branch head `7d58bbfb182aa87025407a27a45719cfbb3e0e5e`. The user expanded the request to include a themed Windows taskbar/tray dashboard. Key-free phone access remains unchanged.
+
+Implemented native notification-area icon and branded taskbar/Start-menu/optional desktop shortcuts, plus Overview, Devices, Recent activity, Search jobs and GitHub jobs views using the Android default teal/cyan/purple palette and existing robot artwork. The supervisor polls a locally authenticated metadata endpoint off the request path. ASGI observation preserves streaming and records actual socket peers; tool observation preserves return values and exceptions. Bounded activity metadata survives restart, and stale snapshots are visibly offline. The dashboard supports filtering, row details and start/restart/stop/settings. Installer stop closes desktop windows before replacement. No browser dashboard or extra GUI dependency was introduced.
+
+The Windows firewall regression test now replaces only its module's OS reference, avoiding global `os.name` mutation that made Linux pathlib construct Windows paths. Live network probes use a deterministic separate HTTP 503 backend and assert runtime health independently of model readiness.
+
+Validation before publication: network tests 14 passed/1 LAN-interface skip; dashboard behavior tests 9 passed; canonical `validate-local.sh fast` passed (285 host tests). All five Tk views were rendered under a virtual display with fixture data and row details checked. Windows CI now renders the frozen UI, saves its screenshot, checks native tray registration/cleanup, and verifies supervisor snapshots alongside existing installer/network/firewall/repair/rollback/uninstall smoke tests. Exact-head Windows/Android CI and physical phone acceptance remain pending; no production installer release is claimed.

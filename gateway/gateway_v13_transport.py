@@ -191,6 +191,7 @@ def _post_once(session, url, request, connect_timeout, idle_timeout, deadline_at
     response, watcher, last_state = None, None, None
     terminal_seen_at = None
     last_progress, last_size = 0.0, -1
+    backend_first_output_ms = None
 
     def watch():
         while not finished.wait(0.05):
@@ -206,12 +207,17 @@ def _post_once(session, url, request, connect_timeout, idle_timeout, deadline_at
             return
 
     def observed(state):
-        nonlocal last_progress, last_size, last_state, terminal_seen_at
+        nonlocal last_progress, last_size, last_state, terminal_seen_at, backend_first_output_ms
         last_state = state
         now = time.monotonic()
         if state.finish is not None and terminal_seen_at is None:
             terminal_seen_at = now
         size = state.generated_characters + len(state.calls)
+        if size > 0 and backend_first_output_ms is None:
+            backend_first_output_ms = round((now - started) * 1000, 3)
+            progress({"phase": "model_output", "event": "backend_first_output", "status": "running", "stage": "generating",
+                      "message": "Backend generation started; response is being prepared",
+                      "backend_first_output_ms": backend_first_output_ms, "user_visible": False})
         if state.received and size != last_size and (last_progress == 0.0 or now - last_progress >= 0.25):
             progress({"phase": "model_output", "event": "model_output_progress", "status": "running", "stage": "generating", "message": "Receiving model output", "elapsed_seconds": round(now - started, 3), "output_characters": state.visible_characters, "reasoning_characters": state.reasoning_characters, "tool_calls_pending": len(state.calls), "observed_output": True})
             last_progress, last_size = now, size
@@ -242,6 +248,9 @@ def _post_once(session, url, request, connect_timeout, idle_timeout, deadline_at
             raise InterruptedError("Model request cancelled.")
         if expired.is_set() or time.monotonic() >= deadline_at:
             raise GatewayContractError("Backend model deadline exceeded.", "backend_deadline_exceeded", 504)
+        data["gateway_timing"] = {"backend_first_output_ms": backend_first_output_ms,
+                                  "backend_completion_ms": round((time.monotonic() - started) * 1000, 3),
+                                  "first_user_visible_text_ms": None}
         return None, data
     except Exception as exc:
         if stopped.is_set() or cancelled():

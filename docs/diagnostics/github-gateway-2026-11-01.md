@@ -22,9 +22,9 @@ The attached diagnostic export contains 6,379 JSONL records: 3,355 events and 3,
 
 ## Desktop changes
 
-The native control centre now has Overview, General, Advanced and Add-ons, with the app's default dark teal colours and scrolling pages. The installer launches the dashboard and adds a Start menu shortcut.
+The native control centre retains the tray/taskbar dashboard from parent PR #780, with token-focused Overview, Devices, Recent activity, Search jobs and GitHub jobs. General, Advanced and Add-ons open directly from the sidebar as scrolling settings tabs in the same theme. The installer launches the dashboard and adds a Start menu shortcut.
 
-Overview contains persistent total generated tokens, today's output, seven-day token history, measured generation speed, current backend/journal health and recent jobs. It is a personal installation view, not a requests-per-second dashboard. Backend output may include reasoning; missing usage is never estimated or silently reported as zero. Counters begin with this update, persist in a separate local SQLite file and exclude cached delivery duplicates. Lost telemetry storage never fails generation. Cached data is visibly marked stale.
+Overview contains persistent total generated tokens, today's output, seven-day token history, measured generation speed, current backend health and recent jobs. It is a personal installation view, not a requests-per-second dashboard. Backend output may include reasoning; missing usage is never estimated or silently reported as zero. Counters begin with this update, persist in a separate local SQLite file and exclude cached delivery duplicates. Lost telemetry storage never fails generation. Cached data is visibly marked stale.
 
 General exposes existing connection, startup and update settings. Advanced exposes worker/chat limits and shutdown grace. Add-ons exposes GitHub engineering scope and MCP service enablement, preserving all other configuration fields and refusing stale saves. The existing MCP allowlist remains authoritative.
 
@@ -34,6 +34,24 @@ General exposes existing connection, startup and update settings. Advanced expos
 - Canonical `bash scripts/validate-local.sh fast`: passed locally.
 - Python source compilation, manifest integrity and whitespace checks: passed locally.
 - Added behavior regressions for streaming/non-streaming two-round handoffs, durable restart, missing receipts, terminal immutability, bounded required-tool repair, provider retry policy, reasoning helpers, consent dispatch, persistent measured statistics and add-on file edits.
-- Targeted Android unit tests could not start: Gradle distribution download is unavailable in this environment (only JDK 17 is installed; the repository requires JDK 21/Android SDK 37).
-- Windows installer/UI execution is not claimed locally. The existing Windows CI now runs the added desktop tests and a frozen-app UI smoke covering all four sections and minimum window size.
+- Android validation runs in CI: this environment has JDK 17 and no Android SDK; the repository requires JDK 21/Android SDK 37.
+- Windows installer/UI execution is not claimed locally. The existing Windows CI now runs the added desktop tests and frozen-app UI smoke checks covering the dashboard and all three settings sections at minimum window size.
 - Real phone-to-PC/network and model-backend interoperability still requires device testing after both gateway and Android updates.
+
+## Integration with PR #780
+
+PR #781 integrates PR #780 at `58684998abb4190159c67cd016e239dd2a527587`, merged into main as `e0a3fdca3e90d18f3b9b31e35f054a8f4fbf7037` after all applicable checks passed. The reconciliation preserves key-free listener configuration, explicit firewall actions, observed devices, search/GitHub history, tray lifetime and the opt-in Android voice plugin. One observer writes a combined usage/activity snapshot; competing snapshot writers were removed. Desktop control results return through a queue to the Tk thread. Native Windows smoke tests exercise both the dashboard and the General/Advanced/Add-ons window.
+
+## Additional diagnostic checklist
+
+The supplied five-export examination is a separate evidence set from the attached 6,379-record export above. Its counts are not combined with these records.
+
+- Every publication now derives completion from the report's task outcome and completion verification. A delivered partial answer produces a partial outcome, retains the original task and interruption cause, and leaves a resumable interrupted run. Claim verification, response delivery and task completion are separate report fields.
+- HTTP and SSE failure parsing retains the gateway's original code plus allowlisted stage, request/job identifiers, dispatch state and retryability. Claim-extraction errors remain separate from the initiating failure. Deterministic contract codes cannot trigger unchanged model-round retries.
+- Saved-page repair replaces arguments with the exact cursor-only correction once and revalidates authorization scope. The rejected call remains in the execution receipt; unchanged invalid calls reuse failure history without dispatch. Evidence uses corrected arguments, preventing a rejected commit field from creating false immutable attribution.
+- `status`, `status of repo` and `github status` share four bounded reads: current ref, SHA-bound checks/statuses, open PRs and pinned recent commits. Missing observations are explicit; workflow text is conditional and never establishes branch health. Only fresh trusted receipts can support current status.
+- Plain greetings bypass generation, review and extraction. Review/extraction use their task-specific instructions and evidence instead of repeating the entire engineering prompt. Ordinary engineering tasks retain review and verification.
+- Run totals aggregate distinct measured invocations across primary, review, extraction and recovery. Estimated/reserved values remain separate. Gateway progress measures private backend first output separately from publication, without exposing reasoning text or inventing a visible first-token measurement.
+- Context admission requires an observed runtime allocation from backend `/props`; model training context size is not accepted as allocation evidence. An unavailable allocation produces an actionable rejection before inference.
+
+Behavior regressions cover partial outcome propagation, preserved errors, greeting bypass, equivalent status planning, complete versus incomplete snapshots, cursor correction and failure-history reuse, private-pass accounting, backend timing, and active context admission. Current revision CI must pass before merge; no phone, ASUS firmware or physical backend result is inferred from unit tests.

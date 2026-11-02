@@ -81,7 +81,7 @@ internal class ResearchConnectivityGate(private val now: () -> Long = { System.n
         }
     }
 
-    /** Literal endpoints (including LAN/Tailscale IPs) do not depend on public DNS. */
+    /** Literal endpoints (including LAN/VPN IPs) do not depend on public DNS. */
     private fun dnsIndependent(host: String?): Boolean {
         val value = host?.trim()?.removePrefix("[")?.removeSuffix("]") ?: return false
         if (value.equals("localhost", true)) return true

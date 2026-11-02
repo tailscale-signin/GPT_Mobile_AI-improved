@@ -23,10 +23,53 @@ internal class GitHubOperationTool(
     override val managesExecutionBudget get() = backend.managesExecutionBudget
     override val definition = definition(operation, modelName)
     private val pagination = GitHubPaginationBoundary()
+    private val rejectedCalls = linkedMapOf<JsonObject, AgentToolResult>()
 
     override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
         val started = System.nanoTime()
-        val result = executeOperation(callId, arguments)
+        val previous = synchronized(rejectedCalls) { rejectedCalls[arguments] }
+        val first = previous?.copy(callId = callId, sharedResult = true) ?: executeOperation(callId, arguments)
+        val correction = ((first.content as? ToolResultContent.Json)?.value as? JsonObject)?.get("correction_call") as? JsonObject
+        val corrected = correction?.get("arguments") as? JsonObject
+        // Replace the argument object, never merge invalid fresh-read fields into a saved-page read.
+        // executeNormalized validates the cursor and its credential/connection/chat scope again.
+        val result = if (previous == null &&
+            first.isError &&
+            !first.dispatched &&
+            first.errorCode == "INVALID_ARGUMENTS" &&
+            correction?.get("tool") == JsonPrimitive(definition.name) &&
+            corrected?.keys == setOf("view_cursor") &&
+            corrected != arguments &&
+            corrected["view_cursor"] == arguments["view_cursor"]
+        ) {
+            val replacement = executeNormalized(callId, corrected)
+            replacement.copy(
+                executionReceipt = JsonObject(
+                    replacement.executionReceipt.orEmpty() + buildJsonObject {
+                        put(
+                            "precheck_rejection",
+                            buildJsonObject {
+                                put("code", first.errorCode.orEmpty())
+                                put("dispatched", false)
+                                put("retryable", false)
+                                put("arguments", arguments)
+                                put("correction_call", requireNotNull(correction))
+                            }
+                        )
+                        put("corrected_arguments", corrected)
+                        put("correction_attempts", 1)
+                    }
+                )
+            )
+        } else {
+            first
+        }
+        if (result.isError && !result.dispatched && result.errorCode == "INVALID_ARGUMENTS") {
+            synchronized(rejectedCalls) {
+                rejectedCalls[arguments] = result
+                if (rejectedCalls.size > 128) rejectedCalls.remove(rejectedCalls.keys.first())
+            }
+        }
         val trace = buildJsonObject {
             put("schema", "github.trace.v1")
             put("call_id", callId)

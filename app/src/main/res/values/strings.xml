@@ -90,7 +90,7 @@
     <string name="api_key">API Key</string>
     <string name="api_key_hint">sk-…</string>
     <string name="api_key_description">Enter your API key</string>
-    <string name="api_key_optional_note">API key is optional for local platforms</string>
+    <string name="api_key_optional_note">API key is optional for local platforms and open-network gateways</string>
     <string name="api_key_supporting">Stored securely on device</string>
     <string name="add_api_key">+API</string>
     <string name="remove_api_key">Remove API Key</string>
@@ -1176,4 +1176,5 @@
     <string name="github_chat_title">GitHub Chat</string>
     <string name="github_chat_description">Work on a repository with one AI profile</string>
     <string name="chat_retry_formatting">Retry formatting</string>
+    <string name="gateway_network_connection_hint">For Gateway, enter the PC IP or hostname, for example http://192.168.1.100:8090/v1. Leave the API key empty for open network access. Set the PC listener to its network IP or 0.0.0.0, then use Test connection.</string>
 </resources>

@@ -31,7 +31,7 @@ const val LOW_POWER_STREAM_PUBLISH_INTERVAL_MILLIS = 250L
 
 sealed interface ApiStateFlowOutcome {
     data object Completed : ApiStateFlowOutcome
-    data class Failed(val message: String, val providerLimit: dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision? = null, val errorCode: String? = null) : ApiStateFlowOutcome
+    data class Failed(val message: String, val providerLimit: dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision? = null, val errorCode: String? = null, val taskOutcome: String? = null) : ApiStateFlowOutcome
     data object Incomplete : ApiStateFlowOutcome
 }
 
@@ -104,6 +104,7 @@ internal suspend fun Flow<ApiState>.collectApiStateUpdates(
     var terminalError: String? = null
     var providerLimit: dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision? = null
     var errorCode: String? = null
+    var taskOutcome: String? = null
 
     try {
         withPublicationTicks(publishIntervalMillis).takeWhile { pulse ->
@@ -225,6 +226,7 @@ internal suspend fun Flow<ApiState>.collectApiStateUpdates(
                     pendingCombinedAnswer = null
                     providerLimit = chunk.providerLimit
                     errorCode = chunk.errorCode
+                    taskOutcome = chunk.taskOutcome
                     chunk.progressDeadline?.let(buffer::appendProgressDeadline)
                     chunk.recoveryBlock?.let(buffer::appendRecoveryBlock)
                     chunk.combinedFailure?.let(buffer::appendCombinedFailure)
@@ -250,7 +252,7 @@ internal suspend fun Flow<ApiState>.collectApiStateUpdates(
 
     val completedError = terminalError
     return when {
-        completedError != null -> ApiStateFlowOutcome.Failed(completedError, providerLimit, errorCode)
+        completedError != null -> ApiStateFlowOutcome.Failed(completedError, providerLimit, errorCode, taskOutcome)
         isCompletedSuccessfully && !buffer.hasResponse -> ApiStateFlowOutcome.Failed("The model finished without a visible answer. Please retry or choose another model.")
         isCompletedSuccessfully -> ApiStateFlowOutcome.Completed
         else -> ApiStateFlowOutcome.Incomplete

@@ -14,6 +14,12 @@ import org.junit.Test
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class GitHubTaskRecoveryTest {
+    @Test fun structuredContractRejectionsAreNotRetriedEvenWithTransportLanguage() {
+        for (code in listOf("client_tool_results_required", "terminal_job_not_resumable", "invalid_v14_request", "REASONING_OFF_UNSUPPORTED", "context_capacity_unverified")) {
+            assertNull(GitHubTaskRecovery.delayMillis("connection reset; HTTP 502", 0, code))
+        }
+    }
+
     @Test fun legacyUnsentValidationResultsCannotPoisonALaterCorrectedCall() = runTest {
         var rounds = 0
         var actions = 0

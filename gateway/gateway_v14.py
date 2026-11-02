@@ -1,5 +1,6 @@
 """v14 composition root over the characterized v13 execution engine."""
 import argparse
+import os
 import sys
 import re
 import asyncio
@@ -32,6 +33,7 @@ from v14.batch import install_batch
 from v14.catalog import install_catalog_cache
 from v14.browser import BOOTSTRAP_PATH, install_browser_proxy
 from v14.service import ServiceState, LoadGuard
+from v14.activity import ActivityTracker, ActivityMiddleware, desktop_snapshot
 from v14.mcp import install_mcp_resilience
 from v14.health import readiness, diagnostics
 from v14.journal import backup_database
@@ -69,30 +71,55 @@ install_batch(runtime)
 install_usage(runtime)
 service = ServiceState(config.max_workers)
 service.install(runtime)
+activity = ActivityTracker(os.getenv("GATEWAY_ACTIVITY_STATE"))
+activity.install_tools(runtime)
 engineering = EngineeringService(EngineeringStore(runtime), GitHubEngineeringBackend(runtime))
 engineering.authorized = lambda job: principal_authorized(config, job['principal'], device_store)
 engineering.backend.cancelled = lambda job_id: (engineering.store.get(job_id) or {}).get('state') == 'CANCELLED'
 app = FastAPI(title="Private Gateway 15", version=VERSION, lifespan=engineering.lifecycle(service.lifespan(runtime, config.shutdown_grace)),
               docs_url="/gateway/docs", openapi_url="/gateway/openapi.json")
 app.add_middleware(LoadGuard, config=config, state=service)
+app.add_middleware(ActivityMiddleware, tracker=activity)
 app.add_middleware(Admission, config=config)
 install_engineering_routes(app, engineering)
 from v14.maintenance import install_maintenance
 install_maintenance(app, runtime, service, engineering)
 
 
+@app.get("/gateway/admin/dashboard")
+async def dashboard_snapshot():
+    return await asyncio.to_thread(desktop_snapshot, runtime, service, activity)
+
+
 @app.post("/v1/chat/completions")
 @app.post("/chat/completions")
 async def chat(request: Request):
+    payload = None
+    stage = "request_validation"
+    def rejected(code, message, status=400, retryable=False):
+        source = payload if isinstance(payload, dict) else {}
+        job_id = request.headers.get("x-gateway-job-id") or source.get("gateway_job_id") or source.get("_gateway_job_id")
+        error = {"code": code, "failureCode": code, "message": message,
+                 "retryable": retryable, "failed_stage": stage,
+                 "dispatch_state": "not_dispatched" if stage != "model_execution" else "unknown"}
+        if isinstance(job_id, str) and len(job_id) <= 256:
+            error["job_id"] = job_id
+        request_id = request.headers.get("x-request-id")
+        if request_id and len(request_id) <= 256:
+            error["request_id"] = request_id
+        return JSONResponse({"error": error}, status_code=status)
     try:
         payload = await request.json()
         runtime.validate_chat_request(payload)
+        stage = "run_control_validation"
         try:
             request_deadline(payload)
         except ValueError:
             return JSONResponse({"error": {"code": "invalid_v14_request", "failureCode": "invalid_request",
                                              "message": "The gateway run-control fields are unsupported or invalid.", "retryable": False}}, status_code=400)
+        stage = "recall_preparation"
         request._json = apply_client_recall(payload, runtime.LLAMA_BASE)
+        stage = "job_admission"
         response = await runtime.chat_completions(request)
         if isinstance(response, StreamingResponse):
             # Registration happens before the first keepalive. Prime it here,
@@ -125,11 +152,15 @@ async def chat(request: Request):
     except runtime.GatewayContractError as exc:
         # These contract messages describe schema/state, never request content.
         # Keep the code/status so clients do not retry deterministic rejection.
-        return JSONResponse({"error": {"code": exc.code, "failureCode": exc.code,
-                                         "message": str(exc), "retryable": False}}, status_code=exc.status)
+        if exc.status >= 500:
+            stage = "model_execution"
+        elif exc.code.startswith(("client_tool_", "terminal_job_")):
+            stage = "tool_continuation"
+        return rejected(exc.code, str(exc), exc.status)
     except ValueError:
-        return JSONResponse({"error": {"code": "invalid_v14_request", "failureCode": "invalid_request",
-                                         "message": "The request does not satisfy the gateway contract.", "retryable": False}}, status_code=400)
+        # Unknown exception text may contain prompt content. Preserve location and
+        # identifiers without exposing raw input or misclassifying it as verification.
+        return rejected("invalid_v14_request", "The gateway rejected the request during " + stage + ". Correct the request before retrying.")
 
 
 @app.post("/gateway/jobs/{job_id}/cancel")
@@ -159,14 +190,14 @@ def capabilities():
                    "auth": {"mode": config.mode, "apiKeyRequired": False, "legacyBearerEnabled": config.legacy_bearer},
                    "desktop": {"managed": bool(config.management_token), "maintenanceProtocol": 1,
                                "stateSchema": 1, "updateAuthority": "local-manager", "idleUpdates": True},
-                   "identityScope": "user" if config.mode == "trusted_proxy" else "local-machine",
+                   "identityScope": "shared-network" if config.mode == "open_network" else "user" if config.mode == "trusted_proxy" else "local-machine",
                    "memory": {"authority": "client", "protocolVersion": 1, "workspaceAdapterEnabled": False},
                    "supportedMcpEras": ["legacy"], "eventVersions": [runtime.GATEWAY_PROGRESS_PROTOCOL],
                    "contracts": {
                        "gatewayProgress": [runtime.GATEWAY_PROGRESS_PROTOCOL],
                        "toolArguments": ["gptmobile.tool-arguments.v1"]
                    },
-                   "features": dict(result["features"], keyFreePrivateAccess=True, deterministicSearch=True,
+                   "features": dict(result["features"], keyFreePrivateAccess=config.mode != "open_network", keyFreeNetworkAccess=config.mode == "open_network", deterministicSearch=True,
                                     structuredSearch=True, terminalStateProtection=True, memory_novelty_filter=False, structuredEvidence=False, mcpFacade=False,
                                     modernMcp=False, clientMemoryAuthority=True, packageValidation=True,
                                     validatedToolArguments=True, githubClientOwnedFastPath=True,
@@ -258,7 +289,7 @@ def doctor():
             "loadedModules": {"launcher": str(Path(__file__).with_name("gateway.py")), "composition": __file__, "runtime": runtime.__file__},
             "dependencies": {name: importlib.metadata.version(name) for name in ("fastapi", "uvicorn", "requests", "httpx")},
             "stability": diagnostics(runtime, service),
-            "remainingGates": ["Windows install/rollback", "Tailscale identity", "Android build", "physical phone"]}
+            "remainingGates": ["Windows install/rollback", "LAN/firewall acceptance", "Android build", "physical phone"]}
 
 
 def main():

@@ -23,6 +23,7 @@ import androidx.compose.material.icons.rounded.Hub
 import androidx.compose.material.icons.rounded.Language
 import androidx.compose.material.icons.rounded.LocationOn
 import androidx.compose.material.icons.rounded.Memory
+import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.Newspaper
 import androidx.compose.material.icons.rounded.Psychology
 import androidx.compose.material.icons.rounded.Schedule
@@ -187,6 +188,7 @@ internal fun ToolkitControls(
 @Composable
 internal fun ToolServiceIcon(definition: ToolServiceDefinition, modifier: Modifier = Modifier) {
     val icon = when (definition.iconName) {
+        "voice" -> Icons.Rounded.Mic
         "delegation" -> Icons.Rounded.Psychology
         "memory" -> Icons.Rounded.Memory
         "schedule" -> Icons.Rounded.Schedule

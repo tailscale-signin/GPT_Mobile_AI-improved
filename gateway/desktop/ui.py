@@ -3,22 +3,25 @@ import json
 from pathlib import Path
 import queue
 import threading
-import time
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 from desktop.configuration import atomic_json, load, validate
 from desktop.manager import request, startup_registration
 from desktop.addons import load_addons, save_addons
-from desktop.dashboard import Dashboard, BACKGROUND, SURFACE, TEXT, MUTED, ACCENT
+from desktop import theme
+from desktop.theme import BG as BACKGROUND, PANEL as SURFACE, TEXT, MUTED, CYAN as ACCENT
 
 
-def build_window(root):
+def build_window(root, parent=None, section='General'):
     root = Path(root)
     cfg = load(root)
-    window = tk.Tk()
+    window = tk.Toplevel(parent) if parent else tk.Tk()
+    theme.apply(window)
     window.title('GPT Mobile Gateway')
-    window.geometry('1040x900')
-    window.minsize(920, 760)
+    width = min(900, max(660, window.winfo_screenwidth() - 32))
+    height = min(820, max(500, window.winfo_screenheight() - 100))
+    window.geometry(f'{width}x{height}+16+16')
+    window.minsize(660, 500)
     window.configure(bg=BACKGROUND)
     style = ttk.Style(window)
     style.theme_use('clam')
@@ -77,10 +80,7 @@ def build_window(root):
                 return 'break'
             widget = widget.master
 
-    window.bind_all('<MouseWheel>', scroll)
-    overview_canvas = page('Overview')
-    overview = Dashboard(overview_canvas)
-    attach(overview_canvas, overview)
+    window.bind('<MouseWheel>', scroll)
     sections = {}
     for title in ('General', 'Advanced', 'Add-ons'):
         canvas = page(title)
@@ -88,11 +88,13 @@ def build_window(root):
         attach(canvas, frame)
         frame.columnconfigure(1, weight=1)
         sections[title] = frame
+        if title == section:
+            tabs.select(canvas.master)
     values = {}
 
     def title(frame, text, detail):
         ttk.Label(frame, text=text, style='Title.TLabel').grid(row=0, column=0, columnspan=3, sticky='w', pady=(0, 8))
-        ttk.Label(frame, text=detail, style='Muted.TLabel', wraplength=820).grid(row=1, column=0, columnspan=3, sticky='w', pady=(0, 22))
+        ttk.Label(frame, text=detail, style='Muted.TLabel', wraplength=600).grid(row=1, column=0, columnspan=3, sticky='w', pady=(0, 22))
 
     def field(frame, row, name, label, choices=None):
         ttk.Label(frame, text=label).grid(row=row, column=0, sticky='w', pady=7, padx=(0, 24))
@@ -106,29 +108,30 @@ def build_window(root):
     title(general, 'Make it yours', 'Your connection, startup preferences and updates in one place.')
     field(general, 2, 'backend', 'Model backend origin')
     field(general, 3, 'port', 'Gateway port')
-    field(general, 4, 'access', 'Connection access', ['loopback', 'tailscale'])
-    field(general, 5, 'tailnet_host', 'Tailscale HTTPS hostname')
-    field(general, 6, 'tailnet_user', 'Allowed Tailscale login')
-    field(general, 7, 'update_mode', 'Updates', ['off', 'notify', 'auto'])
-    field(general, 8, 'update_interval_hours', 'Check updates every (hours)')
+    field(general, 4, 'bind_host', 'Listen address (IP)')
+    field(general, 5, 'network_hostnames', 'Additional hostnames')
+    field(general, 6, 'update_mode', 'Updates', ['off', 'notify', 'auto'])
+    field(general, 7, 'update_interval_hours', 'Check updates every (hours)')
     values['start_at_login'] = tk.BooleanVar(value=cfg['start_at_login'])
-    ttk.Checkbutton(general, text='Start Gateway when I sign in', variable=values['start_at_login']).grid(row=9, column=0, columnspan=3, sticky='w', pady=12)
-    ttk.Label(general, text='Auto installs verified compatible updates when your work is idle.\nConnection changes take effect after Restart.', style='Muted.TLabel').grid(row=10, column=0, columnspan=3, sticky='w', pady=12)
+    ttk.Checkbutton(general, text='Start Gateway when I sign in', variable=values['start_at_login']).grid(row=8, column=0, columnspan=3, sticky='w', pady=12)
+    ttk.Label(general, text='127.0.0.1: this PC only. A PC network IP: one interface. 0.0.0.0: all IPv4 interfaces.\nNetwork access is key-free: reachable devices can use enabled models and tools.\nAuto installs verified compatible updates when idle. Save settings, then Restart to apply.', style='Muted.TLabel', wraplength=600).grid(row=9, column=0, columnspan=3, sticky='w', pady=12)
+    network_buttons = ttk.Frame(general)
+    network_buttons.grid(row=10, column=0, columnspan=3, sticky='w', pady=8)
 
     advanced = sections['Advanced']
     title(advanced, 'Fine-tune your PC', 'Control capacity and shutdown behaviour for your local model.')
     field(advanced, 2, 'workers', 'Concurrent model workers')
     field(advanced, 3, 'active_chats', 'Maximum admitted chats')
     field(advanced, 4, 'shutdown_seconds', 'Shutdown grace (seconds)')
-    ttk.Label(advanced, text='For one phone, fewer workers can reduce competition for GPU memory.\nWaiting and paused jobs are preserved when an update or restart is refused.', style='Muted.TLabel', wraplength=820).grid(row=5, column=0, columnspan=3, sticky='w', pady=18)
+    ttk.Label(advanced, text='For one phone, fewer workers can reduce competition for GPU memory.\nWaiting and paused jobs are preserved when an update or restart is refused.', style='Muted.TLabel', wraplength=600).grid(row=5, column=0, columnspan=3, sticky='w', pady=18)
     ttk.Label(advanced, text='Local diagnostics', style='Section.TLabel').grid(row=6, column=0, columnspan=3, sticky='w', pady=(18, 8))
     diagnostics = tk.StringVar(value='Waiting for measured runtime health.')
-    ttk.Label(advanced, textvariable=diagnostics, wraplength=820, justify='left', style='Muted.TLabel').grid(row=7, column=0, columnspan=3, sticky='w')
+    ttk.Label(advanced, textvariable=diagnostics, wraplength=600, justify='left', style='Muted.TLabel').grid(row=7, column=0, columnspan=3, sticky='w')
 
     addons = sections['Add-ons']
     title(addons, 'Extend your gateway', 'Manage configured PC tools and GitHub engineering access.')
     values['engineering'] = tk.BooleanVar(value=cfg['engineering'])
-    ttk.Checkbutton(addons, text='Allow GitHub engineering for the selected Tailscale user', variable=values['engineering']).grid(row=2, column=0, columnspan=3, sticky='w', pady=(0, 14))
+    ttk.Checkbutton(addons, text='Allow network devices to run GitHub engineering tasks', variable=values['engineering']).grid(row=2, column=0, columnspan=3, sticky='w', pady=(0, 14))
     field(addons, 3, 'mcp_config', 'MCP configuration file')
     addon_buttons = ttk.Frame(addons)
     addon_buttons.grid(row=4, column=0, columnspan=3, sticky='w', pady=8)
@@ -144,7 +147,7 @@ def build_window(root):
     addon_list.bind('<Configure>', lambda e: addon_list.itemconfigure(cards_id, width=e.width))
     addon_state = {'path': None, 'digest': None, 'values': {}}
     addon_note = tk.StringVar()
-    ttk.Label(addons, textvariable=addon_note, style='Muted.TLabel', wraplength=800).grid(row=6, column=0, columnspan=3, sticky='w', pady=10)
+    ttk.Label(addons, textvariable=addon_note, style='Muted.TLabel', wraplength=600).grid(row=6, column=0, columnspan=3, sticky='w', pady=10)
 
     def reload_addons():
         for child in cards.winfo_children():
@@ -240,15 +243,34 @@ def build_window(root):
         except (OSError, ValueError):
             state_text.set('Start Gateway to connect')
             state = {}
-        try:
-            data = json.loads((root / 'dashboard.json').read_text(encoding='utf-8'))
-            overview.update_data(data, stale=time.time() - data.get('collectedAt', 0) > 20 or state.get('state') != 'running')
-        except (OSError, ValueError):
-            pass
         window.after(2000, refresh)
+    def firewall(remove=False):
+        def work():
+            try:
+                from desktop.firewall import apply
+                apply(root, remove)
+                messages.put((True, 'Firewall rule removed.' if remove else 'Saved port allowed from the local subnet on Private networks. Reapply after changing listener settings.'))
+            except Exception as error:
+                messages.put((False, str(error)))
+        threading.Thread(target=work, daemon=True).start()
+    ttk.Button(network_buttons, text='Allow LAN through firewall…', command=firewall).pack(side='left', padx=(0, 6))
+    ttk.Button(network_buttons, text='Remove firewall rule…', command=lambda: firewall(True)).pack(side='left')
     refresh()
+    from desktop.window_lifecycle import watch
+    watch(window, root, window.destroy)
     return window
 
 
-def show(root):
-    build_window(root).mainloop()
+def show(root, parent=None, section='General'):
+    if parent is not None:
+        return build_window(root, parent, section)
+    from v14.state_lock import StateDirectoryLock, StateDirectoryAlreadyOwned
+    lock = StateDirectoryLock(Path(root) / 'settings-ui' / 'owner')
+    try:
+        lock.acquire()
+    except StateDirectoryAlreadyOwned:
+        return
+    try:
+        build_window(root, section=section).mainloop()
+    finally:
+        lock.release()

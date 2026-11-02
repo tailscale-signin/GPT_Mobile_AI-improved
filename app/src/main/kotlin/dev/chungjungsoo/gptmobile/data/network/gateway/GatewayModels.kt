@@ -44,7 +44,7 @@ data class GatewayCapabilities(
         get() = contractVersion == 1 &&
             gatewayVersion?.matches(Regex("(14|15)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)")) == true &&
             auth?.apiKeyRequired == false &&
-            auth.mode in setOf("loopback", "trusted_proxy")
+            auth.mode in setOf("loopback", "trusted_proxy", "open_network")
 
     fun supportsContract(name: String, version: String): Boolean = contracts[name]?.contains(version) == true
 

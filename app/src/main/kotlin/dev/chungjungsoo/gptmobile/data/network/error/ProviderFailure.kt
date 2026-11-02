@@ -12,6 +12,14 @@ enum class ProviderFailureKind { AUTHENTICATION, BUDGET, PERMISSION, FORBIDDEN_U
 @Serializable
 data class ProviderFailure(val status: Int, val kind: ProviderFailureKind, val code: String? = null, val retryAfterMillis: Long? = null) {
     val retryable: Boolean get() = kind in setOf(ProviderFailureKind.RATE_LIMIT, ProviderFailureKind.UNAVAILABLE)
+
+    /** Cached denials need the same cause-specific guidance as the original response. */
+    fun blockedMessage(): String = message() + when (kind) {
+        ProviderFailureKind.BUDGET -> " Check the provider allowance or choose another AI profile. After resolving the restriction, retry the failed stage to recheck. Any saved evidence is retained."
+        ProviderFailureKind.AUTHENTICATION, ProviderFailureKind.PERMISSION, ProviderFailureKind.FORBIDDEN_UNKNOWN -> " Update the platform connection or choose another AI profile, then retry the failed stage to recheck. Any saved evidence is retained."
+        else -> " Check the provider, then retry the failed stage for an explicit recheck. Any saved evidence is retained."
+    }
+
     fun message(): String = when (kind) {
         ProviderFailureKind.AUTHENTICATION -> "HTTP $status: the provider could not authenticate this request. Check the platform connection in Settings → Platforms."
         ProviderFailureKind.BUDGET -> when (code) {

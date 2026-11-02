@@ -14,6 +14,15 @@ import org.junit.Test
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class GitHubTaskRecoveryTest {
+    @Test fun providerBillingAndRetiredEndpointsNeverEnterConnectionRecovery() {
+        for (message in listOf("HTTP 402: connection refused", "HTTP 410: LOCAL_SERVICE_UNREACHABLE", "Payment required: connection reset")) {
+            assertNull(GitHubTaskRecovery.delayMillis(message, 0))
+        }
+        for (code in listOf("PAYMENT_REQUIRED", "BILLING_UNAVAILABLE", "INSUFFICIENT_CREDITS", "INSUFFICIENT_QUOTA", "BUDGET_EXCEEDED", "CREDIT_LIMIT_EXCEEDED")) {
+            assertNull(GitHubTaskRecovery.delayMillis("LOCAL_SERVICE_UNREACHABLE: connection refused", 0, code))
+        }
+    }
+
     @Test fun structuredContractRejectionsAreNotRetriedEvenWithTransportLanguage() {
         for (code in listOf("client_tool_results_required", "terminal_job_not_resumable", "invalid_v14_request", "REASONING_OFF_UNSUPPORTED", "context_capacity_unverified")) {
             assertNull(GitHubTaskRecovery.delayMillis("connection reset; HTTP 502", 0, code))

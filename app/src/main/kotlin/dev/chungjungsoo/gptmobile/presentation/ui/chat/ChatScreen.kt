@@ -1725,7 +1725,7 @@ internal fun ChatMessagePair(
                 assistantTimeline.lastOrNull { it.runError != null }?.runError?.let { error ->
                     Column(Modifier.fillMaxWidth().padding(12.dp)) {
                         Text(stringResource(R.string.audit_response_interrupted), style = MaterialTheme.typography.titleSmall)
-                        if (debugMode) dev.chungjungsoo.gptmobile.presentation.common.DetailsSection { Text(error, style = MaterialTheme.typography.bodySmall) }
+                        Text(error, style = MaterialTheme.typography.bodySmall)
                         if (error.contains("QUEUE_") && selectedRunId != null) TextButton(onClick = { onCheckQueuedRun(selectedRunId) }) { Text(stringResource(R.string.audit_check_status)) }
                         if (!hasCombinedTabs) TextButton(onClick = { onRetry(messageIndex, displayPlatformIndex) }, enabled = isIdle && canUseChat) { Text(stringResource(R.string.audit_generate_again)) }
                     }

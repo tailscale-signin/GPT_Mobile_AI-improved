@@ -107,13 +107,21 @@ internal class GitHubVerifiedSession(
         emitAll(publish(draft.toString()))
     }
 
-    override fun retainedFailureResponse(failure: ProviderEvent.Failed): Flow<ProviderEvent> =
+    override fun retainedFailureResponse(failure: ProviderEvent.Failed): Flow<ProviderEvent> = flow {
         if (dev.chungjungsoo.gptmobile.data.agent.GitHubTaskRecovery.isConnectionUnavailable(failure.message)) {
             // A failed connection is not a claim-verification failure. Keep its actionable cause.
-            kotlinx.coroutines.flow.flowOf(failure.copy(errorCode = "LOCAL_SERVICE_UNREACHABLE"))
+            emit(failure.copy(errorCode = failure.errorCode ?: "LOCAL_SERVICE_UNREACHABLE"))
         } else {
-            publish(null, failureCode = failure.errorCode, originalFailure = failure)
+            val (receipts, _) = evidence.snapshot()
+            if (receipts.values.none { it["trusted"] == kotlinx.serialization.json.JsonPrimitive(true) }) {
+                // No GitHub work was observed. A provider denial is a failed request,
+                // not partial task verification, and must retain its recovery metadata.
+                emit(failure)
+            } else {
+                emitAll(publish(null, failureCode = failure.errorCode, originalFailure = failure))
+            }
         }
+    }
 
     private fun publish(draft: String?, failureCode: String? = null, originalFailure: ProviderEvent.Failed? = null): Flow<ProviderEvent> = flow {
         val publication = try {

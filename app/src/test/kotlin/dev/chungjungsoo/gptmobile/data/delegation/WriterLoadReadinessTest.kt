@@ -9,6 +9,24 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 class WriterLoadReadinessTest {
+    @Test fun billingDenialSurvivesRestartWithAccountGuidanceAndExplicitRecheck() {
+        val directory = Files.createTempDirectory("writer-billing-test").toFile()
+        try {
+            val profile = PlatformV2(name = "Keyed provider", compatibleType = ClientType.OPENROUTER)
+            KnownWriterFailures(directory).observe(profile, "HTTP 402: provider budget restriction")
+            val restored = KnownWriterFailures(directory)
+            val failure = requireNotNull(restored.blocked(profile))
+            org.junit.Assert.assertFalse(failure.retryable)
+            org.junit.Assert.assertTrue(failure.blockedMessage().contains("provider allowance"))
+            org.junit.Assert.assertFalse(failure.blockedMessage().contains("Check the connection"))
+            assertNull(restored.blocked(profile.copy(token = "updated")))
+            restored.recheck(profile)
+            assertNull(restored.blocked(profile))
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
     @Test fun anonymousProviderDenialExpiresAcrossRestartsWithoutChangingKeyedProviderPolicy() {
         val directory = Files.createTempDirectory("free-denial-test").toFile()
         try {

@@ -209,7 +209,7 @@ class GitHubEvidencePolicyTest {
         assertTrue(report.getValue("claims").jsonArray.isNotEmpty())
     }
 
-    @Test fun providerFailureStillReturnsAnExplicitPartialAnswerWithoutPublishingItsDraft() = runBlocking {
+    @Test fun providerFailureWithoutReceiptsPreservesItsCauseWithoutPublishingItsDraft() = runBlocking {
         val provider = object : AgentProviderSession {
             override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) =
                 flowOf(ProviderEvent.TextDelta("unverified draft"), ProviderEvent.Failed("403 forbidden"))
@@ -218,13 +218,7 @@ class GitHubEvidencePolicyTest {
         val failed = gate.streamRound(emptyList(), emptyList()).toList().single() as ProviderEvent.Failed
         assertEquals("403 forbidden", failed.message)
         val events = gate.retainedFailureResponse(failed).toList()
-        val terminal = events.last() as ProviderEvent.Failed
-        assertEquals("PARTIAL", terminal.taskOutcome)
-        assertEquals(failed.message, terminal.message)
-        val text = events.filterIsInstance<ProviderEvent.TextDelta>().joinToString { it.text }
-        assertTrue(text.contains("Task incomplete"))
-        assertTrue(text.contains("403 forbidden"))
-        assertFalse(text.contains("unverified draft"))
+        assertEquals(listOf(failed), events)
     }
 
     @Test fun cancellationAndPermissionRevocationDuringExtractionNeverPublishAPartialReply() = runBlocking {

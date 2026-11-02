@@ -3600,7 +3600,7 @@ class ChatRepositoryImpl(
             val message = if (platform.compatibleType == ClientType.FREE) {
                 "${FreeAiProvider.requireFor(platform).displayName} recently rejected access (HTTP ${failure.status}). A short cooldown prevents repeated rejected requests. Retry after one minute or choose another Free provider."
             } else {
-                "Provider unavailable. ${failure.message()} Check the connection, then retry the failed stage for an explicit recheck. Any saved evidence is retained."
+                failure.blockedMessage()
             }
             emit(ApiState.Error(message))
             return null

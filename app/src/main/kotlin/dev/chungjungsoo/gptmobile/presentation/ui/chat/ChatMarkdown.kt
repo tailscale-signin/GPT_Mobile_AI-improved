@@ -998,21 +998,23 @@ private fun answerBodyStyle(): TextStyle {
 private fun chatMarkdownTypography() = run {
     val typography = MaterialTheme.typography
     val body = answerBodyStyle()
-    remember(typography, body) {
-        markdownTypography(
-            h1 = typography.headlineMedium,
-            h2 = typography.headlineSmall,
-            h3 = typography.titleLarge,
-            h4 = typography.titleMedium,
-            h5 = typography.titleSmall,
-            h6 = typography.labelLarge,
-            text = body,
-            paragraph = body,
-            ordered = body,
-            bullet = body,
-            list = body
-        )
-    }
+    val colors = MaterialTheme.colorScheme
+    val localStyle = androidx.compose.material3.LocalTextStyle.current
+    // Resolve composable defaults before entering remember's non-composable calculation.
+    val resolved = markdownTypography(
+        h1 = typography.headlineMedium,
+        h2 = typography.headlineSmall,
+        h3 = typography.titleLarge,
+        h4 = typography.titleMedium,
+        h5 = typography.titleSmall,
+        h6 = typography.labelLarge,
+        text = body,
+        paragraph = body,
+        ordered = body,
+        bullet = body,
+        list = body
+    )
+    remember(typography, body, colors, localStyle) { resolved }
 }
 
 @Composable

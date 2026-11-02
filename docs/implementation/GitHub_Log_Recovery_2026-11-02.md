@@ -65,3 +65,7 @@ The separate 1,996-record diagnostic review was supplied as text; its original J
 ## Publication checkpoint
 
 Automatic approval review rejected pushing this patch to the public repository, including after verifying repository identity and push permissions. Its stated reason is that public disclosure of source changes and log-derived documentation requires explicit user approval. The remote branch and draft PR have not been created, and PR CI has not run. The prepared patch and this ledger are reviewable before that approval.
+
+## Approved publication and CI repair
+
+The user explicitly approved publishing the patch. PR #785 publishes the prepared tree. The initial Android compilation caught a composable typography factory inside a non-composable remember calculation. The factory is now resolved in composable scope before its result is remembered using theme and text-style inputs. Earlier validation cancellation followed the ready-for-review transition and is not counted as a pass. Final Android verification remains pending on the corrected revision.

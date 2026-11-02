@@ -2,16 +2,13 @@
 import datetime as dt
 import tkinter as tk
 from tkinter import ttk
+from desktop.metrics import number
 
 BACKGROUND = '#0E1415'
 SURFACE = '#1B2122'
 TEXT = '#DEE3E5'
 MUTED = '#A2B4B8'
 ACCENT = '#82D3E5'
-
-
-def number(value):
-    return f'{value:,}' if type(value) is int and value >= 0 else 'Not measured'
 
 
 class Dashboard(ttk.Frame):

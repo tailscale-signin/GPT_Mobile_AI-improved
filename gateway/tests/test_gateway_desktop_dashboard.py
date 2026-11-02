@@ -7,7 +7,7 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from desktop.addons import load_addons, save_addons
-from desktop.dashboard import number
+from desktop.metrics import number
 
 
 class DesktopDashboardTests(unittest.TestCase):

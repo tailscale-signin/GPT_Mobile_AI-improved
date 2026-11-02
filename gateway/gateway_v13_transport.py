@@ -82,8 +82,11 @@ def _combined_completion(first, final, reason):
     return result
 
 
-def _completion_issue(data):
+def _completion_issue(data, payload):
     message = data["choices"][0]["message"]
+    choice = payload.get("tool_choice")
+    if not message.get("tool_calls") and (isinstance(choice, dict) or choice == "required"):
+        return "missing_required_tool_call"
     if len(message.get("tool_calls") or []) > 1:
         return "mixed_tool_batch"
     if not message.get("tool_calls") and not visible_answer_text(message):
@@ -132,7 +135,7 @@ def post_chat(
         if response is not None:
             return response
         validate_completion_tools(data, request)
-        issue = _completion_issue(data)
+        issue = _completion_issue(data, request)
         if issue is None:
             if first is not None:
                 data = _combined_completion(first, data, repair_reason)
@@ -143,17 +146,20 @@ def post_chat(
             result._content = json.dumps(data, ensure_ascii=False).encode("utf-8")
             return result
         if attempt:
-            message = "Backend did not return a visible answer after one bounded repair." if issue == "empty_completion" else "Backend ignored sequential tool calling; no tool from this batch was executed."
+            message = {
+                "empty_completion": "Backend did not return a visible answer after one bounded repair.",
+                "missing_required_tool_call": "Backend omitted the required tool call after one bounded repair. No tool was executed.",
+                "mixed_tool_batch": "Backend ignored sequential tool calling; no tool from this batch was executed.",
+            }[issue]
             raise GatewayContractError(message, issue, 502)
-        choice = request.get("tool_choice")
-        if issue == "empty_completion" and (isinstance(choice, dict) or choice == "required"):
-            raise GatewayContractError("Backend omitted the required tool call.", "missing_required_tool_call", 502)
         cap = _repair_output_cap(payload, data)
         first, repair_reason = data, issue
         # Preserve the original goal and completed tool evidence. Never inject the
         # discarded tool batch or hidden reasoning into conversation history.
         request["messages"] = copy.deepcopy(payload.get("messages", []))
         instruction = "Return exactly one tool call this round. Continue other tools in later rounds; never mix execution owners."
+        if issue == "missing_required_tool_call":
+            instruction = "Return exactly one call satisfying the supplied tool_choice and tool schema. A text-only answer cannot complete this round."
         if issue == "empty_completion":
             instruction = "Return a concise visible answer using available evidence. State missing evidence honestly. Do not output hidden reasoning or request more tools."
             request.pop("tools", None)

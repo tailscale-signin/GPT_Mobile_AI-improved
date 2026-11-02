@@ -6,6 +6,17 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ResilientStreamingClientTest {
+    @Test
+    fun `gateway contract repair exhaustion never starts a transport retry`() {
+        for (code in listOf("missing_required_tool_call", "completion_repair_budget_exhausted", "terminal_job_not_resumable", "invalid_v14_request", "Backend omitted the required tool call.")) {
+            assertFalse(ResilientStreamingClient.isRetryable(IOException("HTTP 502: $code")))
+        }
+        assertTrue(ResilientStreamingClient.isRetryable(IOException("HTTP 502: backend_stream_interrupted")))
+        assertFalse(ResilientStreamingClient.providerAllowsRetry("""{"error":{"code":"new_contract_error","retryable":false}}"""))
+        assertFalse(ResilientStreamingClient.providerAllowsRetry("""{"error":{"message":"Backend omitted the required tool call."}}"""))
+        assertTrue(ResilientStreamingClient.providerAllowsRetry("""{"error":{"code":"backend_timeout","retryable":true}}"""))
+    }
+
     @Test fun `definitive uncommon HTTP failures never fall through to generic IO retries`() {
         assertFalse(ResilientStreamingClient.isRetryable(IOException("HTTP 505 version unsupported")))
         assertFalse(ResilientStreamingClient.isRetryable(IOException("HTTP 451 unavailable")))

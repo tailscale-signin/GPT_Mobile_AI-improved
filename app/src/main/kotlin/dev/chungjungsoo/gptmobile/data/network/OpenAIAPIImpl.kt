@@ -233,7 +233,7 @@ class OpenAIAPIImpl @Inject constructor(
                                     throw java.io.IOException("Retrying without unsupported sampling parameter: $parameter")
                                 }
                             }
-                            if (response.status.value in listOf(429, 502, 503, 504)) {
+                            if (response.status.value in listOf(429, 502, 503, 504) && ResilientStreamingClient.providerAllowsRetry(errorBody)) {
                                 throw ProviderHttpFailure(response.status.value, ProviderCooldown.defer(config, response.headers[HttpHeaders.RetryAfter]))
                             }
                             throwIfToolDefinitionsRejected(response.status.value, !request.tools.isNullOrEmpty(), errorBody)
@@ -395,7 +395,7 @@ class OpenAIAPIImpl @Inject constructor(
                             usageReceipt.observe(decoded.usage, decoded.hasAssistantStreamPayload())
                             if (!receivedAssistantPayload && !receivedGatewayToolActivity) {
                                 decoded.error?.let { error ->
-                                    if (ResilientStreamingClient.isRetryable(IllegalStateException("${error.code.orEmpty()} ${error.message}"))) {
+                                    if (error.retryable != false && ResilientStreamingClient.isRetryable(IllegalStateException("${error.code.orEmpty()} ${error.message}"))) {
                                         throw java.io.IOException("Gateway/provider transient error: ${error.message}")
                                     }
                                 }

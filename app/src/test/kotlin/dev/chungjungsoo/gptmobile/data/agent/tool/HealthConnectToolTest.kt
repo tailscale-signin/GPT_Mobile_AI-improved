@@ -28,6 +28,7 @@ class HealthConnectToolTest {
         val reader = FakeReader()
         val result = tool(reader, access = { false }).execute("c", buildJsonObject {})
         assertEquals("plugin_disabled", result.errorCode)
+        assertFalse(result.dispatched)
         assertEquals(0, reader.calls)
     }
 
@@ -35,6 +36,7 @@ class HealthConnectToolTest {
         val reader = FakeReader()
         val result = tool(reader, consent = { false }).execute("c", buildJsonObject {})
         assertEquals("ai_consent_required", result.errorCode)
+        assertFalse(result.dispatched)
         assertEquals(0, reader.calls)
     }
 
@@ -50,6 +52,7 @@ class HealthConnectToolTest {
         val reader = FakeReader()
         val result = tool(reader).execute("c", buildJsonObject { put("days", 500) })
         assertEquals("invalid_arguments", result.errorCode)
+        assertFalse(result.dispatched)
         assertEquals(0, reader.calls)
     }
 
@@ -58,6 +61,7 @@ class HealthConnectToolTest {
         val reader = FakeReader { consent = false }
         val result = tool(reader, consent = { consent }).execute("c", buildJsonObject {})
         assertEquals("consent_revoked", result.errorCode)
+        assertTrue(result.dispatched)
         assertFalse(result.content.toString().contains("private-measurement"))
     }
 

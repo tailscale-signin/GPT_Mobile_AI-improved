@@ -77,6 +77,83 @@ class JournalTests(unittest.TestCase):
         return client.post('/v1/chat/completions', headers=headers, json={
             'model': 'local', 'messages': [{'role': 'user', 'content': 'Hello'}], 'stream': stream})
 
+    def test_client_tool_handoff_continues_same_job_over_http_and_sqlite(self):
+        import requests
+        for stream, restart in ((False, False), (True, False), (False, True), (True, True)):
+            with self.subTest(stream=stream, restart=restart), self.client() as client:
+                call = {'id': 'github-call-' + str((stream, restart)), 'type': 'function',
+                        'function': {'name': 'github_ci__github_api', 'arguments': '{"action":"workflows"}'}}
+                tool_message = {'role': 'assistant', 'content': None, 'tool_calls': [call]}
+                replies = iter([
+                    {'choices': [{'index': 0, 'message': tool_message, 'finish_reason': 'tool_calls'}]},
+                    {'choices': [{'index': 0, 'message': {'role': 'assistant', 'content': 'Verified workflow reply'}, 'finish_reason': 'stop'}]},
+                ])
+                def model_round(payload, *args, **kwargs):
+                    response = requests.Response()
+                    response.status_code = 200
+                    response._content = json.dumps(next(replies)).encode()
+                    return response, 1
+                headers = {'X-Gateway-Request-Role': 'github-primary', 'X-Gateway-Delegated-Worker': 'true'}
+                body = {'model': 'fixture', 'stream': stream, 'max_tokens': 128,
+                        'messages': [{'role': 'user', 'content': 'Inspect workflows ' + str((stream, restart))}],
+                        'tools': [{'type': 'function', 'function': {'name': 'github_ci__github_api',
+                                  'parameters': {'type': 'object', 'required': ['action']}}}]}
+                with patch.object(self.runtime, 'post_llama_model_round', side_effect=model_round) as backend, \
+                        patch.object(self.runtime, 'apply_context_guard'), \
+                        patch.object(self.runtime, 'configure_llama_model_round'):
+                    first = client.post('/v1/chat/completions', json=body, headers=headers)
+                    self.assertEqual(200, first.status_code, first.text)
+                    job_id = first.headers['x-gateway-job-id']
+                    self.assertEqual('waiting_for_client_tool', self.runtime.job_registry[job_id]['status'])
+                    self.assertFalse(self.runtime.job_registry[job_id]['result_available'])
+                    with closing(sqlite3.connect(self.db)) as db:
+                        self.assertEqual('waiting_for_client_tool', db.execute('SELECT status FROM gateway_jobs WHERE job_id=?', (job_id,)).fetchone()[0])
+                    self.assertEqual(job_id, self.runtime.remote_handoff_index[call['id']]['job_id'])
+                    if restart:
+                        self.runtime.job_registry.clear()
+                        self.runtime.singleflight_workers.clear()
+                        self.runtime.singleflight_request_index.clear()
+                        self.runtime.remote_handoff_index.clear()
+                        self.runtime.durable_job_initialized = False
+                        self.assertTrue(self.runtime.init_durable_job_store())
+                        self.assertEqual('waiting_for_client_tool', self.runtime.job_registry[job_id]['status'])
+                        self.assertEqual(1, backend.call_count)
+                    missing = client.post('/v1/chat/completions', json=body, headers=dict(headers, **{'X-Gateway-Job-ID': job_id}))
+                    self.assertEqual(409, missing.status_code, missing.text)
+                    self.assertEqual('client_tool_results_required', missing.json()['error']['code'])
+                    body['messages'] += [tool_message, {'role': 'tool', 'tool_call_id': call['id'], 'content': 'Two workflows found'}]
+                    second = client.post('/v1/chat/completions', json=body, headers=dict(headers, **{'X-Gateway-Job-ID': job_id}))
+                    self.assertEqual(200, second.status_code, second.text)
+                    self.assertEqual(job_id, second.headers['x-gateway-job-id'])
+                    self.assertIn('Verified workflow reply', second.text)
+                    self.assertEqual(2, backend.call_count)
+                    self.assertEqual('completed', self.runtime.job_registry[job_id]['status'])
+                    # A completed answer remains terminal; a new payload cannot resurrect it.
+                    body['messages'].append({'role': 'user', 'content': 'Another task'})
+                    terminal = client.post('/v1/chat/completions', json=body, headers=dict(headers, **{'X-Gateway-Job-ID': job_id}))
+                    self.assertEqual(409, terminal.status_code, terminal.text)
+                    self.assertEqual('terminal_job_not_resumable', terminal.json()['error']['code'])
+                    self.assertFalse(terminal.json()['error']['retryable'])
+                    self.assertEqual(2, backend.call_count)
+
+    def test_tool_result_is_authoritative_when_handoff_progress_is_missing(self):
+        r = self.runtime
+        r.register_gateway_job('lost-progress', 'local', 'chat', threading.Event(), threading.Event())
+        call = {'id': 'lost-progress-call', 'type': 'function', 'function': {'name': 'github_read', 'arguments': '{}'}}
+        r.finish_gateway_job('lost-progress', 200, {'choices': [{'message': {'tool_calls': [call]}}]})
+        self.assertEqual('waiting_for_client_tool', r.job_registry['lost-progress']['status'])
+        self.assertEqual('lost-progress', r.remote_handoff_index[call['id']]['job_id'])
+
+    def test_schema_rejections_keep_actionable_code_and_do_not_dispatch(self):
+        body = {'model': 'local', 'messages': [{'role': 'user', 'content': 'hello'}],
+                'tools': [{'function': {'name': 'github_read'}}, {'function': {'name': 'github_read'}}]}
+        with self.client() as client, patch.object(self.runtime, 'chat_completions') as dispatch:
+            result = client.post('/v1/chat/completions', json=body)
+        self.assertEqual(400, result.status_code)
+        self.assertEqual('duplicate_tool_name', result.json()['error']['code'])
+        self.assertFalse(result.json()['error']['retryable'])
+        dispatch.assert_not_called()
+
     def test_fresh_database_stream_commits_and_restores_result_and_events(self):
         with self.client() as client, patch.object(self.runtime, 'process_chat_payload', side_effect=self.completion) as model:
             response = self.chat(client)

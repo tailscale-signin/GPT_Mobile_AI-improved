@@ -39,6 +39,7 @@ from v14.engineering import EngineeringStore, EngineeringService, principal_auth
 from gateway_security import device_store
 from v14.engineering_backend import GitHubEngineeringBackend
 from v14.engineering_routes import install_engineering_routes
+from v14.usage import install_usage
 
 runtime.GATEWAY_VERSION = VERSION
 runtime.AUTO_MEMORY_RETRIEVE = False
@@ -65,6 +66,7 @@ install_mcp_resilience(runtime)
 install_browser_proxy(runtime, config)
 install_github_fast_path(runtime)
 install_batch(runtime)
+install_usage(runtime)
 service = ServiceState(config.max_workers)
 service.install(runtime)
 engineering = EngineeringService(EngineeringStore(runtime), GitHubEngineeringBackend(runtime))
@@ -120,7 +122,12 @@ async def chat(request: Request):
     except PermissionError:
         return JSONResponse({"error": {"code": "principal_or_destination_denied", "failureCode": "permission_denied",
                                          "message": "The gateway principal is not permitted to run this request.", "retryable": False}}, status_code=403)
-    except (ValueError, runtime.GatewayContractError):
+    except runtime.GatewayContractError as exc:
+        # These contract messages describe schema/state, never request content.
+        # Keep the code/status so clients do not retry deterministic rejection.
+        return JSONResponse({"error": {"code": exc.code, "failureCode": exc.code,
+                                         "message": str(exc), "retryable": False}}, status_code=exc.status)
+    except ValueError:
         return JSONResponse({"error": {"code": "invalid_v14_request", "failureCode": "invalid_request",
                                          "message": "The request does not satisfy the gateway contract.", "retryable": False}}, status_code=400)
 

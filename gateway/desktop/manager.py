@@ -118,7 +118,29 @@ class Supervisor:
         handler = RotatingFileHandler(self.root / 'logs' / 'gateway.log', maxBytes=5*1024*1024, backupCount=4, encoding='utf-8')
         self.log.addHandler(handler)
         self.status = {'version': read_pointer(self.root)['version'], 'state': 'starting'}
+        self.dashboard_polling = threading.Event()
         self.publish()
+
+    def refresh_dashboard(self):
+        if self.dashboard_polling.is_set():
+            return
+        self.dashboard_polling.set()
+        def poll():
+            try:
+                with requests.Session() as session:
+                    session.trust_env = False
+                    response = session.get(f'http://127.0.0.1:{self.cfg["port"]}/gateway/admin/maintenance',
+                                           headers={'X-Gateway-Management': self.token}, timeout=(2, 8))
+                    response.raise_for_status()
+                    health = response.json()
+                atomic_json(self.root / 'dashboard.json', dict(health.get('dashboard', {}),
+                            checks=health.get('checks', {}), service=health.get('service', {}), collectedAt=time.time()))
+            except (requests.RequestException, ValueError, OSError):
+                # Keep last measurements and their timestamp; UI marks them stale.
+                pass
+            finally:
+                self.dashboard_polling.clear()
+        threading.Thread(target=poll, name='gateway-dashboard', daemon=True).start()
 
     def publish(self, **values):
         self.status.update(values, updatedAt=time.time())
@@ -300,7 +322,11 @@ class Supervisor:
             return result
         next_check, next_activate, candidate = time.monotonic() + 30, 0, None
         crashes = []
+        next_dashboard = 0
         while True:
+            if time.monotonic() >= next_dashboard:
+                self.refresh_dashboard()
+                next_dashboard = time.monotonic() + 5
             if self.child.poll() is not None:
                 crashes = [t for t in crashes if time.monotonic() - t < 600]
                 if len(crashes) >= 5:

@@ -975,6 +975,7 @@ def register_gateway_job(
         existing = job_registry.get(job_id)
 
         if existing is not None:
+            existing.pop("pending_client_tool_call_ids", None)
             existing["model"] = model or existing.get("model")
             existing["mode"] = mode or existing.get("mode")
             existing["status"] = "running"
@@ -1168,10 +1169,14 @@ def finish_gateway_job(
             error is None
             and status_code == 200
             and completion_contains_tool_calls(result)
-            and job.get("status") == "waiting_for_client_tool"
         )
 
         if waiting_for_client:
+            # The validated result is authoritative even when a progress event
+            # was dropped or a client-owned delegate skipped the ordinary loop.
+            for call in result["choices"][0]["message"]["tool_calls"]:
+                register_remote_handoff(call["id"], job_id)
+            job["pending_client_tool_call_ids"] = [call["id"] for call in result["choices"][0]["message"]["tool_calls"]]
             job["finished_at"] = None
             job["status"] = "waiting_for_client_tool"
             job["stage"] = "waiting_for_client_tool"
@@ -1411,9 +1416,9 @@ def init_durable_job_store():
                         continue
 
                     status = str(public.get("status") or row["status"] or "")
-                    was_interrupted = status in {
-                        "running", "resuming", "waiting_for_client_tool"
-                    }
+                    pending_client = public.get("pending_client_tool_call_ids")
+                    durable_handoff = status == "waiting_for_client_tool" and isinstance(pending_client, list) and bool(pending_client) and all(isinstance(call_id, str) and call_id for call_id in pending_client)
+                    was_interrupted = status in {"running", "resuming"} or status == "waiting_for_client_tool" and not durable_handoff
                     if was_interrupted:
                         # Never blindly replay a job after a process restart: it may
                         # already have performed a mutation before the crash.
@@ -1443,6 +1448,10 @@ def init_durable_job_store():
                     runtime = _runtime_job_from_persisted(public, result, events)
                     with job_registry_lock:
                         job_registry.setdefault(row["job_id"], runtime)
+                    if durable_handoff:
+                        # Await client receipts; no model or tool is replayed on startup.
+                        for call_id in pending_client:
+                            register_remote_handoff(call_id, row["job_id"])
                     restored += 1
 
                     if was_interrupted:
@@ -1995,9 +2004,13 @@ def resolve_root_job_id(incoming_payload, request_headers=None):
 
     if explicit:
         explicit = str(explicit)
-        if ensure_gateway_job_loaded(explicit) is not None:
+        existing = ensure_gateway_job_loaded(explicit)
+        if existing is not None:
             if not device_store.owns(explicit):
                 raise HTTPException(status_code=404, detail="Unknown gateway job")
+            pending = existing.get("pending_client_tool_call_ids") or []
+            if pending and not set(pending).issubset(extract_tool_result_call_ids(incoming_payload.get("messages", []))):
+                raise GatewayContractError("Return the pending client tool results before continuing this job. No tool was replayed.", "client_tool_results_required", 409)
             return explicit
 
     messages = incoming_payload.get("messages", [])
@@ -14658,6 +14671,8 @@ def _process_chat_payload_core(
                 job_mode=job_mode,
             )
 
+        except (GatewayContractError, InterruptedError):
+            raise
         except Exception as e:
             raise HTTPException(
                 status_code=502,
@@ -19983,6 +19998,12 @@ def v12_delegate_model_round(incoming, runtime_perf, progress_callback=None,
                 choices[0]["message"] = message
                 choices[0]["finish_reason"] = "tool_calls"
     validate_completion_tools(data, payload)
+    for choice in data.get("choices", []):
+        for call in choice["message"].get("tool_calls") or []:
+            emit_progress(progress_callback, "remote_tool", "Waiting for the app to run the requested tool",
+                          event="remote_tool_handoff", status="waiting_for_client_tool",
+                          stage="waiting_for_client_tool", tool_call_id=call["id"],
+                          tool_name=call["function"]["name"])
     return 200, data
 
 
@@ -20046,7 +20067,8 @@ def process_chat_payload(incoming_payload, cancel_event=None, progress_callback=
         validate_chat_request(incoming_payload)
         return _process_chat_payload_core(incoming_payload, cancel_event, progress, hard_cancel_event)
     except GatewayContractError as exc:
-        return exc.status, {"error": {"message": str(exc), "type": "gateway_contract_error", "code": exc.code}}
+        return exc.status, {"error": {"message": str(exc), "type": "gateway_contract_error", "code": exc.code,
+                                     "retryable": exc.code in {"backend_timeout", "backend_stream_interrupted"}}}
     except InterruptedError:
         return 499, {"error": {"message": "Request cancelled.", "code": "request_cancelled"}}
     finally:

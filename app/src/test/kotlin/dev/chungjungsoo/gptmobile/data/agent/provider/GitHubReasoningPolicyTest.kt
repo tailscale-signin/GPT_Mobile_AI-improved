@@ -9,6 +9,17 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubReasoningPolicyTest {
+    @Test fun extractionDoesNotRequireAnUnverifiedReasoningToggle() {
+        val auto = ReasoningPolicy.boundedHelper(null)
+        assertEquals(ReasoningMode.AUTO, auto.effective)
+        assertNull(auto.transmittedControl)
+        val off = ReasoningPolicy.boundedHelper(ReasoningTemplateControl.ENABLE_THINKING)
+        assertEquals(ReasoningMode.OFF, off.effective)
+        assertTrue(off.templateProbeVerified)
+        // Explicit user controls keep their strict admission policy.
+        assertTrue(runCatching { ReasoningPolicy.resolve(ReasoningMode.OFF, true, null) }.isFailure)
+    }
+
     @org.junit.Test fun extractionDisablesSavedAndMaximumReasoningWithoutChangingPrimaryEngineering() {
         val original = RequestConstraints(maxOutputTokens = 8192, maximizeReasoning = true, allowReasoning = true)
         val extraction = original.withoutTools().forRole("github-claim-extraction")

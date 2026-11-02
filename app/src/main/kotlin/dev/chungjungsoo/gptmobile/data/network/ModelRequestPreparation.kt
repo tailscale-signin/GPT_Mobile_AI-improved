@@ -60,8 +60,8 @@ internal class ModelRequestPreparation(client: NetworkClient) {
         val reasoning = if (config.providerType == "LLAMA") {
             val needsControl = review || config.maximizeReasoning || !config.allowReasoning || config.reasoningMode != dev.chungjungsoo.gptmobile.data.context.ReasoningMode.AUTO
             val control = if (needsControl && discovered != null) llama.reasoningControl(config, model, discovered) else null
-            if (review) {
-                dev.chungjungsoo.gptmobile.data.context.ReasoningPolicy.resolve(if (control != null) dev.chungjungsoo.gptmobile.data.context.ReasoningMode.OFF else dev.chungjungsoo.gptmobile.data.context.ReasoningMode.AUTO, true, control)
+            if (review || config.requestRole == "github-claim-extraction") {
+                dev.chungjungsoo.gptmobile.data.context.ReasoningPolicy.boundedHelper(control)
             } else if (config.maximizeReasoning && config.allowReasoning) {
                 dev.chungjungsoo.gptmobile.data.context.ReasoningPolicy.strongestSupported(true, control)
             } else {

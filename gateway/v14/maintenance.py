@@ -3,6 +3,7 @@ import asyncio
 from fastapi import Request
 from fastapi.responses import JSONResponse
 from v14.health import readiness
+from v14.usage import dashboard_snapshot
 
 
 def pending_work(runtime, engineering):
@@ -35,6 +36,7 @@ def install_maintenance(app, runtime, state, engineering):
         # Backend availability is reported, but cannot invalidate the installed runtime.
         health['runtimeHealthy'] = health['checks']['journal'] == 'ready'
         health['protocol'] = 1
+        health['dashboard'] = await asyncio.to_thread(dashboard_snapshot, runtime)
         return health
 
     @app.post('/gateway/admin/maintenance')

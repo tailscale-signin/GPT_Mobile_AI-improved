@@ -4,6 +4,7 @@ import re
 from collections import deque
 import time
 from v14.journal import preflight, record_schema, schema_version
+from gateway_v13_runtime import GatewayContractError
 
 TERMINAL = {"completed", "failed", "cancelled", "canceled", "interrupted"}
 
@@ -17,7 +18,7 @@ def install_terminal_guard(runtime):
         with runtime.job_registry_lock:
             previous = runtime.job_registry.get(job_id)
             if previous is not None and previous.get('status') in TERMINAL:
-                raise ValueError('Terminal jobs cannot be resumed; submit a new request without its old job ID')
+                raise GatewayContractError('This gateway job is already terminal. Retrieve its saved result or start a new request without the old job ID.', 'terminal_job_not_resumable', 409)
             snapshot = dict(previous) if previous is not None else None
             try:
                 return register(job_id, *args, **kwargs)

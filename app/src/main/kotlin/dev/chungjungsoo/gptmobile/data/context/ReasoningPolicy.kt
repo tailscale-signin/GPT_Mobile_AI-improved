@@ -31,6 +31,10 @@ object ReasoningPolicy {
     fun strongestSupported(allowed: Boolean, control: ReasoningTemplateControl?): ReasoningDecision =
         resolve(if (allowed && control != null) ReasoningMode.ON else ReasoningMode.AUTO, allowed, control)
 
+    /** Internal JSON helpers prefer OFF, but an unverified route must remain usable in Auto. */
+    fun boundedHelper(control: ReasoningTemplateControl?): ReasoningDecision =
+        resolve(if (control != null) ReasoningMode.OFF else ReasoningMode.AUTO, true, control)
+
     fun apply(root: JsonObject, decision: ReasoningDecision): JsonObject {
         val kwargs = (root["chat_template_kwargs"] as? JsonObject).orEmpty().toMutableMap()
         kwargs.remove("thinking")

@@ -53,6 +53,8 @@ def main():
             state=wait_state(root,'running')
             assert state['backend'] != 'ready'
             results.append('frozen runtime healthy with offline model backend')
+            subprocess.run([str(root/'releases'/VERSION/'Gateway.exe'), 'validate-ui', '--root', str(root), '--quiet'], check=True, timeout=20)
+            results.append('frozen dashboard renders Overview, General, Advanced and Add-ons at minimum size')
             request(root,'stop');assert child.wait(timeout=40)==0
             # A candidate with incompatible runtime version must roll back before admission.
             candidate='15.0.99'

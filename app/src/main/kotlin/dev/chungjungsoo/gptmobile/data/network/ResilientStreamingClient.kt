@@ -12,6 +12,14 @@ import kotlinx.coroutines.delay
  */
 object ResilientStreamingClient {
 
+    fun providerAllowsRetry(body: String): Boolean {
+        val error = runCatching {
+            (kotlinx.serialization.json.Json.parseToJsonElement(body) as? kotlinx.serialization.json.JsonObject)?.get("error") as? kotlinx.serialization.json.JsonObject
+        }.getOrNull()
+        if (error?.get("retryable") == kotlinx.serialization.json.JsonPrimitive(false)) return false
+        return isRetryable(IOException("HTTP 502: $body"))
+    }
+
     data class RetryConfig(
         val maxAttempts: Int = 4,
         val initialDelayMs: Long = 1000L,
@@ -78,6 +86,10 @@ object ResilientStreamingClient {
 
     fun isRetryable(throwable: Throwable): Boolean {
         val causes = generateSequence(throwable) { it.cause?.takeUnless { cause -> cause === it } }.take(8).toList()
+        // Older gateways wrapped model contract failures as HTTP 502. Replaying
+        // those requests restarts the entire budget after the bounded repair.
+        val terminalContracts = listOf("missing_required_tool_call", "backend omitted the required tool call", "completion_repair_budget_exhausted", "completion_repair_usage_unavailable", "terminal_job_not_resumable", "context_budget_exceeded", "invalid_v14_request", "mixed_tool_batch", "empty_completion", "unauthorized_tool_call", "invalid_tool_arguments")
+        if (causes.any { cause -> terminalContracts.any { cause.message.orEmpty().contains(it, true) } }) return false
         if (causes.any { it.message.orEmpty().contains("LOCAL_SERVICE_UNREACHABLE", true) }) return false
         if (causes.any { it is CancellationException || it is javax.net.ssl.SSLHandshakeException || it is javax.net.ssl.SSLPeerUnverifiedException || it is java.security.cert.CertificateException }) return false
         var current: Throwable? = throwable

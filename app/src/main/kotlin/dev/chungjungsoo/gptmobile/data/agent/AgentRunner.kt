@@ -19,6 +19,7 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 
 data class AgentRunLimits(
@@ -334,8 +335,8 @@ class AgentRunner(
         val roundFailure = requireNotNull(round.failure)
         var exposedDefinitions = definitions
         var finalize = false
-        if (round.providerLimit != null) {
-            emit(AgentRunEvent.Provider(ProviderEvent.Failed(roundFailure, round.progressDeadline, round.errorCode, round.failureTransportComplete, round.providerLimit)))
+        if (round.providerLimit != null || round.taskOutcome == "PARTIAL") {
+            emit(AgentRunEvent.Provider(ProviderEvent.Failed(roundFailure, round.progressDeadline, round.errorCode, round.failureTransportComplete, round.providerLimit, round.taskOutcome, round.failureDetails)))
             return null
         }
         val protocolFailure = round.errorCode == "TOOL_PROTOCOL_INVALID_FRAME" ||
@@ -379,7 +380,7 @@ class AgentRunner(
                 emit(AgentRunEvent.Notice("The provider reached its output limit. Repairing the unfinished GitHub round once with its tools and completed results retained.", persistent = false))
                 return RoundRecovery(exposedDefinitions, limits.githubTask, finalize)
             }
-            val recoveryDelay = GitHubTaskRecovery.delayMillis(roundFailure, state.githubRecoveries)
+            val recoveryDelay = GitHubTaskRecovery.delayMillis(roundFailure, state.githubRecoveries, round.errorCode)
             if (recoveryDelay != null) {
                 state.githubRecoveries++
 
@@ -396,7 +397,7 @@ class AgentRunner(
             kotlinx.coroutines.delay(1000)
             return RoundRecovery(exposedDefinitions, limits.githubTask, finalize)
         }
-        val failure = ProviderEvent.Failed(roundFailure, round.progressDeadline, round.errorCode, round.failureTransportComplete, round.providerLimit)
+        val failure = ProviderEvent.Failed(roundFailure, round.progressDeadline, round.errorCode, round.failureTransportComplete, round.providerLimit, round.taskOutcome, round.failureDetails)
         if (limits.githubTask && round.calls.isEmpty()) {
             session.retainedFailureResponse(failure).collect { event ->
                 if (event is ProviderEvent.Completed) checkpoint?.finish()
@@ -861,7 +862,9 @@ class AgentRunner(
         val batchRejection: String? = null,
         val errorCode: String? = null,
         val failureTransportComplete: Boolean = false,
-        val providerLimit: dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision? = null
+        val providerLimit: dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision? = null,
+        val taskOutcome: String? = null,
+        val failureDetails: JsonObject? = null
     )
 
     private fun recoverableRoundFailure(message: String, hasToolContext: Boolean): Boolean = (
@@ -901,6 +904,8 @@ class AgentRunner(
         var progressDeadline: ProgressDeadlineOutcome? = null
         var failureCode: String? = null
         var failureTransportComplete = false
+        var taskOutcome: String? = null
+        var failureDetails: JsonObject? = null
         var providerLimit: dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision? = null
         var textEmitted = false
         val answerCandidate = StringBuilder()
@@ -1029,6 +1034,8 @@ class AgentRunner(
                     progressDeadline = event.progressDeadline
                     failureCode = event.errorCode
                     failureTransportComplete = event.transportComplete
+                    taskOutcome = event.taskOutcome
+                    failureDetails = event.failureDetails
                     providerLimit = event.providerLimit
                 }
 
@@ -1074,7 +1081,7 @@ class AgentRunner(
         // Do not emit from finally: a cancelled or failed consumer cannot accept
         // another event. Genuine provider failures still retain observed usage.
         emitRoundUsage()
-        return RoundResult(calls, completed, failure, textEmitted, toolDefinitionsRejected, batchRejected, maxOf(admission.observed, parserObservedCalls), progressDeadline, batchRejection, failureCode, failureTransportComplete, providerLimit)
+        return RoundResult(calls, completed, failure, textEmitted, toolDefinitionsRejected, batchRejected, maxOf(admission.observed, parserObservedCalls), progressDeadline, batchRejection, failureCode, failureTransportComplete, providerLimit, taskOutcome, failureDetails)
     }
 
     private fun toolResultText(result: AgentToolResult): String = when (val content = result.content) {

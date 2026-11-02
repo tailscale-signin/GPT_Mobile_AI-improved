@@ -4,6 +4,7 @@ import os
 import sys
 import re
 import asyncio
+import uuid
 import json
 import importlib.metadata
 from pathlib import Path
@@ -41,6 +42,7 @@ from v14.engineering import EngineeringStore, EngineeringService, principal_auth
 from gateway_security import device_store
 from v14.engineering_backend import GitHubEngineeringBackend
 from v14.engineering_routes import install_engineering_routes
+from v14.usage import install_usage
 
 runtime.GATEWAY_VERSION = VERSION
 runtime.AUTO_MEMORY_RETRIEVE = False
@@ -67,6 +69,7 @@ install_mcp_resilience(runtime)
 install_browser_proxy(runtime, config)
 install_github_fast_path(runtime)
 install_batch(runtime)
+install_usage(runtime)
 service = ServiceState(config.max_workers)
 service.install(runtime)
 activity = ActivityTracker(os.getenv("GATEWAY_ACTIVITY_STATE"))
@@ -92,15 +95,33 @@ async def dashboard_snapshot():
 @app.post("/v1/chat/completions")
 @app.post("/chat/completions")
 async def chat(request: Request):
+    payload = None
+    stage = "request_validation"
+    request_id = request.headers.get("x-request-id") or uuid.uuid4().hex
+    def rejected(code, message, status=400, retryable=False):
+        source = getattr(request, "_json", payload)
+        source = source if isinstance(source, dict) else {}
+        job_id = request.headers.get("x-gateway-job-id") or source.get("gateway_job_id") or source.get("_gateway_job_id")
+        error = {"code": code, "failureCode": code, "message": message,
+                 "retryable": retryable, "failed_stage": stage,
+                 "dispatch_state": "not_dispatched" if stage != "model_execution" else "unknown"}
+        if isinstance(job_id, str) and len(job_id) <= 256:
+            error["job_id"] = job_id
+        if request_id and len(request_id) <= 256:
+            error["request_id"] = request_id
+        return JSONResponse({"error": error}, status_code=status)
     try:
         payload = await request.json()
         runtime.validate_chat_request(payload)
+        stage = "run_control_validation"
         try:
             request_deadline(payload)
         except ValueError:
             return JSONResponse({"error": {"code": "invalid_v14_request", "failureCode": "invalid_request",
                                              "message": "The gateway run-control fields are unsupported or invalid.", "retryable": False}}, status_code=400)
+        stage = "recall_preparation"
         request._json = apply_client_recall(payload, runtime.LLAMA_BASE)
+        stage = "job_admission"
         response = await runtime.chat_completions(request)
         if isinstance(response, StreamingResponse):
             # Registration happens before the first keepalive. Prime it here,
@@ -130,9 +151,20 @@ async def chat(request: Request):
     except PermissionError:
         return JSONResponse({"error": {"code": "principal_or_destination_denied", "failureCode": "permission_denied",
                                          "message": "The gateway principal is not permitted to run this request.", "retryable": False}}, status_code=403)
-    except (ValueError, runtime.GatewayContractError):
-        return JSONResponse({"error": {"code": "invalid_v14_request", "failureCode": "invalid_request",
-                                         "message": "The request does not satisfy the gateway contract.", "retryable": False}}, status_code=400)
+    except runtime.GatewayContractError as exc:
+        # These contract messages describe schema/state, never request content.
+        # Keep the code/status so clients do not retry deterministic rejection.
+        if exc.code == "context_capacity_unverified":
+            stage = "context_admission"
+        elif exc.status >= 500:
+            stage = "model_execution"
+        elif exc.code.startswith(("client_tool_", "terminal_job_")):
+            stage = "tool_continuation"
+        return rejected(exc.code, str(exc), exc.status)
+    except ValueError:
+        # Unknown exception text may contain prompt content. Preserve location and
+        # identifiers without exposing raw input or misclassifying it as verification.
+        return rejected("invalid_v14_request", "The gateway rejected the request during " + stage + ". Correct the request before retrying.")
 
 
 @app.post("/gateway/jobs/{job_id}/cancel")

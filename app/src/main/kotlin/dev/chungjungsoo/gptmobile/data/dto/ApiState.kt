@@ -29,6 +29,6 @@ sealed class ApiState {
     data class Notice(val message: String, val persistent: Boolean = false, val researchDelivery: dev.chungjungsoo.gptmobile.data.research.delivery.ResearchDeliveryReceipt? = null, val personalData: List<dev.chungjungsoo.gptmobile.data.permissions.PersonalDataProvenance> = emptyList()) : ApiState()
     data class PhaseChanged(val phase: LocalInferencePhase, val nativeProgress: dev.chungjungsoo.gptmobile.data.localruntime.GgufNativeProgress? = null) : ApiState()
     data class GatewayProgressChanged(val progress: GatewayProgress) : ApiState()
-    data class Error(val message: String, val progressDeadline: dev.chungjungsoo.gptmobile.data.agent.ProgressDeadlineOutcome? = null, val recoveryBlock: dev.chungjungsoo.gptmobile.data.agent.RecoveryBlock? = null, val combinedFailure: dev.chungjungsoo.gptmobile.data.agent.CombinedRecoveryFailure? = null, val providerLimit: dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision? = null, val errorCode: String? = null) : ApiState()
+    data class Error(val message: String, val progressDeadline: dev.chungjungsoo.gptmobile.data.agent.ProgressDeadlineOutcome? = null, val recoveryBlock: dev.chungjungsoo.gptmobile.data.agent.RecoveryBlock? = null, val combinedFailure: dev.chungjungsoo.gptmobile.data.agent.CombinedRecoveryFailure? = null, val providerLimit: dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision? = null, val errorCode: String? = null, val taskOutcome: String? = null) : ApiState()
     data object Done : ApiState()
 }

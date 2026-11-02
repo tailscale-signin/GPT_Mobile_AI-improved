@@ -23,10 +23,22 @@ internal class GitHubOperationTool(
     override val managesExecutionBudget get() = backend.managesExecutionBudget
     override val definition = definition(operation, modelName)
     private val pagination = GitHubPaginationBoundary()
+    private val rejectedCalls = linkedMapOf<JsonObject, AgentToolResult>()
 
     override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
         val started = System.nanoTime()
-        val result = executeOperation(callId, arguments)
+        val previous = synchronized(rejectedCalls) { rejectedCalls[arguments] }
+        // Reuse an identical pre-dispatch rejection so a provider cannot spin on
+        // the same invalid call. Never execute the suggested correction on its
+        // behalf: saved-view selectors are an authorization boundary, and only
+        // the caller can submit the exact cursor-only correction.
+        val result = previous?.copy(callId = callId, sharedResult = true) ?: executeOperation(callId, arguments)
+        if (result.isError && !result.dispatched && result.errorCode == "INVALID_ARGUMENTS") {
+            synchronized(rejectedCalls) {
+                rejectedCalls[arguments] = result
+                if (rejectedCalls.size > 128) rejectedCalls.remove(rejectedCalls.keys.first())
+            }
+        }
         val trace = buildJsonObject {
             put("schema", "github.trace.v1")
             put("call_id", callId)
@@ -392,6 +404,7 @@ internal class GitHubOperationTool(
         }
 
         fun taskTools(task: String): Set<String> {
+            if (dev.chungjungsoo.gptmobile.data.github.GitHubStatusRequest.matches(task)) return linkedSetOf("github_context", "github_pr")
             val text = task.lowercase(java.util.Locale.ROOT).replace("github_pull_request", "github_pr")
             val explicitlyNamed = names.filter { name ->
                 Regex("(?<![a-z0-9_])" + Regex.escape(name) + "(?:__[a-z0-9_-]+)?(?![a-z0-9_])").containsMatchIn(text)

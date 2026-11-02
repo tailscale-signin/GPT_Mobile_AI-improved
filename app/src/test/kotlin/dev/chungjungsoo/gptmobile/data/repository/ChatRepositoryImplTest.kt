@@ -552,6 +552,29 @@ class ChatRepositoryImplTest {
     }
 
     @Test
+    fun `GitHub greeting finishes before provider or repository preparation`() = runBlocking {
+        val resolver = mockk<AgentToolResolver>()
+        coEvery { resolver.resolve(any(), any(), any(), any(), any(), any(), any(), any()) } coAnswers { kotlinx.coroutines.awaitCancellation() }
+        val api = RecordingOpenAIAPI(ArrayDeque())
+        val platform = customPlatform()
+        val github = dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext("connection", "owner", "repo", "main", "a".repeat(40), platform.uid)
+        val states = kotlinx.coroutines.withTimeout(1000) {
+            createRepository(openAIAPI = api, agentToolResolver = resolver).completeChat(
+                listOf(MessageV2(content = "hi", platformType = null)),
+                emptyList(),
+                platform,
+                "github-greeting",
+                dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig(github = github)
+            ).toList()
+        }
+        assertEquals(0, api.streamChatCompletionCalls)
+        assertEquals("Hello! How can I help?", states.filterIsInstance<ApiState.Success>().single().textChunk)
+        assertTrue(states.last() is ApiState.Done)
+        assertTrue(states.none { it is ApiState.Error || it is ApiState.GitHubRoundStarted })
+        io.mockk.coVerify(exactly = 0) { resolver.resolve(any(), any(), any(), any(), any(), any(), any(), any()) }
+    }
+
+    @Test
     fun `cold remote greeting never joins blocked optional tool or memory producers`() = runBlocking {
         val resolver = mockk<AgentToolResolver>()
         coEvery { resolver.resolve(any(), any(), any(), any(), any(), any(), any(), any()) } coAnswers { kotlinx.coroutines.awaitCancellation() }

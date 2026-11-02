@@ -85,6 +85,7 @@ class HealthConnectTool(
     )
 
     override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+        var readDispatched = false
         suspend fun failure(code: String, message: String, retryable: Boolean = false): AgentToolResult {
             (reader as? dev.chungjungsoo.gptmobile.data.health.RunScopedHealthReader)?.invalidate()
             return AgentToolResult(
@@ -99,7 +100,8 @@ class HealthConnectTool(
                 ),
                 true,
                 traceContent = ToolResultContent.Text("Health Connect: $code"),
-                errorCode = code
+                errorCode = code,
+                dispatched = readDispatched
             )
         }
         try {
@@ -117,6 +119,7 @@ class HealthConnectTool(
                     return failure("invalid_arguments", invalid.message ?: "Invalid query arguments.")
                 }
             }
+            readDispatched = true
             val result = reader.read(operation, query)
             if (!accessAllowed() || operation != "status" && !aiConsent()) return failure("consent_revoked", "Access changed during this read. No health measurements were returned.")
             val status = (result["status"] as? JsonPrimitive)?.content

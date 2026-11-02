@@ -155,7 +155,9 @@ class ActivityMiddleware:
 
 def desktop_snapshot(runtime, service, tracker):
     """Bounded metadata only: no auth headers, tool arguments, or result bodies."""
+    from v14.usage import usage_snapshot
     result = tracker.snapshot()
+    result['usage'] = usage_snapshot(runtime)
     result['service'] = service.snapshot()
     result['jobs'], result['engineering'] = [], []
     result['historyError'] = None

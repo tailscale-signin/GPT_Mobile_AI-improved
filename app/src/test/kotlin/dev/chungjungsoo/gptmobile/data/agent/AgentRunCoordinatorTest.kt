@@ -22,6 +22,12 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AgentRunCoordinatorTest {
+    @Test fun partialDeliveryKeepsTaskResumableAndOriginalError() {
+        val result = dev.chungjungsoo.gptmobile.util.ApiStateFlowOutcome.Failed("Continuation rejected", errorCode = "client_tool_results_required", taskOutcome = "PARTIAL").toTerminalUpdate()
+        assertEquals(AgentRunStatus.INTERRUPTED, result.status)
+        assertEquals("Continuation rejected", result.error)
+    }
+
     @Test fun pendingRemoteJobRemainsWaitingInsteadOfBecomingAFailedSegment() {
         val result = dev.chungjungsoo.gptmobile.util.ApiStateFlowOutcome.Failed("Still pending", errorCode = "QUEUE_JOB_PENDING").toTerminalUpdate()
         assertEquals(AgentRunStatus.WAITING_REMOTE_JOB, result.status)

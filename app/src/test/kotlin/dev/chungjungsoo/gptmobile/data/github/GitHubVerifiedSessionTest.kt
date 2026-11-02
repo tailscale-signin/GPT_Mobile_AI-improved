@@ -35,6 +35,75 @@ class GitHubVerifiedSessionTest {
         override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flowOf(ProviderEvent.TextDelta(text), ProviderEvent.Completed)
     }
 
+    @Test fun greetingsUseNoProviderToolsOrVerification() = runBlocking {
+        val source = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): kotlinx.coroutines.flow.Flow<ProviderEvent> = error("No generation for a plain greeting")
+        }
+        for (task in listOf("hi", "Hello!", " hey ")) {
+            val gate = GitHubVerifiedSession(source, GitHubEvidenceBook("b", "o/r", "main", emptySet()), task, { 8000 }, { error("No extraction") }, { error("No repository claims") }, {})
+            val events = gate.streamRound(listOf(AgentToolDefinition("github_context", "Status", JsonObject(emptyMap()))), emptyList()).toList()
+            assertEquals(listOf(ProviderEvent.TextDelta("Hello! How can I help?"), ProviderEvent.Completed), events)
+        }
+    }
+
+    @Test fun statusAliasesCollectTheSamePinnedFourReads() {
+        val tools = listOf("github_context", "github_pr").map { AgentToolDefinition(it, "Read", JsonObject(emptyMap())) }
+        for (task in listOf("status", "status of repo", "github status", "Status of the repository?")) {
+            assertTrue(GitHubStatusRequest.matches(task))
+            val receipts = linkedMapOf<String, JsonObject>()
+            val actions = mutableListOf<String>()
+            repeat(4) { index ->
+                val call = requireNotNull(GitHubStatusRequest.nextCall(tools, receipts))
+                actions += call.arguments.getValue("action").toString()
+                if (index == 1 || index == 3) assertEquals(JsonPrimitive("a".repeat(40)), call.arguments["commit_sha"])
+                receipts[index.toString()] = JsonObject(mapOf("tool" to JsonPrimitive(call.name), "arguments" to call.arguments, "success" to JsonPrimitive(true), "result" to JsonObject(mapOf("commit_sha" to JsonPrimitive("a".repeat(40))))))
+            }
+            assertEquals(listOf("\"status\"", "\"checks\"", "\"list\"", "\"commits\""), actions)
+            assertEquals(null, GitHubStatusRequest.nextCall(tools, receipts))
+        }
+    }
+
+    @Test fun failedContinuationRetainsOriginalCauseAndTaskWithPartialDelivery() = runBlocking {
+        val reports = mutableListOf<JsonObject>()
+        val book = GitHubEvidenceBook("b", "o/r", "main", emptySet(), save = { _, value -> reports += value })
+        val gate = GitHubVerifiedSession(answer("unused"), book, "inspect checks and recent changes", { 8192 }, { error("No extraction after failure") }, {}, {})
+        val failure = ProviderEvent.Failed("Gateway could not continue after tool result; job=job-7", errorCode = "client_tool_results_mismatch")
+        val events = gate.retainedFailureResponse(failure).toList()
+        val terminal = events.last() as ProviderEvent.Failed
+        assertEquals(failure.message, terminal.message)
+        assertEquals(failure.errorCode, terminal.errorCode)
+        assertEquals("PARTIAL", terminal.taskOutcome)
+        assertTrue(events.filterIsInstance<ProviderEvent.TextDelta>().single().text.contains(failure.message))
+        val report = reports.last()
+        assertEquals(JsonPrimitive(true), report["response_delivered"])
+        assertTrue(report.toString().contains("inspect checks and recent changes"))
+        assertTrue(report.toString().contains("original_failure"))
+    }
+
+    @Test fun completeStatusSnapshotRequiresAllCurrentObservations() = runBlocking {
+        val sha = "a".repeat(40)
+        val book = GitHubEvidenceBook("b", "o/r", "main", setOf("github_context", "github_pr"), { 1000 })
+        val sources = listOf(
+            Triple("github_context", "status", """{"repository":{"full_name":"o/r"},"branch":"main","commit_sha":"$sha","latest_workflow":{"head_sha":"$sha","head_branch":"main","status":"completed","conclusion":"success"}}"""),
+            Triple("github_context", "checks", """{"commit_sha":"$sha","checks":0,"statuses":0,"check_details":{"check_runs":[]}}"""),
+            Triple("github_pr", "list", """{"items":[]}"""),
+            Triple("github_context", "commits", """{"commit_sha":"$sha","items":[{"sha":"$sha"}]}""")
+        )
+        for ((tool, action, body) in sources) {
+            val call = ProviderEvent.ToolCall(action, tool, JsonObject(mapOf("action" to JsonPrimitive(action))))
+            book.observe(call, AgentToolResult(action, ToolResultContent.Json(JsonObject(mapOf("data" to Json.parseToJsonElement(body)))), false))
+        }
+        val (receipts, epoch) = book.snapshot()
+        val (_, report) = requireNotNull(GitHubEvidencePolicy.status(receipts, 1000, epoch, "status of repo"))
+        assertEquals(JsonPrimitive("COMPLETED"), report["task_outcome"])
+        assertEquals(JsonPrimitive(true), report["completion_verified"])
+        assertEquals(JsonPrimitive(false), report["partial"])
+        assertEquals(JsonPrimitive("status of repo"), report["task"])
+        val incomplete = requireNotNull(GitHubEvidencePolicy.status(receipts.filterValues { it["tool"] != JsonPrimitive("github_pr") }, 1000, epoch))
+        assertEquals(JsonPrimitive("PARTIAL"), incomplete.second["task_outcome"])
+        assertTrue(incomplete.first.contains("Unavailable observations"))
+    }
+
     @Test fun isolatedCheckReceiptDoesNotStopRemainingStatusCollection() = runBlocking {
         val book = GitHubEvidenceBook("binding", "o/r", "main", setOf("github_context"), now = { 1000L })
         val call = ProviderEvent.ToolCall("checks", "github_context", Json.parseToJsonElement("""{"action":"checks"}""") as JsonObject)
@@ -70,7 +139,7 @@ class GitHubVerifiedSessionTest {
         assertTrue(text.contains("partial verification"))
         assertTrue(text.contains("github_read / source read"))
         assertFalse(text.contains("all tests passed"))
-        assertTrue(events.last() is ProviderEvent.Completed)
+        assertEquals("PARTIAL", (events.last() as ProviderEvent.Failed).taskOutcome)
     }
 
     @Test fun offlineProviderKeepsItsConnectionErrorInsteadOfBecomingAVerificationError() = kotlinx.coroutines.runBlocking {
@@ -108,13 +177,13 @@ class GitHubVerifiedSessionTest {
         val published = events.filterIsInstance<AgentRunEvent.Provider>().map { it.event }
         val text = published.filterIsInstance<ProviderEvent.TextDelta>().single().text
         assertEquals(0, rounds)
-        assertEquals(2, executions)
+        assertEquals(3, executions)
         assertEquals(2, publicationChecks)
         assertTrue(text.startsWith("# Repository status"))
         assertTrue(text.contains("| Open pull requests | 0 |"))
         assertTrue(text.contains("| Workflow result | success |"))
         assertFalse(text.contains("/data/") || text.contains("ev_") || text.contains("clean state"))
-        assertEquals(ProviderEvent.Completed, published.last())
+        assertEquals("PARTIAL", (published.last() as ProviderEvent.Failed).taskOutcome)
     }
 
     @Test fun runnerRetriesTransientFailuresBeforePublishingWithoutRepeatingCompletedTools() = runTest {
@@ -155,10 +224,9 @@ class GitHubVerifiedSessionTest {
             assertEquals(if (persistent) GitHubTaskRecovery.MAX_RECOVERIES + 2 else 3, rounds)
             assertEquals(if (persistent) 0 else 1, extractions)
             val published = events.filterIsInstance<AgentRunEvent.Provider>().map { it.event }
-            assertEquals(persistent, published.last() is ProviderEvent.Failed)
-            assertEquals(!persistent, published.last() is ProviderEvent.Completed)
+            assertEquals("PARTIAL", (published.last() as ProviderEvent.Failed).taskOutcome)
             val text = published.filterIsInstance<ProviderEvent.TextDelta>().single().text
-            assertEquals(persistent, text.contains("GitHub verification incomplete"))
+            assertEquals(persistent, text.contains("Task interrupted"))
             assertFalse(text.contains("| Count | 3 |"))
             assertFalse(text.contains("private candidate"))
         }
@@ -188,7 +256,7 @@ class GitHubVerifiedSessionTest {
         val events = AgentRunner(AgentRunLimits(githubTask = true)).run(gate, listOf(read)).toList().filterIsInstance<AgentRunEvent.Provider>().map { it.event }
         assertEquals(4, rounds)
         assertEquals(1, dispatches)
-        assertTrue(events.filterIsInstance<ProviderEvent.TextDelta>().single().text.contains("GitHub verification incomplete"))
+        assertTrue(events.filterIsInstance<ProviderEvent.TextDelta>().single().text.contains("Task interrupted"))
         assertFalse(events.filterIsInstance<ProviderEvent.TextDelta>().single().text.contains("| Count | 3 |"))
         assertTrue(events.last() is ProviderEvent.Failed)
     }
@@ -249,7 +317,7 @@ class GitHubVerifiedSessionTest {
                 assertEquals(JsonPrimitive(19), catalog.first().jsonObject.getValue("facts").jsonObject["/count"])
                 answer("""{"claims":[{"kind":"not_measured","subject":"Feature acceptance"}]}""")
             }, {}, {}, { 1000 })
-            assertEquals(ProviderEvent.Completed, gate.streamRound(emptyList(), emptyList()).toList().last())
+            assertEquals("PARTIAL", (gate.streamRound(emptyList(), emptyList()).toList().last() as ProviderEvent.Failed).taskOutcome)
             assertEquals(if (shrink) 0 else 1, extractions)
         }
     }

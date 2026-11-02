@@ -54,6 +54,8 @@ def main():
             state=wait_state(root,'running')
             assert state['backend'] != 'ready'
             results.append('frozen runtime healthy with offline model backend')
+            subprocess.run([str(exe), 'validate-ui', '--root', str(root), '--quiet'], check=True, timeout=20)
+            results.append('General, Advanced and Add-ons render at minimum size')
             deadline = time.monotonic() + 20
             while not (root / 'dashboard.json').exists() and time.monotonic() < deadline:
                 time.sleep(.2)

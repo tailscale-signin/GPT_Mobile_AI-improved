@@ -813,6 +813,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                         var deliveredPayload = false
                         var protocolErrorCode: String? = null
                         var providerLimitDecision: dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision? = null
+                        var failureDetails: kotlinx.serialization.json.JsonObject? = null
                         var observedModel: String? = null
                         var observedBackend: String? = null
                         var observedReasoning = false
@@ -915,8 +916,10 @@ class OpenAICompatibleAdapter @Inject constructor(
                                     streamInterrupted = true
                                     lastFailedMessage = error.message
                                     providerLimitDecision = error.providerLimit
+                                    failureDetails = error.failureDetails
                                     protocolErrorCode = error.type?.uppercase()?.takeIf { category -> dev.chungjungsoo.gptmobile.data.network.FreeFailureCategory.entries.any { it.name == category } }
                                         ?: error.code ?: error.type ?: protocolErrorCode
+                                    if (error.failureDetails?.containsKey("failed_stage") == true) protocolErrorCode = error.code ?: protocolErrorCode
                                     canRotate = ApiCredentialRotator.containsQuotaOrRateLimitMessage(error.message)
                                 } ?: chunk.choices.orEmpty().forEach { choice ->
                                     if (choice.finishReason != null) {
@@ -987,7 +990,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                         } else if (canRotate && !deliveredPayload && attempt < attempts - 1) {
                             break
                         } else {
-                            emit(ProviderEvent.Failed(lastFailedMessage ?: "Provider request failed", errorCode = protocolErrorCode, transportComplete = !streamInterrupted && terminalReceived && protocolErrorCode == null && lastFinishReason == "length", providerLimit = providerLimitDecision))
+                            emit(ProviderEvent.Failed(lastFailedMessage ?: "Provider request failed", errorCode = protocolErrorCode, transportComplete = !streamInterrupted && terminalReceived && protocolErrorCode == null && lastFinishReason == "length", providerLimit = providerLimitDecision, failureDetails = failureDetails))
                             return@flow
                         }
                     }

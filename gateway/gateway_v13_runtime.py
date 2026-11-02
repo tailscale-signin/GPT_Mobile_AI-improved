@@ -179,6 +179,9 @@ def validate_completion_tools(data, payload):
             name, call_id = fn.get("name"), call.get("id") if isinstance(call, dict) else None
             if payload.get("tool_choice") == "none" or not isinstance(name, str) or name not in catalog:
                 raise GatewayContractError("Backend requested a tool outside the active catalog.", "unauthorized_tool_call", 502)
+            forced = payload.get("tool_choice")
+            if isinstance(forced, dict) and name != (forced.get("function") or {}).get("name"):
+                raise GatewayContractError("Backend did not use the explicitly selected tool.", "unauthorized_tool_call", 502)
             if not isinstance(call_id, str) or not call_id or call_id in seen:
                 raise GatewayContractError("Tool call IDs must be present and unique.", "invalid_tool_call", 502)
             seen.add(call_id)

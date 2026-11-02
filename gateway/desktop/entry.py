@@ -17,7 +17,7 @@ from v14.state_lock import StateDirectoryLock
 
 def main():
     parser = argparse.ArgumentParser(description='GPT Mobile Gateway desktop manager')
-    parser.add_argument('command', choices=['supervise', 'settings', 'configure', 'validate-settings', 'serve-engine', 'validate-engine', 'stop', 'restart', 'check', 'install', 'firewall', 'remove-firewall', 'dashboard'])
+    parser.add_argument('command', choices=['supervise', 'settings', 'validate-ui', 'configure', 'validate-settings', 'serve-engine', 'validate-engine', 'stop', 'restart', 'check', 'install', 'firewall', 'remove-firewall', 'dashboard'])
     parser.add_argument('--root', required=True, type=Path)
     parser.add_argument('--version')
     parser.add_argument('--quiet', action='store_true')
@@ -69,6 +69,22 @@ def main():
     if args.command == 'settings':
         from desktop.ui import show
         show(root)
+        return 0
+    if args.command == 'validate-ui':
+        from desktop.ui import build_window
+        from tkinter import ttk
+        window = build_window(root)
+        try:
+            window.update()
+            notebook = next(child for child in window.winfo_children() if isinstance(child, ttk.Notebook))
+            assert [notebook.tab(tab, 'text') for tab in notebook.tabs()] == ['General', 'Advanced', 'Add-ons']
+            window.geometry('660x500')
+            for tab in notebook.tabs():
+                notebook.select(tab)
+                window.update()
+            assert window.winfo_width() >= 660
+        finally:
+            window.destroy()
         return 0
     if args.command == 'supervise':
         return supervise(root)

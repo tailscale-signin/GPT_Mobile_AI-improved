@@ -233,7 +233,7 @@ class OpenAIAPIImpl @Inject constructor(
                                     throw java.io.IOException("Retrying without unsupported sampling parameter: $parameter")
                                 }
                             }
-                            if (response.status.value in listOf(429, 502, 503, 504)) {
+                            if (response.status.value in listOf(429, 502, 503, 504) && ResilientStreamingClient.providerAllowsRetry(errorBody)) {
                                 throw ProviderHttpFailure(response.status.value, ProviderCooldown.defer(config, response.headers[HttpHeaders.RetryAfter]))
                             }
                             throwIfToolDefinitionsRejected(response.status.value, !request.tools.isNullOrEmpty(), errorBody)
@@ -256,7 +256,8 @@ class OpenAIAPIImpl @Inject constructor(
                                     error = ErrorDetail(
                                         message = if (free?.acceptsUserToken == true || response.status.value !in setOf(401, 402, 403)) config.readableProviderError(errorMessage, response.status.value.toString()) else errorMessage,
                                         type = config.freeDiagnostics?.category?.name ?: "http_error",
-                                        code = response.status.value.toString(),
+                                        code = (structuredProviderFailure(errorBody)?.get("code") as? kotlinx.serialization.json.JsonPrimitive)?.content ?: response.status.value.toString(),
+                                        failureDetails = structuredProviderFailure(errorBody),
                                         providerLimit = providerLimitDecision(config, request.model, receivedAssistantPayload || receivedGatewayToolActivity, FreeProviderException(config.freeDiagnostics?.category ?: FreeFailureCategory.REQUEST_INVALID, "HTTP ${response.status.value}"))
                                     )
                                 )
@@ -395,7 +396,7 @@ class OpenAIAPIImpl @Inject constructor(
                             usageReceipt.observe(decoded.usage, decoded.hasAssistantStreamPayload())
                             if (!receivedAssistantPayload && !receivedGatewayToolActivity) {
                                 decoded.error?.let { error ->
-                                    if (ResilientStreamingClient.isRetryable(IllegalStateException("${error.code.orEmpty()} ${error.message}"))) {
+                                    if (error.retryable != false && ResilientStreamingClient.isRetryable(IllegalStateException("${error.code.orEmpty()} ${error.message}"))) {
                                         throw java.io.IOException("Gateway/provider transient error: ${error.message}")
                                     }
                                 }
@@ -406,7 +407,7 @@ class OpenAIAPIImpl @Inject constructor(
                             val chunk = decoded.error?.let { error ->
                                 val category = providerPayloadFailure(error.code, error.message, preparedRequest.toolChoice, !preparedRequest.tools.isNullOrEmpty())
                                 config.freeDiagnostics?.category = category
-                                decoded.copy(error = error.copy(message = "${category.name}: " + config.readableProviderError(providerErrorDetails(data, error.message, config.token), error.code), type = category.name.lowercase()))
+                                decoded.copy(error = error.copy(message = "${category.name}: " + config.readableProviderError(providerErrorDetails(data, error.message, config.token), error.code), type = category.name.lowercase(), failureDetails = structuredProviderFailure(data)))
                             } ?: decoded
                             val observedChunk = chunk.copy(reasoningControlReceipt = reasoningControlReceipt)
                             if (free != null && !chunk.model.isNullOrBlank() && resolvedFreeModel != chunk.model) {

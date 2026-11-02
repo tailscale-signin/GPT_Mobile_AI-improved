@@ -11,7 +11,9 @@ internal object GitHubTaskRecovery {
     private val retryAfter = Regex("(?i)retryAfterMs\\s*[=:]\\s*(\\d+)")
     private val blockedStatus = Regex("(?<!\\d)(?:401|403|429)(?!\\d)")
 
-    fun delayMillis(message: String, recoveries: Int): Long? {
+    fun delayMillis(message: String, recoveries: Int, errorCode: String? = null): Long? {
+        val code = errorCode.orEmpty().lowercase()
+        if (code.startsWith("client_tool_") || code.startsWith("terminal_job_") || code.startsWith("invalid_") || code.startsWith("completion_repair_") || code in setOf("context_capacity_unverified", "reasoning_off_unsupported")) return null
         if (recoveries >= recoveryLimit(message)) return null
         val text = message.lowercase()
         if (listOf("personal_data_", "precheck_rejected", "permission_denied", "permission_revoked", "auth_required", "auth_failed", "invalid_arguments", "unsupported_operation").any { it in text }) return null

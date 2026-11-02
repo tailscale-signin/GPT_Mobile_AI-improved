@@ -276,6 +276,21 @@ class GitHubOperationToolTest {
         assertTrue(context.promptContext().contains("GitHub workspace: owner/repo\nBranch: feature"))
     }
 
+    @Test fun unchangedPrecheckRejectionReusesFailureHistoryWithoutDispatch() = runBlocking {
+        val backend = Backend()
+        val tool = GitHubOperationTool("github_read", backend, "task")
+        val invalid = args("""{"view_cursor":"not-a-cursor"}""")
+        val first = tool.execute("first", invalid)
+        val replay = tool.execute("retry", invalid)
+        assertTrue(first.isError)
+        assertTrue(replay.isError)
+        assertFalse(first.sharedResult)
+        assertTrue(replay.sharedResult)
+        assertFalse(replay.dispatched)
+        assertEquals("retry", replay.callId)
+        assertTrue(backend.calls.isEmpty())
+    }
+
     @Test fun numericViewCursorExplainsRecoveryWithoutDispatch() = runBlocking {
         val backend = Backend()
         val operation = GitHubOperationTool("github_read", backend, "invalid-cursor")

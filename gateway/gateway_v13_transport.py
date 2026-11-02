@@ -82,8 +82,11 @@ def _combined_completion(first, final, reason):
     return result
 
 
-def _completion_issue(data):
+def _completion_issue(data, payload):
     message = data["choices"][0]["message"]
+    choice = payload.get("tool_choice")
+    if not message.get("tool_calls") and (isinstance(choice, dict) or choice == "required"):
+        return "missing_required_tool_call"
     if len(message.get("tool_calls") or []) > 1:
         return "mixed_tool_batch"
     if not message.get("tool_calls") and not visible_answer_text(message):
@@ -132,7 +135,7 @@ def post_chat(
         if response is not None:
             return response
         validate_completion_tools(data, request)
-        issue = _completion_issue(data)
+        issue = _completion_issue(data, request)
         if issue is None:
             if first is not None:
                 data = _combined_completion(first, data, repair_reason)
@@ -143,17 +146,20 @@ def post_chat(
             result._content = json.dumps(data, ensure_ascii=False).encode("utf-8")
             return result
         if attempt:
-            message = "Backend did not return a visible answer after one bounded repair." if issue == "empty_completion" else "Backend ignored sequential tool calling; no tool from this batch was executed."
+            message = {
+                "empty_completion": "Backend did not return a visible answer after one bounded repair.",
+                "missing_required_tool_call": "Backend omitted the required tool call after one bounded repair. No tool was executed.",
+                "mixed_tool_batch": "Backend ignored sequential tool calling; no tool from this batch was executed.",
+            }[issue]
             raise GatewayContractError(message, issue, 502)
-        choice = request.get("tool_choice")
-        if issue == "empty_completion" and (isinstance(choice, dict) or choice == "required"):
-            raise GatewayContractError("Backend omitted the required tool call.", "missing_required_tool_call", 502)
         cap = _repair_output_cap(payload, data)
         first, repair_reason = data, issue
         # Preserve the original goal and completed tool evidence. Never inject the
         # discarded tool batch or hidden reasoning into conversation history.
         request["messages"] = copy.deepcopy(payload.get("messages", []))
         instruction = "Return exactly one tool call this round. Continue other tools in later rounds; never mix execution owners."
+        if issue == "missing_required_tool_call":
+            instruction = "Return exactly one call satisfying the supplied tool_choice and tool schema. A text-only answer cannot complete this round."
         if issue == "empty_completion":
             instruction = "Return a concise visible answer using available evidence. State missing evidence honestly. Do not output hidden reasoning or request more tools."
             request.pop("tools", None)
@@ -185,6 +191,7 @@ def _post_once(session, url, request, connect_timeout, idle_timeout, deadline_at
     response, watcher, last_state = None, None, None
     terminal_seen_at = None
     last_progress, last_size = 0.0, -1
+    backend_first_output_ms = None
 
     def watch():
         while not finished.wait(0.05):
@@ -200,12 +207,17 @@ def _post_once(session, url, request, connect_timeout, idle_timeout, deadline_at
             return
 
     def observed(state):
-        nonlocal last_progress, last_size, last_state, terminal_seen_at
+        nonlocal last_progress, last_size, last_state, terminal_seen_at, backend_first_output_ms
         last_state = state
         now = time.monotonic()
         if state.finish is not None and terminal_seen_at is None:
             terminal_seen_at = now
         size = state.generated_characters + len(state.calls)
+        if size > 0 and backend_first_output_ms is None:
+            backend_first_output_ms = round((now - started) * 1000, 3)
+            progress({"phase": "model_output", "event": "backend_first_output", "status": "running", "stage": "generating",
+                      "message": "Backend generation started; response is being prepared",
+                      "backend_first_output_ms": backend_first_output_ms, "user_visible": False})
         if state.received and size != last_size and (last_progress == 0.0 or now - last_progress >= 0.25):
             progress({"phase": "model_output", "event": "model_output_progress", "status": "running", "stage": "generating", "message": "Receiving model output", "elapsed_seconds": round(now - started, 3), "output_characters": state.visible_characters, "reasoning_characters": state.reasoning_characters, "tool_calls_pending": len(state.calls), "observed_output": True})
             last_progress, last_size = now, size
@@ -236,6 +248,9 @@ def _post_once(session, url, request, connect_timeout, idle_timeout, deadline_at
             raise InterruptedError("Model request cancelled.")
         if expired.is_set() or time.monotonic() >= deadline_at:
             raise GatewayContractError("Backend model deadline exceeded.", "backend_deadline_exceeded", 504)
+        data["gateway_timing"] = {"backend_first_output_ms": backend_first_output_ms,
+                                  "backend_completion_ms": round((time.monotonic() - started) * 1000, 3),
+                                  "first_user_visible_text_ms": None}
         return None, data
     except Exception as exc:
         if stopped.is_set() or cancelled():

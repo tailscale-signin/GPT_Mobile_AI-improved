@@ -86,6 +86,20 @@ class CompletionRecoveryTests(unittest.TestCase):
         config.update(options)
         return post_chat(session, "http://backend", body or payload(), **config)
 
+    def test_private_backend_first_output_is_not_publication_latency(self):
+        progress = []
+        stream = lines({'choices': [{'delta': {'reasoning_content': 'private'}, 'finish_reason': None}]},
+                       {'choices': [{'delta': {'content': 'Answer'}, 'finish_reason': 'stop'}]},
+                       {'choices': [], 'usage': {'prompt_tokens': 2, 'completion_tokens': 3}})
+        data = self.run_chat(Session(Response(stream=stream)), progress=progress.append).json()
+        first = [event for event in progress if event['event'] == 'backend_first_output']
+        self.assertEqual(1, len(first))
+        self.assertFalse(first[0]['user_visible'])
+        self.assertIsNotNone(data['gateway_timing']['backend_first_output_ms'])
+        self.assertIsNone(data['gateway_timing']['first_user_visible_text_ms'])
+        self.assertLessEqual(data['gateway_timing']['backend_first_output_ms'], data['gateway_timing']['backend_completion_ms'])
+        self.assertNotIn('private', json.dumps(progress))
+
     def test_single_tool_policy_does_not_mutate_caller(self):
         body = payload()
         original = copy.deepcopy(body)
@@ -153,13 +167,43 @@ class CompletionRecoveryTests(unittest.TestCase):
         self.assertEqual("unauthorized_tool_call", error.exception.code)
         self.assertEqual(1, len(session.calls))
 
-    def test_forced_tool_is_not_downgraded_to_text_repair(self):
-        body = payload()
-        body["tool_choice"] = "required"
-        session = Session(Response(completion("")))
+    def test_required_tool_repairs_once_without_downgrading_or_resetting_budget(self):
+        for choice in ("required", {"type": "function", "function": {"name": "client_search"}}):
+            for text in ("", "I will search now"):
+                with self.subTest(choice=choice, text=text):
+                    body = payload()
+                    body["tool_choice"] = choice
+                    call = tool("client_search", "repaired")
+                    session = Session(Response(completion(text, used=30)), Response(completion(None, [call], used=20)))
+                    result = self.run_chat(session, body).json()
+                    self.assertEqual([call], result["choices"][0]["message"]["tool_calls"])
+                    self.assertEqual(choice, session.calls[1]["json"]["tool_choice"])
+                    self.assertEqual(body["tools"], session.calls[1]["json"]["tools"])
+                    self.assertEqual(70, session.calls[1]["json"]["max_tokens"])
+                    self.assertEqual(50, result["usage"]["completion_tokens"])
+                    self.assertEqual("missing_required_tool_call", result["gateway_recovery"]["reason"])
+
+    def test_required_tool_failure_stops_after_one_repair(self):
+        body = dict(payload(), tool_choice="required")
+        session = Session(Response(completion("")), Response(completion("Still no tool")))
         with self.assertRaises(GatewayContractError) as error:
             self.run_chat(session, body)
         self.assertEqual("missing_required_tool_call", error.exception.code)
+        self.assertEqual(2, len(session.calls))
+
+    def test_required_tool_without_remaining_budget_never_retries(self):
+        for used in (100, None):
+            session = Session(Response(completion("", used=used)))
+            with self.assertRaises(GatewayContractError):
+                self.run_chat(session, dict(payload(), tool_choice="required"))
+            self.assertEqual(1, len(session.calls))
+
+    def test_forced_tool_cannot_be_replaced_with_another_advertised_tool(self):
+        body = dict(payload(), tool_choice={"type": "function", "function": {"name": "client_search"}})
+        session = Session(Response(completion(None, [tool("gateway_search", "wrong")], used=10)))
+        with self.assertRaises(GatewayContractError) as error:
+            self.run_chat(session, body)
+        self.assertEqual("unauthorized_tool_call", error.exception.code)
         self.assertEqual(1, len(session.calls))
 
     def test_finish_marker_closes_open_socket_but_keeps_usage(self):

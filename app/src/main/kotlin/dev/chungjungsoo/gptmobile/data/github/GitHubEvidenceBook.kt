@@ -54,12 +54,13 @@ internal class GitHubEvidenceBook(
         }
         val operation = GitHubOperationTool.operationName(call.name) ?: "github".takeIf { call.name.substringBefore("__") == it }
         val trusted = call.name in trustedTools && operation != null
-        val owner = (call.arguments["owner"] as? JsonPrimitive)?.contentOrNull
-        val repo = (call.arguments["repo"] as? JsonPrimitive)?.contentOrNull
+        val effectiveArguments = (result.executionReceipt?.get("corrected_arguments") as? JsonObject) ?: call.arguments
+        val owner = (effectiveArguments["owner"] as? JsonPrimitive)?.contentOrNull
+        val repo = (effectiveArguments["repo"] as? JsonPrimitive)?.contentOrNull
         val selected = owner == null && repo == null || "$owner/$repo".equals(repository, true)
-        val targetBranch = (call.arguments["ref"] as? JsonPrimitive)?.contentOrNull ?: (call.arguments["branch"] as? JsonPrimitive)?.contentOrNull ?: branch
-        val immutable = GitHubOperationTool.immutableRead(call.name, call.arguments)
-        val native = if (operation == "github") call.arguments else GitHubOperationTool.nativeArguments(call.name, call.arguments)
+        val targetBranch = (effectiveArguments["ref"] as? JsonPrimitive)?.contentOrNull ?: (effectiveArguments["branch"] as? JsonPrimitive)?.contentOrNull ?: branch
+        val immutable = GitHubOperationTool.immutableRead(call.name, effectiveArguments)
+        val native = if (operation == "github") effectiveArguments else GitHubOperationTool.nativeArguments(call.name, effectiveArguments)
         val action = (native?.get("action") as? JsonPrimitive)?.contentOrNull.orEmpty()
         val mutation = action in GitHubWorkspaceClient.writeActions - "stage_patch" || action in setOf("create_branch", "update_file", "create_pull_request", "create_issue_comment", "dispatch_workflow", "rerun_workflow", "rerun_failed_jobs", "cancel_workflow")
         val root = (content as? JsonObject)?.let { (it["data"] as? JsonObject) ?: it }
@@ -76,7 +77,7 @@ internal class GitHubEvidenceBook(
             !result.isError
         val headObservation = !immutable &&
             action in setOf("repo_status", "get_branch_head", "resolve_context", "branch_context") &&
-            call.arguments["commit_sha"] == null
+            effectiveArguments["commit_sha"] == null
         if (trusted && selected && targetBranch == branch && !result.sharedResult) {
             if (remoteChange || !result.isError && headObservation && head != null && observedHead != null && head != observedHead) epoch++
             if (!result.isError && head != null && (headObservation || remoteChange)) observedHead = head
@@ -89,7 +90,7 @@ internal class GitHubEvidenceBook(
             put("tool", call.name)
             put("repository", if (selected) repository else "$owner/$repo")
             put("branch", targetBranch)
-            put("arguments", call.arguments)
+            put("arguments", effectiveArguments)
             val sourceTime = (result.executionReceipt?.get("source_observed_at_ms") as? JsonPrimitive)?.longOrNull
             put("observed_at_ms", sourceTime ?: if (result.sharedResult || !result.dispatched) 0 else now())
             put("epoch", epoch)

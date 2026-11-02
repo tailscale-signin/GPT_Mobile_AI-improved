@@ -33,6 +33,11 @@ internal class GitHubVerifiedSession(
     private val computationDispatcher: CoroutineDispatcher = Dispatchers.Default
 ) : AgentProviderSession by delegate {
     override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> = flow {
+        if (GitHubStatusRequest.isGreeting(task)) {
+            emit(ProviderEvent.TextDelta("Hello! How can I help?"))
+            emit(ProviderEvent.Completed)
+            return@flow
+        }
         exchanges.forEach { exchange -> exchange.results.forEach { result -> exchange.calls.firstOrNull { it.callId == result.callId }?.let { evidence.observe(it, result) } } }
         if (GitHubStatusRequest.matches(task) && tools.isNotEmpty()) {
             val (receipts, _) = evidence.snapshot()
@@ -52,7 +57,7 @@ internal class GitHubVerifiedSession(
             val hasStatusSnapshot = receipts.values.any { receipt ->
                 (receipt["arguments"] as? JsonObject)?.get("action") == kotlinx.serialization.json.JsonPrimitive("status")
             }
-            if (hasStatusSnapshot && GitHubEvidencePolicy.status(receipts, now(), epoch) != null) {
+            if (hasStatusSnapshot && GitHubEvidencePolicy.status(receipts, now(), epoch, task) != null) {
                 emitAll(publish(null))
                 return@flow
             }
@@ -107,14 +112,14 @@ internal class GitHubVerifiedSession(
             // A failed connection is not a claim-verification failure. Keep its actionable cause.
             kotlinx.coroutines.flow.flowOf(failure.copy(errorCode = "LOCAL_SERVICE_UNREACHABLE"))
         } else {
-            publish(null, terminalFallback = true, failureCode = failure.errorCode)
+            publish(null, failureCode = failure.errorCode, originalFailure = failure)
         }
 
-    private fun publish(draft: String?, terminalFallback: Boolean = false, failureCode: String? = null): Flow<ProviderEvent> = flow {
+    private fun publish(draft: String?, failureCode: String? = null, originalFailure: ProviderEvent.Failed? = null): Flow<ProviderEvent> = flow {
         val publication = try {
             validatePublication()
             val (receipts, epoch) = evidence.snapshot()
-            val status = if (GitHubStatusRequest.matches(task)) GitHubEvidencePolicy.status(receipts, now(), epoch) else null
+            val status = if (GitHubStatusRequest.matches(task)) GitHubEvidencePolicy.status(receipts, now(), epoch, task) else null
             val coverage = if (GitHubTaskCoverage.matches(task)) {
                 withContext(computationDispatcher) {
                     GitHubEvidencePolicy.testing(receipts, now(), epoch, task)
@@ -130,12 +135,31 @@ internal class GitHubVerifiedSession(
             }
             val (text, report) = status ?: coverage ?: if (request == null) partial(receipts, epoch, failureCode ?: "GITHUB_EXTRACTION_UNAVAILABLE") else extract(request, receipts, epoch)
             validatePublication()
-            val partial = report["partial"] == kotlinx.serialization.json.JsonPrimitive(true)
+            val partial = report["task_outcome"] != kotlinx.serialization.json.JsonPrimitive("COMPLETED") || report["completion_verified"] != kotlinx.serialization.json.JsonPrimitive(true)
             val oversizedWithoutEvidence = draft != null && status == null && coverage == null && request == null && receipts.isEmpty()
             check(!oversizedWithoutEvidence) { "No retained GitHub evidence is available for publication" }
-            val retained = if (partial && terminalFallback) JsonObject(report + ("resume_required" to kotlinx.serialization.json.JsonPrimitive(true))) else report
+            val retained = JsonObject(
+                report + buildJsonObject {
+                    put("partial", partial)
+                    put("resume_required", partial)
+                    put("model_round_finished", draft != null)
+                    originalFailure?.let { failure ->
+                        put(
+                            "original_failure",
+                            buildJsonObject {
+                                put("code", failure.errorCode.orEmpty())
+                                put("message", failure.message)
+                                put("transport_complete", failure.transportComplete)
+                                failure.failureDetails?.forEach { (key, value) -> put(key, value) }
+                            }
+                        )
+                    }
+                    if (partial && "verification_failure" !in report) put("verification_failure", failureCode ?: "GITHUB_EVIDENCE_REQUIRED")
+                }
+            )
             evidence.retainVerdict(retained)
-            (if (partial && terminalFallback) "**GitHub verification incomplete.**\n\n$text" else text) to partial
+            val cause = originalFailure?.let { "**Task interrupted:** ${it.message}\n\n" }.orEmpty()
+            Publication(cause + text, partial, retained)
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: Exception) {
@@ -143,21 +167,26 @@ internal class GitHubVerifiedSession(
             return@flow
         }
         // Collector exceptions must propagate unchanged; they are not formatter failures.
-        val (text, partial) = publication
-        if (partial && terminalFallback) {
-            emit(ProviderEvent.TextDelta(text))
+        val (text, partial, report) = publication
+        emit(ProviderEvent.TextDelta(text))
+        evidence.retainVerdict(JsonObject(report + ("response_delivered" to kotlinx.serialization.json.JsonPrimitive(true))))
+        val extractionCode = (report["failure_code"] as? kotlinx.serialization.json.JsonPrimitive)?.content?.takeUnless { it == "null" }
+        if (partial) {
             emit(
                 ProviderEvent.Failed(
-                    "GitHub response verification remained incomplete. Saved receipts and the task checkpoint are available for continuation.",
-                    errorCode = failureCode ?: "GITHUB_EVIDENCE_REQUIRED",
-                    transportComplete = true
+                    originalFailure?.message ?: "Partial response delivered. The requested task remains incomplete; saved receipts and the task checkpoint are available for continuation.",
+                    errorCode = failureCode ?: extractionCode ?: "GITHUB_EVIDENCE_REQUIRED",
+                    transportComplete = true,
+                    taskOutcome = "PARTIAL",
+                    failureDetails = originalFailure?.failureDetails
                 )
             )
         } else {
-            emit(ProviderEvent.TextDelta(text))
             emit(ProviderEvent.Completed)
         }
     }
+
+    private data class Publication(val text: String, val partial: Boolean, val report: JsonObject)
 
     private suspend fun partial(receipts: Map<String, JsonObject>, epoch: Long, failureCode: String? = null): Pair<String, JsonObject> = withContext(computationDispatcher) {
         GitHubEvidencePolicy.partial(receipts, now(), epoch, task, failureCode)
@@ -174,7 +203,7 @@ internal class GitHubVerifiedSession(
                         response.append(event.text)
                     }
                     is ProviderEvent.Completed -> verifiedComplete = true
-                    is ProviderEvent.Failed -> error("Claim extraction did not complete")
+                    is ProviderEvent.Failed -> throw ExtractionFailed(event)
                     is ProviderEvent.ToolCall, is ProviderEvent.ToolResult -> error("Evidence formatting attempted an operation")
                     else -> Unit
                 }
@@ -187,10 +216,24 @@ internal class GitHubVerifiedSession(
         } ?: partial(receipts, epoch, "GITHUB_EXTRACTION_TIMEOUT")
     } catch (cancelled: CancellationException) {
         throw cancelled
+    } catch (failed: ExtractionFailed) {
+        val (text, report) = partial(receipts, epoch, failed.failure.errorCode ?: "GITHUB_EXTRACTION_FAILED")
+        text to JsonObject(
+            report + (
+                "verification_failure" to buildJsonObject {
+                    put("code", failed.failure.errorCode.orEmpty())
+                    put("message", failed.failure.message)
+                    put("failed_stage", "claim_extraction")
+                    failed.failure.failureDetails?.forEach { (key, value) -> put(key, value) }
+                }
+                )
+        )
     } catch (_: Exception) {
         // Permission, ledger and persistence failures remain outside this boundary.
         partial(receipts, epoch, "GITHUB_EXTRACTION_INVALID_RESPONSE")
     }
+
+    private class ExtractionFailed(val failure: ProviderEvent.Failed) : IllegalStateException(failure.message)
 
     private fun verificationRequest(draft: String, receipts: Map<String, JsonObject>): String? {
         val hardLimit = inputLimit()

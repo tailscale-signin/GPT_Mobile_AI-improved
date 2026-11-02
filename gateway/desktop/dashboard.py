@@ -1,6 +1,6 @@
 """Native, local-only Windows dashboard. No network secret is given to this UI."""
-from collections import deque
 import os
+import queue
 from pathlib import Path
 import subprocess
 import sys
@@ -10,6 +10,8 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 
 from desktop import theme
+from desktop.metrics import number
+from desktop.token_history import TokenHistory
 from desktop.configuration import atomic_json, load
 from desktop.dashboard_model import age, counters, read_snapshot, rows
 from desktop.manager import request
@@ -33,8 +35,7 @@ class Dashboard:
         self.page = 'Overview'
         self.snapshot = {}
         self.displayed = []
-        self.plot = deque(maxlen=45)
-        self.last_sample = None
+        self.messages = queue.Queue()
         self.busy = False
         self.closed = False
         self.window.protocol('WM_DELETE_WINDOW', self.close)
@@ -44,9 +45,18 @@ class Dashboard:
         watch(self.window, self.root, self.close)
 
     def build(self):
-        sidebar = tk.Frame(self.window, bg='#061C24', width=175 if self.compact else 210)
-        sidebar.pack(side='left', fill='y')
-        sidebar.pack_propagate(False)
+        sidebar_shell = tk.Frame(self.window, bg='#061C24', width=195 if self.compact else 225)
+        sidebar_shell.pack(side='left', fill='y')
+        sidebar_shell.pack_propagate(False)
+        sidebar_canvas = tk.Canvas(sidebar_shell, bg='#061C24', highlightthickness=0)
+        sidebar_scroll = ttk.Scrollbar(sidebar_shell, orient='vertical', command=sidebar_canvas.yview)
+        sidebar_canvas.configure(yscrollcommand=sidebar_scroll.set)
+        sidebar_scroll.pack(side='right', fill='y')
+        sidebar_canvas.pack(side='left', fill='both', expand=True)
+        sidebar = tk.Frame(sidebar_canvas, bg='#061C24')
+        sidebar_item = sidebar_canvas.create_window((0, 0), window=sidebar, anchor='nw')
+        sidebar.bind('<Configure>', lambda _: sidebar_canvas.configure(scrollregion=sidebar_canvas.bbox('all')))
+        sidebar_canvas.bind('<Configure>', lambda event: sidebar_canvas.itemconfigure(sidebar_item, width=event.width))
         if getattr(self.window, '_brand_icon', None):
             self.logo = self.window._brand_icon.subsample(2)
             tk.Label(sidebar, image=self.logo, background='#061C24').pack(anchor='w', padx=23, pady=(26, 12))
@@ -61,10 +71,11 @@ class Dashboard:
             button.pack(fill='x', padx=12, pady=3)
             self.nav[page] = button
         tk.Frame(sidebar, bg=theme.LINE, height=1).pack(fill='x', padx=25, pady=25)
-        ttk.Button(sidebar, text='Settings', command=self.settings).pack(fill='x', padx=17)
+        for section in ('General', 'Advanced', 'Add-ons'):
+            ttk.Button(sidebar, text=section, command=lambda value=section: self.settings(value)).pack(fill='x', padx=17, pady=4)
         theme.label(sidebar, 'Runs on your PC\nNo cloud dashboard', 10, color=theme.MUTED, bg='#061C24', justify='left').pack(side='bottom', anchor='w', padx=25, pady=24)
         self.body = tk.Frame(self.window, bg=theme.BG)
-        self.body.pack(side='left', fill='both', expand=True, padx=20 if self.compact else 27, pady=20)
+        self.body.pack(side='left', fill='both', expand=True, padx=16 if self.compact else 27, pady=16)
         header = tk.Frame(self.body, bg=theme.BG)
         header.pack(fill='x')
         self.title = theme.label(header, 'Your gateway, at a glance', 18 if self.compact else 23, bold=True)
@@ -77,15 +88,15 @@ class Dashboard:
         cards.pack(fill='x', pady=(0, 18))
         self.cards = []
         for i, (name, note, accent) in enumerate([
-                ('CONNECTED CLIENTS', 'Observed within 60 seconds', theme.CYAN),
-                ('OPEN JOBS', 'Chat and engineering', theme.CYAN),
-                ('SEARCH ACTIVITY', 'Retained search operations', theme.PURPLE),
-                ('GITHUB JOBS', 'Latest saved engineering jobs', theme.PURPLE)]):
+                ('TOTAL TOKENS', 'Measured output · all time', theme.CYAN),
+                ('GENERATED TODAY', 'Local calendar day', theme.CYAN),
+                ('GENERATION SPEED', 'Measured model output', theme.PURPLE),
+                ('OPEN JOBS', 'Chat and engineering', theme.PURPLE)]):
             cards.columnconfigure(i, weight=1, uniform='card')
             card = tk.Frame(cards, bg=theme.PANEL, highlightbackground=theme.LINE, highlightthickness=1)
             card.grid(row=0, column=i, sticky='nsew', padx=(0 if i == 0 else 6, 0 if i == 3 else 6))
             theme.label(card, name, 8 if self.compact else 9, color=theme.MUTED, bold=True, bg=theme.PANEL).pack(anchor='w', padx=10, pady=(13, 4))
-            value = theme.label(card, '—', 29, color=accent, bold=True, bg=theme.PANEL)
+            value = theme.label(card, '—', 20 if self.compact else 24, color=accent, bold=True, bg=theme.PANEL)
             value.pack(anchor='w', padx=14)
             theme.label(card, note, 8, color=theme.MUTED, bg=theme.PANEL, wraplength=155 if self.compact else 185, justify='left').pack(anchor='w', padx=10, pady=(0, 13))
             self.cards.append(value)
@@ -93,12 +104,14 @@ class Dashboard:
         self.chart_frame.pack(fill='x', pady=(0, 18))
         chart_head = tk.Frame(self.chart_frame, bg=theme.PANEL)
         chart_head.pack(fill='x', padx=16, pady=(12, 0))
-        theme.label(chart_head, 'TRAFFIC / REQUESTS PER SECOND', 9, color=theme.CYAN, bold=True, bg=theme.PANEL).pack(side='left')
-        self.metrics = theme.label(chart_head, 'Waiting for measured traffic', 9, color=theme.MUTED, bg=theme.PANEL)
+        theme.label(chart_head, 'TOKENS GENERATED / LAST 7 DAYS', 9, color=theme.CYAN, bold=True, bg=theme.PANEL).pack(side='left')
+        self.metrics = theme.label(chart_head, 'Local time', 9, color=theme.MUTED, bg=theme.PANEL)
         self.metrics.pack(side='right')
-        self.chart = tk.Canvas(self.chart_frame, height=72 if self.compact else 100, bg=theme.PANEL, highlightthickness=0)
+        self.chart = TokenHistory(self.chart_frame, height=125 if self.compact else 165)
         self.chart.pack(fill='x', padx=12, pady=8)
-        self.chart.bind('<Configure>', lambda event: self.draw_plot())
+        self.coverage = theme.label(self.chart_frame, 'Provider measurements only; no estimates.', 9, color=theme.MUTED, bg=theme.PANEL, anchor='w')
+        self.coverage.pack(fill='x', padx=16, pady=(0, 10))
+        self.chart_frame.bind('<Configure>', lambda event: self.coverage.configure(wraplength=max(250, event.width - 32)))
         toolbar = tk.Frame(self.body, bg=theme.BG)
         toolbar.pack(fill='x', pady=(0, 10))
         self.section = theme.label(toolbar, 'Recent activity', 14, bold=True)
@@ -193,25 +206,16 @@ class Dashboard:
                 content += f'  ·  {duration:.1f}s'
         self.detail.configure(text=content[:420] or 'No additional metadata recorded.')
 
-    def draw_plot(self):
-        self.chart.delete('all')
-        width, height = max(40, self.chart.winfo_width()), max(40, self.chart.winfo_height())
-        for y in (height * .18, height * .46, height * .74):
-            self.chart.create_line(8, y, width - 8, y, fill=theme.LINE)
-        if len(self.plot) < 2:
-            self.chart.create_text(20, height / 2, text='Traffic appears here as requests arrive', fill=theme.MUTED, anchor='w', font=('Segoe UI', 10))
-            return
-        peak = max(1, max(self.plot))
-        points = []
-        for i, value in enumerate(self.plot):
-            points.extend((10 + i * (width - 22) / (len(self.plot) - 1), height * .82 - value / peak * height * .66))
-        self.chart.create_polygon([10, height * .84, *points, width - 12, height * .84], fill='#0C3F44', outline='')
-        self.chart.create_line(*points, fill=theme.CYAN, width=2, smooth=True)
-        self.chart.create_oval(points[-2] - 3, points[-1] - 3, points[-2] + 3, points[-1] + 3, fill=theme.CYAN, outline='')
-
     def refresh(self):
         if self.closed:
             return
+        while not self.messages.empty():
+            error = self.messages.get_nowait()
+            self.busy = False
+            for button in self.buttons:
+                button.configure(state='normal')
+            if error:
+                messagebox.showerror('Gateway', error, parent=self.window)
         show_request = self.root / 'show-dashboard.json'
         if show_request.exists():
             try:
@@ -232,26 +236,25 @@ class Dashboard:
             self.subtitle.configure(text=f'{endpoint}  /  {mode}  /  Model backend: {status.get("backend", "not measured")}')
         except (OSError, ValueError):
             self.subtitle.configure(text='Connection settings unavailable. Open settings to recover the configuration.')
-        for card, value in zip(self.cards, counters(self.snapshot)):
-            card.configure(text='—' if value is None else str(value))
-        total = self.snapshot.get('requests', 0)
-        stamp = self.snapshot.get('capturedAt')
-        started = self.snapshot.get('startedAt')
-        if fresh and isinstance(stamp, (int, float)):
-            if self.last_sample and self.last_sample[2] == started and stamp > self.last_sample[0]:
-                self.plot.append(max(0, total - self.last_sample[1]) / (stamp - self.last_sample[0]))
-            elif not self.last_sample or self.last_sample[2] != started:
-                self.plot.clear()
-            self.last_sample = (stamp, total, started)
-        self.metrics.configure(text=f'{total:,} requests this session  ·  {self.snapshot.get("errors", 0):,} failed  ·  {self.snapshot.get("sentBytes", 0) / 1024:.0f} KiB sent')
+        usage = self.snapshot.get('usage', {})
+        days = usage.get('days', [])
+        speed = usage.get('tokensPerSecond')
+        active = counters(self.snapshot)[1]
+        values = (number(usage.get('outputTokens')), number(days[-1].get('outputTokens')) if days else 'Not measured',
+                  f'{speed:.1f} tok/s' if isinstance(speed, (int, float)) else 'Not measured', number(active))
+        for card, value in zip(self.cards, values):
+            card.configure(text=value, font=('Segoe UI', (12 if self.compact else 14) if len(value) > 9 else (20 if self.compact else 24), 'bold'))
+        self.chart.update_days(days)
+        self.metrics.configure(text='Saved measurements' if not fresh else 'Updated after each model round')
+        missing = usage.get('unmeasuredRounds', 0)
+        self.coverage.configure(text=(f'Measured output only · {missing} rounds unavailable. ' if missing else '') + 'Includes model-counted reasoning. Totals persist across restarts.')
         self.note.configure(text=self.snapshot.get('historyError') or ('Refreshes every 2s · latest 100 saved jobs / 300 activities' if fresh else 'Offline or refreshing · retained history shown'))
         self.render_rows()
-        self.draw_plot()
         self.window.after(2000, self.refresh)
 
-    def settings(self):
+    def settings(self, section='General'):
         from desktop.ui import show
-        show(self.root, parent=self.window)
+        show(self.root, parent=self.window, section=section)
 
     def operation(self, action):
         if self.busy:
@@ -274,14 +277,7 @@ class Dashboard:
                     request(self.root, action)
             except Exception as exc:
                 error = str(exc)
-            def finished():
-                self.busy = False
-                for button in self.buttons:
-                    button.configure(state='normal')
-                if error:
-                    messagebox.showerror('Gateway', error, parent=self.window)
-            if not self.closed:
-                self.window.after(0, finished)
+            self.messages.put(error)
         threading.Thread(target=work, daemon=True).start()
 
     def close(self):

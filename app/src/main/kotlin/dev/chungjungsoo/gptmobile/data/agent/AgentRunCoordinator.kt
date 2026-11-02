@@ -1087,7 +1087,14 @@ internal fun terminalAgentMessage(message: MessageV2, error: String?, completedA
 internal fun ApiStateFlowOutcome.toTerminalUpdate(): AgentRunTerminalUpdate = when (this) {
     ApiStateFlowOutcome.Completed -> AgentRunTerminalUpdate(AgentRunStatus.COMPLETED, null)
 
-    is ApiStateFlowOutcome.Failed -> AgentRunTerminalUpdate(if (errorCode == "QUEUE_JOB_PENDING") AgentRunStatus.WAITING_REMOTE_JOB else AgentRunStatus.FAILED, message)
+    is ApiStateFlowOutcome.Failed -> AgentRunTerminalUpdate(
+        when {
+            errorCode == "QUEUE_JOB_PENDING" -> AgentRunStatus.WAITING_REMOTE_JOB
+            taskOutcome == "PARTIAL" -> AgentRunStatus.INTERRUPTED
+            else -> AgentRunStatus.FAILED
+        },
+        message
+    )
 
     ApiStateFlowOutcome.Incomplete -> AgentRunTerminalUpdate(
         AgentRunStatus.FAILED,

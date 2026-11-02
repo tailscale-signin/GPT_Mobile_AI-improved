@@ -63,3 +63,9 @@ Fresh exact-revision CI is required for the resulting checkpoint. Physical Andro
 Exact-head Gateway stability and repository-contract jobs exposed one remaining `pathlib.Path` reconstruction after the test switches the process into simulated Windows mode. The firewall script location now uses `os.path.dirname` and `os.path.join`, avoiding a Linux `WindowsPath` construction while preserving the same installed script target on Windows. The package manifest records the repaired production file.
 
 Fresh exact-revision CI is required; the failed and superseded runs do not count.
+
+## Cross-platform firewall rule-name repair checkpoint
+
+The remaining Linux matrix failure came from `rule_name()` constructing a new `pathlib.Path` after the test switched `os.name` to simulated Windows mode. Rule naming now normalizes `os.fspath(root)` through `os.path.abspath` and case folding, preserving deterministic installation-specific names without instantiating an incompatible `WindowsPath`. The package manifest records the exact repaired production file and source revision.
+
+Fresh exact-revision CI is required. The earlier Linux failures, successful Windows-only jobs, and all superseded runs do not count for this checkpoint.

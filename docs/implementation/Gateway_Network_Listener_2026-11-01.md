@@ -39,3 +39,15 @@ Review of draft head `20c279acbfe6adf9ace5b78b437cd66fcb4d80a6` found and repair
 - Gateway package-integrity hashes were refreshed after these scoped source and test repairs.
 
 Fresh exact-revision CI is required for the resulting checkpoint. Older, cancelled, failed, pending, skipped-required or superseded runs do not count.
+
+
+
+## CI repair checkpoint
+
+Exact-head CI at `a440918001b3f2f796cb1705703f5d786bd508d9` exposed two environment-dependent failures:
+
+- Firewall command construction now uses `os.path.join`, so the Linux stability matrix can exercise the Windows removal path without causing `pathlib.Path` to instantiate `WindowsPath` on Linux.
+- Live Windows listener tests probe the listener itself as the configured backend, avoiding the invalid assumption that loopback port 1 always refuses immediately. The same key-free LAN, host-admission, management-secret and restart assertions remain.
+- Gateway package-integrity hashes were refreshed for the production and test repairs.
+
+Fresh exact-revision CI is required for this checkpoint. It must also be rerun after the preceding PR advances `main`; no older, cancelled, failed, pending, skipped-required or superseded run counts.

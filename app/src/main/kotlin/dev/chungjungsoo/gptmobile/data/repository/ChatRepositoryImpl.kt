@@ -3784,7 +3784,7 @@ class ChatRepositoryImpl(
             val catalog = if (preparationPlan.kind == dev.chungjungsoo.gptmobile.data.readiness.PreparationKind.DIRECT || platform.disableAllTools || (!supportsTools && !sourceAcquisitionRequested)) {
                 emptyList()
             } else {
-                agentToolResolver.resolve(platform.uid, chatToolConfig, effectiveUserMessages.lastOrNull()?.let { message -> taskRecovery?.let { message.copy(id = it.sourceMessageId, content = it.originalRequest) } ?: message }, delegate, onConnectionError = { unavailableConnections += it }, cachedCataloguesOnly = cachedOnly, requestedModel = platform.model).filterNot { resolved ->
+                agentToolResolver.resolve(platform.uid, chatToolConfig, effectiveUserMessages.lastOrNull()?.let { message -> taskRecovery?.let { message.copy(id = it.sourceMessageId, content = it.originalRequest) } ?: message }, delegate, onConnectionError = { if (it !in unavailableConnections) unavailableConnections += it }, cachedCataloguesOnly = cachedOnly, requestedModel = platform.model).filterNot { resolved ->
                     ((taskRecovery?.primaryOnly == true || chatToolConfig?.combined != null) && resolved.realToolName == "delegate_to_model") ||
                         (chatToolConfig?.combined?.plan?.searchAllowed == false && resolved.isWebSearchEngine()) ||
                         privateConversation &&

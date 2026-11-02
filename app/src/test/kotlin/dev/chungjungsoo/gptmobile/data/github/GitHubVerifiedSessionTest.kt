@@ -81,27 +81,33 @@ class GitHubVerifiedSessionTest {
     }
 
     @Test fun completeStatusSnapshotRequiresAllCurrentObservations() = runBlocking {
-        val sha = "a".repeat(40)
-        val book = GitHubEvidenceBook("b", "o/r", "main", setOf("github_context", "github_pr"), { 1000 })
-        val sources = listOf(
-            Triple("github_context", "status", """{"repository":{"full_name":"o/r"},"branch":"main","commit_sha":"$sha","latest_workflow":{"head_sha":"$sha","head_branch":"main","status":"completed","conclusion":"success"}}"""),
-            Triple("github_context", "checks", """{"commit_sha":"$sha","checks":0,"statuses":0,"check_details":{"check_runs":[]}}"""),
-            Triple("github_pr", "list", """{"items":[]}"""),
-            Triple("github_context", "commits", """{"commit_sha":"$sha","items":[{"sha":"$sha"}]}""")
-        )
-        for ((tool, action, body) in sources) {
-            val call = ProviderEvent.ToolCall(action, tool, JsonObject(mapOf("action" to JsonPrimitive(action))))
-            book.observe(call, AgentToolResult(action, ToolResultContent.Json(JsonObject(mapOf("data" to Json.parseToJsonElement(body)))), false))
+        for (prField in listOf("items", "pull_requests")) {
+            val sha = "a".repeat(40)
+            val book = GitHubEvidenceBook("b", "o/r", "main", setOf("github_context", "github_pr"), { 1000 })
+            val sources = listOf(
+                Triple("github_context", "status", """{"repository":{"full_name":"o/r"},"branch":"main","commit_sha":"$sha","latest_workflow":{"head_sha":"$sha","head_branch":"main","status":"completed","conclusion":"success"}}"""),
+                Triple("github_context", "checks", """{"commit_sha":"$sha","checks":0,"statuses":0,"check_details":{"check_runs":[]}}"""),
+                Triple("github_pr", "list", """{"$prField":[]}"""),
+                Triple("github_context", "commits", """{"commit_sha":"$sha","items":[{"sha":"$sha"}]}""")
+            )
+            for ((tool, action, body) in sources) {
+                val call = ProviderEvent.ToolCall(action, tool, JsonObject(mapOf("action" to JsonPrimitive(action))))
+                book.observe(call, AgentToolResult(action, ToolResultContent.Json(JsonObject(mapOf("data" to Json.parseToJsonElement(body)))), false))
+            }
+            val (receipts, epoch) = book.snapshot()
+            val (_, report) = requireNotNull(GitHubEvidencePolicy.status(receipts, 1000, epoch, "status of repo"))
+            assertEquals(JsonPrimitive("COMPLETED"), report["task_outcome"])
+            assertEquals(JsonPrimitive(true), report["completion_verified"])
+            assertEquals(JsonPrimitive(false), report["partial"])
+            assertEquals(JsonPrimitive("status of repo"), report["task"])
+            val gate = GitHubVerifiedSession(answer("unused"), book, "status", { 8192 }, { error("Status uses receipts directly") }, {}, {}, now = { 1000L })
+            val events = gate.streamRound(emptyList(), emptyList()).toList()
+            assertTrue(events.last() is ProviderEvent.Completed)
+            assertTrue(events.none { it is ProviderEvent.Failed })
+            val incomplete = requireNotNull(GitHubEvidencePolicy.status(receipts.filterValues { it["tool"] != JsonPrimitive("github_pr") }, 1000, epoch))
+            assertEquals(JsonPrimitive("PARTIAL"), incomplete.second["task_outcome"])
+            assertTrue(incomplete.first.contains("Unavailable observations"))
         }
-        val (receipts, epoch) = book.snapshot()
-        val (_, report) = requireNotNull(GitHubEvidencePolicy.status(receipts, 1000, epoch, "status of repo"))
-        assertEquals(JsonPrimitive("COMPLETED"), report["task_outcome"])
-        assertEquals(JsonPrimitive(true), report["completion_verified"])
-        assertEquals(JsonPrimitive(false), report["partial"])
-        assertEquals(JsonPrimitive("status of repo"), report["task"])
-        val incomplete = requireNotNull(GitHubEvidencePolicy.status(receipts.filterValues { it["tool"] != JsonPrimitive("github_pr") }, 1000, epoch))
-        assertEquals(JsonPrimitive("PARTIAL"), incomplete.second["task_outcome"])
-        assertTrue(incomplete.first.contains("Unavailable observations"))
     }
 
     @Test fun isolatedCheckReceiptDoesNotStopRemainingStatusCollection() = runBlocking {

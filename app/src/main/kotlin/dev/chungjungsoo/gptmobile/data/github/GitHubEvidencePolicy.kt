@@ -292,7 +292,7 @@ internal object GitHubEvidencePolicy {
         val coverage = linkedMapOf(
             "Selected branch and current commit" to (currentSha != null && claims.keys.any { it in setOf("/branch", "/data/branch") }),
             "Recent commits" to observed("github_context", "commits") { it["commit_sha"] == currentSha && it["items"] is JsonArray },
-            "Open pull requests (draft/ready)" to observed("github_pr", "list") { it["items"] is JsonArray },
+            "Open pull requests (draft/ready)" to observed("github_pr", "list") { it["items"] is JsonArray || it["pull_requests"] is JsonArray },
             "Checks and statuses for the current commit" to observed("github_context", "checks") { currentSha != null && it["commit_sha"] == currentSha && "checks" in it && "statuses" in it },
             "Latest workflow" to listOf("head_sha", "head_branch", "status").all { field -> claims.keys.any { it.endsWith("/latest_workflow/$field") } }
         )

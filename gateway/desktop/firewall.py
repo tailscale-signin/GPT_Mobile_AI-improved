@@ -10,7 +10,7 @@ from desktop.configuration import atomic_json, load
 
 
 def rule_name(root):
-    return 'GPTMobileGateway-' + hashlib.sha256(str(Path(root).resolve()).casefold().encode()).hexdigest()[:24]
+    return 'GPTMobileGateway-' + hashlib.sha256(os.path.abspath(os.fspath(root)).casefold().encode()).hexdigest()[:24]
 
 
 def apply(root, remove=False):

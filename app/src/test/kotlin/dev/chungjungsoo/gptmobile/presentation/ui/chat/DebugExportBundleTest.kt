@@ -15,6 +15,14 @@ import org.junit.Assert.assertThrows
 import org.junit.Test
 
 class DebugExportBundleTest {
+    @Test fun closureSeparatesActiveTasksFromMissingTerminalCapture() {
+        val runs = Json.parseToJsonElement("""{"runs":[{"runId":"a","status":"RUNNING"},{"runId":"b","status":"COMPLETED"},{"runId":"c","status":"FAILED"}]}""").jsonObject
+        val events = listOf(Json.parseToJsonElement("""{"runId":"c","kind":"RUN_TERMINAL"}"""))
+        val result = DebugExportBundle.taskClosure(runs, events).getValue("runs") as JsonArray
+        assertEquals(JsonPrimitive("ACTIVE_OR_WAITING_AT_EXPORT"), result[0].jsonObject["closure"])
+        assertEquals(JsonPrimitive("TERMINAL_STATUS_WITHOUT_RETAINED_EVENT"), result[1].jsonObject["closure"])
+        assertEquals(JsonPrimitive("TERMINAL_EVENT_CAPTURED"), result[2].jsonObject["closure"])
+    }
     private fun snapshot(version: Int = DebugExportSchema.CONVERSATION_VERSION) = buildJsonObject {
         put("schema", "gptmobile.conversation.debug.v$version")
         put("messages", JsonArray(emptyList()))

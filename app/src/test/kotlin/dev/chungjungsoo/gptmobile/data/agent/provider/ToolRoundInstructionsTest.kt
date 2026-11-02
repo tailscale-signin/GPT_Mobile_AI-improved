@@ -6,6 +6,16 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ToolRoundInstructionsTest {
+    @Test fun finalizationDropsOnlyGeneratedToolStageInstructions() {
+        val userRules = "Return JSON. Preserve uncertainty."
+        val prompt = userRules + dev.chungjungsoo.gptmobile.data.agent.toolStageInstructions("Call github_ci until every page is read.") + "\nProject rule: include the tested revision."
+        val final = requireNotNull(toolRoundSystemPrompt(prompt, false))
+        assertTrue(final.contains(userRules))
+        assertTrue(final.contains("Project rule: include the tested revision."))
+        assertTrue(!final.contains("Call github_ci"))
+        assertEquals(prompt, toolRoundSystemPrompt(prompt, true))
+    }
+
     @Test fun activeToolsPreserveTheOriginalPrompt() {
         assertEquals("Original prompt", toolRoundSystemPrompt("Original prompt", true))
         assertNull(toolRoundSystemPrompt(null, true))

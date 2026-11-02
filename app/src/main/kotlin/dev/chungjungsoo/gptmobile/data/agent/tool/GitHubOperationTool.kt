@@ -49,6 +49,11 @@ internal class GitHubOperationTool(
             put("dispatched", result.dispatched)
             put("reused_receipt", result.sharedResult)
             put("pages_returned", if (result.isError) 0 else 1)
+            put("page_kind", if ("view_cursor" in arguments) "LOCAL_FRAGMENT" else "OPERATION_RESULT")
+            put("remote_read_requests", result.executionReceipt?.get("read_requests") ?: JsonPrimitive(0))
+            put("arguments_fingerprint", dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore.digest(scope + "|" + JsonObject(arguments.toSortedMap())))
+            put("result_fingerprint", dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore.digest(scope + "|" + result.content.toString()))
+            put("fingerprint_scope", "AUTHORIZED_CONVERSATION")
             result.errorCode?.let { put("error_code", it) }
         }
         dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("GitHubToolTrace", trace.toString())
@@ -220,21 +225,46 @@ internal class GitHubOperationTool(
         val native = nativeArguments(operation, JsonObject(arguments - "response_detail"))
             ?: return AgentToolResult(callId, ToolResultContent.Text("Unsupported GitHub operation."), true, errorCode = "INVALID_ARGUMENTS", dispatched = false)
         pagination.completedPage(operation, arguments)?.let { lastPage ->
+            val repeated = pagination.stoppedOnRepetition(operation, arguments)
             return AgentToolResult(
                 callId,
                 ToolResultContent.Json(
                     buildJsonObject {
-                        put("pagination_complete", true)
+                        put("pagination_complete", !repeated)
                         put("last_remote_page", lastPage)
-                        put("message", "The retained response ended remote pagination. Read its saved view_cursor for local fragments, or refresh page 1 for a new remote observation.")
+                        put("message", if (repeated) "Remote pagination stopped because consecutive pages repeated the same records. Coverage remains incomplete. Use retained results or deliberately refresh page 1." else "The retained response ended remote pagination. Read its saved view_cursor for local fragments, or refresh page 1 for a new remote observation.")
                     }
                 ),
-                false,
+                repeated,
+                errorCode = "GITHUB_PAGINATION_STALLED".takeIf { repeated },
                 dispatched = false
             )
         }
         val original = backend.execute(callId, native)
-        val result = if (operation == "github_read" && original.isError && original.errorCode == "INVALID_ARGUMENTS" && original.content.toString().contains("Path is not in the pinned tree")) {
+        val result = if (operation == "github_read" && original.errorCode == "EVIDENCE_UNAVAILABLE") {
+            original.copy(
+                content = ToolResultContent.Json(
+                    buildJsonObject {
+                        put("schema", "github.arguments.v1")
+                        put("error_code", "EVIDENCE_UNAVAILABLE")
+                        put("message", "Source evidence is unavailable in this authorized scope. Use the exact recovery_call to find retained sources, or source_recovery_call from the original receipt to reopen the pinned ranges.")
+                        put(
+                            "recovery_call",
+                            buildJsonObject {
+                                put("tool", "github_context" + definition.name.removePrefix(operation))
+                                put(
+                                    "arguments",
+                                    buildJsonObject {
+                                        put("action", "recovery")
+                                        listOf("owner", "repo").forEach { key -> arguments[key]?.let { put(key, it) } }
+                                    }
+                                )
+                            }
+                        )
+                    }
+                )
+            )
+        } else if (operation == "github_read" && original.isError && original.errorCode == "INVALID_ARGUMENTS" && original.content.toString().contains("Path is not in the pinned tree")) {
             val requestedRanges = (arguments["ranges"] as? JsonArray).orEmpty().mapNotNull { it as? JsonObject }
             val failureText = (original.content as? ToolResultContent.Text)?.text.orEmpty()
             val rejectedPath = failureText.substringAfter("Path is not in the pinned tree:", "").lineSequence().firstOrNull()?.trim().orEmpty()
@@ -273,7 +303,24 @@ internal class GitHubOperationTool(
             is ToolResultContent.Text -> runCatching { kotlinx.serialization.json.Json.parseToJsonElement(content.text) as? JsonObject }.getOrNull()
             else -> null
         }
-        if (!result.isError && data != null) pagination.observe(operation, arguments, data)
+        if (!result.isError && data != null) {
+            if (pagination.repeatsRemotePage(operation, arguments, data)) {
+                return result.copy(
+                    content = ToolResultContent.Json(
+                        buildJsonObject {
+                            put("schema", "github.pagination.v1")
+                            put("reason", "REPEATED_REMOTE_PAGE")
+                            put("complete", false)
+                            put("message", "The next remote page repeated the previous records. Stop this traversal and use retained evidence; refresh page 1 deliberately if a fresh observation is required. This does not establish exhaustive coverage.")
+                        }
+                    ),
+                    retainedContent = result.retainedContent ?: result.content,
+                    isError = true,
+                    errorCode = "GITHUB_PAGINATION_STALLED"
+                )
+            }
+            pagination.observe(operation, arguments, data)
+        }
         val paged = if (!result.isError && data?.get("has_more") == JsonPrimitive(true) && "continuation" !in data && operation != "github_search") {
             result.copy(content = ToolResultContent.Json(JsonObject(data + ("continuation" to JsonObject(native + ("page" to JsonPrimitive(((arguments["page"] as? JsonPrimitive)?.content?.toIntOrNull() ?: 1) + 1)))))))
         } else {
@@ -715,7 +762,7 @@ internal class GitHubOperationTool(
                 "github_commit" -> "Create a working branch, commit a validated stage_id, or delete_branch with expected_head_sha after dependency inspection. Deletion blocks selected/default/protected branches, unmerged commits, open PRs and active runs. GitHub deletion is not an atomic SHA lease."
                 "github_write" -> "Every files item requires a repository-relative path (for example app/src/main/kotlin/.../MainActivity.kt), never an absolute path or directory. Stage up to 20 UTF-8 file creations, replacements or deletions for exact user approval and one atomic commit on a working branch. Supply expected_head_sha and expected_blob_sha for existing files. Replacements require content; deletions require delete=true and no content. Never write to the default branch."
                 "github_pr" -> "Canonical pull-request tool (also known as github_pull_request). Use list to discover pull_number. Prefer headers for title/state/head/base only; it uses a minimal API field selection with no bodies or threads. Use context for files/checks and include_health=true for merge readiness. Use github_watch_checks once for ongoing CI; do not repeatedly poll from the model. Writes require the current expected head SHA."
-                "github_ci" -> "Discover workflows, then runs (100/page), then jobs using run_id. job/logs require job_id; artifacts requires run_id. status inspects run_id/job_id or selected commit/ref checks. Empty collections are valid. definitions reads pinned YAML outlines. Logs use start_line/end_line/start_offset continuations. dispatch requires a discovered workflow_id and explicit ref; a run_id is not a workflow_id. rerun/rerun_failed_jobs retries failed jobs only; rerun_all retries the full completed run. Never cancel an active run to force a retry. Follow continuation_call exactly."
+                "github_ci" -> "For repository summaries, inspect the selected branch/head and recent relevant runs; traverse full history only when requested. Discover workflows, then runs (100/page), then jobs using run_id. job/logs require job_id; artifacts requires run_id. status inspects run_id/job_id or selected commit/ref checks. Empty collections are valid. definitions reads pinned YAML outlines. Logs use start_line/end_line/start_offset continuations. dispatch requires a discovered workflow_id and explicit ref; a run_id is not a workflow_id. rerun/rerun_failed_jobs retries failed jobs only; rerun_all retries the full completed run. Never cancel an active run to force a retry. Follow continuation_call exactly."
                 "github_watch_checks" -> "Subscribe once to background CI updates for pr_number and/or run_id in this saved chat. Pins the current head and posts native chat status updates without model polling turns. A moved PR head requires a new subscription."
                 "github_issue" -> "List issues (PRs excluded). Prefer headers for title/state/updated_at without bodies or comments; use context/comments/history only when those details are needed. Create/update requires exact approval; update needs expected_updated_at. Timeline is not a full body-edit history."
                 else -> "Inspect release notes (detail), tags/annotations (tag), paginated tags/list, create_tag or explicitly publish the selected release."

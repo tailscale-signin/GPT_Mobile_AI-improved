@@ -26,8 +26,23 @@ internal object GitHubAnswerPresentation {
             append(if (facts.isEmpty() && excerpts.isEmpty()) "The available evidence does not yet establish the requested result.\n" else "Current observations are listed below; unresolved work is identified separately.\n")
         }
         if (facts.isNotEmpty()) {
-            append("\n## Repository details\n\n| Detail | Result |\n| --- | --- |\n")
-            append(facts.distinct().joinToString("\n")).append('\n')
+            val sections = if (GitHubStatusRequest.matches(task)) {
+                facts.distinct().groupBy { row ->
+                    val label = row.substringAfter("| ").substringBefore(" |")
+                    when {
+                        label.startsWith("PR ") -> "Open pull requests"
+                        label.startsWith("Workflow ") || label == "Latest workflow" -> "Latest workflow"
+                        label in setOf("Check state", "Checks", "Statuses", "State") -> "Checks for this commit"
+                        else -> "Repository details"
+                    }
+                }.toSortedMap(compareBy { listOf("Repository details", "Checks for this commit", "Open pull requests", "Latest workflow").indexOf(it) })
+            } else {
+                mapOf("Repository details" to facts.distinct())
+            }
+            sections.forEach { (heading, rows) ->
+                append("\n## $heading\n\n| Detail | Result |\n| --- | --- |\n")
+                append(rows.joinToString("\n")).append('\n')
+            }
         }
         if (excerpts.isNotEmpty()) append("\n## Source evidence\n\n").append(excerpts.distinct().joinToString("\n\n")).append('\n')
         if (limits.isNotEmpty()) append("\n## Open items\n\n").append(limits.distinct().joinToString("\n")).append('\n')

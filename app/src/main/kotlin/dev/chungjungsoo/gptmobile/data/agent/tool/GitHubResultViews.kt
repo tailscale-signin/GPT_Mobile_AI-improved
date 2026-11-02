@@ -21,8 +21,10 @@ internal class GitHubResultViews(
     init {
         require(pageBytes >= 2048)
     }
-    private data class Entry(val scope: String, val operation: String, val modelName: String, val fragments: List<JsonObject>, val metadata: JsonObject, val continuations: List<JsonObject>, val expires: Long, val bytes: Int, val originalError: Boolean, val originalErrorCode: String?, val pageBytes: Int, val context: JsonObject, val issuedCursors: MutableSet<String> = mutableSetOf())
+    private data class Entry(val scope: String, val operation: String, val modelName: String, val fragments: List<JsonObject>, val metadata: JsonObject, val continuations: List<JsonObject>, val expires: Long, val bytes: Int, val originalError: Boolean, val originalErrorCode: String?, val pageBytes: Int, val context: JsonObject, val sourceRecovery: JsonObject?, val issuedCursors: MutableSet<String> = mutableSetOf())
+    private data class EvictedView(val scope: String, val operation: String, val reason: String, val recovery: JsonObject?, val cursors: Set<String>, val expires: Long)
     private val entries = LinkedHashMap<String, Entry>()
+    private val evicted = LinkedHashMap<String, EvictedView>()
     private var retainedBytes = 0
     private class FragmentCapacity : RuntimeException()
     private class FragmentBuffer(private val limit: Int) {
@@ -51,12 +53,14 @@ internal class GitHubResultViews(
         val continuations = mutableListOf<JsonObject>()
         val body = retainContinuations(value, "", operation, modelName, request, continuations)
         val id = UUID.randomUUID().toString()
+        val sourceRecovery = immutableRecovery(operation, modelName, request, value)
         val small = buildJsonObject {
             put("schema", SCHEMA)
             put("operation", operation)
             put("local_page_complete", true)
             put("data", body)
             put("recovery_call", savedCall(modelName, "$id:0:$RECOVERY_PAGE_BYTES"))
+            sourceRecovery?.let { put("source_recovery_call", it) }
             if (continuations.isNotEmpty()) {
                 put("remote_continuations", JsonArray(continuations))
                 if (continuations.size == 1) put("continuation_call", continuations.single().getValue("call"))
@@ -94,10 +98,10 @@ internal class GitHubResultViews(
         // Account for strings, object/collection overhead and continuation copies.
         val defaults = if (operation in setOf("github_context", "github_ci", "github_pr")) mapOf("response_detail" to JsonPrimitive("compact")) else emptyMap()
         val context = JsonObject((defaults + (value as? JsonObject).orEmpty() + request).filterKeys { it in SAVED_CONTEXT_KEYS })
-        val retained = buffer.bytes + metadata.toString().toByteArray().size * 2L + lastContinuations.sumOf { it.toString().toByteArray().size * 2L + 256 } + context.toString().toByteArray().size * 2L + 1024
+        val retained = buffer.bytes + metadata.toString().toByteArray().size * 2L + lastContinuations.sumOf { it.toString().toByteArray().size * 2L + 256 } + context.toString().toByteArray().size * 2L + sourceRecovery.toString().toByteArray().size * 2L + 1024
         if (retained > capacityBytes) return overflow(upstream, operation, modelName, value, request)
         while (entries.isNotEmpty() && (entries.size >= 32 || retainedBytes + retained > capacityBytes)) evict(entries.keys.first())
-        val entry = Entry(scope, operation, modelName, fragments, metadata, lastContinuations, now() + 10 * 60_000, retained.toInt(), upstream.isError, upstream.errorCode, pageBytes, context)
+        val entry = Entry(scope, operation, modelName, fragments, metadata, lastContinuations, now() + 10 * 60_000, retained.toInt(), upstream.isError, upstream.errorCode, pageBytes, context, sourceRecovery)
         entries[id] = entry
         retainedBytes += entry.bytes
         if (small.toString().toByteArray().size <= pageBytes) {
@@ -133,8 +137,21 @@ internal class GitHubResultViews(
             )
         }
         if (parts.size !in 2..3 || entry == null || offset == null || requestedBytes == null || requestedBytes !in 1024..entry.pageBytes || entry.scope != scope || entry.operation != operation || offset !in entry.fragments.indices || cursor !in entry.issuedCursors) {
-            val evidenceRecovery = if (operation == "github_read") " Reopen retained source with evidence_id and no view_cursor." else ""
-            return AgentToolResult(callId, ToolResultContent.Text("This saved GitHub view is unavailable or outside the authorized conversation. Use the exact continuation_call from the latest result in this conversation; never invent or reuse a cursor from another account or conversation.$evidenceRecovery For an expired immutable read, request a smaller range at the same commit_sha. Reconcile a prior mutation using its receipt; do not repeat the mutation to recover output."), true, errorCode = "SAVED_VIEW_UNAVAILABLE", dispatched = false)
+            val known = evicted[parts.firstOrNull()]?.takeIf { it.scope == scope && it.operation == operation && cursor in it.cursors }
+            return AgentToolResult(
+                callId,
+                ToolResultContent.Json(
+                    buildJsonObject {
+                        put("schema", "github.arguments.v1")
+                        put("reason", known?.reason ?: "UNAVAILABLE_IN_AUTHORIZED_SCOPE")
+                        put("message", "The saved page is unavailable. Execute source_recovery_call from the retained result or recovery_call below to reopen the same immutable source. If neither exists, use scoped recovery context. Never repeat a mutation to recover output.")
+                        known?.recovery?.let { put("recovery_call", it) }
+                    }
+                ),
+                true,
+                errorCode = "SAVED_VIEW_UNAVAILABLE",
+                dispatched = false
+            )
         }
         val conflictingContext = context.any { (key, value) ->
             val expected = entry.context[key]
@@ -212,6 +229,7 @@ internal class GitHubResultViews(
             put("total_fragments", entry.fragments.size)
             put("reconstruction", if (pageBytes < 2048) "JSON pointers; UTF-16 string offsets. Read every local page before remote continuation." else "JSON pointers refer to the original result; string offsets count UTF-16 characters. Finish all local pages before executing any remote continuation.")
             put("recovery_call", savedCall(modelName, "$id:$offset:$RECOVERY_PAGE_BYTES"))
+            entry.sourceRecovery?.takeIf { it.toString().toByteArray().size <= pageBytes / 4 }?.let { put("source_recovery_call", it) }
             if (!complete) {
                 put(
                     "continuation_call",
@@ -423,11 +441,34 @@ internal class GitHubResultViews(
         errorCode = "RETAINED_RESULT_CAPACITY"
     )
 
-    private fun purge() {
-        entries.filterValues { it.expires <= now() }.keys.toList().forEach(::evict)
+    /** Persisted result/checkpoint envelopes carry this recipe beyond the in-memory cache. */
+    private fun immutableRecovery(operation: String, name: String, request: JsonObject, value: JsonElement): JsonObject? {
+        val root = value as? JsonObject ?: return null
+        val allowed = operation in setOf("github_read", "github_search") || operation == "github_ci" && request["action"] == JsonPrimitive("definitions") || operation == "github_context" && request["action"] == JsonPrimitive("commit")
+        if (!allowed) return null
+        val sha = (root["commit_sha"] ?: request["commit_sha"] ?: root["sha"].takeIf { operation == "github_context" }) as? JsonPrimitive ?: return null
+        if (!sha.content.matches(Regex("[a-fA-F0-9]{40}|[a-fA-F0-9]{64}"))) return null
+        val values = request.filterKeys { it !in setOf("view_cursor", "evidence_id", "ref", "branch") }.toMutableMap()
+        values["commit_sha"] = sha
+        if (operation == "github_read" && "ranges" !in values) values["ranges"] = root["ranges"] ?: return null
+        val args = JsonObject(values)
+        if (args["owner"] == null || args["repo"] == null || args.toString().toByteArray().size > 4096) return null
+        return buildJsonObject {
+            put("tool", name)
+            put("arguments", args)
+        }
     }
-    private fun evict(id: String) {
-        entries.remove(id)?.let { retainedBytes -= it.bytes }
+
+    private fun purge() {
+        entries.filterValues { it.expires <= now() }.keys.toList().forEach { evict(it, "EXPIRED") }
+        evicted.entries.removeAll { it.value.expires <= now() }
+    }
+    private fun evict(id: String, reason: String = "CAPACITY_EVICTED") {
+        entries.remove(id)?.let {
+            retainedBytes -= it.bytes
+            evicted[id] = EvictedView(it.scope, it.operation, reason, it.sourceRecovery, it.issuedCursors.toList().takeLast(128).toSet(), now() + 24 * 60 * 60_000)
+            while (evicted.size > 64) evicted.remove(evicted.keys.first())
+        }
     }
     companion object {
         // Only read selectors can accompany a cursor, and read() compares every

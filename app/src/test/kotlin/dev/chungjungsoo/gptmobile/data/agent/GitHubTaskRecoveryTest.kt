@@ -14,8 +14,73 @@ import org.junit.Test
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class GitHubTaskRecoveryTest {
+    @Test fun repeatedEmptyRoundsFinalizeFromReceiptsWithoutRepeatingTheTool() = runTest {
+        var rounds = 0
+        var executions = 0
+        var retainedResponses = 0
+        val tool = object : AgentTool {
+            override val definition = AgentToolDefinition("github_read", "Read", JsonObject(emptyMap()))
+            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+                executions++
+                return AgentToolResult(callId, ToolResultContent.Text("saved evidence"), false)
+            }
+        }
+        val session = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                val round = rounds++
+                assertEquals(round < 3, tools.isNotEmpty())
+                if (round == 0) {
+                    emit(ProviderEvent.ToolCall("read-once", tool.definition.name, JsonObject(emptyMap())))
+                } else {
+                    assertEquals("read-once", exchanges.single().results.single().callId)
+                }
+                emit(ProviderEvent.Completed)
+            }
+
+            override fun retainedFailureResponse(failure: ProviderEvent.Failed) = flow {
+                retainedResponses++
+                assertEquals("FINAL_RESPONSE_REQUIRED", failure.errorCode)
+                emit(ProviderEvent.TextDelta("Saved observations; task incomplete."))
+                emit(failure.copy(taskOutcome = "PARTIAL"))
+            }
+        }
+        val events = AgentRunner(AgentRunLimits(githubTask = true)).run(session, listOf(tool)).toList()
+        assertEquals(4, rounds)
+        assertEquals(1, executions)
+        assertEquals(1, retainedResponses)
+        val published = events.filterIsInstance<AgentRunEvent.Provider>().map { it.event }
+        assertEquals("PARTIAL", published.filterIsInstance<ProviderEvent.Failed>().single().taskOutcome)
+        assertFalse(published.any { it is ProviderEvent.Completed })
+    }
+
+    @Test fun ordinaryEmptyRoundGetsOneToolFreeFinalizationAttempt() = runTest {
+        var rounds = 0
+        val tool = object : AgentTool {
+            override val definition = AgentToolDefinition("read", "Read", JsonObject(emptyMap()))
+            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult = error("No call was requested")
+        }
+        val session = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                assertEquals(rounds++ == 0, tools.isNotEmpty())
+                emit(ProviderEvent.Completed)
+            }
+        }
+        val events = AgentRunner(AgentRunLimits()).run(session, listOf(tool)).toList()
+        assertEquals(2, rounds)
+        assertEquals("FINAL_RESPONSE_REQUIRED", events.filterIsInstance<AgentRunEvent.Provider>().map { it.event }.filterIsInstance<ProviderEvent.Failed>().single().errorCode)
+    }
+
+    @Test fun providerBillingAndRetiredEndpointsNeverEnterConnectionRecovery() {
+        for (message in listOf("HTTP 402: connection refused", "HTTP 410: LOCAL_SERVICE_UNREACHABLE", "Payment required: connection reset")) {
+            assertNull(GitHubTaskRecovery.delayMillis(message, 0))
+        }
+        for (code in listOf("PAYMENT_REQUIRED", "BILLING_UNAVAILABLE", "INSUFFICIENT_CREDITS", "INSUFFICIENT_QUOTA", "BUDGET_EXCEEDED", "CREDIT_LIMIT_EXCEEDED")) {
+            assertNull(GitHubTaskRecovery.delayMillis("LOCAL_SERVICE_UNREACHABLE: connection refused", 0, code))
+        }
+    }
+
     @Test fun structuredContractRejectionsAreNotRetriedEvenWithTransportLanguage() {
-        for (code in listOf("client_tool_results_required", "terminal_job_not_resumable", "invalid_v14_request", "REASONING_OFF_UNSUPPORTED", "context_capacity_unverified")) {
+        for (code in listOf("client_tool_results_required", "terminal_job_not_resumable", "invalid_v14_request", "REASONING_OFF_UNSUPPORTED", "REASONING_ON_UNSUPPORTED", "context_capacity_unverified")) {
             assertNull(GitHubTaskRecovery.delayMillis("connection reset; HTTP 502", 0, code))
         }
     }

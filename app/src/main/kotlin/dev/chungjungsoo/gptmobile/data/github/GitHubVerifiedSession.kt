@@ -30,7 +30,8 @@ internal class GitHubVerifiedSession(
     private val validatePublication: suspend () -> Unit,
     private val progress: suspend (String) -> Unit,
     private val now: () -> Long = System::currentTimeMillis,
-    private val computationDispatcher: CoroutineDispatcher = Dispatchers.Default
+    private val computationDispatcher: CoroutineDispatcher = Dispatchers.Default,
+    private val privateReviewCandidate: () -> String? = { null }
 ) : AgentProviderSession by delegate {
     override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> = flow {
         if (GitHubStatusRequest.isGreeting(task)) {
@@ -53,14 +54,20 @@ internal class GitHubVerifiedSession(
             }
         }
         if (GitHubStatusRequest.matches(task)) {
-            val (receipts, epoch) = evidence.snapshot()
+            val (receipts, _) = evidence.snapshot()
             val hasStatusSnapshot = receipts.values.any { receipt ->
                 (receipt["arguments"] as? JsonObject)?.get("action") == kotlinx.serialization.json.JsonPrimitive("status")
             }
-            if (hasStatusSnapshot && GitHubEvidencePolicy.status(receipts, now(), epoch, task) != null) {
+            if (hasStatusSnapshot) {
                 emitAll(publish(null))
                 return@flow
             }
+        }
+        if (tools.isEmpty() && GitHubTaskCoverage.matches(task) && evidence.snapshot().first.values.any { it["trusted"] == kotlinx.serialization.json.JsonPrimitive(true) }) {
+            // Tool coverage is computed from receipts; another prose review cannot
+            // establish test execution that the receipts do not contain.
+            emitAll(publish(null))
+            return@flow
         }
         val draft = StringBuilder()
         var calls = false
@@ -94,7 +101,15 @@ internal class GitHubVerifiedSession(
             // The runner owns retries and protocol repair. Do not turn a transient
             // failure into completion before that policy has had a chance to run.
             if (!calls && providerFailure?.errorCode?.startsWith("GITHUB_REVIEW_") == true) {
-                emitAll(publish(null, failureCode = providerFailure.errorCode))
+                val candidate = privateReviewCandidate()?.takeIf { it.isNotBlank() }
+                val (receipts, _) = evidence.snapshot()
+                if (candidate != null && receipts.values.any { it["trusted"] == kotlinx.serialization.json.JsonPrimitive(true) }) {
+                    // The failed review cannot publish prose. Independently extract
+                    // receipt-backed claims from the private candidate instead.
+                    emitAll(publish(candidate, failureCode = providerFailure.errorCode))
+                } else {
+                    emitAll(retainedFailureResponse(requireNotNull(providerFailure)))
+                }
                 return@flow
             }
             emit(providerFailure ?: ProviderEvent.Failed("GitHub response ended before verification. Receipts remain available.", errorCode = "GITHUB_EVIDENCE_REQUIRED"))
@@ -107,19 +122,31 @@ internal class GitHubVerifiedSession(
         emitAll(publish(draft.toString()))
     }
 
-    override fun retainedFailureResponse(failure: ProviderEvent.Failed): Flow<ProviderEvent> =
+    override fun retainedFailureResponse(failure: ProviderEvent.Failed): Flow<ProviderEvent> = flow {
         if (dev.chungjungsoo.gptmobile.data.agent.GitHubTaskRecovery.isConnectionUnavailable(failure.message)) {
             // A failed connection is not a claim-verification failure. Keep its actionable cause.
-            kotlinx.coroutines.flow.flowOf(failure.copy(errorCode = "LOCAL_SERVICE_UNREACHABLE"))
+            emit(failure.copy(errorCode = failure.errorCode ?: "LOCAL_SERVICE_UNREACHABLE"))
         } else {
-            publish(null, failureCode = failure.errorCode, originalFailure = failure)
+            val (receipts, _) = evidence.snapshot()
+            if (receipts.values.none { it["trusted"] == kotlinx.serialization.json.JsonPrimitive(true) }) {
+                // No GitHub work was observed. A provider denial is a failed request,
+                // not partial task verification, and must retain its recovery metadata.
+                emit(failure)
+            } else {
+                emitAll(publish(null, failureCode = failure.errorCode, originalFailure = failure))
+            }
         }
+    }
 
     private fun publish(draft: String?, failureCode: String? = null, originalFailure: ProviderEvent.Failed? = null): Flow<ProviderEvent> = flow {
         val publication = try {
             validatePublication()
             val (receipts, epoch) = evidence.snapshot()
-            val status = if (GitHubStatusRequest.matches(task)) GitHubEvidencePolicy.status(receipts, now(), epoch, task) else null
+            val status = if (GitHubStatusRequest.matches(task)) {
+                withContext(computationDispatcher) { GitHubEvidencePolicy.status(receipts, now(), epoch, task) }
+            } else {
+                null
+            }
             val coverage = if (GitHubTaskCoverage.matches(task)) {
                 withContext(computationDispatcher) {
                     GitHubEvidencePolicy.testing(receipts, now(), epoch, task)

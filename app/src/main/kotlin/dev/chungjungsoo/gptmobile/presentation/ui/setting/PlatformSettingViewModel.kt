@@ -366,7 +366,7 @@ class PlatformSettingViewModel @Inject constructor(
             settingRepository.mutateFeatureSettings { current ->
                 val modes = dev.chungjungsoo.gptmobile.data.context.ReasoningMode.entries
                 val previous = current.llamaReasoningModes[platform.uid]
-                    ?: if (platform.reasoning) dev.chungjungsoo.gptmobile.data.context.ReasoningMode.ON else dev.chungjungsoo.gptmobile.data.context.ReasoningMode.AUTO
+                    ?: dev.chungjungsoo.gptmobile.data.context.ReasoningMode.AUTO
                 current.copy(llamaReasoningModes = current.llamaReasoningModes + (platform.uid to modes[(previous.ordinal + 1) % modes.size]))
             }
         }

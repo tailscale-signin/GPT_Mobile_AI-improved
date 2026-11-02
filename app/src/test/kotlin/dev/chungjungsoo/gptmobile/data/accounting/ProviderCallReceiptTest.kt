@@ -7,6 +7,15 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ProviderCallReceiptTest {
+    @Test fun toolOnlyRoundRetainsFinishReasonCountsAndUnavailableBreakdown() {
+        val receipt = ProviderCallReceipt("round", finishReason = "tool_calls", roundOutcome = "TOOL_CALLS_PRODUCED", toolCallCount = 2, reasoningBytes = 128).json()
+        assertEquals(JsonPrimitive("tool_calls"), receipt["finishReason"])
+        assertEquals(JsonPrimitive("TOOL_CALLS_PRODUCED"), receipt["roundOutcome"])
+        assertEquals(JsonPrimitive(2), receipt["toolCallCount"])
+        assertEquals(JsonPrimitive(0), receipt["visibleBytes"])
+        assertTrue(receipt.getValue("usageBreakdownUnavailableFields").toString().contains("toolCallTokens"))
+    }
+
     @Test fun missingServerEvidenceProducesExplicitPartialReceiptWithoutInventingUsageOrSettings() {
         val receipt = ProviderCallReceipt("local-invocation", outputCap = 512, outputCapSource = "CONFIGURED").json()
         assertEquals(JsonPrimitive("local-invocation"), receipt["requestId"])

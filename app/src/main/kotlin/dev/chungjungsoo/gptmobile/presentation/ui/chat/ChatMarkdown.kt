@@ -142,7 +142,8 @@ private data class PreparedChatMarkdown(
     val markdown: String = "",
     val memoryRanges: List<IntRange> = emptyList(),
     val profileIndex: ProfileSpanIndex = ProfileSpanIndex(emptyList()),
-    val contentDigest: String? = null
+    val contentDigest: String? = null,
+    val sourceLinkRanges: List<IntRange> = emptyList()
 )
 
 @Composable
@@ -262,7 +263,7 @@ private fun ChatMarkdownContent(
                             }
                             dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("CombinedPalette", "DISPLAY_SPAN_MAPPING · run=${request.outputTrace?.runId.orEmpty()} · part=${request.outputTrace?.partId.orEmpty()} · contentIdentityDigest=${dev.chungjungsoo.gptmobile.data.research.researchHash(contentIdentity.toString())} · bodyDigest=${dev.chungjungsoo.gptmobile.data.research.researchHash(request.content)} · parser=$ATTRIBUTION_MARKDOWN_PARSER_VERSION · zeroLinkReason=$zeroReason · uniqueSpans=${profileSpans.count { it.profileUids.size == 1 }} · sharedSpans=${profileSpans.count { it.profileUids.size > 1 }} · linkedCharacters=${profileSpans.sumOf { it.end - it.start }} · represented=${profileSpans.flatMap { it.profileUids }.distinct().take(32)} · palette=PERSISTED_PROFILE_HUE · factualVerification=false")
                         }
-                        PreparedChatMarkdown(parsed, combined, memoryHighlightRanges(combined, request.memoryValues), ProfileSpanIndex(profileSpans), dev.chungjungsoo.gptmobile.data.research.researchHash(request.content))
+                        PreparedChatMarkdown(parsed, combined, memoryHighlightRanges(combined, request.memoryValues), ProfileSpanIndex(profileSpans), dev.chungjungsoo.gptmobile.data.research.researchHash(request.content), Regex("""\[[^\]\n]*]\([^)\n]+\)|https?://[^\s<>]+""").findAll(combined).map { it.range }.toList())
                     }
                 }
             }
@@ -338,9 +339,7 @@ private fun ChatMarkdownContent(
     val targetYellow = SuggestionHighlightManager.HIGHLIGHT_YELLOW
     val targetBg = SuggestionHighlightManager.HIGHLIGHT_TRANSLUCENT_BG
 
-    val sourceLinkRanges = remember(combinedMarkdown) {
-        Regex("""\[[^\]\n]*]\([^)\n]+\)|https?://[^\s<>]+""").findAll(combinedMarkdown).map { it.range }.toList()
-    }
+    val sourceLinkRanges = rendered.sourceLinkRanges
     val annotator = remember(sourceLinkRanges, memoryRanges, rendered.profileIndex, provenance, wording, proseColor, inlineMathByPlaceholder, highlightSentence, highlightProgress, normalTextColor, interactionOwner, renderedDigest) {
         markdownAnnotator { source, child ->
             val text = source.substring(child.startOffset, child.endOffset)
@@ -625,7 +624,7 @@ private fun ChatMarkdownContent(
         }
     }
     androidx.compose.runtime.CompositionLocalProvider(LocalUriHandler provides sourceHandler) {
-        key(contentIdentity, highlightSentence, formattingAttempt) {
+        key(contentIdentity, formattingAttempt) {
             val markdownState = rememberMarkdownState(
                 content = combinedMarkdown,
                 retainState = true

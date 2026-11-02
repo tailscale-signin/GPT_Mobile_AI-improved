@@ -21,6 +21,13 @@ data class ReasoningDecision(
 
 /** A template prefill check verifies a control, not the model's observed computation or answer. */
 object ReasoningPolicy {
+    fun forRequest(requested: ReasoningMode, allowed: Boolean, maximize: Boolean, helper: Boolean, control: ReasoningTemplateControl?): ReasoningDecision = when {
+        requested != ReasoningMode.AUTO -> resolve(requested, true, control)
+        helper || !allowed -> boundedHelper(control)
+        maximize && allowed -> strongestSupported(true, control)
+        else -> resolve(requested, allowed, control)
+    }
+
     fun resolve(requested: ReasoningMode, allowed: Boolean, control: ReasoningTemplateControl?): ReasoningDecision {
         val effective = if (allowed) requested else ReasoningMode.OFF
         if (effective == ReasoningMode.AUTO) return ReasoningDecision(requested, effective)

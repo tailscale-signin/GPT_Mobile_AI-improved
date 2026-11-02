@@ -145,6 +145,19 @@ class AgentRunner(
         val consecutiveToolFailures = mutableMapOf<String, Int>()
         val blockedReadScopes = mutableSetOf<String>()
         val unknownOutcomes = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+        val consumedCallIds = recovery?.consumedCallIds.orEmpty().toMutableSet()
+
+        // Restore all settled batches before model finalization, without executing them.
+        // Full GitHub receipts are reloaded by call identity by the evidence observer.
+        recovery?.completedExchanges.orEmpty().forEach { exchange ->
+            val call = exchange.calls.single()
+            if (call.name in toolByName) {
+                val result = exchange.results.single()
+                onToolResult?.invoke(call, result)
+                exchanges += exchange
+            }
+        }
+        replayTokens = ToolExchangeCompactor.estimateTokens(ToolExchangeCompactor.compact(exchanges, limits.maxReplayTokens, limits.maxReplayResultTokens)).toLong()
 
         while (true) {
             if (executionToolCallLimit < Int.MAX_VALUE && toolCallCount >= executionToolCallLimit && restoredCalls.isEmpty()) {
@@ -182,7 +195,7 @@ class AgentRunner(
                     executableToolByName = emptyMap()
                     emit(AgentRunEvent.Notice(ROUND_LIMIT_FINAL_RESPONSE_NOTICE, persistent = false))
                 } else {
-                    emit(failed("Agent could not finalize after ${limits.maxRounds} model/tool rounds."))
+                    finishFromRetained(session, ProviderEvent.Failed("Agent could not finalize after ${limits.maxRounds} model/tool rounds.", errorCode = "FINAL_RESPONSE_REQUIRED"), exchanges.isNotEmpty())
                     return
                 }
             }
@@ -194,7 +207,7 @@ class AgentRunner(
             val observedLimit = if (limits.combined == null) limits.maxObservedToolCalls.coerceIn(1, 1024) else limits.maxObservedToolCalls.coerceAtLeast(0)
             val roundDefinitions = fitProviderToolSchemas(selectDefinitions(exposedDefinitions), limits, initialSchemaTokens, replayTokens)
             reconcileDiscoveryExchange(exchanges, roundDefinitions)
-            val round = if (restoredCalls.isNotEmpty()) RoundResult(calls = restoredCalls, completed = true, observedCalls = restoredCalls.size).also { restoredCalls = emptyList() } else collectRound(session, roundDefinitions, exchanges, (observedLimit - observedToolCalls).coerceAtLeast(0), searchContext.successful, searchContext.names)
+            val round = if (restoredCalls.isNotEmpty()) RoundResult(calls = restoredCalls, completed = true, observedCalls = restoredCalls.size).also { restoredCalls = emptyList() } else collectRound(session, roundDefinitions, exchanges, (observedLimit - observedToolCalls).coerceAtLeast(0), searchContext.successful, searchContext.names, consumedCallIds)
             observedToolCalls += round.observedCalls
             if (round.batchRejected) {
                 if (limits.combined?.requested?.singlePass == true) {
@@ -239,7 +252,7 @@ class AgentRunner(
             // then stop instead of spending the observed-call ceiling on refusals.
             if (finalResponseRequested && exposedDefinitions.isEmpty() && round.calls.isNotEmpty()) {
                 if (finalizationToolRepairAttempted) {
-                    emit(AgentRunEvent.Provider(ProviderEvent.Failed("The provider kept requesting tools after finalization. Completed results are retained; no additional action was dispatched.", errorCode = "FINAL_RESPONSE_REQUIRED")))
+                    finishFromRetained(session, ProviderEvent.Failed("The provider kept requesting tools after finalization. Completed results are retained; no additional action was dispatched.", errorCode = "FINAL_RESPONSE_REQUIRED"), exchanges.isNotEmpty())
                     return
                 }
                 finalizationToolRepairAttempted = true
@@ -248,37 +261,13 @@ class AgentRunner(
             resolvedCalls.forEach { emit(AgentRunEvent.Provider(it)) }
             val calls = routeSearchCalls(resolvedCalls, executableToolByName)
             if (calls.isEmpty()) {
-                if (round.completed && !round.textEmitted) {
-                    if (limits.combined?.requested?.singlePass != true && !emptyAnswerRecoveryAttempted && !session.handlesToolsInternally && !finalResponseRequested) {
-                        emptyAnswerRecoveryAttempted = true
-                        if (limits.githubTask) {
-                            rounds--
-                            exposedDefinitions = exposedDefinitions.map { it.copy(description = it.description + " The previous round was empty. Continue the unfinished task using retained results, or return the verified final outcome.") }
-                            emit(AgentRunEvent.Notice("The provider returned an empty round. Resuming the GitHub task with its tools and saved results.", persistent = false))
-                        } else {
-                            finalResponseRequested = true
-                            exposedDefinitions = emptyList()
-                            executableToolByName = emptyMap()
-                            emit(AgentRunEvent.Notice("The model returned no visible answer. Finalizing once with tools disabled and the results already collected.", persistent = false))
-                        }
-                        continue
-                    }
-                    if (limits.githubTask && limits.combined?.requested?.singlePass != true && !session.handlesToolsInternally && !finalResponseRequested) {
-                        finalResponseRequested = true
-                        exposedDefinitions = emptyList()
-                        executableToolByName = emptyMap()
-                        instructFinalResponse(exchanges)
-                        emit(AgentRunEvent.Notice("The GitHub provider returned another empty round. Generating a text answer from the saved operation results.", persistent = false))
-                        continue
-                    }
-                    emit(AgentRunEvent.Provider(ProviderEvent.Failed("The model returned no visible answer after finalization. No completed tool action was repeated. Please retry or choose another model.", transportComplete = round.completed)))
-                    return
-                }
-                if (round.completed) {
-                    checkpoint?.finish()
-                    emit(AgentRunEvent.Provider(ProviderEvent.Completed))
-                }
-                return
+                val recovery = recoverRoundWithoutCalls(session, round, exchanges, exposedDefinitions, emptyAnswerRecoveryAttempted, finalResponseRequested) ?: return
+                exposedDefinitions = recovery.definitions
+                emptyAnswerRecoveryAttempted = recovery.emptyAnswerRecoveryAttempted
+                finalResponseRequested = recovery.finalResponseRequested
+                rounds += recovery.roundAdjustment
+                if (finalResponseRequested) executableToolByName = emptyMap()
+                continue
             }
             val roundLimitReached = limits.maxRounds < Int.MAX_VALUE && rounds >= limits.maxRounds
 
@@ -314,12 +303,65 @@ class AgentRunner(
         }
     }
 
+    private data class EmptyRoundRecovery(
+        val definitions: List<AgentToolDefinition>,
+        val emptyAnswerRecoveryAttempted: Boolean,
+        val finalResponseRequested: Boolean,
+        val roundAdjustment: Int = 0
+    )
+
+    /** Keep empty-round recovery outside the main coroutine's DEX method budget. */
+    private suspend fun kotlinx.coroutines.flow.FlowCollector<AgentRunEvent>.recoverRoundWithoutCalls(
+        session: AgentProviderSession,
+        round: RoundResult,
+        exchanges: MutableList<AgentToolExchange>,
+        definitions: List<AgentToolDefinition>,
+        emptyAnswerRecoveryAttempted: Boolean,
+        finalResponseRequested: Boolean
+    ): EmptyRoundRecovery? {
+        if (round.completed && !round.textEmitted) {
+            if (limits.combined?.requested?.singlePass != true && !emptyAnswerRecoveryAttempted && !session.handlesToolsInternally && !finalResponseRequested) {
+                return if (limits.githubTask) {
+                    val continued = definitions.map { it.copy(description = it.description + " The previous round was empty. Continue the unfinished task using retained results, or return the verified final outcome.") }
+                    emit(AgentRunEvent.Notice("The provider returned an empty round. Resuming the GitHub task with its tools and saved results.", persistent = false))
+                    EmptyRoundRecovery(continued, true, false, -1)
+                } else {
+                    emit(AgentRunEvent.Notice("The model returned no visible answer. Finalizing once with tools disabled and the results already collected.", persistent = false))
+                    EmptyRoundRecovery(emptyList(), true, true)
+                }
+            }
+            if (limits.githubTask && limits.combined?.requested?.singlePass != true && !session.handlesToolsInternally && !finalResponseRequested) {
+                instructFinalResponse(exchanges)
+                emit(AgentRunEvent.Notice("The GitHub provider returned another empty round. Generating a text answer from the saved operation results.", persistent = false))
+                return EmptyRoundRecovery(emptyList(), emptyAnswerRecoveryAttempted, true)
+            }
+            finishFromRetained(session, ProviderEvent.Failed("The model returned no visible answer after finalization. No completed tool action was repeated. Please retry or choose another model.", errorCode = "FINAL_RESPONSE_REQUIRED", transportComplete = round.completed), exchanges.isNotEmpty())
+            return null
+        }
+        if (round.completed) {
+            checkpoint?.finish()
+            emit(AgentRunEvent.Provider(ProviderEvent.Completed))
+        }
+        return null
+    }
+
     private class RoundRecoveryState {
         var roundRecoveryAttempted = false
         var protocolRecoveryAttempted = false
         var githubRecoveries = 0
         var githubOutputRepairAttempted = false
         var githubProtocolFinalizationAttempted = false
+    }
+
+    private suspend fun kotlinx.coroutines.flow.FlowCollector<AgentRunEvent>.finishFromRetained(session: AgentProviderSession, failure: ProviderEvent.Failed, hasResults: Boolean) {
+        if (limits.githubTask && hasResults) {
+            session.retainedFailureResponse(failure).collect { event ->
+                if (event is ProviderEvent.Completed) checkpoint?.finish()
+                emit(AgentRunEvent.Provider(event))
+            }
+        } else {
+            emit(AgentRunEvent.Provider(failure))
+        }
     }
 
     private data class RoundRecovery(val definitions: List<AgentToolDefinition>, val restoreRound: Boolean, val finalize: Boolean)
@@ -339,7 +381,7 @@ class AgentRunner(
             emit(AgentRunEvent.Provider(ProviderEvent.Failed(roundFailure, round.progressDeadline, round.errorCode, round.failureTransportComplete, round.providerLimit, round.taskOutcome, round.failureDetails)))
             return null
         }
-        val protocolFailure = round.errorCode == "TOOL_PROTOCOL_INVALID_FRAME" ||
+        val protocolFailure = round.errorCode?.startsWith("TOOL_PROTOCOL_") == true ||
             listOf(
                 "Tool arguments were not valid JSON",
                 "incomplete function call",
@@ -361,7 +403,7 @@ class AgentRunner(
                 emit(AgentRunEvent.Notice("The provider could not repair its tool format. Generating a text answer from completed GitHub operations; their actions will not be repeated.", persistent = false))
                 return RoundRecovery(emptyList(), restoreRound = true, finalize = true)
             }
-            val failure = ProviderEvent.Failed(roundFailure, round.progressDeadline, errorCode = "TOOL_PROTOCOL_INVALID_FRAME")
+            val failure = ProviderEvent.Failed(roundFailure, round.progressDeadline, errorCode = round.errorCode ?: "TOOL_PROTOCOL_INVALID_FRAME", failureDetails = round.failureDetails)
             if (limits.githubTask && hasToolWork && round.calls.isEmpty()) {
                 session.retainedFailureResponse(failure).collect { event ->
                     if (event is ProviderEvent.Completed) checkpoint?.finish()
@@ -892,7 +934,8 @@ class AgentRunner(
         exchanges: List<AgentToolExchange>,
         remainingObserved: Int,
         successfulSearch: Boolean,
-        searchToolNames: Set<String>
+        searchToolNames: Set<String>,
+        consumedCallIds: MutableSet<String>
     ): RoundResult {
         val calls = mutableListOf<ProviderEvent.ToolCall>()
         val admission = ToolRoundAdmission(minOf(MAX_BUFFERED_TOOL_CALLS, remainingObserved), maxSameTool = MAX_SAME_TOOL_CALLS_PER_RUN)
@@ -918,6 +961,7 @@ class AgentRunner(
         var roundFinishReason: String? = null
         var roundReasoningTokens: Long? = null
         var roundSettingsConfirmed = false
+        var deliveredCallIds: Set<String> = emptySet()
 
         suspend fun emitRoundUsage() {
             if (roundInput.value == null && roundOutput.value == null && roundTotal.value == null && roundDecodeSpeed == null && roundFinishReason == null && !roundSettingsConfirmed && roundReasoningTokens == null) return
@@ -952,8 +996,11 @@ class AgentRunner(
             val replayExchanges = ToolExchangeCompactor.compact(
                 exchanges = exchanges,
                 maxReplayTokens = limits.maxReplayTokens,
-                maxResultTokens = if (rawReplayTokens <= limits.maxReplayTokens) limits.maxReplayTokens else limits.maxReplayResultTokens
+                maxResultTokens = if (rawReplayTokens <= limits.maxReplayTokens) limits.maxReplayTokens else limits.maxReplayResultTokens,
+                consumedCallIds = consumedCallIds
             )
+            val originalResults = exchanges.flatMap { it.results }.associateBy { it.callId }
+            deliveredCallIds = replayExchanges.flatMap { it.results }.filter { originalResults[it.callId]?.content == it.content }.mapTo(mutableSetOf()) { it.callId }
             val compactedReplayTokens = ToolExchangeCompactor.estimateTokens(replayExchanges)
             if (rawReplayTokens > compactedReplayTokens) {
                 AppLogRecorder.record(
@@ -1081,6 +1128,10 @@ class AgentRunner(
         // Do not emit from finally: a cancelled or failed consumer cannot accept
         // another event. Genuine provider failures still retain observed usage.
         emitRoundUsage()
+        if (completed && failure == null && deliveredCallIds.any { it !in consumedCallIds }) {
+            checkpoint?.markConsumed(deliveredCallIds)
+            consumedCallIds += deliveredCallIds
+        }
         return RoundResult(calls, completed, failure, textEmitted, toolDefinitionsRejected, batchRejected, maxOf(admission.observed, parserObservedCalls), progressDeadline, batchRejection, failureCode, failureTransportComplete, providerLimit, taskOutcome, failureDetails)
     }
 

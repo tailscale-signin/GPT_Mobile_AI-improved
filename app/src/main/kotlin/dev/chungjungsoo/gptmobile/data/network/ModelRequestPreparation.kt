@@ -23,7 +23,7 @@ internal class ModelRequestPreparation(client: NetworkClient) {
         val revision = context[dev.chungjungsoo.gptmobile.data.context.RequestAuthorizationGuard]?.revision ?: config.permissionRevision
         dev.chungjungsoo.gptmobile.data.research.feature.ExaminationOutputBudget.requireCapacity(config.requestRole, outputTokens?.toLong() ?: 0)
         val runtime = RuntimeFingerprint(config.profileUid ?: "unbound", "sha256:${researchHash(config.apiUrl)}", "anonymous", model, model, "unverified", "queued-native-v1", "unverified")
-        val capacity = CapacitySnapshot(runtime, config.contextCeiling?.takeIf { it > 0 && it < Int.MAX_VALUE }?.toLong(), provenance = CapacityProvenance.UNKNOWN)
+        val capacity = RequestAdmission.auxiliaryCapacity(config.requestRole, CapacitySnapshot(runtime, config.contextCeiling?.takeIf { it > 0 && it < Int.MAX_VALUE }?.toLong(), provenance = CapacityProvenance.UNKNOWN))
         val measurement = RequestAdmission.estimate(payload)
         val budget = dev.chungjungsoo.gptmobile.data.context.PromptBudgets.capture(payload, measurement, outputTokens?.toLong(), capacity.contextTokens, runtime.templateRevision)
         val prepared = RequestAdmission.prepare(payload, config.requestRole, capacity, measurement, outputTokens?.toLong(), revision, config.requireKnownCapacity, "queued-native-v1", promptBudget = budget, requestDeadline = context[WorkerRequestBudget]?.preflight())
@@ -45,11 +45,14 @@ internal class ModelRequestPreparation(client: NetworkClient) {
             ?: config.freeProvider?.let { dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.model(it, model) }
         val declared = config.contextCeiling?.takeIf { it > 0 && it < Int.MAX_VALUE }?.toLong()
         val context = listOfNotNull(discovered?.contextTokens, catalog?.context?.toLong(), freeModel?.contextTokens?.toLong(), declared).minOrNull()
-        val snapshot = discovered?.copy(contextTokens = context) ?: CapacitySnapshot(
-            RuntimeFingerprint(config.profileUid ?: "unbound", "sha256:${researchHash(config.apiUrl)}", researchHash(config.token.orEmpty()), model, model, "unverified", "unverified", "unverified"),
-            context,
-            outputTokens = listOfNotNull(catalog?.output?.toLong(), freeModel?.outputTokens?.toLong(), config.freeProvider?.enforcedOutputCeiling?.toLong()).minOrNull(),
-            provenance = if (context != null) CapacityProvenance.DECLARED else CapacityProvenance.UNKNOWN
+        val snapshot = RequestAdmission.auxiliaryCapacity(
+            config.requestRole,
+            discovered?.copy(contextTokens = context) ?: CapacitySnapshot(
+                RuntimeFingerprint(config.profileUid ?: "unbound", "sha256:${researchHash(config.apiUrl)}", researchHash(config.token.orEmpty()), model, model, "unverified", "unverified", "unverified"),
+                context,
+                outputTokens = listOfNotNull(catalog?.output?.toLong(), freeModel?.outputTokens?.toLong(), config.freeProvider?.enforcedOutputCeiling?.toLong()).minOrNull(),
+                provenance = if (context != null) CapacityProvenance.DECLARED else CapacityProvenance.UNKNOWN
+            )
         )
         // Read the actual serialized value as the final authority, not a profile DTO's default.
         var original = Json.parseToJsonElement(payload) as JsonObject
@@ -60,13 +63,13 @@ internal class ModelRequestPreparation(client: NetworkClient) {
         val reasoning = if (config.providerType == "LLAMA") {
             val needsControl = review || config.maximizeReasoning || !config.allowReasoning || config.reasoningMode != dev.chungjungsoo.gptmobile.data.context.ReasoningMode.AUTO
             val control = if (needsControl && discovered != null) llama.reasoningControl(config, model, discovered) else null
-            if (review || config.requestRole == "github-claim-extraction") {
-                dev.chungjungsoo.gptmobile.data.context.ReasoningPolicy.boundedHelper(control)
-            } else if (config.maximizeReasoning && config.allowReasoning) {
-                dev.chungjungsoo.gptmobile.data.context.ReasoningPolicy.strongestSupported(true, control)
-            } else {
-                dev.chungjungsoo.gptmobile.data.context.ReasoningPolicy.resolve(config.reasoningMode, config.allowReasoning, control)
-            }
+            dev.chungjungsoo.gptmobile.data.context.ReasoningPolicy.forRequest(
+                config.reasoningMode,
+                config.allowReasoning,
+                config.maximizeReasoning,
+                review || config.requestRole == "github-claim-extraction",
+                control
+            )
         } else {
             null
         }

@@ -15,14 +15,15 @@ internal object GitHubReplayRecovery {
         else -> null
     }?.takeIf { (it["schema"] as? JsonPrimitive)?.content?.startsWith("github.") == true }
 
-    fun compact(content: ToolResultContent, maxChars: Int): ToolResultContent? {
+    fun compact(content: ToolResultContent, maxChars: Int, consumed: Boolean = false): ToolResultContent? {
         val source = envelope(content) ?: return null
-        val controls = source.filterKeys { it in setOf("schema", "operation", "status", "local_page_complete", "continuation_call", "remote_continuations", "correction_call", "previous_call_id", "metadata", "recovery_required", "agent_instruction") }
+        val controls = source.filterKeys { it in setOf("schema", "operation", "status", "local_page_complete", "continuation_call", "remote_continuations", "correction_call", "source_recovery_call", "previous_call_id", "metadata", "recovery_required", "agent_instruction", "reason") }
         val result = controls.toMutableMap()
         result["replay_compacted"] = JsonPrimitive(true)
+        result["previously_delivered"] = JsonPrimitive(consumed)
         // The omitted page may never have reached the model. Recover that exact
         // page before offering any cursor that skips past its unread records.
-        (source["recovery_call"] as? JsonObject)?.let { recovery ->
+        (source["recovery_call"] as? JsonObject)?.takeUnless { consumed }?.let { recovery ->
             result["continuation_call"] = recovery
             result.remove("remote_continuations")
             result["local_page_complete"] = JsonPrimitive(false)
@@ -58,6 +59,7 @@ internal object GitHubReplayRecovery {
                     original?.get("continuation_call")?.let { put("continuation_call", it) }
                     original?.get("remote_continuations")?.let { put("remote_continuations", it) }
                     original?.get("recovery_call")?.let { put("recovery_call", it) }
+                    original?.get("source_recovery_call")?.let { put("source_recovery_call", it) }
                     put("retained_result_preview", previous.content.toString().take(1200))
                     put("recovery", "Use the exact continuation_call above when present. The earlier call already completed; no action was repeated. Use a different unread range for additional source evidence.")
                 }

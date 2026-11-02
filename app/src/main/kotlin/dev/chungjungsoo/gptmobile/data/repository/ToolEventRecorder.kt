@@ -103,15 +103,6 @@ class ToolEventRecorder @Inject constructor(
         } else {
             result
         }
-        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
-            "Tool",
-            "Finished · callId=${normalizedResult.callId} · tool=${startedEvent?.toolName.orEmpty()} · error=${normalizedResult.isError} · dispatched=${normalizedResult.dispatched}" +
-                " · errorCode=${normalizedResult.errorCode ?: "none"}" +
-                " · executionState=${dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.executionState(normalizedResult)} · retryable=${normalizedResult.errorCode in setOf("READ_DEADLINE", "READ_FAILED", "PROVIDER_UNAVAILABLE") && normalizedResult.dispatched}" +
-                (normalizedResult.executionReceipt?.let { " · executionReceipt=$it · causalIncidentId=${(it["incident_id"] as? JsonPrimitive)?.content.orEmpty()}" }.orEmpty()) +
-                if (normalizedResult.isError) " · reasonTruncated=${safeError.orEmpty().length > 240} · reasonPreview=${dev.chungjungsoo.gptmobile.data.security.DiagnosticRedactor.redact(safeError.orEmpty()).take(240)}" else "",
-            if (normalizedResult.isError) "E" else "I"
-        )
         val content = (normalizedResult.retainedContent ?: normalizedResult.content).serialized()
         val retail = runCatching { Json.parseToJsonElement(content.value) as? JsonObject }.getOrNull()
         if (retail != null && AmazonProducts.text(retail, "schema") == AmazonProducts.SCHEMA) {
@@ -145,6 +136,15 @@ class ToolEventRecorder @Inject constructor(
             error = if (normalizedResult.isError) safeError else null
         )
         if (affectedRows != 1) return null
+        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
+            "Tool",
+            "Finished · callId=${normalizedResult.callId} · tool=${startedEvent?.toolName.orEmpty()} · error=${normalizedResult.isError} · dispatched=${normalizedResult.dispatched}" +
+                " · errorCode=${normalizedResult.errorCode ?: "none"}" +
+                " · executionState=${dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.executionState(normalizedResult)} · retryable=${normalizedResult.errorCode in setOf("READ_DEADLINE", "READ_FAILED", "PROVIDER_UNAVAILABLE") && normalizedResult.dispatched}" +
+                (normalizedResult.executionReceipt?.let { " · executionReceipt=$it · causalIncidentId=${(it["incident_id"] as? JsonPrimitive)?.content.orEmpty()}" }.orEmpty()) +
+                if (normalizedResult.isError) " · diagnosticPayloadRef=toolEvent:$eventId · displayPreviewTruncated=${safeError.orEmpty().length > 240} · reasonPreview=${dev.chungjungsoo.gptmobile.data.security.DiagnosticRedactor.redact(safeError.orEmpty()).take(240)}" else "",
+            if (normalizedResult.isError) "E" else "I"
+        )
         return dao.getToolEventById(eventId)
     }
 

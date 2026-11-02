@@ -18,6 +18,29 @@ import org.junit.Test
 class GitHubPaginationBoundaryTest {
     private fun json(text: String) = Json.parseToJsonElement(text).jsonObject
 
+    @Test fun repeatedRemoteRowsStopTraversalButDistinctPagesAndLocalFragmentsRemainAllowed() = runBlocking {
+        var requests = 0
+        val backend = object : AgentTool {
+            override val definition = AgentToolDefinition("github", "test", JsonObject(emptyMap()))
+            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+                requests++
+                return AgentToolResult(callId, ToolResultContent.Json(json("""{"has_more":true,"workflow_runs":[{"id":1}]}""")), false)
+            }
+        }
+        val tool = GitHubOperationTool("github_ci", backend, "repeated-pages")
+        assertFalse(tool.execute("first", json("""{"action":"runs","page":1}""")).isError)
+        assertEquals("GITHUB_PAGINATION_STALLED", tool.execute("repeat", json("""{"action":"runs","page":2}""")).errorCode)
+        val blocked = tool.execute("later", json("""{"action":"runs","page":3}"""))
+        assertEquals("GITHUB_PAGINATION_STALLED", blocked.errorCode)
+        assertFalse(blocked.dispatched)
+        assertEquals(2, requests)
+        assertFalse(tool.execute("refresh", json("""{"action":"runs","page":1}""")).isError)
+        val boundary = GitHubPaginationBoundary()
+        assertFalse(boundary.repeatsRemotePage("github_ci", json("""{"page":1}"""), json("""{"workflow_runs":[1]}""")))
+        assertFalse(boundary.repeatsRemotePage("github_ci", json("""{"page":2}"""), json("""{"workflow_runs":[2]}""")))
+        assertFalse(boundary.repeatsRemotePage("github_ci", json("""{"view_cursor":"saved:1"}"""), json("""{"workflow_runs":[2]}""")))
+    }
+
     @Test fun terminalPagePreventsRemoteOverrunButAllowsRefreshAndDifferentScope() {
         var time = 0L
         val boundary = GitHubPaginationBoundary { time }

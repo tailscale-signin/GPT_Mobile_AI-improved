@@ -58,7 +58,7 @@ internal fun structuredDiagnosticLine(
             "classification",
             when {
                 !incidentRoot || match == null || duplicate -> "SYMPTOM"
-                classification.actionable -> "ROOT_CAUSE"
+                classification.actionable -> "OBSERVED_FAILURE"
                 classification.category in setOf("compatibility_probe", "model_compatibility", "connectivity_progress", "platform_job_hint", "deferred_work", "recovery") -> "EXPECTED_LIFECYCLE"
                 else -> "INFORMATIONAL"
             }

@@ -9,6 +9,15 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubReasoningPolicyTest {
+    @Test fun explicitReasoningModesTakePriorityOverInternalMaximumPreference() {
+        val off = ReasoningPolicy.forRequest(ReasoningMode.OFF, allowed = true, maximize = true, helper = false, control = ReasoningTemplateControl.ENABLE_THINKING)
+        assertEquals(ReasoningMode.OFF, off.requested)
+        assertEquals(ReasoningMode.OFF, off.effective)
+        val auto = ReasoningPolicy.forRequest(ReasoningMode.AUTO, allowed = false, maximize = false, helper = true, control = null)
+        assertEquals(ReasoningMode.AUTO, auto.effective)
+        assertTrue(runCatching { ReasoningPolicy.forRequest(ReasoningMode.OFF, true, true, true, null) }.isFailure)
+    }
+
     @Test fun extractionDoesNotRequireAnUnverifiedReasoningToggle() {
         val auto = ReasoningPolicy.boundedHelper(null)
         assertEquals(ReasoningMode.AUTO, auto.effective)

@@ -18,6 +18,20 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubReplayRecoveryTest {
+    @Test fun previouslyDeliveredPagesKeepUnreadContinuationInsteadOfRecoveringConsumedBytes() {
+        val recovery = buildJsonObject {
+            put("tool", "github_read")
+            put("arguments", buildJsonObject { put("view_cursor", "saved:0:1536") })
+        }
+        val page = ToolResultContent.Json(JsonObject((content as ToolResultContent.Json).value.jsonObject + ("recovery_call" to recovery)))
+        val compact = (GitHubReplayRecovery.compact(page, 1600, consumed = true) as ToolResultContent.Json).value.jsonObject
+        assertEquals(next, compact["continuation_call"])
+        assertEquals(JsonPrimitive(true), compact["previously_delivered"])
+        assertFalse(compact.containsKey("recovery_required"))
+        val unread = (GitHubReplayRecovery.compact(page, 1600) as ToolResultContent.Json).value.jsonObject
+        assertEquals(recovery, unread["continuation_call"])
+    }
+
     @Test fun recoveryCursorsKeepTheirScopeOperationAndByteCeiling() = runTest {
         val views = GitHubResultViews()
         val backend = object : AgentTool {

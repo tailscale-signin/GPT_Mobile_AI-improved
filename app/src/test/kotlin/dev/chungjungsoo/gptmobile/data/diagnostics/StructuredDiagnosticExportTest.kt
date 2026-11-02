@@ -8,6 +8,12 @@ import org.junit.Assert.assertFalse
 import org.junit.Test
 
 class StructuredDiagnosticExportTest {
+    @Test fun observedFailureIsNeverPresentedAsAVerifiedRootCause() {
+        val record = Json.parseToJsonElement(structuredDiagnosticLine("2026-11-02T12:00:00Z E/Tool: Tool failed · errorCode=SAVED_VIEW_UNAVAILABLE")).jsonObject
+        assertEquals("OBSERVED_FAILURE", record.getValue("classification").jsonPrimitive.content)
+        assertEquals("UNVERIFIED", record.getValue("causalAttribution").jsonPrimitive.content)
+    }
+
     @Test fun sourcePreviewTruncationAndStructuredDispatchFieldsRemainIndependent() {
         val receipt = """{"phase":"PREFLIGHT_REJECTED","http_status":422,"mutation_requests":0}"""
         val record = Json.parseToJsonElement(structuredDiagnosticLine("2026-10-31T12:00:00Z E/Tool: Finished · callId=call-1 · dispatched=false · executionReceipt=$receipt · reasonTruncated=true · reasonPreview={incomplete [truncated]")).jsonObject

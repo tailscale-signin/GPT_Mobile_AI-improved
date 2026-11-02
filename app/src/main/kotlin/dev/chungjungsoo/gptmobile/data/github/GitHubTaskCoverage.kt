@@ -11,7 +11,17 @@ import kotlinx.serialization.json.put
 internal object GitHubTaskCoverage {
     private val testing = Regex("(?i)^(?:please\\s+)?(?:test\\b|do\\s+testing\\b|run\\s+(?:all\\s+)?tests?\\b|(?:verify|validate)\\s+(?:all\\s+)?(?:tools|functionality|integrations)\\b)")
     private val stress = Regex("(?i)^(?:please\\s+)?(?:(?:do|run|perform|execute)\\s+(?:a\\s+|the\\s+)?)?(?:stress[- ]?test|benchmark|load[- ]?test)\\b")
-    fun matches(task: String) = testing.containsMatchIn(task) || stress.containsMatchIn(task)
+    private val fullTest = Regex("(?i)^(?:please\\s+)?(?:do|run|perform|execute)\\s+(?:(?:a|the)\\s+)?(?:(?:full|complete|comprehensive|integration|smoke)\\s+)*tests?\\b")
+    fun matches(task: String) = testing.containsMatchIn(task.trim()) || stress.containsMatchIn(task.trim()) || fullTest.containsMatchIn(task.trim())
+
+    /** A diagnostic turn has a finite acquisition budget; explicit history audits keep pagination. */
+    fun boundedDiagnostic(task: String): Boolean {
+        val text = task.lowercase()
+        val history = Regex("\\b(?:all|entire|complete|full)\\s+(?:workflow\\s+|ci\\s+|run\\s+)?history\\b|\\ball\\s+(?:workflow\\s+)?runs\\b").containsMatchIn(text)
+        val sessionDiagnosis = listOf("explain", "diagnos", "investigat").any { it in text } && listOf("this session", "this very session", "connection", "integration").any { it in text }
+        val integrationTest = matches(task) && (text.trim() == "test" || listOf("tools", "tool system", "integration", "connection", "this session").any { it in text })
+        return !history && (integrationTest || sessionDiagnosis)
+    }
 
     fun rows(receipts: Map<String, JsonObject>): List<JsonObject> = receipts.entries
         .filter { it.value["trusted"] == JsonPrimitive(true) }

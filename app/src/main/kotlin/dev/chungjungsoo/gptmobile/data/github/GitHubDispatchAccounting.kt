@@ -13,7 +13,7 @@ internal class GitHubDispatchAccounting : AbstractCoroutineContextElement(Key) {
     companion object Key : CoroutineContext.Key<GitHubDispatchAccounting> {
         suspend fun started(mutation: Boolean) = currentCoroutineContext()[Key]?.start(mutation)
         suspend fun responded(mutation: Boolean, status: Int) = currentCoroutineContext()[Key]?.response(mutation, status)
-        suspend fun cached(observedAt: Long) = currentCoroutineContext()[Key]?.cache(observedAt)
+        suspend fun cached(observedAt: Long, immutable: Boolean = false) = currentCoroutineContext()[Key]?.cache(observedAt, immutable)
     }
 
     private var reads = 0
@@ -24,10 +24,15 @@ internal class GitHubDispatchAccounting : AbstractCoroutineContextElement(Key) {
     private var lastStatus: Int? = null
     private var cachedReads = 0
     private var oldestCacheObservation: Long? = null
+    private var oldestImmutableObservation: Long? = null
 
-    @Synchronized private fun cache(observedAt: Long) {
+    @Synchronized private fun cache(observedAt: Long, immutable: Boolean) {
         cachedReads++
-        oldestCacheObservation = minOf(oldestCacheObservation ?: observedAt, observedAt)
+        if (immutable) {
+            oldestImmutableObservation = minOf(oldestImmutableObservation ?: observedAt, observedAt)
+        } else {
+            oldestCacheObservation = minOf(oldestCacheObservation ?: observedAt, observedAt)
+        }
     }
 
     @Synchronized private fun start(mutation: Boolean) {
@@ -76,7 +81,9 @@ internal class GitHubDispatchAccounting : AbstractCoroutineContextElement(Key) {
                 put("phase", phase)
                 put("read_requests", reads)
                 put("cached_read_observations", cachedReads)
-                oldestCacheObservation?.let { put("source_observed_at_ms", it) }
+                // A cached commit used to resolve a SHA cannot age freshly fetched checks.
+                // Mutable cache observations still bound freshness of compound results.
+                (oldestCacheObservation ?: oldestImmutableObservation?.takeIf { reads == 0 })?.let { put("source_observed_at_ms", it) }
                 put("mutation_requests", mutations)
                 put("accepted_mutations", accepted)
                 put("rejected_mutations", rejected)

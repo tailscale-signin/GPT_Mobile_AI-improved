@@ -13,7 +13,9 @@ internal object GitHubTaskRecovery {
 
     fun delayMillis(message: String, recoveries: Int, errorCode: String? = null): Long? {
         val code = errorCode.orEmpty().lowercase()
-        if (code.startsWith("client_tool_") || code.startsWith("terminal_job_") || code.startsWith("invalid_") || code.startsWith("completion_repair_") || code in setOf("context_capacity_unverified", "reasoning_off_unsupported")) return null
+        if (ProfileFailureRecord.classify(message).category in setOf("ENDPOINT_RETIRED", "BILLING_UNAVAILABLE") || code in setOf("payment_required", "billing_unavailable", "insufficient_credits", "insufficient_quota", "budget_exceeded", "credit_limit_exceeded")) return null
+        if (code.startsWith("client_tool_") || code.startsWith("terminal_job_") || code.startsWith("invalid_") || code.startsWith("completion_repair_") || code in setOf("context_capacity_unverified", "reasoning_off_unsupported", "reasoning_on_unsupported")) return null
+        if (Regex("REASONING_(?:ON|OFF)_UNSUPPORTED", RegexOption.IGNORE_CASE).containsMatchIn(message)) return null
         if (recoveries >= recoveryLimit(message)) return null
         val text = message.lowercase()
         if (listOf("personal_data_", "precheck_rejected", "permission_denied", "permission_revoked", "auth_required", "auth_failed", "invalid_arguments", "unsupported_operation").any { it in text }) return null

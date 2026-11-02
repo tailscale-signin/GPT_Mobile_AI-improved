@@ -31,6 +31,33 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubVerifiedSessionTest {
+    @Test fun invalidReviewerCanRecoverOnlyReceiptBackedClaimsFromPrivateDraft() = runBlocking {
+        val book = GitHubEvidenceBook("b", "o/r", "main", setOf("github_context"), now = { 1000L })
+        val call = ProviderEvent.ToolCall("read", "github_context", Json.parseToJsonElement("""{"action":"checks"}""").jsonObject)
+        book.observe(call, AgentToolResult("read", ToolResultContent.Text("""{"checks":3}"""), false))
+        val id = book.snapshot().first.keys.single()
+        val failure = ProviderEvent.Failed("Reviewer returned invalid JSON", errorCode = "GITHUB_REVIEW_INVALID_VERDICT")
+        val source = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flowOf(failure)
+        }
+        var extractions = 0
+        val session = GitHubVerifiedSession(
+            source, book, "Explain the integration issues", { 8192 },
+            {
+                extractions++
+                answer("""{"claims":[{"kind":"fact","receipt_id":"$id","pointer":"/checks","value":3}]}""")
+            }, {}, {}, now = { 1000L }, privateReviewCandidate = { "UNVERIFIED: everything is fixed" }
+        )
+        val events = session.streamRound(emptyList(), emptyList()).toList()
+        val text = events.filterIsInstance<ProviderEvent.TextDelta>().single().text
+        assertTrue(text.contains("3"))
+        assertFalse(text.contains("everything is fixed"))
+        assertEquals(1, extractions)
+        assertEquals("PARTIAL", (events.last() as ProviderEvent.Failed).taskOutcome)
+        val noEvidence = GitHubVerifiedSession(source, GitHubEvidenceBook("empty", "o/r", "main", emptySet()), "Explain", { 8192 }, { error("No receipts") }, {}, {})
+        assertEquals(listOf(failure), noEvidence.streamRound(emptyList(), emptyList()).toList())
+    }
+
     private fun answer(text: String) = object : AgentProviderSession {
         override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flowOf(ProviderEvent.TextDelta(text), ProviderEvent.Completed)
     }
@@ -65,7 +92,11 @@ class GitHubVerifiedSessionTest {
 
     @Test fun failedContinuationRetainsOriginalCauseAndTaskWithPartialDelivery() = runBlocking {
         val reports = mutableListOf<JsonObject>()
-        val book = GitHubEvidenceBook("b", "o/r", "main", emptySet(), save = { _, value -> reports += value })
+        val book = GitHubEvidenceBook("b", "o/r", "main", setOf("github_context"), save = { _, value -> reports += value })
+        book.observe(
+            ProviderEvent.ToolCall("checks", "github_context", JsonObject(mapOf("action" to JsonPrimitive("checks")))),
+            AgentToolResult("checks", ToolResultContent.Json(JsonObject(mapOf("checks" to JsonPrimitive(1)))), false)
+        )
         val gate = GitHubVerifiedSession(answer("unused"), book, "inspect checks and recent changes", { 8192 }, { error("No extraction after failure") }, {}, {})
         val failure = ProviderEvent.Failed("Gateway could not continue after tool result; job=job-7", errorCode = "client_tool_results_mismatch")
         val events = gate.retainedFailureResponse(failure).toList()
@@ -78,6 +109,50 @@ class GitHubVerifiedSessionTest {
         assertEquals(JsonPrimitive(true), report["response_delivered"])
         assertTrue(report.toString().contains("inspect checks and recent changes"))
         assertTrue(report.toString().contains("original_failure"))
+    }
+
+    @Test fun providerDenialBeforeToolExecutionIsNotPartialVerification() = runTest {
+        for (task in listOf("Test GitHub tools and report.", "Inspect the repository")) {
+            var rounds = 0
+            var savedReports = 0
+            val failure = ProviderEvent.Failed(
+                "HTTP 402: provider budget restriction",
+                errorCode = "PAYMENT_REQUIRED",
+                failureDetails = JsonObject(mapOf("status" to JsonPrimitive(402)))
+            )
+            val provider = object : AgentProviderSession {
+                override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                    rounds++
+                    emit(failure)
+                }
+            }
+            val gate = GitHubVerifiedSession(
+                provider,
+                GitHubEvidenceBook("b", "o/r", "main", emptySet(), save = { _, _ -> savedReports++ }),
+                task,
+                { 8192 },
+                { error("A provider denial must not open a verifier") },
+                {},
+                {}
+            )
+            val events = AgentRunner(AgentRunLimits(githubTask = true)).run(gate, emptyList()).toList()
+            val terminal = events.filterIsInstance<AgentRunEvent.Provider>().map { it.event }.filterIsInstance<ProviderEvent.Failed>().single()
+            assertEquals(failure, terminal)
+            assertEquals(1, rounds)
+            assertEquals(0, savedReports)
+            assertFalse(events.any { it is AgentRunEvent.Provider && (it.event is ProviderEvent.TextDelta || it.event is ProviderEvent.Completed) })
+        }
+    }
+
+    @Test fun untrustedToolOutputCannotTurnAProviderDenialIntoAVerificationReport() = runBlocking {
+        val book = GitHubEvidenceBook("b", "o/r", "main", emptySet())
+        book.observe(
+            ProviderEvent.ToolCall("untrusted", "web_search", JsonObject(emptyMap())),
+            AgentToolResult("untrusted", ToolResultContent.Text("unverified"), false)
+        )
+        val gate = GitHubVerifiedSession(answer("unused"), book, "Test GitHub tools and report.", { 8192 }, { error("No verifier") }, {}, {})
+        val failure = ProviderEvent.Failed("HTTP 401: authentication failed", errorCode = "AUTHENTICATION_ERROR")
+        assertEquals(listOf(failure), gate.retainedFailureResponse(failure).toList())
     }
 
     @Test fun completeStatusSnapshotRequiresAllCurrentObservations() = runBlocking {

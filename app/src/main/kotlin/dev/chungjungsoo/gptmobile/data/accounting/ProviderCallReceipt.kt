@@ -24,7 +24,12 @@ internal data class ProviderCallReceipt(
     val reasoningState: String? = null,
     val settingsConfirmed: Boolean = false,
     val runtime: String? = null,
-    val accelerator: String? = null
+    val accelerator: String? = null,
+    val roundOutcome: String = "UNREPORTED",
+    val toolCallCount: Int = 0,
+    val visibleBytes: Long = 0,
+    val reasoningBytes: Long = 0,
+    val reasoningTokens: Int? = null
 ) {
     fun json(): JsonObject {
         val serverId = serverRequestId?.takeIf { it.matches(Regex("[A-Za-z0-9_.:-]{1,160}")) }
@@ -45,6 +50,12 @@ internal data class ProviderCallReceipt(
             put("requestIdSource", if (serverId == null) "CLIENT" else "SERVER")
             put("serverRequestId", serverId?.let(::JsonPrimitive) ?: JsonNull)
             put("finishReason", finishReason?.let(::JsonPrimitive) ?: JsonNull)
+            put("roundOutcome", roundOutcome)
+            put("toolCallCount", toolCallCount)
+            put("visibleBytes", visibleBytes)
+            put("reasoningBytes", reasoningBytes)
+            put("reportedReasoningTokens", reasoningTokens?.let(::JsonPrimitive) ?: JsonNull)
+            put("usageBreakdownUnavailableFields", JsonArray(listOfNotNull("visibleOutputTokens", "toolCallTokens", "reasoningTokens".takeIf { reasoningTokens == null }).map(::JsonPrimitive)))
             put("inputTokens", inputTokens?.let(::JsonPrimitive) ?: JsonNull)
             put("outputTokens", outputTokens?.let(::JsonPrimitive) ?: JsonNull)
             put("inputSource", if (inputTokens == null) "unreported" else inputSource)

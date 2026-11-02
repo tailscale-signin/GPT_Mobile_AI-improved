@@ -10,6 +10,15 @@ import org.junit.Test
 class RequestAdmissionTest {
     private val runtime = RuntimeFingerprint("connection", "https://server/prefix", "credential-v1", "model", "model", "epoch", "template", "allocation")
 
+    @Test fun auxiliaryUnknownCapacityUsesAnExplicitConservativeCeiling() {
+        val unknown = CapacitySnapshot(runtime, null)
+        val capacity = RequestAdmission.auxiliaryCapacity("title", unknown)
+        assertEquals(4096L, capacity.contextTokens)
+        assertEquals(CapacityProvenance.CONSERVATIVE_POLICY, capacity.provenance)
+        assertEquals(unknown, RequestAdmission.auxiliaryCapacity("primary", unknown))
+        assertThrows(IllegalStateException::class.java) { RequestAdmission.prepare("title", "title", capacity, RequestMeasurement(4000, 256, TokenMeasurementKind.UTF8_ESTIMATE), 30, "v1") }
+    }
+
     @Test
     fun ix01ZeroMeansNoExtraCapAndDefaultsKeepTheirProvenance() {
         assertNull(RequestLimitResolver.output(0, null).tokens)

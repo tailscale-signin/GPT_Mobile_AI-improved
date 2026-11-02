@@ -125,6 +125,7 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubInputRegressionTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubIntegrationV2Test.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubMergeSafetyTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubObservationFreshnessTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubOperationResilienceTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubPatchValidationTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubPersistentEvidenceTest.kt",

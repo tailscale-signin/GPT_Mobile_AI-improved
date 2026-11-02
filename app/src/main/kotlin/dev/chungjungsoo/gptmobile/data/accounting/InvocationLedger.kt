@@ -264,6 +264,7 @@ class InvocationLedger @Inject constructor(
             val visibleFingerprint = dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.takeIf { it.enabled }?.let { dev.chungjungsoo.gptmobile.data.diagnostics.OutputFingerprintAccumulator() }
             var firstReasoningRecorded = false
             var firstToolRecorded = false
+            var toolCallCount = 0
             var visibleBytes = 0L
             var reasoningBytes = 0L
             var hasVisibleAnswer = false
@@ -297,9 +298,12 @@ class InvocationLedger @Inject constructor(
                             is ProviderEvent.CombinedAnswer -> {
                                 hasVisibleAnswer = hasVisibleAnswer || event.text.any { !it.isWhitespace() }
                             }
-                            is ProviderEvent.ToolCall -> if (!firstToolRecorded) {
-                                firstToolRecorded = true
-                                dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.record(parentRunId, dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.FIRST_TOOL, role = dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticRole.from(kind), invocationId = record.id, elapsedMillis = (System.nanoTime() - started) / 1_000_000)
+                            is ProviderEvent.ToolCall -> {
+                                toolCallCount++
+                                if (!firstToolRecorded) {
+                                    firstToolRecorded = true
+                                    dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.record(parentRunId, dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.FIRST_TOOL, role = dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticRole.from(kind), invocationId = record.id, elapsedMillis = (System.nanoTime() - started) / 1_000_000)
+                                }
                             }
                             is ProviderEvent.ThinkingDelta -> {
                                 if (!firstReasoningRecorded && event.text.isNotEmpty()) {
@@ -414,6 +418,14 @@ class InvocationLedger @Inject constructor(
                     )
                     val recordedOutput = if (entirelyUnsent) 0 else retainedOutput()
                     val admission = dispatch.receipts.lastOrNull()
+                    val roundOutcome = when {
+                        status == "NOT_DISPATCHED" -> "PRECHECK_REJECTED"
+                        status == "CANCELED" -> "CANCELLED"
+                        completedWithoutAnswer -> "EMPTY_MODEL_ROUND"
+                        status != "COMPLETED" -> status
+                        toolCallCount > 0 -> "TOOL_CALLS_PRODUCED"
+                        else -> "ANSWER_CANDIDATE_PRODUCED"
+                    }
                     val providerReceipt = ProviderCallReceipt(
                         clientRequestId = record.id,
                         serverRequestId = serverRequestId,
@@ -430,10 +442,15 @@ class InvocationLedger @Inject constructor(
                         reasoningState = reasoningState,
                         settingsConfirmed = settingsConfirmed,
                         runtime = actualRuntime,
-                        accelerator = actualAccelerator
+                        accelerator = actualAccelerator,
+                        roundOutcome = roundOutcome,
+                        toolCallCount = toolCallCount,
+                        visibleBytes = visibleBytes,
+                        reasoningBytes = reasoningBytes,
+                        reasoningTokens = providerReasoningTokens
                     ).json()
                     dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Model", "PROVIDER_RECEIPT · receipt=$providerReceipt")
-                    dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Model", "Finished ${record.id} · incidentId=${record.id} · status=$status · completionDisposition=${if (completedWithoutAnswer) "EMPTY_VISIBLE_OUTPUT" else "NORMAL"} · durationMs=${(System.nanoTime() - started) / 1_000_000} · output=$recordedOutput · estimated=${estimatedUsage()} · inputSource=$inputSource · outputSource=$outputSource · visibleBytes=$visibleBytes · reasoningBytes=$reasoningBytes · usageBreakdownReliable=false · reportedReasoningTokens=${providerReasoningTokens ?: "unknown"} · toolCallTokens=unknown · visibleOutputTokens=unknown · finishReason=${finishReason ?: "unreported"} · settingsConfirmed=$settingsConfirmed · parentRunId=$parentRunId · turnKey=$turnKey · requestKind=$kind", if (status in setOf("COMPLETED", "CANCELED", "WAITING_REMOTE_JOB")) "I" else "W")
+                    dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Model", "Finished ${record.id} · incidentId=${record.id} · status=$status · completionDisposition=$roundOutcome · toolCallCount=$toolCallCount · durationMs=${(System.nanoTime() - started) / 1_000_000} · output=$recordedOutput · estimated=${estimatedUsage()} · inputSource=$inputSource · outputSource=$outputSource · visibleBytes=$visibleBytes · reasoningBytes=$reasoningBytes · usageBreakdownReliable=false · usageBreakdownUnavailable=visibleOutputTokens,toolCallTokens${if (providerReasoningTokens == null) ",reasoningTokens" else ""} · reportedReasoningTokens=${providerReasoningTokens ?: "unknown"} · toolCallTokens=unknown · visibleOutputTokens=unknown · finishReason=${finishReason ?: "unreported"} · settingsConfirmed=$settingsConfirmed · parentRunId=$parentRunId · turnKey=$turnKey · requestKind=$kind", if (status in setOf("COMPLETED", "CANCELED", "WAITING_REMOTE_JOB")) "I" else "W")
                     try {
                         if (retainAccounting) {
                             val observation = record.copy(

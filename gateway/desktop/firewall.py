@@ -24,7 +24,7 @@ def apply(root, remove=False):
             raise ValueError('Choose a network listen address and save settings first')
     powershell = os.path.join(os.environ['SystemRoot'], 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
     args = ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File',
-            str(Path(__file__).with_name('Firewall.ps1')), '-RuleName', rule_name(root)]
+            os.path.join(os.path.dirname(__file__), 'Firewall.ps1'), '-RuleName', rule_name(root)]
     args += ['-Remove'] if remove else ['-Port', str(cfg['port']), '-BindAddress', cfg['bind_host']]
     if ctypes.windll.shell32.IsUserAnAdmin():
         result = subprocess.run([powershell, *args], check=False)

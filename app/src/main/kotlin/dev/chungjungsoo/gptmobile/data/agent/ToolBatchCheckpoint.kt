@@ -195,6 +195,7 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String, 
         val incoming = calls.map { it.callId }
         require(
             state.pending == incoming ||
+                state.pending.filter { state.entries.getValue(it).result == null } == incoming ||
                 state.pending.none { id ->
                     state.entries.getValue(id).let { !it.started && it.result == null }
                 }

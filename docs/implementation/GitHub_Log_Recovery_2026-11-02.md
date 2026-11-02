@@ -69,3 +69,7 @@ Automatic approval review rejected pushing this patch to the public repository, 
 ## Approved publication and CI repair
 
 The user explicitly approved publishing the patch. PR #785 publishes the prepared tree. The initial Android compilation caught a composable typography factory inside a non-composable remember calculation. The factory is now resolved in composable scope before its result is remembered using theme and text-style inputs. Earlier validation cancellation followed the ready-for-review transition and is not counted as a pass. Final Android verification remains pending on the corrected revision.
+
+## Checkpoint recovery regression repair
+
+The full Android unit run executed 5,986 tests: 5,980 passed, four were skipped and two checkpoint recovery tests failed. Separating settled receipts exposed an atomic queue handoff assumption: enqueue required the original batch even when settled calls had been removed. The guard now accepts the exact full unresolved remainder while still rejecting dropped queued work. Settled receipts emit shared replay results without a new dispatch. Regression assertions cover preserved receipt coverage across batches and rejection of an incomplete unresolved tail.

@@ -154,6 +154,8 @@ class AgentRunner(
             if (call.name in toolByName) {
                 val result = exchange.results.single()
                 onToolResult?.invoke(call, result)
+                // Replayed receipts remain visible as shared results, without a fresh dispatch.
+                emit(AgentRunEvent.ToolFinished(call, result))
                 if (result.errorCode in ToolResultEnvelope.unknownOutcomeCodes && !replayableRead(call)) {
                     unknownOutcomes += call.name + ":" + dev.chungjungsoo.gptmobile.data.permissions.ScopedToolGrant.canonicalHash(call.arguments)
                 }

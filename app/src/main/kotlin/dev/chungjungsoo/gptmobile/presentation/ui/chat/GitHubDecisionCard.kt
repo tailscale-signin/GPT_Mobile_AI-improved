@@ -127,8 +127,8 @@ private fun GitHubActivitySummary(text: String) {
         color = androidx.compose.ui.graphics.Color.White,
         maxLines = 4,
         overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-        modifier = Modifier.testTag("github_activity_summary")
-            .offset(y = (-6).dp * (1f - entry.value))
+        modifier = Modifier.offset(y = (-6).dp * (1f - entry.value))
+            .testTag("github_activity_summary")
             .semantics { liveRegion = androidx.compose.ui.semantics.LiveRegionMode.Polite }
     )
 }

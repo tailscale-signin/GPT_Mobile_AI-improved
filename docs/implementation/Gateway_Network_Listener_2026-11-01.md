@@ -69,3 +69,9 @@ Fresh exact-revision CI is required; the failed and superseded runs do not count
 The remaining Linux matrix failure came from `rule_name()` constructing a new `pathlib.Path` after the test switched `os.name` to simulated Windows mode. Rule naming now normalizes `os.fspath(root)` through `os.path.abspath` and case folding, preserving deterministic installation-specific names without instantiating an incompatible `WindowsPath`. The package manifest records the exact repaired production file and source revision.
 
 Fresh exact-revision CI is required. The earlier Linux failures, successful Windows-only jobs, and all superseded runs do not count for this checkpoint.
+
+## Firewall marker-path repair checkpoint
+
+The next exact-head Linux matrix reached a later path operation: after the elevated firewall command succeeds, the marker path was still joined through a pre-existing `pathlib.Path` while Windows mode was simulated. Marker joining and idempotent removal now use `os.path.join` and `os.unlink`; the real Windows behavior is unchanged, while the cross-platform regression can complete. The package manifest records the repaired source and hash.
+
+Fresh exact-revision CI is required. The failed Linux matrix and all earlier superseded runs do not count.

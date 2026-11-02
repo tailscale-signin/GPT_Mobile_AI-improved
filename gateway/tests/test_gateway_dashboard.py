@@ -1,5 +1,6 @@
 """Dashboard observations must preserve request/tool behavior and stay local."""
 import asyncio
+from contextlib import closing
 import json
 from pathlib import Path
 import sqlite3
@@ -111,7 +112,7 @@ class ActivityTests(unittest.TestCase):
     def test_saved_jobs_project_metadata_only(self):
         with tempfile.TemporaryDirectory() as temp:
             path = str(Path(temp) / 'jobs.sqlite3')
-            with sqlite3.connect(path) as db:
+            with closing(sqlite3.connect(path)) as db, db:
                 db.execute('CREATE TABLE gateway_jobs(job_id, public_json, status, created_at, updated_at)')
                 db.execute('INSERT INTO gateway_jobs VALUES(?,?,?,?,?)', ('chat-1', json.dumps({'model': 'model', 'prompt': 'private prompt', 'result': 'private answer'}), 'completed', 1, 2))
                 db.execute('CREATE TABLE engineering_jobs(id,state,data,next_at)')

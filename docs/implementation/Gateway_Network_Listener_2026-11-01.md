@@ -51,3 +51,9 @@ Exact-head CI at `a440918001b3f2f796cb1705703f5d786bd508d9` exposed two environm
 - Gateway package-integrity hashes were refreshed for the production and test repairs.
 
 Fresh exact-revision CI is required for this checkpoint. It must also be rerun after the preceding PR advances `main`; no older, cancelled, failed, pending, skipped-required or superseded run counts.
+
+## Windows live-test repair checkpoint
+
+The first Windows repair still configured the listener as its own backend, which the production safety validation correctly rejects because the backend must use a distinct port and non-loopback HTTP backends are prohibited. The live network test now starts a deterministic loopback health server on an ephemeral port, so every runner receives an immediate health response without depending on a black-holed port or creating a routing cycle. Gateway package-integrity metadata now records the exact repaired test content and its source revision.
+
+Fresh exact-revision CI is required for the resulting checkpoint. Physical Android-to-Windows connectivity and interactive installer/UAC behavior remain target-device acceptance work and are not claimed by this review.

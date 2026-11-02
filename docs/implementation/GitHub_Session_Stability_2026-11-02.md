@@ -41,4 +41,8 @@ Additional correction: cached immutable commit metadata no longer backdates a ne
 
 ## Device verification still required
 
+### Packaged method-size repair checkpoint
+
+Review APK run `41468653030` compiled successfully at `54d1cf5a`, then found `AgentRunner.executeLoop` at 17,754 DEX code units against the unchanged 16,383 limit. Extracted the empty-round recovery state transition into its own suspend method, preserving tool authorization, retry counts, retained evidence and finalization behavior. Added regressions for repeated empty GitHub rounds with one tool execution and ordinary tool-free finalization. Canonical fast validation passes locally; Android tests and the packaged DEX measurement require fresh CI because this workspace has JDK 17 and no Android SDK 37. No size threshold or test protection was relaxed.
+
 Use a profileable/release build on the affected high-refresh device. Record frame timelines during long streaming Markdown, scrolling, read-aloud highlighting, chat switching and settings/keyboard transitions; compare p50/p95/p99 frame times and main-thread measurements before/after. Correlate allocation/GC and monitor contention with those traces. The export does not establish an OOM, ANR, memory leak, blur-related root cause or prefill timeout; this patch does not claim otherwise.

@@ -261,37 +261,13 @@ class AgentRunner(
             resolvedCalls.forEach { emit(AgentRunEvent.Provider(it)) }
             val calls = routeSearchCalls(resolvedCalls, executableToolByName)
             if (calls.isEmpty()) {
-                if (round.completed && !round.textEmitted) {
-                    if (limits.combined?.requested?.singlePass != true && !emptyAnswerRecoveryAttempted && !session.handlesToolsInternally && !finalResponseRequested) {
-                        emptyAnswerRecoveryAttempted = true
-                        if (limits.githubTask) {
-                            rounds--
-                            exposedDefinitions = exposedDefinitions.map { it.copy(description = it.description + " The previous round was empty. Continue the unfinished task using retained results, or return the verified final outcome.") }
-                            emit(AgentRunEvent.Notice("The provider returned an empty round. Resuming the GitHub task with its tools and saved results.", persistent = false))
-                        } else {
-                            finalResponseRequested = true
-                            exposedDefinitions = emptyList()
-                            executableToolByName = emptyMap()
-                            emit(AgentRunEvent.Notice("The model returned no visible answer. Finalizing once with tools disabled and the results already collected.", persistent = false))
-                        }
-                        continue
-                    }
-                    if (limits.githubTask && limits.combined?.requested?.singlePass != true && !session.handlesToolsInternally && !finalResponseRequested) {
-                        finalResponseRequested = true
-                        exposedDefinitions = emptyList()
-                        executableToolByName = emptyMap()
-                        instructFinalResponse(exchanges)
-                        emit(AgentRunEvent.Notice("The GitHub provider returned another empty round. Generating a text answer from the saved operation results.", persistent = false))
-                        continue
-                    }
-                    finishFromRetained(session, ProviderEvent.Failed("The model returned no visible answer after finalization. No completed tool action was repeated. Please retry or choose another model.", errorCode = "FINAL_RESPONSE_REQUIRED", transportComplete = round.completed), exchanges.isNotEmpty())
-                    return
-                }
-                if (round.completed) {
-                    checkpoint?.finish()
-                    emit(AgentRunEvent.Provider(ProviderEvent.Completed))
-                }
-                return
+                val recovery = recoverRoundWithoutCalls(session, round, exchanges, exposedDefinitions, emptyAnswerRecoveryAttempted, finalResponseRequested) ?: return
+                exposedDefinitions = recovery.definitions
+                emptyAnswerRecoveryAttempted = recovery.emptyAnswerRecoveryAttempted
+                finalResponseRequested = recovery.finalResponseRequested
+                rounds += recovery.roundAdjustment
+                if (finalResponseRequested) executableToolByName = emptyMap()
+                continue
             }
             val roundLimitReached = limits.maxRounds < Int.MAX_VALUE && rounds >= limits.maxRounds
 
@@ -325,6 +301,48 @@ class AgentRunner(
                 emit(AgentRunEvent.Notice("GitHub operations failed for three consecutive rounds. Finishing with saved results and the remaining blockers.", persistent = false))
             }
         }
+    }
+
+    private data class EmptyRoundRecovery(
+        val definitions: List<AgentToolDefinition>,
+        val emptyAnswerRecoveryAttempted: Boolean,
+        val finalResponseRequested: Boolean,
+        val roundAdjustment: Int = 0
+    )
+
+    /** Keep empty-round recovery outside the main coroutine's DEX method budget. */
+    private suspend fun kotlinx.coroutines.flow.FlowCollector<AgentRunEvent>.recoverRoundWithoutCalls(
+        session: AgentProviderSession,
+        round: RoundResult,
+        exchanges: MutableList<AgentToolExchange>,
+        definitions: List<AgentToolDefinition>,
+        emptyAnswerRecoveryAttempted: Boolean,
+        finalResponseRequested: Boolean
+    ): EmptyRoundRecovery? {
+        if (round.completed && !round.textEmitted) {
+            if (limits.combined?.requested?.singlePass != true && !emptyAnswerRecoveryAttempted && !session.handlesToolsInternally && !finalResponseRequested) {
+                return if (limits.githubTask) {
+                    val continued = definitions.map { it.copy(description = it.description + " The previous round was empty. Continue the unfinished task using retained results, or return the verified final outcome.") }
+                    emit(AgentRunEvent.Notice("The provider returned an empty round. Resuming the GitHub task with its tools and saved results.", persistent = false))
+                    EmptyRoundRecovery(continued, true, false, -1)
+                } else {
+                    emit(AgentRunEvent.Notice("The model returned no visible answer. Finalizing once with tools disabled and the results already collected.", persistent = false))
+                    EmptyRoundRecovery(emptyList(), true, true)
+                }
+            }
+            if (limits.githubTask && limits.combined?.requested?.singlePass != true && !session.handlesToolsInternally && !finalResponseRequested) {
+                instructFinalResponse(exchanges)
+                emit(AgentRunEvent.Notice("The GitHub provider returned another empty round. Generating a text answer from the saved operation results.", persistent = false))
+                return EmptyRoundRecovery(emptyList(), emptyAnswerRecoveryAttempted, true)
+            }
+            finishFromRetained(session, ProviderEvent.Failed("The model returned no visible answer after finalization. No completed tool action was repeated. Please retry or choose another model.", errorCode = "FINAL_RESPONSE_REQUIRED", transportComplete = round.completed), exchanges.isNotEmpty())
+            return null
+        }
+        if (round.completed) {
+            checkpoint?.finish()
+            emit(AgentRunEvent.Provider(ProviderEvent.Completed))
+        }
+        return null
     }
 
     private class RoundRecoveryState {

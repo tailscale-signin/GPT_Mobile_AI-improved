@@ -45,9 +45,11 @@ This document is the reviewable implementation checkpoint. Runtime recovery cont
 ## Validation checkpoint
 
 - `bash scripts/validate-local.sh fast`: passed, including 287 Python host checks, Android resource/regex checks, icon and QNN provenance checks.
-- Host Kotlin component tests: 19 passed, using production component source with minimal agent-contract fixtures for platform-independent tests. This is not an Android app build or an end-to-end runner test.
+- Host Kotlin component tests: 19 passed. A broader harness then compiled the actual runner, checkpoint, GitHub operation, pagination and verification sources and passed 495 host JVM regressions. Android infrastructure and unavailable transport adapters use explicit host fixtures; three Android adapter/classifier integration cases are excluded rather than represented as passed. These results do not establish an Android app build or physical-device qualification.
 - Additional Android/JVM regressions cover explicit retry with historical receipts, exact read recipe routing, mutation exclusion, scoped cursor correction, explicit-default policy stability and terminal checkpoint drain.
 - Targeted Gradle invocation stopped before compilation: the Gradle 9.8.0 distribution download was unreachable on this host. JDK 21 / Android SDK 37 app compilation and Android-bound tests require CI.
 - Physical heap, GC, speech service, frame-time, live MCP/Jina DNS, endpoint eligibility, final-run termination and full GitHub stress-test measurements remain unverified. No OOM, fatal exception or ANR is inferred from the supplied review.
 
 - Release-scope validation is already inconsistent at the selected main baseline: its October 31 base omits later main changes from allowedPaths. This patch does not rewrite historical release qualification or bypass that gate.
+
+- CI identified a stale architecture index after adding the new sources; the branch now includes the generated refresh. Broader regressions also verified invalid cursor byte ceilings, the four-blob default with full continuation/cache coverage, and the ordinary schema ceiling (997 estimated tokens in that test).

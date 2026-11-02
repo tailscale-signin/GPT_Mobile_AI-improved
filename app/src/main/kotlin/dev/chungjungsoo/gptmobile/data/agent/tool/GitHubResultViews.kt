@@ -122,7 +122,13 @@ internal class GitHubResultViews(
         val requestedBytes = if (parts.size == 3) parts[2].toIntOrNull() else entry?.pageBytes
         // A model sometimes drops the issued recovery page size. Do not authorize
         // that invented handle, but return the exact issued call for that offset.
-        if (entry != null && entry.scope == scope && cursor !in entry.issuedCursors && parts.size in 2..3 && offset != null) {
+        if (entry != null &&
+            entry.scope == scope &&
+            cursor !in entry.issuedCursors &&
+            parts.size in 2..3 &&
+            offset != null &&
+            (parts.size == 2 || requestedBytes != null && requestedBytes in 1024..entry.pageBytes)
+        ) {
             val issued = entry.issuedCursors.firstOrNull { it.split(':').getOrNull(1)?.toIntOrNull() == offset }
             if (issued != null) {
                 return AgentToolResult(

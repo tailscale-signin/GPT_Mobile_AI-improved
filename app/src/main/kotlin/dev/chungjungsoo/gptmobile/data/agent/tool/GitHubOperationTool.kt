@@ -775,7 +775,7 @@ internal class GitHubOperationTool(
                 "github_watch_checks" -> "Subscribe once to background CI updates for pr_number and/or run_id in this saved chat. Pins the current head and posts native chat status updates without model polling turns. A moved PR head requires a new subscription."
                 "github_issue" -> "List issues (PRs excluded). Prefer headers for title/state/updated_at without bodies or comments; use context/comments/history only when those details are needed. Create/update requires exact approval; update needs expected_updated_at. Timeline is not a full body-edit history."
                 else -> "Inspect release notes (detail), tags/annotations (tag), paginated tags/list, create_tag or explicitly publish the selected release."
-            } + " Follow continuation_call. Pair owner+repo."
+            } + " Exact continuation_call; owner+repo."
             return AgentToolDefinition(
                 modelName,
                 description,

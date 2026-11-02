@@ -14,13 +14,14 @@ internal object GitHubRecoveryCalls {
         val recipes = exchanges.asReversed().asSequence().flatMap { exchange ->
             exchange.results.asReversed().asSequence().mapNotNull { GitHubReplayRecovery.envelope(it.content) }
         }.flatMap { result -> keys.asSequence().mapNotNull { result[it] as? JsonObject } }
-        val recipe = if (envelope != null) {
+        val candidate = if (envelope != null) {
             recipes.firstOrNull { it == envelope }
         } else if (call.arguments.keys == setOf("view_cursor")) {
             recipes.firstOrNull { it["arguments"] == call.arguments }
         } else {
             null
-        } ?: return call
+        }
+        val recipe = candidate ?: return call
         val name = (recipe["tool"] as? JsonPrimitive)?.takeIf { it.isString }?.content ?: return call
         val arguments = recipe["arguments"] as? JsonObject ?: return call
         val tool = tools[name] ?: return call

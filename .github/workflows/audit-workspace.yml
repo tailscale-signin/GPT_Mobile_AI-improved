@@ -58,9 +58,8 @@ jobs:
 
   android:
     runs-on: ubuntu-latest
-    # A cold runner needs about 45 minutes for tests, native APK build and lint;
-    # leave time to upload the reports/APK and complete post-job cleanup.
-    timeout-minutes: 60
+    # Bound each heavy stage and reserve time for independent lint and reports.
+    timeout-minutes: 100
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -86,7 +85,11 @@ jobs:
           apt_options=(-o Acquire::Retries=2 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 -o DPkg::Lock::Timeout=60)
           sudo timeout --kill-after=15s 180s apt-get "${apt_options[@]}" update
           sudo env DEBIAN_FRONTEND=noninteractive timeout --kill-after=15s 180s apt-get "${apt_options[@]}" install --no-install-recommends -y glslc libvulkan-dev spirv-headers
+      - name: Provision verified Robolectric runtimes
+        timeout-minutes: 10
+        run: python3 scripts/provision_robolectric_sdks.py
       - name: Android unit tests
+        timeout-minutes: 30
         id: tests
         shell: bash
         run: |
@@ -97,13 +100,14 @@ jobs:
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: always()
         with:
-          name: audit-unit-results
+          name: audit-unit-results-${{ github.run_attempt }}
           path: |
             audit-unit.log
             app/build/test-results/testDebugUnitTest
             app/build/reports/tests/testDebugUnitTest
           retention-days: 7
       - name: Debug APK build
+        timeout-minutes: 20
         id: apk
         if: ${{ !cancelled() && steps.environment.outcome == 'success' }}
         shell: bash
@@ -112,6 +116,7 @@ jobs:
           chmod +x gradlew
           python3 scripts/gradle_retry.py -- --no-daemon --stacktrace :app:assembleDebug 2>&1 | tee audit-apk.log
       - name: Android lint
+        timeout-minutes: 35
         if: ${{ !cancelled() && steps.environment.outcome == 'success' }}
         shell: bash
         run: |
@@ -121,7 +126,7 @@ jobs:
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: always()
         with:
-          name: audit-android-results
+          name: audit-android-results-${{ github.run_attempt }}
           path: |
             audit-*.log
             app/build/test-results/testDebugUnitTest
@@ -131,6 +136,6 @@ jobs:
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: success()
         with:
-          name: diagnostic-audit-debug-apk
+          name: diagnostic-audit-debug-apk-${{ github.run_attempt }}
           path: app/build/outputs/apk/debug/*.apk
           retention-days: 7

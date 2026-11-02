@@ -28,3 +28,14 @@ Starting branch head: ff34d32a52f7ffecdb8a678b4d9f60a66ab853b5
 The Windows workflow runs the network tests, builds the actual Inno Setup/PyInstaller package, then exercises the frozen key-free listener across restarts, firewall creation/scope/removal, repair install, rollback and uninstall. These Windows checks and the Android build must be verified on the resulting PR. Physical Android-to-Windows interoperability, interactive UAC/installer accessibility and corporate firewall behavior still require target-device acceptance. No installer binary or production release is claimed by this source implementation.
 
 Anyone who can reach the open listener can use its enabled models/tools and shared network jobs. It is intended for a trusted LAN/private VPN. Public access requires a separately authenticated HTTPS proxy; TLS alone does not restrict access.
+
+
+## Review repair checkpoint
+
+Review of draft head `20c279acbfe6adf9ace5b78b437cd66fcb4d80a6` found and repaired two desktop lifecycle defects:
+
+- Firewall removal no longer requires a readable settings file, so uninstall or recovery can remove the installation-specific rule after settings corruption. A regression test covers the settings-independent removal command.
+- Repeated Settings saves retain the most recently persisted values instead of rebuilding later edits from the window's original snapshot.
+- Gateway package-integrity hashes were refreshed after these scoped source and test repairs.
+
+Fresh exact-revision CI is required for the resulting checkpoint. Older, cancelled, failed, pending, skipped-required or superseded runs do not count.

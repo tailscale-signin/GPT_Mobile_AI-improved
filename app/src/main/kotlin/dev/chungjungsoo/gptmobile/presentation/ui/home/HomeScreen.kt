@@ -186,6 +186,7 @@ fun HomeScreen(
     settingOnClick: () -> Unit = {},
     onExistingChatClick: (chatRoom: ChatRoomV2, targetMessageId: Int?) -> Unit = { _, _ -> },
     navigateToNewChat: (androidx.compose.ui.geometry.Offset) -> Unit = {},
+    navigateToVoice: (androidx.compose.ui.geometry.Offset) -> Unit = {},
     navigateToWorkspace: (Int) -> Unit = {}
 ) {
     val listState = rememberLazyListState()
@@ -402,7 +403,10 @@ fun HomeScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 if (currentTab == HomeTab.CHATS && !chatListState.isSelectionMode && !chatListState.isSearchMode) {
-                    NewChatButton(onClick = navigateToNewChat)
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        dev.chungjungsoo.gptmobile.presentation.ui.voice.VoiceChatButton(onClick = navigateToVoice)
+                        NewChatButton(onClick = navigateToNewChat)
+                    }
                 }
             }
         }

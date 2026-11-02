@@ -1,5 +1,6 @@
 """v14 composition root over the characterized v13 execution engine."""
 import argparse
+import os
 import sys
 import re
 import asyncio
@@ -32,6 +33,7 @@ from v14.batch import install_batch
 from v14.catalog import install_catalog_cache
 from v14.browser import BOOTSTRAP_PATH, install_browser_proxy
 from v14.service import ServiceState, LoadGuard
+from v14.activity import ActivityTracker, ActivityMiddleware, desktop_snapshot
 from v14.mcp import install_mcp_resilience
 from v14.health import readiness, diagnostics
 from v14.journal import backup_database
@@ -67,16 +69,24 @@ install_github_fast_path(runtime)
 install_batch(runtime)
 service = ServiceState(config.max_workers)
 service.install(runtime)
+activity = ActivityTracker(os.getenv("GATEWAY_ACTIVITY_STATE"))
+activity.install_tools(runtime)
 engineering = EngineeringService(EngineeringStore(runtime), GitHubEngineeringBackend(runtime))
 engineering.authorized = lambda job: principal_authorized(config, job['principal'], device_store)
 engineering.backend.cancelled = lambda job_id: (engineering.store.get(job_id) or {}).get('state') == 'CANCELLED'
 app = FastAPI(title="Private Gateway 15", version=VERSION, lifespan=engineering.lifecycle(service.lifespan(runtime, config.shutdown_grace)),
               docs_url="/gateway/docs", openapi_url="/gateway/openapi.json")
 app.add_middleware(LoadGuard, config=config, state=service)
+app.add_middleware(ActivityMiddleware, tracker=activity)
 app.add_middleware(Admission, config=config)
 install_engineering_routes(app, engineering)
 from v14.maintenance import install_maintenance
 install_maintenance(app, runtime, service, engineering)
+
+
+@app.get("/gateway/admin/dashboard")
+async def dashboard_snapshot():
+    return await asyncio.to_thread(desktop_snapshot, runtime, service, activity)
 
 
 @app.post("/v1/chat/completions")
@@ -152,14 +162,14 @@ def capabilities():
                    "auth": {"mode": config.mode, "apiKeyRequired": False, "legacyBearerEnabled": config.legacy_bearer},
                    "desktop": {"managed": bool(config.management_token), "maintenanceProtocol": 1,
                                "stateSchema": 1, "updateAuthority": "local-manager", "idleUpdates": True},
-                   "identityScope": "user" if config.mode == "trusted_proxy" else "local-machine",
+                   "identityScope": "shared-network" if config.mode == "open_network" else "user" if config.mode == "trusted_proxy" else "local-machine",
                    "memory": {"authority": "client", "protocolVersion": 1, "workspaceAdapterEnabled": False},
                    "supportedMcpEras": ["legacy"], "eventVersions": [runtime.GATEWAY_PROGRESS_PROTOCOL],
                    "contracts": {
                        "gatewayProgress": [runtime.GATEWAY_PROGRESS_PROTOCOL],
                        "toolArguments": ["gptmobile.tool-arguments.v1"]
                    },
-                   "features": dict(result["features"], keyFreePrivateAccess=True, deterministicSearch=True,
+                   "features": dict(result["features"], keyFreePrivateAccess=config.mode != "open_network", keyFreeNetworkAccess=config.mode == "open_network", deterministicSearch=True,
                                     structuredSearch=True, terminalStateProtection=True, memory_novelty_filter=False, structuredEvidence=False, mcpFacade=False,
                                     modernMcp=False, clientMemoryAuthority=True, packageValidation=True,
                                     validatedToolArguments=True, githubClientOwnedFastPath=True,
@@ -251,7 +261,7 @@ def doctor():
             "loadedModules": {"launcher": str(Path(__file__).with_name("gateway.py")), "composition": __file__, "runtime": runtime.__file__},
             "dependencies": {name: importlib.metadata.version(name) for name in ("fastapi", "uvicorn", "requests", "httpx")},
             "stability": diagnostics(runtime, service),
-            "remainingGates": ["Windows install/rollback", "Tailscale identity", "Android build", "physical phone"]}
+            "remainingGates": ["Windows install/rollback", "LAN/firewall acceptance", "Android build", "physical phone"]}
 
 
 def main():

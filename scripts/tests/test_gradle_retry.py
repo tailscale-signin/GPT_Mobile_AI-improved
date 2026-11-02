@@ -1,6 +1,7 @@
 import importlib.util
 import os
 import pathlib
+import select
 import tempfile
 import time
 import unittest
@@ -12,7 +13,7 @@ SPEC.loader.exec_module(retry)
 
 
 class GradleRetryTest(unittest.TestCase):
-    @unittest.skipUnless(os.name == 'posix', 'Process group qualification requires POSIX')
+    @unittest.skipUnless(hasattr(os, 'pidfd_open'), 'Descendant exit qualification requires Linux process handles')
     def test_deadline_terminates_a_stalled_descendant_and_never_retries_it(self):
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)
@@ -29,20 +30,18 @@ class GradleRetryTest(unittest.TestCase):
             self.assertLess(time.monotonic() - started, 3)
             self.assertEqual(['attempt'], counter.read_text().splitlines())
             child = int(pid_file.read_text())
-            status = pathlib.Path(f'/proc/{child}/stat')
-            # SIGKILL delivery and /proc teardown are asynchronous, even after
-            # the descendant closes stdout. Give the kernel a bounded window.
-            stopped = False
-            deadline = time.monotonic() + 1
-            while time.monotonic() < deadline:
+            # A kernel process handle avoids /proc read/exit races and still
+            # addresses the correct PID inside a container's PID namespace.
+            try:
+                descriptor = os.pidfd_open(child)
+            except ProcessLookupError:
+                pass  # The kernel has already reaped the terminated child.
+            else:
                 try:
-                    stopped = status.read_text().split(') ', 1)[1].startswith('Z')
-                except FileNotFoundError:
-                    stopped = True
-                if stopped:
-                    break
-                time.sleep(.01)
-            self.assertTrue(stopped, 'Timed-out descendant is still running')
+                    exited, _, _ = select.select([descriptor], [], [], 1)
+                    self.assertTrue(exited, 'Timed-out descendant is still running')
+                finally:
+                    os.close(descriptor)
 
     def test_dependency_backoff_uses_the_same_total_deadline(self):
         with tempfile.TemporaryDirectory() as directory:

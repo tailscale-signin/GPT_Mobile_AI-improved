@@ -8,10 +8,11 @@ import subprocess
 import sys
 import tempfile
 import time
+import requests
 
 ROOT=Path(__file__).resolve().parents[2]
 sys.path.insert(0,str(ROOT/'gateway'))
-from desktop.configuration import atomic_json
+from desktop.configuration import atomic_json, validate
 from desktop.manager import request
 from v14 import VERSION
 
@@ -53,7 +54,54 @@ def main():
             state=wait_state(root,'running')
             assert state['backend'] != 'ready'
             results.append('frozen runtime healthy with offline model backend')
+            deadline = time.monotonic() + 20
+            while not (root / 'dashboard.json').exists() and time.monotonic() < deadline:
+                time.sleep(.2)
+            observation = json.loads((root / 'dashboard.json').read_text(encoding='utf-8'))
+            assert observation['service']['activeWorkers'] == 0
+            assert observation['historyError'] is None
+            assert (root / 'data' / 'activity.json').exists()
+            subprocess.run([str(exe), 'dashboard', '--root', str(root), '--smoke-ui', '--quiet'], check=True, timeout=45)
+            ui = json.loads((root / 'dashboard-ui-smoke.json').read_text(encoding='utf-8'))
+            assert ui['pages'] == ['Overview', 'Devices', 'Recent activity', 'Search jobs', 'GitHub jobs']
+            assert ui['width'] >= 900 and ui['height'] >= 600
+            shutil.copy2(root / 'dashboard-preview.png', output / 'dashboard-preview.png')
+            results.append('frozen themed dashboard renders all views; observer persists metadata; UI closes without stopping gateway')
+            assert child.poll() is None
+            from desktop.tray import TrayIcon
+            tray = TrayIcon(lambda: 'Gateway smoke test', {})
+            tray.start()
+            assert tray.ready.wait(10), 'Tray thread did not initialize'
+            assert tray.error is None, tray.error
+            assert tray.available, 'Windows notification-area icon was not registered'
+            tray.close()
+            assert not tray.thread.is_alive(), 'Tray thread did not shut down'
+            results.append('native Windows notification-area icon registers and shuts down cleanly')
             request(root,'stop');assert child.wait(timeout=40)==0
+            cfg = validate(dict(cfg, bind_host='0.0.0.0'))
+            atomic_json(root/'settings.json', cfg)
+            assert not (root/'firewall.json').exists()
+            for attempt in range(2):
+                (root/'status.json').unlink(missing_ok=True)
+                child = subprocess.Popen(launcher)
+                wait_state(root, 'running')
+                with requests.Session() as http:
+                    http.trust_env = False
+                    response = http.get(f'http://127.0.0.1:{cfg["port"]}/v1/gateway/capabilities', timeout=5)
+                    response.raise_for_status()
+                    assert response.json()['auth'] == {'mode': 'open_network', 'apiKeyRequired': False, 'legacyBearerEnabled': False}
+                request(root, 'stop'); assert child.wait(timeout=40) == 0
+            results.append('frozen all-interface listener works without API key across restart')
+            # Exercise an explicitly requested Private/LocalSubnet rule on CI.
+            from desktop.firewall import apply, rule_name
+            try:
+                apply(root)
+                command = "$r=Get-NetFirewallRule -Name '" + rule_name(root) + "'; if ($r.Profile -ne 'Private' -or $r.Direction -ne 'Inbound' -or $r.Action -ne 'Allow') { exit 1 }; $p=$r | Get-NetFirewallPortFilter; if ($p.LocalPort -ne '" + str(cfg['port']) + "') { exit 2 }; $a=$r | Get-NetFirewallAddressFilter; if ($a.RemoteAddress -notcontains 'LocalSubnet') { exit 3 }"
+                subprocess.run([powershell, '-NoProfile', '-NonInteractive', '-Command', command], check=True, timeout=30)
+            finally:
+                apply(root, remove=True)
+            assert not (root/'firewall.json').exists()
+            results.append('explicit firewall rule is scoped to saved port, Private profile and LocalSubnet; removal succeeds')
             # A candidate with incompatible runtime version must roll back before admission.
             candidate='15.0.99'
             shutil.copytree(root/'releases'/VERSION,root/'releases'/candidate)

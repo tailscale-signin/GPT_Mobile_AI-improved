@@ -16,7 +16,7 @@ import time
 import uuid
 
 import requests
-from desktop.configuration import atomic_json, environment, load
+from desktop.configuration import atomic_json, authority, control_host, environment, load
 from desktop import releases, windows_job
 from v14.state_lock import StateDirectoryLock, StateDirectoryAlreadyOwned
 from v14.journal import backup_database
@@ -111,6 +111,10 @@ class Supervisor:
         self.http = requests.Session()
         self.http.trust_env = False
         self.child = None
+        self.observer_stop = threading.Event()
+        self.observer_thread = None
+        self.tray = None
+        self.dashboard_child = None
         self.job = windows_job.create()
         self.log = logging.getLogger('desktop.' + str(self.root))
         self.log.setLevel(logging.INFO)
@@ -125,7 +129,7 @@ class Supervisor:
         atomic_json(self.root / 'status.json', self.status)
 
     def control(self, action=None):
-        url = f'http://127.0.0.1:{self.cfg["port"]}/gateway/admin/maintenance'
+        url = 'http://' + authority(control_host(self.cfg), self.cfg['port']) + '/gateway/admin/maintenance'
         response = self.http.request('POST' if action else 'GET', url,
             headers={'X-Gateway-Management': self.token}, json={'action': action} if action else None, timeout=(2, 8))
         response.raise_for_status()
@@ -134,8 +138,8 @@ class Supervisor:
     def spawn(self, number):
         releases.validate_release(release_path(self.root, number), number)
         # Do not adopt an unrelated listener or touch a live journal after a port conflict.
-        with socket.socket() as check:
-            check.bind(('127.0.0.1', self.cfg['port']))
+        with socket.socket(socket.AF_INET6 if ':' in self.cfg['bind_host'] else socket.AF_INET) as check:
+            check.bind((self.cfg['bind_host'], self.cfg['port']))
         env = environment(self.root, self.cfg, self.token)
         env['GATEWAY_START_QUIESCED'] = '1'
         self.child = subprocess.Popen(executable(self.root, number, 'serve-engine'), env=env,
@@ -277,6 +281,53 @@ class Supervisor:
         self.publish(state='running', version=pointer['version'], backend=health['checks']['backend'])
         return 0
 
+    def open_window(self, command):
+        if command == 'dashboard' and self.dashboard_child and self.dashboard_child.poll() is None:
+            # Reopen an existing dashboard without spawning duplicate windows.
+            atomic_json(self.root / 'show-dashboard.json', {'requestedAt': time.time()})
+            return
+        child = subprocess.Popen(executable(self.root, read_pointer(self.root)['version'], command),
+                                 creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+        if command == 'dashboard':
+            self.dashboard_child = child
+
+    def start_desktop_observer(self):
+        from desktop.dashboard_model import counters, read_snapshot
+        from desktop.tray import TrayIcon
+        def tooltip():
+            snapshot = read_snapshot(self.root)
+            clients, active, _, _ = counters(snapshot)
+            return f'Gateway {self.status.get("state", "starting")} | {clients if clients is not None else "—"} clients | {active if active is not None else "—"} open jobs'
+        self.tray = TrayIcon(tooltip, {
+            'dashboard': lambda: self.open_window('dashboard'), 'settings': lambda: self.open_window('settings'),
+            'restart': lambda: request(self.root, 'restart'), 'stop': lambda: request(self.root, 'stop')}).start()
+        def observe():
+            with requests.Session() as client:
+                client.trust_env = False
+                while not self.observer_stop.is_set():
+                    try:
+                        url = 'http://' + authority(control_host(self.cfg), self.cfg['port']) + '/gateway/admin/dashboard'
+                        response = client.get(url, headers={'X-Gateway-Management': self.token}, timeout=(1, 3))
+                        response.raise_for_status()
+                        snapshot = response.json()
+                        if not isinstance(snapshot, dict) or not isinstance(snapshot.get('capturedAt'), (int, float)):
+                            raise ValueError('Invalid dashboard observation')
+                        atomic_json(self.root / 'dashboard.json', snapshot)
+                        atomic_json(self.root / 'data' / 'activity.json', {'activities': snapshot.get('activities', [])})
+                    except (requests.RequestException, OSError, ValueError):
+                        # UI marks older snapshots stale; metrics never block work/recovery.
+                        pass
+                    self.observer_stop.wait(2)
+        self.observer_thread = threading.Thread(target=observe, name='gateway-dashboard-observer', daemon=True)
+        self.observer_thread.start()
+
+    def close_desktop_observer(self):
+        self.observer_stop.set()
+        if self.tray:
+            self.tray.close()
+        if self.observer_thread:
+            self.observer_thread.join(timeout=5)
+
     def notify(self, number):
         if os.name != 'nt':
             return
@@ -298,6 +349,7 @@ class Supervisor:
         result = self.boot()
         if result:
             return result
+        self.start_desktop_observer()
         next_check, next_activate, candidate = time.monotonic() + 30, 0, None
         crashes = []
         while True:
@@ -376,5 +428,6 @@ def supervise(root):
         return 1
     finally:
         if manager:
+            manager.close_desktop_observer()
             windows_job.close(manager.job)
         lock.release()

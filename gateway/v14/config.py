@@ -21,20 +21,23 @@ class Config:
     body_timeout: float = 30
     shutdown_grace: float = 10
     management_token: str = field(default="", repr=False)
+    remote_engineering: bool = False
 
     def validate(self):
         if not 1 <= self.max_workers <= self.max_active_chats <= 64:
             raise ValueError('Require 1 <= GATEWAY_MAX_WORKERS <= GATEWAY_MAX_ACTIVE_CHATS <= 64')
         if not 1024 <= self.max_body_bytes <= 64 * 1024 * 1024 or not 1 <= self.body_timeout <= 120 or not 1 <= self.shutdown_grace <= 120:
             raise ValueError('Invalid body size, body timeout or shutdown grace')
-        if self.mode not in {"loopback", "trusted_proxy"}:
-            raise ValueError("GATEWAY_AUTH_MODE must be loopback or trusted_proxy")
+        if self.mode not in {"loopback", "trusted_proxy", "open_network"}:
+            raise ValueError("GATEWAY_AUTH_MODE must be loopback, open_network or legacy trusted_proxy")
         try:
-            local = ipaddress.ip_address(self.host).is_loopback
+            address = ipaddress.ip_address(self.host)
         except ValueError:
-            local = False
-        if not local:
-            raise ValueError("Bind to a literal loopback address; use Tailscale Serve for phone access")
+            raise ValueError("GATEWAY_HOST must be a literal IPv4 or IPv6 address") from None
+        if address.is_multicast or '%' in self.host or str(address) == '255.255.255.255':
+            raise ValueError("Bind to a unicast or unspecified address")
+        if not address.is_loopback and self.mode != "open_network":
+            raise ValueError("Non-loopback listeners require GATEWAY_AUTH_MODE=open_network")
         if not 1 <= self.port <= 65535:
             raise ValueError("Invalid gateway port")
         if not self.allowed_hosts or any(not isinstance(h, str) or "*" in h or "/" in h or "@" in h for h in self.allowed_hosts):
@@ -67,4 +70,5 @@ class Config:
                    max_body_bytes=int(os.getenv('GATEWAY_MAX_BODY_BYTES', str(16 * 1024 * 1024))),
                    body_timeout=float(os.getenv('GATEWAY_BODY_TIMEOUT', '30')),
                    shutdown_grace=float(os.getenv('GATEWAY_SHUTDOWN_GRACE', '10')),
-                   management_token=os.getenv('GATEWAY_MANAGEMENT_TOKEN', '')).validate()
+                   management_token=os.getenv('GATEWAY_MANAGEMENT_TOKEN', ''),
+                   remote_engineering=os.getenv('GATEWAY_REMOTE_ENGINEERING', 'false').lower() == 'true').validate()

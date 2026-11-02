@@ -188,7 +188,12 @@ class ConnectionDoctorViewModel @Inject constructor(
                 }
                 lines += if (capabilities == null) "Route: llama.cpp-compatible; direct/router identity unverified. Missing Gateway metadata does not mean chat is offline." else "Route: Gateway capability endpoint available. Gateway prompt transformations require separate verification."
                 capabilities?.let { caps ->
-                    lines += "Gateway version: ${caps.gatewayVersion ?: "unknown"}; key-free contract: ${if (caps.supportsKeyFreeConnection) "supported" else "unverified"}."
+                    val connectionMode = when {
+                        caps.auth?.mode == "open_network" && caps.supportsKeyFreeConnection -> "open network, no API key"
+                        caps.supportsKeyFreeConnection -> "key-free"
+                        else -> "authentication unverified"
+                    }
+                    lines += "Gateway version: ${caps.gatewayVersion ?: "unknown"}; connection: $connectionMode."
                     caps.desktop?.takeIf { it.managed }?.let { desktop ->
                         lines += "Windows managed gateway; maintenance protocol ${desktop.maintenanceProtocol}. Updates are controlled in Gateway Settings on the PC; idle updates: ${desktop.idleUpdates}."
                     }

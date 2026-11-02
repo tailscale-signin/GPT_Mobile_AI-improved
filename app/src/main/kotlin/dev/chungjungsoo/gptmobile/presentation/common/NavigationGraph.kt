@@ -65,6 +65,7 @@ import dev.chungjungsoo.gptmobile.presentation.ui.setup.SetupPlatformTypeScreen
 import dev.chungjungsoo.gptmobile.presentation.ui.setup.SetupPlatformWizardScreen
 import dev.chungjungsoo.gptmobile.presentation.ui.setup.SetupViewModelV2
 import dev.chungjungsoo.gptmobile.presentation.ui.startscreen.StartScreen
+import dev.chungjungsoo.gptmobile.presentation.ui.voice.voiceNavigation
 import dev.chungjungsoo.gptmobile.presentation.viewmodel.OpenRouterSettingsViewModel
 
 @Composable
@@ -118,6 +119,7 @@ private fun AppNavHost(
     ) {
         homeScreenNavigation(navController) { newChatOrigin = it }
         newChatNavigation(navController) { newChatOrigin }
+        voiceNavigation(navController) { newChatOrigin }
         migrationScreenNavigation(navController)
         startScreenNavigation(navController)
         setupNavigation(navController)
@@ -257,6 +259,10 @@ fun NavGraphBuilder.homeScreenNavigation(navController: NavHostController, onNew
             navigateToNewChat = { origin ->
                 onNewChatOrigin(origin)
                 navController.navigate(Route.NEW_CHAT_FLOW)
+            },
+            navigateToVoice = { origin ->
+                onNewChatOrigin(origin)
+                navController.navigate(Route.VOICE_ENTRY)
             },
             navigateToWorkspace = { id -> navController.navigate("multi_chat_workspace/$id") }
         )

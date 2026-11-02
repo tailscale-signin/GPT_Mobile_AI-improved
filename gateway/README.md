@@ -12,20 +12,19 @@ python -m pip install -r requirements.txt
 python -m unittest discover -s tests
 ```
 
-The server defaults to `127.0.0.1:8090`. Gateway 15 uses explicit key-free private access: direct loopback or a dedicated Tailscale Serve listener with an exact hostname and explicit user grants. Do not bind the gateway to a private/LAN/public interface; configuration validation rejects non-loopback binds. Remote administration is not permitted.
+The server defaults to `127.0.0.1:8090`. Select a PC interface IP or `0.0.0.0` in Gateway Settings to open key-free network access. Android connects directly to `http://192.168.1.100:8090/v1` (replace the address with your PC IP or hostname); leave its API key empty. No Tailscale installation or identity setup is required. Anyone who can reach the listener can use its enabled models/tools and shared network jobs. Keep this mode on a trusted LAN or private VPN; public access needs a separately authenticated HTTPS proxy. HTTPS alone does not restrict who can connect.
 
-For Windows, use the bundled installer and [desktop setup and update guide](desktop/README.md). It exposes backend, performance, Tailscale identity, startup and update controls and preserves user data across updates. For a manual Python installation, follow the trusted-proxy configuration in [V14_UPGRADE.md](V14_UPGRADE.md). Legacy paired bearer access is opt-in compatibility behavior, not the default.
+For Windows, use the bundled installer and [desktop setup and update guide](desktop/README.md). The listener, backend, performance, optional LAN firewall rule, engineering scope, startup and updates are configurable. Existing installations retain their backend/settings and default to localhost; old Tailscale settings migrate to localhost and remain recorded for recovery. The runtime retains its legacy loopback proxy mode only for manual-install compatibility; it is not a requirement or a desktop setting.
 
+For manual Python installations set `GATEWAY_HOST=0.0.0.0`, `GATEWAY_PORT=8090`, `GATEWAY_AUTH_MODE=open_network`, and `GATEWAY_ALLOWED_ORIGINS=[]`, then run `python gateway.py serve`. Exact destination IPs are accepted; to use a hostname, add its authority to the JSON `GATEWAY_ALLOWED_HOSTS` list, e.g. `["127.0.0.1:8090","my-pc:8090"]`. The Windows manager includes the PC hostname automatically and offers additional hostname aliases. Enable network engineering explicitly with `GATEWAY_REMOTE_ENGINEERING=true`. Admin/configuration/debug routes remain local-only; native Android access does not require browser origins or identity headers.
 
-Legacy opt-in bearer setup (`GATEWAY_LEGACY_BEARER=true`): `python gateway_security.py issue --name "Phone"` prints a device ID and token once. Put the token in the profile API-key field. Do not place it in a URL or log. `python gateway_security.py list` lists devices without credentials. `python gateway_security.py revoke DEVICE_ID` invalidates subsequent requests immediately; an already authorized stream may finish.
-
-Jobs and request coalescing are device-scoped. Historical jobs without an owner are not assigned automatically. Pairing and serving must use the same `GATEWAY_AUTH_DB` when overriding it.
+Open-network clients share the `network:shared` principal. Existing local or legacy private jobs are retained under their old owner and are not silently transferred to the network. Legacy optional bearer/proxy modes keep their existing ownership rules.
 
 Environment options: `GATEWAY_HOST`, `GATEWAY_PORT`, `GATEWAY_AUTH_DB`, `GATEWAY_JOB_DB`, `LLAMA_BASE` (default localhost:8080), `MEMORY_BASE` (default localhost:8765), and `MCP_CONFIG_PATH`. The gateway token is stripped from backend proxy requests. Configure backend authentication independently if needed.
 
 Bounded context, explicit failover, output caps, cancellation, durable recovery, progress events and delegation diagnostics remain available. This server is optional; Android's local memory has no gateway dependency.
 
-To update dependencies, edit `requirements.in`, resolve in a clean environment, test, and regenerate the pinned `requirements.txt`. CI imports the real application and tests the authenticated HTTP boundary with backend/MCP startup stubbed. Pure contract tests alone do not validate installation.
+To update dependencies, edit `requirements.in`, resolve in a clean environment, test, and regenerate the pinned `requirements.txt`. CI imports the real application and tests the HTTP admission boundary with backend/MCP startup stubbed. Pure contract tests alone do not validate installation.
 
 ### Independent delegation retries and reviewer isolation
 

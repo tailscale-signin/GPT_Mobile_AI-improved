@@ -50,4 +50,14 @@ class GatewayV14CapabilitiesTest {
         assertFalse(json.decodeFromString<GatewayCapabilities>(valid.replace("trusted_proxy", "public")).supportsKeyFreeConnection)
         assertFalse(json.decodeFromString<GatewayCapabilities>(valid.replace("contractVersion\":1", "contractVersion\":2")).supportsKeyFreeConnection)
     }
+
+    @Test
+    fun openNetworkIsExplicitlyKeyFreeWithSharedIdentity() {
+        val caps = json.decodeFromString<GatewayCapabilities>(
+            """{"gatewayVersion":"15.0.0","contractVersion":1,"auth":{"mode":"open_network","apiKeyRequired":false},"identityScope":"shared-network"}"""
+        )
+        assertTrue(caps.supportsKeyFreeConnection)
+        assertTrue(caps.identityScope == "shared-network")
+        assertFalse(caps.copy(auth = caps.auth?.copy(apiKeyRequired = true)).supportsKeyFreeConnection)
+    }
 }

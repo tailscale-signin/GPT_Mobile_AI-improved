@@ -1,4 +1,4 @@
-param([ValidateSet('supervise','settings','stop','check','install','restart')][string]$Command = 'supervise')
+param([ValidateSet('supervise','settings','stop','check','install','restart','remove-firewall','dashboard')][string]$Command = 'supervise')
 $ErrorActionPreference = 'Stop'
 $root = $PSScriptRoot
 try {

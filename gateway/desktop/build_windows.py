@@ -34,9 +34,10 @@ def main():
         shutil.copy2(GATEWAY / name, target)
     (staging / 'build-info.json').write_text(json.dumps({'sourceCommit': source_commit, 'status': 'bundled', 'platform': 'windows-x64'}), encoding='utf-8')
     subprocess.run([sys.executable, '-m', 'PyInstaller', '--noconfirm', '--clean', '--onedir', '--console', '--noupx',
+        '--icon', str(GATEWAY / 'desktop/assets/gateway.ico'),
         '--name', 'Gateway', '--distpath', str(output), '--workpath', str(ROOT / 'build' / 'pyinstaller'),
         '--specpath', str(ROOT / 'build'), '--paths', str(GATEWAY), '--add-data', str(staging) + os.pathsep + '.',
-        '--hidden-import', 'gateway_v14', '--collect-submodules', 'v14', '--collect-submodules', 'uvicorn',
+        '--collect-submodules', 'desktop', '--hidden-import', 'gateway_v14', '--collect-submodules', 'v14', '--collect-submodules', 'uvicorn',
         '--hidden-import', 'gateway_v13_runtime', '--hidden-import', 'gateway_v13_transport',
         '--copy-metadata', 'fastapi', '--copy-metadata', 'uvicorn', '--copy-metadata', 'requests', '--copy-metadata', 'httpx',
         str(GATEWAY / 'desktop' / 'entry.py')], check=True)

@@ -885,6 +885,14 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    /** Voice uses the normal durable chat dispatcher and never bypasses tool approvals. */
+    fun submitVoiceTranscript(text: String): Boolean {
+        if (!_isLoaded.value || text.isBlank() || !featureSettings.value.isToolPluginEnabled(dev.chungjungsoo.gptmobile.data.model.ToolPluginId.VOICE_CHAT) || _loadingStates.value.any { it != LoadingState.Idle }) return false
+        if (_activePlatformUids.value.none { uid -> _platformsInApp.value.any { it.uid == uid && it.enabled } }) return false
+        submitOrQueueQuestion(text.trim(), emptyList())
+        return true
+    }
+
     fun cancelActiveRuns() {
         _chatRoom.value.id.takeIf { it > 0 }?.let(agentRunCoordinator::cancelChat)
     }

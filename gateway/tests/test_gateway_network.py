@@ -8,6 +8,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -16,7 +17,7 @@ import requests
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from desktop.configuration import atomic_json, authority, control_host, environment, load, validate
-from desktop.firewall import rule_name
+from desktop.firewall import apply, rule_name
 from gateway_security import DeviceStore, current_device
 from v14.config import Config
 from v14.engineering import principal_authorized
@@ -149,6 +150,20 @@ class NetworkSettingsTests(unittest.TestCase):
         self.assertEqual('[::1]:8090', authority('::1', 8090))
         self.assertEqual(rule_name('/one'), rule_name('/one'))
         self.assertNotEqual(rule_name('/one'), rule_name('/two'))
+
+    def test_firewall_removal_does_not_require_readable_settings(self):
+        with tempfile.TemporaryDirectory() as temp, \
+                patch('desktop.firewall.os.name', 'nt'), \
+                patch.dict(os.environ, {'SystemRoot': temp}), \
+                patch('desktop.firewall.ctypes.windll',
+                      SimpleNamespace(shell32=SimpleNamespace(IsUserAnAdmin=lambda: True)),
+                      create=True), \
+                patch('desktop.firewall.subprocess.run') as run:
+            run.return_value.returncode = 0
+            apply(temp, remove=True)
+        command = run.call_args.args[0]
+        self.assertIn('-Remove', command)
+        self.assertNotIn('-Port', command)
 
 
 class LiveNetworkTests(unittest.TestCase):

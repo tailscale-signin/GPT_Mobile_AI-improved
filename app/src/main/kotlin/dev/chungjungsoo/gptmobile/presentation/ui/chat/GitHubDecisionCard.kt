@@ -97,7 +97,21 @@ internal fun GitHubDecisionCard(decision: GitHubChatDecision, waiting: Boolean, 
 
 @Composable
 internal fun GitHubLiveProgressCard(timeline: List<dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem>, task: String = "") {
-    val lines = timeline.filter { it.progressCheckpoint && it.content.isNotBlank() }
+    // Also clean retained timelines exported or saved by older versions.
+    var previousPreview: String? = null
+    var previousSummary: String? = null
+    val lines = timeline.filter { it.progressCheckpoint && it.content.isNotBlank() }.filter { item ->
+        if (item.statusSummary) {
+            val keep = previousSummary != item.content
+            previousSummary = item.content
+            keep
+        } else {
+            val key = dev.chungjungsoo.gptmobile.data.github.GitHubProgressPresentation.lineKey(item.content)
+            val keep = key != previousPreview
+            previousPreview = key
+            keep
+        }
+    }
     val latestPreview = lines.lastIndex.takeIf { it >= 0 && !lines[it].statusSummary } ?: -1
     val motion = rememberGitHubProgressMotion(latestPreview >= 0)
     Column(

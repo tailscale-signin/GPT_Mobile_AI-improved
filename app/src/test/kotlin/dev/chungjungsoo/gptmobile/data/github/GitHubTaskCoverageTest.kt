@@ -53,12 +53,13 @@ class GitHubTaskCoverageTest {
     }
 
     @Test fun testingIntentDoesNotHijackImplementationRequests() {
-        listOf("test all tools", "do testing of github tools", "test all functionality", "run all tests", "Do a full test on the GitHub integration tool system, benchmark, give it a score", "Please perform a comprehensive integration test").forEach { assertTrue(it, GitHubTaskCoverage.matches(it)) }
+        listOf("Do a massive full stress test benchmark and list all the issues encountered.", "Perform a comprehensive benchmark", "test all tools", "do testing of github tools", "test all functionality", "run all tests", "Do a full test on the GitHub integration tool system, benchmark, give it a score", "Please perform a comprehensive integration test").forEach { assertTrue(it, GitHubTaskCoverage.matches(it)) }
         listOf("fix verification failure", "implement a test runner", "status", "review test coverage").forEach { assertFalse(it, GitHubTaskCoverage.matches(it)) }
     }
 
     @Test fun diagnosticsAreBoundedButExplicitHistoryAuditsRemainAvailable() {
         assertTrue(GitHubTaskCoverage.boundedDiagnostic("test"))
+        assertTrue(GitHubTaskCoverage.boundedDiagnostic("Do a massive full stress test benchmark and list all the issues encountered."))
         assertTrue(GitHubTaskCoverage.boundedDiagnostic("Can you explain in depth the issues in this very session with the GitHub integration?"))
         assertFalse(GitHubTaskCoverage.boundedDiagnostic("Test pagination across all workflow history"))
         assertFalse(GitHubTaskCoverage.boundedDiagnostic("Implement a workflow history viewer"))

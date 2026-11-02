@@ -1735,6 +1735,8 @@ class GitHubWorkspaceClient(
             check(!authenticationRejected.get()) { "GitHub authentication was rejected (HTTP 401). Reconnect the GitHub account before retrying any operation." }
             rateLimits.requireAvailable("graphql")
             scheduler.recordRequest()
+            val readOnlyQuery = !query.trimStart().startsWith("mutation")
+            if (readOnlyQuery) GitHubDispatchAccounting.started(false)
             val response = client.request("https://api.github.com/graphql") {
                 method = HttpMethod.Post
                 header(HttpHeaders.Accept, "application/vnd.github+json")
@@ -1749,6 +1751,7 @@ class GitHubWorkspaceClient(
                     }.toString()
                 )
             }
+            if (readOnlyQuery) GitHubDispatchAccounting.responded(false, response.status.value)
             rateLimits.record(response.headers, response.status.value)
             val text = response.bodyAsText()
             if (response.status.value == 401) {

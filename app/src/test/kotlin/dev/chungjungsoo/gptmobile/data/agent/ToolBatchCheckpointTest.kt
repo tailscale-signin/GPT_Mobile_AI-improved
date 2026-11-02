@@ -35,7 +35,7 @@ class ToolBatchCheckpointTest {
         journal.markConsumed(setOf("status", "checks", "missing"))
         val snapshot = journal.recoverySnapshot()
         assertEquals(setOf("status", "checks"), snapshot.consumedCallIds)
-        assertEquals(listOf("status", "checks", "prs"), snapshot.completedExchanges.map { it.calls.single().callId })
+        assertEquals(listOf("status", "checks", "prs", "commits"), snapshot.completedExchanges.map { it.calls.single().callId })
         val observed = mutableListOf<String>()
         val tool = object : AgentTool {
             override val definition = AgentToolDefinition("github_context", "", JsonObject(emptyMap()))
@@ -206,10 +206,11 @@ class ToolBatchCheckpointTest {
             assertEquals(1, restored.dispatchedCount())
             assertEquals(setOf("uncertain"), restored.pendingDispatchedIds())
             val snapshot = restored.recoverySnapshot(CheckpointRestoreObjective(60_000))
-            assertEquals(listOf(rejected, uncertain), snapshot.pending)
+            assertEquals(listOf(uncertain), snapshot.pending)
+            assertTrue(snapshot.completedExchanges.any { it.calls.single() == rejected })
             assertEquals(1, snapshot.dispatchedCount)
             assertEquals(setOf("uncertain"), snapshot.pendingDispatchedIds)
-            assertEquals(setOf("rejected", "uncertain"), snapshot.pendingRetainedIds)
+            assertEquals(setOf("uncertain"), snapshot.pendingRetainedIds)
             assertEquals("MET", snapshot.objectiveStatus)
             assertEquals("NOT_CONFIGURED", restored.recoverySnapshot().objectiveStatus)
             assertEquals(1, snapshot.unknownCount)
@@ -230,6 +231,21 @@ class ToolBatchCheckpointTest {
         val objective = CheckpointRestoreObjective(100)
         assertEquals("MET", objective.assess(100))
         assertEquals("EXCEEDED", objective.assess(101))
+    }
+
+    @Test fun settlingOneCallAllowsTheFullUnresolvedRemainderButNeverDropsQueuedWork() = runBlocking {
+        val journal = ToolBatchCheckpoint(null, "grant")
+        val calls = (1..3).map { ProviderEvent.ToolCall("call-$it", "write", JsonObject(emptyMap())) }
+        journal.enqueue(calls)
+        journal.execute(calls.first()) { AgentToolResult(calls.first().callId, ToolResultContent.Text("saved"), false) }
+        assertTrue(runCatching { journal.enqueue(listOf(calls.last())) }.isFailure)
+        val remaining = journal.recoverySnapshot().pending
+        assertEquals(calls.drop(1), remaining)
+        journal.enqueue(remaining)
+        assertEquals(remaining, journal.pending())
+        val receipt = journal.execute(calls.first()) { error("Settled work must not dispatch again") }
+        assertTrue(receipt.sharedResult)
+        assertEquals(ToolResultContent.Text("saved"), receipt.content)
     }
 
     @Test fun restoredRejectionsAndUnknownClaimsDoNotDisplaceQueuedCallsFromTheRemainingBudget() = runBlocking {
@@ -253,7 +269,7 @@ class ToolBatchCheckpointTest {
         }
         val session = object : AgentProviderSession {
             override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
-                val results = exchanges.single().results.associateBy { it.callId }
+                val results = exchanges.flatMap { it.results }.associateBy { it.callId }
                 assertEquals("INVALID_ARGUMENTS", results.getValue("rejected").errorCode)
                 assertEquals("TOOL_OUTCOME_UNKNOWN", results.getValue("uncertain").errorCode)
                 assertTrue(results.getValue("queued").content.toString().contains("completed"))

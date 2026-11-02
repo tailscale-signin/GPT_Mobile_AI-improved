@@ -4,7 +4,9 @@ import dev.chungjungsoo.gptmobile.data.agent.measuredUsageSource
 
 /** A null dimension was not measured. Reservations and character estimates are never actual usage. */
 internal data class RunTokenUsage(val inputTokens: Int?, val outputTokens: Int?, val unmeasuredInvocations: Int) {
-    val totalTokens: Int? get() = if (inputTokens != null && outputTokens != null) (inputTokens.toLong() + outputTokens).coerceAtMost(Int.MAX_VALUE.toLong()).toInt() else null
+    val measuredSubtotalTokens: Int? get() = if (inputTokens != null && outputTokens != null) (inputTokens.toLong() + outputTokens).coerceAtMost(Int.MAX_VALUE.toLong()).toInt() else null
+
+    val totalTokens: Int? get() = measuredSubtotalTokens.takeIf { unmeasuredInvocations == 0 }
 
     companion object {
         fun from(records: List<ModelInvocation>): RunTokenUsage {

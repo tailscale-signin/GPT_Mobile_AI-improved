@@ -24,7 +24,8 @@ internal class GitHubEvidenceBook(
     private val trustedTools: Set<String>,
     private val now: () -> Long = System::currentTimeMillis,
     private val load: suspend (String) -> JsonObject? = { null },
-    private val save: suspend (String, JsonObject) -> Unit = { _, _ -> }
+    private val save: suspend (String, JsonObject) -> Unit = { _, _ -> },
+    private val retainedIds: suspend () -> List<String> = { emptyList() }
 ) {
     private val mutex = Mutex()
     private val records = linkedMapOf<String, JsonObject>()
@@ -32,6 +33,29 @@ internal class GitHubEvidenceBook(
     private var epoch = 0L
     private var observedHead: String? = null
     private var overflow = false
+
+    /** Explicit restoration never refreshes historical observations or borrows another task's proof. */
+    suspend fun restore() = mutex.withLock {
+        val ids = retainedIds().distinct()
+        check(ids.size <= 4096) { "Retained task evidence exceeds the recovery allowance" }
+        for (id in ids) {
+            if (id in records) continue
+            val saved = requireNotNull(load(id)) { "Retained task evidence is unavailable" }
+            val callId = (saved["call_id"] as? JsonPrimitive)?.contentOrNull
+            check(
+                saved["binding"] == JsonPrimitive(binding) &&
+                    callId != null &&
+                    id == "ev_" + digest("$binding|$callId").take(24)
+            ) { "Evidence recovery binding changed" }
+            val savedEpoch = (saved["epoch"] as? JsonPrimitive)?.longOrNull ?: 0
+            if (savedEpoch >= epoch && saved["head_observation"] == JsonPrimitive(true)) {
+                (saved["source_head_sha"] as? JsonPrimitive)?.contentOrNull?.let { observedHead = it }
+            }
+            epoch = maxOf(epoch, savedEpoch)
+            retain(id, saved)
+        }
+        check(!overflow) { "Retained task evidence exceeds the recovery allowance" }
+    }
 
     suspend fun observe(call: ProviderEvent.ToolCall, result: AgentToolResult) = mutex.withLock {
         val id = "ev_" + digest("$binding|${call.callId}").take(24)

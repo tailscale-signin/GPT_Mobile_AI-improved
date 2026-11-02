@@ -19,6 +19,28 @@ class AnswerValidationSessionTest {
         override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flowOf(*events)
     }
 
+    @Test fun bufferedToolRoundsDoNotReplaceAPrivateDraftFromAnEarlierRound() = runBlocking {
+        var round = 0
+        val provider = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow<ProviderEvent> {
+                round++
+                if (round == 1) {
+                    emit(ProviderEvent.TextDelta("I will inspect the source."))
+                    emit(ProviderEvent.ToolCall("read", "github_read", kotlinx.serialization.json.JsonObject(emptyMap())))
+                } else {
+                    emit(ProviderEvent.TextDelta("The source confirms the cause."))
+                }
+                emit(ProviderEvent.Completed)
+            }
+        }
+        val validation = AnswerValidationSession(provider, "Explain the cause") { _, _, _ -> error("No rewrite needed") }
+        val first = validation.streamRound(emptyList(), emptyList()).toList()
+        val second = validation.streamRound(emptyList(), emptyList()).toList()
+        assertTrue(first.any { it is ProviderEvent.ToolCall })
+        assertEquals("The source confirms the cause.", second.filterIsInstance<ProviderEvent.TextDelta>().single().text)
+        assertEquals(ProviderEvent.Completed, second.last())
+    }
+
     @Test fun thrownProviderFailureRetainsBufferedOutputWithoutRewriting() = runBlocking {
         val saved = mutableListOf<Pair<String, Boolean>>()
         var rewrites = 0

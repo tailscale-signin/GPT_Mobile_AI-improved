@@ -527,7 +527,7 @@ class McpClientManager internal constructor(
         statistics?.observeHealth(connectionUid, updated.state.name, "PASSIVE_FAILURE", now)
         AppLogRecorder.record(
             "MCP",
-            "Health · connection=$connectionUid · state=${updated.state} · failures=${updated.consecutiveFailures} · retryAtMs=${updated.nextRetryAtMs} · error=${updated.lastError.orEmpty()}",
+            "Health · connection=$connectionUid · state=${updated.state} · failures=${updated.consecutiveFailures} · retryAtMs=${updated.nextRetryAtMs} · failureClass=${updated.connectionHealth} · error=${updated.lastError.orEmpty()}",
             "W"
         )
     }
@@ -605,6 +605,7 @@ class McpClientManager internal constructor(
                         "Read session interrupted · connection=${config.connectionUid} · stale=$staleSession · retry=$staleSessionRetries/$MAX_STALE_SESSION_RETRIES · reconnecting without provider backoff",
                         "W"
                     )
+                    kotlinx.coroutines.delay((250L shl (staleSessionRetries - 1).coerceIn(0, 3)) + retryJitterMs().coerceIn(0, 250))
                     continue
                 }
                 if (recordFailures && !error.isMcpUnauthorized()) recordFailure(config.connectionUid, error, observation = observation)

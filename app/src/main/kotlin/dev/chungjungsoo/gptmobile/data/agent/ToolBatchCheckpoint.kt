@@ -161,10 +161,12 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String, 
         val started = System.nanoTime()
         return locked {
             val state = read()
-            val pending = state.pending.map { state.entries.getValue(it).call.event() }
+            // Settled pending rows are receipts to replay to the model, never executable work.
+            val pendingIds = state.pending.filter { state.entries.getValue(it).result == null }
+            val pending = pendingIds.map { state.entries.getValue(it).call.event() }
             val dispatchedCount = state.entries.values.count { it.countsAsDispatched() }
-            val pendingDispatchedIds = state.pending.filterTo(mutableSetOf()) { state.entries.getValue(it).countsAsDispatched() }
-            val pendingRetainedIds = state.pending.filterTo(mutableSetOf()) { state.entries.getValue(it).let { entry -> entry.started || entry.result != null } }
+            val pendingDispatchedIds = pendingIds.filterTo(mutableSetOf()) { state.entries.getValue(it).countsAsDispatched() }
+            val pendingRetainedIds = pendingIds.filterTo(mutableSetOf()) { state.entries.getValue(it).let { entry -> entry.started || entry.result != null } }
             val elapsed = ((System.nanoTime() - started) / 1_000_000).coerceAtLeast(0)
             ToolBatchRecoverySnapshot(
                 pending = pending,
@@ -180,7 +182,7 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String, 
                 rejectedCount = state.entries.values.count { it.result?.let { result -> result.error && !result.dispatched && result.code !in ToolResultEnvelope.unknownOutcomeCodes } == true },
                 failedCount = state.entries.values.count { it.result?.let { result -> result.error && result.dispatched && result.code !in ToolResultEnvelope.unknownOutcomeCodes } == true },
                 jobContext = state.jobContext,
-                completedExchanges = state.entries.values.filter { it.call.id !in state.pending && it.result != null }.map { entry ->
+                completedExchanges = state.entries.values.filter { it.result != null }.map { entry ->
                     AgentToolExchange(listOf(entry.call.event()), listOf(requireNotNull(entry.result).restore(entry.call.id)))
                 },
                 consumedCallIds = state.consumedCallIds
@@ -193,6 +195,7 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String, 
         val incoming = calls.map { it.callId }
         require(
             state.pending == incoming ||
+                state.pending.filter { state.entries.getValue(it).result == null } == incoming ||
                 state.pending.none { id ->
                     state.entries.getValue(id).let { !it.started && it.result == null }
                 }

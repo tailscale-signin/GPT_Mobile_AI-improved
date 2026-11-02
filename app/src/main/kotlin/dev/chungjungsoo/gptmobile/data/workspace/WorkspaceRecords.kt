@@ -36,6 +36,9 @@ interface WorkspaceDao {
     @Query("SELECT * FROM workspace_records WHERE chatId = :chatId AND kind = 'github_checks' ORDER BY updatedAt DESC LIMIT 20")
     fun observeGitHubChecks(chatId: Int): Flow<List<WorkspaceRecord>>
 
+    @Query("SELECT * FROM workspace_records WHERE chatId = :chatId AND substr(id, 1, length(:prefix)) = :prefix ORDER BY updatedAt, id LIMIT 4097")
+    suspend fun githubTaskEvidence(chatId: Int, prefix: String): List<WorkspaceRecord>
+
     @Upsert suspend fun save(record: WorkspaceRecord)
 
     @Query("SELECT * FROM workspace_records WHERE chatId = :chatId ORDER BY updatedAt, id")

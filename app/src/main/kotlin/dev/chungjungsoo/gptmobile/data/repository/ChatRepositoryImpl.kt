@@ -4553,11 +4553,17 @@ class ChatRepositoryImpl(
                 latestUser?.content.orEmpty(),
                 maximumCharacters = budgetSettings.responseCharacterLimit,
                 save = { draft, satisfied -> checkpoint?.save(draft, 0, resolvedOutputCap, if (satisfied) "COMPLETED" else "PARTIAL") },
-                replaceDraft = { digest, text ->
-                    dispatchAuthority.validate()
-                    val handoff = ApiState.ResearchReplacement(digest, text)
-                    send(handoff)
-                    handoff.acknowledgement.await()
+                // GitHub verification owns publication and buffers this session's draft.
+                // A private rewrite must never replace the unrelated database message.
+                replaceDraft = if (chatToolConfig?.github != null) {
+                    null
+                } else {
+                    { digest, text ->
+                        dispatchAuthority.validate()
+                        val handoff = ApiState.ResearchReplacement(digest, text)
+                        send(handoff)
+                        handoff.acknowledgement.await()
+                    }
                 }
             ) { draft, failures, exchanges ->
                 val turns = dev.chungjungsoo.gptmobile.data.queue.appendFollowUpContext(
@@ -4688,19 +4694,23 @@ class ChatRepositoryImpl(
         val selectedSession = catalog?.let { groundedSession.withToolCatalog(it) } ?: groundedSession
         val verifiedEvidence = chatToolConfig?.github?.let { github ->
             val user = requireNotNull(latestUser)
-            val binding = dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook.digest("${user.chatId}:${user.id}:${platform.uid}:${github.connectionUid}:${github.owner}/${github.repo}:${github.ref}:${dispatchAuthority.revision}")
+            val binding = dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook.digest("$turnKey:${platform.uid}:${github.connectionUid}:${github.owner}/${github.repo}:${github.ref}:${dispatchAuthority.revision}")
             dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook(
                 binding = binding,
                 repository = "${github.owner}/${github.repo}",
                 branch = github.ref,
                 trustedTools = effectiveTools.filter { it.nativeGitHub }.mapTo(hashSetOf()) { it.modelToolName },
                 load = { id -> workspace?.protectedSynthesisCheckpoint("github-evidence:$binding:$id") },
+                retainedIds = {
+                    workspace?.dao?.githubTaskEvidence(user.chatId, "github-evidence:$binding:ev_")
+                        .orEmpty().map { it.id.substringAfterLast(':') }
+                },
                 save = { id, value ->
                     workspace?.saveProtectedSynthesisCheckpoint("github-evidence:$binding:$id", user.chatId, runId, value, appendOnly = true)
                     val preferences = settingRepository.getFeatureSettings().githubProfileOverrides[platform.uid] ?: dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride()
                     engineeringMemory?.observe(github, user.chatId, value, preferences)
                 }
-            )
+            ).also { it.restore() }
         }
         val reviewEvidence = if (chatToolConfig?.github != null && platform.compatibleType == ClientType.LLAMA && !dev.chungjungsoo.gptmobile.data.github.GitHubStatusRequest.isGreeting(latestUser?.content.orEmpty()) && !dev.chungjungsoo.gptmobile.data.github.GitHubStatusRequest.matches(latestUser?.content.orEmpty()) && !dev.chungjungsoo.gptmobile.data.github.GitHubTaskCoverage.matches(latestUser?.content.orEmpty())) dev.chungjungsoo.gptmobile.data.github.GitHubReviewEvidence() else null
         fun reviewOutputTokens(): Int = minOf(8192, minOf(limits.contextTokens, observedRequestContext.get() ?: 32_768) / 4).coerceAtLeast(256)
@@ -4849,7 +4859,7 @@ class ChatRepositoryImpl(
             kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
                 invocationLedger?.measuredRunUsage(turnKey, runId)?.let { usage ->
                     agentRunDao.updateUsage(runId, usage.inputTokens, usage.outputTokens, usage.totalTokens)
-                    AppLogRecorder.record("InvocationLedger", "RUN_USAGE · runId=$runId · unmeasuredInvocations=${usage.unmeasuredInvocations} · includesPrivatePasses=true")
+                    AppLogRecorder.record("InvocationLedger", "RUN_USAGE · runId=$runId · unmeasuredInvocations=${usage.unmeasuredInvocations} · measuredSubtotalTokens=${usage.measuredSubtotalTokens ?: "unknown"} · completeTotalKnown=${usage.totalTokens != null} · includesPrivatePasses=true")
                 }
             }
         }
@@ -5101,7 +5111,7 @@ class ChatRepositoryImpl(
                 is AgentRunEvent.ToolStarted -> {
                     providerToolCalls += 1
                     if (!gatewayTelemetrySeen) {
-                        emit(ApiState.GatewayProgressChanged(providerProgress("tool_started", "executing_tools", if (runEvent.call.name == "github_decide") "Waiting for your feature decision" else "Running ${runEvent.call.name}…", runEvent.call.name, "running")))
+                        emit(ApiState.GatewayProgressChanged(providerProgress("tool_started", "executing_tools", if (runEvent.call.name == "github_decide") "Waiting for your feature decision" else "Running ${runEvent.call.name}…", runEvent.call.name, "running").copy(toolCallId = runEvent.call.callId, toolArgs = runEvent.call.arguments)))
                     }
                 }
 
@@ -5123,7 +5133,7 @@ class ChatRepositoryImpl(
                                     toolName = runEvent.call.name,
                                     status = if (runEvent.result.isError) "failed" else "completed",
                                     resultQuality = if (runEvent.result.isError) "error" else "useful"
-                                )
+                                ).copy(toolCallId = runEvent.call.callId)
                             )
                         )
                     }

@@ -154,6 +154,11 @@ class AgentRunner(
             if (call.name in toolByName) {
                 val result = exchange.results.single()
                 onToolResult?.invoke(call, result)
+                // Replayed receipts remain visible as shared results, without a fresh dispatch.
+                emit(AgentRunEvent.ToolFinished(call, result))
+                if (result.errorCode in ToolResultEnvelope.unknownOutcomeCodes && !replayableRead(call)) {
+                    unknownOutcomes += call.name + ":" + dev.chungjungsoo.gptmobile.data.permissions.ScopedToolGrant.canonicalHash(call.arguments)
+                }
                 exchanges += exchange
             }
         }
@@ -1227,7 +1232,7 @@ class AgentRunner(
                     return@execute ToolResultEnvelope.error(call.callId, "DEPENDENCY_DEFERRED", "A prerequisite was deferred by admission. This operation was not dispatched; replan after the missing read completes.")
                 }
                 val signature = call.name + ":" + dev.chungjungsoo.gptmobile.data.permissions.ScopedToolGrant.canonicalHash(call.arguments)
-                suspend fun dispatch(): AgentToolResult = if (synchronized(unknownOutcomes) { signature in unknownOutcomes }) {
+                suspend fun dispatch(): AgentToolResult = if (!replayableRead(call) && synchronized(unknownOutcomes) { signature in unknownOutcomes }) {
                     ToolResultEnvelope.error(call.callId, "RECONCILIATION_REQUIRED", "An earlier identical operation has an unknown outcome. Reconcile it before requesting another write.")
                 } else {
                     executeBounded(call, tools[call.name])
@@ -1256,7 +1261,7 @@ class AgentRunner(
                             perTool.getValue(call.name).withPermit {
                                 semaphore.withPermit {
                                     val signature = call.name + ":" + dev.chungjungsoo.gptmobile.data.permissions.ScopedToolGrant.canonicalHash(call.arguments)
-                                    suspend fun dispatch(): AgentToolResult = if (signature in unknownOutcomes) {
+                                    suspend fun dispatch(): AgentToolResult = if (!replayableRead(call) && signature in unknownOutcomes) {
                                         ToolResultEnvelope.error(call.callId, "RECONCILIATION_REQUIRED", "An earlier identical operation has an unknown outcome. Reconcile it before requesting another write.")
                                     } else {
                                         executeBounded(call, tools[call.name])
@@ -1361,7 +1366,8 @@ class AgentRunner(
     }
 
     private fun replayableRead(call: ProviderEvent.ToolCall): Boolean =
-        dev.chungjungsoo.gptmobile.data.permissions.GitHubAuthorizationBoundary.isReplayableRead(call.name, call.arguments) ||
+        call.name == ProgressiveToolCatalog.NAME ||
+            dev.chungjungsoo.gptmobile.data.permissions.GitHubAuthorizationBoundary.isReplayableRead(call.name, call.arguments) ||
             dev.chungjungsoo.gptmobile.data.research.ResearchTimeouts.isAcademicRead(call.name)
 
     private fun boundContent(content: ToolResultContent): ToolResultContent = ToolObservationRetention.content(content, limits.maxToolOutputBytes.coerceIn(0, 256 * 1024))

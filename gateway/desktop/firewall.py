@@ -17,9 +17,11 @@ def apply(root, remove=False):
     if os.name != 'nt':
         raise RuntimeError('Windows Firewall is available on Windows only')
     root = Path(root)
-    cfg = load(root)
-    if not remove and cfg['access'] != 'network':
-        raise ValueError('Choose a network listen address and save settings first')
+    cfg = None
+    if not remove:
+        cfg = load(root)
+        if cfg['access'] != 'network':
+            raise ValueError('Choose a network listen address and save settings first')
     powershell = str(Path(os.environ['SystemRoot']) / 'System32/WindowsPowerShell/v1.0/powershell.exe')
     args = ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File',
             str(Path(__file__).with_name('Firewall.ps1')), '-RuleName', rule_name(root)]

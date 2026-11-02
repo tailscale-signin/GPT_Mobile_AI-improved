@@ -15,7 +15,7 @@ internal class GitHubReviewCheckpoint(
     private val read: suspend (String) -> JsonObject?,
     private val write: suspend (String, JsonObject) -> Unit
 ) {
-    data class Saved(val draft: String, val receipts: List<String>)
+    data class Saved(val draft: String, val receipts: List<String>, val blockedReason: String? = null)
     private val taskHash = researchHash(task)
     private suspend fun text(value: String): String {
         require(value.toByteArray().size <= 16 * 1024 * 1024)
@@ -67,7 +67,7 @@ internal class GitHubReviewCheckpoint(
     }
     suspend fun load(): Saved? {
         val row = read("active") ?: return null
-        if (row["task"] != JsonPrimitive(taskHash) || row["state"] != JsonPrimitive("PENDING")) return null
+        if (row["task"] != JsonPrimitive(taskHash) || row["state"] !in setOf(JsonPrimitive("PENDING"), JsonPrimitive("BLOCKED"))) return null
         val refs = row["receipts"]!!.jsonArray.also { require(it.size <= 4096) }
         var bytes = 0L
         val receipts = refs.map {
@@ -76,7 +76,23 @@ internal class GitHubReviewCheckpoint(
                 require(bytes <= 16 * 1024 * 1024)
             }
         }
-        return Saved(restore(row["draft"]!!.jsonPrimitive.content), receipts)
+        return Saved(restore(row["draft"]!!.jsonPrimitive.content), receipts, row["failure_code"]?.jsonPrimitive?.content.takeIf { row["state"] == JsonPrimitive("BLOCKED") })
+    }
+
+    /** Failure metadata is retained with the protected checkpoint even when verbose logging is disabled. */
+    suspend fun failed(code: String, blocked: Boolean = true) {
+        val current = read("active") ?: return
+        write(
+            "active",
+            JsonObject(
+                current + mapOf(
+                    "state" to JsonPrimitive(if (blocked) "BLOCKED" else "PENDING"),
+                    "failure_code" to JsonPrimitive(code),
+                    "failed_stage" to JsonPrimitive("answer_review"),
+                    "retryable_without_new_evidence" to JsonPrimitive(!blocked)
+                )
+            )
+        )
     }
     suspend fun verdict(prompt: String): String? = read("verdict:${researchHash(prompt)}")?.get("text")?.jsonPrimitive?.content
     suspend fun verdict(prompt: String, result: String) {

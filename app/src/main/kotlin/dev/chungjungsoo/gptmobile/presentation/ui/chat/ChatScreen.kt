@@ -914,7 +914,9 @@ private fun ChatScreenContent(
                     if (activeMessage != null) {
                         item(key = "github-live-progress") {
                             val timeline = activeMessage.effectiveTimeline()
-                            GitHubLiveProgressCard(timeline.filter { it.progressCheckpoint }.map { dev.chungjungsoo.gptmobile.data.github.GitHubProgressPresentation.preview(it.content) })
+                            val taskId = activeMessage.currentRunId?.let(agentRunsById::get)?.userMessageId
+                            val task = groupedMessages.userMessages.firstOrNull { it.id == taskId }?.content ?: groupedMessages.userMessages.lastOrNull()?.content.orEmpty()
+                            GitHubLiveProgressCard(timeline, task)
                         }
                     }
                     chatToolConfig.github?.let { github ->

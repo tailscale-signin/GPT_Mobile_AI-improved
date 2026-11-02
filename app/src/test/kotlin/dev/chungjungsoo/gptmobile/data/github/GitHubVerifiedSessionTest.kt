@@ -85,7 +85,7 @@ class GitHubVerifiedSessionTest {
         assertEquals(failure.message, terminal.message)
     }
 
-    @Test fun statusPublishesCurrentFactsAfterOneReadWithoutAnotherModelOrVerifierRound() = runTest {
+    @Test fun statusCollectsChecksWithoutModelPlanningOrVerifierRound() = runTest {
         var rounds = 0
         var executions = 0
         var publicationChecks = 0
@@ -107,8 +107,8 @@ class GitHubVerifiedSessionTest {
         val events = AgentRunner(AgentRunLimits(githubTask = true)).run(gate, listOf(read)).toList()
         val published = events.filterIsInstance<AgentRunEvent.Provider>().map { it.event }
         val text = published.filterIsInstance<ProviderEvent.TextDelta>().single().text
-        assertEquals(1, rounds)
-        assertEquals(1, executions)
+        assertEquals(0, rounds)
+        assertEquals(2, executions)
         assertEquals(2, publicationChecks)
         assertTrue(text.startsWith("# Repository status"))
         assertTrue(text.contains("| Open pull requests | 0 |"))
@@ -249,7 +249,7 @@ class GitHubVerifiedSessionTest {
                 assertEquals(JsonPrimitive(19), catalog.first().jsonObject.getValue("facts").jsonObject["/count"])
                 answer("""{"claims":[{"kind":"not_measured","subject":"Feature acceptance"}]}""")
             }, {}, {}, { 1000 })
-            assertEquals(shrink, gate.streamRound(emptyList(), emptyList()).toList().last() is ProviderEvent.Failed)
+            assertEquals(ProviderEvent.Completed, gate.streamRound(emptyList(), emptyList()).toList().last())
             assertEquals(if (shrink) 0 else 1, extractions)
         }
     }

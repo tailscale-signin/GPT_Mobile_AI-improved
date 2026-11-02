@@ -1,11 +1,5 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -17,9 +11,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -29,7 +21,6 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.testTag
@@ -62,11 +53,7 @@ internal fun GitHubLoadingHeader(
 ) {
     val colors = MaterialTheme.colorScheme
     val label = remember(activity) { GitHubProgressPresentation.activity(activity) }
-    val motion: State<Float> = if (active) {
-        rememberInfiniteTransition(label = "github_activity").animateFloat(0f, 1f, infiniteRepeatable(tween(1800, easing = LinearEasing), RepeatMode.Restart), label = "shared_pan")
-    } else {
-        remember { mutableFloatStateOf(0f) }
-    }
+    val motion = rememberGitHubProgressMotion(active)
     val shades = listOf(colors.primary.copy(alpha = 0.55f), colors.tertiary, colors.primary)
     val style = MaterialTheme.typography.labelSmall.let { it.copy(fontSize = (it.fontSize.value + textSizeIncrease).sp) }
     Column(modifier) {
@@ -84,8 +71,7 @@ internal fun GitHubLoadingHeader(
                         onDrawWithContent {
                             drawContent()
                             if (active) {
-                                val center = (motion.value * 2f - 0.5f) * size.width
-                                drawRect(Brush.linearGradient(shades, Offset(center - size.width / 2, 0f), Offset(center + size.width / 2, 0f)), blendMode = BlendMode.SrcIn)
+                                drawRect(githubProgressBrush(size.width, motion.value, shades.first(), shades[1]), blendMode = BlendMode.SrcIn)
                             }
                         }
                     }.clearAndSetSemantics {
@@ -106,7 +92,7 @@ internal fun GitHubLoadingHeader(
                 val corner = CornerRadius(size.height / 2)
                 drawRoundRect(colors.primary.copy(alpha = 0.12f), cornerRadius = corner)
                 val center = (motion.value * 2f - 0.5f) * size.width
-                val gradient = Brush.linearGradient(shades, Offset(center - size.width / 2, 0f), Offset(center + size.width / 2, 0f))
+                val gradient = githubProgressBrush(size.width, motion.value, shades.first(), shades[1])
                 if (progress != null) {
                     drawRoundRect(gradient, size = Size(size.width * progress.coerceIn(0f, 1f), size.height), cornerRadius = corner)
                 } else {

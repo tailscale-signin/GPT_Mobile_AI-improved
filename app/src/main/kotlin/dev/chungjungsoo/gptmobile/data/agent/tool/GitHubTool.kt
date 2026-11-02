@@ -1199,6 +1199,15 @@ class GitHubTool(
     private fun compactWorkflowPayload(action: String, text: String, page: Int, perPage: Int, arguments: JsonObject): String {
         val parsed = runCatching { jsonParser.parseToJsonElement(text) as? JsonObject }.getOrNull()
             ?: error("GITHUB_UNEXPECTED_RESPONSE · Expected a GitHub CI JSON object; no empty collection was inferred.")
+        if (action == "get_workflow_run") {
+            val selector = arguments["workflow_id"]?.jsonPrimitive?.content
+            if (!selector.isNullOrBlank()) {
+                val matches = if (selector.toLongOrNull() != null) parsed["workflow_id"]?.jsonPrimitive?.content == selector else parsed["path"]?.jsonPrimitive?.content?.substringAfterLast('/') == normalizeGitHubWorkflowSelector(selector)
+                require(matches) { "WORKFLOW_RUN_MISMATCH: The run belongs to a different workflow. Use its observed workflow_id." }
+            }
+            val expected = arguments["expected_head_sha"] ?: arguments["commit_sha"] ?: arguments["head_sha"]
+            require(expected == null || parsed["head_sha"] == expected) { "WORKFLOW_REVISION_MISMATCH: The run belongs to a different commit." }
+        }
 
         fun projectedArray(key: String, fields: List<String>): JsonObject {
             val values = checkNotNull(parsed[key] as? JsonArray) { "GITHUB_UNEXPECTED_RESPONSE · GitHub response is missing the $key collection; this is not an empty result." }

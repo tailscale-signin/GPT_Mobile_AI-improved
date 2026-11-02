@@ -10,8 +10,22 @@
   "validation": {
     "host_fast": "285 tests passed; CI policy, dependency, secret, regex and resource checks passed",
     "formatting": "ktlint 1.3.1 and git diff --check passed",
-    "speech_adapter_regressions": "Added three Robolectric tests; Android CI required",
+    "speech_adapter_regressions": "14 focused Kotlin/JUnit tests passed, including three AndroidVoiceAudio Robolectric SDK 34 tests; production sources compiled in an isolated host harness",
     "physical_audio": "Not tested"
   },
-  "integrated_head": "448012c30172fb13f3d12f267768a2b326c86c2d"
+  "integrated_head": "448012c30172fb13f3d12f267768a2b326c86c2d",
+  "ci_repair": {
+    "failed_head": "ce01b6d2323a5deb77e95a1d4927518776f25b7d",
+    "job_id": 125044391353,
+    "failure": "ProcessLookupError reading /proc/<pid>/stat after successful child termination",
+    "repair": "Observe Linux process exit through a kernel pidfd with a one-second deadline; accept ESRCH only when already reaped. Avoid /proc TOCTOU and PID-namespace mismatches while retaining the live-child failure assertion.",
+    "local_validation": "20 consecutive timeout regressions and 285-test fast validation passed"
+  },
+  "integration": {
+    "parent_pr": 779,
+    "parent_head": "b2149f138d8289a0a492c08f8ba359f1f95f2e96",
+    "intent": "Validate Gateway/voice changes together with GitHub verification recovery; retain pidfd exit observation when integrating the older /proc timeout-test repair.",
+    "main_sha": "2ae52c78ddae2a5470d8a0ee7dc93b6a9101f65a",
+    "validation": "285-test host validation passed on the combined source tree; all relevant CI must pass on the published candidate."
+  }
 }

@@ -96,7 +96,7 @@ internal class PersonalDataContext(
                         dev.chungjungsoo.gptmobile.data.github.GitHubPersonalContextIsolation.repositoryMemory(it, connectionUid, chatId)
                     }
             } == true
-        if (localOnly.isNotEmpty() && !authorizedGitHubMemoryReuse) return ToolAuthorizationRejected("PERSONAL_DATA_LOCAL_ONLY", "PERSONAL_DATA_LOCAL_ONLY: This conversation contains local-only saved context. External tools are unavailable before model dispatch. Start a conversation without that context to use an authorized GitHub connection; local model privacy does not grant permission to share saved personal data.")
+        if (localOnly.isNotEmpty() && !authorizedGitHubMemoryReuse) return ToolAuthorizationRejected("PERSONAL_DATA_LOCAL_ONLY", "PERSONAL_DATA_LOCAL_ONLY: This tool cannot receive the local-only context in this request. Other authorized repository tools may remain available. Use a request without that personal context to access this service.")
         if (ProviderPrivacyPolicy.forProfile(profile) == null && retained.none { it.sourceRecipients.isNotEmpty() }) return null
         // No inferred redaction can prove a model-generated query excludes all source facts.
         // Require an explicit service grant, or keep this request local and explain the gap.

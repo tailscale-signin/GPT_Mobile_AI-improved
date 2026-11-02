@@ -92,7 +92,8 @@ internal class GitHubResultViews(
         if (fragments.any { it.toString().toByteArray().size > pageBytes / 3 } || fragments.isEmpty()) return overflow(upstream, operation, modelName, value, request)
         // Retain fragments and compact metadata only, without a duplicate source tree.
         // Account for strings, object/collection overhead and continuation copies.
-        val context = JsonObject(((value as? JsonObject).orEmpty() + request).filterKeys { it in SAVED_CONTEXT_KEYS })
+        val defaults = if (operation in setOf("github_context", "github_ci", "github_pr")) mapOf("response_detail" to JsonPrimitive("compact")) else emptyMap()
+        val context = JsonObject((defaults + (value as? JsonObject).orEmpty() + request).filterKeys { it in SAVED_CONTEXT_KEYS })
         val retained = buffer.bytes + metadata.toString().toByteArray().size * 2L + lastContinuations.sumOf { it.toString().toByteArray().size * 2L + 256 } + context.toString().toByteArray().size * 2L + 1024
         if (retained > capacityBytes) return overflow(upstream, operation, modelName, value, request)
         while (entries.isNotEmpty() && (entries.size >= 32 || retainedBytes + retained > capacityBytes)) evict(entries.keys.first())
@@ -435,7 +436,8 @@ internal class GitHubResultViews(
             "owner", "repo", "commit_sha", "action", "query", "mode", "path_prefix",
             "file_extension", "path_suffix", "case_sensitive", "fuzzy_match", "fuzzy_threshold",
             "min_lines", "max_lines", "context_lines", "max_new_blobs", "batch_size",
-            "index_cursor", "search_id", "path", "ranges", "start_line", "end_line", "pull_number"
+            "index_cursor", "search_id", "path", "ranges", "start_line", "end_line", "pull_number",
+            "response_detail", "page", "per_page", "ref", "branch", "head_sha", "workflow_id", "run_id", "job_id"
         )
 
         /** Saved pages only deliver captured bytes; backend mutations keep their task-specific receipts. */

@@ -18,6 +18,35 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LocalNativeToolFrameSessionTest {
+    @Test fun parserDiagnosticsDistinguishDisabledUnknownAndIncompleteWithoutPayloads() = runTest {
+        val cases = listOf(
+            Triple(emptyList(), frame, "TOOL_PROTOCOL_TOOLS_DISABLED"),
+            Triple(listOf(tool), frame.replace("github_context", "private_unknown_name"), "TOOL_PROTOCOL_UNKNOWN_TOOL"),
+            Triple(listOf(tool), frame.removeSuffix("</tool_call>"), "TOOL_PROTOCOL_INCOMPLETE_FRAME")
+        )
+        for ((tools, input, expected) in cases) {
+            val failure = session(ProviderEvent.TextDelta(input), ProviderEvent.Completed).streamRound(tools, emptyList()).toList().filterIsInstance<ProviderEvent.Failed>().single()
+            assertEquals(expected, failure.errorCode)
+            assertFalse(failure.failureDetails.toString().contains("private_unknown_name"))
+            assertFalse(failure.failureDetails.toString().contains("arguments"))
+            assertEquals("false", failure.failureDetails?.get("dispatched")?.jsonPrimitive?.content)
+        }
+    }
+
+    @Test fun baseOperationResolvesOnlyOneAdvertisedConnection() = runTest {
+        val schema = Json.parseToJsonElement("""{"properties":{"action":{"type":"string"}}}""").jsonObject
+        val first = AgentToolDefinition("github_context__one", "", schema)
+        val second = first.copy(name = "github_context__two")
+        val forms = listOf(frame, "<tool_call><function=github_context><parameter=action>status</parameter></function></tool_call>")
+        for (text in forms) {
+            val unique = session(ProviderEvent.TextDelta(text), ProviderEvent.Completed).streamRound(listOf(first), emptyList()).toList()
+            assertEquals(first.name, unique.filterIsInstance<ProviderEvent.ToolCall>().single().name)
+            val ambiguous = session(ProviderEvent.TextDelta(text), ProviderEvent.Completed).streamRound(listOf(first, second), emptyList()).toList()
+            assertTrue(ambiguous.any { it is ProviderEvent.Failed })
+            assertFalse(ambiguous.any { it is ProviderEvent.ToolCall })
+        }
+    }
+
     private val tool = AgentToolDefinition("github_context", "Repository status", JsonObject(emptyMap()))
     private val frame = """<tool_call>{"name":"github_context","arguments":{"action":"status"}}</tool_call>"""
 

@@ -96,6 +96,7 @@ internal fun combinedProfileFailures(
         classified.category == "CACHED_UNUSABLE_RESPONSE" -> "The provider replayed the same cached generation without an answer. Choose a different model, supported settings or provider."
         savedPolicyUnavailable || classified.category == "SAVED_POLICY_UNAVAILABLE" -> "Saved request data is unavailable. Restore its complete backup or start a new request; other replies are saved."
         appFailure -> "App execution paused. Open the app to resume."
+        Regex("REASONING_(?:ON|OFF)_UNSUPPORTED", RegexOption.IGNORE_CASE).containsMatchIn(details) -> "Choose Auto in this profile’s reasoning settings, or change to a profile with a verified reasoning toggle. Completed tool results are saved. Retry after changing the configuration."
         incompatible -> "This model or configuration is incompatible. Change it before retrying."
         details.contains("Tool choice is none", true) -> "The provider returned a tool call although tools were disabled."
         details.contains("DNS", true) -> "DNS could not reach the provider. Check the connection before retrying."

@@ -4,7 +4,7 @@ import dev.chungjungsoo.gptmobile.data.research.researchHash
 import kotlinx.serialization.Serializable
 
 @Serializable
-enum class CapacityProvenance { VERIFIED_ROUTE, DECLARED, UNKNOWN }
+enum class CapacityProvenance { VERIFIED_ROUTE, DECLARED, CONSERVATIVE_POLICY, UNKNOWN }
 
 @Serializable
 data class RuntimeFingerprint(
@@ -77,6 +77,10 @@ class PreparedModelRequest internal constructor(
 
 /** One checked-Long invariant; preview reserves are not added again after evidence is serialized. */
 object RequestAdmission {
+    /** Auxiliary titles are optional: reject oversized input rather than dispatch unchecked. */
+    fun auxiliaryCapacity(role: String, capacity: CapacitySnapshot): CapacitySnapshot =
+        if (role == "title" && capacity.contextTokens == null) capacity.copy(contextTokens = 4096, provenance = CapacityProvenance.CONSERVATIVE_POLICY) else capacity
+
     fun prepare(
         payload: String,
         role: String,

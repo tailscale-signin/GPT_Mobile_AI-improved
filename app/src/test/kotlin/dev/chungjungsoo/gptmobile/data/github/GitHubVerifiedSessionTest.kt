@@ -31,6 +31,33 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubVerifiedSessionTest {
+    @Test fun invalidReviewerCanRecoverOnlyReceiptBackedClaimsFromPrivateDraft() = runBlocking {
+        val book = GitHubEvidenceBook("b", "o/r", "main", setOf("github_context"), now = { 1000L })
+        val call = ProviderEvent.ToolCall("read", "github_context", Json.parseToJsonElement("""{"action":"checks"}""").jsonObject)
+        book.observe(call, AgentToolResult("read", ToolResultContent.Text("""{"checks":3}"""), false))
+        val id = book.snapshot().first.keys.single()
+        val failure = ProviderEvent.Failed("Reviewer returned invalid JSON", errorCode = "GITHUB_REVIEW_INVALID_VERDICT")
+        val source = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flowOf(failure)
+        }
+        var extractions = 0
+        val session = GitHubVerifiedSession(
+            source, book, "Explain the integration issues", { 8192 },
+            {
+                extractions++
+                answer("""{"claims":[{"kind":"fact","receipt_id":"$id","pointer":"/checks","value":3}]}""")
+            }, {}, {}, now = { 1000L }, privateReviewCandidate = { "UNVERIFIED: everything is fixed" }
+        )
+        val events = session.streamRound(emptyList(), emptyList()).toList()
+        val text = events.filterIsInstance<ProviderEvent.TextDelta>().single().text
+        assertTrue(text.contains("3"))
+        assertFalse(text.contains("everything is fixed"))
+        assertEquals(1, extractions)
+        assertEquals("PARTIAL", (events.last() as ProviderEvent.Failed).taskOutcome)
+        val noEvidence = GitHubVerifiedSession(source, GitHubEvidenceBook("empty", "o/r", "main", emptySet()), "Explain", { 8192 }, { error("No receipts") }, {}, {})
+        assertEquals(listOf(failure), noEvidence.streamRound(emptyList(), emptyList()).toList())
+    }
+
     private fun answer(text: String) = object : AgentProviderSession {
         override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flowOf(ProviderEvent.TextDelta(text), ProviderEvent.Completed)
     }

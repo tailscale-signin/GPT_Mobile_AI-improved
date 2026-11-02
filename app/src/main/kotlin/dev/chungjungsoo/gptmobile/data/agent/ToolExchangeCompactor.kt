@@ -24,19 +24,24 @@ internal object ToolExchangeCompactor {
     fun compact(
         exchanges: List<AgentToolExchange>,
         maxReplayTokens: Int,
-        maxResultTokens: Int
+        maxResultTokens: Int,
+        consumedCallIds: Set<String> = emptySet()
     ): List<AgentToolExchange> {
         if (exchanges.isEmpty() || maxReplayTokens == Int.MAX_VALUE) return exchanges
 
         val hardBudget = maxReplayTokens.coerceAtLeast(1)
         val perResultBudget = maxResultTokens.coerceAtLeast(MIN_RESULT_TOKENS)
         val flattenedResults = exchanges.flatMap { it.results }
+        // Serialize each result once per projection, rather than rebuilding the complete
+        // history for fingerprinting, sizing and the final excerpt independently.
+        val renderedResults = flattenedResults.map { render(it.content) }
+        var fingerprintIndex = 0
         val fingerprints = exchanges.flatMap { exchange ->
             val calls = exchange.calls.associateBy { it.callId }
             exchange.results.map { result ->
                 val call = calls[result.callId]
                 // A missing call is never deduplicated with an unrelated result.
-                fingerprint("${call?.name ?: result.callId}|${call?.arguments}|${result.isError}|${result.errorCode}|${render(result.content)}")
+                fingerprint("${call?.name ?: result.callId}|${call?.arguments}|${result.isError}|${result.errorCode}|${renderedResults[fingerprintIndex++]}")
             }
         }
         val lastOccurrence = fingerprints.withIndex().associate { (index, value) -> value to index }
@@ -57,7 +62,7 @@ internal object ToolExchangeCompactor {
         for (index in fingerprints.indices.reversed()) {
             val duplicate = lastOccurrence[fingerprints[index]] != index
             if (duplicate || remaining < MIN_RESULT_TOKENS) continue
-            val actualCost = ContextTokenEstimate.estimate(render(flattenedResults[index].content)).coerceAtLeast(1)
+            val actualCost = ContextTokenEstimate.estimate(renderedResults[index]).coerceAtLeast(1)
             val allowance = minOf(perResultBudget, remaining, actualCost)
             resultBudgets[index] = allowance
             // Small successful results no longer reserve an entire 512/800-token slice.
@@ -67,14 +72,14 @@ internal object ToolExchangeCompactor {
         val compacted = exchanges.mapIndexed { exchangeIndex, exchange ->
             val compactedResults = exchange.results.map { result ->
                 val index = resultIndex++
-                val raw = render(result.content)
+                val raw = renderedResults[index]
                 val duplicate = lastOccurrence[fingerprints[index]] != index
                 val maxChars = resultBudgets[index] * CHARS_PER_TOKEN
                 when {
                     duplicate -> result.copy(content = ToolResultContent.Text(DUPLICATE_RESULT))
                     resultBudgets[index] == 0 -> result.copy(content = ToolResultContent.Text(OMITTED_RESULT))
                     GitHubReplayRecovery.envelope(result.content) != null ->
-                        if (raw.length <= maxChars) result else result.copy(content = GitHubReplayRecovery.compact(result.content, maxChars) ?: result.content)
+                        if (raw.length <= maxChars) result else result.copy(content = GitHubReplayRecovery.compact(result.content, maxChars, result.callId in consumedCallIds) ?: result.content)
                     result.isError && exchangeIndex < exchanges.lastIndex ->
                         result.copy(content = ToolResultContent.Text(compactText(raw, minOf(maxChars, 480))))
                     recoveryPage(result.content) != null -> result.copy(content = compactRecoveryPage(requireNotNull(recoveryPage(result.content)), maxChars))

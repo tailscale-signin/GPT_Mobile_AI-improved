@@ -2025,7 +2025,7 @@ class ChatRepositoryImpl(
                     var exposedTools = dispatchPreparation.exposedTools
                     val projectInstructions = dispatchPreparation.projectInstructions
                     val quickRepliesEnabled = dispatchPreparation.quickRepliesEnabled
-                    fun baseSystemPrompt() = buildPrimarySystemPrompt(platform, exposedTools, resolvedTools.isNotEmpty(), localResearch, processingOwnership, synthesisRun, chatToolConfig?.combined, latestUser, limits.contextTokens, quickRepliesEnabled, projectInstructions, taskRecovery, reviewedPreparationUnavailable, chatToolConfig?.research?.researchToggle == true) + chatToolConfig?.github?.let { "\n" + it.promptContext(latestUser?.content.orEmpty()) + dev.chungjungsoo.gptmobile.data.github.GitHubAutonomousEngineeringPolicy.instruction(platform, it) }.orEmpty()
+                    fun baseSystemPrompt() = buildPrimarySystemPrompt(platform, exposedTools, resolvedTools.isNotEmpty(), localResearch, processingOwnership, synthesisRun, chatToolConfig?.combined, latestUser, limits.contextTokens, quickRepliesEnabled, projectInstructions, taskRecovery, reviewedPreparationUnavailable, chatToolConfig?.research?.researchToggle == true) + chatToolConfig?.github?.let { dev.chungjungsoo.gptmobile.data.agent.toolStageInstructions(it.promptContext(latestUser?.content.orEmpty()) + dev.chungjungsoo.gptmobile.data.github.GitHubAutonomousEngineeringPolicy.instruction(platform, it)) }.orEmpty()
                     val memorySettings = dispatchPreparation.memory.memorySettings
                     val connectedMemoryTools = dispatchPreparation.memory.connectedMemoryTools
                     val researchMemory = dispatchPreparation.memory.researchMemory
@@ -2830,7 +2830,7 @@ class ChatRepositoryImpl(
             ?.takeUnless { it.isTemporary }?.project?.instructions.orEmpty() + "\n" + engineeringContext
         val responseFeatures = settingRepository.getFeatureSettings()
         val quickRepliesEnabled = responseFeatures.smartSuggestions
-        fun baseSystemPrompt() = buildPrimarySystemPrompt(platform, exposedTools, resolvedTools.isNotEmpty(), localResearch, processingOwnership, synthesisRun, chatToolConfig?.combined, latestUser, limits.contextTokens, quickRepliesEnabled, projectInstructions, taskRecovery, reviewedPreparationUnavailable, chatToolConfig?.research?.researchToggle == true) + chatToolConfig?.github?.let { "\n" + it.promptContext(latestUser?.content.orEmpty()) + dev.chungjungsoo.gptmobile.data.github.GitHubAutonomousEngineeringPolicy.instruction(platform, it) }.orEmpty()
+        fun baseSystemPrompt() = buildPrimarySystemPrompt(platform, exposedTools, resolvedTools.isNotEmpty(), localResearch, processingOwnership, synthesisRun, chatToolConfig?.combined, latestUser, limits.contextTokens, quickRepliesEnabled, projectInstructions, taskRecovery, reviewedPreparationUnavailable, chatToolConfig?.research?.researchToggle == true) + chatToolConfig?.github?.let { dev.chungjungsoo.gptmobile.data.agent.toolStageInstructions(it.promptContext(latestUser?.content.orEmpty()) + dev.chungjungsoo.gptmobile.data.github.GitHubAutonomousEngineeringPolicy.instruction(platform, it)) }.orEmpty()
         val memoryPreparation = preparePrimaryDispatchMemory(input, admission, toolPreparation, recallPreparation, taskRoutedTools)
         val researchMemory = memoryPreparation.researchMemory
         val documentContext = memoryPreparation.documentContext
@@ -3960,7 +3960,7 @@ class ChatRepositoryImpl(
             compact = platform.compatibleType in setOf(ClientType.LITERT_LM, ClientType.FREE) || localResearch || contextTokens < 4096,
             deferCapabilities = true,
             researchReport = researchReport
-        ) + (if (quickRepliesEnabled && !synthesisRun) dev.chungjungsoo.gptmobile.data.agent.CHAT_QUICK_REPLY_INSTRUCTION else "") + projectInstructions.takeIf { it.isNotBlank() }?.let { "\nProject instructions supplied by the user:\n$it" }.orEmpty() + recoveryInstruction + progressInstruction + delegationInstruction + synthesisInstruction + contributorInstruction +
+        ) + (if (quickRepliesEnabled && !synthesisRun) dev.chungjungsoo.gptmobile.data.agent.CHAT_QUICK_REPLY_INSTRUCTION else "") + projectInstructions.takeIf { it.isNotBlank() }?.let { "\nProject instructions supplied by the user:\n$it" }.orEmpty() + recoveryInstruction + dev.chungjungsoo.gptmobile.data.agent.toolStageInstructions(progressInstruction) + delegationInstruction + synthesisInstruction + contributorInstruction +
             if (reviewedPreparationUnavailable) "\nRequired delegate preparation or independent review could not finish. Do not do the task independently or present rejected delegate claims as verified facts. Explain the limitation and suggest retrying with a working delegate/reviewer or explicitly choosing primary-only recovery." else ""
     }
 
@@ -4093,7 +4093,9 @@ class ChatRepositoryImpl(
             queuePersistent = latestUser?.let { agentPersistenceDao.getChatRoom(it.chatId)?.isTemporary == false } == true,
             maxOutputTokens = resolvedOutputCap,
             allowTools = !editorialPass,
-            allowReasoning = !editorialPass && (chatToolConfig?.github == null || platform.reasoning),
+            // The legacy Boolean is an effort preference. Llama's explicit
+            // Auto/On/Off setting is enforced by request admission instead.
+            allowReasoning = !editorialPass && (chatToolConfig?.github == null || platform.reasoning || platform.compatibleType == ClientType.LLAMA),
             maximizeReasoning = chatToolConfig?.github != null && platform.reasoning,
             allowGatewayLocalTools = false,
             combined = chatToolConfig?.combined
@@ -4794,7 +4796,8 @@ class ChatRepositoryImpl(
                     check(validateSavedEvidence()) { "Saved evidence permission changed during verification" }
                     factVault?.validateRecall(recalled, user.chatId, platform.isPrivateDestination())
                 },
-                progress = { send(ApiState.ProgressCheckpoint(it)) }
+                progress = { send(ApiState.ProgressCheckpoint(it)) },
+                privateReviewCandidate = { reviewEvidence?.privateCandidate() }
             )
         } else {
             reviewedSession
@@ -4808,7 +4811,13 @@ class ChatRepositoryImpl(
                 contextTokens = limits.contextTokens,
                 githubTask = chatToolConfig?.github != null || effectiveTools.any { it.isGitHubTool() } && isGitHubTask(latestUser?.content.orEmpty()),
                 runTimeoutMillis = minOf(customRunner.limits.runTimeoutMillis, budgetSettings.generationTimeoutMinutes.takeIf { it > 0 }?.toLong()?.times(60_000) ?: Long.MAX_VALUE),
-                maxToolCalls = if (chatToolConfig?.github != null && dev.chungjungsoo.gptmobile.data.github.GitHubStatusRequest.matches(latestUser?.content.orEmpty())) minOf(4, customRunner.limits.maxToolCalls) else customRunner.limits.maxToolCalls,
+                maxToolCalls = when {
+                    chatToolConfig?.github == null -> customRunner.limits.maxToolCalls
+                    dev.chungjungsoo.gptmobile.data.github.GitHubStatusRequest.matches(latestUser?.content.orEmpty()) -> minOf(4, customRunner.limits.maxToolCalls)
+                    dev.chungjungsoo.gptmobile.data.github.GitHubTaskCoverage.boundedDiagnostic(latestUser?.content.orEmpty()) -> minOf(8, customRunner.limits.maxToolCalls)
+                    else -> customRunner.limits.maxToolCalls
+                },
+                maxRounds = if (chatToolConfig?.github != null && dev.chungjungsoo.gptmobile.data.github.GitHubTaskCoverage.boundedDiagnostic(latestUser?.content.orEmpty())) minOf(12, customRunner.limits.maxRounds) else customRunner.limits.maxRounds,
                 maxObservedToolCalls = if (chatToolConfig?.github != null) maxOf(customRunner.limits.maxObservedToolCalls, 4096) else customRunner.limits.maxObservedToolCalls,
                 maxRetainedEvidenceTokens = if (chatToolConfig?.github != null) minOf(limits.contextTokens / 3, 262_144) else customRunner.limits.maxRetainedEvidenceTokens,
                 maxGeneratedCharacters = budgetSettings.responseCharacterLimit,

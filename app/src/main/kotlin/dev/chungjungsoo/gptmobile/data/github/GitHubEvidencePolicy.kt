@@ -166,7 +166,7 @@ internal object GitHubEvidencePolicy {
             if (observedAt <= 0 || observedAt > now) continue
             if (receipt["immutable"] != JsonPrimitive(true) && (now - observedAt > MAX_AGE_MS || receipt["epoch"] != JsonPrimitive(epoch))) continue
             for ((pointer, value) in facts(receipt["result"] ?: JsonNull)) {
-                if (Regex("/(?:check_runs|workflow_runs|jobs)/[0-9]+/").containsMatchIn(pointer)) continue
+                if (Regex("/(?:check_runs|workflow_runs|jobs)/[0-9]+/").containsMatchIn(pointer) && !Regex("(?:/data)?/workflow_runs/0/(?:name|status|conclusion|head_branch|head_sha)").matches(pointer)) continue
                 if (pointer.substringAfterLast('/') !in setOf("full_name", "default_branch", "sha", "commit_sha", "head_sha", "state", "status", "conclusion", "checks", "number", "draft", "name", "path", "total_paths", "indexed_blobs")) continue
                 if (claims.size >= 16) break
                 val claim = buildJsonObject {
@@ -180,10 +180,26 @@ internal object GitHubEvidencePolicy {
         }
         claims += buildJsonObject {
             put("kind", "not_measured")
-            put("subject", "Full task outcome: response verification was unavailable. Inspect retained evidence or continue verification.")
+            put(
+                "subject",
+                when (failureCode) {
+                    "GITHUB_REVIEW_BLOCKED", "GITHUB_REVIEW_INVALID_VERDICT" -> "Answer review could not validate the draft. The recorded operations below remain available."
+                    "GITHUB_EXTRACTION_TIMEOUT" -> "The answer formatter timed out. Recorded operations are preserved; task completion is not established."
+                    "TOOL_PROTOCOL_INVALID_FRAME" -> "The model returned an invalid tool call. That call was not executed; earlier observations are preserved."
+                    else -> "The final explanation could not be verified. Recorded operations are preserved; task completion is not established."
+                }
+            )
         }
         val (observations, report) = render(buildJsonObject { put("claims", JsonArray(claims)) }, receipts, now, epoch, task)
-        val text = observations + "\n\n**Task incomplete.** The observations above are retained evidence. Unverified changes, tests and merges have not been established."
+        val coverage = GitHubTaskCoverage.rows(receipts)
+        val operations = if (coverage.isEmpty()) {
+            ""
+        } else {
+            "\n\n## Recorded operations\n\n" + coverage.joinToString("\n") { row ->
+                "- **${safe(row.string("tool"))} / ${safe(row.string("action"))}:** ${row.string("successful_observations")} successful, ${row.string("failed_observations")} failed observations."
+            }
+        }
+        val text = observations + operations + "\n\n**Task incomplete.** These observations do not establish unverified changes, tests or merges."
         return text to JsonObject(
             report + mapOf(
                 "partial" to JsonPrimitive(true),
@@ -231,11 +247,10 @@ internal object GitHubEvidencePolicy {
             "/state", "/checks", "/statuses", "/data/state", "/data/checks", "/data/statuses", "/commit_sha", "/data/commit_sha", "/branch", "/data/branch",
             "/repository/full_name", "/repository/default_branch",
             "/data/repository/full_name", "/data/repository/default_branch", "/data/repository/private",
-            "/data/repository/head/sha", "/data/repository/head/committed_at",
+            "/data/repository/head/committed_at",
             "/data/open_issue_count", "/data/open_pull_request_count",
             "/data/latest_workflow/name", "/data/latest_workflow/status", "/data/latest_workflow/conclusion",
-            "/data/latest_workflow/head_branch", "/data/latest_workflow/head_sha", "/data/latest_workflow/html_url",
-            "/data/status_availability/current_ref", "/data/status_availability/latest_workflow"
+            "/data/latest_workflow/head_branch", "/data/latest_workflow/head_sha", "/data/latest_workflow/html_url"
         )
         val currentSha = receipts.entries.reversed().firstNotNullOfOrNull { (id, receipt) ->
             if ((receipt["arguments"] as? JsonObject)?.get("action") != JsonPrimitive("status")) return@firstNotNullOfOrNull null
@@ -255,12 +270,14 @@ internal object GitHubEvidencePolicy {
             val data = (root?.get("data") as? JsonObject) ?: root
             currentSha == null || data?.containsKey("check_details") != true || data["commit_sha"] == currentSha
         }
+        val representedFields = mutableSetOf<String>()
         for ((id, receipt) in scopedReceipts.entries.reversed()) {
             val root = receipt["result"] as? JsonObject
             val data = (root?.get("data") as? JsonObject) ?: root
             for ((pointer, value) in facts(receipt["result"] ?: JsonNull)) {
                 if (pointer in setOf("/state", "/data/state") && data?.containsKey("check_details") != true && data?.containsKey("checks") != true) continue
                 val pullRequestField = Regex("(?:/data)?/(?:pull_requests|open_pull_requests|items)/[0-9]+/(number|title|state|draft)").matches(pointer)
+                if (pullRequestField && receipt.string("tool").substringBefore("__") != "github_pr") continue
                 val commitField = (receipt["arguments"] as? JsonObject)?.string("action") == "commits" && Regex("(?:/data)?/(?:items/[0-9]+/(?:sha|commit/(?:subject|author/date))|recent_commits/[0-9]+/(?:sha|subject|committed_at))").matches(pointer)
                 if ((pointer !in statusPaths && !pullRequestField && !commitField) || pointer in claims) continue
                 val claim = buildJsonObject {
@@ -269,7 +286,8 @@ internal object GitHubEvidencePolicy {
                     put("pointer", pointer)
                     put("value", value)
                 }
-                if (verify(claim, receipts, now, epoch).string("status") == "VERIFIED") claims[pointer] = claim
+                val fieldKey = pointer.removePrefix("/data")
+                if (verify(claim, receipts, now, epoch).string("status") == "VERIFIED" && representedFields.add(fieldKey)) claims[pointer] = claim
             }
         }
         if (claims.keys.none { it in setOf("/data/repository/full_name", "/repository/full_name", "/state", "/data/state") }) return null

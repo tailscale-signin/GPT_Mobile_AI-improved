@@ -5,11 +5,16 @@ import dev.chungjungsoo.gptmobile.data.database.entity.BuiltInAgentTool
 internal const val CHAT_QUICK_REPLY_INSTRUCTION = "\nAnswer the current request completely first. Offer at most one follow-up question only when it advances a concrete next step supported by the current tools. Never ask again for information already supplied. Omit suggestions after tool failures, exact-format responses, or when no useful next step exists. When included, use 'Next questions:' and one bullet '- **Short topic:** Complete follow-up question?'"
 
 /** Request-local capability context; never persist this in a profile or conversation history. */
-internal fun liveToolSystemPrompt(original: String?, toolNames: Collection<String>, compact: Boolean = false, deferCapabilities: Boolean = false, researchReport: Boolean = false): String = buildString {
-    original?.takeIf(String::isNotBlank)?.let {
-        append(it)
-        append("\n\n")
-    }
+internal fun liveToolSystemPrompt(original: String?, toolNames: Collection<String>, compact: Boolean = false, deferCapabilities: Boolean = false, researchReport: Boolean = false): String =
+    listOfNotNull(original?.takeIf(String::isNotBlank), toolStageInstructions(liveToolInstructions(toolNames, compact, deferCapabilities, researchReport))).joinToString("\n\n")
+
+/** Mark only app-generated tool instructions so finalization preserves user/project rules. */
+internal fun toolStageInstructions(text: String): String = "\n<app_tool_stage>\n$text\n</app_tool_stage>\n"
+
+internal fun withoutToolStageInstructions(text: String): String =
+    Regex("(?s)<app_tool_stage>.*?</app_tool_stage>").replace(text, "").trim()
+
+private fun liveToolInstructions(toolNames: Collection<String>, compact: Boolean, deferCapabilities: Boolean, researchReport: Boolean): String = buildString {
     val names = toolNames.distinct().sorted()
     if (names.any { it == "github" || it.startsWith("github_") }) {
         append("For GitHub work, inspect exact source before reporting verified defects. When the user requests changes, prepare concrete edits with the registered staging/write tools; prose or code examples alone do not apply changes. If a write capability is missing, use registered discovery before declaring it unavailable. Create a working branch when the selected branch is protected or is the default. Request any required approval for the exact prepared patch. Only claim staged, committed or opened-PR outcomes after successful tool receipts. Use returned continuation_call arguments verbatim; evidence_id is not a view_cursor. ")

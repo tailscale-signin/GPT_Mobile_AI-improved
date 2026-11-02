@@ -2085,7 +2085,7 @@ fun ChatInputBox(
     val scope = rememberCoroutineScope()
     val chatInputLineLimits = TextFieldLineLimits.MultiLine(maxHeightInLines = 5)
     val hasQuestionText = inputState.text.isNotEmpty()
-    val inputFocus = remember { androidx.compose.ui.focus.FocusRequester() }
+    val inputFocus = remember(inputState) { androidx.compose.ui.focus.FocusRequester() }
     val haptic = dev.chungjungsoo.gptmobile.presentation.common.rememberAppHaptic()
     var composerNotice by remember { mutableStateOf("") }
     val sendAction = {
@@ -2140,79 +2140,81 @@ fun ChatInputBox(
                         onFileRetry = onFileRetry
                     )
                 }
-                BasicTextField(
-                    state = inputState,
-                    modifier = Modifier.fillMaxWidth().focusRequester(inputFocus).semantics { contentDescription = "Message input" }.onPreviewKeyEvent {
-                        if (it.isCtrlPressed && it.key == androidx.compose.ui.input.key.Key.Enter) {
-                            if (it.type == androidx.compose.ui.input.key.KeyEventType.KeyUp) sendAction()
-                            true
-                        } else {
-                            false
-                        }
-                    }.onFocusChanged { onComposerFocusChanged(it.isFocused) },
-                    enabled = chatEnabled,
-                    textStyle = mergedStyle,
-                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                    lineLimits = chatInputLineLimits,
-                    decorator = { innerTextField ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            if (attachmentsEnabled) {
-                                Box {
-                                    IconButton(enabled = chatEnabled, onClick = { attachmentMenu = true }) {
-                                        Icon(Icons.Rounded.AttachFile, contentDescription = stringResource(R.string.attach_file))
-                                    }
-                                    DropdownMenu(expanded = attachmentMenu, onDismissRequest = { attachmentMenu = false }) {
-                                        listOf(R.string.attach_images to "image/*", R.string.attach_documents to "application/pdf", R.string.attach_any_file to "*/*").forEach { (label, mime) ->
-                                            DropdownMenuItem(text = { Text(stringResource(label)) }, onClick = {
-                                                attachmentMenu = false
-                                                filePickerLauncher.launch(mime)
-                                            })
+                key(inputState) {
+                    BasicTextField(
+                        state = inputState,
+                        modifier = Modifier.fillMaxWidth().focusRequester(inputFocus).semantics { contentDescription = "Message input" }.onPreviewKeyEvent {
+                            if (it.isCtrlPressed && it.key == androidx.compose.ui.input.key.Key.Enter) {
+                                if (it.type == androidx.compose.ui.input.key.KeyEventType.KeyUp) sendAction()
+                                true
+                            } else {
+                                false
+                            }
+                        }.onFocusChanged { onComposerFocusChanged(it.isFocused) },
+                        enabled = chatEnabled,
+                        textStyle = mergedStyle,
+                        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                        lineLimits = chatInputLineLimits,
+                        decorator = { innerTextField ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                if (attachmentsEnabled) {
+                                    Box {
+                                        IconButton(enabled = chatEnabled, onClick = { attachmentMenu = true }) {
+                                            Icon(Icons.Rounded.AttachFile, contentDescription = stringResource(R.string.attach_file))
+                                        }
+                                        DropdownMenu(expanded = attachmentMenu, onDismissRequest = { attachmentMenu = false }) {
+                                            listOf(R.string.attach_images to "image/*", R.string.attach_documents to "application/pdf", R.string.attach_any_file to "*/*").forEach { (label, mime) ->
+                                                DropdownMenuItem(text = { Text(stringResource(label)) }, onClick = {
+                                                    attachmentMenu = false
+                                                    filePickerLauncher.launch(mime)
+                                                })
+                                            }
                                         }
                                     }
                                 }
-                            }
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .padding(start = 8.dp)
-                            ) {
-                                if (inputState.text.isEmpty()) {
-                                    Text(
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        text = placeholder ?: if (chatEnabled) stringResource(R.string.write_a_message) else stringResource(R.string.some_platforms_disabled)
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .padding(start = 8.dp)
+                                ) {
+                                    if (inputState.text.isEmpty()) {
+                                        Text(
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            text = placeholder ?: if (chatEnabled) stringResource(R.string.write_a_message) else stringResource(R.string.some_platforms_disabled)
+                                        )
+                                    }
+                                    Box(modifier = Modifier.fillMaxWidth()) {
+                                        innerTextField()
+                                    }
+                                }
+                                if (isRunning) {
+                                    IconButton(
+                                        onClick = onCancelButtonClick,
+                                        modifier = Modifier.testTag("chat_stop")
+                                    ) {
+                                        Icon(Icons.Rounded.Stop, contentDescription = stringResource(R.string.cancel_active_runs))
+                                    }
+                                }
+                                FilledIconButton(
+                                    colors = IconButtonDefaults.filledIconButtonColors(containerColor = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary),
+                                    enabled = chatEnabled && sendButtonEnabled && (hasQuestionText || selectedAttachments.isNotEmpty()),
+                                    onClick = sendAction,
+                                    modifier = Modifier.testTag("chat_send")
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.ArrowUpward,
+                                        contentDescription = stringResource(if (isRunning) R.string.send_follow_up else R.string.send)
                                     )
                                 }
-                                Box(modifier = Modifier.fillMaxWidth()) {
-                                    innerTextField()
-                                }
-                            }
-                            if (isRunning) {
-                                IconButton(
-                                    onClick = onCancelButtonClick,
-                                    modifier = Modifier.testTag("chat_stop")
-                                ) {
-                                    Icon(Icons.Rounded.Stop, contentDescription = stringResource(R.string.cancel_active_runs))
-                                }
-                            }
-                            FilledIconButton(
-                                colors = IconButtonDefaults.filledIconButtonColors(containerColor = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary),
-                                enabled = chatEnabled && sendButtonEnabled && (hasQuestionText || selectedAttachments.isNotEmpty()),
-                                onClick = sendAction,
-                                modifier = Modifier.testTag("chat_send")
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Rounded.ArrowUpward,
-                                    contentDescription = stringResource(if (isRunning) R.string.send_follow_up else R.string.send)
-                                )
                             }
                         }
-                    }
-                )
+                    )
+                }
             }
         }
     }

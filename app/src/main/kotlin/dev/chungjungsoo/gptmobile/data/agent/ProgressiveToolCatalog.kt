@@ -38,6 +38,8 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
     private val acquisitionMutex = Mutex()
     private data class Observation(val contract: String, val outcome: String, val at: Long, val errorCode: String?, val succeeded: Int, val failed: Int, val unknown: Int)
     private val observations = mutableMapOf<String, Observation>()
+    private var lastSelection: String? = null
+    private var unchangedSelections = 0
 
     private fun contractFingerprint(tool: AgentToolDefinition): String = fingerprint(tool.contractVersion.toString() + ":" + tool.inputSchema.toString())
 
@@ -113,12 +115,22 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
         val allowedNames = allowed.mapTo(HashSet()) { it.name }
         return allowed.filterNot { it.name in active || it.name == NAME }.associate { tool ->
             tool.name to if (!tool.modelVisible) "HIDDEN_COMPATIBILITY_SCHEMA" else omissions[tool.name] ?: "DEFERRED_NOT_REQUESTED"
-        } + active.filterNot { it in allowedNames }.associateWith { "CONTEXT_OR_AUTHORIZATION_FILTER" }
+        } + active.filterNot { it in allowedNames }.associateWith { "NOT_ADMITTED_TO_ROUND" }
     }
 
+    @Synchronized
     internal fun recordSelection(allowed: List<AgentToolDefinition>, selected: List<AgentToolDefinition>) {
+        val omitted = selectionOmissions(allowed)
+        val identity = fingerprint(selected.joinToString { it.name + contractFingerprint(it) } + omitted.toSortedMap())
+        if (identity == lastSelection) {
+            unchangedSelections++
+            if (unchangedSelections % 32 == 0) dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("ToolCatalog", "UNCHANGED_SELECTION · selection=$identity · repeatedRounds=$unchangedSelections · advertised=${selected.size} · omitted=${omitted.size}")
+            return
+        }
+        lastSelection = identity
+        unchangedSelections = 0
         dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("ToolCatalog", "SELECTED_SCHEMA · authorized=${allowed.size} · advertised=${selected.size} · names=${selected.joinToString { it.name }} · estimatedTokens=${selected.sumOf { schemaTokens(it).toLong() }} · measurement=UTF8_ESTIMATE")
-        selectionOmissions(allowed).forEach { (name, reason) ->
+        omitted.forEach { (name, reason) ->
             dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("ToolCatalog", "TOOL_OMITTED · stage=catalog · name=$name · reason=$reason · schemaAllowance=$schemaAllowance")
         }
     }

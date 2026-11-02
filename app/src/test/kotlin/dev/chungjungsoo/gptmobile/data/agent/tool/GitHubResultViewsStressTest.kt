@@ -19,6 +19,35 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubResultViewsStressTest {
+    @Test fun expiredImmutableViewsExposeExactRecoveryOnlyToTheirAuthorizedScope() {
+        var clock = 0L
+        val views = GitHubResultViews(now = { clock })
+        val request = Json.parseToJsonElement("""{"owner":"o","repo":"r","ranges":[{"path":"A.kt","start_line":1,"end_line":10}]}""").jsonObject
+        val sha = "a".repeat(40)
+        val raw = AgentToolResult(
+            "read",
+            ToolResultContent.Json(
+                buildJsonObject {
+                    put("commit_sha", sha)
+                    put("content", "exact source")
+                }
+            ),
+            false
+        )
+        val first = data(views.present("scope", "github_read", "github_read__connection", raw, request))
+        val recipe = first.getValue("source_recovery_call").jsonObject
+        assertEquals(JsonObject(request + ("commit_sha" to JsonPrimitive(sha))), recipe.getValue("arguments"))
+        val issued = first.getValue("recovery_call").jsonObject.getValue("arguments").jsonObject.getValue("view_cursor").jsonPrimitive.content
+        clock = 600_001
+        val expired = data(views.read("scope", "github_read", "github_read__connection", issued, "expired"))
+        assertEquals(JsonPrimitive("EXPIRED"), expired["reason"])
+        assertEquals(recipe, expired["recovery_call"])
+        val foreign = data(views.read("other", "github_read", "github_read__connection", issued, "foreign"))
+        assertEquals(JsonPrimitive("UNAVAILABLE_IN_AUTHORIZED_SCOPE"), foreign["reason"])
+        assertFalse(foreign.containsKey("recovery_call"))
+        val mutation = data(views.present("scope", "github_commit", "github_commit", raw, request))
+        assertFalse(mutation.containsKey("source_recovery_call"))
+    }
     private fun data(result: AgentToolResult) = (result.content as ToolResultContent.Json).value.jsonObject
     private fun cursor(page: JsonObject) = page["continuation_call"]!!.jsonObject["arguments"]!!.jsonObject["view_cursor"]!!.jsonPrimitive.content
 

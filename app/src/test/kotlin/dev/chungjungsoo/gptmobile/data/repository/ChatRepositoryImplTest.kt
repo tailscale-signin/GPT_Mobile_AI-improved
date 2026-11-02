@@ -1570,8 +1570,9 @@ class ChatRepositoryImplTest {
         val afterFailure = toolResolutions
         val continued = repository.completeChat(listOf(original, original.copy(id = 3, content = "Continue")), emptyList(), customPlatform(), "continue", null).toList()
         val blocked = continued.filterIsInstance<ApiState.Error>().single().message
-        assertTrue(blocked, blocked.startsWith("Provider unavailable. HTTP 403:"))
-        assertTrue(blocked, blocked.contains("explicit recheck"))
+        assertTrue(blocked, blocked.startsWith("HTTP 403: access forbidden."))
+        assertTrue(blocked, blocked.contains("specific cause is unavailable"))
+        assertTrue(blocked, blocked.contains("retry the failed stage to recheck"))
         assertTrue(blocked, blocked.contains("Any saved evidence is retained."))
         assertFalse(blocked, blocked.contains("Final writer"))
         assertEquals(1, api.streamChatCompletionCalls)
@@ -1734,8 +1735,9 @@ class ChatRepositoryImplTest {
         assertEquals(mapOf("Supported" to 5, "Insufficient" to 6, "Unreviewed" to 3), saved.claims.groupingBy { it.verdict }.eachCount())
         val continued = repository.completeChat(listOf(original, original.copy(id = 3, content = "Continue")), emptyList(), primary, "run-b", null).toList()
         val blocked = continued.filterIsInstance<ApiState.Error>().single().message
-        assertTrue(blocked, blocked.startsWith("Provider unavailable. HTTP 403:"))
-        assertTrue(blocked, blocked.contains("explicit recheck"))
+        assertTrue(blocked, blocked.startsWith("HTTP 403: access forbidden."))
+        assertTrue(blocked, blocked.contains("specific cause is unavailable"))
+        assertTrue(blocked, blocked.contains("retry the failed stage to recheck"))
         assertTrue(blocked, blocked.contains("Any saved evidence is retained."))
         assertEquals(25, api.streamChatCompletionCalls)
         val retried = repository.completeChat(listOf(original, original.copy(id = 4, content = "Retry failed stage")), emptyList(), primary, "run-c", null).toList()

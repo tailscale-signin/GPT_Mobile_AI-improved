@@ -63,6 +63,19 @@ internal object DebugExportBundle {
             put("journalAvailability", captureSummary.getValue("availability"))
             put("journalCapture", captureSummary)
             put("activeRunIds", (root["capture"] as? JsonObject)?.get("activeRunIds") ?: JsonArray(emptyList()))
+            put("taskClosure", taskClosure(root, events))
+            put(
+                "sourceCoverage",
+                buildJsonObject {
+                    listOf("runs", "toolEvents", "runJournal", "providerFailures", "appLogSnapshot", "localRuntimeIncidents").forEach { name ->
+                        put(name, if (name in root) "RETAINED_SNAPSHOT" else "NOT_CAPTURED")
+                    }
+                    put("providerWirePayloads", "NOT_CAPTURED")
+                    put("vendorLogs", "UNAVAILABLE_TO_APP")
+                    put("androidExitHistory", "NOT_INCLUDED_IN_CONVERSATION_EXPORT")
+                    put("appLogWindow", root["appLogSnapshotAvailability"] ?: JsonObject(emptyMap()))
+                }
+            )
             put("completionState", "Inspect activeRunIds and retained run terminal statuses; answer text alone is not completion")
             put("buildIdentity", JsonObject(root.filterKeys { it in setOf("version", "build", "appCommit", "nativeRuntimeCommit", "buildVariant", "package") }))
             put("dataScopes", root["dataScopes"] ?: JsonObject(emptyMap()))
@@ -95,6 +108,36 @@ internal object DebugExportBundle {
                 zip.write(text.toByteArray(Charsets.UTF_8))
                 zip.closeEntry()
             }
+        }
+    }
+
+    internal fun taskClosure(root: JsonObject, events: List<kotlinx.serialization.json.JsonElement>): JsonObject {
+        val terminalEvents = events.mapNotNull { it as? JsonObject }.filter { it["kind"] == JsonPrimitive("RUN_TERMINAL") }.mapNotNull { (it["runId"] as? JsonPrimitive)?.content }.toSet()
+        val terminalStatuses = setOf("COMPLETED", "FAILED", "CANCELED", "INTERRUPTED")
+        return buildJsonObject {
+            put(
+                "runs",
+                JsonArray(
+                    (root["runs"] as? JsonArray).orEmpty().mapNotNull { it as? JsonObject }.map { run ->
+                        val id = (run["runId"] as? JsonPrimitive)?.content.orEmpty()
+                        val status = (run["status"] as? JsonPrimitive)?.content.orEmpty()
+                        buildJsonObject {
+                            put("runId", id)
+                            put("status", status)
+                            put("terminalEventCaptured", id in terminalEvents)
+                            put(
+                                "closure",
+                                when {
+                                    id in terminalEvents -> "TERMINAL_EVENT_CAPTURED"
+                                    status in terminalStatuses -> "TERMINAL_STATUS_WITHOUT_RETAINED_EVENT"
+                                    else -> "ACTIVE_OR_WAITING_AT_EXPORT"
+                                }
+                            )
+                        }
+                    }
+                )
+            )
+            put("coverage", "Missing terminal events describe capture coverage; they do not prove a failed task.")
         }
     }
 

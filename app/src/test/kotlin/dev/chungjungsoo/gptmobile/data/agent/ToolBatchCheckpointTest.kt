@@ -25,6 +25,35 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(manifest = Config.NONE, sdk = [34])
 class ToolBatchCheckpointTest {
+    @Test fun resumeRestoresEverySettledBatchWithoutDispatchingAgain() = runBlocking {
+        val journal = ToolBatchCheckpoint(null, "multi-batch")
+        for (id in listOf("status", "checks", "prs", "commits")) {
+            val call = ProviderEvent.ToolCall(id, "github_context", buildJsonObject { put("action", id) })
+            journal.enqueue(listOf(call))
+            journal.execute(call) { AgentToolResult(id, ToolResultContent.Text("retained $id"), false) }
+        }
+        journal.markConsumed(setOf("status", "checks", "missing"))
+        val snapshot = journal.recoverySnapshot()
+        assertEquals(setOf("status", "checks"), snapshot.consumedCallIds)
+        assertEquals(listOf("status", "checks", "prs"), snapshot.completedExchanges.map { it.calls.single().callId })
+        val observed = mutableListOf<String>()
+        val tool = object : AgentTool {
+            override val definition = AgentToolDefinition("github_context", "", JsonObject(emptyMap()))
+            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult = error("Completed work must not dispatch")
+        }
+        val provider = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                assertTrue(tools.isEmpty())
+                assertEquals(listOf("status", "checks", "prs", "commits"), exchanges.flatMap { it.calls }.map { it.callId })
+                emit(ProviderEvent.TextDelta("Retained status"))
+                emit(ProviderEvent.Completed)
+            }
+        }
+        val events = AgentRunner(AgentRunLimits(githubTask = true, maxToolCalls = 4), journal, onToolResult = { call, _ -> observed += call.callId }).run(provider, listOf(tool)).toList()
+        assertEquals(listOf("status", "checks", "prs", "commits"), observed)
+        assertTrue(events.any { it is AgentRunEvent.Provider && it.event is ProviderEvent.Completed })
+    }
+
     @Test fun acceptedJobAndVerifiedReceiptSurviveRestartWithoutReplayingPolicyRejections() = runBlocking {
         val file = File.createTempFile("engineering-context", ".json").apply { delete() }
         try {

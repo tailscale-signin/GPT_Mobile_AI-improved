@@ -1821,7 +1821,7 @@ class GitHubWorkspaceClient(
             return cached.value
         }
         if (cached != null && cached.immutable) {
-            GitHubDispatchAccounting.cached(cached.storedAtMillis)
+            GitHubDispatchAccounting.cached(cached.storedAtMillis, immutable = true)
             scheduler.recordCacheHit()
             return cached.value
         }

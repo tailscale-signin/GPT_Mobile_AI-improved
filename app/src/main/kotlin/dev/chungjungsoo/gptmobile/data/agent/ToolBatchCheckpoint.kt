@@ -51,7 +51,9 @@ data class ToolBatchRecoverySnapshot(
     val queuedCount: Int = 0,
     val rejectedCount: Int = 0,
     val failedCount: Int = 0,
-    val jobContext: ToolBatchJobContext? = null
+    val jobContext: ToolBatchJobContext? = null,
+    val completedExchanges: List<AgentToolExchange> = emptyList(),
+    val consumedCallIds: Set<String> = emptySet()
 )
 
 /** Durable dispatch receipts. A crash after dispatch is unknown, never permission to repeat a side effect. */
@@ -66,7 +68,7 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String, 
 
     @Serializable private data class Entry(val call: Call, val started: Boolean = false, val result: Result? = null, val priorBudgetRejection: Result? = null)
 
-    @Serializable private data class State(val binding: String, val schemaVersion: Int = 1, val pending: List<String> = emptyList(), val entries: Map<String, Entry> = emptyMap(), val jobContext: ToolBatchJobContext? = null)
+    @Serializable private data class State(val binding: String, val schemaVersion: Int = 1, val pending: List<String> = emptyList(), val entries: Map<String, Entry> = emptyMap(), val jobContext: ToolBatchJobContext? = null, val consumedCallIds: Set<String> = emptySet())
     private val mutex = file?.let { locks.computeIfAbsent(it.absolutePath) { Mutex() } } ?: Mutex()
     private val json = Json {
         encodeDefaults = true
@@ -82,6 +84,7 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String, 
         require(saved.binding == binding) { "Tool recovery authorization changed." }
         require(saved.entries.size <= 1024 && saved.pending.distinct().size == saved.pending.size && saved.pending.all(saved.entries::containsKey)) { "Tool recovery journal has invalid call identities." }
         require(saved.entries.all { (id, entry) -> id.isNotBlank() && id == entry.call.id }) { "Tool recovery journal has inconsistent receipts." }
+        require(saved.consumedCallIds.size <= 1024 && saved.consumedCallIds.all { saved.entries[it]?.result != null }) { "Tool recovery ledger has invalid consumed identities." }
         if (initialJob != null && saved.jobContext != null) {
             require(initialJob.objective == saved.jobContext.objective && initialJob.repository == saved.jobContext.repository && initialJob.branch == saved.jobContext.branch) { "Saved engineering objective or destination changed; reconcile the previous job before starting another." }
         }
@@ -119,6 +122,12 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String, 
         state.pending.map { state.entries.getValue(it).call.event() }
     }
 
+    suspend fun markConsumed(ids: Set<String>) = locked {
+        val state = read()
+        val consumed = state.consumedCallIds + ids.filter { state.entries[it]?.result != null }
+        if (consumed != state.consumedCallIds) write(state.copy(consumedCallIds = consumed))
+    }
+
     // A claimed call with no receipt may have executed. A saved pre-dispatch
     // rejection, however, must not consume the executable-call budget on resume.
     private fun Entry.countsAsDispatched(): Boolean = result?.dispatched ?: started
@@ -145,7 +154,7 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String, 
                 entry.copy(result = result.copy(callLimit = false, outputLimit = false))
             }
         }
-        if (entries != state.entries) write(state.copy(entries = entries))
+        if (entries != state.entries) write(state.copy(entries = entries, consumedCallIds = state.consumedCallIds.filterTo(mutableSetOf()) { entries[it]?.result != null }))
     }
 
     suspend fun recoverySnapshot(objective: CheckpointRestoreObjective? = null): ToolBatchRecoverySnapshot {
@@ -170,7 +179,11 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String, 
                 queuedCount = state.entries.values.count { !it.started && it.result == null },
                 rejectedCount = state.entries.values.count { it.result?.let { result -> result.error && !result.dispatched && result.code !in ToolResultEnvelope.unknownOutcomeCodes } == true },
                 failedCount = state.entries.values.count { it.result?.let { result -> result.error && result.dispatched && result.code !in ToolResultEnvelope.unknownOutcomeCodes } == true },
-                jobContext = state.jobContext
+                jobContext = state.jobContext,
+                completedExchanges = state.entries.values.filter { it.call.id !in state.pending && it.result != null }.map { entry ->
+                    AgentToolExchange(listOf(entry.call.event()), listOf(requireNotNull(entry.result).restore(entry.call.id)))
+                },
+                consumedCallIds = state.consumedCallIds
             )
         }
     }

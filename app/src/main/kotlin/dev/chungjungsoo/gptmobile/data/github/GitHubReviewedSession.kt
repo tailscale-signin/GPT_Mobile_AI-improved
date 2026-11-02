@@ -27,6 +27,14 @@ internal class GitHubReviewEvidence(private val maxBytes: Int = 16 * 1024 * 1024
     private val records = linkedMapOf<String, String>()
     private var bytes = 0L
     private var overflow = false
+    private var candidate: String? = null
+
+    @Synchronized fun retainCandidate(value: String) {
+        require(value.length <= 1_048_576)
+        candidate = value
+    }
+
+    @Synchronized fun privateCandidate(): String? = candidate
 
     @Synchronized fun observe(call: ProviderEvent.ToolCall, result: AgentToolResult) {
         if (call.callId in records || overflow) return
@@ -84,6 +92,7 @@ internal class GitHubReviewedSession(
             return@flow
         }
         if (saved != null) {
+            evidence.retainCandidate(saved.draft)
             val latest = evidence.snapshot()
             if (saved.blockedReason != null && latest.all { it in saved.receipts }) {
                 emit(ProviderEvent.Failed("Saved review requires new evidence or a changed draft: ${saved.blockedReason}", errorCode = "GITHUB_REVIEW_BLOCKED", transportComplete = true))
@@ -155,6 +164,7 @@ internal class GitHubReviewedSession(
     private fun publishReviewed(draft: String, receipts: List<String>): Flow<ProviderEvent> = flow {
         try {
             check(draft.isNotBlank()) { "The gateway returned no final answer to review." }
+            evidence.retainCandidate(draft)
             checkpoint?.save(draft, receipts)
             var candidate = draft
             repeat(2) { attempt ->

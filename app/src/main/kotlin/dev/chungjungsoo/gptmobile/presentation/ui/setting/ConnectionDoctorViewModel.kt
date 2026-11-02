@@ -207,7 +207,7 @@ class ConnectionDoctorViewModel @Inject constructor(
                 val global = features.tokenBudget.normalized().contextTokens.takeIf { it != Int.MAX_VALUE }
                 val effective = listOfNotNull(capacity?.contextTokens, declared?.toLong(), global?.toLong()).minOrNull()
                 val output = dev.chungjungsoo.gptmobile.data.context.RequestLimitResolver.output(profile.maxTokens, features.tokenBudget.outputTokens)
-                val reasoning = features.llamaReasoningModes[profile.uid] ?: if (profile.reasoning) dev.chungjungsoo.gptmobile.data.context.ReasoningMode.ON else dev.chungjungsoo.gptmobile.data.context.ReasoningMode.AUTO
+                val reasoning = features.llamaReasoningModes[profile.uid] ?: dev.chungjungsoo.gptmobile.data.context.ReasoningMode.AUTO
                 contextReport.value = listOf(
                     "Verified serving allocation: ${capacity?.contextTokens ?: "unknown"} tokens",
                     "Manual profile ceiling: ${declared ?: "not declared"}",

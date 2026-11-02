@@ -349,7 +349,9 @@ class GitHubOperationToolTest {
         val expired = read.execute("expired", cursor)
         assertEquals("SAVED_VIEW_UNAVAILABLE", expired.errorCode)
         assertFalse(expired.dispatched)
-        assertTrue((expired.content as ToolResultContent.Text).text.contains("same commit_sha"))
+        val diagnostic = (expired.content as ToolResultContent.Json).value.jsonObject
+        assertEquals(JsonPrimitive("EXPIRED"), diagnostic["reason"])
+        assertTrue(diagnostic.getValue("message").jsonPrimitive.content.contains("same immutable source"))
         assertEquals(1, backend.calls.size)
     }
 

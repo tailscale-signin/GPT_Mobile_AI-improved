@@ -199,7 +199,7 @@ internal object GitHubEvidencePolicy {
                 "- **${safe(row.string("tool"))} / ${safe(row.string("action"))}:** ${row.string("successful_observations")} successful, ${row.string("failed_observations")} failed observations."
             }
         }
-        val text = observations + operations + "\n\n**Task incomplete.** These observations do not establish unverified changes, tests or merges."
+        val text = observations + operations + "\n\n**Task incomplete.** These observations and retained evidence do not establish unverified changes, tests or merges."
         return text to JsonObject(
             report + mapOf(
                 "partial" to JsonPrimitive(true),

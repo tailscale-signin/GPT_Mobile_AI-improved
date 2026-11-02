@@ -449,10 +449,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                                     if (!delta.content.isNullOrEmpty() || !delta.effectiveReasoning.isNullOrEmpty() || !delta.toolCalls.isNullOrEmpty()) {
                                         hasReceivedTokens = true
                                     }
-                                    choice.finishReason?.let {
-                                        lastFinishReason = it
-                                        publishOllama(ProviderEvent.Usage(finishReason = it, phase = ProviderUsagePhase.FINAL))
-                                    }
+                                    choice.finishReason?.let { lastFinishReason = it }
                                     assembler.accept(
                                         content = choice.effectiveDelta.content,
                                         reasoning = if (chunk.gatewayProgress == null) choice.effectiveDelta.effectiveReasoning else null,
@@ -707,10 +704,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                                     ).forEach { state ->
                                         state.toProviderEvent()?.let { publish(it) }
                                     }
-                                    if (choice.finishReason != null) {
-                                        terminalReceived = true
-                                        emit(ProviderEvent.Usage(finishReason = choice.finishReason, phase = ProviderUsagePhase.FINAL))
-                                    }
+                                    if (choice.finishReason != null) terminalReceived = true
                                     if (choice.finishReason == "length") {
                                         assembler.discardIncomplete()
                                         emit(ProviderEvent.Usage(finishReason = choice.finishReason))
@@ -853,7 +847,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                                     protocolErrorCode = protocolErrorCode ?: event.errorCode
                                 }
                             } else {
-                                emit(event)
+                                emit(if (event is ProviderEvent.Usage && event.finishReason != null) event.copy(writerObservationKey = writerObservationKey) else event)
                             }
                         }
 
@@ -943,7 +937,6 @@ class OpenAICompatibleAdapter @Inject constructor(
                                     if (choice.finishReason != null) {
                                         terminalReceived = true
                                         lastFinishReason = choice.finishReason
-                                        if (requestConfig.captureGenerationReceipt) emit(ProviderEvent.Usage(finishReason = choice.finishReason, writerObservationKey = writerObservationKey))
                                     }
                                     if (!choice.effectiveDelta.content.isNullOrEmpty() || !choice.effectiveDelta.effectiveReasoning.isNullOrEmpty() || !choice.effectiveDelta.toolCalls.isNullOrEmpty()) deliveredPayload = true
                                     if (choice.finishReason == "length") {

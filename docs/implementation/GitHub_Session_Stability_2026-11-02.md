@@ -31,12 +31,13 @@ Additional correction: cached immutable commit metadata no longer backdates a ne
 
 ## Validation
 
-- Targeted host Kotlin/JUnit suite: **104 tests pass**, including reasoning admission, protocol diagnostics and authorized aliases, multi-batch checkpoint recovery, consumed-result compaction, immutable freshness, expired-view scope isolation, remote-page repetition, review failure recovery, task coverage and receipt accounting. The host overlay uses actual changed core sources; it is not a full Android build.
+- Targeted host Kotlin/JUnit suites: **176 tests pass** (172 core/admission/evidence/operation tests and four export bundle tests), including reasoning admission, protocol diagnostics and authorized aliases, multi-batch checkpoint recovery, consumed-result compaction, immutable freshness, expired-view scope isolation, remote-page repetition, review failure recovery, task coverage and receipt accounting. The host overlay uses actual changed core sources; it is not a full Android build.
 - `bash scripts/validate-local.sh fast`: **passed** (287 Python tests, resource/architecture/CI contract checks and secret scanning).
 - Kotlin formatting: ktlint 1.3.1 on modified Kotlin files.
-- Added repository regressions for auxiliary admission, instruction stripping, diagnostic classification and export closure are intended for the Android JVM test job as well.
+- Added repository regressions for auxiliary admission, instruction stripping, diagnostic classification and export closure also run in the Android JVM job.
 - The previous branch-head CI had two provider-denial wording assertion failures. Updated those assertions to the intended specific HTTP 403 wording while keeping evidence-retention, request-count and no-repeat behavior checks.
 - Full local Android validation is unavailable in this workspace: JDK 21/SDK 37 are absent and the Gradle wrapper distribution could not be retrieved by the local Java process. Remote checks must pass on the final commit before merge. An older API 36 emulator run was obstructed by a system window; that is not evidence of an app rendering defect.
+- Remote validation of `e642edb` compiled the app, built the review APK and passed API 34/API 36 emulator tests, CodeQL, formatting and repository contracts. The full JVM run executed 5,975 tests: 5,967 passed, four skipped and four failed. Follow-up fixes remove duplicate finish-reason receipts at the adapter boundary (the assembler remains their single source), assert structured expiry diagnostics, and retain the evidence qualification in partial summaries. Those changes require a fresh full-suite result; previous-head successes are not final-head approval.
 
 ## Device verification still required
 

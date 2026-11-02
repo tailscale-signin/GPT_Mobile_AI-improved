@@ -9,7 +9,7 @@ import android.view.FrameMetrics
 import android.view.Window
 import java.util.WeakHashMap
 
-/** Opt-in frame timing for streaming, transitions and overlays; no per-frame log spam. */
+/** Local frame guard with opt-in diagnostic reports; no per-frame logging or persisted samples. */
 internal object FrameTimingRecorder {
     private val screenIds = java.util.concurrent.atomic.AtomicLong()
     private val screens = java.util.concurrent.ConcurrentHashMap<Long, String>()
@@ -34,7 +34,7 @@ internal object FrameTimingRecorder {
 
     fun start(activity: Activity) {
         active = java.lang.ref.WeakReference(activity)
-        if (!AppLogRecorder.enabled.value || listeners.containsKey(activity)) return
+        if (listeners.containsKey(activity)) return
         var frames = 0
         var slow = 0
         var dropped = 0
@@ -44,7 +44,6 @@ internal object FrameTimingRecorder {
         var lastReportMs = SystemClock.elapsedRealtime()
         val frameBudgetNs = (1_000_000_000.0 / (activity.display?.refreshRate ?: 60f)).toLong()
         val listener = Window.OnFrameMetricsAvailableListener { _, metrics, lost ->
-            if (!AppLogRecorder.enabled.value) return@OnFrameMetricsAvailableListener
             val duration = metrics.getMetric(FrameMetrics.TOTAL_DURATION).coerceAtLeast(0)
             frames++
             histogram.add(duration)
@@ -56,7 +55,8 @@ internal object FrameTimingRecorder {
             val nowMs = SystemClock.elapsedRealtime()
             if (frames >= 120 && nowMs - lastReportMs >= 5000) {
                 lastReportMs = nowMs
-                AppLogRecorder.record("Rendering", "FRAME_TIMING · frames=$frames · jankFrames=$slow · droppedSamples=$dropped · averageMs=${totalNs / frames / 1_000_000.0} · maxMs=${maximumNs / 1_000_000.0} · p95UpperMs=${histogram.percentileUpperMs(95)} · p99UpperMs=${histogram.percentileUpperMs(99)} · stallsOver100Ms=${histogram.stallsOver100Ms} · percentileOverflow=${histogram.overflow} · frameBudgetMs=${frameBudgetNs / 1_000_000.0} · screen=${screens.maxByOrNull { it.key }?.value ?: activity.javaClass.simpleName} · graphicsEffects=${RenderingEffectDiagnostics.snapshot()} · operation=${JavaHeapWorkGate.activeOperations} · javaHeapUsedBytes=${Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory()} · javaHeapMaxBytes=${Runtime.getRuntime().maxMemory()} · activeRuns=${runPhases.entries.joinToString { "${it.key}:${it.value}" }}")
+                FrameEffectPressure.guard.observe(frames, slow, histogram.stallsOver100Ms, nowMs)
+                if (AppLogRecorder.enabled.value) AppLogRecorder.record("Rendering", "FRAME_TIMING · frames=$frames · jankFrames=$slow · droppedSamples=$dropped · averageMs=${totalNs / frames / 1_000_000.0} · maxMs=${maximumNs / 1_000_000.0} · p95UpperMs=${histogram.percentileUpperMs(95)} · p99UpperMs=${histogram.percentileUpperMs(99)} · stallsOver100Ms=${histogram.stallsOver100Ms} · percentileOverflow=${histogram.overflow} · frameBudgetMs=${frameBudgetNs / 1_000_000.0} · screen=${screens.maxByOrNull { it.key }?.value ?: activity.javaClass.simpleName} · graphicsEffects=${RenderingEffectDiagnostics.snapshot()} · operation=${JavaHeapWorkGate.activeOperations} · javaHeapUsedBytes=${Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory()} · javaHeapMaxBytes=${Runtime.getRuntime().maxMemory()} · activeRuns=${runPhases.entries.joinToString { "${it.key}:${it.value}" }}")
                 histogram.clear()
                 frames = 0
                 slow = 0
@@ -71,11 +71,7 @@ internal object FrameTimingRecorder {
 
     fun refresh() {
         Handler(Looper.getMainLooper()).post {
-            if (AppLogRecorder.enabled.value) {
-                active.get()?.let(::start)
-            } else {
-                listeners.keys.toList().forEach { activity -> listeners.remove(activity)?.let { activity.window.removeOnFrameMetricsAvailableListener(it) } }
-            }
+            active.get()?.let(::start)
         }
     }
 

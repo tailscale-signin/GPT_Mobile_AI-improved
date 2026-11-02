@@ -6,6 +6,10 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ResilientStreamingClientTest {
+    @Test fun wrappedSerializationFailuresNeverEnterTransportRetry() {
+        assertFalse(ResilientStreamingClient.isRetryable(IOException("wrapped", kotlinx.serialization.SerializationException("Serializer for subclass TreeMap is not found"))))
+    }
+
     @Test
     fun `gateway contract repair exhaustion never starts a transport retry`() {
         for (code in listOf("missing_required_tool_call", "completion_repair_budget_exhausted", "terminal_job_not_resumable", "invalid_v14_request", "Backend omitted the required tool call.")) {

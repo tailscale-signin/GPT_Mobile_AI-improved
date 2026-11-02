@@ -124,7 +124,9 @@ class GPTMobileApp :
                         private var backgroundRelease: kotlinx.coroutines.Job? = null
                         override fun onStart(owner: androidx.lifecycle.LifecycleOwner) {
                             backgroundRelease?.cancel()
-                            dev.chungjungsoo.gptmobile.data.research.work.ResearchExaminationWorker.enqueue(this@GPTMobileApp)
+                            applicationScope.launch {
+                                dev.chungjungsoo.gptmobile.data.research.work.ResearchExaminationWorker.reconcile(this@GPTMobileApp, startupDependencies().researchArchiveRepository())
+                            }
                         }
                         override fun onStop(owner: androidx.lifecycle.LifecycleOwner) {
                             backgroundRelease?.cancel()
@@ -141,7 +143,7 @@ class GPTMobileApp :
                     })
                 }
             }
-            dev.chungjungsoo.gptmobile.data.research.work.ResearchExaminationWorker.enqueue(this@GPTMobileApp)
+            dev.chungjungsoo.gptmobile.data.research.work.ResearchExaminationWorker.reconcile(this@GPTMobileApp, startupDependencies().researchArchiveRepository())
             val startup = startupDependencies()
             val temporary = conversationDatabase.get().chatRoomDao().temporaryChats()
             if (temporary.isNotEmpty()) {
@@ -303,6 +305,7 @@ interface StartupDependencies {
     fun agentRunDao(): AgentRunDao
     fun agentPersistenceDao(): AgentPersistenceDao
     fun combinedLifecycleReconciler(): dev.chungjungsoo.gptmobile.data.agent.CombinedLifecycleReconciler
+    fun researchArchiveRepository(): dev.chungjungsoo.gptmobile.data.research.feature.ResearchArchiveRepository
     fun researchStartupReconciler(): dev.chungjungsoo.gptmobile.data.research.ResearchStartupReconciler
     fun localRuntime(): LocalRuntime
     fun agentRunCoordinator(): AgentRunCoordinator

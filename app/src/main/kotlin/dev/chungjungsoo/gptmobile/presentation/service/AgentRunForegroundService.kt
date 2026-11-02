@@ -60,6 +60,9 @@ class AgentRunForegroundService : Service() {
     private var idleStopJob: Job? = null
     private var latestStartId = 0
     private var wakeLock: PowerManager.WakeLock? = null
+    private val serviceInstanceId = java.util.UUID.randomUUID().toString()
+    private val createdAtMs = SystemClock.elapsedRealtime()
+    private var stopReason = "SERVICE_DESTROYED_WITHOUT_STOP_RECEIPT"
     private var wasActive = false
     private var isForeground = false
     private var lastActiveProfileUid: String? = null
@@ -71,7 +74,7 @@ class AgentRunForegroundService : Service() {
     override fun onCreate() {
         super.onCreate()
         // Lazy injection keeps databases/model initialization out of the promotion deadline.
-        AppLogRecorder.record("AgentService", "SERVICE_CREATED · elapsedMs=${SystemClock.elapsedRealtime()}")
+        AppLogRecorder.record("AgentService", "SERVICE_CREATED · serviceId=$serviceInstanceId · elapsedMs=${SystemClock.elapsedRealtime()}")
         createNotificationChannel()
         updateNotification(emptyList())
         acquireWakeLock()
@@ -120,9 +123,10 @@ class AgentRunForegroundService : Service() {
         idleStopJob?.cancel()
         // Re-promote an existing instance if a previous run was stopping.
         updateNotification(emptyList())
-        AppLogRecorder.record("AgentService", "START_DELIVERED · startId=$startId · elapsedMs=${SystemClock.elapsedRealtime()}")
+        AppLogRecorder.record("AgentService", "START_DELIVERED · serviceId=$serviceInstanceId · startId=$startId · activeRunIds=${agentRunCoordinator.activeRuns.value.keys.joinToString(",")} · elapsedMs=${SystemClock.elapsedRealtime()}")
         if (activeRunsJob == null) observeActiveRuns()
         if (intent?.action == ACTION_CANCEL_ALL) {
+            stopReason = "USER_CANCEL_ALL"
             agentRunCoordinator.cancelAll()
             scheduleIdleStop()
             return START_NOT_STICKY
@@ -147,12 +151,14 @@ class AgentRunForegroundService : Service() {
                 ServiceCompat.stopForeground(this@AgentRunForegroundService, ServiceCompat.STOP_FOREGROUND_REMOVE)
                 isForeground = false
                 promoted.set(false)
-                AppLogRecorder.record("AgentService", "STOPPED · startId=$startId · elapsedMs=${SystemClock.elapsedRealtime()}")
+                if (stopReason != "USER_CANCEL_ALL") stopReason = if (wasActive) "ACTIVE_RUNS_SETTLED" else "NO_ACTIVE_RUN_OBSERVED"
+                AppLogRecorder.record("AgentService", "STOPPED · serviceId=$serviceInstanceId · startId=$startId · reason=$stopReason · lifetimeMs=${SystemClock.elapsedRealtime() - createdAtMs} · activeRunCount=0 · providerOutcome=SEE_RUN_RECEIPTS")
             }
         }
     }
 
     override fun onTimeout(startId: Int, fgsType: Int) {
+        stopReason = "PLATFORM_TIMEOUT"
         AppLogRecorder.record("AgentService", "PLATFORM_TIMEOUT · startId=$startId · type=$fgsType · checkpointed evidence retained", "W")
         agentRunCoordinator.cancelAll()
         releaseWakeLock()
@@ -165,6 +171,7 @@ class AgentRunForegroundService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
+        AppLogRecorder.record("AgentService", "SERVICE_DESTROYED · serviceId=$serviceInstanceId · reason=$stopReason · activeRunIds=${agentRunCoordinator.activeRuns.value.keys.joinToString(",")} · lifetimeMs=${SystemClock.elapsedRealtime() - createdAtMs}")
         promoted.set(false)
         activeRunsJob?.cancel()
         serviceScope.cancel()

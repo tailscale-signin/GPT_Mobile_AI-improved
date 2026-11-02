@@ -353,7 +353,11 @@ internal class ModernMcpTransport(private val http: HttpClient, private val inte
             var bytes = 0
             var envelope: JsonObject? = null
             while (envelope == null) {
-                val line = channel.readUTF8Line(1_048_576)
+                val line = if (streaming) {
+                    withMcpStreamIdleDeadline(30_000L) { channel.readUTF8Line(1_048_576) }
+                } else {
+                    channel.readUTF8Line(1_048_576)
+                }
                 if (line == null) {
                     if (buffer.isNotEmpty()) envelope = runCatching { json.parseToJsonElement(buffer.toString()).jsonObject }.getOrNull()
                     break

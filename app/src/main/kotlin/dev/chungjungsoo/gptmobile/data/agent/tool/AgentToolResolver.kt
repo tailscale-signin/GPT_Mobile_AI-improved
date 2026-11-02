@@ -1418,7 +1418,7 @@ class AgentToolResolver @Inject constructor(
         val selectedNames = bindings.map { it.binding.toolName }.toSet()
         val remoteTools = if (cachedOnly) mcpClientManager.peekToolsForConnection(connection.connectionUid, connection.endpointUrl, connection.allowCleartext).orEmpty() else discoverMcpTools(connection)
         (selectedNames - remoteTools.map { it.name }.toSet()).forEach { name ->
-            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("ToolCatalog", "TOOL_OMITTED · stage=resolution · connection=${connection.connectionUid} · name=$name · reason=${if (cachedOnly) "CACHED_CATALOG_MISS_DISCOVERY_REQUIRED" else "REMOTE_TOOL_NOT_LISTED"}")
+            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("ToolCatalog", "TOOL_OMITTED · stage=resolution · connection=${connection.connectionUid} · name=$name · reason=${if (cachedOnly) "CATALOG_DISCOVERY_PENDING_OR_RECOVERING" else "REMOTE_TOOL_NOT_LISTED"}")
         }
         val janNafta = AmazonJanNaftaTool.recognizes(connection, remoteTools.map { it.name }.toSet())
         return remoteTools

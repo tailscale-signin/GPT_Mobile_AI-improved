@@ -266,23 +266,13 @@ object AppLogRecorder {
                     val association = incidents.accept(line, identity, null)
                     output.appendLine(if (structured) structuredDiagnosticLine(line, "runtime_incident_history", duplicate = !seen.add(identity), captureIdentity = identity, incidentId = association.id, incidentRoot = association.first, exportedAtMillis = exportedAt) else line)
                 }
-                var parent: String? = null
-                var sequence = 0
                 snapshot.forEach { (source, bytes) ->
+                    val cursor = DiagnosticCaptureCursor(source, seen)
                     bytes.inputStream().bufferedReader().useLines { lines ->
                         lines.forEachIndexed { index, line ->
-                            val root = Regex("^\\S+ [VDIWEF]/[^:]+: ").containsMatchIn(line)
-                            val explicit = Regex("(?:^|: | · )eventId=([a-zA-Z0-9_.:-]+)").find(line)?.groupValues?.get(1)
-                            if (root) {
-                                parent = explicit ?: "$source:$index"
-                                sequence = 0
-                            } else {
-                                Regex("(?:^| · )parentEventId=([a-zA-Z0-9_.:-]+)").find(line)?.groupValues?.get(1)?.let { parent = it }
-                                sequence = Regex("(?:^| · )sequence=([0-9]+)").find(line)?.groupValues?.get(1)?.toIntOrNull() ?: (sequence + 1)
-                            }
-                            val identity = if (root) parent!! else "${parent ?: source}:$sequence"
-                            val incident = incidents.accept(line, identity, parent.takeUnless { root })
-                            output.appendLine(if (structured) structuredDiagnosticLine(line, source, !seen.add(identity), parent.takeUnless { root }, sequence, identity, incident.id, incident.first, exportedAtMillis = exportedAt) else line)
+                            val record = cursor.accept(line, index)
+                            val incident = incidents.accept(line, record.identity, record.parent)
+                            output.appendLine(if (structured) structuredDiagnosticLine(line, source, record.duplicate, record.parent, record.sequence, record.identity, incident.id, incident.first, exportedAtMillis = exportedAt) else line)
                         }
                     }
                 }

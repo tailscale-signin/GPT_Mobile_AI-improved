@@ -735,6 +735,9 @@ class AgentRunCoordinator @Inject constructor(
             null
         }
         val startedAt = currentEpochSeconds()
+        val executionStartNanos = System.nanoTime()
+        var firstVisibleOutput = false
+        AppLogRecorder.record("Agent", "RUN_EXECUTION_STARTED · runId=${request.runId} · chatId=${request.chatId} · phase=PREPARATION · providerDispatched=unknown")
         var assistantMessage = request.assistantMessage
         val recoveryMarkers = request.assistantMessage.timeline.filter { it.recovery?.generationId == request.runId || it.combinedTurn != null || it.writerIdentity != null }
         var committedPrefix = request.assistantMessage.content.takeIf { request.runId.startsWith("combined-synthesis:") }.orEmpty()
@@ -812,6 +815,10 @@ class AgentRunCoordinator @Inject constructor(
                 }
                 val outcome = response.flowOn(researchLifecycle ?: kotlin.coroutines.EmptyCoroutineContext).collectApiStateUpdates(
                     onUpdate = { content, thoughts, timeline ->
+                        if (!firstVisibleOutput && content.isNotBlank()) {
+                            firstVisibleOutput = true
+                            AppLogRecorder.record("Agent", "RUN_FIRST_VISIBLE_OUTPUT · runId=${request.runId} · elapsedMs=${(System.nanoTime() - executionStartNanos) / 1_000_000} · visibleCharacters=${content.length}")
+                        }
                         val retained = if (content.isEmpty() && committedPrefix.isNotEmpty()) committedPrefix else content
                         require(retained.startsWith(committedPrefix)) { "A resumed Combined stream attempted to replace its committed prefix." }
                         assistantMessage = assistantMessage.copy(

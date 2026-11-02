@@ -5729,6 +5729,7 @@ class ChatRepositoryImpl(
     ): Boolean {
         val finished = agentPersistenceDao.finishQueuedWithFailure(runId, status, completedAt, terminalError)
         if (finished) {
+            AppLogRecorder.record("Agent", "RUN_TERMINAL · runId=$runId · status=$status · reason=QUEUED_RUN_CLOSED · terminalErrorRetained=${terminalError != null} · dispatched=false")
             agentPersistenceDao.recoveryRun(runId)?.let { run -> agentPersistenceDao.recoveryMessage(run.assistantMessageId)?.let { settleCombinedStage(runId, it, status, terminalError) } }
             dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.record(runId, dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.RUN_TERMINAL, successful = false)
         }
@@ -5774,6 +5775,7 @@ class ChatRepositoryImpl(
         // reservation and original remote job until an explicit check or cancellation.
         if (status == AgentRunStatus.WAITING_REMOTE_JOB) return committed
         if (committed) {
+            AppLogRecorder.record("Agent", "RUN_TERMINAL · runId=$runId · status=$status · reason=${if (terminalError == null) "PROVIDER_FLOW_FINISHED" else "RETAINED_TERMINAL_ERROR"} · terminalErrorRetained=${terminalError != null} · visibleCharacters=${message.content.length} · reasoningCharacters=${message.thoughts.length} · ownershipFence=${message.ownershipFence}")
             settleCombinedStage(runId, message, status, terminalError)
             dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.let { journal ->
                 withContext(Dispatchers.Default) { journal.traceOutput(runId, dev.chungjungsoo.gptmobile.data.diagnostics.OutputTraceBoundary.COMMITTED, message.content, fence = message.ownershipFence) }

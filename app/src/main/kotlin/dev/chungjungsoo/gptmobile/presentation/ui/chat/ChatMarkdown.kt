@@ -238,7 +238,9 @@ private fun ChatMarkdownContent(
                         val parsed = parseChatMarkdown(visibleSource, cacheResult = !request.streaming, checkActive = { renderContext.ensureActive() })
                         // Rendering is sampled above; completed passage mappings can colour live output.
                         // Shared, invalid and unknown source declarations remain neutral.
-                        val wantsWording = request.wording != null && !request.streaming
+                        val wordingCandidate = request.wording != null && !request.streaming && request.content.isNotBlank()
+                        val wantsWording = wordingCandidate &&
+                            (request.wording?.sources?.isNotEmpty() == true || request.wording?.passages?.isNotEmpty() == true)
                         val mapped = if (request.provenance != null || wantsWording) {
                             buildMappedMarkdown(request.content, visibleSource, parsed, displayMathNonce)
                         } else {
@@ -252,16 +254,16 @@ private fun ChatMarkdownContent(
                         } else {
                             emptyList()
                         }
-                        if (wantsWording && !request.streaming && CombinedAttributionDiagnostics.changed("mapping:${request.outputTrace?.runId}:$contentIdentity", dev.chungjungsoo.gptmobile.data.research.researchHash(request.content + profileSpans))) {
+                        if (wordingCandidate && CombinedAttributionDiagnostics.changed("mapping:${request.outputTrace?.runId}:$contentIdentity", dev.chungjungsoo.gptmobile.data.research.researchHash(request.content + profileSpans))) {
                             val zeroReason = when {
                                 profileSpans.isNotEmpty() -> "NONE"
                                 request.content.isBlank() -> "EMPTY_RENDER_INPUT"
-                                request.wording?.sources.isNullOrEmpty() -> "NO_CONTRIBUTOR_HEADERS"
+                                request.wording?.sources.isNullOrEmpty() -> "STRUCTURED_CONTRIBUTORS_UNAVAILABLE"
                                 mapped?.second?.runs.isNullOrEmpty() -> "NO_VERBATIM_MARKDOWN_RUNS"
                                 request.wording?.sources.orEmpty().all { it.content.isBlank() } && request.wording?.passages.isNullOrEmpty() -> "SOURCE_MAP_UNAVAILABLE"
                                 else -> "NO_CONSERVATIVE_LINK_MATCH"
                             }
-                            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("CombinedPalette", "DISPLAY_SPAN_MAPPING · run=${request.outputTrace?.runId.orEmpty()} · part=${request.outputTrace?.partId.orEmpty()} · contentIdentityDigest=${dev.chungjungsoo.gptmobile.data.research.researchHash(contentIdentity.toString())} · bodyDigest=${dev.chungjungsoo.gptmobile.data.research.researchHash(request.content)} · parser=$ATTRIBUTION_MARKDOWN_PARSER_VERSION · zeroLinkReason=$zeroReason · uniqueSpans=${profileSpans.count { it.profileUids.size == 1 }} · sharedSpans=${profileSpans.count { it.profileUids.size > 1 }} · linkedCharacters=${profileSpans.sumOf { it.end - it.start }} · represented=${profileSpans.flatMap { it.profileUids }.distinct().take(32)} · palette=PERSISTED_PROFILE_HUE · factualVerification=false")
+                            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("CombinedPalette", "DISPLAY_SPAN_MAPPING · run=${request.outputTrace?.runId ?: "unavailable"} · part=${request.outputTrace?.partId ?: "unavailable"} · contentIdentityDigest=${dev.chungjungsoo.gptmobile.data.research.researchHash(contentIdentity.toString())} · bodyDigest=${dev.chungjungsoo.gptmobile.data.research.researchHash(request.content)} · parser=$ATTRIBUTION_MARKDOWN_PARSER_VERSION · zeroLinkReason=$zeroReason · uniqueSpans=${profileSpans.count { it.profileUids.size == 1 }} · sharedSpans=${profileSpans.count { it.profileUids.size > 1 }} · linkedCharacters=${profileSpans.sumOf { it.end - it.start }} · represented=${profileSpans.flatMap { it.profileUids }.distinct().take(32)} · palette=PERSISTED_PROFILE_HUE · factualVerification=false")
                         }
                         PreparedChatMarkdown(parsed, combined, memoryHighlightRanges(combined, request.memoryValues), ProfileSpanIndex(profileSpans), dev.chungjungsoo.gptmobile.data.research.researchHash(request.content), Regex("""\[[^\]\n]*]\([^)\n]+\)|https?://[^\s<>]+""").findAll(combined).map { it.range }.toList())
                     }

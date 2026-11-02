@@ -76,7 +76,9 @@ fun Modifier.glassBackdropSource(): Modifier {
 internal fun hasGlassBackdrop(force: Boolean = false): Boolean {
     val pressure = remember { dev.chungjungsoo.gptmobile.presentation.ui.chat.ChatRuntimeHealth.memory.map { it.level != "normal" }.distinctUntilChanged() }
     val underPressure by pressure.collectAsState(initial = false)
+    val reduceEffects by dev.chungjungsoo.gptmobile.data.diagnostics.FrameEffectPressure.guard.reduced.collectAsState()
     return !underPressure &&
+        !reduceEffects &&
         LocalGlassBackdrop.current != null &&
         LocalGlassBackdropActive.current &&
         (force || LocalOverlayMaterial.current == "glass" && LocalOverlayBlur.current == "auto")

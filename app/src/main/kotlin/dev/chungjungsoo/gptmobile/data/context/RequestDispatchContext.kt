@@ -64,6 +64,9 @@ internal class RequestDispatchContext(private val candidates: Set<JsonObject>, p
         val role = dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticRole.from(receipt.role)
         val trace = dev.chungjungsoo.gptmobile.data.network.HttpAttemptTrace { kind, elapsed ->
             if (kind in setOf(dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.REQUEST_BODY_END, dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.RESPONSE_HEADERS)) researchTrace?.transmitted(attempt, elapsed)
+            if (kind == dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.REQUEST_BODY_END || kind == dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.RESPONSE_HEADERS) {
+                dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Agent", "PROVIDER_TRANSPORT_RECEIPT · runId=${owner ?: "unavailable"} · invocationId=${invocation ?: "unavailable"} · physicalAttemptId=$attempt · stage=${kind.name} · elapsedMs=$elapsed · inferenceSuccess=unverified")
+            }
             owner?.let { dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.record(it, kind, role, invocationId = invocation, physicalAttemptId = attempt, elapsedMillis = elapsed) }
         }
         attemptTraces[attempt] = trace

@@ -42,7 +42,7 @@ internal fun examinationConfigurationRevision(features: AppFeatureSettings, prof
             put("ordinary", policy.ordinaryChatAutoExamination)
             put("background", policy.backgroundExamination)
             put("remote", features.remoteMcpConnections)
-            put("selection_scope", Json.encodeToJsonElement(if (chatId == null) features.conversationResearch.toSortedMap() else features.conversationResearch.filterKeys { it == chatId }))
+            put("selection_scope", Json.encodeToJsonElement<Map<Int, dev.chungjungsoo.gptmobile.data.model.MultiSearchResearchSelection>>(if (chatId == null) features.conversationResearch.toSortedMap() else features.conversationResearch.filterKeys { it == chatId }))
             put(
                 "profiles",
                 JsonArray(

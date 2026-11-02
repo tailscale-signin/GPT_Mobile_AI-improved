@@ -208,6 +208,20 @@ class ResearchExaminationWorker @AssistedInject constructor(
     private fun configurationBlocked(failure: Exception): Boolean = failure.message.orEmpty().let { it.contains("EXAMINER_OUTPUT_CAPACITY") || it.contains("Choose an enabled examination") || it.contains("consent") || it.contains("disabled") || it.contains("reviewer unavailable", true) || it.contains("REQUIRED_REVIEWER_UNAVAILABLE") || it.contains("policy changed", true) || it.contains("does not permit article retrieval") || it.contains("Article tools are excluded") || it.contains("Web-only scope") || it.contains("Increase Research Depth") || it.contains("Research is off") }
 
     companion object {
+        private val lastReconciliation = java.util.concurrent.atomic.AtomicLong(Long.MIN_VALUE)
+
+        suspend fun reconcile(context: Context, archive: ResearchArchiveRepository) {
+            val recoveryStages = dev.chungjungsoo.gptmobile.data.research.feature.ExaminationLifecycle.active + dev.chungjungsoo.gptmobile.data.research.feature.ExaminationLifecycle.waiting
+            if (!archive.dao.hasExaminationRecoveryWork(recoveryStages.map { it.name })) return
+            val now = android.os.SystemClock.elapsedRealtime()
+            while (true) {
+                val previous = lastReconciliation.get()
+                if (previous != Long.MIN_VALUE && now - previous in 0..60_000L) return
+                if (lastReconciliation.compareAndSet(previous, now)) break
+            }
+            enqueue(context)
+        }
+
         fun enqueue(context: Context, reconsider: Boolean = false) {
             val networkReady = androidx.work.Constraints.Builder()
                 .setRequiredNetworkType(androidx.work.NetworkType.CONNECTED)

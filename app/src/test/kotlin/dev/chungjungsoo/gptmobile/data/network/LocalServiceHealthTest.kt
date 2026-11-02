@@ -10,6 +10,15 @@ import org.junit.Before
 import org.junit.Test
 
 class LocalServiceHealthTest {
+    @Test fun recoveryCoordinationAndIntentionalCancellationDoNotCreateEndpointFailures() {
+        val url = "https://recovery.example/mcp"
+        LocalServiceHealth.recordFailure(url, IllegalStateException("DNS_RECOVERY: probe already owned"))
+        LocalServiceHealth.recordFailure(url, kotlinx.coroutines.CancellationException("navigation"))
+        assertEquals(0L, LocalServiceHealth.retryAfterMillis(url))
+        assertEquals(ConnectionHealth.UNKNOWN, LocalServiceHealth.health(url))
+        assertEquals(ConnectionHealth.STREAM_IDLE_TIMEOUT, LocalServiceHealth.classify(dev.chungjungsoo.gptmobile.data.agent.tool.McpStreamIdleTimeoutException(100)))
+    }
+
     @Before fun reset() = LocalServiceHealth.networkChanged()
 
     @After fun clear() = LocalServiceHealth.networkChanged()

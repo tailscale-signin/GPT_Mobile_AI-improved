@@ -22,6 +22,7 @@ enum class ConnectionHealth {
     HTTP_ERROR,
     MCP_HANDSHAKE_FAILED,
     STREAM_INTERRUPTED,
+    STREAM_IDLE_TIMEOUT,
     HEALTHY,
     UNKNOWN
 }
@@ -56,7 +57,7 @@ internal object LocalServiceHealth {
 
     fun recordLocalFailure(url: String, failure: Throwable) {
         if (endpointLocality(url) == EndpointLocality.EXTERNAL || failure is kotlinx.coroutines.CancellationException) return
-        if (classify(failure) in setOf(ConnectionHealth.DNS_FAILED, ConnectionHealth.ROUTE_UNAVAILABLE, ConnectionHealth.CONNECTION_REFUSED, ConnectionHealth.CONNECT_TIMEOUT, ConnectionHealth.STREAM_INTERRUPTED)) recordFailure(url, failure)
+        if (classify(failure) in setOf(ConnectionHealth.DNS_FAILED, ConnectionHealth.ROUTE_UNAVAILABLE, ConnectionHealth.CONNECTION_REFUSED, ConnectionHealth.CONNECT_TIMEOUT, ConnectionHealth.STREAM_INTERRUPTED, ConnectionHealth.STREAM_IDLE_TIMEOUT)) recordFailure(url, failure)
     }
 
     fun recordLocalHandshakeSuccess(url: String) {
@@ -103,6 +104,7 @@ internal object LocalServiceHealth {
         return when {
             causes.any { it is java.net.UnknownHostException } -> ConnectionHealth.DNS_FAILED
             "dns_recovery" in message -> ConnectionHealth.DNS_RECOVERY
+            "mcp_stream_idle_timeout" in message -> ConnectionHealth.STREAM_IDLE_TIMEOUT
             causes.any { it is java.net.NoRouteToHostException } -> ConnectionHealth.ROUTE_UNAVAILABLE
             causes.any { it is java.net.SocketTimeoutException || it.javaClass.simpleName == "ConnectTimeoutException" } || "timed out" in message -> ConnectionHealth.CONNECT_TIMEOUT
             causes.any { it is ConnectException } && ("refused" in message || "econnrefused" in message) -> ConnectionHealth.CONNECTION_REFUSED
@@ -120,6 +122,7 @@ internal object LocalServiceHealth {
         val uri = endpoint(url) ?: return
         val health = classify(failure)
         if (endpointLocality(url) == EndpointLocality.EXTERNAL) dev.chungjungsoo.gptmobile.data.research.academic.ResearchConnectivityGate.shared.failed(uri.host, failure)
+        if (health == ConnectionHealth.DNS_RECOVERY) return
         val scope = if (health == ConnectionHealth.DNS_FAILED) dnsKey(uri) else key(uri)
         trim()
         val count = ((states[scope]?.failures ?: 0) + 1).coerceAtMost(8)

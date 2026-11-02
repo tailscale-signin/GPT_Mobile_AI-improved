@@ -12,7 +12,7 @@ python -m pip install -r requirements.txt
 python -m unittest discover -s tests
 ```
 
-The server defaults to `127.0.0.1:8090`. Gateway 15 uses explicit key-free private access: direct loopback or a dedicated Tailscale Serve listener with an exact hostname and explicit user grants. Do not bind the gateway to a private/LAN/public interface; configuration validation rejects non-loopback binds. Remote administration is not permitted.
+The server defaults to `127.0.0.1:8090`. This branch proposes independent network binding (`127.0.0.1`, a selected interface, or `0.0.0.0`) with authenticated remote access. The current runtime still rejects non-loopback binding. Until runtime authorization, installer settings, firewall controls, and Android connection validation are implemented and tested, retain loopback-only access; do not expose key-free access over a LAN or public interface. Remote administration remains prohibited.
 
 For Windows, use the bundled installer and [desktop setup and update guide](desktop/README.md). It exposes backend, performance, Tailscale identity, startup and update controls and preserves user data across updates. For a manual Python installation, follow the trusted-proxy configuration in [V14_UPGRADE.md](V14_UPGRADE.md). Legacy paired bearer access is opt-in compatibility behavior, not the default.
 

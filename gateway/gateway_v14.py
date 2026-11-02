@@ -4,6 +4,7 @@ import os
 import sys
 import re
 import asyncio
+import uuid
 import json
 import importlib.metadata
 from pathlib import Path
@@ -96,15 +97,16 @@ async def dashboard_snapshot():
 async def chat(request: Request):
     payload = None
     stage = "request_validation"
+    request_id = request.headers.get("x-request-id") or uuid.uuid4().hex
     def rejected(code, message, status=400, retryable=False):
-        source = payload if isinstance(payload, dict) else {}
+        source = getattr(request, "_json", payload)
+        source = source if isinstance(source, dict) else {}
         job_id = request.headers.get("x-gateway-job-id") or source.get("gateway_job_id") or source.get("_gateway_job_id")
         error = {"code": code, "failureCode": code, "message": message,
                  "retryable": retryable, "failed_stage": stage,
                  "dispatch_state": "not_dispatched" if stage != "model_execution" else "unknown"}
         if isinstance(job_id, str) and len(job_id) <= 256:
             error["job_id"] = job_id
-        request_id = request.headers.get("x-request-id")
         if request_id and len(request_id) <= 256:
             error["request_id"] = request_id
         return JSONResponse({"error": error}, status_code=status)
@@ -152,7 +154,9 @@ async def chat(request: Request):
     except runtime.GatewayContractError as exc:
         # These contract messages describe schema/state, never request content.
         # Keep the code/status so clients do not retry deterministic rejection.
-        if exc.status >= 500:
+        if exc.code == "context_capacity_unverified":
+            stage = "context_admission"
+        elif exc.status >= 500:
             stage = "model_execution"
         elif exc.code.startswith(("client_tool_", "terminal_job_")):
             stage = "tool_continuation"

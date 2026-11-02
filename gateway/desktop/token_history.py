@@ -22,7 +22,7 @@ class TokenHistory(tk.Canvas):
             return
         left, right, top, bottom = 68, width - 28, 20, height - 40
         values = [day.get('outputTokens') for day in self.days]
-        maximum = max([value for value in values if isinstance(value, int)] + [1])
+        maximum = max([value for value in values if isinstance(value, int)] + [2])
         for fraction in (0, .5, 1):
             y = bottom - (bottom - top) * fraction
             c.create_line(left, y, right, y, fill='#303C3F')

@@ -243,7 +243,7 @@ class Dashboard:
         values = (number(usage.get('outputTokens')), number(days[-1].get('outputTokens')) if days else 'Not measured',
                   f'{speed:.1f} tok/s' if isinstance(speed, (int, float)) else 'Not measured', number(active))
         for card, value in zip(self.cards, values):
-            card.configure(text=value)
+            card.configure(text=value, font=('Segoe UI', (12 if self.compact else 14) if len(value) > 9 else (20 if self.compact else 24), 'bold'))
         self.chart.update_days(days)
         self.metrics.configure(text='Saved measurements' if not fresh else 'Updated after each model round')
         missing = usage.get('unmeasuredRounds', 0)

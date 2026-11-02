@@ -123,6 +123,7 @@ class JournalTests(unittest.TestCase):
                     self.assertEqual('client_tool_results_required', missing.json()['error']['code'])
                     self.assertEqual('tool_continuation', missing.json()['error']['failed_stage'])
                     self.assertEqual(job_id, missing.json()['error']['job_id'])
+                    self.assertTrue(missing.json()['error']['request_id'])
                     self.assertEqual('not_dispatched', missing.json()['error']['dispatch_state'])
                     body['messages'] += [tool_message, {'role': 'tool', 'tool_call_id': call['id'], 'content': 'Two workflows found'}]
                     second = client.post('/v1/chat/completions', json=body, headers=dict(headers, **{'X-Gateway-Job-ID': job_id}))

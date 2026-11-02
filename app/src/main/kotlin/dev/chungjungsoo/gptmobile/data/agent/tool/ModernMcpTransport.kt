@@ -73,7 +73,7 @@ internal class ModernMcpTransport(private val http: HttpClient, private val inte
         dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.requireAvailable(config.endpointUrl)
         val endpointHost = URI(config.endpointUrl).host
         val connectivity = dev.chungjungsoo.gptmobile.data.research.academic.ResearchConnectivityGate.shared
-        val lease = connectivity.acquire(endpointHost) ?: error("DNS_RECOVERY: MCP discovery is waiting for the single connectivity probe.")
+        val lease = connectivity.acquire(endpointHost) ?: error("DNS_RECOVERY: MCP discovery is waiting for the single connectivity probe; retryAfterMs=${connectivity.recoveryDelayMillis(endpointHost)}.")
         val discovered = try {
             val discovery = rpc(config, "server/discover", JsonObject(emptyMap()))
             val advertised = discovery["supportedVersions"]

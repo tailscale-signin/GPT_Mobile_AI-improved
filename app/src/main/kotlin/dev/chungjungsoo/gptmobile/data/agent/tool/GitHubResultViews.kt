@@ -120,6 +120,28 @@ internal class GitHubResultViews(
         val entry = parts.firstOrNull()?.let(entries::get)
         val offset = parts.getOrNull(1)?.toIntOrNull()
         val requestedBytes = if (parts.size == 3) parts[2].toIntOrNull() else entry?.pageBytes
+        // A model sometimes drops the issued recovery page size. Do not authorize
+        // that invented handle, but return the exact issued call for that offset.
+        if (entry != null && entry.scope == scope && cursor !in entry.issuedCursors && parts.size in 2..3 && offset != null) {
+            val issued = entry.issuedCursors.firstOrNull { it.split(':').getOrNull(1)?.toIntOrNull() == offset }
+            if (issued != null) {
+                return AgentToolResult(
+                    callId,
+                    ToolResultContent.Json(
+                        buildJsonObject {
+                            put("schema", "github.arguments.v1")
+                            put("reason", "CURSOR_ALTERED")
+                            put("message", "Use the exact issued cursor and originating tool in correction_call. Nothing was dispatched.")
+                            put("correction_call", savedCall(entry.modelName, issued))
+                            entry.sourceRecovery?.let { put("source_recovery_call", it) }
+                        }
+                    ),
+                    true,
+                    errorCode = "SAVED_VIEW_CURSOR_ALTERED",
+                    dispatched = false
+                )
+            }
+        }
         // Reveal a correction only for a cursor already issued in this authorized scope.
         if (entry != null && entry.scope == scope && cursor in entry.issuedCursors && entry.operation != operation) {
             return AgentToolResult(
@@ -343,7 +365,7 @@ internal class GitHubResultViews(
     }
 
     private fun fragment(pointer: String, value: JsonElement, target: FragmentBuffer, pageBytes: Int) {
-        if (value.toString().toByteArray().size <= minOf(160, pageBytes / 4)) {
+        if (value.toString().toByteArray().size <= minOf(1024, pageBytes / 4)) {
             target += buildJsonObject {
                 put("pointer", pointer)
                 put("value", value)

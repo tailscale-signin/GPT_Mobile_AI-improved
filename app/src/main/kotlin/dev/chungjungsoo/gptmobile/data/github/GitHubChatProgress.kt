@@ -52,7 +52,7 @@ internal class GitHubChatProgress(task: String = "") {
                 purpose = "I’m organizing the findings, separating confirmed results from work that still needs verification."
                 "Putting the response together."
             }
-            is ApiState.GitHubRoundStarted -> "Reviewing the work so far."
+            is ApiState.GitHubRoundStarted -> activity
             is ApiState.Thinking -> if (activity.startsWith("Preparing")) "Examining the request and planning the relevant checks." else activity
             else -> activity
         }

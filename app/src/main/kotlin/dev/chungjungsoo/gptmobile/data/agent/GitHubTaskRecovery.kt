@@ -18,7 +18,7 @@ internal object GitHubTaskRecovery {
         if (Regex("REASONING_(?:ON|OFF)_UNSUPPORTED", RegexOption.IGNORE_CASE).containsMatchIn(message)) return null
         if (recoveries >= recoveryLimit(message)) return null
         val text = message.lowercase()
-        if (listOf("personal_data_", "precheck_rejected", "permission_denied", "permission_revoked", "auth_required", "auth_failed", "invalid_arguments", "unsupported_operation").any { it in text }) return null
+        if (listOf("policy_restricted", "no endpoints found matching your data policy", "personal_data_", "precheck_rejected", "permission_denied", "permission_revoked", "auth_required", "auth_failed", "invalid_arguments", "unsupported_operation").any { it in text }) return null
         if (blockedStatus.containsMatchIn(text) || listOf("rate limit", "certificate", "handshake", "unauthorized", "context limit", "cancelled by user").any { it in text }) return null
         if (!isRecoverableStreamFailure(message) && listOf("local_service_unreachable", "dns_recovery", "stream was reset", "connection refused").none { it in text }) return null
         val cooldown = retryAfter.find(message)?.groupValues?.get(1)?.toLongOrNull() ?: 0L

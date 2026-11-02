@@ -14,6 +14,7 @@ import kotlinx.coroutines.withContext
 
 enum class ConnectionHealth {
     DNS_FAILED,
+    DNS_RECOVERY,
     ROUTE_UNAVAILABLE,
     CONNECTION_REFUSED,
     AUTHENTICATION_FAILED,
@@ -101,6 +102,7 @@ internal object LocalServiceHealth {
         val message = causes.joinToString { it.message.orEmpty().take(512) }.lowercase()
         return when {
             causes.any { it is java.net.UnknownHostException } -> ConnectionHealth.DNS_FAILED
+            "dns_recovery" in message -> ConnectionHealth.DNS_RECOVERY
             causes.any { it is java.net.NoRouteToHostException } -> ConnectionHealth.ROUTE_UNAVAILABLE
             causes.any { it is java.net.SocketTimeoutException || it.javaClass.simpleName == "ConnectTimeoutException" } || "timed out" in message -> ConnectionHealth.CONNECT_TIMEOUT
             causes.any { it is ConnectException } && ("refused" in message || "econnrefused" in message) -> ConnectionHealth.CONNECTION_REFUSED

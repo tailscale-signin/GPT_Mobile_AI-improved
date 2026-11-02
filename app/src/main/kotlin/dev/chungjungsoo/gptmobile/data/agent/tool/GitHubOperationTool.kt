@@ -33,7 +33,7 @@ internal class GitHubOperationTool(
         // behalf: saved-view selectors are an authorization boundary, and only
         // the caller can submit the exact cursor-only correction.
         val result = previous?.copy(callId = callId, sharedResult = true) ?: executeOperation(callId, arguments)
-        if (result.isError && !result.dispatched && result.errorCode == "INVALID_ARGUMENTS") {
+        if (result.isError && !result.dispatched && result.errorCode in setOf("INVALID_ARGUMENTS", "SAVED_VIEW_UNAVAILABLE", "SAVED_VIEW_WRONG_OPERATION", "SAVED_VIEW_CURSOR_ALTERED")) {
             synchronized(rejectedCalls) {
                 rejectedCalls[arguments] = result
                 if (rejectedCalls.size > 128) rejectedCalls.remove(rejectedCalls.keys.first())
@@ -57,7 +57,8 @@ internal class GitHubOperationTool(
             result.errorCode?.let { put("error_code", it) }
         }
         dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("GitHubToolTrace", trace.toString())
-        return result.copy(executionReceipt = JsonObject(result.executionReceipt.orEmpty() + ("tool_trace" to trace)))
+        val incident = result.executionReceipt?.get("incident_id") ?: JsonPrimitive("github:" + dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore.digest(scope + "|" + callId).take(24))
+        return result.copy(executionReceipt = JsonObject(result.executionReceipt.orEmpty() + mapOf("tool_trace" to trace, "incident_id" to incident)))
     }
 
     private suspend fun executeOperation(callId: String, arguments: JsonObject): AgentToolResult {
@@ -543,7 +544,7 @@ internal class GitHubOperationTool(
                     }
                     listOf("min_lines", "max_lines").forEach { properties[it] = field("integer") }
                     properties["context_lines"] = integer(0, 100)
-                    properties["max_new_blobs"] = integer(1, 100, default = 16)
+                    properties["max_new_blobs"] = integer(1, 100, default = 4)
                     properties["batch_size"] = integer(1, 1000, default = 1000)
                     properties["page"] = field("integer")
                 }
@@ -761,7 +762,7 @@ internal class GitHubOperationTool(
                     properties["state"] = choice("open", "closed", "all")
                 }
             }
-            if (operation in setOf("github_context", "github_ci", "github_pr")) properties["response_detail"] = choice("compact", "full")
+            if (operation in setOf("github_context", "github_ci", "github_pr", "github_read")) properties["response_detail"] = choice("compact", "full")
             val description = when (operation) {
                 "github_context" -> "Inspect repo, commits and checks; changes needs base_sha. full adds metadata."
                 "github_search" -> "Search pinned code/paths; patterns uses *; fuzzy uses one identifier. Check coverage."

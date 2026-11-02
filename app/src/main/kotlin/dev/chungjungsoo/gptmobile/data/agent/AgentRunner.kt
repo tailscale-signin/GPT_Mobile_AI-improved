@@ -82,7 +82,9 @@ class AgentRunner(
         var rounds = 0
         if (retryUndispatchedBudgetFailures) checkpoint?.prepareExplicitBudgetRetry()
         val recovery = checkpoint?.recoverySnapshot(limits.checkpointRestoreObjective)
-        var toolCallCount = recovery?.dispatchedCount ?: 0
+        // An explicit retry grants a new bounded tranche. Historical receipts
+        // still reconcile effects; they must not exhaust the new attempt's budget.
+        var toolCallCount = if (retryUndispatchedBudgetFailures) 0 else recovery?.dispatchedCount ?: 0
         var toolMayHaveExecuted = (recovery?.dispatchedCount ?: 0) > 0
         var retriedWithoutTools = false
 
@@ -96,7 +98,11 @@ class AgentRunner(
         }
 
         if (finishedInTime == null) {
-            emit(failed("Agent run timed out after ${limits.runTimeoutMillis} ms."))
+            if (limits.githubTask && exchanges.isNotEmpty()) {
+                finishFromRetained(guardedSession, ProviderEvent.Failed("Agent run timed out after ${limits.runTimeoutMillis} ms. Completed receipts are retained; unfinished work can be resumed.", errorCode = "RUN_DEADLINE_REACHED"), true)
+            } else {
+                emit(failed("Agent run timed out after ${limits.runTimeoutMillis} ms."))
+            }
         }
     }.flowOn(limits.combined?.let(::CombinedRunScope) ?: kotlin.coroutines.EmptyCoroutineContext)
 
@@ -133,6 +139,7 @@ class AgentRunner(
         var unproductiveDiscoveryRounds = 0
         var suppressedReadRounds = 0
         var unsuccessfulGitHubRounds = 0
+        val investigation = GitHubInvestigationProgress()
         var finalizationToolRepairAttempted = false
         var restoredCalls = recovery?.pending.orEmpty()
         var restoredDispatched = recovery?.pendingDispatchedIds.orEmpty()
@@ -262,7 +269,7 @@ class AgentRunner(
                 }
                 finalizationToolRepairAttempted = true
             }
-            val resolvedCalls = round.calls.map { resolveGitHubReadAlias(it, executableToolByName.keys) }
+            val resolvedCalls = round.calls.map { resolveGitHubReadAlias(GitHubRecoveryCalls.resolve(it, exchanges, executableToolByName), executableToolByName.keys) }
             resolvedCalls.forEach { emit(AgentRunEvent.Provider(it)) }
             val calls = routeSearchCalls(resolvedCalls, executableToolByName)
             if (calls.isEmpty()) {
@@ -298,12 +305,13 @@ class AgentRunner(
             unproductiveDiscoveryRounds = completed.batch.discoveryRounds
             finalResponseRequested = completed.batch.finalResponseRequested
             unsuccessfulGitHubRounds = if (limits.githubTask && !completed.batch.hasSuccessfulResult) unsuccessfulGitHubRounds + 1 else 0
-            if (unsuccessfulGitHubRounds >= 3 && !finalResponseRequested && limits.combined?.requested?.singlePass != true) {
+            val stalled = if (limits.githubTask) exchanges.lastOrNull()?.let(investigation::observe) else null
+            if ((unsuccessfulGitHubRounds >= 3 || stalled != null) && !finalResponseRequested && limits.combined?.requested?.singlePass != true) {
                 finalResponseRequested = true
                 exposedDefinitions = emptyList()
                 executableToolByName = emptyMap()
                 instructFinalResponse(exchanges)
-                emit(AgentRunEvent.Notice("GitHub operations failed for three consecutive rounds. Finishing with saved results and the remaining blockers.", persistent = false))
+                emit(AgentRunEvent.Notice(stalled ?: "GitHub operations failed for three consecutive rounds. Finishing with saved results and the remaining blockers.", persistent = false))
             }
         }
     }

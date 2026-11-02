@@ -44,8 +44,9 @@ internal object GitHubReplayRecovery {
         val key = toolRepeatKey(call)
         val previous = exchanges.asReversed().firstNotNullOfOrNull { exchange ->
             val id = exchange.calls.lastOrNull { toolRepeatKey(it) == key }?.callId
-            exchange.results.lastOrNull { it.callId == id && !it.isError }
+            exchange.results.lastOrNull { it.callId == id && (!it.isError || !it.dispatched && it.errorCode in deterministicErrors) }
         } ?: return null
+        if (previous.isError) return previous.copy(callId = call.callId, dispatched = false, sharedResult = true, retainedContent = null, traceContent = null)
         val original = envelope(previous.content)
         return AgentToolResult(
             call.callId,
@@ -69,4 +70,6 @@ internal object GitHubReplayRecovery {
             sharedResult = true
         )
     }
+
+    private val deterministicErrors = setOf("INVALID_ARGUMENTS", "SAVED_VIEW_UNAVAILABLE", "SAVED_VIEW_WRONG_OPERATION", "SAVED_VIEW_CURSOR_ALTERED")
 }

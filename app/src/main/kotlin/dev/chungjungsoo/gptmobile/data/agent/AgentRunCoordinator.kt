@@ -458,6 +458,7 @@ class AgentRunCoordinator @Inject constructor(
             val completedAt = currentEpochSeconds()
             runIds.forEach { runId ->
                 deferredStarts.remove(runId)
+                AppLogRecorder.record("Agent", "RUN_CANCELLATION_REQUESTED · run=$runId · origin=${if (isInterrupted) dev.chungjungsoo.gptmobile.data.delegation.CancellationOrigin.PROCESS_INTERRUPTION else origin} · interrupted=$isInterrupted · workerPresent=${jobs[runId] != null}")
                 cancellationContexts[runId]?.mark(if (isInterrupted) dev.chungjungsoo.gptmobile.data.delegation.CancellationOrigin.PROCESS_INTERRUPTION else origin)
                 runCatching {
                     cancelAndJoinAgentRun(jobs[runId]) {

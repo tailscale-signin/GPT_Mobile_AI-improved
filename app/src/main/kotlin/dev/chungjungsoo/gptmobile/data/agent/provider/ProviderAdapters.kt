@@ -704,7 +704,10 @@ class OpenAICompatibleAdapter @Inject constructor(
                                     ).forEach { state ->
                                         state.toProviderEvent()?.let { publish(it) }
                                     }
-                                    if (choice.finishReason != null) terminalReceived = true
+                                    if (choice.finishReason != null) {
+                                        terminalReceived = true
+                                        emit(ProviderEvent.Usage(finishReason = choice.finishReason, phase = ProviderUsagePhase.FINAL))
+                                    }
                                     if (choice.finishReason == "length") {
                                         assembler.discardIncomplete()
                                         emit(ProviderEvent.Usage(finishReason = choice.finishReason))
@@ -937,6 +940,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                                     if (choice.finishReason != null) {
                                         terminalReceived = true
                                         lastFinishReason = choice.finishReason
+                                        emit(ProviderEvent.Usage(finishReason = choice.finishReason, phase = ProviderUsagePhase.FINAL, writerObservationKey = writerObservationKey))
                                     }
                                     if (!choice.effectiveDelta.content.isNullOrEmpty() || !choice.effectiveDelta.effectiveReasoning.isNullOrEmpty() || !choice.effectiveDelta.toolCalls.isNullOrEmpty()) deliveredPayload = true
                                     if (choice.finishReason == "length") {

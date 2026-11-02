@@ -29,6 +29,8 @@ import dev.chrisbanes.haze.HazeTint
 import dev.chrisbanes.haze.hazeEffect
 import dev.chrisbanes.haze.hazeSource
 import dev.chrisbanes.haze.rememberHazeState
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 
 internal val LocalGlassBackdrop = compositionLocalOf<HazeState?> { null }
 private val LocalInlineGlassBackdrop = compositionLocalOf<HazeState?> { null }
@@ -71,9 +73,14 @@ fun Modifier.glassBackdropSource(): Modifier {
 }
 
 @Composable
-internal fun hasGlassBackdrop(force: Boolean = false): Boolean = LocalGlassBackdrop.current != null &&
-    LocalGlassBackdropActive.current &&
-    (force || LocalOverlayMaterial.current == "glass" && LocalOverlayBlur.current == "auto")
+internal fun hasGlassBackdrop(force: Boolean = false): Boolean {
+    val pressure = remember { dev.chungjungsoo.gptmobile.presentation.ui.chat.ChatRuntimeHealth.memory.map { it.level != "normal" }.distinctUntilChanged() }
+    val underPressure by pressure.collectAsState(initial = false)
+    return !underPressure &&
+        LocalGlassBackdrop.current != null &&
+        LocalGlassBackdropActive.current &&
+        (force || LocalOverlayMaterial.current == "glass" && LocalOverlayBlur.current == "auto")
+}
 
 @OptIn(dev.chrisbanes.haze.ExperimentalHazeApi::class)
 @Composable

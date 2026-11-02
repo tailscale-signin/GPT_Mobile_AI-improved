@@ -25,9 +25,10 @@ internal object GitHubAnswerPresentation {
         } else {
             append(if (facts.isEmpty() && excerpts.isEmpty()) "The available evidence does not yet establish the requested result.\n" else "Current observations are listed below; unresolved work is identified separately.\n")
         }
-        if (facts.isNotEmpty()) {
+        val usefulFacts = if (title(task) == "Investigation findings") facts.filterNot { it.substringBefore(" |", "").endsWith(" · Path") || it.contains(" · Path |") } else facts
+        if (usefulFacts.isNotEmpty()) {
             val sections = if (GitHubStatusRequest.matches(task)) {
-                facts.distinct().groupBy { row ->
+                usefulFacts.distinct().groupBy { row ->
                     val label = row.substringAfter("| ").substringBefore(" |")
                     when {
                         label.startsWith("PR ") -> "Open pull requests"
@@ -37,7 +38,7 @@ internal object GitHubAnswerPresentation {
                     }
                 }.toSortedMap(compareBy { listOf("Repository details", "Checks for this commit", "Open pull requests", "Latest workflow").indexOf(it) })
             } else {
-                mapOf("Repository details" to facts.distinct())
+                mapOf("Repository details" to usefulFacts.distinct())
             }
             sections.forEach { (heading, rows) ->
                 append("\n## $heading\n\n| Detail | Result |\n| --- | --- |\n")

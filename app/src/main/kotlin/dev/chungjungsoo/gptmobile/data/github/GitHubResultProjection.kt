@@ -17,6 +17,18 @@ internal object GitHubResultProjection {
     )
 
     fun project(operation: String, request: JsonObject, source: JsonObject): JsonObject {
+        if (operation == "github_read" && request["response_detail"] != JsonPrimitive("full")) {
+            val graph = source["context_graph"] as? JsonObject ?: return source
+            return JsonObject(
+                source + (
+                    "context_graph" to JsonObject(
+                        graph.filterKeys { it !in setOf("edges", "suggested_ranges", "test_candidates", "guidance_paths") } + mapOf(
+                            "detail" to JsonPrimitive("Import edges omitted from this compact read. Request response_detail=full with the same immutable selectors to inspect them.")
+                        )
+                    )
+                    )
+            )
+        }
         if (request["response_detail"] == JsonPrimitive("full") || (request["action"] as? JsonPrimitive)?.content !in actions[operation].orEmpty()) return source
         var omitted = 0
         fun visit(value: JsonElement): JsonElement = when (value) {

@@ -659,7 +659,7 @@ class McpClientManager internal constructor(
             AppLogRecorder.record("MCP", "Connect started · connection=${config.connectionUid} · host=$endpointHost · transportTimeoutMs=$transportConnectTimeoutMs · initializationTimeoutMs=$effectiveSessionTimeoutMs")
             val result = runCatching {
                 val connectivity = dev.chungjungsoo.gptmobile.data.research.academic.ResearchConnectivityGate.shared
-                val lease = connectivity.acquire(endpointHost) ?: error("DNS_RECOVERY: MCP connection is waiting for the single connectivity probe.")
+                val lease = connectivity.acquire(endpointHost) ?: error("DNS_RECOVERY: MCP connection is waiting for the single connectivity probe; retryAfterMs=${connectivity.recoveryDelayMillis(endpointHost)}.")
                 try {
                     val transport = StreamableHttpClientTransport(httpClient, config.endpointUrl) {
                         timeout {

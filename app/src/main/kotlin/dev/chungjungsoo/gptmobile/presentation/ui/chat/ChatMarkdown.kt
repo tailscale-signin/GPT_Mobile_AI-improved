@@ -650,7 +650,7 @@ private fun ChatMarkdownContent(
             }
             val parserFailed = renderedDigest != null && parserState !is MarkdownParseState.Loading && parserState !is MarkdownParseState.Success
             val animations = markdownAnimations(animateTextSize = { this })
-            val layoutOwner = remember(outputTrace, rendered.contentDigest) { CombinedOperationOwner(runId = outputTrace?.runId, blockId = outputTrace?.partId, digest = rendered.contentDigest) }
+            val layoutOwner = remember(outputTrace, rendered.contentDigest) { CombinedOperationOwner(runId = outputTrace?.runId, revisionId = rendered.contentDigest, blockId = outputTrace?.partId, digest = rendered.contentDigest) }
 
             Box(Modifier.heightIn(min = if (awaitingContent) minimumPendingHeight else 0.dp), propagateMinConstraints = true) {
                 if (formattingFailed || parserTimedOut || parserFailed) {

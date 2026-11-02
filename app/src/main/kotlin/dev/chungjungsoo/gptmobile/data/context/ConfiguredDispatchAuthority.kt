@@ -119,7 +119,9 @@ internal object ConfiguredDispatchAuthority {
             put("spend", Json.encodeToJsonElement(features.spendBudget.copy(prices = features.spendBudget.prices.filterKeys { !scopeProfile || it == uid && features.spendBudget.enforced }.mapValues { (_, price) -> price.copy(checkedAt = 0, source = "") })))
             put("profile", Json.encodeToJsonElement(features.profileBehavior[uid]))
             put("plugins", Json.encodeToJsonElement(features.pluginExecution))
-            put("tools", Json.encodeToJsonElement(features.toolPluginStates))
+            // Persisting an explicit default is not a permission change. Keep
+            // every nondefault grant/revocation, including opt-in services.
+            put("tools", Json.encodeToJsonElement(features.toolPluginStates.filter { (id, enabled) -> enabled != (id !in dev.chungjungsoo.gptmobile.data.model.ToolPluginId.optInServices) }.toSortedMap()))
             put("remoteMcp", features.remoteMcpConnections)
             put("location", features.deviceLocationTool)
             put("assist", features.localAssist)
@@ -141,5 +143,5 @@ internal object ConfiguredDispatchAuthority {
 internal class DispatchPolicyChangedException(val fields: List<String>) :
     IllegalStateException(
         "DISPATCH_POLICY_CHANGED: changed fields=${fields.joinToString(",")}. " +
-            "Resume final synthesis to revalidate the retained contributions; no stale request was sent."
+            "Resume the unfinished task to revalidate saved results under the current settings; no stale request was sent."
     )

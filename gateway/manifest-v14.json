@@ -2,7 +2,7 @@
   "baseCommit": "a66155dfdc0cf647dd368019f605d91689d48583",
   "version": "15.0.0",
   "schemaVersion": 1,
-  "sourceCommit": "20e85115f95c67e96803c8fece9aa05cf657b60f",
+  "sourceCommit": "99f9d30656b86c499e2fca14852600968b3f8756",
   "files": {
     "COMPLETION_RECOVERY.md": "112dc90f60d88e52c052735bc1e9b80dcc0f8dc630bf7d99f74b94409f9a65c6",
     "GITHUB_UPGRADE_14_3.md": "522fc58c8caa9d48670cec2cb7b8e08d76c024a9886f01716e76c55f880e04a8",
@@ -24,7 +24,7 @@
     "desktop/build_windows.py": "9ad0e0610177aeacd9e175efe7d8a3b6cae24248c42876999e603bc2cc08dade",
     "desktop/configuration.py": "2008565b56f16f60a8c6119d78fffa8d2fe81213368bb9588ea18b73ce35dfbb",
     "desktop/entry.py": "db8fa882b5722f433e39b2af9c2d82ad7d5d652125f17bfa4c83e719c3b0bc14",
-    "desktop/firewall.py": "bec1c1ec29c6346cc75c11215443c8b99a0bf4d190a77e159eb1b0018f213aa5",
+    "desktop/firewall.py": "b09604c38f351ff9ec52bca407988a83c8d514fa6cee224b552c1d1a5a10db44",
     "desktop/installer.iss": "49b2a550879491c25d803a39ea084c905516f421b20bd50887a6b42630abeaf3",
     "desktop/manager.py": "2d8aa61931e9fe822a830e12966701b814acd47090c1aa137af1383cb6dbc482",
     "desktop/releases.py": "48c4255de64e510348c4a5d9f8901c35a5702c769e29fb16794102a82db7a90d",

@@ -1,7 +1,7 @@
 # GitHub gateway diagnostics and desktop dashboard
 
-Repository: `tailscale-signin/GPT_Mobile_AI-improved`  
-Base: `main`, `2ae52c78ddae2a5470d8a0ee7dc93b6a9101f65a`  
+Repository: `tailscale-signin/GPT_Mobile_AI-improved`
+Base: `main`, `2ae52c78ddae2a5470d8a0ee7dc93b6a9101f65a`
 Branch: `fix/github-gateway-contract-recovery-2026-11-01`
 
 ## Evidence and repairs

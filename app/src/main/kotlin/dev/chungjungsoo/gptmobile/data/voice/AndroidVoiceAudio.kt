@@ -1,7 +1,9 @@
 package dev.chungjungsoo.gptmobile.data.voice
 
+import android.Manifest
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -10,6 +12,7 @@ import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
+import androidx.core.content.ContextCompat
 import java.util.Locale
 
 /** Created only in an enabled, visible voice session. Audio is never recorded to an app file. */
@@ -27,6 +30,10 @@ class AndroidVoiceAudio(private val context: Context) : VoiceAudio {
         check(Looper.myLooper() == Looper.getMainLooper())
         stop()
         if (closed) return
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            listener.error("Microphone permission is needed for voice chat.")
+            return
+        }
         val ticket = generation
         if (!SpeechRecognizer.isRecognitionAvailable(context)) {
             listener.error("Speech recognition is unavailable. Install or enable a speech service in Android settings.")
@@ -88,33 +95,37 @@ class AndroidVoiceAudio(private val context: Context) : VoiceAudio {
         if (closed) return
         val ticket = generation
         playbackError = error
-        val play = play@{
-            val engine = tts ?: return@play
-            if (closed || ticket != generation) return@play
-            val language = engine.setLanguage(Locale.getDefault())
-            if (language < 0) {
-                error("A voice for this language is not installed. Captions are still available.")
-                return@play
-            }
-            val spoken = if (text.length > 12000) text.take(12000) + " The rest of this response is available in the chat." else text
-            val chunks = speechChunks(spoken, minOf(3000, TextToSpeech.getMaxSpeechInputLength()))
-            val finalId = "$ticket:${chunks.lastIndex}"
-            engine.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-                override fun onStart(utteranceId: String?) = Unit
-                override fun onDone(utteranceId: String?) {
-                    if (utteranceId == finalId) main.post { if (!closed && ticket == generation) complete() }
+        val play: () -> Unit = play@{
+            try {
+                val engine = tts ?: return@play
+                if (closed || ticket != generation) return@play
+                val language = engine.setLanguage(Locale.getDefault())
+                if (language < 0) {
+                    error("A voice for this language is not installed. Captions are still available.")
+                    return@play
                 }
+                val spoken = if (text.length > 12000) text.take(12000) + " The rest of this response is available in the chat." else text
+                val chunks = speechChunks(spoken, minOf(3000, TextToSpeech.getMaxSpeechInputLength()))
+                val finalId = "$ticket:${chunks.lastIndex}"
+                engine.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+                    override fun onStart(utteranceId: String?) = Unit
+                    override fun onDone(utteranceId: String?) {
+                        if (utteranceId == finalId) main.post { if (!closed && ticket == generation) complete() }
+                    }
 
-                @Deprecated("Platform compatibility callback")
-                override fun onError(utteranceId: String?) {
-                    main.post { if (!closed && ticket == generation) error("Could not play this response. Turn off the speaker to continue with captions.") }
+                    @Deprecated("Platform compatibility callback")
+                    override fun onError(utteranceId: String?) {
+                        main.post { if (!closed && ticket == generation) error("Could not play this response. Turn off the speaker to continue with captions.") }
+                    }
+                })
+                for ((index, chunk) in chunks.withIndex()) {
+                    if (engine.speak(chunk, TextToSpeech.QUEUE_ADD, null, "$ticket:$index") == TextToSpeech.ERROR) {
+                        error("Could not play this response. Captions are still available.")
+                        break
+                    }
                 }
-            })
-            for ((index, chunk) in chunks.withIndex()) {
-                if (engine.speak(chunk, TextToSpeech.QUEUE_ADD, null, "$ticket:$index") == TextToSpeech.ERROR) {
-                    error("Could not play this response. Captions are still available.")
-                    break
-                }
+            } catch (_: Exception) {
+                if (!closed && ticket == generation) error("The speech engine stopped. Turn off the speaker or try again.")
             }
         }
         if (speechReady) {
@@ -129,7 +140,14 @@ class AndroidVoiceAudio(private val context: Context) : VoiceAudio {
                     speechReady = status == TextToSpeech.SUCCESS
                     val pending = pendingSpeech
                     pendingSpeech = null
-                    if (speechReady) pending?.invoke() else playbackError?.invoke("Text-to-speech is unavailable. Turn off the speaker to continue with captions.")
+                    if (speechReady) {
+                        pending?.invoke()
+                    } else {
+                        val failure = playbackError
+                        runCatching { tts?.shutdown() }
+                        tts = null
+                        failure?.invoke("Text-to-speech is unavailable. Turn off the speaker to continue with captions.")
+                    }
                 }
             }
         }

@@ -152,14 +152,14 @@ def capabilities():
                    "auth": {"mode": config.mode, "apiKeyRequired": False, "legacyBearerEnabled": config.legacy_bearer},
                    "desktop": {"managed": bool(config.management_token), "maintenanceProtocol": 1,
                                "stateSchema": 1, "updateAuthority": "local-manager", "idleUpdates": True},
-                   "identityScope": "user" if config.mode == "trusted_proxy" else "local-machine",
+                   "identityScope": "shared-network" if config.mode == "open_network" else "user" if config.mode == "trusted_proxy" else "local-machine",
                    "memory": {"authority": "client", "protocolVersion": 1, "workspaceAdapterEnabled": False},
                    "supportedMcpEras": ["legacy"], "eventVersions": [runtime.GATEWAY_PROGRESS_PROTOCOL],
                    "contracts": {
                        "gatewayProgress": [runtime.GATEWAY_PROGRESS_PROTOCOL],
                        "toolArguments": ["gptmobile.tool-arguments.v1"]
                    },
-                   "features": dict(result["features"], keyFreePrivateAccess=True, deterministicSearch=True,
+                   "features": dict(result["features"], keyFreePrivateAccess=config.mode != "open_network", keyFreeNetworkAccess=config.mode == "open_network", deterministicSearch=True,
                                     structuredSearch=True, terminalStateProtection=True, memory_novelty_filter=False, structuredEvidence=False, mcpFacade=False,
                                     modernMcp=False, clientMemoryAuthority=True, packageValidation=True,
                                     validatedToolArguments=True, githubClientOwnedFastPath=True,
@@ -251,7 +251,7 @@ def doctor():
             "loadedModules": {"launcher": str(Path(__file__).with_name("gateway.py")), "composition": __file__, "runtime": runtime.__file__},
             "dependencies": {name: importlib.metadata.version(name) for name in ("fastapi", "uvicorn", "requests", "httpx")},
             "stability": diagnostics(runtime, service),
-            "remainingGates": ["Windows install/rollback", "Tailscale identity", "Android build", "physical phone"]}
+            "remainingGates": ["Windows install/rollback", "LAN/firewall acceptance", "Android build", "physical phone"]}
 
 
 def main():

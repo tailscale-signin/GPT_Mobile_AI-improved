@@ -20,6 +20,8 @@ SHA = re.compile(r'^[0-9a-f]{40}$')
 
 
 def principal_authorized(config, principal, devices):
+    if config.mode == 'open_network':
+        return config.remote_engineering and principal == 'network:shared'
     if config.mode == 'loopback':
         return principal == 'local:single-user' or config.legacy_bearer and any(row[0] == principal and not row[2] for row in devices.list_devices())
     return any(principal == 'tailnet:' + grant['principalId'] and 'engineering' in grant.get('scopes', []) for grant in config.trusted_users.values())

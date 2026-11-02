@@ -30,7 +30,9 @@ Source: "README.md"; DestDir: "{app}"; Flags: ignoreversion
 
 [Tasks]
 Name: "startup"; Description: "Start Gateway when I sign in"; Flags: checkedonce
-Name: "engineering"; Description: "Allow engineering tasks for the specified Tailscale user"; Flags: unchecked
+Name: "engineering"; Description: "Allow network devices to run engineering tasks"; Flags: unchecked
+
+Name: "firewall"; Description: "Allow Gateway from the local subnet on Private networks (Windows administrator approval)"; Flags: unchecked
 
 [Icons]
 Name: "{group}\Start Gateway"; Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File ""{app}\Start-Gateway.ps1"""; WorkingDir: "{app}"
@@ -48,7 +50,7 @@ Type: filesandordirs; Name: "{app}\releases"
 
 [Code]
 var
-  ConnectionPage, PerformancePage, TailnetPage: TInputQueryWizardPage;
+  ConnectionPage, PerformancePage, NetworkPage: TInputQueryWizardPage;
   UpdatePage: TInputOptionWizardPage;
   RuntimePrepared: Boolean;
 
@@ -80,10 +82,10 @@ begin
   PerformancePage.Add('Maximum admitted chats (workers-64):', False);
   PerformancePage.Add('Shutdown grace in seconds (10-120):', False);
   PerformancePage.Values[0] := '2'; PerformancePage.Values[1] := '8'; PerformancePage.Values[2] := '30';
-  TailnetPage := CreateInputQueryPage(PerformancePage.ID, 'Private phone access', 'Optional Tailscale Serve identity.', 'Leave both fields empty for this PC only. For phone access, configure Tailscale Serve separately and enter its exact HTTPS hostname and authorized login. Gateway always listens on 127.0.0.1.');
-  TailnetPage.Add('Tailscale hostname (example: workstation.tailnet.ts.net):', False);
-  TailnetPage.Add('Authorized Tailscale user login:', False);
-  UpdatePage := CreateInputOptionPage(TailnetPage.ID, 'Updates', 'Choose how Gateway updates.', 'Checks run every 24 hours. Auto updates wait until all active and paused work is finished. A failed runtime check rolls back. Update settings remain available after install.', True, False);
+  NetworkPage := CreateInputQueryPage(PerformancePage.ID, 'Network listening', 'Choose which PC interfaces can accept connections.', '127.0.0.1 keeps access on this PC. Enter a specific PC interface IP or 0.0.0.0 for all IPv4 interfaces. No API token is required. Every device that can reach the listener can use its enabled models and tools. Use a trusted LAN/VPN, or a separately authenticated HTTPS proxy for internet access.');
+  NetworkPage.Add('Listen address (127.0.0.1, PC interface IP, or 0.0.0.0):', False);
+  NetworkPage.Values[0] := '127.0.0.1';
+  UpdatePage := CreateInputOptionPage(NetworkPage.ID, 'Updates', 'Choose how Gateway updates.', 'Checks run every 24 hours. Auto updates wait until all active and paused work is finished. A failed runtime check rolls back. Update settings remain available after install.', True, False);
   UpdatePage.Add('Notify me when a stable update is available (recommended)');
   UpdatePage.Add('Automatically install verified stable updates when idle');
   UpdatePage.Add('Do not check automatically');
@@ -105,9 +107,9 @@ begin
     Result := (W >= 1) and (W <= 16) and (A >= W) and (A <= 64) and (G >= 10) and (G <= 120);
     if not Result then MsgBox('Check the performance ranges shown above.', mbError, MB_OK);
   end;
-  if CurPageID = TailnetPage.ID then begin
-    Result := (TailnetPage.Values[0] = '') = (TailnetPage.Values[1] = '');
-    if not Result then MsgBox('Provide both the Tailscale hostname and login, or leave both empty.', mbError, MB_OK);
+  if CurPageID = NetworkPage.ID then begin
+    Result := NetworkPage.Values[0] <> '';
+    if not Result then MsgBox('Enter a listen IP address.', mbError, MB_OK);
   end;
 end;
 
@@ -120,11 +122,10 @@ begin
 end;
 
 function WriteWizardSettings: String;
-var Settings, Mode, Access, TempFile: String; Lines: TArrayOfString;
+var Settings, Mode, TempFile: String; Lines: TArrayOfString;
 begin
     Mode := 'notify'; if UpdatePage.SelectedValueIndex = 1 then Mode := 'auto'; if UpdatePage.SelectedValueIndex = 2 then Mode := 'off';
-    Access := 'loopback'; if TailnetPage.Values[0] <> '' then Access := 'tailscale';
-    Settings := '{"backend":' + J(ConnectionPage.Values[0]) + ',"port":' + IntToStr(StrToIntDef(ConnectionPage.Values[1], 8090)) + ',"mcp_config":' + J(ConnectionPage.Values[2]) + ',"workers":' + PerformancePage.Values[0] + ',"active_chats":' + PerformancePage.Values[1] + ',"shutdown_seconds":' + PerformancePage.Values[2] + ',"access":' + J(Access) + ',"tailnet_host":' + J(TailnetPage.Values[0]) + ',"tailnet_user":' + J(TailnetPage.Values[1]) + ',"update_mode":' + J(Mode) + ',"start_at_login":' + B(WizardIsTaskSelected('startup')) + ',"engineering":' + B(WizardIsTaskSelected('engineering')) + '}';
+    Settings := '{"backend":' + J(ConnectionPage.Values[0]) + ',"port":' + IntToStr(StrToIntDef(ConnectionPage.Values[1], 8090)) + ',"mcp_config":' + J(ConnectionPage.Values[2]) + ',"workers":' + PerformancePage.Values[0] + ',"active_chats":' + PerformancePage.Values[1] + ',"shutdown_seconds":' + PerformancePage.Values[2] + ',"bind_host":' + J(NetworkPage.Values[0]) + ',"update_mode":' + J(Mode) + ',"start_at_login":' + B(WizardIsTaskSelected('startup')) + ',"engineering":' + B(WizardIsTaskSelected('engineering')) + '}';
     TempFile := ExpandConstant('{tmp}\gateway-settings.json');
     SetArrayLength(Lines, 1); Lines[0] := Settings;
     if not SaveStringsToUTF8File(TempFile, Lines, False) then RaiseException('Could not save setup settings.');
@@ -134,7 +135,7 @@ end;
 function ConfigurationError: String;
 var Lines: TArrayOfString;
 begin
-  Result := 'Gateway configuration is invalid. Check the backend origin and private-access settings.';
+  Result := 'Gateway configuration is invalid. Check the backend origin and network listen address.';
   if LoadStringsFromFile(ExpandConstant('{tmp}\gateway-config-error.txt'), Lines) and (GetArrayLength(Lines) > 0) then Result := Lines[0];
 end;
 
@@ -162,13 +163,22 @@ begin
     TempFile := WriteWizardSettings;
     if not Exec(ExpandConstant('{app}\releases\{#GatewayVersion}\Gateway.exe'), 'configure --root "' + ExpandConstant('{app}') + '" --version {#GatewayVersion} --settings-file "' + TempFile + '" --quiet --error-file "' + ExpandConstant('{tmp}\gateway-config-error.txt') + '"', '', SW_HIDE, ewWaitUntilTerminated, Code) or (Code <> 0) then
       RaiseException(ConfigurationError);
+    if WizardIsTaskSelected('firewall') then begin
+      if not Exec(ExpandConstant('{app}\releases\{#GatewayVersion}\Gateway.exe'), 'firewall --root "' + ExpandConstant('{app}') + '" --quiet', '', SW_HIDE, ewWaitUntilTerminated, Code) or (Code <> 0) then
+        MsgBox('The firewall rule was not confirmed. Configure a network listener in Gateway Settings and use Allow LAN through firewall when ready.', mbInformation, MB_OK);
+    end;
   end;
 end;
 
 function InitializeUninstall: Boolean;
+var Code: Integer;
 begin
   Result := StopInstalled(ExpandConstant('{app}'));
   if not Result then MsgBox('Gateway has active work or could not stop. Finish the work and retry uninstall.', mbError, MB_OK);
+  if Result and FileExists(ExpandConstant('{app}\firewall.json')) then begin
+    Result := Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'), '-NoProfile -ExecutionPolicy Bypass -File "' + ExpandConstant('{app}\Start-Gateway.ps1') + '" -Command remove-firewall', '', SW_HIDE, ewWaitUntilTerminated, Code) and (Code = 0);
+    if not Result then MsgBox('Could not remove this installation''s firewall rule. Allow the administrator prompt or remove the rule in Gateway Settings, then retry uninstall.', mbError, MB_OK);
+  end;
 end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);

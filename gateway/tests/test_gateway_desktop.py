@@ -55,7 +55,7 @@ class SettingsTests(unittest.TestCase):
                        {'backend':'https://user:secret@example.com'}, {'backend':'http://127.0.0.1:8090'},
                        {'backend':'http://localhost:8080/v1'}, {'backend':None}, {'update_mode':'nightly'},
                        {'access':'public'}, {'command':'evil'}, {'mcp_config':'relative.json'},
-                       {'access':'tailscale','tailnet_host':'evil.com','tailnet_user':'owner'}]:
+                       {'bind_host':'not-an-ip'}]:
             with self.subTest(update=update), self.assertRaises((ValueError, TypeError)):
                 validate(update)
 
@@ -66,7 +66,7 @@ class SettingsTests(unittest.TestCase):
             self.assertEqual('127.0.0.1', env['GATEWAY_HOST'])
             self.assertNotIn('GATEWAY_LEGACY_BEARER', env)
             self.assertEqual('secret', env['GATEWAY_MANAGEMENT_TOKEN'])
-            self.assertEqual('trusted_proxy', env['GATEWAY_AUTH_MODE'])
+            self.assertEqual('loopback', env['GATEWAY_AUTH_MODE'])
             with patch.dict(os.environ, env, clear=True):
                 Config.from_env().validate()
 

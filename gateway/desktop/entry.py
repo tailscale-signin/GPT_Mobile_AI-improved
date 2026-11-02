@@ -17,7 +17,7 @@ from v14.state_lock import StateDirectoryLock
 
 def main():
     parser = argparse.ArgumentParser(description='GPT Mobile Gateway desktop manager')
-    parser.add_argument('command', choices=['supervise', 'settings', 'configure', 'validate-settings', 'serve-engine', 'validate-engine', 'stop', 'restart', 'check', 'install'])
+    parser.add_argument('command', choices=['supervise', 'settings', 'configure', 'validate-settings', 'serve-engine', 'validate-engine', 'stop', 'restart', 'check', 'install', 'firewall', 'remove-firewall'])
     parser.add_argument('--root', required=True, type=Path)
     parser.add_argument('--version')
     parser.add_argument('--quiet', action='store_true')
@@ -25,6 +25,11 @@ def main():
     parser.add_argument('--settings-file', type=Path)
     args = parser.parse_args()
     root = args.root.resolve()
+    if args.command in {'firewall', 'remove-firewall'}:
+        from desktop.firewall import apply
+        if args.command == 'firewall' or (root / 'firewall.json').exists():
+            apply(root, remove=args.command == 'remove-firewall')
+        return 0
     if args.command in {'serve-engine', 'validate-engine'}:
         token = os.environ.get('GATEWAY_MANAGEMENT_TOKEN', '')
         quiesced = os.environ.get('GATEWAY_START_QUIESCED', '')

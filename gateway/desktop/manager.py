@@ -16,7 +16,7 @@ import time
 import uuid
 
 import requests
-from desktop.configuration import atomic_json, environment, load
+from desktop.configuration import atomic_json, authority, control_host, environment, load
 from desktop import releases, windows_job
 from v14.state_lock import StateDirectoryLock, StateDirectoryAlreadyOwned
 from v14.journal import backup_database
@@ -125,7 +125,7 @@ class Supervisor:
         atomic_json(self.root / 'status.json', self.status)
 
     def control(self, action=None):
-        url = f'http://127.0.0.1:{self.cfg["port"]}/gateway/admin/maintenance'
+        url = 'http://' + authority(control_host(self.cfg), self.cfg['port']) + '/gateway/admin/maintenance'
         response = self.http.request('POST' if action else 'GET', url,
             headers={'X-Gateway-Management': self.token}, json={'action': action} if action else None, timeout=(2, 8))
         response.raise_for_status()
@@ -134,8 +134,8 @@ class Supervisor:
     def spawn(self, number):
         releases.validate_release(release_path(self.root, number), number)
         # Do not adopt an unrelated listener or touch a live journal after a port conflict.
-        with socket.socket() as check:
-            check.bind(('127.0.0.1', self.cfg['port']))
+        with socket.socket(socket.AF_INET6 if ':' in self.cfg['bind_host'] else socket.AF_INET) as check:
+            check.bind((self.cfg['bind_host'], self.cfg['port']))
         env = environment(self.root, self.cfg, self.token)
         env['GATEWAY_START_QUIESCED'] = '1'
         self.child = subprocess.Popen(executable(self.root, number, 'serve-engine'), env=env,

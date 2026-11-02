@@ -388,6 +388,11 @@ fun AddPlatformScreen(
                             value = apiUrl,
                             onValueChange = { apiUrl = it },
                             label = { Text(stringResource(R.string.api_url)) },
+                            supportingText = if (clientType == ClientType.LLAMA) {
+                                { Text(stringResource(R.string.gateway_network_connection_hint)) }
+                            } else {
+                                null
+                            },
                             modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
                             singleLine = true
                         )

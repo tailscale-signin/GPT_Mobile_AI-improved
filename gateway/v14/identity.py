@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import ipaddress
 import secrets
+from urllib.parse import urlsplit
 from dataclasses import dataclass
 
 from fastapi.responses import JSONResponse
@@ -27,14 +28,26 @@ class PrincipalResolver:
             local_peer = ipaddress.ip_address(scope.get("client", ("", 0))[0]).is_loopback
         except ValueError:
             local_peer = False
-        if not local_peer:
-            return None
-        if scope.get("path") == "/gateway/admin/maintenance":
+        if scope.get("path", "").removeprefix("/v1") == "/gateway/admin/maintenance":
+            # A specific-interface listener is reached through that interface on
+            # the same PC. The independent supervisor secret is still mandatory.
+            server = scope.get("server") or ("", 0)
+            client = scope.get("client") or ("", 0)
+            local_control = local_peer or (client[0] == server[0] == self.config.host and self.config.host not in {"0.0.0.0", "::"})
             token = self.config.management_token
             forwarded = any(k.startswith("tailscale-") or k in {"forwarded", "x-forwarded-for", "x-forwarded-host", "origin", "cookie", "sec-fetch-site"} for k in headers)
-            if forwarded or not token or not hmac.compare_digest(headers.get("x-gateway-management", ""), token):
+            if not local_control or forwarded or not token or not hmac.compare_digest(headers.get("x-gateway-management", "").encode(), token.encode()):
                 return None
             return Principal("local:manager", frozenset({"chat"}), True)
+        if self.config.mode == "open_network":
+            # Explicit key-free network mode has one shared identity. Client
+            # headers never select a user, job owner or administrative privilege.
+            scopes = {"chat", "jobs", "tools"}
+            if self.config.remote_engineering:
+                scopes.add("engineering")
+            return Principal("network:shared", frozenset(scopes))
+        if not local_peer:
+            return None
         if self.config.legacy_bearer and headers.get("authorization", "").lower().startswith("bearer "):
             device = await asyncio.to_thread(self.store.authenticate, headers["authorization"][7:])
             return Principal(device, frozenset({"chat", "jobs", "tools"}), self.config.mode == "loopback") if device else None
@@ -69,7 +82,22 @@ class Admission:
         if any(sum(k == name for k, _ in pairs) > 1 for name in sensitive):
             return await deny("duplicate_admission_header", 400)
         headers = dict(pairs)
-        if headers.get("host", "") not in self.config.allowed_hosts:
+        host = headers.get("host", "")
+        # Open network mode accepts the actual destination IP plus explicitly
+        # configured hostnames. Arbitrary DNS names would allow DNS rebinding.
+        socket_host = False
+        if self.config.mode == "open_network":
+            try:
+                authority = urlsplit("http://" + host)
+                server = scope.get("server") or ("", 0)
+                socket_host = bool(authority.hostname and
+                    ipaddress.ip_address(authority.hostname) == ipaddress.ip_address(server[0]) and
+                    (authority.port or 80) == server[1] and not authority.username and not authority.password and
+                    not authority.path and not authority.query and not authority.fragment and
+                    not any(c.isspace() or c in "\\@" for c in host))
+            except ValueError:
+                pass
+        if host not in self.config.allowed_hosts and not socket_host:
             return await deny("invalid_host")
         origin = headers.get("origin")
         if origin is not None and origin not in self.config.allowed_origins:
@@ -84,7 +112,7 @@ class Admission:
         engineering_path = path.startswith("/gateway/engineering/")
         if engineering_path and not principal.local_admin and "engineering" not in principal.scopes:
             return await deny("engineering_scope_required")
-        if self.config.mode == "trusted_proxy" and not principal.local_admin:
+        if self.config.mode in {"trusted_proxy", "open_network"} and not principal.local_admin:
             public_reads = {"/models", "/gateway/capabilities", "/gateway/ready", "/gateway/live", "/gateway/v13", "/gateway/v14", "/gateway/v15", "/gateway/connections", "/gateway/tools", "/gateway/session"}
             job_path = path == "/gateway/jobs" or path.startswith("/gateway/jobs/")
             if scope["method"] in {"GET", "HEAD"}:

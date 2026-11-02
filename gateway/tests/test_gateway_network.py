@@ -197,7 +197,8 @@ class LiveNetworkTests(unittest.TestCase):
                 sock.bind((interface, 0))
                 port = sock.getsockname()[1]
             for bind in bindings:
-                cfg = validate({'bind_host': bind, 'port': port, 'backend': 'http://127.0.0.1:1',
+                # Probe the listener itself so health returns immediately on every Windows runner.
+                cfg = validate({'bind_host': bind, 'port': port, 'backend': 'http://' + authority(interface, port),
                                 'update_mode': 'off', 'start_at_login': False})
                 atomic_json(root / 'settings.json', cfg)
                 # Each interface mode is restarted from disk; no credentials exist.

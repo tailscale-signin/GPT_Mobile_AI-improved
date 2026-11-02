@@ -148,16 +148,19 @@ class GitHubEvidencePolicyTest {
             if (revoked) {
                 assertTrue(events.single() is ProviderEvent.Failed)
             } else {
-                assertEquals(ProviderEvent.Completed, events.last())
+                val terminal = events.last() as ProviderEvent.Failed
+                assertEquals("PARTIAL", terminal.taskOutcome)
+                assertEquals("GITHUB_EXTRACTION_INVALID_RESPONSE", terminal.errorCode)
+                assertFalse(events.contains(ProviderEvent.Completed))
                 assertTrue(events.filterIsInstance<ProviderEvent.TextDelta>().single().text.contains("Task incomplete"))
             }
         }
     }
 
     @Test fun failedOrTruncatedExtractorKeepsTheTaskIncompleteWithoutPublishingDraftOrReceipts() = runBlocking {
-        for (extractor in listOf(
-            flowOf(ProviderEvent.TextDelta("private broken JSON"), ProviderEvent.Failed("output limit", errorCode = "OUTPUT_LIMIT")),
-            flowOf(ProviderEvent.TextDelta("{\"claims\":"))
+        for ((extractor, code) in listOf(
+            flowOf(ProviderEvent.TextDelta("private broken JSON"), ProviderEvent.Failed("output limit", errorCode = "OUTPUT_LIMIT")) to "OUTPUT_LIMIT",
+            flowOf(ProviderEvent.TextDelta("{\"claims\":")) to "GITHUB_EXTRACTION_INVALID_RESPONSE"
         )) {
             val book = GitHubEvidenceBook("binding", "owner/repo", "main", setOf("github_ci"), { 1000 })
             book.observe(ProviderEvent.ToolCall("read", "github_ci", json("{}")), AgentToolResult("read", ToolResultContent.Json(json("""{"count":3,"content":"private source"}""")), false))
@@ -170,7 +173,10 @@ class GitHubEvidencePolicyTest {
             }, {}, {}, { 1000 })
             val events = gate.streamRound(emptyList(), emptyList()).toList()
             assertEquals(1, attempts)
-            assertEquals(ProviderEvent.Completed, events.last())
+            val terminal = events.last() as ProviderEvent.Failed
+            assertEquals("PARTIAL", terminal.taskOutcome)
+            assertEquals(code, terminal.errorCode)
+            assertFalse(events.contains(ProviderEvent.Completed))
             val text = events.filterIsInstance<ProviderEvent.TextDelta>().single().text
             assertTrue(text.contains("Task incomplete"))
             assertFalse(text.contains("private") || text.contains("99 tests") || text.contains("| Count |"))
@@ -212,9 +218,12 @@ class GitHubEvidencePolicyTest {
         val failed = gate.streamRound(emptyList(), emptyList()).toList().single() as ProviderEvent.Failed
         assertEquals("403 forbidden", failed.message)
         val events = gate.retainedFailureResponse(failed).toList()
-        assertTrue(events.last() is ProviderEvent.Failed)
+        val terminal = events.last() as ProviderEvent.Failed
+        assertEquals("PARTIAL", terminal.taskOutcome)
+        assertEquals(failed.message, terminal.message)
         val text = events.filterIsInstance<ProviderEvent.TextDelta>().joinToString { it.text }
-        assertTrue(text.contains("GitHub verification incomplete"))
+        assertTrue(text.contains("Task incomplete"))
+        assertTrue(text.contains("403 forbidden"))
         assertFalse(text.contains("unverified draft"))
     }
 
@@ -246,7 +255,10 @@ class GitHubEvidencePolicyTest {
         val gate = GitHubVerifiedSession(session("private"), GitHubEvidenceBook("b", "o/r", "main", emptySet()), "fix", { 8192 }, { extractor }, {}, {})
         val events = gate.streamRound(emptyList(), emptyList()).toList()
         assertEquals(1, attempts)
-        assertEquals(ProviderEvent.Completed, events.last())
+        val terminal = events.last() as ProviderEvent.Failed
+        assertEquals("PARTIAL", terminal.taskOutcome)
+        assertEquals("GITHUB_EXTRACTION_TIMEOUT", terminal.errorCode)
+        assertFalse(events.contains(ProviderEvent.Completed))
         assertTrue(events.filterIsInstance<ProviderEvent.TextDelta>().single().text.contains("Task incomplete"))
     }
 

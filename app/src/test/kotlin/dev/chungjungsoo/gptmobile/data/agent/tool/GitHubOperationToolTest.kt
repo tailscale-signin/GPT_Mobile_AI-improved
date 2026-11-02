@@ -91,7 +91,7 @@ class GitHubOperationToolTest {
         assertFalse(backend.calls.last().containsKey("response_detail"))
     }
 
-    @Test fun searchSavedPagesAcceptOnlyUnchangedSelectorsWithoutDispatch() = runBlocking {
+    @Test fun searchSavedPagesCorrectChangedSelectorsToTheOriginalPageWithoutDispatch() = runBlocking {
         val backend = Backend().also { it.body = JsonPrimitive("search evidence ".repeat(2000)) }
         val tool = GitHubOperationTool("github_search", backend, "search-context", views = GitHubResultViews(pageBytes = 2048))
         val request = args("""{"owner":"owner","repo":"repo","commit_sha":"$sha","query":"Target","mode":"definitions","path_prefix":"src/","index_cursor":0,"batch_size":100,"context_lines":4,"fuzzy_match":false}""")
@@ -108,10 +108,16 @@ class GitHubOperationToolTest {
             cursor = continuation(page)
         }
         assertTrue(pages > 1)
+        val original = result(tool.execute("original", cursor))
         for ((field, value) in listOf("query" to JsonPrimitive("Other"), "index_cursor" to JsonPrimitive(1), "context_lines" to JsonPrimitive(3), "mode" to JsonPrimitive("paths"), "unexpected" to JsonPrimitive(true))) {
-            val rejected = tool.execute("changed-$field", JsonObject(cursor + request + (field to value)))
-            assertEquals("INVALID_ARGUMENTS", rejected.errorCode)
-            assertFalse(rejected.dispatched)
+            val saved = tool.execute("changed-$field", JsonObject(cursor + request + (field to value)))
+            assertFalse(saved.isError)
+            assertFalse(saved.dispatched)
+            assertTrue(saved.sharedResult)
+            assertEquals(original, result(saved))
+            assertEquals(cursor, saved.executionReceipt?.get("corrected_arguments"))
+            assertEquals(JsonPrimitive(1), saved.executionReceipt?.get("correction_attempts"))
+            assertEquals(JsonPrimitive("INVALID_ARGUMENTS"), saved.executionReceipt?.get("precheck_rejection")?.jsonObject?.get("code"))
         }
         assertEquals(1, backend.calls.size)
     }
@@ -123,8 +129,16 @@ class GitHubOperationToolTest {
         val cursor = continuation(result(tool.execute("first", request)))
         assertFalse(tool.execute("same", JsonObject(cursor + request)).isError)
         val changed = args("""{"ranges":[{"path":"B.kt","start_line":1,"end_line":3}]}""")
-        assertEquals("INVALID_ARGUMENTS", tool.execute("changed", JsonObject(cursor + changed)).errorCode)
-        assertEquals("INVALID_ARGUMENTS", tool.execute("write", JsonObject(cursor + ("files" to JsonArray(emptyList())))).errorCode)
+        val original = result(tool.execute("original", cursor))
+        for (arguments in listOf(JsonObject(cursor + changed), JsonObject(cursor + ("files" to JsonArray(emptyList()))))) {
+            val saved = tool.execute("corrected", arguments)
+            assertFalse(saved.isError)
+            assertFalse(saved.dispatched)
+            assertTrue(saved.sharedResult)
+            assertEquals(original, result(saved))
+            assertEquals(cursor, saved.executionReceipt?.get("corrected_arguments"))
+            assertEquals(JsonPrimitive(1), saved.executionReceipt?.get("correction_attempts"))
+        }
         assertEquals(1, backend.calls.size)
     }
 

@@ -32,10 +32,13 @@ class GitHubVerificationRecoveryTest {
         val text = events.filterIsInstance<ProviderEvent.TextDelta>().single().text
         assertTrue(text.contains("Test not executed"))
         assertFalse(text.contains("97%") || text.contains("35 operations") || text.contains("12 seconds"))
-        assertEquals(ProviderEvent.Completed, events.last())
+        val terminal = events.last() as ProviderEvent.Failed
+        assertEquals("PARTIAL", terminal.taskOutcome)
+        assertEquals("GITHUB_EVIDENCE_REQUIRED", terminal.errorCode)
+        assertFalse(events.contains(ProviderEvent.Completed))
     }
 
-    @Test fun supportedPartialAnswerCompletesPresentationAndPreservesOriginalTask() = runBlocking {
+    @Test fun supportedPartialAnswerDeliversPresentationWhilePreservingTheIncompleteTask() = runBlocking {
         val task = "Inspect the workflow failure"
         val source = receipt("""{"state":"RUNNING","checks":1}""")
         val (text, report) = GitHubEvidencePolicy.partial(mapOf("r" to source), 1000, 0, task, "GITHUB_REVIEW_INVALID_VERDICT")
@@ -47,7 +50,12 @@ class GitHubVerificationRecoveryTest {
         assertEquals(JsonPrimitive("GITHUB_REVIEW_INVALID_VERDICT"), report["failure_code"])
         val book = GitHubEvidenceBook("binding", "o/r", "main", emptySet(), { 1000 })
         val gate = GitHubVerifiedSession(answer("private"), book, task, { 8192 }, { answer("bad JSON") }, {}, {}, { 1000 })
-        assertEquals(ProviderEvent.Completed, gate.streamRound(emptyList(), emptyList()).toList().last())
+        val events = gate.streamRound(emptyList(), emptyList()).toList()
+        val terminal = events.last() as ProviderEvent.Failed
+        assertEquals("PARTIAL", terminal.taskOutcome)
+        assertEquals("GITHUB_EXTRACTION_INVALID_RESPONSE", terminal.errorCode)
+        assertEquals(1, events.filterIsInstance<ProviderEvent.TextDelta>().size)
+        assertFalse(events.contains(ProviderEvent.Completed))
     }
 
     @Test fun invalidReviewGetsOneDifferentFormatRepairAndBlocksUnchangedResume() = runBlocking {
@@ -81,7 +89,7 @@ class GitHubVerificationRecoveryTest {
         assertEquals(ProviderEvent.Completed, events.last())
     }
 
-    @Test fun statusUsesThreeBoundedReadsAndPinsChecksToObservedCommit() {
+    @Test fun statusUsesFourBoundedReadsAndPinsChecksAndCommitsToObservedCommit() {
         val tools = listOf("github_context", "github_pr").map { AgentToolDefinition(it, it, JsonObject(emptyMap())) }
         val sha = "a".repeat(40)
         assertEquals(JsonPrimitive("status"), GitHubStatusRequest.nextCall(tools, emptyMap())!!.arguments["action"])
@@ -92,6 +100,11 @@ class GitHubVerificationRecoveryTest {
         receipts["c"] = receipt("{}")
         assertEquals(JsonPrimitive(5), GitHubStatusRequest.nextCall(tools, receipts)!!.arguments["per_page"])
         receipts["p"] = JsonObject(receipt("{}", "list") + ("tool" to JsonPrimitive("github_pr")))
+        val commits = requireNotNull(GitHubStatusRequest.nextCall(tools, receipts))
+        assertEquals(JsonPrimitive("commits"), commits.arguments["action"])
+        assertEquals(JsonPrimitive(sha), commits.arguments["commit_sha"])
+        assertEquals(JsonPrimitive(5), commits.arguments["per_page"])
+        receipts["m"] = receipt("{}", "commits")
         assertEquals(null, GitHubStatusRequest.nextCall(tools, receipts))
     }
 

@@ -57,3 +57,9 @@ Fresh exact-revision CI is required for this checkpoint. It must also be rerun a
 The first Windows repair still configured the listener as its own backend, which the production safety validation correctly rejects because the backend must use a distinct port and non-loopback HTTP backends are prohibited. The live network test now starts a deterministic loopback health server on an ephemeral port, so every runner receives an immediate health response without depending on a black-holed port or creating a routing cycle. Gateway package-integrity metadata now records the exact repaired test content and its source revision.
 
 Fresh exact-revision CI is required for the resulting checkpoint. Physical Android-to-Windows connectivity and interactive installer/UAC behavior remain target-device acceptance work and are not claimed by this review.
+
+## Cross-platform firewall-path repair checkpoint
+
+Exact-head Gateway stability and repository-contract jobs exposed one remaining `pathlib.Path` reconstruction after the test switches the process into simulated Windows mode. The firewall script location now uses `os.path.dirname` and `os.path.join`, avoiding a Linux `WindowsPath` construction while preserving the same installed script target on Windows. The package manifest records the repaired production file.
+
+Fresh exact-revision CI is required; the failed and superseded runs do not count.

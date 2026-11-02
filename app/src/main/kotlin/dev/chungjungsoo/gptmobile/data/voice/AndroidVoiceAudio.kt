@@ -16,11 +16,17 @@ import androidx.core.content.ContextCompat
 import java.util.Locale
 
 /** Created only in an enabled, visible voice session. Audio is never recorded to an app file. */
-class AndroidVoiceAudio(private val context: Context) : VoiceAudio {
+class AndroidVoiceAudio internal constructor(
+    private val context: Context,
+    private val speechFactory: (Context, TextToSpeech.OnInitListener) -> TextToSpeech
+) : VoiceAudio {
+    constructor(context: Context) : this(context, { owner, listener -> TextToSpeech(owner, listener) })
+
     private val main = Handler(Looper.getMainLooper())
     private var recognizer: SpeechRecognizer? = null
     private var tts: TextToSpeech? = null
     private var speechReady = false
+    private var speechGeneration = 0L
     private var closed = false
     private var generation = 0L
     private var pendingSpeech: (() -> Unit)? = null
@@ -134,23 +140,39 @@ class AndroidVoiceAudio(private val context: Context) : VoiceAudio {
         }
         pendingSpeech = play
         if (tts == null) {
-            tts = TextToSpeech(context) { status ->
-                main.post {
-                    if (closed) return@post
-                    speechReady = status == TextToSpeech.SUCCESS
-                    val pending = pendingSpeech
-                    pendingSpeech = null
-                    if (speechReady) {
-                        pending?.invoke()
-                    } else {
-                        val failure = playbackError
-                        runCatching { tts?.shutdown() }
-                        tts = null
-                        failure?.invoke("Text-to-speech is unavailable. Turn off the speaker to continue with captions.")
+            val initialization = ++speechGeneration
+            try {
+                tts = speechFactory(context) { status ->
+                    main.post {
+                        if (closed || initialization != speechGeneration) return@post
+                        speechReady = status == TextToSpeech.SUCCESS
+                        val pending = pendingSpeech
+                        pendingSpeech = null
+                        if (speechReady) {
+                            pending?.invoke()
+                        } else {
+                            val failed = playbackError
+                            playbackError = null
+                            releaseSpeech()
+                            failed?.invoke("Text-to-speech is unavailable. Turn off the speaker to continue with captions, or tap to try again.")
+                        }
                     }
                 }
+            } catch (_: Exception) {
+                pendingSpeech = null
+                playbackError = null
+                releaseSpeech()
+                error("Could not start text-to-speech. Turn off the speaker to continue with captions, or tap to try again.")
             }
         }
+    }
+
+    private fun releaseSpeech() {
+        speechGeneration++
+        speechReady = false
+        val previous = tts
+        tts = null
+        runCatching { previous?.shutdown() }
     }
 
     override fun stop() {
@@ -167,8 +189,7 @@ class AndroidVoiceAudio(private val context: Context) : VoiceAudio {
     override fun close() {
         stop()
         closed = true
-        runCatching { tts?.shutdown() }
-        tts = null
+        releaseSpeech()
         main.removeCallbacksAndMessages(null)
     }
 }

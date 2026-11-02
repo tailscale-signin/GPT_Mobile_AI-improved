@@ -2,11 +2,13 @@
 import ipaddress
 import json
 import os
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from types import SimpleNamespace
 import unittest
@@ -188,6 +190,21 @@ class LiveNetworkTests(unittest.TestCase):
         self.exercise_listener(interface, ['0.0.0.0', interface])
 
     def exercise_listener(self, interface, bindings):
+        class BackendHealth(BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(503)
+                self.end_headers()
+
+            def log_message(self, _format, *args):
+                pass
+
+        backend = ThreadingHTTPServer(('127.0.0.1', 0), BackendHealth)
+        backend_thread = threading.Thread(target=backend.serve_forever, daemon=True)
+        backend_thread.start()
+        self.addCleanup(backend_thread.join, 5)
+        self.addCleanup(backend.server_close)
+        self.addCleanup(backend.shutdown)
+        backend_url = 'http://' + authority('127.0.0.1', backend.server_port)
         http = requests.Session()
         http.trust_env = False
         gateway = Path(__file__).resolve().parents[1]
@@ -197,8 +214,8 @@ class LiveNetworkTests(unittest.TestCase):
                 sock.bind((interface, 0))
                 port = sock.getsockname()[1]
             for bind in bindings:
-                # Probe the listener itself so health returns immediately on every Windows runner.
-                cfg = validate({'bind_host': bind, 'port': port, 'backend': 'http://' + authority(interface, port),
+                # A local deterministic backend keeps the health probe fast on every runner.
+                cfg = validate({'bind_host': bind, 'port': port, 'backend': backend_url,
                                 'update_mode': 'off', 'start_at_login': False})
                 atomic_json(root / 'settings.json', cfg)
                 # Each interface mode is restarted from disk; no credentials exist.

@@ -38,8 +38,11 @@ def apply(root, remove=False):
         result = subprocess.run([powershell, '-NoProfile', '-NonInteractive', '-EncodedCommand', encoded], check=False)
     if result.returncode:
         raise RuntimeError('Firewall change was cancelled or failed. The listener settings are saved; no successful firewall change was confirmed.')
-    marker = root / 'firewall.json'
+    marker = os.path.join(os.fspath(root), 'firewall.json')
     if remove:
-        marker.unlink(missing_ok=True)
+        try:
+            os.unlink(marker)
+        except FileNotFoundError:
+            pass
     else:
         atomic_json(marker, {'name': rule_name(root), 'port': cfg['port'], 'bind_host': cfg['bind_host'], 'profile': 'Private', 'remote': 'LocalSubnet'})

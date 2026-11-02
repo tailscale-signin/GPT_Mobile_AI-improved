@@ -24,8 +24,11 @@ class Dashboard:
         self.root = Path(root)
         self.window = window or tk.Tk()
         self.window.title('GPT Mobile Gateway')
-        self.window.geometry('1180x790')
-        self.window.minsize(1120, 720)
+        width = min(1180, max(900, self.window.winfo_screenwidth() - 32))
+        height = min(790, max(600, self.window.winfo_screenheight() - 100))
+        self.compact = width < 1100 or height < 740
+        self.window.geometry(f'{width}x{height}+16+16')
+        self.window.minsize(900, 600)
         theme.apply(self.window)
         self.page = 'Overview'
         self.snapshot = {}
@@ -41,7 +44,7 @@ class Dashboard:
         watch(self.window, self.root, self.close)
 
     def build(self):
-        sidebar = tk.Frame(self.window, bg='#061C24', width=210)
+        sidebar = tk.Frame(self.window, bg='#061C24', width=175 if self.compact else 210)
         sidebar.pack(side='left', fill='y')
         sidebar.pack_propagate(False)
         if getattr(self.window, '_brand_icon', None):
@@ -61,10 +64,10 @@ class Dashboard:
         ttk.Button(sidebar, text='Connection & settings', command=self.settings).pack(fill='x', padx=17)
         theme.label(sidebar, 'Runs on your PC\nNo cloud dashboard', 10, color=theme.MUTED, bg='#061C24', justify='left').pack(side='bottom', anchor='w', padx=25, pady=24)
         self.body = tk.Frame(self.window, bg=theme.BG)
-        self.body.pack(side='left', fill='both', expand=True, padx=27, pady=25)
+        self.body.pack(side='left', fill='both', expand=True, padx=20 if self.compact else 27, pady=20)
         header = tk.Frame(self.body, bg=theme.BG)
         header.pack(fill='x')
-        self.title = theme.label(header, 'Your gateway, at a glance', 23, bold=True)
+        self.title = theme.label(header, 'Your gateway, at a glance', 18 if self.compact else 23, bold=True)
         self.title.pack(side='left')
         self.badge = theme.label(header, 'Connecting', 10, color=theme.CYAN, bg=theme.RAISED, padx=13, pady=8)
         self.badge.pack(side='right', pady=3)
@@ -81,10 +84,10 @@ class Dashboard:
             cards.columnconfigure(i, weight=1, uniform='card')
             card = tk.Frame(cards, bg=theme.PANEL, highlightbackground=theme.LINE, highlightthickness=1)
             card.grid(row=0, column=i, sticky='nsew', padx=(0 if i == 0 else 6, 0 if i == 3 else 6))
-            theme.label(card, name, 9, color=theme.MUTED, bold=True, bg=theme.PANEL).pack(anchor='w', padx=14, pady=(13, 4))
+            theme.label(card, name, 8 if self.compact else 9, color=theme.MUTED, bold=True, bg=theme.PANEL).pack(anchor='w', padx=10, pady=(13, 4))
             value = theme.label(card, '—', 29, color=accent, bold=True, bg=theme.PANEL)
             value.pack(anchor='w', padx=14)
-            theme.label(card, note, 8, color=theme.MUTED, bg=theme.PANEL).pack(anchor='w', padx=14, pady=(0, 13))
+            theme.label(card, note, 8, color=theme.MUTED, bg=theme.PANEL, wraplength=155 if self.compact else 185, justify='left').pack(anchor='w', padx=10, pady=(0, 13))
             self.cards.append(value)
         self.chart_frame = tk.Frame(self.body, bg=theme.PANEL, highlightbackground=theme.LINE, highlightthickness=1)
         self.chart_frame.pack(fill='x', pady=(0, 18))
@@ -93,7 +96,7 @@ class Dashboard:
         theme.label(chart_head, 'TRAFFIC / REQUESTS PER SECOND', 9, color=theme.CYAN, bold=True, bg=theme.PANEL).pack(side='left')
         self.metrics = theme.label(chart_head, 'Waiting for measured traffic', 9, color=theme.MUTED, bg=theme.PANEL)
         self.metrics.pack(side='right')
-        self.chart = tk.Canvas(self.chart_frame, height=100, bg=theme.PANEL, highlightthickness=0)
+        self.chart = tk.Canvas(self.chart_frame, height=72 if self.compact else 100, bg=theme.PANEL, highlightthickness=0)
         self.chart.pack(fill='x', padx=12, pady=8)
         self.chart.bind('<Configure>', lambda event: self.draw_plot())
         toolbar = tk.Frame(self.body, bg=theme.BG)
@@ -192,17 +195,17 @@ class Dashboard:
 
     def draw_plot(self):
         self.chart.delete('all')
-        width, height = max(40, self.chart.winfo_width()), 100
-        for y in (18, 46, 74):
+        width, height = max(40, self.chart.winfo_width()), max(40, self.chart.winfo_height())
+        for y in (height * .18, height * .46, height * .74):
             self.chart.create_line(8, y, width - 8, y, fill=theme.LINE)
         if len(self.plot) < 2:
-            self.chart.create_text(20, 45, text='Traffic appears here as requests arrive', fill=theme.MUTED, anchor='w', font=('Segoe UI', 10))
+            self.chart.create_text(20, height / 2, text='Traffic appears here as requests arrive', fill=theme.MUTED, anchor='w', font=('Segoe UI', 10))
             return
         peak = max(1, max(self.plot))
         points = []
         for i, value in enumerate(self.plot):
-            points.extend((10 + i * (width - 22) / (len(self.plot) - 1), 82 - value / peak * 66))
-        self.chart.create_polygon([10, 84, *points, width - 12, 84], fill='#0C3F44', outline='')
+            points.extend((10 + i * (width - 22) / (len(self.plot) - 1), height * .82 - value / peak * height * .66))
+        self.chart.create_polygon([10, height * .84, *points, width - 12, height * .84], fill='#0C3F44', outline='')
         self.chart.create_line(*points, fill=theme.CYAN, width=2, smooth=True)
         self.chart.create_oval(points[-2] - 3, points[-1] - 3, points[-2] + 3, points[-1] + 3, fill=theme.CYAN, outline='')
 

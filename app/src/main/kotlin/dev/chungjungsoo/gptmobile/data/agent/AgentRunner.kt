@@ -985,8 +985,6 @@ class AgentRunner(
                 return@catch
             }
             failureTransportComplete = false
-            taskOutcome = null
-            failureDetails = null
             // Keep the first terminal provider failure; trailing transport errors
             // must not replace it or change the recovery decision.
             if (failure == null) {

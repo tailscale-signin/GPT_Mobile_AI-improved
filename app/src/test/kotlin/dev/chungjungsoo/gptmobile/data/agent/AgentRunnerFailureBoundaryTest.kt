@@ -10,6 +10,8 @@ import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertSame
@@ -180,6 +182,30 @@ class AgentRunnerFailureBoundaryTest {
         assertEquals(12, events.filterIsInstance<ProviderEvent.Usage>().single().totalTokens)
         assertTrue(events.filterIsInstance<ProviderEvent.TextDelta>().isEmpty())
         assertTrue(events.filterIsInstance<ProviderEvent.ToolCall>().isEmpty())
+    }
+
+    @Test
+    fun `partial outcome and diagnostics survive a trailing transport exception without retry`() = kotlinx.coroutines.test.runTest {
+        var requests = 0
+        val details = buildJsonObject { put("request_id", "partial-request") }
+        val expected = ProviderEvent.Failed(
+            "Software caused connection abort",
+            errorCode = "GITHUB_EXTRACTION_TIMEOUT",
+            transportComplete = true,
+            taskOutcome = "PARTIAL",
+            failureDetails = details
+        )
+        val session = provider {
+            requests++
+            emit(expected)
+            emit(ProviderEvent.Usage(10, 2, 12))
+            throw IOException("connection reset after terminal event")
+        }
+        val events = AgentRunner(AgentRunLimits(githubTask = true)).run(session, listOf(unusedTool)).toList().providerEvents()
+        assertEquals(1, requests)
+        assertEquals(listOf(expected.copy(transportComplete = false)), events.filterIsInstance<ProviderEvent.Failed>())
+        assertEquals(12, events.filterIsInstance<ProviderEvent.Usage>().single().totalTokens)
+        assertFalse(events.contains(ProviderEvent.Completed))
     }
 
     @Test

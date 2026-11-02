@@ -16,6 +16,7 @@ data class AppFeatureSettings(
     val settingsHome: SettingsHomeConfiguration = SettingsHomeConfiguration(),
     /** Legacy serialized preference; all new Combined runs preserve full contribution coverage. */
     val combinedComprehensive: Boolean = true,
+    val voiceProfileUid: String? = null,
     val lastChatProfileUids: List<String> = emptyList(),
     val lastChatMode: String = "STANDARD",
     /** Research purpose persists independently of the current research toggle. */
@@ -290,9 +291,10 @@ object ToolPluginId {
     const val DEEP_RESEARCH = "deep_research"
     const val WEB_SEARCH = "web_search"
     const val DEVICE_LOCATION = "device_location"
+    const val VOICE_CHAT = "voice_chat"
     const val HEALTH_CONNECT = "health_connect"
 
-    val optInServices = setOf(CRAWLERS, AMAZON_SEARCH, AMAZON_FREE, NEWS, AIRBNB, GOOGLE_PLACES, DEEP_RESEARCH, HEALTH_CONNECT)
+    val optInServices = setOf(VOICE_CHAT, CRAWLERS, AMAZON_SEARCH, AMAZON_FREE, NEWS, AIRBNB, GOOGLE_PLACES, DEEP_RESEARCH, HEALTH_CONNECT)
 
     fun nativeOperation(packageId: String, operation: String): String = "native:$packageId:$operation"
 

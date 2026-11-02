@@ -36,6 +36,7 @@ object ToolServiceCatalog {
         }
 
     val integrated = listOf(
+        ToolServiceDefinition(ToolPluginId.VOICE_CHAT, "Voice Chat", "Optional spoken conversations with your AI profile. Off by default; microphone access only while the voice screen is open. Android speech services may use the network.", "voice", usesNetwork = true, supportsLocalTools = false),
         ToolServiceDefinition(ToolPluginId.HEALTH_CONNECT, "Smartwatch Health Connect", "Read synced wellness statistics on this phone. Separate Android permissions, profile opt-in and AI-sharing consent.", "health"),
         ToolServiceDefinition(ToolPluginId.DEEP_RESEARCH, "Deep Research", "Opt-in academic discovery, open-access evidence and quote verification. Native keyless sources; optional private gateway for PDFs.", "search", true),
         ToolServiceDefinition(ToolPluginId.MODEL_DELEGATION, "Model Delegation", "Let a configured helper research and process information.", "delegation"),

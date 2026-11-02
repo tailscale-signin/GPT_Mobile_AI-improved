@@ -53,8 +53,9 @@ class VoiceSession(
         generation++
         audio.stop()
     }
-    private fun accessAllowed() = enabled && permission && foreground && !state.muted && state.phase != VoicePhase.CLOSED
-    private fun allowed() = engaged && accessAllowed()
+    private fun accessAllowed() = enabled && permission && foreground && state.phase != VoicePhase.CLOSED
+    private fun playbackAllowed() = engaged && accessAllowed()
+    private fun captureAllowed() = playbackAllowed() && !state.muted
 
     fun access(enabled: Boolean, permission: Boolean, foreground: Boolean) {
         this.enabled = enabled
@@ -71,9 +72,13 @@ class VoiceSession(
             update(state.copy(phase = VoicePhase.THINKING, level = 0f))
             return
         }
+        if (state.muted) {
+            update(state.copy(phase = VoicePhase.PAUSED, level = 0f))
+            return
+        }
         val ticket = generation
         update(state.copy(phase = VoicePhase.LISTENING, level = 0f, transcript = "", notice = null))
-        fun valid() = ticket == generation && allowed() && state.phase == VoicePhase.LISTENING
+        fun valid() = ticket == generation && captureAllowed() && state.phase == VoicePhase.LISTENING
         audio.listen(object : VoiceAudio.Listener {
             override fun ready() = Unit
             override fun level(value: Float) {
@@ -109,7 +114,7 @@ class VoiceSession(
             return
         }
         update(state.copy(reply = text))
-        if (!allowed()) {
+        if (!playbackAllowed()) {
             pause()
             return
         }
@@ -121,13 +126,19 @@ class VoiceSession(
         val ticket = generation
         update(state.copy(phase = VoicePhase.SPEAKING, level = 0f, notice = null))
         audio.speak(text, complete = {
-            if (ticket == generation && allowed()) resume()
+            if (ticket == generation && playbackAllowed()) resume()
         }, error = { message -> if (ticket == generation) fail(message) })
     }
 
     fun mute() {
         update(state.copy(muted = !state.muted))
-        if (state.muted) pause() else resume()
+        if (state.phase == VoicePhase.SPEAKING || state.phase == VoicePhase.THINKING) return
+        if (state.muted) {
+            stopAudio()
+            update(state.copy(phase = VoicePhase.PAUSED, level = 0f))
+        } else {
+            resume()
+        }
     }
     fun speaker() {
         update(state.copy(speaker = !state.speaker))

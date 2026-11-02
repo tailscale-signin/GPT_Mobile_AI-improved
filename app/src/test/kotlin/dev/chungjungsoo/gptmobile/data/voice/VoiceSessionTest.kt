@@ -80,6 +80,32 @@ class VoiceSessionTest {
         assertEquals(2, audio.listeners.size)
     }
 
+    @Test fun `microphone mute still permits the pending assistant response`() {
+        start()
+        audio.listeners.last().final("Hello")
+        session.mute()
+        session.reply("run", "Reply")
+        assertEquals(listOf("Reply"), audio.spoken)
+        assertEquals(VoicePhase.SPEAKING, session.state.phase)
+        audio.done?.invoke()
+        assertEquals(1, audio.listeners.size)
+        assertEquals(VoicePhase.PAUSED, session.state.phase)
+        session.mute()
+        assertEquals(2, audio.listeners.size)
+    }
+
+    @Test fun `muting during playback preserves speech and prevents automatic capture`() {
+        start()
+        audio.listeners.last().final("Hello")
+        session.reply("run", "Reply")
+        val stopped = audio.stopped
+        session.mute()
+        assertEquals(stopped, audio.stopped)
+        assertEquals(VoicePhase.SPEAKING, session.state.phase)
+        audio.done?.invoke()
+        assertEquals(1, audio.listeners.size)
+    }
+
     @Test fun `background stops playback and ignores late completion`() {
         start()
         audio.listeners.last().final("Hello")

@@ -243,10 +243,10 @@ internal fun VoiceChatScreen(onEnd: () -> Unit, onOpenChat: () -> Unit, model: C
         !enabled -> "Voice chat is turned off"
         !loaded -> "Getting ready"
         waitingApproval -> "Your attention is needed"
-        state.muted -> "Microphone muted"
-        state.phase == VoicePhase.LISTENING -> "Listening"
         state.phase == VoicePhase.THINKING -> "Thinking"
         state.phase == VoicePhase.SPEAKING -> "Speaking"
+        state.muted -> "Microphone muted"
+        state.phase == VoicePhase.LISTENING -> "Listening"
         state.phase == VoicePhase.ERROR -> "Let’s try again"
         else -> "Ready when you are"
     }
@@ -262,8 +262,8 @@ internal fun VoiceChatScreen(onEnd: () -> Unit, onOpenChat: () -> Unit, model: C
         Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
             VoiceWave(
                 state,
-                Modifier.fillMaxWidth().height(210.dp).clickable(enabled = enabled && loaded, role = Role.Button, onClickLabel = if (state.phase == VoicePhase.SPEAKING) "Interrupt and listen" else "Start or pause listening") {
-                    if (state.phase == VoicePhase.LISTENING) {
+                Modifier.fillMaxWidth().height(210.dp).clickable(enabled = enabled && loaded, role = Role.Button, onClickLabel = if (state.phase == VoicePhase.SPEAKING) "Interrupt reply" else "Start or pause listening") {
+                    if (state.phase == VoicePhase.LISTENING || (state.phase == VoicePhase.SPEAKING && state.muted)) {
                         session.pause()
                     } else if (state.phase != VoicePhase.THINKING && !state.muted) {
                         listen()
@@ -276,6 +276,8 @@ internal fun VoiceChatScreen(onEnd: () -> Unit, onOpenChat: () -> Unit, model: C
                     "Tap the wave to interrupt"
                 } else if (state.phase == VoicePhase.LISTENING) {
                     "Go ahead, I’m listening"
+                } else if (state.muted) {
+                    "Unmute when you’re ready to speak"
                 } else {
                     "Tap the wave when you’re ready"
                 },

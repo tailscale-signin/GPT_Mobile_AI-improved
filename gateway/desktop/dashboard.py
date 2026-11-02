@@ -61,7 +61,7 @@ class Dashboard:
             button.pack(fill='x', padx=12, pady=3)
             self.nav[page] = button
         tk.Frame(sidebar, bg=theme.LINE, height=1).pack(fill='x', padx=25, pady=25)
-        ttk.Button(sidebar, text='Connection & settings', command=self.settings).pack(fill='x', padx=17)
+        ttk.Button(sidebar, text='Settings', command=self.settings).pack(fill='x', padx=17)
         theme.label(sidebar, 'Runs on your PC\nNo cloud dashboard', 10, color=theme.MUTED, bg='#061C24', justify='left').pack(side='bottom', anchor='w', padx=25, pady=24)
         self.body = tk.Frame(self.window, bg=theme.BG)
         self.body.pack(side='left', fill='both', expand=True, padx=20 if self.compact else 27, pady=20)

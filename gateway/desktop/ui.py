@@ -37,9 +37,23 @@ def _show(root, parent=None):
     from desktop import theme
     theme.apply(window)
     window.title('GPT Mobile Gateway · Settings')
-    window.minsize(660, 670)
-    frame = ttk.Frame(window, padding=22)
-    frame.pack(fill='both', expand=True)
+    width = min(800, max(660, window.winfo_screenwidth() - 32))
+    height = min(820, max(500, window.winfo_screenheight() - 100))
+    window.geometry(f'{width}x{height}+16+16')
+    window.minsize(660, 500)
+    canvas = tk.Canvas(window, bg=theme.BG, highlightthickness=0)
+    scroll = ttk.Scrollbar(window, orient='vertical', command=canvas.yview)
+    scroll.pack(side='right', fill='y')
+    canvas.pack(side='left', fill='both', expand=True)
+    canvas.configure(yscrollcommand=scroll.set)
+    frame = ttk.Frame(canvas, padding=22)
+    content = canvas.create_window((0, 0), window=frame, anchor='nw')
+    frame.bind('<Configure>', lambda event: canvas.configure(scrollregion=canvas.bbox('all')))
+    canvas.bind('<Configure>', lambda event: canvas.itemconfigure(content, width=event.width))
+    def scroll_wheel(event):
+        if not isinstance(event.widget, ttk.Combobox):
+            canvas.yview_scroll(-int(event.delta / 120), 'units')
+    window.bind('<MouseWheel>', scroll_wheel)
     ttk.Label(frame, text='Gateway settings', font=('Segoe UI', 20, 'bold')).grid(row=0, column=0, columnspan=3, sticky='w', pady=(0, 8))
     ttk.Label(frame, text='127.0.0.1: this PC only. A PC network IP: one interface. 0.0.0.0: all IPv4 interfaces.\nNetwork access is key-free: reachable devices can use enabled models and tools.', wraplength=600).grid(row=1, column=0, columnspan=3, sticky='w', pady=(0, 16))
     values = {}

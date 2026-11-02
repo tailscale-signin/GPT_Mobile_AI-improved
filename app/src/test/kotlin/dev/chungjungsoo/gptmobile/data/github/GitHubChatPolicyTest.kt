@@ -27,7 +27,7 @@ class GitHubChatPolicyTest {
         val selected = GitHubChatPolicy.platform(profile, features, context)
         assertFalse(selected.disableAllTools)
         assertEquals(512, selected.maxToolCalls)
-        assertEquals(32768, selected.maxTokens)
+        assertEquals(512, selected.maxTokens)
         assertTrue(profile.disableAllTools)
         val effective = GitHubChatPolicy.features(features, "p", context)
         assertEquals(EngineeringMode.ULTRA_MAX, effective.engineeringProfiles.getValue("p").mode)
@@ -44,6 +44,30 @@ class GitHubChatPolicyTest {
         assertFalse(withPersonalMemory.isToolEnabled("memory_recall"))
         assertFalse(withPersonalMemory.isToolEnabled("memory_read_document"))
         assertFalse(context.autoApproveTools)
+    }
+
+    @Test fun maximumContextLeavesAutomaticOutputAdmissibleOnLlamaFallback() {
+        val automatic = profile.copy(maxTokens = null)
+        val selected = GitHubChatPolicy.platform(automatic, features, context)
+        val effective = GitHubChatPolicy.features(features, automatic.uid, context)
+        assertEquals(null, selected.maxTokens)
+        assertEquals(0, effective.tokenBudget.outputTokens)
+        val capacity = 32_768
+        val output = dev.chungjungsoo.gptmobile.data.agent.provider.GitHubReasoningPolicy.outputBudget(capacity, effective.tokenBudget.outputTokens, selected.maxTokens)
+        val plan = dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.plan(
+            emptyList(),
+            "Inspect repository failures",
+            emptyList(),
+            effective.tokenBudget.copy(contextTokens = capacity, outputTokens = output)
+        )
+        assertTrue(plan.promptTokens + output < capacity)
+    }
+
+    @Test fun maximumContextPreservesExplicitOutputCaps() {
+        val configured = features.copy(tokenBudget = features.tokenBudget.copy(outputTokens = 1024))
+        val effective = GitHubChatPolicy.features(configured, "p", context)
+        assertEquals(1024, effective.tokenBudget.outputTokens)
+        assertEquals(512, GitHubChatPolicy.platform(profile, configured, context).maxTokens)
     }
 
     @Test fun githubControlsCanDisableSearchAndRepositoryAccessAndSelectSmallerBudget() {

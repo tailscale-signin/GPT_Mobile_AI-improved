@@ -30,8 +30,7 @@ internal object GitHubChatPolicy {
             disableAllTools = false,
             disableRemoteTools = false,
             disableLocalTools = false,
-            maxToolCalls = callLimit(config.engineeringMode),
-            maxTokens = if (config.maximumContext) maxOf(profile.maxTokens ?: 0, 32_768) else profile.maxTokens
+            maxToolCalls = callLimit(config.engineeringMode)
         )
     }
 
@@ -51,7 +50,9 @@ internal object GitHubChatPolicy {
         val budget = original.tokenBudget.copy(
             contextTokens = if (config.maximumContext) 1_048_576 else original.tokenBudget.contextTokens,
             profileContextCeilings = if (config.maximumContext) original.tokenBudget.profileContextCeilings - uid else original.tokenBudget.profileContextCeilings,
-            outputTokens = if (config.maximumContext) 32_768 else original.tokenBudget.outputTokens,
+            // Context capacity is not an output request. Keep explicit caps and let
+            // request admission reserve output alongside the prompt and tool receipts.
+            outputTokens = original.tokenBudget.outputTokens,
             totalRunTokens = if (config.engineeringMode == EngineeringMode.ULTRA_MAX) 2_097_152 else original.tokenBudget.totalRunTokens,
             generationTimeoutMinutes = if (config.engineeringMode == EngineeringMode.ULTRA_MAX) 1440 else 240,
             responseCharacterLimit = maxOf(original.tokenBudget.responseCharacterLimit, 1_048_576),

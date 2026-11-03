@@ -1948,7 +1948,10 @@ internal fun ChatBottomAutoScroller(
             // measured message rows too, without reacting to their scroll offsets.
             info.totalItemsCount to info.visibleItemsInfo.map { it.index to it.size }
         }.distinctUntilChanged().conflate().collect { (totalItems, _) ->
-            kotlinx.coroutines.delay(32)
+            // Coalesce on the UI frame clock so layout, animation and Compose
+            // idling all observe the pending scroll. A wall-clock delay can leave
+            // the initial/growing viewport idle before following has started.
+            androidx.compose.runtime.withFrameNanos { }
             val latestItemIndex = totalItems - 1
             if (latestItemIndex >= 0 && listState.canScrollForward) {
                 if (animate) listState.animateScrollToItem(latestItemIndex) else listState.scrollToItem(latestItemIndex)

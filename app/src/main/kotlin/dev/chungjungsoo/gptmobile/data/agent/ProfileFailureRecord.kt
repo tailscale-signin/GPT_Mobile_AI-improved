@@ -19,6 +19,10 @@ data class ProfileFailureRecord(
     val resourceKeys: Set<String> = emptySet()
 ) {
     companion object {
+        fun reviewRetryBlock(details: String?): String? = details?.takeIf { classify(it).category == "REVIEW_INPUT_REQUIRED" }?.let {
+            "This saved review requires an updated request or new evidence. Send an updated prompt; the saved draft and tool results are retained."
+        }
+
         private val httpStatus = Regex("""(?i)\b(?:HTTP(?:/\d(?:\.\d)?)?(?:\s+(?:error|status)(?:\s+code)?)?|status(?:\s+code)?|statusCode|responseCode)["']?(?:\s*[:=]\s*|\s+)(\d{3})\b""")
 
         fun classify(details: String, demoExcluded: Boolean = false): ProfileFailureRecord {
@@ -32,7 +36,12 @@ data class ProfileFailureRecord(
             val statuses = httpStatus.findAll(details).map { it.groupValues[1] }.toSet()
             val permanentEndpoint = "410" in statuses || details.trim() == "410" || Regex("(?i)\\b410\\s+Gone\\b|endpoint.{0,40}(?:retired|removed|gone)|model.{0,30}(?:decommissioned|retired)").containsMatchIn(details)
             val billing = "402" in statuses || details.trim() == "402" || Regex("(?i)credit balance|insufficient (?:credits|funds|balance)|billing.{0,30}(?:required|disabled|exhausted)|payment required").containsMatchIn(details)
+            val reviewBlocked = details.contains("Saved review requires new evidence", true) || details.contains("GITHUB_REVIEW_BLOCKED", true) || details.contains("unchanged draft will not be reviewed again", true)
+            val privacyBlocked = details.contains("POLICY_RESTRICTED", true) || details.contains("PERSONAL_DATA_LOCAL_ONLY", true)
             val category = when {
+                reviewBlocked -> "REVIEW_INPUT_REQUIRED"
+                details.contains("GITHUB_REVIEW_", true) -> "ANSWER_REVIEW"
+                privacyBlocked -> "PRIVACY_CONFIGURATION"
                 permanentEndpoint -> "ENDPOINT_RETIRED"
                 billing -> "BILLING_UNAVAILABLE"
                 details.contains("QUEUE_JOB_PENDING", true) -> "QUEUED_JOB"
@@ -55,7 +64,7 @@ data class ProfileFailureRecord(
                 details.contains("connection", true) -> "CONNECTION"
                 else -> "INCOMPLETE"
             }
-            return ProfileFailureRecord(category, !incompatible && !unavailablePolicy && category !in setOf("QUEUED_JOB", "CACHED_UNUSABLE_RESPONSE", "ENDPOINT_RETIRED", "BILLING_UNAVAILABLE"), retryAt)
+            return ProfileFailureRecord(category, !incompatible && !unavailablePolicy && category !in setOf("REVIEW_INPUT_REQUIRED", "PRIVACY_CONFIGURATION", "QUEUED_JOB", "CACHED_UNUSABLE_RESPONSE", "ENDPOINT_RETIRED", "BILLING_UNAVAILABLE"), retryAt)
         }
     }
 }

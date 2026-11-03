@@ -20,5 +20,19 @@
     "focused_jvm": "13 tests passed with host DTO adapters and exact production authorization excerpts",
     "android": "Pending CI; not run locally (JDK 17, no Android SDK)",
     "physical_device": "Not measured"
-  }
+  },
+  "integration_review": {
+    "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+    "base_branch": "main",
+    "base_sha": "3a05c621dd0d5dd1777a3decdd92abb8feb20273",
+    "working_branch": "fix/github-checklist-diagnostics-2026-11-03",
+    "head_sha": "01628309fb8db65730749d86ec49df832525cb6b",
+    "parent_pr": 795,
+    "parent_sha": "f2daff0bc7e158f577518da773d647f89d9c7151",
+    "intent": "Reconcile overlapping checklist implementation/tests and release scope, preserve PR795 progress/privacy/voice and bounded packaging repairs with PR796 pinned dependency and read-only page recovery fixes; validate together before ordered main merges.",
+    "validation": "PASSED:13 focused production checklist/pagination tests with host DTO adapters and exact authorization excerpts; all301 canonical host checks; changed Kotlin ktlint1.3.1 and whitespace. Scope validation on final combined commit follows. No Android/device validation claimed.",
+    "resolution": "Keep PR796 extended source and all7 dependency tests (contains all3 PR795 tests unchanged); union every allowed path/feature/limitation from both release manifests, preserving unchanged base SHA, release gates, memory budgets and required workflows.",
+    "state": "IMPLEMENTED_PENDING_EXACT_REVISION_CI"
+  },
+  "parent_pr": 795
 }

@@ -135,7 +135,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          python3 scripts/build_metrics.py --label review-apk --output build/reports/profile/review-metrics.json -- python3 scripts/gradle_retry.py -- :app:assembleDebug --no-daemon 2>&1 | tee apk.log
+          python3 scripts/build_metrics.py --label review-apk --output build/reports/profile/review-metrics.json -- python3 scripts/gradle_retry.py --timeout-seconds 1140 -- :app:assembleDebug --no-daemon --max-workers=1 '-Dorg.gradle.jvmargs=-Xmx3072m -XX:MaxMetaspaceSize=1024m -Djava.util.concurrent.ForkJoinPool.common.parallelism=2 -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8' 2>&1 | tee apk.log
           python3 scripts/check_local_runtime_apk.py app/build/outputs/apk/debug/*.apk
           python3 scripts/check_no_telemetry.py app/build/outputs/apk/debug/*.apk
           python3 scripts/check_apk_size.py app/build/outputs/apk/debug --build-type debug --report apk-size-report.json

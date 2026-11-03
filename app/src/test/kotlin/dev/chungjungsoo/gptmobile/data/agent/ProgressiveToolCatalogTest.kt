@@ -21,6 +21,49 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ProgressiveToolCatalogTest {
+    @Test fun emptyColdDiscoveryInstallsExecutableSchemasOnTheNextRound() = runTest {
+        for ((task, toolName) in listOf("Read document" to "read_document", "Read source" to "github_read__github_api")) {
+            var executions = 0
+            var acquired = false
+            val reader = object : AgentTool {
+                override val definition = AgentToolDefinition(toolName, task, JsonObject(emptyMap()))
+                override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+                    executions++
+                    return AgentToolResult(callId, ToolResultContent.Text("Observed evidence"), false)
+                }
+            }
+            val catalog = ProgressiveToolCatalog(emptyList(), task, acquireCold = { _, _ ->
+                acquired = true
+                listOf(reader.definition)
+            })
+            var round = 0
+            val advertised = mutableListOf<List<String>>()
+            val session = object : AgentProviderSession {
+                override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                    advertised += tools.map { it.name }
+                    when (round++) {
+                        0 -> emit(ProviderEvent.ToolCall("discover", ProgressiveToolCatalog.NAME, JsonObject(emptyMap())))
+                        1 -> {
+                            emit(ProviderEvent.ToolCall("read", reader.definition.name, JsonObject(emptyMap())))
+                        }
+                        else -> emit(ProviderEvent.TextDelta("Evidence received"))
+                    }
+                    emit(ProviderEvent.Completed)
+                }
+            }
+            val events = AgentRunner().run(session, listOf(catalog), dynamicTools = { if (acquired) listOf(reader) else emptyList() }, selectDefinitions = catalog::selected).toList()
+            assertTrue("Cold acquisition for $task", acquired)
+            assertEquals(listOf(ProgressiveToolCatalog.NAME), advertised.first())
+            assertTrue("Advertised rounds: $advertised; events: $events", toolName in advertised[1])
+            assertEquals("Events: $events", 1, executions)
+            val read = events.filterIsInstance<AgentRunEvent.ToolFinished>().single { it.call.callId == "read" }
+            assertTrue(read.result.dispatched)
+            assertFalse(read.result.isError)
+            val repeated = (catalog.execute("again", JsonObject(emptyMap())).content as ToolResultContent.Json).value.jsonObject
+            assertEquals(JsonPrimitive(true), repeated["catalog_unchanged"])
+        }
+    }
+
     @Test fun deferredWritesRemainDiscoverableWithTheirExactSchemasAfterLongRequests() = runTest {
         val definitions = GitHubOperationTool.names.map {
             GitHubOperationTool.definition(it, it + "__github_api")

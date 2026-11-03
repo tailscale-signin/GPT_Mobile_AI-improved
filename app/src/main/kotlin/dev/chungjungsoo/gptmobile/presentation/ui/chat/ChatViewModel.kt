@@ -1840,6 +1840,13 @@ class ChatViewModel @Inject constructor(
         if (_loadingStates.value.getOrNull(ownerLoadingIndex) == LoadingState.Loading) return
         val userMessage = _groupedMessages.value.userMessages.getOrNull(turnIndex) ?: return
         val previousRun = currentAssistantMessage.currentRunId?.let { _agentRunsById.value[it] }
+        if (_chatRoom.value.conversationMode != ConversationMode.COMBINED) {
+            val error = currentAssistantMessage.timeline.lastOrNull { it.runError != null }?.runError ?: previousRun?.terminalError
+            dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.reviewRetryBlock(error)?.let {
+                _attachmentNotice.value = it
+                return
+            }
+        }
         val singlePassAttempt = previousRun?.synthesisSnapshot?.let { raw ->
             dev.chungjungsoo.gptmobile.data.agent.CombinedAcceptedTurn.decode(raw)?.context?.requested?.singlePass
                 ?: runCatching { kotlinx.serialization.json.Json { ignoreUnknownKeys = true }.decodeFromString<dev.chungjungsoo.gptmobile.data.agent.CombinedInputSnapshot>(raw).combined?.requested?.singlePass }.getOrNull()

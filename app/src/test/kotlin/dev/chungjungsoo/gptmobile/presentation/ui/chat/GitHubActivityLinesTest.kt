@@ -19,7 +19,7 @@ class GitHubActivityLinesTest {
         assertTrue(lines.first().statusSummary)
         val visible = gitHubVisibleActivityLines(lines, compact = true)
         assertTrue(visible.first().statusSummary)
-        assertEquals(listOf("Reading", "Checking", "Finishing"), visible.drop(1).map { it.content })
+        assertEquals(listOf("Preparing", "Reading", "Checking", "Finishing"), visible.drop(1).map { it.content })
     }
 
     @Test fun searchFallbackFollowsSummaryAndParticipatesInThePreviewWindow() {
@@ -36,5 +36,24 @@ class GitHubActivityLinesTest {
         assertEquals("Searching websites", empty.last().content)
         val existing = gitHubActivityLines(listOf(line("Summary", true), line("Reading websites")), "review", searchActive = true)
         assertEquals(listOf("Summary", "Reading websites"), existing.map { it.content })
+    }
+
+    @Test fun historyThresholdCountsRenderedLinesAndRetainsSummary() {
+        val lines = listOf(line("Summary", true)) + (1..19).map { line("Step $it") }
+        assertEquals(lines, gitHubVisibleActivityLines(lines, true))
+        val wrapped = listOf(4) + List(19) { 1 }
+        val visible = gitHubVisibleActivityLines(lines, true, wrapped)
+        assertTrue(visible.first().statusSummary)
+        assertTrue(visible.size < lines.size)
+        assertEquals(20, gitHubVisibleActivityLines(lines + line("Step 20"), true).size)
+        assertEquals("Step 19", visible.last().content)
+    }
+
+    @Test fun repeatedCountsReplaceTheSamePublicLineAndSummaryDoesNotRecur() {
+        val lines = gitHubActivityLines(listOf(line("Summary", true), line("Checks: 1/8 complete. Reading files."), line("Other summary", true), line("Summary", true), line("Checks: 3/8 complete; 1 failed. Checking jobs.")), "test all")
+        assertEquals(1, lines.count { it.content.startsWith("Checks:") })
+        assertEquals("Checks: 3/8 complete; 1 failed", lines.last().content)
+        assertEquals("github-check-counts", lines.last().progressId)
+        assertEquals(1, lines.count { it.content == "Summary" })
     }
 }

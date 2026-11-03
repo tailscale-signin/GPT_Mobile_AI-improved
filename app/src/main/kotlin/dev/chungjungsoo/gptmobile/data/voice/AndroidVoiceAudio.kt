@@ -23,8 +23,11 @@ import java.util.Locale
 /** Created only in an enabled, visible voice session. Audio is never recorded to an app file. */
 class AndroidVoiceAudio internal constructor(
     private val context: Context,
+    private val speechWork: java.util.concurrent.Executor,
     private val speechFactory: (Context, TextToSpeech.OnInitListener) -> TextToSpeech
 ) : VoiceAudio {
+    internal constructor(context: Context, speechFactory: (Context, TextToSpeech.OnInitListener) -> TextToSpeech) :
+        this(context, java.util.concurrent.Executors.newSingleThreadExecutor { task -> Thread(task, "VoiceSpeech").apply { isDaemon = true } }, speechFactory)
     constructor(context: Context) : this(context, { owner, listener -> TextToSpeech(owner, listener) })
 
     private val main = Handler(Looper.getMainLooper())
@@ -32,8 +35,10 @@ class AndroidVoiceAudio internal constructor(
     private var tts: TextToSpeech? = null
     private var speechReady = false
     private var speechGeneration = 0L
-    private var closed = false
-    private var generation = 0L
+
+    @Volatile private var closed = false
+
+    @Volatile private var generation = 0L
     private var pendingSpeech: (() -> Unit)? = null
     private var playbackError: ((String) -> Unit)? = null
     companion object {
@@ -61,10 +66,26 @@ class AndroidVoiceAudio internal constructor(
     init {
         audioManager?.registerAudioDeviceCallback(routeCallback, main)
     }
-    fun voices(): List<Pair<String, String>> = tts?.voices.orEmpty()
+    private data class SpeechConfiguration(val language: String, val voice: String?, val online: Boolean, val rate: Float, val communication: Boolean)
+
+    // Only the serial speech worker touches the configuration cache or calls TTS Binder APIs.
+    private var configuredEngine: TextToSpeech? = null
+    private var configuredSpeech: SpeechConfiguration? = null
+
+    @Volatile private var installedVoices: Set<android.speech.tts.Voice> = emptySet()
+    private var operation: Pair<String, Long>? = null
+    private fun started(kind: String, ticket: Long) {
+        operation = kind to ticket
+        event("${kind}_start", ticket)
+    }
+    private fun terminal(reason: String) {
+        operation?.let { (kind, ticket) -> event("${kind}_terminal · outcome=$reason", ticket) }
+        operation = null
+    }
+    fun voices(): List<Pair<String, String>> = installedVoices
         .filter { (allowOnlineSpeech || !it.isNetworkConnectionRequired) && it.locale.language == Locale.forLanguageTag(languageTag).language }
         .sortedBy { it.name }.take(12).map { it.name to "${it.name} · ${it.locale.displayName}" }
-    private fun event(name: String) = dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("VoiceTiming", "$name · session=$sessionId · attempt=$generation · elapsedMs=${android.os.SystemClock.elapsedRealtime()}")
+    private fun event(name: String, ticket: Long = generation) = dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("VoiceTiming", "$name · session=$sessionId · attempt=$ticket · elapsedMs=${android.os.SystemClock.elapsedRealtime()}")
     private var watchdog: Runnable? = null
     var languageTag: String = Locale.getDefault().toLanguageTag()
     var allowOnlineSpeech: Boolean = false
@@ -141,6 +162,7 @@ class AndroidVoiceAudio internal constructor(
                         listener.ending()
                         armWatchdog(8000) {
                             if (active()) {
+                                terminal("timeout_final")
                                 stop()
                                 listener.error("Speech did not finish. Retry microphone or continue in chat.")
                             }
@@ -155,13 +177,15 @@ class AndroidVoiceAudio internal constructor(
                     if (!active()) return
                     val text = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull().orEmpty()
                     if (text.isNotBlank()) recognitionGate.succeeded(sessionId)
+                    event("recognition_final", ticket)
+                    terminal("completed")
                     stop()
-                    event("recognition_final")
                     listener.final(text)
                 }
                 override fun onError(error: Int) {
                     if (!active()) return
-                    event("recognition_error_$error")
+                    event("recognition_error_$error", ticket)
+                    terminal("error_$error")
                     recognitionGate.failed(error == SpeechRecognizer.ERROR_TOO_MANY_REQUESTS, sessionId)
                     stop()
                     dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("VoiceRecognition", "recognition_error=$error · locale=$languageTag · onDevice=$onDevice", "W")
@@ -181,11 +205,12 @@ class AndroidVoiceAudio internal constructor(
             })
             armWatchdog(15_000) {
                 if (active()) {
+                    terminal("timeout_ready")
                     stop()
                     listener.error("Microphone did not become ready. Retry or check the speech service.")
                 }
             }
-            event("recognition_start")
+            started("recognition", ticket)
             engine.startListening(
                 Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                     putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
@@ -195,7 +220,8 @@ class AndroidVoiceAudio internal constructor(
                 }
             )
         } catch (failure: Exception) {
-            event("recognition_start_failed_${failure.javaClass.simpleName}")
+            event("recognition_start_failed_${failure.javaClass.simpleName}", ticket)
+            terminal("start_failed")
             recognitionGate.failed(false, sessionId)
             stop()
             listener.error("Could not open the microphone. Check Android permissions and your speech service.")
@@ -220,81 +246,108 @@ class AndroidVoiceAudio internal constructor(
             return
         }
         focus = request
+        started("tts", ticket)
+        fun fail(message: String) {
+            main.post {
+                if (!closed && ticket == generation) {
+                    terminal("failed")
+                    stop()
+                    error(message)
+                }
+            }
+        }
+        val config = SpeechConfiguration(languageTag, selectedVoice, allowOnlineSpeech, speechRate.coerceIn(.5f, 2f), routeMode != null)
         val play: () -> Unit = play@{
-            try {
-                val engine = tts ?: return@play
-                if (closed || ticket != generation) return@play
-                engine.setAudioAttributes(
-                    AudioAttributes.Builder()
-                        .setUsage(if (routeMode != null) AudioAttributes.USAGE_VOICE_COMMUNICATION else AudioAttributes.USAGE_ASSISTANT)
-                        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build()
-                )
-                val locale = Locale.forLanguageTag(languageTag)
-                val language = engine.setLanguage(locale)
-                if (language < 0) {
-                    error("A voice for this language is not installed. Captions are still available.")
-                    return@play
+            val engine = tts ?: return@play
+            armWatchdog(15_000) {
+                if (!closed && ticket == generation) {
+                    terminal("timeout_start")
+                    stop()
+                    error("Speech playback did not start. Your answer remains in chat.")
                 }
-                val voice = engine.voices.orEmpty().firstOrNull { it.name == selectedVoice && (allowOnlineSpeech || !it.isNetworkConnectionRequired) }
-                    ?: engine.voices.orEmpty().firstOrNull { it.locale.language == locale.language && (allowOnlineSpeech || !it.isNetworkConnectionRequired) }
-                if (!allowOnlineSpeech && voice == null) {
-                    error("No offline voice is installed for this language. Your answer remains in chat.")
-                    return@play
-                }
-                voice?.let { engine.voice = it }
-                engine.setSpeechRate(speechRate.coerceIn(.5f, 2f))
-                val spoken = if (text.length > 12000) text.take(12000) + " The rest of this response is available in the chat." else text
-                val chunks = speechChunks(spoken, minOf(3000, TextToSpeech.getMaxSpeechInputLength()))
-                val finalId = "$ticket:${chunks.lastIndex}"
-                engine.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-                    override fun onStart(utteranceId: String?) {
-                        main.post {
-                            if (!closed && ticket == generation) {
-                                event("tts_audio_started")
-                                val index = utteranceId?.substringAfterLast(':')?.toIntOrNull()
-                                val length = index?.let(chunks::getOrNull)?.length ?: 3000
-                                armWatchdog((length * 150L + 15_000).coerceIn(30_000, 480_000)) {
-                                    if (!closed && ticket == generation) {
-                                        stop()
-                                        error("Speech playback stopped responding. Your answer remains in chat.")
+            }
+            speechWork.execute work@{
+                try {
+                    if (closed || ticket != generation) return@work
+                    if (configuredEngine !== engine || configuredSpeech != config) {
+                        configuredSpeech = null
+                        engine.setAudioAttributes(
+                            AudioAttributes.Builder()
+                                .setUsage(if (config.communication) AudioAttributes.USAGE_VOICE_COMMUNICATION else AudioAttributes.USAGE_ASSISTANT)
+                                .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build()
+                        )
+                        val locale = Locale.forLanguageTag(config.language)
+                        if (engine.setLanguage(locale) < 0) {
+                            fail("A voice for this language is not installed. Captions are still available.")
+                            return@work
+                        }
+                        val voices = engine.voices.orEmpty()
+                        installedVoices = voices.toSet()
+                        val voice = voices.firstOrNull { it.name == config.voice && (config.online || !it.isNetworkConnectionRequired) }
+                            ?: voices.firstOrNull { it.locale.language == locale.language && (config.online || !it.isNetworkConnectionRequired) }
+                        if (!config.online && voice == null) {
+                            fail("No offline voice is installed for this language. Your answer remains in chat.")
+                            return@work
+                        }
+                        if (voice != null && engine.setVoice(voice) == TextToSpeech.ERROR) {
+                            fail("The selected voice is unavailable. Choose an installed voice; captions remain available.")
+                            return@work
+                        }
+                        if (engine.setSpeechRate(config.rate) == TextToSpeech.ERROR) {
+                            fail("The speech engine could not apply this rate. Captions remain available.")
+                            return@work
+                        }
+                        configuredEngine = engine
+                        configuredSpeech = config
+                    }
+                    // Cancellation/configuration changes during a blocking Binder call must not start old audio.
+                    if (closed || ticket != generation) return@work
+                    val spoken = if (text.length > 12000) text.take(12000) + " The rest of this response is available in the chat." else text
+                    val chunks = speechChunks(spoken, minOf(3000, TextToSpeech.getMaxSpeechInputLength()))
+                    val finalId = "$ticket:${chunks.lastIndex}"
+                    engine.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+                        override fun onStart(utteranceId: String?) {
+                            main.post {
+                                if (!closed && ticket == generation) {
+                                    event("tts_audio_started · utterance=$utteranceId", ticket)
+                                    val index = utteranceId?.substringAfterLast(':')?.toIntOrNull()
+                                    val length = index?.let(chunks::getOrNull)?.length ?: 3000
+                                    armWatchdog((length * 150L + 15_000).coerceIn(30_000, 480_000)) {
+                                        if (!closed && ticket == generation) {
+                                            terminal("timeout_playback")
+                                            stop()
+                                            error("Speech playback stopped responding. Your answer remains in chat.")
+                                        }
                                     }
                                 }
                             }
                         }
-                    }
-                    override fun onDone(utteranceId: String?) {
-                        if (utteranceId == finalId) {
+                        override fun onDone(utteranceId: String?) {
                             main.post {
                                 if (!closed && ticket == generation) {
-                                    event("tts_audio_completed")
-                                    // A streamed sentence can finish while the model is still working.
-                                    // Retire its watchdog, focus and callbacks before handing off.
-                                    stop()
-                                    complete()
+                                    event("tts_utterance_completed · utterance=$utteranceId", ticket)
+                                    if (utteranceId == finalId) {
+                                        terminal("completed")
+                                        stop()
+                                        complete()
+                                    }
                                 }
                             }
                         }
-                    }
 
-                    @Deprecated("Platform compatibility callback")
-                    override fun onError(utteranceId: String?) {
-                        main.post { if (!closed && ticket == generation) error("Could not play this response. Turn off the speaker to continue with captions.") }
+                        @Deprecated("Platform compatibility callback")
+                        override fun onError(utteranceId: String?) = fail("Could not play this response. Turn off the speaker to continue with captions.")
+                    })
+                    for ((index, chunk) in chunks.withIndex()) {
+                        if (closed || ticket != generation) return@work
+                        if (engine.speak(chunk, TextToSpeech.QUEUE_ADD, null, "$ticket:$index") == TextToSpeech.ERROR) {
+                            fail("Could not play this response. Captions are still available.")
+                            break
+                        }
                     }
-                })
-                armWatchdog(15_000) {
-                    if (!closed && ticket == generation) {
-                        stop()
-                        error("Speech playback did not start. Your answer remains in chat.")
-                    }
+                } catch (_: Exception) {
+                    fail("The speech engine stopped. Turn off the speaker or try again.")
                 }
-                for ((index, chunk) in chunks.withIndex()) {
-                    if (engine.speak(chunk, TextToSpeech.QUEUE_ADD, null, "$ticket:$index") == TextToSpeech.ERROR) {
-                        error("Could not play this response. Captions are still available.")
-                        break
-                    }
-                }
-            } catch (_: Exception) {
-                if (!closed && ticket == generation) error("The speech engine stopped. Turn off the speaker or try again.")
             }
         }
         if (speechReady) {
@@ -304,6 +357,7 @@ class AndroidVoiceAudio internal constructor(
         pendingSpeech = play
         armWatchdog(10_000) {
             if (!closed && ticket == generation && !speechReady) {
+                terminal("timeout_initialization")
                 stop()
                 releaseSpeech()
                 error("The speech engine did not initialize. Your answer remains in chat.")
@@ -325,6 +379,8 @@ class AndroidVoiceAudio internal constructor(
                         } else {
                             val failed = playbackError
                             playbackError = null
+                            terminal("initialization_failed")
+                            stop()
                             releaseSpeech()
                             failed?.invoke("Text-to-speech is unavailable. Turn off the speaker to continue with captions, or tap to try again.")
                         }
@@ -333,6 +389,8 @@ class AndroidVoiceAudio internal constructor(
             } catch (_: Exception) {
                 pendingSpeech = null
                 playbackError = null
+                terminal("construction_failed")
+                stop()
                 releaseSpeech()
                 error("Could not start text-to-speech. Turn off the speaker to continue with captions, or tap to try again.")
             }
@@ -344,10 +402,21 @@ class AndroidVoiceAudio internal constructor(
         speechReady = false
         val previous = tts
         tts = null
-        runCatching { previous?.shutdown() }
+        installedVoices = emptySet()
+        if (previous != null) {
+            speechWork.execute {
+                if (configuredEngine === previous) {
+                    configuredEngine = null
+                    configuredSpeech = null
+                }
+                runCatching { previous.shutdown() }
+            }
+        }
     }
 
     override fun stop() {
+        if (closed) return
+        terminal("interrupted")
         generation++
         watchdog?.let(main::removeCallbacks)
         watchdog = null
@@ -360,10 +429,13 @@ class AndroidVoiceAudio internal constructor(
         runCatching { previous?.cancel() }
         runCatching { previous?.destroy() }
         recognitionGate.release(sessionId)
-        runCatching { tts?.stop() }
+        val speech = tts
+        if (speech != null) speechWork.execute { runCatching { speech.stop() } }
     }
 
     override fun close() {
+        if (closed) return
+        terminal("disposed")
         stop()
         closed = true
         audioManager?.unregisterAudioDeviceCallback(routeCallback)
@@ -372,6 +444,7 @@ class AndroidVoiceAudio internal constructor(
             routeMode?.let { audioManager?.mode = it }
         }
         releaseSpeech()
+        (speechWork as? java.util.concurrent.ExecutorService)?.shutdown()
         main.removeCallbacksAndMessages(null)
     }
 }

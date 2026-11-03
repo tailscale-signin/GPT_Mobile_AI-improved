@@ -1,10 +1,11 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.assertCountEquals
@@ -30,12 +31,13 @@ class GitHubLiveProgressTest {
     @get:Rule val compose = createComposeRule()
     private fun line(text: String, summary: Boolean = false) = AssistantTimelineItem(AssistantTimelineItemType.NOTICE, content = text, progressCheckpoint = true, statusSummary = summary)
 
-    @Test fun summaryIsWhiteAbovePreviewAndOnlyTheNewestBottomLineAnimates() {
+    @Test fun summaryUsesThemeForegroundAbovePreviewAndOnlyTheNewestBottomLineAnimates() {
         val summary = "I’ll inspect the loading bar."
         val first = line("Reading source files.")
         var timeline by mutableStateOf(listOf(line(summary, true), first))
+        var colors by mutableStateOf(lightColorScheme())
         compose.mainClock.autoAdvance = false
-        compose.setContent { MaterialTheme { GitHubLiveProgressCard(timeline, "Fix the loading bar") } }
+        compose.setContent { MaterialTheme(colorScheme = colors) { GitHubLiveProgressCard(timeline, "Fix the loading bar") } }
         compose.mainClock.advanceTimeBy(1600)
         compose.onNodeWithText("Working in your repository").assertDoesNotExist()
         val title = compose.onNodeWithTag("github_activity_summary").fetchSemanticsNode()
@@ -43,7 +45,12 @@ class GitHubLiveProgressTest {
         assertTrue(title.boundsInRoot.bottom <= preview.boundsInRoot.top)
         val layouts = mutableListOf<TextLayoutResult>()
         compose.onNodeWithTag("github_activity_summary").performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
-        assertEquals(Color.White, layouts.single().layoutInput.style.color)
+        assertEquals(colors.onSurface, layouts.single().layoutInput.style.color)
+        compose.runOnIdle { colors = darkColorScheme() }
+        compose.mainClock.advanceTimeBy(16)
+        layouts.clear()
+        compose.onNodeWithTag("github_activity_summary").performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
+        assertEquals(colors.onSurface, layouts.single().layoutInput.style.color)
 
         compose.runOnIdle { timeline = timeline + line("Reading the newest preview. ".repeat(50)) }
         compose.mainClock.advanceTimeBy(1600)

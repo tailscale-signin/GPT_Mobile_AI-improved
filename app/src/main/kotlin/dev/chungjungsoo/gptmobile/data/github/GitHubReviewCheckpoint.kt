@@ -71,6 +71,14 @@ internal class GitHubReviewCheckpoint(
     }
 
     /** One explicit restart may recover a model format failure. Persist before dispatch. */
+    suspend fun formatRetryAvailable(): Boolean {
+        val current = read("active") ?: return false
+        return current["task"] == JsonPrimitive(taskHash) &&
+            current["state"] == JsonPrimitive("BLOCKED") &&
+            current["failure_code"] == JsonPrimitive("GITHUB_REVIEW_INVALID_VERDICT") &&
+            ((current["format_retries"] as? JsonPrimitive)?.intOrNull ?: 0) == 0
+    }
+
     suspend fun claimFormatRetry(): Boolean {
         val current = read("active") ?: return false
         if (current["task"] != JsonPrimitive(taskHash) || current["state"] != JsonPrimitive("BLOCKED") || current["failure_code"] != JsonPrimitive("GITHUB_REVIEW_INVALID_VERDICT")) return false
@@ -103,7 +111,7 @@ internal class GitHubReviewCheckpoint(
                     "state" to JsonPrimitive(if (blocked) "BLOCKED" else "PENDING"),
                     "failure_code" to JsonPrimitive(code),
                     "failed_stage" to JsonPrimitive("answer_review"),
-                    "retryable_without_new_evidence" to JsonPrimitive(!blocked)
+                    "retryable_without_new_evidence" to JsonPrimitive(!blocked || code == "GITHUB_REVIEW_INVALID_VERDICT" && ((current["format_retries"] as? JsonPrimitive)?.intOrNull ?: 0) == 0)
                 )
             )
         )

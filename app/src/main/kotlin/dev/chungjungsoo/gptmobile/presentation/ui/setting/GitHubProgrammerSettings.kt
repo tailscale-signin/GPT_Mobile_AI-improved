@@ -84,10 +84,26 @@ internal fun GitHubProgrammerSettings(workspace: GitHubWorkspaceState, state: Gi
 @Composable
 private fun GitHubProfileOverrides(value: dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride, enabled: Boolean, onChange: (dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride) -> Unit) {
     var menu by remember { mutableStateOf(false) }
+    var workflowMenu by remember { mutableStateOf(false) }
     OutlinedCard(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("GitHub chat preferences", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
             Text("Saved separately for this AI profile in GitHub chats.", style = MaterialTheme.typography.bodySmall)
+            Column {
+                Text("Workflow", style = MaterialTheme.typography.titleSmall)
+                OutlinedButton(onClick = { workflowMenu = true }, enabled = enabled, modifier = Modifier.testTag("github_workflow_preset")) {
+                    Text(dev.chungjungsoo.gptmobile.data.github.GitHubWorkflowPreset.selected(value.workflowPreset).title)
+                }
+                DropdownMenu(expanded = workflowMenu, onDismissRequest = { workflowMenu = false }) {
+                    dev.chungjungsoo.gptmobile.data.github.GitHubWorkflowPreset.all.forEach { preset ->
+                        DropdownMenuItem(text = { Text(preset.title) }, onClick = {
+                            workflowMenu = false
+                            onChange(value.copy(workflowPreset = preset.id))
+                        })
+                    }
+                }
+                Text("Heavy work is the default: up to 512 operations and 24 hours. Other workflows set smaller limits; your message defines the task. Engineering and provider limits still apply.", style = MaterialTheme.typography.bodySmall)
+            }
             GitHubOverrideSwitch("Web search", "Search the web and read source pages.", value.webSearch, enabled) { onChange(value.copy(webSearch = it)) }
             GitHubOverrideSwitch("GitHub tools", "Use the connected repository and review changes before committing.", value.githubTools, enabled) { onChange(value.copy(githubTools = it)) }
             GitHubOverrideSwitch("Maximum context expansion", "Expand up to the provider or local model capacity, with room for results and review.", value.maximumContext, enabled) { onChange(value.copy(maximumContext = it)) }

@@ -16,7 +16,8 @@ data class GitHubChatProfileOverride(
     val engineeringMode: EngineeringMode = EngineeringMode.ULTRA_MAX,
     val maximumContext: Boolean = true,
     val engineeringMemory: GitHubEngineeringMemoryMode = GitHubEngineeringMemoryMode.HYBRID,
-    val allowCloudEngineeringMemory: Boolean = false
+    val allowCloudEngineeringMemory: Boolean = false,
+    val workflowPreset: String = "heavy_work"
 )
 
 /** Request-local copies: GitHub preferences never rewrite ordinary chat profiles or provider grants. */

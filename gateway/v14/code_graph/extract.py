@@ -76,7 +76,7 @@ def extract(path, text):
                             reference(owner, ast.unparse(base), 'inherits', current.lineno)
                 if isinstance(current, (ast.Import, ast.ImportFrom)):
                     for alias in current.names:
-                        module = ((current.module or '') + '.' + alias.name).strip('.') if isinstance(current, ast.ImportFrom) else alias.name
+                        module = '.' * current.level + '.'.join(filter(None, (current.module, alias.name))) if isinstance(current, ast.ImportFrom) else alias.name
                         result['imports'].append({'name': module, 'alias': alias.asname or alias.name.split('.')[0],
                                                   'line': current.lineno, 'source': root['id'], 'path': path})
                 if isinstance(current, ast.Call):

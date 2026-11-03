@@ -79,6 +79,20 @@ class ExtractionTests(unittest.TestCase):
         graph = Graph(snapshot({'other.py': 'def send(): pass\n', 'app.py': 'from missing import send\ndef run(): send()\n'}))
         self.assertEqual('NO_PATH_IN_INDEX', graph.path('run', 'send')['status'])
 
+    def test_relative_python_import_never_uses_an_unrelated_module(self):
+        graph = Graph(snapshot({'other/service.py': 'def send(): return 1\n',
+                                'pkg/client.py': 'from .service import send\ndef run(): return send()\n'}))
+        self.assertEqual('NO_PATH_IN_INDEX', graph.path('run', 'send')['status'])
+
+    def test_relative_python_import_resolves_sibling_and_parent_packages(self):
+        for path, imported in [('pkg/client.py', '.service'), ('pkg/sub/client.py', '..service')]:
+            with self.subTest(path=path):
+                graph = Graph(snapshot({'pkg/service.py': 'def send(): return 1\n',
+                                        'other/service.py': 'def send(): return 2\n',
+                                        path: f'from {imported} import send\ndef run(): return send()\n'}))
+                targets = [node for node in graph.nodes.values() if node['path'] == 'pkg/service.py' and node['name'] == 'send']
+                self.assertEqual('FOUND', graph.path('run', targets[0]['id'])['status'])
+
     def test_contract_comparison_and_diagnostic_mapping(self):
         graph = Graph(snapshot({'server.py': 'def response():\n    return {"head_sha": "abc"}\n',
                                 'Client.kt': 'fun read(data: Map<String, String>) {\n data.get("head_sha")\n data.get("wrong_name")\n}\n'}))
@@ -177,6 +191,19 @@ class GraphServiceTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.call('status')
         self.assertFalse(key.exists())
+
+    def test_old_parser_cache_is_rebuilt_at_the_same_revision(self):
+        self.call('index')
+        namespace = scope('principal', self.actor, 'owner/repo', 'feature')
+        cached = self.service.store.load(namespace, self.head)
+        for fragment in cached['fragments'].values():
+            fragment['version'] = 1
+        self.service.store.save(namespace, cached)
+        self.assertEqual(0, self.call('status')['graph']['processed_files'])
+        self.assertEqual(2, self.blob_reads)
+        self.call('index')
+        self.assertEqual(4, self.blob_reads)
+        self.assertEqual('FOUND', self.call('query', query='private_function')['status'])
 
     def test_incremental_update_reuses_blobs_and_removes_deleted_files(self):
         self.call('index')

@@ -9,7 +9,7 @@ import zlib
 from urllib.parse import quote
 
 from v14.engineering_crypto import EngineeringCipher
-from . import SCHEMA_VERSION
+from . import SCHEMA_VERSION, EXTRACTOR_VERSION
 from .extract import identity
 
 MAX_GRAPH_BYTES = 128 * 1024 * 1024
@@ -51,6 +51,9 @@ class GraphStore:
                 value = decoded
             if value.get('schema_version') != SCHEMA_VERSION:
                 raise ValueError('Unsupported graph schema; rebuild required')
+            # A parser change invalidates old fragments even at the same commit.
+            value['fragments'] = {path: fragment for path, fragment in value['fragments'].items()
+                                  if fragment.get('version') == EXTRACTOR_VERSION}
             return value
         return self.store.tx(read)
 
@@ -139,7 +142,13 @@ class Graph:
         for path, fragment in snapshot['fragments'].items():
             for imported in fragment['imports']:
                 name = imported['name']
-                if name.startswith('./') or name.startswith('../'):
+                if name.startswith('.') and not name.startswith(('./', '../')):
+                    target = python_import_target(path, name)
+                    targets = {p for p in file_nodes if target and p.rsplit('.', 1)[0] in {target, target + '/__init__'}}
+                    if not targets and target:
+                        parent = target.rpartition('/')[0]
+                        targets = {p for p in file_nodes if p.rsplit('.', 1)[0] in {parent, parent + '/__init__'}}
+                elif name.startswith('./') or name.startswith('../'):
                     target = posixpath.normpath(posixpath.join(posixpath.dirname(path), name))
                     targets = modules.get(target.replace('/', '.'), set()) | modules.get((target + '/index').replace('/', '.'), set())
                 else:
@@ -428,8 +437,22 @@ def is_test(path):
     return bool(re.search(r'(^|/)(tests?|androidTest)/|(^|/)(test_|Test)|(?:Test|Tests|Spec)\.|\.(?:test|spec)\.', path))
 
 
+def python_import_target(source_path, imported):
+    levels = len(imported) - len(imported.lstrip('.'))
+    package = source_path.split('/')[:-1]
+    if levels > len(package):
+        return None
+    return '/'.join(package[:len(package) - levels + 1] + imported.lstrip('.').split('.'))
+
+
 def import_matches(source_path, imported, target_path, symbol=None):
     module = target_path.rsplit('.', 1)[0]
+    if imported.startswith('.') and not imported.startswith(('./', '../')):
+        target = python_import_target(source_path, imported)
+        if not target:
+            return False
+        parent, _, name = target.rpartition('/')
+        return module in {target, target + '/__init__'} or module in {parent, parent + '/__init__'} and (symbol is None or name == symbol)
     if imported.startswith('./') or imported.startswith('../'):
         target = posixpath.normpath(posixpath.join(posixpath.dirname(source_path), imported))
         return module == target or module == target + '/index'

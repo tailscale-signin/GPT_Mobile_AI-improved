@@ -54,7 +54,7 @@ settings_home_restore_status=$?
 if [ "$settings_home_restore_status" -ne 0 ]; then
   printf 'Settings Home 320 dp viewport restore failed (exit %s).\n' "$settings_home_restore_status" >&2
 fi
-# The workflow disables animations. This suite measures an intermediate navigation frame.
+# The workflow disables animations. These suites measure intermediate navigation/chat frames.
 navigation_setup_status=0
 for navigation_scale in animator_duration_scale window_animation_scale transition_animation_scale; do
   timeout 30s adb shell settings put global "$navigation_scale" 1
@@ -65,9 +65,15 @@ for navigation_scale in animator_duration_scale window_animation_scale transitio
   fi
 done
 navigation_motion_status=125
+github_prompt_motion_status=125
+chat_bottom_scroll_status=125
 if [ "$navigation_setup_status" -eq 0 ]; then
   timeout 180s adb shell am instrument -w -r -e class dev.chungjungsoo.gptmobile.presentation.navigation.NavigationMotionInstrumentedTest dev.melo.gptmobile.improved.test/androidx.test.runner.AndroidJUnitRunner | tee "$acceptance_output/navigation-motion-instrumentation.txt"
   navigation_motion_status=${PIPESTATUS[0]}
+  timeout 180s adb shell am instrument -w -r -e class dev.chungjungsoo.gptmobile.presentation.ui.chat.GitHubPromptMotionInstrumentedTest dev.melo.gptmobile.improved.test/androidx.test.runner.AndroidJUnitRunner | tee "$acceptance_output/github-prompt-motion-instrumentation.txt"
+  github_prompt_motion_status=${PIPESTATUS[0]}
+  timeout 180s adb shell am instrument -w -r -e class dev.chungjungsoo.gptmobile.presentation.ui.chat.ChatBottomAutoScrollerInstrumentedTest dev.melo.gptmobile.improved.test/androidx.test.runner.AndroidJUnitRunner | tee "$acceptance_output/chat-bottom-scroll-instrumentation.txt"
+  chat_bottom_scroll_status=${PIPESTATUS[0]}
 fi
 navigation_restore_status=0
 for navigation_scale in animator_duration_scale window_animation_scale transition_animation_scale; do
@@ -117,6 +123,8 @@ if [ "$combined_settings_status" -ne 0 ]; then exit "$combined_settings_status";
 if [ "$combined_finalization_status" -ne 0 ]; then exit "$combined_finalization_status"; fi
 if [ "$settings_home_status" -ne 0 ]; then exit "$settings_home_status"; fi
 if [ "$navigation_motion_status" -ne 0 ]; then exit "$navigation_motion_status"; fi
+if [ "$github_prompt_motion_status" -ne 0 ]; then exit "$github_prompt_motion_status"; fi
+if [ "$chat_bottom_scroll_status" -ne 0 ]; then exit "$chat_bottom_scroll_status"; fi
 if [ "$settings_home_artifact_status" -ne 0 ]; then exit "$settings_home_artifact_status"; fi
 if [ "$conversation_glass_status" -ne 0 ]; then exit "$conversation_glass_status"; fi
 if [ "$composer_status" -ne 0 ]; then exit "$composer_status"; fi
@@ -160,6 +168,9 @@ check_instrumentation(folder / 'combined-finalization-instrumentation.txt', 'dev
 for test in ('oneToFiveItemsAtCompactWidth', 'oneToFiveItemsAtWideWidth', 'oneToFiveItemsAtLargeFontAndRtl', 'homeScreenNamesItsDestinationEnforcesFiveAndAllowsZero'):
     check_instrumentation(folder / 'settings-home-instrumentation.txt', 'dev.chungjungsoo.gptmobile.presentation.ui.setting.SettingsHomeInstrumentedTest', test)
 check_instrumentation(folder / 'navigation-motion-instrumentation.txt', 'dev.chungjungsoo.gptmobile.presentation.navigation.NavigationMotionInstrumentedTest', 'backUsesFadeWithoutScalingAndCompletesOnThePreviousScreen')
+check_instrumentation(folder / 'github-prompt-motion-instrumentation.txt', 'dev.chungjungsoo.gptmobile.presentation.ui.chat.GitHubPromptMotionInstrumentedTest', 'promptMovesOverOneAndHalfSecondsWithoutAnImmediateJump')
+for test in ('openingExistingChat_overridesOldPositionAndShowsTrueBottomOfLongResponse', 'openingUnreadResponse_centersItsBeginningBetweenHeaderAndComposer', 'growingContentWhileFollowing_keepsTheTrueBottomVisible', 'bottomButton_reenablesFollowingForLateContentGrowth'):
+    check_instrumentation(folder / 'chat-bottom-scroll-instrumentation.txt', 'dev.chungjungsoo.gptmobile.presentation.ui.chat.ChatBottomAutoScrollerInstrumentedTest', test)
 for test in ('shortHoldDoesNotOpenMenuAndOneSecondHoldPreservesAction', 'movingToScrollCancelsTheHold'):
     check_instrumentation(folder / 'bubble-actions-instrumentation.txt', 'dev.chungjungsoo.gptmobile.presentation.ui.chat.BubbleActionMenuInstrumentedTest', test)
 for name in ('picker-light-200-percent.png', 'picker-dark-rtl-200-percent.png', 'glass-off.png', 'glass-40dp.png', 'glass-stacked.png', 'chat-glass-controls.png'):

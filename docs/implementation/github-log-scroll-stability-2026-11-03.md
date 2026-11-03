@@ -35,7 +35,7 @@ Branch: `fix/github-log-scroll-stability-2026-11-03`, based on PR #791 at `6ef54
 
 ## Validation
 
-- Canonical host validation: 297 script tests plus policy, dependency, secret, regex, resource and provenance checks passed after the final implementation changes.
+- Canonical host validation: 299 script tests plus policy, dependency, secret, regex, resource and provenance checks passed after the final implementation changes.
 - Portable production-logic regression harness: checkpoint, branch transition, gesture timing and activity ordering; 27 tests passed. Android AtomicFile and timeline DTO are host adapters, not device validation.
-- Android unit regressions are committed. A Compose clock test checks intermediate motion and arrival at 1.5 seconds; existing bottom-growth instrumentation covers continuing follow.
+- Android unit regressions are committed. A Compose clock test checks intermediate motion and arrival at 1.5 seconds; existing bottom-growth instrumentation covers continuing follow. Both suites are explicitly executed by the API 34/36 acceptance runner with animations enabled and named success packets required.
 - Full Android build cannot run in this local host: only JRE 17 is present, SDK 37 is absent, and the Gradle distribution download fails with network unreachable. GitHub CI must compile and run the Android checks. Physical-device scrolling, microphone and MCP reachability are unmeasured here.

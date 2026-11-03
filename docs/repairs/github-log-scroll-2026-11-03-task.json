@@ -19,9 +19,9 @@
   "state": "IMPLEMENTED_PENDING_ANDROID_VALIDATION",
   "implementation_ledger": "docs/implementation/github-log-scroll-stability-2026-11-03.md",
   "validation": {
-    "canonical_fast": "PASSED: 297 tests; policy/dependency/secret/regex/resource/provenance/whitespace checks",
+    "canonical_fast": "PASSED: 299 tests; policy/dependency/secret/regex/resource/provenance/whitespace checks",
     "portable_regressions": "PASSED: 27 production-logic tests; host adapters for Android AtomicFile and timeline DTO",
-    "android_ci": "pending",
+    "android_ci": "pending; prompt motion and all four bottom scrolling regressions explicitly wired into API 34/36 acceptance",
     "device_motion": "not measured",
     "external_mcp_reachability": "not measured",
     "changed_kotlin_format": "PASSED: ktlint 1.3.1"

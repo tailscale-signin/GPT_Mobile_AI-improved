@@ -1307,7 +1307,18 @@ class AgentToolResolver @Inject constructor(
                         currentConnection.approvedReadTools == actualConnection.approvedReadTools
                 }.getOrDefault(false)
             } else {
-                currentConnection == actualConnection
+                // Without verified account identity, an unchanged secret reference does
+                // not prove that its credential still belongs to this resolved tool.
+                currentConnection == actualConnection &&
+                    actualConnection.secretRef?.let { reference ->
+                        secretVault.read(reference)?.let { bytes ->
+                            try {
+                                dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore.digest(String(bytes, StandardCharsets.UTF_8).trim()) == durableIdentity
+                            } finally {
+                                bytes.fill(0)
+                            }
+                        }
+                    }.let { matches -> matches ?: token.isBlank() }
             }
             credentialUnchanged &&
                 current != null &&

@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "62d895f9db9ccfabf9619dde23ff71efc2385e1e",
+  "working_branch": "feat/voice-github-status-redesign-2026-11-02",
+  "starting_sha": "f9f7284310823916780a3f3a37e2816b15734fcb",
+  "intent": "Fix all open draft PR checks, merge only after successful current checks, then publish a new signed Android release.",
+  "requirements": [
+    {
+      "id": "credential-replacement",
+      "status": "RUNNING",
+      "evidence": [
+        "PR Validation 41583354746: AgentToolResolverTest.githubCredentialReplacementRevokesAnAlreadyResolvedToolEvenWhenMetadataIsUnchanged failed."
+      ]
+    },
+    {
+      "id": "voice-lint",
+      "status": "RUNNING",
+      "evidence": [
+        "AndroidVoiceAudio.kt:50 WrongConstant: GET_DEVICES_ALL."
+      ]
+    },
+    {
+      "id": "dispatch-size",
+      "status": "RUNNING",
+      "evidence": [
+        "UI Review APK 41583305623: streamPrimaryAnswer invokeSuspend is 17050 DEX code units; exclusive limit is 16383."
+      ]
+    },
+    {
+      "id": "merge-and-release",
+      "status": "PENDING",
+      "evidence": []
+    }
+  ]
+}

@@ -47,7 +47,7 @@ class AndroidVoiceAudio internal constructor(
     private var knownDevices: Set<Int>? = null
     private val routeCallback = object : AudioDeviceCallback() {
         private fun changed() {
-            val devices = audioManager?.getDevices(AudioManager.GET_DEVICES_ALL).orEmpty().map { it.id }.toSet()
+            val devices = audioManager?.getDevices(AudioManager.GET_DEVICES_INPUTS or AudioManager.GET_DEVICES_OUTPUTS).orEmpty().map { it.id }.toSet()
             val previous = knownDevices
             knownDevices = devices
             if (previous != null && devices != previous && !closed) {

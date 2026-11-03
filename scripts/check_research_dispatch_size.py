@@ -31,7 +31,7 @@ DISPATCH_STAGES = (
     'preparePrimaryDispatchBudgets', 'planPreparedRunContext',
     'buildPrimarySystemPrompt', 'effectivePrimaryDelegationSettings',
     'acceptPrimaryResearchTask', 'prepareCombinedDeliveryWork',
-    'streamPrimaryAnswer', 'openPrimarySession',
+    'streamPrimaryAnswer', 'openPrimarySession', 'prepareGitHubTaskEvidence',
     'prepareDelegatedEvidence', 'prepareDelegatedTools', 'prepareDelegatedInput', 'acquirePrimaryResearch', 'delegateToProfile',
 )
 

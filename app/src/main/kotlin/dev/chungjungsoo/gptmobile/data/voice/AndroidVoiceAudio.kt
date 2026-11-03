@@ -259,6 +259,9 @@ class AndroidVoiceAudio internal constructor(
                             main.post {
                                 if (!closed && ticket == generation) {
                                     event("tts_audio_completed")
+                                    // A streamed sentence can finish while the model is still working.
+                                    // Retire its watchdog, focus and callbacks before handing off.
+                                    stop()
                                     complete()
                                 }
                             }

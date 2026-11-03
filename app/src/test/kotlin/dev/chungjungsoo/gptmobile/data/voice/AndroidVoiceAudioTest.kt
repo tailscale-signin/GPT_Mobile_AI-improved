@@ -2,11 +2,14 @@ package dev.chungjungsoo.gptmobile.data.voice
 
 import android.os.Looper
 import android.speech.tts.TextToSpeech
+import android.speech.tts.UtteranceProgressListener
+import java.time.Duration
 import java.util.Locale
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.mockito.ArgumentCaptor
 import org.mockito.ArgumentMatchers.anyString
 import org.mockito.ArgumentMatchers.eq
 import org.mockito.ArgumentMatchers.isNull
@@ -22,6 +25,38 @@ import org.robolectric.annotation.LooperMode
 @Config(manifest = Config.NONE, sdk = [34])
 @LooperMode(LooperMode.Mode.PAUSED)
 class AndroidVoiceAudioTest {
+    @Test fun completedSpeechRetiresTimeoutAndDuplicateCallbacks() {
+        var initialized: TextToSpeech.OnInitListener? = null
+        val engine = mock(TextToSpeech::class.java)
+        val failures = mutableListOf<String>()
+        var completions = 0
+        val audio = AndroidVoiceAudio(RuntimeEnvironment.getApplication()) { _, listener ->
+            initialized = listener
+            engine
+        }
+        audio.allowOnlineSpeech = true
+        try {
+            audio.speak("Finished sentence.", { completions++ }, failures::add)
+            requireNotNull(initialized).onInit(TextToSpeech.SUCCESS)
+            val main = shadowOf(Looper.getMainLooper())
+            main.idle()
+            val listener = ArgumentCaptor.forClass(UtteranceProgressListener::class.java)
+            verify(engine).setOnUtteranceProgressListener(listener.capture())
+            val utterance = ArgumentCaptor.forClass(String::class.java)
+            verify(engine).speak(eq<CharSequence>("Finished sentence."), eq(TextToSpeech.QUEUE_ADD), isNull(), utterance.capture())
+            listener.value.onStart(utterance.value)
+            main.idle()
+            listener.value.onDone(utterance.value)
+            main.idle()
+            listener.value.onDone(utterance.value)
+            main.idleFor(Duration.ofMinutes(10))
+            assertEquals(1, completions)
+            assertTrue(failures.isEmpty())
+        } finally {
+            audio.close()
+        }
+    }
+
     @Test fun failedInitializationReleasesEngineAndNextReplyCanSpeak() {
         val callbacks = mutableListOf<TextToSpeech.OnInitListener>()
         val engines = mutableListOf<TextToSpeech>()

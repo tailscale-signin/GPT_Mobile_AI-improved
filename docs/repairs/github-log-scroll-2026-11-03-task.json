@@ -81,6 +81,8 @@
       "canonical_fast": "PASSED: 301 script tests plus policy/dependency/secret/regex/resource/provenance checks",
       "release_scope": "PASSED against the complete staged integration tree and unchanged qualification rules",
       "android": "PENDING on published integration head"
-    }
+    },
+    "reconciled_release_sha": "d00140c5c849f5d03088e7759851bc443ae0a1b6",
+    "scope_reconciliation": "Retain both branches' exact scope entries and every qualification limitation; preserve detailed structural-graph disclosures and scrolling/recovery changes while resolving their concurrent release-note edits."
   }
 }

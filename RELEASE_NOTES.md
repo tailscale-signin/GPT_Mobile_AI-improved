@@ -20,8 +20,11 @@ Android build 138. Signed release of the merged GitHub, voice, recovery and gate
 
 - Complete required release lint in a separate bounded process before APK packaging so cold lint analysis cannot retain the heap needed by Zipflinger; lint failures still block packaging.
 
-- Add revision-bound repository graph inspection, cumulative capability testing, immutable provider usage observations and Room schema 48 migration.
 - Preserve GitHub tasks across branch changes and approved commits, recover malformed reviewer output with a bounded saved retry, and synchronize smooth prompt and bottom following with the UI frame clock.
+
+- Add opt-in bounded repository graph search, calls, impact and revision-aware retrieval with encrypted caches; structural navigation does not claim compiler-resolved Kotlin/Java semantics.
+
+- Persist cumulative GitHub audit evidence, owned mutation-fixture results and usage observations, with Room schema 48 migration, bounded table rendering and speech-start ownership.
 
 ## Qualification and remaining work
 
@@ -51,5 +54,7 @@ Android build 138. Signed release of the merged GitHub, voice, recovery and gate
 
 - External Graphify server behavior and physical-device graph, speech and scrolling performance have not been qualified by these host and emulator checks.
 - Automated mutation fixtures cover owned disposable branch creation, dependency inspection and cleanup; content writes, releases, merges and cancellations require separately authorized fixture plans.
+
+- External Graphify execution, compiler-resolved navigation, and physical-device graph, speech and UI performance remain unqualified; host and emulator evidence does not establish those outcomes.
 
 Publication requires successful validation of this exact commit, current main checks, signature continuity, APK/AAB identity and native-library verification.

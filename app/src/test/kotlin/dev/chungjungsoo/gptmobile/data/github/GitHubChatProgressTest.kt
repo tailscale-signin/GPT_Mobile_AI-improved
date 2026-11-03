@@ -9,7 +9,10 @@ import dev.chungjungsoo.gptmobile.data.dto.openai.response.GatewayProgress
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.runCurrent
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -51,11 +54,19 @@ class GitHubChatProgressTest {
 
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     @Test
-    fun taskIntroductionIsImmediateThenUpdatesRecurEveryTwentySecondsWithoutProviderEvents() = kotlinx.coroutines.test.runTest {
+    fun taskIntroductionIsImmediateAndUnchangedHeartbeatsAreSuppressed() = kotlinx.coroutines.test.runTest {
         val progress = GitHubChatProgress()
         val received = mutableListOf<Long>()
-        progress.updates().take(3).collect { received += testScheduler.currentTime }
-        assertEquals(listOf(0L, 20_000L, 40_000L), received)
+        val collection = launch { progress.updates().take(3).collect { received += testScheduler.currentTime } }
+        runCurrent()
+        advanceTimeBy(60_000)
+        runCurrent()
+        assertEquals(listOf(0L, 20_000L), received)
+        progress.observe(ApiState.Thinking("private planning"))
+        advanceTimeBy(20_000)
+        runCurrent()
+        collection.join()
+        assertEquals(listOf(0L, 20_000L, 80_000L), received)
     }
 
     @Test fun summariesBindTheTaskToObservedActivityAndKeepPreviewSeparate() = kotlinx.coroutines.test.runTest {

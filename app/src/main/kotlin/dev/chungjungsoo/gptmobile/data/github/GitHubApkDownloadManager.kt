@@ -41,7 +41,7 @@ import kotlinx.serialization.json.Json
 
 enum class GitHubApkDownloadStatus { QUEUED, RUNNING, SUCCEEDED, FAILED, CANCELLED }
 
-data class GitHubDownloadedApk(val fileName: String, val uri: Uri, val sizeBytes: Long)
+data class GitHubDownloadedApk(val fileName: String, val uri: Uri, val sizeBytes: Long, val provenance: List<String> = emptyList())
 
 data class GitHubApkDownloadState(
     val downloadKey: String,
@@ -67,6 +67,7 @@ data class GitHubApkDownloadState(
 class GitHubApkDownloadManager @Inject constructor(@ApplicationContext private val context: Context) {
     private val workManager get() = WorkManager.getInstance(context)
     private val storeRevision = MutableStateFlow(0L)
+    private val provenanceCache = linkedMapOf<String, List<String>>()
 
     fun key(connectionUid: String, buildId: String): String = GitHubApkTransferPolicy.downloadKey(connectionUid, buildId)
 
@@ -81,7 +82,7 @@ class GitHubApkDownloadManager @Inject constructor(@ApplicationContext private v
             val record = GitHubApkDownloadRecord(
                 connectionUid, build.id, build.owner, build.repo, build.source, build.assetId,
                 build.title.take(200), build.fileName.take(250), build.sizeBytes, build.digest,
-                build.branch?.take(250), build.commitSha?.take(64), build.releaseTag?.take(200), build.createdAt.take(80)
+                build.branch?.take(250), build.commitSha?.take(64), build.releaseTag?.take(200), build.createdAt.take(80), build.runId, build.runAttempt
             )
             GitHubApkDownloadStore.saveRecord(context, downloadKey, record)
             enqueueKey(downloadKey)
@@ -213,7 +214,28 @@ class GitHubApkDownloadManager @Inject constructor(@ApplicationContext private v
     }
 
     private fun storedFiles(downloadKey: String): List<GitHubDownloadedApk> = GitHubApkDownloadStore.completed(context, downloadKey).map { file ->
-        GitHubDownloadedApk(file.name, FileProvider.getUriForFile(context, context.packageName + ".fileprovider", file), file.length())
+        GitHubDownloadedApk(file.name, FileProvider.getUriForFile(context, context.packageName + ".fileprovider", file), file.length(), provenance(file, downloadKey))
+    }
+
+    private fun provenance(file: File, downloadKey: String): List<String> {
+        val key = "$downloadKey:${file.name}:${file.length()}:${file.lastModified()}"
+        synchronized(provenanceCache) { provenanceCache[key] }?.let { return it }
+        // Metadata inspection runs on the download observer's IO dispatcher. Never parse an APK during composition.
+        if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) return listOf("Package provenance is loading; refresh Downloads before installation.")
+        val metadata = runCatching {
+            @Suppress("DEPRECATION")
+            val info = context.packageManager.getPackageArchiveInfo(file.absolutePath, android.content.pm.PackageManager.GET_SIGNING_CERTIFICATES)
+            val signers = info?.signingInfo?.apkContentsSigners.orEmpty().map { signature -> java.security.MessageDigest.getInstance("SHA-256").digest(signature.toByteArray()).joinToString("") { "%02x".format(it) } }
+            val abis = java.util.zip.ZipFile(file).use { zip -> zip.entries().asSequence().map { it.name }.filter { it.startsWith("lib/") && it.endsWith(".so") }.map { it.split('/')[1] }.distinct().sorted().toList() }
+            listOf("Package: ${info?.packageName ?: "unavailable"}", "Version: ${info?.versionName ?: "unavailable"} (${info?.longVersionCode ?: "unknown"})", "Signing certificate SHA-256: ${signers.joinToString().ifBlank { "unavailable" }}", "Native ABI: ${abis.joinToString().ifBlank { "no native libraries declared" }}")
+        }.getOrElse { listOf("Package/signing metadata could not be inspected") }
+        val record = GitHubApkDownloadStore.record(context, downloadKey)
+        val value = metadata + listOf("Source SHA: ${record?.commitSha ?: "not supplied by source"}", "Workflow: ${record?.runId ?: "not supplied"} · attempt ${record?.runAttempt ?: "not supplied"}", "Artifact digest: ${record?.digest ?: "not supplied"}", "Attestations: not retrieved; source metadata alone does not prove build provenance")
+        synchronized(provenanceCache) {
+            provenanceCache[key] = value
+            while (provenanceCache.size > 32) provenanceCache.remove(provenanceCache.keys.first())
+        }
+        return value
     }
 
     private fun enqueueKey(downloadKey: String) {
@@ -255,7 +277,9 @@ internal data class GitHubApkDownloadRecord(
     val branch: String? = null,
     val commitSha: String? = null,
     val releaseTag: String? = null,
-    val createdAt: String? = null
+    val createdAt: String? = null,
+    val runId: Long? = null,
+    val runAttempt: Int? = null
 )
 
 @Serializable

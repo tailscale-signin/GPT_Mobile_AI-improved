@@ -523,7 +523,7 @@ fun GitHubWorkspaceScreen(
                             }
                             2 -> {
                                 visibleProgrammer.chatId?.let { GitHubChatChecks(it, expanded = true) }
-                                GitHubRepositoryStatusPanel(connection, requireNotNull(state.selection), state.pullRequests, viewModel::loadPullRequests)
+                                GitHubRepositoryStatusPanel(connection, requireNotNull(state.selection), state.pullRequests, viewModel::loadPullRequests, chatId = visibleProgrammer.chatId)
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Text("Live status", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
                                     IconButton(onClick = viewModel::loadPullRequests, enabled = !state.busy) { Icon(Icons.Rounded.Refresh, "Refresh pull requests") }

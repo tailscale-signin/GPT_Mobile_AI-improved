@@ -125,8 +125,10 @@ class GitHubIncidentRegressionTest {
                 }
             )
         )
-        val local = requireNotNull(GitHubTestChecklist.nextCall("test all tools", tools, records))
-        assertEquals(page["arguments"], local.arguments)
+        val representative = requireNotNull(GitHubTestChecklist.nextCall("test all tools", tools, records))
+        assertEquals(JsonPrimitive("status"), representative.arguments["action"])
+        assertEquals(page, GitHubTestChecklist.pendingPages(records).single())
+        val local = ProviderEvent.ToolCall("local", "github_ci", page["arguments"] as JsonObject)
         records[local.callId] = receipt(
             local,
             buildJsonObject {
@@ -134,8 +136,8 @@ class GitHubIncidentRegressionTest {
                 put("continuation_call", remote)
             }
         )
-        val next = requireNotNull(GitHubTestChecklist.nextCall("test all tools", tools, records))
-        assertEquals(remote["arguments"], next.arguments)
+        assertEquals(remote, GitHubTestChecklist.pendingPages(records).single())
+        val next = ProviderEvent.ToolCall("remote", "github_ci", remote["arguments"] as JsonObject)
         records[next.callId] = receipt(next)
         assertTrue(GitHubTestChecklist.pendingPages(records).isEmpty())
         records["hostile"] = receipt(first, json("""{"continuation_call":{"tool":"github_ci","arguments":{"action":"cancel","run_id":9}}}"""))
@@ -180,9 +182,10 @@ class GitHubIncidentRegressionTest {
         val closed = ProviderEvent.ToolCall("closed", "github_pr", json("""{"action":"list","state":"closed"}"""))
         val result = json("""{"items":[{"number":1}],"has_more":false,"total_count":1}""")
         val failedPage = ProviderEvent.ToolCall("page", "github_pr", json("""{"view_cursor":"saved:1"}"""))
-        val rows = GitHubTestChecklist.inventoryCoverage(mapOf("a" to receipt(open, result), "b" to receipt(closed, result), "page" to receipt(failedPage, success = false)))
+        val rows = GitHubTestChecklist.inventoryCoverage(mapOf("a" to receipt(open, JsonObject(result + ("recovery_call" to json("""{"tool":"github_pr","arguments":{"view_cursor":"saved:0"}}""")))), "b" to receipt(closed, result), "page" to receipt(failedPage, success = false)))
         assertEquals(2, rows.size)
-        assertTrue(rows.all { it.jsonObject["coverage"] == JsonPrimitive("incomplete or pending pagination") })
+        assertEquals(JsonPrimitive("incomplete or pending pagination"), rows[0].jsonObject["coverage"])
+        assertEquals(JsonPrimitive("retrieval complete at observation"), rows[1].jsonObject["coverage"])
     }
 
     @Test fun pendingRunWatchIsPinnedAndIssuedOnlyOnce() {

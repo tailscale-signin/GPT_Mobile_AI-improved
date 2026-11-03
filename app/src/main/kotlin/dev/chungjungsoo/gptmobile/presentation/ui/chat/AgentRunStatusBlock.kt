@@ -103,6 +103,9 @@ fun AgentRunStatusBlock(run: AgentRun?, modifier: Modifier = Modifier) {
     }
 
     val status = when (run.status) {
+        AgentRunStatus.PARTIAL -> stringResource(R.string.agent_run_partial)
+        AgentRunStatus.EVIDENCE_MISSING -> stringResource(R.string.agent_run_evidence_missing)
+        AgentRunStatus.BLOCKED -> stringResource(R.string.agent_run_blocked)
         AgentRunStatus.CANCELED -> stringResource(R.string.agent_run_canceled)
         AgentRunStatus.INTERRUPTED -> stringResource(R.string.agent_run_interrupted)
         else -> stringResource(R.string.agent_run_failed)

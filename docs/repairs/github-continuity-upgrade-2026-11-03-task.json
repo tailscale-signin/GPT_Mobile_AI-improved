@@ -1,0 +1,622 @@
+{
+  "schema_version": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "62d895f9db9ccfabf9619dde23ff71efc2385e1e",
+  "working_branch": "feat/voice-github-status-redesign-2026-11-02",
+  "starting_sha": "4039327bd84de8b30be5622c5b25f4f5a74ab1d6",
+  "intent": "Implement the complete supplied integration review; keep live/device evidence separate.",
+  "requirements": [
+    {
+      "id": 1,
+      "requirement": "stable mutation identity and migration",
+      "status": "RUNNING",
+      "evidence": [
+        "Account/connection/task identity, token-scope migration and durable claim archival; lost response + rotation + restart regression. Installation selection is not yet a separately persisted native identity dimension."
+      ],
+      "implementation": "PARTIAL"
+    },
+    {
+      "id": 2,
+      "requirement": "request completion criteria",
+      "status": "PASSED",
+      "evidence": [
+        "Answer verification and engineering acceptance separated. Requirement coverage plus implementation/test receipts; all job pages and exact head/attempt required."
+      ],
+      "implementation": "IMPLEMENTED"
+    },
+    {
+      "id": 3,
+      "requirement": "stable engineering memory and permission revision",
+      "status": "PASSED",
+      "evidence": [
+        "Stable authorized memory scope with fresh repository access checks and independent permission revision. Only known legacy token scopes can be recovered."
+      ],
+      "implementation": "IMPLEMENTED"
+    },
+    {
+      "id": 4,
+      "requirement": "live workspace credentials",
+      "status": "PASSED",
+      "evidence": [
+        "Consume returned refresh token; re-read current secret reference per request; rebuild workspace transport and preserve staged edits."
+      ],
+      "implementation": "IMPLEMENTED"
+    },
+    {
+      "id": 5,
+      "requirement": "healthy watch scheduling",
+      "status": "PASSED",
+      "evidence": [
+        "Healthy polling schedules a new work item and returns success; only transport failures grow delay; next check shown."
+      ],
+      "implementation": "IMPLEMENTED"
+    },
+    {
+      "id": 6,
+      "requirement": "shared CI eligibility",
+      "status": "PASSED",
+      "evidence": [
+        "Required neutral/skipped checks cannot pass. Android/gateway execute one CI fixture. GitHub merge permission and validation are separate."
+      ],
+      "implementation": "IMPLEMENTED"
+    },
+    {
+      "id": 7,
+      "requirement": "rerun attempt evidence",
+      "status": "PASSED",
+      "evidence": [
+        "Rerun receipts retain previous/expected attempts; associate later exact-attempt run and complete job-page observations."
+      ],
+      "implementation": "IMPLEMENTED"
+    },
+    {
+      "id": 8,
+      "requirement": "Status pagination and filters",
+      "status": "PASSED",
+      "evidence": [
+        "Active/current/history filters, explicit counts and run/job continuation. Active status queries find runs beyond recent history."
+      ],
+      "implementation": "IMPLEMENTED"
+    },
+    {
+      "id": 9,
+      "requirement": "shared scheduling and conditional reads",
+      "status": "RUNNING",
+      "evidence": [
+        "Shared scheduling/cooldowns/conditional cache across native tools and monitoring for the same authorized connection. Cross-connection account pooling remains conservative."
+      ],
+      "implementation": "PARTIAL"
+    },
+    {
+      "id": 10,
+      "requirement": "streaming response bounds",
+      "status": "PASSED",
+      "evidence": [
+        "Streaming byte limits before JSON parsing on workspace/tool/CI-log paths."
+      ],
+      "implementation": "IMPLEMENTED"
+    },
+    {
+      "id": 11,
+      "requirement": "GraphQL check pagination",
+      "status": "PASSED",
+      "evidence": [
+        "Cursor pagination, check identity deduplication, head/base/count recheck and explicit budget incompleteness."
+      ],
+      "implementation": "IMPLEMENTED"
+    },
+    {
+      "id": 12,
+      "requirement": "follow PR revisions",
+      "status": "PASSED",
+      "evidence": [
+        "Opt-in follow_pr restarts observation on a new SHA, archives prior revision and clears old health approval."
+      ],
+      "implementation": "IMPLEMENTED"
+    },
+    {
+      "id": 13,
+      "requirement": "terminal jobs and explicit Status states",
+      "status": "PASSED",
+      "evidence": [
+        "Expandable terminal jobs/steps, stale/offline/authorization/empty states, logs and refresh actions."
+      ],
+      "implementation": "IMPLEMENTED"
+    },
+    {
+      "id": 14,
+      "requirement": "publication fence compaction",
+      "status": "PASSED",
+      "evidence": [
+        "Checksummed, fsynced archival retains deduplication and exposes capacity without deleting fences."
+      ],
+      "implementation": "IMPLEMENTED"
+    },
+    {
+      "id": 15,
+      "requirement": "isolated live acceptance",
+      "status": "RUNNING",
+      "evidence": [
+        "Opt-in private-fixture API/APK harness with explicit BLOCKED cases. Live sign-in, App-token, process death/reboot and device assertions are not implemented/executed."
+      ],
+      "implementation": "PARTIAL"
+    },
+    {
+      "id": 16,
+      "requirement": "integration health screen",
+      "status": "RUNNING",
+      "evidence": [
+        "Status health shows account/repository/expiry/route/access/build SHA. Model readiness and operation-specific installation checks remain separate actions, not a unified probe."
+      ],
+      "implementation": "PARTIAL"
+    },
+    {
+      "id": 17,
+      "requirement": "durable requirements",
+      "status": "RUNNING",
+      "evidence": [
+        "Durable task binding/checkpoints and per-requirement acceptance; pending/blocked/untested/passed reports. Generic work DAG and every operation-specific completion mode remain open."
+      ],
+      "implementation": "PARTIAL"
+    },
+    {
+      "id": 18,
+      "requirement": "natural verified responses and calculations",
+      "status": "PASSED",
+      "evidence": [
+        "Concise receipt-grounded explanations, historical diagnostic answers, typed numeric calculations and explicit remaining work."
+      ],
+      "implementation": "IMPLEMENTED"
+    },
+    {
+      "id": 19,
+      "requirement": "unified activity history",
+      "status": "RUNNING",
+      "evidence": [
+        "Bounded activity view combines requests, receipts, loaded PRs and runs. Full approvals history and pagination of archived activity remain open."
+      ],
+      "implementation": "PARTIAL"
+    },
+    {
+      "id": 20,
+      "requirement": "authenticated webhook relay",
+      "status": "RUNNING",
+      "evidence": [
+        "Existing authenticated gateway webhook receives durable delivery deduplication and byte limits. Android push delivery from gateway is not implemented; watches retain polling fallback."
+      ],
+      "implementation": "PARTIAL"
+    },
+    {
+      "id": 21,
+      "requirement": "interactive CI workspace",
+      "status": "PASSED",
+      "evidence": [
+        "Workflow/attempt/jobs/steps, loaded failure search, previous-attempt comparison with incomplete/ambiguous labels, artifact/log links, guarded rerun/cancel."
+      ],
+      "implementation": "IMPLEMENTED"
+    },
+    {
+      "id": 22,
+      "requirement": "failure diagnosis",
+      "status": "PASSED",
+      "evidence": [
+        "Bounded log-pattern grouping with cited lines, matching changed files and explicit hypothesis labels; no root-cause certainty inferred."
+      ],
+      "implementation": "IMPLEMENTED"
+    },
+    {
+      "id": 23,
+      "requirement": "measured performance",
+      "status": "RUNNING",
+      "evidence": [
+        "Observed response/model/run queue/token/completion metrics and HTTP queue/cache counters exposed. Tool/verification per-receipt timings remain in diagnostics; full aggregate dashboard remains open."
+      ],
+      "implementation": "PARTIAL"
+    },
+    {
+      "id": 24,
+      "requirement": "compiler-aware navigation",
+      "status": "PENDING",
+      "evidence": [
+        "Compiler symbol resolution, call graph and compiler-derived test mapping are not added. Existing lexical index retains its explicit limitation."
+      ],
+      "implementation": "NOT_IMPLEMENTED"
+    },
+    {
+      "id": 25,
+      "requirement": "long-task context",
+      "status": "RUNNING",
+      "evidence": [
+        "Bounded per-run rendering cache, requirement/checkpoint references and existing incremental source reads. No new compiler-driven dependency/context planner."
+      ],
+      "implementation": "PARTIAL"
+    },
+    {
+      "id": 26,
+      "requirement": "pre-publication validation",
+      "status": "PASSED",
+      "evidence": [
+        "Gateway review/commit require patch-bound validation in an approved isolated container using an approved mirror, immutable image and argv. Missing policy blocks publication. Actual configured Docker execution untested."
+      ],
+      "implementation": "IMPLEMENTED"
+    },
+    {
+      "id": 27,
+      "requirement": "branch conflict workspace",
+      "status": "PENDING",
+      "evidence": [
+        "Dedicated base/ours/theirs conflict workspace and reviewed merge-conflict resolution remain open."
+      ],
+      "implementation": "NOT_IMPLEMENTED"
+    },
+    {
+      "id": 28,
+      "requirement": "Enterprise hosts",
+      "status": "PENDING",
+      "evidence": [
+        "Native host-scoped Enterprise authentication, endpoint discovery and contract tests remain open; public GitHub paths are unchanged."
+      ],
+      "implementation": "NOT_IMPLEMENTED"
+    },
+    {
+      "id": 29,
+      "requirement": "APK provenance",
+      "status": "RUNNING",
+      "evidence": [
+        "APK package/version/signing certificate/ABI/source/workflow attempt/checksum shown before sharing/installing. Attestations explicitly reported as not retrieved.",
+        "Attestations are explicitly unavailable in this implementation; fetching and verifying available GitHub attestations remains open."
+      ],
+      "implementation": "PARTIAL"
+    },
+    {
+      "id": 30,
+      "requirement": "workflow presets",
+      "status": "PASSED",
+      "evidence": [
+        "Five visible workflow presets with acceptance criteria and enforced caps bounded by configured budgets."
+      ],
+      "implementation": "IMPLEMENTED"
+    },
+    {
+      "id": 31,
+      "requirement": "accessibility",
+      "status": "RUNNING",
+      "evidence": [
+        "Expandable groups, wrapping controls, polite announcements, stable keys and slower freshness timers. Device font-scale/screen-reader/reduced-motion/scroll qualification remains open."
+      ],
+      "implementation": "PARTIAL"
+    },
+    {
+      "id": 32,
+      "requirement": "shared contract fixtures",
+      "status": "RUNNING",
+      "evidence": [
+        "Shared Android/gateway CI fixture and extracted completion/identity/HTTP/health/Status responsibilities. Broader permissions/receipts/retry fixture unification remains open."
+      ],
+      "implementation": "PARTIAL"
+    },
+    {
+      "id": 33,
+      "requirement": "resilience matrix",
+      "status": "RUNNING",
+      "evidence": [
+        "Host cases cover token rotation, lost writes/restart, fences, pagination, changing heads and byte bounds. Reboot/process death/flaky network/device matrix is still live-untested."
+      ],
+      "implementation": "PARTIAL"
+    },
+    {
+      "id": 34,
+      "requirement": "Automatic bounded-batch continuation",
+      "implementation": "IMPLEMENTED",
+      "status": "PASSED",
+      "evidence": [
+        "Removed independent 24-round/per-tool ceiling for integration tasks; checkpoint/discovery planner continues within total call/time budgets. Thirty-call regression."
+      ]
+    },
+    {
+      "id": 35,
+      "requirement": "Representative operations before pagination",
+      "implementation": "IMPLEMENTED",
+      "status": "PASSED",
+      "evidence": [
+        "Read one representative capability first; bounded page samples unless exhaustive inventory explicitly requested."
+      ]
+    },
+    {
+      "id": 36,
+      "requirement": "Per-collection exhaustion",
+      "implementation": "IMPLEMENTED",
+      "status": "PASSED",
+      "evidence": [
+        "Collection identity and continuation lineage keep completed branches independent of other unfinished inventories."
+      ]
+    },
+    {
+      "id": 37,
+      "requirement": "Equivalent wording and follow-ups",
+      "implementation": "IMPLEMENTED",
+      "status": "PASSED",
+      "evidence": [
+        "Active intent binding and root work ID survive continue/test-all and intervening diagnostic questions."
+      ]
+    },
+    {
+      "id": 38,
+      "requirement": "Authorized catalog coverage",
+      "implementation": "IMPLEMENTED",
+      "status": "PASSED",
+      "evidence": [
+        "Generate action coverage from full authorized tool definitions; retain untested entries."
+      ]
+    },
+    {
+      "id": 39,
+      "requirement": "Capability-specific prerequisites",
+      "implementation": "IMPLEMENTED",
+      "status": "PASSED",
+      "evidence": [
+        "Reads use source/run/PR observations; mutation next actions require owned fixture."
+      ]
+    },
+    {
+      "id": 40,
+      "requirement": "Live write and test execution coverage",
+      "implementation": "PARTIAL",
+      "status": "RUNNING",
+      "evidence": [
+        "Private fixture branch creation/lost-response reconciliation/cleanup harness added. All-tool fixture sequence, PR, workflow, merge and device acceptance remain open."
+      ]
+    },
+    {
+      "id": 41,
+      "requirement": "Discovery before absence claims",
+      "implementation": "IMPLEMENTED",
+      "status": "PASSED",
+      "evidence": [
+        "Discover catalog and request missing authorized names before treating a capability as unavailable."
+      ]
+    },
+    {
+      "id": 42,
+      "requirement": "Evidence for explanatory follow-ups",
+      "implementation": "IMPLEMENTED",
+      "status": "PASSED",
+      "evidence": [
+        "Restore scoped receipts/verdict and answer diagnostic prompts deterministically with revalidated access."
+      ]
+    },
+    {
+      "id": 43,
+      "requirement": "Interruption explanation",
+      "implementation": "IMPLEMENTED",
+      "status": "PASSED",
+      "evidence": [
+        "Expose retained terminal reason, successful-operation count, last operation and unfinished checklist without inventing causes."
+      ]
+    },
+    {
+      "id": 44,
+      "requirement": "Separate generation/verification/task state",
+      "implementation": "IMPLEMENTED",
+      "status": "PASSED",
+      "evidence": [
+        "PARTIAL, EVIDENCE_MISSING and BLOCKED terminal states separate from interrupted transport/cancellation.",
+        "Room persists and publishes partial/blocked/missing-evidence answers, exposes them to recovery, and rejects stale late writes; distinct labels rendered in Compose."
+      ]
+    },
+    {
+      "id": 45,
+      "requirement": "Grounded operational explanations",
+      "implementation": "IMPLEMENTED",
+      "status": "PASSED",
+      "evidence": [
+        "Use recorded reasons/capabilities and state when diagnostics are unavailable."
+      ]
+    },
+    {
+      "id": 46,
+      "requirement": "Concise progress and response relevance",
+      "implementation": "IMPLEMENTED",
+      "status": "PASSED",
+      "evidence": [
+        "Delta progress reports and direct diagnostic response, without another unnecessary verifier/model invocation."
+      ]
+    },
+    {
+      "id": 47,
+      "requirement": "CI summary priority",
+      "implementation": "IMPLEMENTED",
+      "status": "PASSED",
+      "evidence": [
+        "Existing summary remains distinct success/failure/pending/skipped; required checks explicitly succeed for validation."
+      ]
+    },
+    {
+      "id": 48,
+      "requirement": "Running build vs inspected SHA",
+      "implementation": "IMPLEMENTED",
+      "status": "PASSED",
+      "evidence": [
+        "Status and acceptance reports separate running app revision, repository SHA and APK digest; no provenance invented."
+      ]
+    },
+    {
+      "id": 49,
+      "requirement": "Compaction continuity and allocation",
+      "implementation": "IMPLEMENTED",
+      "status": "PASSED",
+      "evidence": [
+        "Per-run bounded serialized-body cache plus durable task/evidence references."
+      ]
+    },
+    {
+      "id": 50,
+      "requirement": "Generation tool/schema overhead",
+      "implementation": "PARTIAL",
+      "status": "RUNNING",
+      "evidence": [
+        "Diagnostic questions bypass model generation; existing progressive catalog remains. No measured latency improvement claimed."
+      ]
+    },
+    {
+      "id": 51,
+      "requirement": "Usage source reconciliation",
+      "implementation": "IMPLEMENTED",
+      "status": "PASSED",
+      "evidence": [
+        "Export accounted/reserved, estimated, interim, initial and final observed counts separately; absent final totals remain unknown."
+      ]
+    },
+    {
+      "id": 52,
+      "requirement": "Frame stalls during activity",
+      "implementation": "PARTIAL",
+      "status": "RUNNING",
+      "evidence": [
+        "Parsing/Status work uses background dispatchers, bounded history and stable keys. Device profiling and frame qualification remain open."
+      ]
+    },
+    {
+      "id": 53,
+      "requirement": "Repeated text measurement",
+      "implementation": "PARTIAL",
+      "status": "RUNNING",
+      "evidence": [
+        "Stable response viewport and timing attribution improved; complete text-layout cache/profile work remains open."
+      ]
+    },
+    {
+      "id": 54,
+      "requirement": "Export allocation churn",
+      "implementation": "IMPLEMENTED",
+      "status": "PASSED",
+      "evidence": [
+        "Stream ZIP parts, JSONL events and hashes without duplicated UTF-8 part buffers; source JSON parsing remains bounded but not fully streaming."
+      ]
+    },
+    {
+      "id": 55,
+      "requirement": "Inactive InputConnection warnings",
+      "implementation": "NOT_IMPLEMENTED",
+      "status": "PENDING",
+      "evidence": [
+        "No reproducible device capture; keyboard/editor lifecycle investigation remains open."
+      ]
+    },
+    {
+      "id": 56,
+      "requirement": "Monitor Inflate warning",
+      "implementation": "NOT_IMPLEMENTED",
+      "status": "PENDING",
+      "evidence": [
+        "No crash or cause inferred. Requires surrounding device/thread evidence if it recurs."
+      ]
+    },
+    {
+      "id": 57,
+      "requirement": "Structured diagnostics correlation",
+      "implementation": "IMPLEMENTED",
+      "status": "PASSED",
+      "evidence": [
+        "Stable GitHub event names and message/profile timing owner fields; old raw-trace records normalized during export."
+      ]
+    },
+    {
+      "id": 58,
+      "requirement": "Sanitized incident package",
+      "implementation": "IMPLEMENTED",
+      "status": "PASSED",
+      "evidence": [
+        "Bundle retained terminal diagnostics, policies/checkpoints/evidence references and explicit unavailable/missing-data reasons without claiming full replay."
+      ]
+    },
+    {
+      "id": 59,
+      "requirement": "GitHub prompt-at-top scrolling",
+      "implementation": "IMPLEMENTED",
+      "status": "PASSED",
+      "evidence": [
+        "New prompt anchors at viewport top with reserved response space. Deliberate upward gesture detaches; downward gesture reattaches. Pure state-machine tests; device gesture/IME/rotation validation pending.",
+        "Four gesture-controller regressions and a Compose prompt-top/blank-space/stream-growth regression passed. Fast flicks release/restore the anchor; device IME/rotation remains untested."
+      ]
+    }
+  ],
+  "task_outcome": "PARTIAL",
+  "completion_verified": false,
+  "validation": {
+    "fast_preflights": {
+      "status": "PASSED",
+      "tests": 297,
+      "command": "bash scripts/validate-local.sh fast"
+    },
+    "focused_host": {
+      "status": "PASSED",
+      "tests": 554,
+      "scope": "Actual policy/client/orchestration sources with platform adapters; overlaps Android tests and is not additive acceptance coverage"
+    },
+    "android_compile": {
+      "status": "PASSED",
+      "jdk": 21,
+      "sdk": 37,
+      "gradle": "9.8.0",
+      "scope": "Production and unit-test Kotlin/Java compilation"
+    },
+    "android_selected_tests": {
+      "status": "PASSED",
+      "tests": 865,
+      "suites": 140,
+      "failed": 0,
+      "skipped": 0,
+      "task": ":app:testDebugUnitTest",
+      "patterns": [
+        "*GitHub*",
+        "*DebugExportBundleTest",
+        "*TaskRecoveryActionTest",
+        "*InvocationUsageEvidenceTest",
+        "*AgentRunCoordinatorTest",
+        "*ToolExchangeCompactorTest",
+        "*StructuredDiagnosticExportTest",
+        "*ConversationEntryTest",
+        "*StableChatResponseViewportTest",
+        "*CombinedRecoverySnapshotTest",
+        "*CombinedSynthesisPlannerTest",
+        "*CombinedAnswerRevisionTargetTest",
+        "*CombinedRetrySelectionTest",
+        "*CombinedOwnershipTest",
+        "*CombinedWriterRetryPersistenceTest"
+      ],
+      "environment": "Fresh temporary build directory and project cache, build telemetry disabled, Byte Buddy agent preloaded. Compiled/runtime class equality checked before tests. This is a selected suite, not every Android test or APK/device acceptance."
+    },
+    "gateway": {
+      "status": "PASSED_WITH_SKIP",
+      "python_passed": 335,
+      "python_skipped": 1,
+      "javascript_passed": 7,
+      "skip_reason": "No bindable LAN interface in the environment",
+      "command": "python3 gateway/check_gateway.py with the pinned requirements installed"
+    },
+    "authentication": {
+      "status": "PASSED",
+      "tests": 15,
+      "command": "python3 -m unittest authentication.test_github_broker authentication.test_app"
+    },
+    "kotlin_style": {
+      "status": "PASSED",
+      "tool": "ktlint 1.3.1",
+      "scope": "All changed and new Kotlin sources"
+    },
+    "live_device": {
+      "status": "UNTESTED",
+      "reason": "No live acceptance fixture credentials or device supplied; case-specific device assertions remain open"
+    },
+    "live_app_token": {
+      "status": "UNTESTED"
+    },
+    "gateway_container_execution": {
+      "status": "UNTESTED",
+      "reason": "Isolated validation boundary tests passed; no operator-provisioned Docker image/mirror policy was supplied"
+    },
+    "scope_note": "Implementation status and automated validation are separate from live acceptance. PASSED requirements describe the implemented host-validated scope. RUNNING requirements are partial implementations; PENDING requirements are not implemented. The full request remains PARTIAL."
+  }
+}

@@ -57,7 +57,8 @@ data class ResolvedAgentTool(
     val progressiveCatalog: dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog? = null,
     val nativeGitHub: Boolean = false,
     val nativeGitHubAuthenticated: Boolean = false,
-    val nativeMarketplace: Boolean = false
+    val nativeMarketplace: Boolean = false,
+    val authorizationIdentity: String? = null
 )
 
 class AgentToolResolver @Inject constructor(
@@ -1208,16 +1209,17 @@ class AgentToolResolver @Inject constructor(
     private suspend fun resolveGitHub(connection: ToolConnection?, profileUid: String, userMessage: MessageV2?, workspaceContext: dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext? = null): ResolvedAgentTool {
         val actualConnection = connection
         var authorizationFailed = false
+        var refreshedToken: String? = null
         if (actualConnection?.secretRef != null && gitHubPublicAuth != null) {
             try {
-                gitHubPublicAuth.accessToken(actualConnection)
+                refreshedToken = gitHubPublicAuth.accessToken(actualConnection)
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
                 authorizationFailed = true
             }
         }
-        val token = actualConnection?.secretRef?.let { secretRef ->
+        val token = refreshedToken ?: actualConnection?.secretRef?.let { secretRef ->
             secretVault.read(secretRef)?.let { bytes ->
                 try {
                     String(bytes, StandardCharsets.UTF_8).trim()
@@ -1247,8 +1249,27 @@ class AgentToolResolver @Inject constructor(
         } else {
             null
         }
+        val durableIdentity = if (!authorizationFailed && actualConnection != null && gitHubPublicAuth != null && token.isNotBlank()) {
+            gitHubPublicAuth.durableIdentity(actualConnection.connectionUid)
+        } else {
+            dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore.digest(token)
+        }
+        val credentialProvider: (suspend () -> String)? = if (!authorizationFailed && actualConnection != null && gitHubPublicAuth != null && token.isNotBlank()) {
+            {
+                val live = requireNotNull(toolConnectionRepository.getConnection(actualConnection.connectionUid)) { "GitHub connection removed" }
+                check(live.type == actualConnection.type && live.authType == actualConnection.authType && live.endpointUrl == actualConnection.endpointUrl && live.toolPolicy == actualConnection.toolPolicy && live.approvedReadTools == actualConnection.approvedReadTools) { "GitHub permissions changed; resolve tools again" }
+                val fresh = gitHubPublicAuth.accessToken(live)
+                check(gitHubPublicAuth.durableIdentity(live.connectionUid) == durableIdentity) { "GitHub account changed" }
+                fresh
+            }
+        } else {
+            null
+        }
         val tool = GitHubTool(
             apiToken = token,
+            durableIdentity = durableIdentity,
+            legacyCredentialIdentities = if (!authorizationFailed && actualConnection != null) gitHubPublicAuth?.legacyCredentialIdentities(actualConnection.connectionUid).orEmpty() else emptyList(),
+            credentialProvider = credentialProvider,
             featureSettings = features,
             modelToolName = actualConnection?.let { "github__${it.alias}" } ?: BuiltInAgentTool.GITHUB,
             accountName = actualConnection?.name,
@@ -1268,20 +1289,25 @@ class AgentToolResolver @Inject constructor(
         val admittedProfile = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }?.let { GitHubChatPolicy.platform(it, features, workspaceContext) }
         // resolved() normally wraps telemetry immediately; this backend must stay
         // concrete until its compact operations have been expanded above.
-        return tool.resolved(actualConnection?.connectionUid, actualConnection?.name, BuiltInAgentTool.GITHUB).copy(tool = tool, nativeGitHub = true, nativeGitHubAuthenticated = tool.hasCredential, canReuseResult = {
+        return tool.resolved(actualConnection?.connectionUid, actualConnection?.name, BuiltInAgentTool.GITHUB).copy(tool = tool, nativeGitHub = true, nativeGitHubAuthenticated = tool.hasCredential, authorizationIdentity = durableIdentity, canReuseResult = {
             val live = GitHubChatPolicy.features(settingRepository.getFeatureSettings(), profileUid, workspaceContext)
             val current = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }?.let { GitHubChatPolicy.platform(it, live, workspaceContext) }
+            val currentConnection = actualConnection?.let { toolConnectionRepository.getConnection(it.connectionUid) }
             val credentialUnchanged = if (actualConnection == null) {
                 true
+            } else if (gitHubPublicAuth != null && currentConnection != null) {
+                val auth = requireNotNull(gitHubPublicAuth)
+                runCatching {
+                    auth.accessToken(currentConnection)
+                    auth.durableIdentity(currentConnection.connectionUid) == durableIdentity &&
+                        currentConnection.type == actualConnection.type &&
+                        currentConnection.authType == actualConnection.authType &&
+                        currentConnection.endpointUrl == actualConnection.endpointUrl &&
+                        currentConnection.toolPolicy == actualConnection.toolPolicy &&
+                        currentConnection.approvedReadTools == actualConnection.approvedReadTools
+                }.getOrDefault(false)
             } else {
-                actualConnection.secretRef?.let { reference ->
-                    val bytes = secretVault.read(reference)
-                    try {
-                        bytes != null && bytes.decodeToString().trim() == token
-                    } finally {
-                        bytes?.fill(0)
-                    }
-                } ?: token.isEmpty()
+                currentConnection == actualConnection
             }
             credentialUnchanged &&
                 current != null &&
@@ -1291,7 +1317,7 @@ class AgentToolResolver @Inject constructor(
                 !current.disableAllTools &&
                 !current.disableRemoteTools &&
                 live.isToolPluginEnabledForProfile(profileUid, ToolPluginId.GITHUB) &&
-                (actualConnection == null || (toolConnectionRepository.getConnection(actualConnection.connectionUid) == actualConnection && live.isToolPluginEnabledForProfile(profileUid, ToolPluginId.connection(actualConnection.connectionUid))))
+                (actualConnection == null || (currentConnection != null && live.isToolPluginEnabledForProfile(profileUid, ToolPluginId.connection(actualConnection.connectionUid))))
         })
     }
 

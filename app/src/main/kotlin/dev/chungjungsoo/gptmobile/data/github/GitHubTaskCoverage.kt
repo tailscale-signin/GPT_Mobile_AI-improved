@@ -55,8 +55,9 @@ internal object GitHubTaskCoverage {
             }
         }
 
-    fun render(receipts: Map<String, JsonObject>, task: String = "test all tools"): String = buildString {
-        append("**Task outcome: partial verification.** The table records observed tool operations, including failures. It does not establish that every feature or test suite passed.\n\n")
+    fun render(receipts: Map<String, JsonObject>, task: String = "test all tools", tools: List<dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition> = emptyList()): String = buildString {
+        val complete = GitHubTestChecklist.apiComplete(task, receipts, tools)
+        append(if (complete) "**Task outcome: authorized API coverage completed.** This covers the requested API capabilities, not device health or all application test suites.\n\n" else "**Task outcome: partial verification.** The table records observed tool operations, including failures. It does not establish that every feature or test suite passed.\n\n")
         val rows = rows(receipts)
         if (rows.isEmpty()) {
             append("**Test not executed.** No trusted GitHub operation receipts are available for this task. No success rate or timing measurement is available.\n")
@@ -69,11 +70,11 @@ internal object GitHubTaskCoverage {
         }
         append("\nFile reads establish source inspection. Workflow lists and existing check summaries establish CI observations. Test execution requires a run/job result tied to the tested revision; dispatch acceptance alone is insufficient.\n")
         if (GitHubTestChecklist.integration(task)) {
-            append(GitHubTestChecklist.render(receipts))
+            append(GitHubTestChecklist.render(receipts, tools))
         } else {
             append("\n**Score:** Not measured until the requested test suite has execution results at its exact revision. **Solutions / next actions:** execute the requested tests, retain run/job evidence, resolve recorded failures and keep pending checks explicit.\n")
         }
-        append("\n**Remaining scope:** reconcile the requested test checklist with execution receipts, including write operations and device tests where requested. A tool omitted from this table has no trusted receipt in this task; that does not mean it is unavailable.\n")
+        if (!complete) append("\n**Remaining scope:** reconcile the requested test checklist with execution receipts, including write operations and device tests where requested. A tool omitted from this table has no trusted receipt in this task; that does not mean it is unavailable.\n")
     }
 
     private fun JsonObject.text(key: String) = (get(key) as? JsonPrimitive)?.contentOrNull.orEmpty()

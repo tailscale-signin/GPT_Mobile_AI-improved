@@ -21,11 +21,37 @@ internal object ToolExchangeCompactor {
     private const val OMITTED_RESULT = "[Earlier consumed tool result omitted from primary replay.]"
     private const val DUPLICATE_RESULT = "[Earlier duplicate tool result omitted; newest identical result retained.]"
 
+    /** Per-run identity cache: immutable result bodies are serialized once across rounds.
+     * Bounded in both entries and characters; never shared between chats/accounts. */
+    class RenderCache(private val maxCharacters: Int = 2 * 1024 * 1024, private val maxEntries: Int = 256) {
+        private val values = java.util.IdentityHashMap<ToolResultContent, String>()
+        private var characters = 0
+        internal fun render(content: ToolResultContent): String {
+            values[content]?.let { return it }
+            val rendered = ToolExchangeCompactor.render(content)
+            if (rendered.length > maxCharacters / 2) return rendered
+            while (values.isNotEmpty() && (characters + rendered.length > maxCharacters || values.size >= maxEntries)) {
+                val entry = values.entries.iterator()
+                characters -= entry.next().value.length
+                entry.remove()
+            }
+            values[content] = rendered
+            characters += rendered.length
+            return rendered
+        }
+        internal fun retainedCharacters(): Int = characters
+        fun clear() {
+            values.clear()
+            characters = 0
+        }
+    }
+
     fun compact(
         exchanges: List<AgentToolExchange>,
         maxReplayTokens: Int,
         maxResultTokens: Int,
-        consumedCallIds: Set<String> = emptySet()
+        consumedCallIds: Set<String> = emptySet(),
+        renderCache: RenderCache? = null
     ): List<AgentToolExchange> {
         if (exchanges.isEmpty() || maxReplayTokens == Int.MAX_VALUE) return exchanges
 
@@ -34,7 +60,7 @@ internal object ToolExchangeCompactor {
         val flattenedResults = exchanges.flatMap { it.results }
         // Serialize each result once per projection, rather than rebuilding the complete
         // history for fingerprinting, sizing and the final excerpt independently.
-        val renderedResults = flattenedResults.map { render(it.content) }
+        val renderedResults = flattenedResults.map { renderCache?.render(it.content) ?: render(it.content) }
         var fingerprintIndex = 0
         val fingerprints = exchanges.flatMap { exchange ->
             val calls = exchange.calls.associateBy { it.callId }

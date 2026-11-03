@@ -120,6 +120,8 @@ class EngineeringHTTPTests(unittest.TestCase):
             self.assertEqual([], self.store.due())
             good = self.client.post('/gateway/engineering/webhook', content=body, headers=dict(self.headers, **{'X-Hub-Signature-256': signature}))
             self.assertEqual(200, good.status_code)
+            duplicate = self.client.post('/gateway/engineering/webhook', content=body, headers=dict(self.headers, **{'X-Hub-Signature-256': signature}))
+            self.assertTrue(duplicate.json()['duplicate'])
         self.assertEqual([job['id']], self.store.due())
         self.assertEqual('CI', self.store.get(job['id'])['state'])
         self.assertNotIn('merge', self.backend.calls)

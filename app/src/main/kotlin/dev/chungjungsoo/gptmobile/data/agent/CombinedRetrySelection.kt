@@ -58,7 +58,7 @@ internal fun preserveCombinedRetrySelection(current: MessageV2, candidate: Messa
     val priorReport = priorCombined?.timeline?.lastOrNull { it.combinedQuality != null }?.combinedQuality
     // A new stream is a candidate until terminal local validation. Contributor drafts
     // can yield to committed passages, but an earlier combined answer stays visible.
-    val betterPartial = terminalStatus in setOf("FAILED", "INTERRUPTED", "COMPLETED") &&
+    val betterPartial = terminalStatus in (dev.chungjungsoo.gptmobile.data.database.entity.AgentRunStatus.terminal - "CANCELED") &&
         priorCombined != null &&
         priorReport?.complete != true &&
         report != null &&

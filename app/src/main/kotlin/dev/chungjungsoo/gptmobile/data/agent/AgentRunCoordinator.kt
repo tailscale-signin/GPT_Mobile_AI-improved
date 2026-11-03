@@ -1098,7 +1098,9 @@ internal fun ApiStateFlowOutcome.toTerminalUpdate(): AgentRunTerminalUpdate = wh
     is ApiStateFlowOutcome.Failed -> AgentRunTerminalUpdate(
         when {
             errorCode == "QUEUE_JOB_PENDING" -> AgentRunStatus.WAITING_REMOTE_JOB
-            taskOutcome == "PARTIAL" -> AgentRunStatus.INTERRUPTED
+            errorCode == "GITHUB_EVIDENCE_REQUIRED" -> AgentRunStatus.EVIDENCE_MISSING
+            taskOutcome == "BLOCKED" -> AgentRunStatus.BLOCKED
+            taskOutcome == "PARTIAL" -> AgentRunStatus.PARTIAL
             else -> AgentRunStatus.FAILED
         },
         message

@@ -137,14 +137,25 @@ def install_engineering_routes(app, service):
         async def run():
             owner = principal(request)
             secret = os.getenv('GATEWAY_ENGINEERING_WEBHOOK_SECRET', '')
-            raw = await request.body()
-            if not secret or len(raw) > 1024 * 1024:
+            if not secret:
                 raise PermissionError('Webhook relay is not configured')
+            raw = bytearray()
+            async for block in request.stream():
+                if len(raw) + len(block) > 1024 * 1024:
+                    raise ValueError('Webhook exceeds the streaming byte limit')
+                raw.extend(block)
             expected = 'sha256=' + hmac.new(secret.encode(), raw, hashlib.sha256).hexdigest()
             if not hmac.compare_digest(expected, request.headers.get('X-Hub-Signature-256', '')):
                 raise PermissionError('Invalid webhook signature')
             # A signed webhook is only a wake-up hint, never authoritative CI
             # evidence or approval. Repeated deliveries cannot repeat a mutation.
+            body_digest = hashlib.sha256(raw).hexdigest()
+            delivery = request.headers.get('X-GitHub-Delivery', body_digest)
+            if not delivery or len(delivery) > 128 or any(not (ch.isalnum() or ch in '-_') for ch in delivery):
+                raise ValueError('Invalid webhook delivery identifier')
+            accepted = await asyncio.to_thread(service.store.accept_webhook, owner, delivery, body_digest)
+            if not accepted:
+                return {'accepted': True, 'duplicate': True, 'reconciliation': 'polling fallback retained'}
             await asyncio.to_thread(service.store.wake_checks, owner)
             service.wake.set()
             return {'accepted': True, 'reconciliation': 'fresh GitHub reads'}

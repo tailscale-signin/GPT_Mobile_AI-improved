@@ -4,9 +4,7 @@ import io.ktor.client.HttpClient
 import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.request.header
-import io.ktor.client.request.request
 import io.ktor.client.request.setBody
-import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpMethod
@@ -17,6 +15,7 @@ import java.nio.charset.StandardCharsets
 import java.util.Base64
 import kotlin.coroutines.AbstractCoroutineContextElement
 import kotlin.coroutines.CoroutineContext
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
@@ -47,7 +46,7 @@ data class GitHubRepositoryContext(val owner: String, val repo: String, val ref:
  * GraphQL responses stay inside this layer so they do not waste model context.
  */
 class GitHubWorkspaceClient(
-    private val token: String,
+    private var token: String,
     private val client: HttpClient = sharedClient,
     private val responseCache: GitHubResponseCache = if (client === sharedClient) GitHubSessionCaches.forCredential(token) else GitHubResponseCache(),
     private val rateLimits: GitHubRateLimitManager = if (client === sharedClient) GitHubSessionCaches.rateLimitsForCredential(token) else GitHubRateLimitManager(),
@@ -62,7 +61,10 @@ class GitHubWorkspaceClient(
     private val scheduler: GitHubRequestScheduler = if (client === sharedClient) GitHubSessionCaches.schedulerForCredential(token) else GitHubRequestScheduler(),
     private val requestPriority: Int = 0,
     private val authenticationRejected: java.util.concurrent.atomic.AtomicBoolean = if (client === sharedClient) GitHubSessionCaches.authenticationForCredential(token) else java.util.concurrent.atomic.AtomicBoolean(),
-    private val engineeringPrepare: (suspend (String, JsonObject) -> JsonObject)? = null
+    private val engineeringPrepare: (suspend (String, JsonObject) -> JsonObject)? = null,
+    private val durableIdentity: String = GitHubRepositoryStateStore.digest(token),
+    private val legacyCredentialIdentities: List<String> = emptyList(),
+    private val credentialProvider: (suspend () -> String)? = null
 ) {
     companion object {
         const val API_VERSION = "2026-03-10"
@@ -113,7 +115,7 @@ class GitHubWorkspaceClient(
     private val repositoryState = if (persistentState) stateStore ?: if (client === sharedClient) GitHubSessionCaches.stateForCredential(token) else GitHubRepositoryStateStore() else GitHubRepositoryStateStore()
     private val repositorySession by lazy {
         GitHubRepositorySession(
-            GitHubRepositoryStateStore.digest(token),
+            durableIdentity,
             connectionUid,
             conversationId,
             taskId,
@@ -123,9 +125,11 @@ class GitHubWorkspaceClient(
             { root, args -> reconcileCommit(root, args) }
         )
     }
-    private val executionScope = listOf(GitHubRepositoryStateStore.digest(token), connectionUid, conversationId, taskId).joinToString(":")
-    private val releaseReceiptScope = listOf(GitHubRepositoryStateStore.digest(token), connectionUid, conversationId).joinToString(":")
-    private val executionJournal by lazy { GitHubExecutionJournal(repositoryState, executionScope) }
+    private val executionScope = listOf(durableIdentity, connectionUid, conversationId, taskId).joinToString(":")
+    private val releaseReceiptScope = listOf(durableIdentity, connectionUid, conversationId).joinToString(":")
+    private val executionJournal by lazy {
+        GitHubExecutionJournal(repositoryState, executionScope, legacyScopes = legacyCredentialIdentities.map { listOf(it, connectionUid, conversationId, taskId).joinToString(":") })
+    }
     suspend fun taskSnapshot(): GitHubTaskSnapshot? = repositorySession.snapshot()
     suspend fun taskContext(): GitHubRepositoryContext? = repositorySession.context()
     internal suspend fun trackExecution(action: String, arguments: JsonObject, block: suspend () -> JsonElement): JsonObject =
@@ -139,6 +143,15 @@ class GitHubWorkspaceClient(
 
     private class Invocation(val identity: String) : AbstractCoroutineContextElement(Key) {
         companion object Key : CoroutineContext.Key<Invocation>
+    }
+
+    private suspend fun refreshCredential() {
+        val refreshed = credentialProvider?.invoke() ?: return
+        if (refreshed != token) {
+            token = refreshed
+            responseCache.clear()
+            authenticationRejected.set(false)
+        }
     }
 
     suspend fun execute(action: String, args: JsonObject): JsonElement {
@@ -171,6 +184,7 @@ class GitHubWorkspaceClient(
             return buildJsonObject {
                 put("requests", scheduler.metrics())
                 put("rate_limits", rateLimits.toJson())
+                put("publication_fences", repositoryState.publicationCapacity())
             }
         }
 
@@ -1658,7 +1672,16 @@ class GitHubWorkspaceClient(
                 }
             }
         }
+        val changedPaths = try {
+            if (head.matches(Regex("[a-fA-F0-9]{40}"))) (request("$root/commits/$head?per_page=100").jsonObject["files"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonObject)?.get("filename")?.jsonPrimitive?.content }.toSet() else emptySet()
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            emptySet()
+        }
         return buildJsonObject {
+            put("diagnosis", GitHubCiDiagnosis.group(excerpts, changedPaths))
+            put("changed_file_scope", "First page of the exact commit's changed files; absence of a match is not proof of no relationship")
             put("status", "available")
             put("run_id", runId)
             put("job_id", jobId)
@@ -1733,6 +1756,10 @@ class GitHubWorkspaceClient(
     }
 
     private suspend fun graphQl(query: String, variables: JsonObject): JsonObject {
+        if (query == gitHubPullRequestHealthQuery && "cursor" !in variables) {
+            return collectGitHubHealth { cursor -> graphQl(query, JsonObject(variables + ("cursor" to (cursor?.let(::JsonPrimitive) ?: JsonNull)))) }
+        }
+        refreshCredential()
         require(token.isNotBlank()) { "A GitHub credential is required for GraphQL." }
         check(!authenticationRejected.get()) { "GitHub authentication was rejected (HTTP 401). Reconnect the GitHub account before retrying any operation." }
         return scheduler.execute(priority = requestPriority) {
@@ -1741,7 +1768,7 @@ class GitHubWorkspaceClient(
             scheduler.recordRequest()
             val readOnlyQuery = !query.trimStart().startsWith("mutation")
             if (readOnlyQuery) GitHubDispatchAccounting.started(false)
-            val response = client.request("https://api.github.com/graphql") {
+            val response = client.githubRequest("https://api.github.com/graphql") {
                 method = HttpMethod.Post
                 header(HttpHeaders.Accept, "application/vnd.github+json")
                 header(HttpHeaders.UserAgent, "GPT-Mobile-App")
@@ -1816,6 +1843,7 @@ class GitHubWorkspaceClient(
         body: JsonObject?,
         authenticated: Boolean
     ): JsonElement {
+        refreshCredential()
         if (authenticated || method != HttpMethod.Get) require(token.isNotBlank()) { "A GitHub credential is required." }
         check(!authenticationRejected.get()) { "GitHub authentication was rejected (HTTP 401). Reconnect the GitHub account before retrying any operation." }
         val cacheKey = "${method.value}:$path"
@@ -1844,7 +1872,7 @@ class GitHubWorkspaceClient(
                 scheduler.recordRequest()
                 if (method != HttpMethod.Get) GitHubMutationAttempts.dispatched()
                 GitHubDispatchAccounting.started(method != HttpMethod.Get)
-                val response = client.request("https://api.github.com$path") {
+                val response = client.githubRequest("https://api.github.com$path") {
                     this.method = method
                     header(HttpHeaders.Accept, "application/vnd.github+json")
                     header(HttpHeaders.UserAgent, "GPT-Mobile-App")

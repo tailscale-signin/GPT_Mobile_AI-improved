@@ -155,7 +155,7 @@ fun DebugDiagnosticsScreen(
                                 Card(onClick = { expanded = !expanded }, shape = RoundedCornerShape(18.dp)) {
                                     Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                         Text(state.profileNames[run.profileUid] ?: run.modelSnapshot, color = modelChartColor(run.profileUid), fontWeight = FontWeight.SemiBold)
-                                        Text("${run.modelSnapshot} · ${run.status.lowercase()}", style = MaterialTheme.typography.bodyMedium, color = if (run.status in setOf(AgentRunStatus.FAILED, AgentRunStatus.INTERRUPTED)) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface)
+                                        Text("${run.modelSnapshot} · ${run.status.lowercase()}", style = MaterialTheme.typography.bodyMedium, color = if (run.status in setOf(AgentRunStatus.FAILED, AgentRunStatus.INTERRUPTED, AgentRunStatus.PARTIAL, AgentRunStatus.EVIDENCE_MISSING, AgentRunStatus.BLOCKED)) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface)
                                         Text("${requests.size} recent requests · ${tools.size} retained tool calls", style = MaterialTheme.typography.labelSmall)
                                         if (expanded) {
                                             Text("Run ${run.runId}\nProvider ${run.providerSnapshot}\nChat ${run.chatId}", style = MaterialTheme.typography.labelSmall, fontFamily = FontFamily.Monospace)

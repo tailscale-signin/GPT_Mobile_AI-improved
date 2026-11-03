@@ -223,7 +223,7 @@ interface AgentPersistenceDao :
     @Query("SELECT * FROM agent_runs WHERE chat_id = :chatId AND status = 'COMPLETED' ORDER BY created_at, run_id")
     suspend fun rawGetCompletedRuns(chatId: Int): List<AgentRun>
 
-    @Query("SELECT failed.* FROM agent_runs failed WHERE failed.chat_id = :chatId AND failed.user_message_id IN (:userMessageIds) AND failed.status IN ('FAILED', 'CANCELED', 'INTERRUPTED') AND NOT EXISTS (SELECT 1 FROM agent_runs done WHERE done.assistant_message_id = failed.assistant_message_id AND done.status = 'COMPLETED' AND done.created_at > failed.created_at) ORDER BY failed.created_at, failed.run_id")
+    @Query("SELECT failed.* FROM agent_runs failed WHERE failed.chat_id = :chatId AND failed.user_message_id IN (:userMessageIds) AND failed.status IN ('FAILED', 'CANCELED', 'INTERRUPTED', 'PARTIAL', 'EVIDENCE_MISSING', 'BLOCKED') AND NOT EXISTS (SELECT 1 FROM agent_runs done WHERE done.assistant_message_id = failed.assistant_message_id AND done.status = 'COMPLETED' AND done.created_at > failed.created_at) ORDER BY failed.created_at, failed.run_id")
     suspend fun rawGetIncompleteRuns(chatId: Int, userMessageIds: List<Int>): List<AgentRun>
 
     @Query("SELECT * FROM tool_events WHERE run_id IN (:runIds) ORDER BY run_id, sequence")
@@ -461,7 +461,7 @@ interface AgentPersistenceDao :
     @Transaction
     suspend fun restoreCombinedCandidate(runId: String): MessageV2? {
         val run = recoveryRun(runId) ?: return null
-        if (run.status !in setOf("FAILED", "INTERRUPTED", "CANCELED")) return null
+        if (run.status !in (dev.chungjungsoo.gptmobile.data.database.entity.AgentRunStatus.terminal - "COMPLETED")) return null
         val current = recoveryMessage(run.assistantMessageId) ?: return null
         if (current.currentRunId != runId || current.ownershipFence != run.ownershipFence || current.content.isNotBlank()) return current
         val selected = current.revisions.getOrNull(current.activeRevisionIndex)
@@ -629,7 +629,7 @@ interface AgentPersistenceDao :
         val prior = recoveryRun(runId) ?: return null
         val current = recoveryMessage(prior.assistantMessageId) ?: return null
         if (current.currentRunId != runId || current.ownershipFence != expectedFence || prior.ownershipFence != expectedFence) return null
-        if (sourceProfileUid != null && prior.status !in setOf("COMPLETED", "FAILED", "INTERRUPTED")) return null
+        if (sourceProfileUid != null && prior.status !in (dev.chungjungsoo.gptmobile.data.database.entity.AgentRunStatus.terminal - "CANCELED")) return null
         if (sourceProfileUid == null && prior.status != "QUEUED") return null
         val raw = prior.synthesisSnapshot ?: return null
         if (prior.synthesisKey != dev.chungjungsoo.gptmobile.data.research.researchHash(raw)) return null
@@ -716,7 +716,7 @@ interface AgentPersistenceDao :
 
     suspend fun publishReply(run: AgentRun, message: MessageV2, status: String, at: Long) {
         if (!dev.chungjungsoo.gptmobile.data.chat.ReplyDisplayRole.visible(run.displayRole)) return
-        if (status != "COMPLETED" && status !in setOf("FAILED", "CANCELED", "INTERRUPTED")) return
+        if (status != "COMPLETED" && status !in (dev.chungjungsoo.gptmobile.data.database.entity.AgentRunStatus.terminal - "COMPLETED")) return
         val answerText = dev.chungjungsoo.gptmobile.util.stripAssistantErrorNote(message.content)
         // A host-created error message alone is not a partial answer publication.
         if (status != "COMPLETED" && answerText == message.content && dev.chungjungsoo.gptmobile.util.isAssistantErrorMessage(message.content)) return
@@ -1064,7 +1064,7 @@ interface AgentPersistenceDao :
                     (expected - included).forEach { uid ->
                         val omitted = requireNotNull(rows.singleOrNull { it.platformType == uid }) { "A Combined contributor changed." }
                         val omittedRun = omitted.currentRunId?.let { recoveryRun(it) }
-                        require(omittedRun?.status in setOf("COMPLETED", "FAILED", "INTERRUPTED", "CANCELED") && omitted.currentRunId in incoming.acknowledgedFailureAttempts) { "COMBINED_FAILURE_DECISION_REQUIRED: A skipped contributor needs an acknowledgement for its current attempt." }
+                        require(omittedRun?.status in dev.chungjungsoo.gptmobile.data.database.entity.AgentRunStatus.terminal && omitted.currentRunId in incoming.acknowledgedFailureAttempts) { "COMBINED_FAILURE_DECISION_REQUIRED: A skipped contributor needs an acknowledgement for its current attempt." }
                     }
                 }
                 val existing = synthesisRunsForTurn(current.chatId, request.userMessage.id).firstOrNull { run ->
@@ -1106,7 +1106,7 @@ interface AgentPersistenceDao :
             "The Combined answer already owns a frozen corpus. Late source updates cannot replace it automatically."
         }
         request.successorOfRunId?.let { predecessorId ->
-            require(previousRun != null && previousRun.runId == predecessorId && previousRun.status in setOf("FAILED", "INTERRUPTED", "CANCELED", "COMPLETED")) { "COMBINED_SUCCESSOR_OWNER_CHANGED" }
+            require(previousRun != null && previousRun.runId == predecessorId && previousRun.status in dev.chungjungsoo.gptmobile.data.database.entity.AgentRunStatus.terminal) { "COMBINED_SUCCESSOR_OWNER_CHANGED" }
             val decoder = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
             val previousRaw = requireNotNull(previousRun.synthesisSnapshot)
             val successorRaw = requireNotNull(request.run.synthesisSnapshot)
@@ -1130,7 +1130,7 @@ interface AgentPersistenceDao :
             val original = decoder.decodeFromString<dev.chungjungsoo.gptmobile.data.agent.CombinedInputSnapshot>(previousRaw)
             val retry = decoder.decodeFromString<dev.chungjungsoo.gptmobile.data.agent.CombinedInputSnapshot>(retryRaw)
             if (original.combined?.requested?.singlePass == true) {
-                require(previousRun.status in setOf("FAILED", "INTERRUPTED", "CANCELED", "COMPLETED") && request.run.runId != previousRun.runId) { "COMBINED_RETRY_OWNER_CHANGED" }
+                require(previousRun.status in dev.chungjungsoo.gptmobile.data.database.entity.AgentRunStatus.terminal && request.run.runId != previousRun.runId) { "COMBINED_RETRY_OWNER_CHANGED" }
                 require(request.assistantMessage.combinedSources == original.sources && retry.profileUid == request.run.profileUid && retry.model == request.run.modelSnapshot) { "COMBINED_RETRY_CORPUS_CHANGED" }
                 dev.chungjungsoo.gptmobile.data.agent.CombinedWriterRetrySnapshot.validate(original, retry)
             }
@@ -1154,7 +1154,7 @@ interface AgentPersistenceDao :
                 }
                 require(
                     row.combinedSources.isEmpty() &&
-                        (row.currentRunId == null || currentRun?.status in setOf("COMPLETED", "FAILED", "INTERRUPTED", "CANCELED")) &&
+                        (row.currentRunId == null || currentRun?.status in dev.chungjungsoo.gptmobile.data.database.entity.AgentRunStatus.terminal) &&
                         (source.latestAttemptId == null || source.latestAttemptId == row.currentRunId) &&
                         sourceRun?.synthesisKey == null &&
                         source.completionStatus == (sourceRun?.status ?: source.completionStatus) &&
@@ -1167,7 +1167,7 @@ interface AgentPersistenceDao :
         }
         val resumedPrefix = request.resumeCombinedFrom?.let { priorId ->
             val priorRun = requireNotNull(previousRun)
-            require(priorId == priorRun.runId && priorRun.status in setOf("COMPLETED", "FAILED", "CANCELED", "INTERRUPTED")) { "The Combined recovery owner changed." }
+            require(priorId == priorRun.runId && priorRun.status in dev.chungjungsoo.gptmobile.data.database.entity.AgentRunStatus.terminal) { "The Combined recovery owner changed." }
             val snapshot = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }.decodeFromString<dev.chungjungsoo.gptmobile.data.agent.CombinedInputSnapshot>(requireNotNull(request.run.synthesisSnapshot))
             require(snapshot.resumeFromRunId == priorId && request.run.synthesisKey == dev.chungjungsoo.gptmobile.data.research.researchHash(requireNotNull(request.run.synthesisSnapshot)))
             val original = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }.decodeFromString<dev.chungjungsoo.gptmobile.data.agent.CombinedInputSnapshot>(requireNotNull(priorRun.synthesisSnapshot))
@@ -1300,7 +1300,7 @@ interface AgentPersistenceDao :
     /** Commit the complete accumulated answer and terminal status under the same ownership check. */
     @Transaction
     suspend fun finishQueuedWithFailure(runId: String, status: String, completedAt: Long, terminalError: String?): Boolean {
-        require(status in setOf("FAILED", "CANCELED", "INTERRUPTED"))
+        require(status in (dev.chungjungsoo.gptmobile.data.database.entity.AgentRunStatus.terminal - "COMPLETED"))
         val run = recoveryRun(runId)?.takeIf { it.status == "QUEUED" } ?: return false
         val message = recoveryMessage(run.assistantMessageId) ?: return false
         val updated = if (status == "FAILED" && !terminalError.isNullOrBlank()) {
@@ -1357,7 +1357,7 @@ interface AgentPersistenceDao :
         staged: dev.chungjungsoo.gptmobile.data.agent.StagedCombinedDocument?,
         expectedRunStatus: String = "RUNNING"
     ): Boolean {
-        require(status in setOf("COMPLETED", "FAILED", "CANCELED", "INTERRUPTED", "WAITING_REMOTE_JOB"))
+        require(status in (dev.chungjungsoo.gptmobile.data.database.entity.AgentRunStatus.terminal + "WAITING_REMOTE_JOB"))
         require(expectedRunStatus in setOf("RUNNING", "WAITING_REMOTE_JOB"))
         val run = recoveryRun(runId) ?: return false
         if (run.status != expectedRunStatus && !(expectedRunStatus == "RUNNING" && run.status == "QUEUED" && status != "COMPLETED")) return false

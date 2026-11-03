@@ -6,17 +6,15 @@ import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import dev.chungjungsoo.gptmobile.data.database.entity.BuiltInAgentTool
 import dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder
+import dev.chungjungsoo.gptmobile.data.github.GitHubBoundedResponse
 import dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryContext
 import dev.chungjungsoo.gptmobile.data.github.GitHubWorkspaceClient
+import dev.chungjungsoo.gptmobile.data.github.githubRequest
 import dev.chungjungsoo.gptmobile.data.github.normalizeGitHubWorkflowSelector
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.okhttp.OkHttp
-import io.ktor.client.request.get
 import io.ktor.client.request.header
-import io.ktor.client.request.request
 import io.ktor.client.request.setBody
-import io.ktor.client.statement.HttpResponse
-import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpMethod
@@ -47,7 +45,7 @@ import kotlinx.serialization.json.put
  * and reading issue/PR details.
  */
 class GitHubTool(
-    private val apiToken: String = "",
+    private var apiToken: String = "",
     private val httpClient: HttpClient = defaultHttpClient,
     private val modelToolName: String = BuiltInAgentTool.GITHUB,
     private val accountName: String? = null,
@@ -61,13 +59,16 @@ class GitHubTool(
     private val engineeringPrepare: (suspend (String, JsonObject) -> JsonObject)? = null,
     private val repositoryScope: dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext? = null,
     private val credentialAdmissionFailed: Boolean = false,
-    private val watchChecks: (suspend (JsonObject) -> JsonObject)? = null
+    private val watchChecks: (suspend (JsonObject) -> JsonObject)? = null,
+    private val durableIdentity: String = dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore.digest(apiToken),
+    private val legacyCredentialIdentities: List<String> = emptyList(),
+    private val credentialProvider: (suspend () -> String)? = null
 ) : AgentTool {
 
     private val authenticationRejected = if (httpClient === defaultHttpClient) dev.chungjungsoo.gptmobile.data.github.GitHubSessionCaches.authenticationForCredential(apiToken) else java.util.concurrent.atomic.AtomicBoolean()
     private val rateLimits = if (httpClient === defaultHttpClient) dev.chungjungsoo.gptmobile.data.github.GitHubSessionCaches.rateLimitsForCredential(apiToken) else dev.chungjungsoo.gptmobile.data.github.GitHubRateLimitManager()
     private val operationBlocks by lazy { if (persistentState && stateStore != null) stateStore else dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore() }
-    private val operationBlockScope by lazy { "github-operation-blocks:" + dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore.digest("$apiToken|$connectionUid|$conversationId") }
+    private val operationBlockScope by lazy { "github-operation-blocks:" + dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore.digest("$durableIdentity|$connectionUid|$conversationId") }
     internal val hasCredential get() = apiToken.isNotBlank()
     internal val hasRepositoryContext get() = repositoryContext != null
     private val scheduler = if (httpClient === defaultHttpClient) dev.chungjungsoo.gptmobile.data.github.GitHubSessionCaches.schedulerForCredential(apiToken) else dev.chungjungsoo.gptmobile.data.github.GitHubRequestScheduler()
@@ -78,7 +79,8 @@ class GitHubTool(
             responseCache = responseCache,
             conditionalReads = featureSettings.githubConditionalReads, blobCache = featureSettings.githubBlobCache,
             freshnessSeconds = featureSettings.pluginExecution[dev.chungjungsoo.gptmobile.data.model.ToolPluginId.GITHUB]?.githubCacheSeconds ?: 15,
-            connectionUid = connectionUid, conversationId = conversationId, taskId = taskId, persistentState = persistentState, stateStore = stateStore, scheduler = scheduler, engineeringPrepare = engineeringPrepare
+            connectionUid = connectionUid, conversationId = conversationId, taskId = taskId, persistentState = persistentState, stateStore = stateStore, scheduler = scheduler, engineeringPrepare = engineeringPrepare,
+            durableIdentity = durableIdentity, legacyCredentialIdentities = legacyCredentialIdentities, credentialProvider = credentialProvider
         )
     }
     internal suspend fun normalizeOperationRepository(arguments: JsonObject): JsonObject {
@@ -189,7 +191,7 @@ class GitHubTool(
                             )
                         }
                     )
-                    listOf("run_id", "job_id", "release_id", "page", "pr_number").forEach { name ->
+                    listOf("run_id", "job_id", "run_attempt", "release_id", "page", "pr_number").forEach { name ->
                         put(
                             name,
                             buildJsonObject {
@@ -467,6 +469,7 @@ class GitHubTool(
     )
 
     override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+        refreshCredential()
         val accounting = dev.chungjungsoo.gptmobile.data.github.GitHubDispatchAccounting()
         return kotlinx.coroutines.withContext(accounting) {
             try {
@@ -1057,7 +1060,11 @@ class GitHubTool(
         val path = when (action) {
             "list_workflows" -> "/workflows$pagination"
             "get_workflow_run" -> "/runs/${positiveId("run_id")}"
-            "list_workflow_jobs" -> "/runs/${positiveId("run_id")}/jobs$pagination"
+            "list_workflow_jobs" -> {
+                val attempt = arguments["run_attempt"]?.jsonPrimitive?.intOrNull ?: runObservation?.get("run_attempt")?.jsonPrimitive?.intOrNull
+                require(attempt == null || attempt > 0) { "Workflow attempt must be positive" }
+                "/runs/${positiveId("run_id")}" + (attempt?.let { "/attempts/$it" } ?: "") + "/jobs$pagination"
+            }
             "get_workflow_job" -> "/jobs/${positiveId("job_id")}"
             "list_workflow_artifacts" -> "/runs/${positiveId("run_id")}/artifacts$pagination"
             "dispatch_workflow" -> {
@@ -1095,7 +1102,7 @@ class GitHubTool(
                         if (response.status.value in 400..499) throw dev.chungjungsoo.gptmobile.data.github.GitHubRequestRejected(response.status.value, "GitHub rejected the CI request")
                         throw java.io.IOException("CI response was not accepted; reconcile the saved execution before retrying")
                     }
-                    workflowReceipt(action, arguments, text)
+                    workflowReceipt(action, arguments, text, observedAttempt)
                 }
             } catch (failure: dev.chungjungsoo.gptmobile.data.github.GitHubRequestRejected) {
                 return rejected ?: throw failure
@@ -1115,10 +1122,21 @@ class GitHubTool(
                 arguments["run_id"]?.let { require(job["run_id"] == it) { "Job belongs to another workflow run; rediscover jobs using run_id." } }
                 arguments["expected_head_sha"]?.let { require(job["head_sha"] == it) { "CI evidence belongs to a different commit; refresh the job head." } }
             }
-            successResult(
-                callId,
-                compactWorkflowPayload(action, text, page, perPage, arguments)
-            )
+            val payload = compactWorkflowPayload(action, text, page, perPage, arguments)
+            val scoped = if (action == "list_workflow_jobs" && runObservation != null) {
+                val attempt = arguments["run_attempt"] ?: runObservation["run_attempt"]
+                val jobs = jsonParser.parseToJsonElement(payload).jsonObject
+                JsonObject(
+                    jobs + buildJsonObject {
+                        put("run_id", runObservation.getValue("id"))
+                        runObservation["head_sha"]?.let { put("head_sha", it) }
+                        attempt?.let { put("run_attempt", it) }
+                    }
+                ).toString()
+            } else {
+                payload
+            }
+            successResult(callId, scoped)
         } else {
             val failure = classifyGitHubHttpFailure(callId, action, arguments, response, text)
             if (action == "list_workflow_jobs" && runObservation != null) {
@@ -1155,9 +1173,16 @@ class GitHubTool(
         }
     }
 
-    private fun workflowReceipt(action: String, arguments: JsonObject, text: String): JsonObject = buildJsonObject {
+    private fun workflowReceipt(action: String, arguments: JsonObject, text: String, previousAttempt: JsonElement? = null): JsonObject = buildJsonObject {
         val receipt = text.takeIf { it.isNotBlank() }?.let { jsonParser.parseToJsonElement(it) as? JsonObject }
         put("status", "accepted")
+        if (action in setOf("rerun_workflow", "rerun_failed_jobs")) {
+            val previous = (previousAttempt as? JsonPrimitive)?.intOrNull
+            previous?.let {
+                put("previous_run_attempt", it)
+                put("expected_run_attempt", it + 1)
+            }
+        }
         put("action", action)
         put("upstream_completed", true)
         put("message", "GitHub accepted $action. Acceptance does not mean that the workflow completed. Reconcile this receipt before retrying a mutation.")
@@ -1687,7 +1712,7 @@ class GitHubTool(
         callId: String,
         action: String,
         arguments: JsonObject,
-        response: HttpResponse,
+        response: GitHubBoundedResponse,
         body: String
     ): AgentToolResult {
         val githubMessage = runCatching {
@@ -1823,39 +1848,52 @@ class GitHubTool(
         require(apiToken.isNotBlank()) { "A GitHub token is required for repository write actions." }
     }
 
-    private suspend fun writeGitHubApi(url: String, method: HttpMethod, body: JsonObject): HttpResponse = scheduler.execute(null) {
-        try {
-            check(!authenticationRejected.get()) { "GitHub authentication was rejected (HTTP 401). Reconnect the GitHub account before retrying any operation." }
-            rateLimits.requireAvailable("core")
-        } catch (rejected: IllegalStateException) {
-            throw dev.chungjungsoo.gptmobile.data.github.GitHubRequestRejected(0, rejected.message ?: "Request admission failed before dispatch")
-        }
-        scheduler.recordRequest()
-        dev.chungjungsoo.gptmobile.data.github.GitHubMutationAttempts.dispatched()
-        dev.chungjungsoo.gptmobile.data.github.GitHubDispatchAccounting.started(true)
-        httpClient.request(url) {
-            this.method = method
-            contentType(ContentType.Application.Json)
-            header(HttpHeaders.Accept, "application/vnd.github+json")
-            header(HttpHeaders.UserAgent, "GPT-Mobile-App")
-            header("X-GitHub-Api-Version", GitHubWorkspaceClient.API_VERSION)
-            header(HttpHeaders.Authorization, "Bearer $apiToken")
-            setBody(body.toString())
-        }.also {
-            if (it.status.value in 400..499 && it.status.value != 408) dev.chungjungsoo.gptmobile.data.github.GitHubMutationAttempts.rejected()
-            dev.chungjungsoo.gptmobile.data.github.GitHubDispatchAccounting.responded(true, it.status.value)
-            rateLimits.record(it.headers, it.status.value)
-            if (it.status.value == 401) authenticationRejected.set(true)
+    private suspend fun refreshCredential() {
+        val refreshed = credentialProvider?.invoke() ?: return
+        if (refreshed != apiToken) {
+            apiToken = refreshed
+            responseCache.clear()
+            authenticationRejected.set(false)
         }
     }
 
-    private suspend fun getGitHubApi(url: String): HttpResponse = dev.chungjungsoo.gptmobile.data.github.GitHubReadRetry.run {
+    private suspend fun writeGitHubApi(url: String, method: HttpMethod, body: JsonObject): GitHubBoundedResponse {
+        refreshCredential()
+        return scheduler.execute(null) {
+            try {
+                check(!authenticationRejected.get()) { "GitHub authentication was rejected (HTTP 401). Reconnect the GitHub account before retrying any operation." }
+                rateLimits.requireAvailable("core")
+            } catch (rejected: IllegalStateException) {
+                throw dev.chungjungsoo.gptmobile.data.github.GitHubRequestRejected(0, rejected.message ?: "Request admission failed before dispatch")
+            }
+            scheduler.recordRequest()
+            dev.chungjungsoo.gptmobile.data.github.GitHubMutationAttempts.dispatched()
+            dev.chungjungsoo.gptmobile.data.github.GitHubDispatchAccounting.started(true)
+            httpClient.githubRequest(url) {
+                this.method = method
+                contentType(ContentType.Application.Json)
+                header(HttpHeaders.Accept, "application/vnd.github+json")
+                header(HttpHeaders.UserAgent, "GPT-Mobile-App")
+                header("X-GitHub-Api-Version", GitHubWorkspaceClient.API_VERSION)
+                header(HttpHeaders.Authorization, "Bearer $apiToken")
+                setBody(body.toString())
+            }.also {
+                if (it.status.value in 400..499 && it.status.value != 408) dev.chungjungsoo.gptmobile.data.github.GitHubMutationAttempts.rejected()
+                dev.chungjungsoo.gptmobile.data.github.GitHubDispatchAccounting.responded(true, it.status.value)
+                rateLimits.record(it.headers, it.status.value)
+                if (it.status.value == 401) authenticationRejected.set(true)
+            }
+        }
+    }
+
+    private suspend fun getGitHubApi(url: String): GitHubBoundedResponse = dev.chungjungsoo.gptmobile.data.github.GitHubReadRetry.run {
+        refreshCredential()
         scheduler.execute(null) {
             check(!authenticationRejected.get()) { "GitHub authentication was rejected (HTTP 401). Reconnect the GitHub account before retrying any operation." }
             rateLimits.requireAvailable(if (url.contains("/search/")) "search" else "core")
             scheduler.recordRequest()
             dev.chungjungsoo.gptmobile.data.github.GitHubDispatchAccounting.started(false)
-            httpClient.get(url) {
+            httpClient.githubRequest(url) {
                 header(HttpHeaders.Accept, "application/vnd.github+json")
                 header(HttpHeaders.UserAgent, "GPT-Mobile-App")
                 header("X-GitHub-Api-Version", GitHubWorkspaceClient.API_VERSION)

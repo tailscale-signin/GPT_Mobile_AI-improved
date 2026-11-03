@@ -18,23 +18,25 @@ internal data class GitHubPullRequestHealth(
     val review: String = "UNKNOWN",
     val requiredChecks: Int? = null,
     val failingChecks: List<String> = emptyList(),
-    val observedAt: Long = System.currentTimeMillis()
+    val observedAt: Long = System.currentTimeMillis(),
+    val githubPermitsMerging: Boolean = false,
+    val requestedValidationPassed: Boolean = false
 ) {
     val eligible: Boolean get() = state == "ELIGIBLE"
 }
 
 internal val gitHubPullRequestHealthQuery = """
-    query WorkspacePullRequestHealth(${'$'}owner: String!, ${'$'}repo: String!, ${'$'}number: Int!) {
+    query WorkspacePullRequestHealth(${'$'}owner: String!, ${'$'}repo: String!, ${'$'}number: Int!, ${'$'}cursor: String) {
       repository(owner: ${'$'}owner, name: ${'$'}repo) {
         pullRequest(number: ${'$'}number) {
           state isDraft headRefOid baseRefOid mergeable mergeStateStatus reviewDecision
           commits(last: 1) { nodes { commit { oid statusCheckRollup {
-            state contexts(first: 100) {
-              totalCount pageInfo { hasNextPage }
+            state contexts(first: 100, after: ${'$'}cursor) {
+              totalCount pageInfo { hasNextPage endCursor }
               nodes {
                 __typename
-                ... on CheckRun { name status conclusion isRequired(pullRequestNumber: ${'$'}number) }
-                ... on StatusContext { context state isRequired(pullRequestNumber: ${'$'}number) }
+                ... on CheckRun { id name status conclusion isRequired(pullRequestNumber: ${'$'}number) }
+                ... on StatusContext { id context state isRequired(pullRequestNumber: ${'$'}number) }
               }
             }
           } } } }
@@ -55,7 +57,8 @@ internal fun gitHubPullRequestHealth(response: JsonObject, expectedHead: String)
     val health = GitHubPullRequestHealth(
         headSha = pr.text("headRefOid").orEmpty(),
         baseSha = pr.text("baseRefOid").orEmpty(),
-        review = pr.text("reviewDecision") ?: "NOT_REQUIRED"
+        review = pr.text("reviewDecision") ?: "NOT_REQUIRED",
+        githubPermitsMerging = pr.text("mergeStateStatus") == "CLEAN" && pr.text("mergeable") == "MERGEABLE" && pr.flag("isDraft") == false
     )
     if (!health.baseSha.matches(Regex("[a-fA-F0-9]{40}"))) return health.copy(detail = "PR base revision is unavailable.")
     if (health.headSha != expectedHead) return health.copy(state = "STALE", detail = "The PR head changed; refresh before continuing.")
@@ -85,19 +88,20 @@ internal fun gitHubPullRequestHealth(response: JsonObject, expectedHead: String)
         it.text("conclusion") in setOf("FAILURE", "CANCELLED", "TIMED_OUT", "ACTION_REQUIRED", "STARTUP_FAILURE", "STALE") ||
             it.text("state") in setOf("ERROR", "FAILURE")
     }.map { (it.text("name") ?: it.text("context") ?: "Unnamed check").take(160) }
-    val result = health.copy(requiredChecks = checks.count { it.flag("isRequired") == true }, failingChecks = failed.take(10))
-    if (blocker != null) return result.copy(state = blocker.first, detail = blocker.second)
-    if (failed.isNotEmpty()) return result.copy(state = "FAILED", detail = "Fix failing checks before merging.")
     val passed = checks.all {
         when (it.text("__typename")) {
-            "CheckRun" -> it.text("status") == "COMPLETED" && it.text("conclusion") in setOf("SUCCESS", "NEUTRAL", "SKIPPED")
+            "CheckRun" -> it.text("status") == "COMPLETED" && (it.text("conclusion") == "SUCCESS" || it.flag("isRequired") == false && it.text("conclusion") in setOf("NEUTRAL", "SKIPPED"))
             "StatusContext" -> it.text("state") == "SUCCESS"
             else -> false
         }
     }
     val hasSuccess = checks.any { it.text("conclusion") == "SUCCESS" || it.text("state") == "SUCCESS" }
-    if (!hasSuccess || !passed || rollup.text("state") != "SUCCESS") return result.copy(state = "WAITING", detail = "CI is pending or unverified for the current head.")
+    val validationPassed = hasSuccess && passed && rollup.text("state") == "SUCCESS"
+    val result = health.copy(requiredChecks = checks.count { it.flag("isRequired") == true }, failingChecks = failed.take(10), requestedValidationPassed = validationPassed)
+    if (blocker != null) return result.copy(state = blocker.first, detail = blocker.second)
+    if (failed.isNotEmpty()) return result.copy(state = "FAILED", detail = "Fix failing checks before merging.")
+    if (!validationPassed) return result.copy(state = "WAITING", detail = "CI is pending or unverified for the current head.")
     if (merge != "CLEAN" || pr.text("mergeable") != "MERGEABLE") return result.copy(state = "BLOCKED", detail = "GitHub merge state: ${merge ?: "UNKNOWN"}. Review branch rules, deployments or approvals.")
     if (health.review !in setOf("APPROVED", "NOT_REQUIRED")) return result.copy(detail = "Review state is unknown.")
-    return result.copy(state = "ELIGIBLE", detail = "GitHub reports this revision eligible. Rules and head are checked again when merging.")
+    return result.copy(state = "ELIGIBLE", requestedValidationPassed = true, detail = "Required checks succeeded and GitHub permits merging this revision. Rules and head are checked again when merging.")
 }

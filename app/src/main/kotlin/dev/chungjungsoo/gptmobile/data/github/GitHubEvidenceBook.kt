@@ -25,7 +25,8 @@ internal class GitHubEvidenceBook(
     private val now: () -> Long = System::currentTimeMillis,
     private val load: suspend (String) -> JsonObject? = { null },
     private val save: suspend (String, JsonObject) -> Unit = { _, _ -> },
-    private val retainedIds: suspend () -> List<String> = { emptyList() }
+    private val retainedIds: suspend () -> List<String> = { emptyList() },
+    private val latestVerdict: suspend () -> JsonObject? = { null }
 ) {
     private val mutex = Mutex()
     private val records = linkedMapOf<String, JsonObject>()
@@ -77,7 +78,7 @@ internal class GitHubEvidenceBook(
             is ToolResultContent.ResourceLinks -> JsonNull
         }
         val operation = GitHubOperationTool.operationName(call.name) ?: "github".takeIf { call.name.substringBefore("__") == it }
-        val trusted = call.name in trustedTools && operation != null
+        val trusted = call.name in trustedTools && (operation != null || call.name == "discover_available_tools")
         val effectiveArguments = (result.executionReceipt?.get("corrected_arguments") as? JsonObject) ?: call.arguments
         val owner = (effectiveArguments["owner"] as? JsonPrimitive)?.contentOrNull
         val repo = (effectiveArguments["repo"] as? JsonPrimitive)?.contentOrNull
@@ -157,6 +158,8 @@ internal class GitHubEvidenceBook(
         check(!overflow) { "Evidence exceeds the retained verification allowance" }
         records.toMap() to epoch
     }
+
+    suspend fun diagnostic(): JsonObject? = latestVerdict()?.takeIf { it["binding"] == JsonPrimitive(binding) }
 
     suspend fun retainChecklist(value: JsonObject) {
         save("checklist_" + digest("$binding|$value").take(24), JsonObject(value + ("binding" to JsonPrimitive(binding))))

@@ -56,7 +56,7 @@ internal class GitHubOperationTool(
             put("fingerprint_scope", "AUTHORIZED_CONVERSATION")
             result.errorCode?.let { put("error_code", it) }
         }
-        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("GitHubToolTrace", trace.toString())
+        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("GitHubToolTrace", "GITHUB_TOOL_COMPLETED · trace=$trace")
         val incident = result.executionReceipt?.get("incident_id") ?: JsonPrimitive("github:" + dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore.digest(scope + "|" + callId).take(24))
         return result.copy(executionReceipt = JsonObject(result.executionReceipt.orEmpty() + mapOf("tool_trace" to trace, "incident_id" to incident)))
     }
@@ -708,7 +708,7 @@ internal class GitHubOperationTool(
                         put("maxLength", 80)
                         put("description", "Reuse for recovery. Supply a new ID only for a separately requested execution after reconciling the previous receipt; never change it to retry a lost response.")
                     }
-                    listOf("run_id", "job_id").forEach { key ->
+                    listOf("run_id", "job_id", "run_attempt").forEach { key ->
                         properties[key] = buildJsonObject {
                             put("type", "integer")
                             put("minimum", 1)
@@ -732,6 +732,7 @@ internal class GitHubOperationTool(
                     properties["inputs"] = field("object")
                 }
                 "github_watch_checks" -> {
+                    properties["follow_pr"] = field("boolean")
                     properties["pr_number"] = field("integer")
                     properties["run_id"] = field("integer")
                     properties["commit_sha"] = field("string")
@@ -773,7 +774,7 @@ internal class GitHubOperationTool(
                 "github_write" -> "Every files item requires a repository-relative path (for example app/src/main/kotlin/.../MainActivity.kt), never an absolute path or directory. Stage up to 20 UTF-8 file creations, replacements or deletions for exact user approval and one atomic commit on a working branch. Supply expected_head_sha and expected_blob_sha for existing files. Replacements require content; deletions require delete=true and no content. Never write to the default branch."
                 "github_pr" -> "Canonical pull-request tool (also known as github_pull_request). Use list to discover pull_number. Prefer headers for title/state/head/base only; it uses a minimal API field selection with no bodies or threads. Use context for files/checks and include_health=true for merge readiness. Use github_watch_checks once for ongoing CI; do not repeatedly poll from the model. Writes require the current expected head SHA."
                 "github_ci" -> "For repository summaries, inspect the selected branch/head and recent relevant runs; traverse full history only when requested. Discover workflows, then runs (100/page), then jobs using run_id. job/logs require job_id; artifacts requires run_id. status inspects run_id/job_id or selected commit/ref checks. Empty collections are valid. definitions reads pinned YAML outlines. Logs use start_line/end_line/start_offset continuations. dispatch requires a discovered workflow_id and explicit ref; a run_id is not a workflow_id. rerun/rerun_failed_jobs retries failed jobs only; rerun_all retries the full completed run. Never cancel an active run to force a retry. Follow continuation_call exactly."
-                "github_watch_checks" -> "Subscribe once to background CI updates for pr_number and/or run_id in this saved chat. Pins the current head and posts native chat status updates without model polling turns. A moved PR head requires a new subscription."
+                "github_watch_checks" -> "Subscribe once to background CI updates for pr_number and/or run_id in this saved chat. Pins the current head and posts native chat updates without model polling. Optional follow_pr=true with pr_number follows new revisions, preserves historical results and invalidates previous merge evidence."
                 "github_issue" -> "List issues (PRs excluded). Prefer headers for title/state/updated_at without bodies or comments; use context/comments/history only when those details are needed. Create/update requires exact approval; update needs expected_updated_at. Timeline is not a full body-edit history."
                 else -> "Inspect release notes (detail), tags/annotations (tag), paginated tags/list, create_tag or explicitly publish the selected release."
             } + " Exact continuation_call; owner+repo."

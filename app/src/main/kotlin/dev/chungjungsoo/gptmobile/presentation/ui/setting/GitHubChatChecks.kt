@@ -128,17 +128,17 @@ internal fun GitHubCheckWatchCard(
     onStop: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    var showDetails by remember(watch.id) { mutableStateOf(false) }
     var clock by remember(watch.id) { androidx.compose.runtime.mutableLongStateOf(System.currentTimeMillis()) }
     val lifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
-    androidx.compose.runtime.LaunchedEffect(watch.id, watch.terminal, lifecycle) {
+    androidx.compose.runtime.LaunchedEffect(watch.id, watch.terminal, showDetails, lifecycle) {
         lifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
-            while (!watch.terminal) {
+            while (showDetails && !watch.terminal) {
                 clock = System.currentTimeMillis()
-                kotlinx.coroutines.delay(1000)
+                kotlinx.coroutines.delay(15_000)
             }
         }
     }
-    var showDetails by remember(watch.id) { mutableStateOf(false) }
     val health = watch.health
     val color = if (watch.status == "FAILED" || health?.state in setOf("FAILED", "CONFLICTS")) {
         MaterialTheme.colorScheme.errorContainer
@@ -153,7 +153,6 @@ internal fun GitHubCheckWatchCard(
                 Text(title, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(gitHubWatchBrief(watch), modifier = Modifier.weight(1f), style = MaterialTheme.typography.labelSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
-            Text("${watch.branch.ifBlank { watch.headSha.take(12) }} · ${if (watch.terminal) "Watch total" else "Watching"} ${dev.chungjungsoo.gptmobile.data.github.githubElapsedTime(watch.startedAt, if (watch.terminal) watch.updatedAt else clock)}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Row(Modifier.fillMaxWidth()) {
                 TextButton(modifier = Modifier.weight(1f), onClick = { showDetails = true }, contentPadding = PaddingValues(horizontal = 4.dp)) { Text("Details", maxLines = 1) }
                 TextButton(modifier = Modifier.weight(1f), onClick = onOpen, contentPadding = PaddingValues(horizontal = 4.dp)) { Text("GitHub", maxLines = 1) }
@@ -172,8 +171,10 @@ internal fun GitHubCheckWatchCard(
             text = {
                 Column(Modifier.heightIn(max = 400.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("${watch.owner}/${watch.repo}")
+                    Text("${watch.branch.ifBlank { watch.headSha.take(12) }} · ${if (watch.terminal) "Watch total" else "Watching"} ${dev.chungjungsoo.gptmobile.data.github.githubElapsedTime(watch.startedAt, if (watch.terminal) watch.updatedAt else clock)}")
                     Text(gitHubWatchBrief(watch))
                     Text(watch.detail)
+                    if (!watch.terminal && watch.retryAt > 0) Text("Next check after ${java.text.DateFormat.getTimeInstance().format(java.util.Date(watch.retryAt))}", style = MaterialTheme.typography.bodySmall)
                     Text("Revision ${watch.headSha.take(12)}")
                     health?.let {
                         Text("Merge: ${it.state.lowercase().replace('_', ' ')}")

@@ -108,6 +108,7 @@ class GitHubWorkspaceViewModel @Inject constructor(
     private var client: GitHubWorkspaceClient? = null
     private var tool: GitHubTool? = null
     private var credentialDigest: ByteArray? = null
+    private var authorizationIdentity: String? = null
 
     @kotlinx.serialization.Serializable
     private data class Draft(val selection: GitHubRepositoryContext?, val baseSha: String, val directory: String, val file: JsonObject?, val staged: List<GitHubStagedFile>, val edits: Map<String, String>, val reviewBaseline: String = "", val patchStage: JsonObject? = null) {
@@ -157,6 +158,7 @@ class GitHubWorkspaceViewModel @Inject constructor(
         client = null
         tool = null
         credentialDigest = null
+        authorizationIdentity = null
         pendingRecovery = null
         _state.value = GitHubWorkspaceState(
             connection = connection,
@@ -166,19 +168,8 @@ class GitHubWorkspaceViewModel @Inject constructor(
         work {
             val current = connections.getConnection(connection.connectionUid) ?: error("Connection was removed.")
             require(current.type == ToolConnectionType.GITHUB) { "This connection is no longer a GitHub connection. Reopen the workspace with a GitHub connection." }
-            if (current.secretRef != null) gitHubPublicAuth?.accessToken(current)
-            val bytes = current.secretRef?.let { vault.read(it) }
-            val token = try {
-                credentialDigest = bytes?.let { MessageDigest.getInstance("SHA-256").digest(it) }
-                bytes?.decodeToString()?.trim().orEmpty()
-            } finally {
-                bytes?.fill(0)
-            }
-            require(token.isNotBlank()) { "Edit this GitHub connection and add a token first." }
-            val features = settings.getFeatureSettings()
-            client = GitHubWorkspaceClient(token, conditionalReads = features.githubConditionalReads, blobCache = features.githubBlobCache, freshnessSeconds = features.pluginExecution[dev.chungjungsoo.gptmobile.data.model.ToolPluginId.GITHUB]?.githubCacheSeconds ?: 15, connectionUid = current.connectionUid, conversationId = "workspace", taskId = "workspace:${current.connectionUid}", stateStore = repositoryState, requestPriority = 10)
-            tool = GitHubTool(token, featureSettings = features)
             _state.update { it.copy(connection = current) }
+            refreshTransport(current)
             val account = api("get_account").jsonObject
             val recovered = draftWrites.withLock { drafts.read(current.connectionUid)?.let { Json.decodeFromString(Draft.serializer(), it) } }
             pendingRecovery = recovered
@@ -213,6 +204,7 @@ class GitHubWorkspaceViewModel @Inject constructor(
                 client = null
                 tool = null
                 credentialDigest = null
+                authorizationIdentity = null
                 _state.value = GitHubWorkspaceState()
                 onSaved()
             } catch (cancelled: CancellationException) {
@@ -775,20 +767,47 @@ class GitHubWorkspaceViewModel @Inject constructor(
         val opened = requireNotNull(_state.value.connection) { "Reopen the GitHub workspace before continuing." }
         val current = connections.getConnection(opened.connectionUid) ?: error("This GitHub connection was removed. Reopen the workspace with an available connection.")
         check(current.type == ToolConnectionType.GITHUB && current.type == opened.type) { "This connection is no longer a GitHub connection. Reopen the workspace before continuing." }
-        check(current.secretRef == opened.secretRef && current.authType == opened.authType && current.oauthClientId == opened.oauthClientId && current.endpointUrl == opened.endpointUrl) {
-            "GitHub connection credentials or endpoint changed. Reopen the workspace before continuing."
+        check(current.authType == opened.authType && current.oauthClientId == opened.oauthClientId && current.endpointUrl == opened.endpointUrl) {
+            "GitHub account configuration changed. Reopen the workspace before continuing."
         }
         if (mutation) {
             check(_state.value.canWrite && current.toolPolicy != "READ_ONLY") { "Current GitHub connection policy and repository write access are required for this action." }
         }
-        val expected = credentialDigest ?: error("Reopen the GitHub workspace before continuing.")
-        val bytes = current.secretRef?.let { vault.read(it) }
-        val unchanged = try {
-            bytes != null && MessageDigest.isEqual(expected, MessageDigest.getInstance("SHA-256").digest(bytes))
-        } finally {
-            bytes?.fill(0)
+        refreshTransport(current)
+    }
+
+    private suspend fun refreshTransport(current: ToolConnection) {
+        val token = if (gitHubPublicAuth != null) {
+            gitHubPublicAuth.accessToken(current)
+        } else {
+            val bytes = current.secretRef?.let { vault.read(it) }
+            try {
+                bytes?.decodeToString()?.trim().orEmpty()
+            } finally {
+                bytes?.fill(0)
+            }
         }
-        check(unchanged) { "GitHub credentials changed or are unavailable. Reopen the workspace before continuing." }
+        require(token.isNotBlank()) { "Reconnect GitHub before continuing." }
+        val digest = MessageDigest.getInstance("SHA-256").digest(token.encodeToByteArray())
+        val identity = gitHubPublicAuth?.durableIdentity(current.connectionUid) ?: dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore.digest(token)
+        check(authorizationIdentity == null || authorizationIdentity == identity) { "GitHub account changed. Reopen the workspace to review the new account; staged edits remain retained." }
+        authorizationIdentity = identity
+        if (client != null && credentialDigest?.let { MessageDigest.isEqual(it, digest) } == true && _state.value.connection?.toolPolicy == current.toolPolicy && _state.value.connection?.approvedReadTools == current.approvedReadTools) return
+        val features = settings.getFeatureSettings()
+        val legacy = gitHubPublicAuth?.legacyCredentialIdentities(current.connectionUid).orEmpty()
+        val provider: (suspend () -> String)? = gitHubPublicAuth?.let { auth ->
+            {
+                val live = requireNotNull(connections.getConnection(current.connectionUid)) { "GitHub connection removed" }
+                check(live.type == current.type && live.authType == current.authType && live.endpointUrl == current.endpointUrl && live.toolPolicy == current.toolPolicy && live.approvedReadTools == current.approvedReadTools) { "GitHub authorization changed" }
+                val fresh = auth.accessToken(live)
+                check(auth.durableIdentity(live.connectionUid) == identity) { "GitHub account changed" }
+                fresh
+            }
+        }
+        client = GitHubWorkspaceClient(token, conditionalReads = features.githubConditionalReads, blobCache = features.githubBlobCache, freshnessSeconds = features.pluginExecution[dev.chungjungsoo.gptmobile.data.model.ToolPluginId.GITHUB]?.githubCacheSeconds ?: 15, connectionUid = current.connectionUid, conversationId = "workspace", taskId = "workspace:${current.connectionUid}", stateStore = repositoryState, requestPriority = 10, durableIdentity = identity, legacyCredentialIdentities = legacy, credentialProvider = provider)
+        tool = GitHubTool(token, featureSettings = features, connectionUid = current.connectionUid, conversationId = "workspace", taskId = "workspace:${current.connectionUid}", stateStore = repositoryState, durableIdentity = identity, legacyCredentialIdentities = legacy, credentialProvider = provider)
+        credentialDigest = digest
+        _state.update { it.copy(connection = current) }
     }
 
     private suspend fun api(action: String, extra: JsonObject = buildJsonObject {}): kotlinx.serialization.json.JsonElement {

@@ -26,13 +26,17 @@ internal open class GitHubEngineeringApi(private val token: suspend () -> String
     open suspend fun pullRequestHealth(owner: String, repo: String, number: Int): String {
         root(owner, repo)
         require(number > 0)
-        return execute(
-            "/graphql",
-            "POST",
-            JSONObject().put("query", dev.chungjungsoo.gptmobile.data.github.gitHubPullRequestHealthQuery)
-                .put("variables", JSONObject().put("owner", owner).put("repo", repo).put("number", number)),
-            readOnlyHealthQuery = true
-        )
+        return dev.chungjungsoo.gptmobile.data.github.collectGitHubHealth { cursor ->
+            Json.parseToJsonElement(
+                execute(
+                    "/graphql",
+                    "POST",
+                    JSONObject().put("query", dev.chungjungsoo.gptmobile.data.github.gitHubPullRequestHealthQuery)
+                        .put("variables", JSONObject().put("owner", owner).put("repo", repo).put("number", number).put("cursor", cursor ?: JSONObject.NULL)),
+                    readOnlyHealthQuery = true
+                )
+            ) as JsonObject
+        }.toString()
     }
 
     private suspend fun execute(path: String, method: String, body: JSONObject?, readOnlyHealthQuery: Boolean = false): String = withContext(Dispatchers.IO) {
@@ -43,44 +47,71 @@ internal open class GitHubEngineeringApi(private val token: suspend () -> String
             val actualActor = JSONObject(GitHubEngineeringApi { credential }.request("/user")).getLong("id").toString()
             check(actualActor == expectedActor) { "GitHub credential changed accounts; review approval again" }
         }
-        val requestBody = body?.toString()?.toRequestBody(JSON_MEDIA)
-            ?: if (method in setOf("POST", "PUT", "PATCH")) ByteArray(0).toRequestBody(JSON_MEDIA) else null
-        val request = Request.Builder()
-            .url("https://api.github.com$path")
-            .header("Authorization", "Bearer $credential")
-            .header("Accept", "application/vnd.github+json")
-            .header("X-GitHub-Api-Version", "2022-11-28")
-            .method(method, requestBody)
-            .build()
-        http.newCall(request).execute().use { response ->
-            if (response.code !in 200..299) {
-                // Error text is inspected locally and bounded; never include response
-                // bodies, repository content or credentials in the exception/log.
-                val message = runCatching {
-                    val payload = Json.parseToJsonElement(response.peekBody(8192).string()) as? JsonObject
-                    (payload?.get("message") as? JsonPrimitive)?.contentOrNull.orEmpty()
-                }.getOrDefault("")
-                throw engineeringApiFailure(
-                    response.code,
-                    response.header("Retry-After"),
-                    response.header("X-RateLimit-Reset"),
-                    response.header("X-RateLimit-Remaining"),
-                    response.header("X-GitHub-SSO"),
-                    message,
-                    System.currentTimeMillis()
-                )
-            }
-            val output = java.io.ByteArrayOutputStream()
-            response.body?.byteStream()?.use { input ->
-                val buffer = ByteArray(8192)
-                while (output.size() <= 4 * 1024 * 1024) {
-                    val count = input.read(buffer, 0, minOf(buffer.size, 4 * 1024 * 1024 + 1 - output.size()))
-                    if (count < 0) break
-                    output.write(buffer, 0, count)
+        val scheduler = dev.chungjungsoo.gptmobile.data.github.GitHubSessionCaches.schedulerForCredential(credential)
+        val limits = dev.chungjungsoo.gptmobile.data.github.GitHubSessionCaches.rateLimitsForCredential(credential)
+        val cache = dev.chungjungsoo.gptmobile.data.github.GitHubSessionCaches.forCredential(credential)
+        val authentication = dev.chungjungsoo.gptmobile.data.github.GitHubSessionCaches.authenticationForCredential(credential)
+        val key = "$method:$path"
+        scheduler.execute(if (method == "GET") "engineering:$key" else null) {
+            val delay = limits.retryDelayMillis()
+            if (delay > 0) throw engineeringApiFailure(429, (delay / 1000 + 1).toString(), null, null, null, "", System.currentTimeMillis())
+            val cached = if (method == "GET") cache.get(key) else null
+            val requestBody = body?.toString()?.toRequestBody(JSON_MEDIA)
+                ?: if (method in setOf("POST", "PUT", "PATCH")) ByteArray(0).toRequestBody(JSON_MEDIA) else null
+            val request = Request.Builder()
+                .url("https://api.github.com$path")
+                .header("Authorization", "Bearer $credential")
+                .header("Accept", "application/vnd.github+json")
+                .header("X-GitHub-Api-Version", "2022-11-28")
+                .apply { cached?.etag?.takeIf(String::isNotBlank)?.let { header("If-None-Match", it) } }
+                .method(method, requestBody)
+                .build()
+            scheduler.recordRequest()
+            http.newCall(request).execute().use { response ->
+                limits.record(io.ktor.http.Headers.build { response.headers.names().forEach { name -> appendAll(name, response.headers.values(name)) } }, response.code)
+                if (response.code == 401) authentication.set(true)
+                if (response.code in setOf(401, 403)) cache.clear()
+                if (response.code == 304 && cached != null) {
+                    cache.put(key, cached.etag, cached.value)
+                    scheduler.recordCacheHit()
+                    return@execute cached.value.toString()
                 }
+                if (response.code !in 200..299) {
+                    // Error text is inspected locally and bounded; never include response
+                    // bodies, repository content or credentials in the exception/log.
+                    val message = runCatching {
+                        val payload = Json.parseToJsonElement(response.peekBody(8192).string()) as? JsonObject
+                        (payload?.get("message") as? JsonPrimitive)?.contentOrNull.orEmpty()
+                    }.getOrDefault("")
+                    throw engineeringApiFailure(
+                        response.code,
+                        response.header("Retry-After"),
+                        response.header("X-RateLimit-Reset"),
+                        response.header("X-RateLimit-Remaining"),
+                        response.header("X-GitHub-SSO"),
+                        message,
+                        System.currentTimeMillis()
+                    )
+                }
+                val output = java.io.ByteArrayOutputStream()
+                response.body?.byteStream()?.use { input ->
+                    val buffer = ByteArray(8192)
+                    while (output.size() <= 4 * 1024 * 1024) {
+                        val count = input.read(buffer, 0, minOf(buffer.size, 4 * 1024 * 1024 + 1 - output.size()))
+                        if (count < 0) break
+                        output.write(buffer, 0, count)
+                    }
+                }
+                check(output.size() <= 4 * 1024 * 1024) { "GitHub response exceeds inspection budget" }
+                val text = output.toString(Charsets.UTF_8.name())
+                scheduler.recordBytes(output.size().toLong())
+                if (method == "GET") {
+                    runCatching { Json.parseToJsonElement(text) }.getOrNull()?.let { cache.put(key, response.header("ETag"), it) }
+                } else if (!readOnlyHealthQuery) {
+                    cache.invalidateMutable()
+                }
+                text
             }
-            check(output.size() <= 4 * 1024 * 1024) { "GitHub response exceeds inspection budget" }
-            output.toString(Charsets.UTF_8.name())
         }
     }
 

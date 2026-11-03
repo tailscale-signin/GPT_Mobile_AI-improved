@@ -40,7 +40,7 @@ data class CombinedAnswerRevisionTarget(
         fun capture(message: MessageV2, run: AgentRun): CombinedAnswerRevisionTarget {
             require(message.activeRevisionIndex == ACTIVE_REVISION_LATEST || message.activeRevisionIndex in message.revisions.indices) { "The selected answer revision is unavailable." }
             require(run.runId.startsWith("combined-synthesis:") && run.runId == message.effectiveRunId() && run.chatId == message.chatId && run.assistantMessageId == message.id && run.userMessageId == message.linkedMessageId) { "The selected answer belongs to a different turn." }
-            require(run.status in setOf("COMPLETED", "FAILED", "CANCELED", "INTERRUPTED")) { "Stop the selected answer before creating a revision." }
+            require(run.status in dev.chungjungsoo.gptmobile.data.database.entity.AgentRunStatus.terminal) { "Stop the selected answer before creating a revision." }
             require(CombinedRecoveryFailure.retained(message, run.terminalError)?.category == CombinedRecoveryCategory.REQUIREMENTS_UNMET) { "This answer does not have a completed correction assessment." }
             val report = requireNotNull(message.effectiveTimeline().lastOrNull { it.combinedQuality != null }?.combinedQuality) { "The selected answer assessment is unavailable." }
             require(report.finalAssessment && report.protocolComplete && !report.complete && (report.correctionRequired || report.lengthCompliance == "UNMET" || report.topicCoverage == "UNMET")) { "The selected answer has not finished its assessment." }

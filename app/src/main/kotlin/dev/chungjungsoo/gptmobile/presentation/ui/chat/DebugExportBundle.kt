@@ -38,82 +38,118 @@ internal object DebugExportBundle {
             put("responseMapping", root["responseMapping"] ?: JsonArray(emptyList()))
             put("profileDependencies", root["profileDependencies"] ?: JsonArray(emptyList()))
             put("semanticCoverageVerified", false)
-            put("clockReconciliation", dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticClockReconciliation.summarize(root["appLogSnapshot"] as? JsonArray ?: JsonArray(emptyList())))
-        }
-        val parts = linkedMapOf(
-            "conversation.json" to redactedConversation,
-            "events.jsonl" to events.joinToString("\n", postfix = if (events.isEmpty()) "" else "\n"),
-            "context-manifests.json" to JsonArray(context).toString(),
-            "provenance.json" to provenance.toString()
-        )
-        require(parts.values.sumOf { it.toByteArray(Charsets.UTF_8).size.toLong() } <= MAX_BYTES) { "Diagnostic bundle exceeds the export memory limit; no data was truncated." }
-        val manifest = buildJsonObject {
-            put("schema", DebugExportSchema.BUNDLE)
-            put("conversationSchema", root.getValue("schema"))
-            put("eventSchema", dev.chungjungsoo.gptmobile.data.diagnostics.RUN_EVENT_SCHEMA)
+            put("incidentScope", "Retained runs in this conversation; process-session counters are not attributed to this chat")
+            put("terminalDiagnostics", root["runs"] ?: JsonArray(emptyList()))
+            put("effectivePolicies", root["policySnapshots"] ?: JsonObject(emptyMap()))
             put(
-                "capture",
-                root["capture"] ?: buildJsonObject {
-                    put("level", "legacy-unknown")
-                    put("capturedFully", false)
-                    put("replayableReducer", false)
-                    put("completeProviderWireCapture", false)
-                }
-            )
-            put("journalAvailability", captureSummary.getValue("availability"))
-            put("journalCapture", captureSummary)
-            put("activeRunIds", (root["capture"] as? JsonObject)?.get("activeRunIds") ?: JsonArray(emptyList()))
-            put("taskClosure", taskClosure(root, events))
-            put(
-                "sourceCoverage",
-                buildJsonObject {
-                    listOf("runs", "toolEvents", "runJournal", "providerFailures", "appLogSnapshot", "localRuntimeIncidents").forEach { name ->
-                        put(name, if (name in root) "RETAINED_SNAPSHOT" else "NOT_CAPTURED")
-                    }
-                    put("providerWirePayloads", "NOT_CAPTURED")
-                    put("vendorLogs", "UNAVAILABLE_TO_APP")
-                    put("androidExitHistory", "NOT_INCLUDED_IN_CONVERSATION_EXPORT")
-                    put("appLogWindow", root["appLogSnapshotAvailability"] ?: JsonObject(emptyMap()))
-                }
-            )
-            put("completionState", "Inspect activeRunIds and retained run terminal statuses; answer text alone is not completion")
-            put("buildIdentity", JsonObject(root.filterKeys { it in setOf("version", "build", "appCommit", "nativeRuntimeCommit", "buildVariant", "package") }))
-            put("dataScopes", root["dataScopes"] ?: JsonObject(emptyMap()))
-            put(
-                "journalGaps",
-                buildJsonObject {
-                    listOf("droppedEvents", "missingBatches", "missingSequences", "storageFailed").forEach { name ->
-                        journal?.get(name)?.let { put(name, it) }
-                    }
-                }
-            )
-            put("payloads", "No additional payload capture; permitted retained content is in conversation.json")
-            put(
-                "files",
+                "taskCheckpoints",
                 JsonArray(
-                    parts.map { (name, text) ->
-                        buildJsonObject {
-                            put("name", name)
-                            put("bytes", text.toByteArray(Charsets.UTF_8).size)
-                            put("sha256", debugBodyDigest(text))
-                            put("digestRepresentation", "redacted-export-file-utf8")
-                        }
+                    (root["workspace"] as? JsonArray).orEmpty().filter { row ->
+                        val id = ((row as? JsonObject)?.get("id") as? JsonPrimitive)?.content.orEmpty()
+                        id.startsWith("github-evidence:") && (":checklist_" in id || ":verification_" in id) || id.startsWith("github-active-task:")
                     }
                 )
             )
+            put("missingDataReasons", JsonArray(listOf("Provider wire payloads were not captured", "Protected memory chunks are references, not a replayable source snapshot", "Absent policies or checkpoints are unavailable, not implicit defaults", "Runtime warnings without surrounding thread evidence have no established cause").map(::JsonPrimitive)))
+            put("clockReconciliation", dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticClockReconciliation.summarize(root["appLogSnapshot"] as? JsonArray ?: JsonArray(emptyList())))
         }
+        val parts = linkedMapOf<String, (java.io.Writer) -> Unit>(
+            "conversation.json" to { it.write(redactedConversation) },
+            "events.jsonl" to { writer ->
+                events.forEach {
+                    writer.write(it.toString())
+                    writer.write("\n")
+                }
+            },
+            "context-manifests.json" to { writer ->
+                writer.write("[")
+                context.forEachIndexed { index, item ->
+                    if (index > 0) writer.write(",")
+                    writer.write(item.toString())
+                }
+                writer.write("]")
+            },
+            "provenance.json" to { it.write(provenance.toString()) }
+        )
+        val manifestFiles = mutableListOf<JsonObject>()
+        var writtenBytes = 0L
         ZipOutputStream(destination).use { zip ->
-            (linkedMapOf("manifest.json" to manifest.toString()) + parts).forEach { (name, text) ->
+            for ((name, write) in parts) {
                 zip.putNextEntry(ZipEntry(name).apply { time = 0L })
-                zip.write(text.toByteArray(Charsets.UTF_8))
+                val digest = java.security.MessageDigest.getInstance("SHA-256")
+                var bytes = 0L
+                val stream = object : OutputStream() {
+                    override fun write(value: Int) = write(byteArrayOf(value.toByte()), 0, 1)
+                    override fun write(value: ByteArray, offset: Int, length: Int) {
+                        writtenBytes += length
+                        bytes += length
+                        require(writtenBytes <= MAX_BYTES) { "Diagnostic bundle exceeds the export byte limit; destination must be discarded" }
+                        digest.update(value, offset, length)
+                        zip.write(value, offset, length)
+                    }
+                    override fun close() = Unit
+                }
+                java.io.OutputStreamWriter(stream, Charsets.UTF_8).use(write)
                 zip.closeEntry()
+                manifestFiles += buildJsonObject {
+                    put("name", name)
+                    put("bytes", bytes)
+                    put("sha256", digest.digest().joinToString("") { "%02x".format(it) })
+                    put("digestRepresentation", "redacted-export-file-utf8")
+                }
             }
+            val manifest = buildJsonObject {
+                put("schema", DebugExportSchema.BUNDLE)
+                put("conversationSchema", root.getValue("schema"))
+                put("eventSchema", dev.chungjungsoo.gptmobile.data.diagnostics.RUN_EVENT_SCHEMA)
+                put(
+                    "capture",
+                    root["capture"] ?: buildJsonObject {
+                        put("level", "legacy-unknown")
+                        put("capturedFully", false)
+                        put("replayableReducer", false)
+                        put("completeProviderWireCapture", false)
+                    }
+                )
+                put("journalAvailability", captureSummary.getValue("availability"))
+                put("journalCapture", captureSummary)
+                put("activeRunIds", (root["capture"] as? JsonObject)?.get("activeRunIds") ?: JsonArray(emptyList()))
+                put("taskClosure", taskClosure(root, events))
+                put(
+                    "sourceCoverage",
+                    buildJsonObject {
+                        listOf("runs", "toolEvents", "runJournal", "providerFailures", "appLogSnapshot", "localRuntimeIncidents").forEach { name ->
+                            put(name, if (name in root) "RETAINED_SNAPSHOT" else "NOT_CAPTURED")
+                        }
+                        put("providerWirePayloads", "NOT_CAPTURED")
+                        put("vendorLogs", "UNAVAILABLE_TO_APP")
+                        put("androidExitHistory", "NOT_INCLUDED_IN_CONVERSATION_EXPORT")
+                        put("appLogWindow", root["appLogSnapshotAvailability"] ?: JsonObject(emptyMap()))
+                    }
+                )
+                put("completionState", "Inspect activeRunIds and retained run terminal statuses; answer text alone is not completion")
+                put("buildIdentity", JsonObject(root.filterKeys { it in setOf("version", "build", "appCommit", "nativeRuntimeCommit", "buildVariant", "package") }))
+                put("dataScopes", root["dataScopes"] ?: JsonObject(emptyMap()))
+                put(
+                    "journalGaps",
+                    buildJsonObject {
+                        listOf("droppedEvents", "missingBatches", "missingSequences", "storageFailed").forEach { name ->
+                            journal?.get(name)?.let { put(name, it) }
+                        }
+                    }
+                )
+                put("payloads", "No additional payload capture; permitted retained content is in conversation.json")
+                put("files", JsonArray(manifestFiles))
+            }
+            zip.putNextEntry(ZipEntry("manifest.json").apply { time = 0L })
+            zip.write(manifest.toString().toByteArray(Charsets.UTF_8))
+            zip.closeEntry()
         }
     }
 
     internal fun taskClosure(root: JsonObject, events: List<kotlinx.serialization.json.JsonElement>): JsonObject {
         val terminalEvents = events.mapNotNull { it as? JsonObject }.filter { it["kind"] == JsonPrimitive("RUN_TERMINAL") }.mapNotNull { (it["runId"] as? JsonPrimitive)?.content }.toSet()
-        val terminalStatuses = setOf("COMPLETED", "FAILED", "CANCELED", "INTERRUPTED")
+        val terminalStatuses = dev.chungjungsoo.gptmobile.data.database.entity.AgentRunStatus.terminal
         return buildJsonObject {
             put(
                 "runs",

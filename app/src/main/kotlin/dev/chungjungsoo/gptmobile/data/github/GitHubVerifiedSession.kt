@@ -32,6 +32,7 @@ internal class GitHubVerifiedSession(
     private val now: () -> Long = System::currentTimeMillis,
     private val computationDispatcher: CoroutineDispatcher = Dispatchers.Default,
     private val privateReviewCandidate: () -> String? = { null },
+    private val authorizedTools: List<AgentToolDefinition> = emptyList(),
     private val lifecycle: (dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind) -> Unit = {}
 ) : AgentProviderSession by delegate {
     private var lastChecklist: JsonObject? = null
@@ -44,10 +45,23 @@ internal class GitHubVerifiedSession(
             return@flow
         }
         exchanges.forEach { exchange -> exchange.results.forEach { result -> exchange.calls.firstOrNull { it.callId == result.callId }?.let { evidence.observe(it, result) } } }
+        if (GitHubTaskContinuity.diagnostic(task)) {
+            validatePublication()
+            val (receipts, _) = evidence.snapshot()
+            emit(ProviderEvent.TextDelta(GitHubTaskContinuity.explain(evidence.diagnostic(), receipts)))
+            emit(ProviderEvent.Completed)
+            return@flow
+        }
         if (GitHubTestChecklist.integration(task)) {
             val receipts = evidence.snapshot().first
-            val checkpoint = GitHubTestChecklist.checkpoint(task, receipts)
-            val next = GitHubTestChecklist.nextCall(task, tools, receipts)
+            val checkpoint = GitHubTestChecklist.checkpoint(task, receipts, authorizedTools)
+            val discovery = tools.firstOrNull { it.name == "discover_available_tools" }
+            val discovered = receipts.values.any { it["tool"] == kotlinx.serialization.json.JsonPrimitive("discover_available_tools") }
+            val planned = GitHubTestChecklist.nextCall(task, tools, receipts)
+            val missing = authorizedTools.filter { definition -> definition.name.startsWith("github_") && tools.none { it.name == definition.name } && receipts.values.none { it["tool"] == kotlinx.serialization.json.JsonPrimitive(definition.name) } }.take(12)
+            val discoveryArgs = if (!discovered) JsonObject(emptyMap()) else buildJsonObject { put("names", JsonArray(missing.map { kotlinx.serialization.json.JsonPrimitive(it.name) })) }
+            val discoveryAlreadyTried = receipts.values.any { it["tool"] == kotlinx.serialization.json.JsonPrimitive("discover_available_tools") && it["arguments"] == discoveryArgs }
+            val next = if (discovery != null && (!discovered || planned == null && missing.isNotEmpty()) && !discoveryAlreadyTried) ProviderEvent.ToolCall("checklist-discovery-" + GitHubEvidenceBook.digest(discoveryArgs.toString()).take(20), discovery.name, discoveryArgs) else planned
             if (checkpoint != lastChecklist) {
                 if (receipts.isNotEmpty()) evidence.retainChecklist(checkpoint)
                 lastChecklist = checkpoint
@@ -172,6 +186,7 @@ internal class GitHubVerifiedSession(
     }
 
     private fun publish(draft: String?, failureCode: String? = null, originalFailure: ProviderEvent.Failed? = null): Flow<ProviderEvent> = flow {
+        val verificationStarted = System.nanoTime()
         val publication = try {
             validatePublication()
             val (receipts, epoch) = evidence.snapshot()
@@ -182,7 +197,7 @@ internal class GitHubVerifiedSession(
             }
             val coverage = if (GitHubTaskCoverage.matches(task)) {
                 withContext(computationDispatcher) {
-                    GitHubEvidencePolicy.testing(receipts, now(), epoch, task)
+                    GitHubEvidencePolicy.testing(receipts, now(), epoch, task, authorizedTools)
                 }
             } else {
                 null
@@ -195,14 +210,20 @@ internal class GitHubVerifiedSession(
             }
             val (text, report) = status ?: coverage ?: if (request == null) partial(receipts, epoch, failureCode ?: "GITHUB_EXTRACTION_UNAVAILABLE") else extract(request, receipts, epoch)
             validatePublication()
-            val partial = report["task_outcome"] != kotlinx.serialization.json.JsonPrimitive("COMPLETED") || report["completion_verified"] != kotlinx.serialization.json.JsonPrimitive(true)
+            val partial = failureCode != null || report["task_outcome"] != kotlinx.serialization.json.JsonPrimitive("COMPLETED") || report["completion_verified"] != kotlinx.serialization.json.JsonPrimitive(true)
             val oversizedWithoutEvidence = draft != null && status == null && coverage == null && request == null && receipts.isEmpty()
             check(!oversizedWithoutEvidence) { "No retained GitHub evidence is available for publication" }
             val retained = JsonObject(
                 report + buildJsonObject {
                     put("partial", partial)
                     put("resume_required", partial)
+                    if (partial) {
+                        put("completion_verified", false)
+                        put("task_outcome", "PARTIAL")
+                    }
                     put("model_round_finished", draft != null)
+                    put("verification_elapsed_ms", ((System.nanoTime() - verificationStarted) / 1_000_000).coerceAtLeast(0))
+                    put("verification_measurement", "Observed answer verification and rendering, including claim extraction when used")
                     originalFailure?.let { failure ->
                         put(
                             "original_failure",
@@ -301,6 +322,17 @@ internal class GitHubVerifiedSession(
         val hardLimit = inputLimit()
         fun payload(catalog: List<kotlinx.serialization.json.JsonElement>) = buildJsonObject {
             put("task", task)
+            put(
+                "requirements",
+                JsonArray(
+                    GitHubRequestCompletion.requirements(task).map { requirement ->
+                        buildJsonObject {
+                            put("id", GitHubRequestCompletion.id(requirement))
+                            put("text", requirement)
+                        }
+                    }
+                )
+            )
             put("candidate", draft)
             put("catalog", JsonArray(catalog))
             put("retained_receipts", receipts.size)

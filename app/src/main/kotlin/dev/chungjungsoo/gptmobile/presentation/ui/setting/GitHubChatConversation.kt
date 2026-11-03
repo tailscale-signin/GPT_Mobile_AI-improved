@@ -21,7 +21,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.effectiveTimeline
 import dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext
 import dev.chungjungsoo.gptmobile.presentation.ui.chat.ChatScreen
 
-private val GITHUB_TERMINAL_RUN_STATUSES = setOf(AgentRunStatus.COMPLETED, AgentRunStatus.FAILED, AgentRunStatus.CANCELED, AgentRunStatus.INTERRUPTED)
+private val GITHUB_TERMINAL_RUN_STATUSES = setOf(AgentRunStatus.COMPLETED, AgentRunStatus.FAILED, AgentRunStatus.CANCELED, AgentRunStatus.INTERRUPTED, AgentRunStatus.PARTIAL, AgentRunStatus.EVIDENCE_MISSING, AgentRunStatus.BLOCKED)
 
 /** A real Chat destination supplies its own SavedStateHandle and lifecycle to the standard chat renderer. */
 @Composable
@@ -108,7 +108,7 @@ internal fun GitHubChatProgress(workspace: GitHubWorkspaceState, state: GitHubPr
     val activeIds = activeRuns.mapTo(hashSetOf()) { it.runId }
     val generating = state.submitting || state.pending.any { !it.paused } || activeRuns.isNotEmpty()
     val active = generating || engineeringJob?.terminal == false
-    if (!active) return
+    if (!active && engineeringJob == null) return
     val currentTask = (activeRuns.maxByOrNull { it.createdAt } ?: state.runs.maxByOrNull { it.createdAt })?.userMessageId
     val taskRuns = state.runs.filter { it.userMessageId == currentTask }
     val fallbackStart = androidx.compose.runtime.saveable.rememberSaveable(state.chatId, active) { System.currentTimeMillis() }

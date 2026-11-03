@@ -979,7 +979,7 @@ class ChatViewModel @Inject constructor(
                 val deliveryRetry = record.attempt.nextAction == dev.chungjungsoo.gptmobile.data.research.ResearchNextAction.RETRY_DELIVERY || (needsReview && responses.any { it.isCombinedSynthesis() })
                 val targets = responses.indices.filter { index ->
                     val response = responses[index]
-                    response.platformType in record.accepted.participantUids && !response.isCombinedSynthesis() && response.currentRunId?.let { _agentRunsById.value[it]?.status } in setOf(AgentRunStatus.FAILED, AgentRunStatus.INTERRUPTED, AgentRunStatus.CANCELED)
+                    response.platformType in record.accepted.participantUids && !response.isCombinedSynthesis() && response.currentRunId?.let { _agentRunsById.value[it]?.status } in setOf(AgentRunStatus.FAILED, AgentRunStatus.INTERRUPTED, AgentRunStatus.CANCELED, AgentRunStatus.PARTIAL, AgentRunStatus.EVIDENCE_MISSING, AgentRunStatus.BLOCKED)
                 }
                 if (!deliveryRetry && targets.isEmpty() && record.attempt.state == dev.chungjungsoo.gptmobile.data.research.ResearchAttemptState.BLOCKED_CONFIGURATION) {
                     _attachmentNotice.value = "Review the selected profiles, then regenerate this research request. Saved evidence is retained."

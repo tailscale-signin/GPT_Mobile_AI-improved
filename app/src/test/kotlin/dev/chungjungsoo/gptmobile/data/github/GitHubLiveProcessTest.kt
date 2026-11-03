@@ -8,6 +8,15 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 class GitHubLiveProcessTest {
+    @Test fun comparisonKeepsPartialInventoriesAndDuplicateNamesExplicit() {
+        fun job(id: String, status: String) = GitHubLiveProcess(id, "Unit tests", status, null, null)
+        val result = compareGitHubAttempts(listOf(job("new", "success")), listOf(job("old", "failure")), false)
+        org.junit.Assert.assertTrue(result.contains("failure → success"))
+        org.junit.Assert.assertTrue(result.contains("incomplete inventory"))
+        val duplicate = compareGitHubAttempts(listOf(job("a", "success"), job("b", "failure")), listOf(job("old", "success")), true)
+        org.junit.Assert.assertTrue(duplicate.contains("ambiguous repeated name"))
+    }
+
     @Test fun runningJobsExposeActualCurrentStepAndStartTime() {
         val value = Json.parseToJsonElement("""{"id":42,"name":"Android tests","status":"in_progress","started_at":"2026-11-02T20:00:00Z","steps":[{"name":"Setup","status":"completed"},{"name":"Test","status":"in_progress"}]}""").jsonObject
         val result = liveProcess(value, "job:")

@@ -295,8 +295,8 @@ internal fun VoiceChatScreen(onEnd: () -> Unit, onOpenChat: () -> Unit, model: C
     LaunchedEffect(messages, runs) {
         val reply = messages.assistantMessages.flatten().filter { it.id > afterMessage }.maxByOrNull { it.id }
         val run = reply?.currentRunId?.let(runs::get)
-        if (reply != null && run != null && run.status !in setOf(AgentRunStatus.COMPLETED, AgentRunStatus.FAILED, AgentRunStatus.CANCELED, AgentRunStatus.INTERRUPTED)) session.streamReply(run.runId, dev.chungjungsoo.gptmobile.data.conversation.ConversationSubject.withoutMetadata(reply.content))
-        if (reply != null && run != null && run.status in setOf(AgentRunStatus.COMPLETED, AgentRunStatus.FAILED, AgentRunStatus.CANCELED, AgentRunStatus.INTERRUPTED)) {
+        if (reply != null && run != null && run.status !in setOf(AgentRunStatus.COMPLETED, AgentRunStatus.FAILED, AgentRunStatus.CANCELED, AgentRunStatus.INTERRUPTED, AgentRunStatus.PARTIAL, AgentRunStatus.EVIDENCE_MISSING, AgentRunStatus.BLOCKED)) session.streamReply(run.runId, dev.chungjungsoo.gptmobile.data.conversation.ConversationSubject.withoutMetadata(reply.content))
+        if (reply != null && run != null && run.status in setOf(AgentRunStatus.COMPLETED, AgentRunStatus.FAILED, AgentRunStatus.CANCELED, AgentRunStatus.INTERRUPTED, AgentRunStatus.PARTIAL, AgentRunStatus.EVIDENCE_MISSING, AgentRunStatus.BLOCKED)) {
             session.reply(run.runId, dev.chungjungsoo.gptmobile.data.conversation.ConversationSubject.withoutMetadata(reply.content), run.status != AgentRunStatus.COMPLETED)
         }
     }

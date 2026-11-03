@@ -24,8 +24,15 @@ import org.junit.Test
 class AgentRunCoordinatorTest {
     @Test fun partialDeliveryKeepsTaskResumableAndOriginalError() {
         val result = dev.chungjungsoo.gptmobile.util.ApiStateFlowOutcome.Failed("Continuation rejected", errorCode = "client_tool_results_required", taskOutcome = "PARTIAL").toTerminalUpdate()
-        assertEquals(AgentRunStatus.INTERRUPTED, result.status)
+        assertEquals(AgentRunStatus.PARTIAL, result.status)
         assertEquals("Continuation rejected", result.error)
+    }
+
+    @Test fun missingEvidenceAndBlockedWorkAreDistinctFromInterruptedGeneration() {
+        val evidence = dev.chungjungsoo.gptmobile.util.ApiStateFlowOutcome.Failed("Missing receipt", errorCode = "GITHUB_EVIDENCE_REQUIRED", taskOutcome = "PARTIAL").toTerminalUpdate()
+        assertEquals(AgentRunStatus.EVIDENCE_MISSING, evidence.status)
+        val blocked = dev.chungjungsoo.gptmobile.util.ApiStateFlowOutcome.Failed("Access revoked", taskOutcome = "BLOCKED").toTerminalUpdate()
+        assertEquals(AgentRunStatus.BLOCKED, blocked.status)
     }
 
     @Test fun pendingRemoteJobRemainsWaitingInsteadOfBecomingAFailedSegment() {

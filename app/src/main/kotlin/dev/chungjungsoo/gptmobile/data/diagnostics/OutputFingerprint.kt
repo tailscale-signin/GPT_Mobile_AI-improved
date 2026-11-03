@@ -9,7 +9,7 @@ enum class OutputTraceBoundary { PROVIDER_VISIBLE, REDUCER, COMMITTED, RENDER_IN
 @Serializable
 enum class OutputTextRepresentation { VISIBLE_UTF8, DISPLAY_FILTERED_MARKDOWN_UTF8, MATH_PLACEHOLDER_MARKDOWN_UTF8 }
 
-data class OutputTraceOwner(val runId: String, val fence: Long, val partId: String)
+data class OutputTraceOwner(val runId: String, val fence: Long, val partId: String, val messageId: Int? = null, val profileUid: String? = null)
 
 @Serializable
 data class OutputFingerprint(val utf8Bytes: Long, val sha256: String)

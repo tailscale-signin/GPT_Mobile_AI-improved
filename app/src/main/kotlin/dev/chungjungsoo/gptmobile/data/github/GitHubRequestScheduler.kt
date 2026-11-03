@@ -46,6 +46,9 @@ class GitHubRequestScheduler(
     private val joined = AtomicLong()
     private val cacheHits = AtomicLong()
     private val queueRejections = AtomicLong()
+    private val measuredAdmissions = AtomicLong()
+    private val queueWaitNanos = AtomicLong()
+    private val maximumQueueWaitNanos = AtomicLong()
 
     suspend fun <T> execute(key: String? = null, priority: Int = 0, block: suspend () -> T): T {
         currentCoroutineContext().ensureActive()
@@ -73,7 +76,12 @@ class GitHubRequestScheduler(
             }
         }
         try {
+            val admissionStarted = System.nanoTime()
             acquire(priority)
+            val elapsed = (System.nanoTime() - admissionStarted).coerceAtLeast(0)
+            measuredAdmissions.incrementAndGet()
+            queueWaitNanos.addAndGet(elapsed)
+            maximumQueueWaitNanos.updateAndGet { maxOf(it, elapsed) }
             try {
                 currentCoroutineContext().ensureActive()
                 val permit = circuit.admit()
@@ -165,6 +173,9 @@ class GitHubRequestScheduler(
             put("queued_requests", queue.size)
             put("queue_rejections", queueRejections.get())
             put("queue_timeout_ms", queueTimeoutMillis)
+            put("measured_admissions", measuredAdmissions.get())
+            put("queue_wait_total_ms", queueWaitNanos.get() / 1_000_000)
+            put("queue_wait_max_ms", maximumQueueWaitNanos.get() / 1_000_000)
             put("waiting_shared_reads", waitingJoins)
             put("queue_capacity", maxQueued)
             put("shared_waiter_capacity", maxJoined)

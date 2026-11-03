@@ -51,7 +51,7 @@ class GitHubRepositoryStateStore private constructor(private val directory: File
 
     // Publication fences are authority, not cache. A pruned receipt must never
     // turn the same execution into a new write. Markers contain only hashed IDs.
-    private val publicationClaims = HashSet<String>()
+    private val publicationClaims = LinkedHashSet<String>()
     private val json = Json {
         ignoreUnknownKeys = true
         encodeDefaults = true
@@ -137,7 +137,7 @@ class GitHubRepositoryStateStore private constructor(private val directory: File
     private fun claimCheckpoint(identity: String, key: String): JsonObject? {
         if (!CLAIM_KEY.matches(key)) return null
         val id = digest(identity)
-        if (id !in publicationClaims && directory?.let { File(File(it, "publication-claims"), "$id.claim").isFile } != true) return null
+        if (id !in publicationClaims && directory?.let { File(File(it, "publication-claims"), "$id.claim").isFile || archivedClaims(File(it, "publication-claims"), id.take(2)).contains(id) } != true) return null
         return buildJsonObject {
             put("schema_version", 1)
             put("execution_id", key.removePrefix("execution:"))
@@ -155,12 +155,63 @@ class GitHubRepositoryStateStore private constructor(private val directory: File
             check(dir.isDirectory || dir.mkdirs())
             File(dir, "$id.claim")
         }
-        if (marker?.isFile != true) {
-            val count = marker?.parentFile?.listFiles { file -> file.extension == "claim" }?.size ?: publicationClaims.size
+        if (marker?.isFile != true && (marker == null || id !in archivedClaims(marker.parentFile!!, id.take(2)))) {
+            var count = marker?.parentFile?.listFiles { file -> file.extension == "claim" }?.size ?: publicationClaims.size
+            if (marker != null && count >= publicationClaimLimit) {
+                compactClaims(marker.parentFile!!)
+                count = marker.parentFile!!.listFiles { file -> file.extension == "claim" }?.size ?: 0
+            }
             check(count < publicationClaimLimit) { "GITHUB_PUBLICATION_CLAIM_CAPACITY: durable write-fence capacity reached. Read-only operations remain available; no new write was dispatched. Existing fences were not discarded." }
-            if (marker != null) check(marker.createNewFile()) { "Publication fence changed; reconcile the saved execution before retrying." }
+            if (marker != null) {
+                check(marker.createNewFile()) { "Publication fence changed; reconcile the saved execution before retrying." }
+                java.io.FileOutputStream(marker, true).use { it.fd.sync() }
+                java.nio.channels.FileChannel.open(marker.parentFile!!.toPath(), java.nio.file.StandardOpenOption.READ).use { it.force(true) }
+            }
         }
         publicationClaims += id
+        if (directory != null) while (publicationClaims.size > 4096) publicationClaims.remove(publicationClaims.first())
+    }
+
+    private fun archivedClaims(dir: File, prefix: String): Set<String> {
+        val file = File(dir, "$prefix.archive")
+        if (!file.exists()) return emptySet()
+        val lines = file.readLines()
+        val body = lines.dropLast(1)
+        check(body.all { it.matches(Regex("[a-f0-9]{64}")) } && lines.lastOrNull() == "sha256:" + digest(body.joinToString("\n"))) { "GITHUB_PUBLICATION_ARCHIVE_INVALID: write fences require recovery. No new write was dispatched." }
+        return body.toSet()
+    }
+
+    /** Install and sync the complete deduplication index before deleting any individual marker. */
+    private fun compactClaims(dir: File) {
+        dir.listFiles { file -> file.name.matches(Regex("[a-f0-9]{64}[.]claim")) }.orEmpty().groupBy { it.name.take(2) }.forEach { (prefix, files) ->
+            val ids = (archivedClaims(dir, prefix) + files.map { it.nameWithoutExtension }).sorted()
+            val body = ids.joinToString("\n")
+            val temp = File.createTempFile("claims-", ".tmp", dir)
+            try {
+                java.io.FileOutputStream(temp).use { stream ->
+                    stream.write((body + "\nsha256:" + digest(body) + "\n").encodeToByteArray())
+                    stream.fd.sync()
+                }
+                check(temp.renameTo(File(dir, "$prefix.archive"))) { "Could not archive publication fences safely." }
+                java.nio.channels.FileChannel.open(dir.toPath(), java.nio.file.StandardOpenOption.READ).use { it.force(true) }
+                files.forEach { check(it.delete()) { "Publication fence archived; marker cleanup needs retry." } }
+            } finally {
+                temp.delete()
+            }
+        }
+    }
+
+    suspend fun publicationCapacity(): JsonObject = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            val dir = directory?.let { File(it, "publication-claims") }
+            buildJsonObject {
+                put("active", dir?.listFiles { it.extension == "claim" }?.size ?: publicationClaims.size)
+                put("active_capacity", publicationClaimLimit)
+                put("archived", dir?.listFiles { it.extension == "archive" }?.sumOf { archivedClaims(dir, it.nameWithoutExtension).size } ?: 0)
+                put("automatic_safe_compaction", directory != null)
+                put("deduplication_preserved", true)
+            }
+        }
     }
 
     private fun remember(identity: String, value: JsonObject) {

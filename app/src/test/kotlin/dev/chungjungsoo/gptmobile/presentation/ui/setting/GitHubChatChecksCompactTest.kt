@@ -35,7 +35,8 @@ class GitHubChatChecksCompactTest {
                 GitHubCheckWatchCard(watch, { opened++ }, {}, { stopped++ }, Modifier.testTag("card"))
             }
         }
-        assertTrue(compose.onNodeWithTag("card").fetchSemanticsNode().boundsInRoot.height / density <= 92f)
+        val height = compose.onNodeWithTag("card").fetchSemanticsNode().boundsInRoot.height / density
+        assertTrue("Compact watch height: $height dp", height <= 92f)
         compose.onNodeWithText("PR closed.").assertIsDisplayed()
         compose.onNodeWithText("owner/repo").assertDoesNotExist()
         compose.onNodeWithText("GitHub").performClick()

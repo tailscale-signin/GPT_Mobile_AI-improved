@@ -201,4 +201,16 @@ class GitHubStatusAuditRegressionTest {
         assertEquals(null, GitHubTestChecklist.nextCall("test all tools", listOf(tool), emptyMap()))
         assertEquals(JsonPrimitive("github_ci:logs"), GitHubTestChecklist.rows(emptyMap(), listOf(tool)).single().jsonObject["id"])
     }
+
+    @Test fun ciStatusFieldTypeFollowsTheObservedResourceSelector() {
+        for ((selector, type) in listOf("\"job_id\":7" to "job", "\"run_id\":9" to "workflow_run", "\"commit_sha\":\"${"a".repeat(40)}\"" to "commit_checks")) {
+            val field = if (type == "commit_checks") "state" else "status"
+            val value = if (type == "commit_checks") "success" else "completed"
+            val receipt = json("""{"tool":"github_ci","arguments":{"action":"status",$selector},"trusted":true,"success":true,"observed_at_ms":1000,"epoch":0,"result":{"$field":"$value"}}""")
+            val claim = json("""{"receipt_id":"ci","pointer":"/$field","value":"$value","resource_type":"$type"}""")
+            val result = GitHubEvidencePolicy.verify(claim, mapOf("ci" to receipt), 1001L, 0)
+            assertEquals(JsonPrimitive("VERIFIED"), result["status"])
+            assertEquals(JsonPrimitive("$type.$field"), result["field_type"])
+        }
+    }
 }

@@ -39,15 +39,16 @@ internal object GitHubEvidencePolicy {
     /** Meaning is bound to the operation and field path, independently of the value. */
     private fun semanticType(receipt: JsonObject?, path: String): Pair<String, String> {
         val tool = receipt?.string("tool")?.substringBefore("__").orEmpty()
-        val action = (receipt?.get("arguments") as? JsonObject)?.string("action").orEmpty()
+        val arguments = (receipt?.get("arguments") as? JsonObject) ?: JsonObject(emptyMap())
+        val nativeAction = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.nativeArguments(tool, arguments)?.string("action")
         val resource = when {
             "/check_runs/" in path -> "check_run"
-            "/jobs/" in path || tool == "github_ci" && action in setOf("job", "logs", "get_job", "get_job_logs") -> "job"
-            "/workflow_runs/" in path || "/latest_workflow/" in path || tool == "github_ci" && action in setOf("run", "status") -> "workflow_run"
+            "/jobs/" in path || nativeAction in setOf("get_workflow_job", "get_job_logs") -> "job"
+            "/workflow_runs/" in path || "/latest_workflow/" in path || nativeAction == "get_workflow_run" -> "workflow_run"
             "/reviews/" in path -> "pull_request_review"
             tool == "github_pr" || "/pull_requests/" in path -> "pull_request"
             tool == "github_issue" -> "issue"
-            tool == "github_context" && action == "checks" -> "commit_checks"
+            nativeAction == "get_commit_status_summary" -> "commit_checks"
             else -> "resource"
         }
         return resource to "$resource.${path.substringAfterLast('/')}"

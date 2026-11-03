@@ -3701,9 +3701,11 @@ class ChatViewModel @Inject constructor(
         if (pendingRunDispatches > 0 || pendingMessageGrouping > 0) return
         val runs = _agentRunsById.value
         syncLoadingStates(runs)
+        // GitHub subjects come from the first persisted prompt and do not wait for a response.
+        if (_chatToolConfig.value.github != null) checkAndGenerateAiTitle(runs)
         if (_combinedFailures.value.isNotEmpty() || isGenerationBusy()) return
         maybeStartCombinedSynthesis(runs)
-        checkAndGenerateAiTitle(runs)
+        if (_chatToolConfig.value.github == null) checkAndGenerateAiTitle(runs)
         drainPromptQueueIfIdle()
     }
 

@@ -71,15 +71,15 @@ class AndroidVoiceAudio internal constructor(
     var speechRate: Float = 1f
     var selectedVoice: String? = null
     val processingLocation: String get() = if (allowOnlineSpeech) "System speech service may use the network" else "On device speech only"
-    fun routeName(): String = audioManager?.communicationDevice?.productName?.toString() ?: "System audio route"
+    fun routeName(): String = runCatching { audioManager?.communicationDevice?.productName?.toString() }.getOrNull() ?: "System audio route"
     fun routes(): List<Pair<Int, String>> = audioManager?.availableCommunicationDevices.orEmpty().map { it.id to it.productName.toString() }
-    fun selectRoute(id: Int): Boolean {
+    fun selectRoute(id: Int): Boolean = runCatching {
         stop()
-        val device = audioManager?.availableCommunicationDevices?.firstOrNull { it.id == id } ?: return false
+        val device = audioManager?.availableCommunicationDevices?.firstOrNull { it.id == id } ?: return@runCatching false
         if (routeMode == null) routeMode = audioManager.mode
         audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
-        return audioManager.setCommunicationDevice(device)
-    }
+        audioManager.setCommunicationDevice(device)
+    }.getOrDefault(false)
     override fun retryAfterMillis(): Long = recognitionGate.remainingMillis()
     private fun armWatchdog(timeout: Long, fail: () -> Unit) {
         watchdog?.let(main::removeCallbacks)
@@ -105,7 +105,7 @@ class AndroidVoiceAudio internal constructor(
             return
         }
         try {
-            val onDevice = SpeechRecognizer.isOnDeviceRecognitionAvailable(context)
+            val onDevice = SpeechRecognizer.isOnDeviceRecognitionAvailable(context) && !allowOnlineSpeech
             if (!onDevice && !allowOnlineSpeech) {
                 listener.error("On device speech is unavailable. Choose a compatible speech service, or explicitly allow online speech in Voice settings.")
                 return
@@ -207,7 +207,7 @@ class AndroidVoiceAudio internal constructor(
                     error("Audio paused because another app needs the speaker.")
                 }
             }, main).build()
-        if (audioManager?.requestAudioFocus(request) != AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
+        if (runCatching { audioManager?.requestAudioFocus(request) }.getOrNull() != AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
             error("Audio output is unavailable. Your answer is available in captions.")
             return
         }
@@ -216,6 +216,11 @@ class AndroidVoiceAudio internal constructor(
             try {
                 val engine = tts ?: return@play
                 if (closed || ticket != generation) return@play
+                engine.setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(if (routeMode != null) AudioAttributes.USAGE_VOICE_COMMUNICATION else AudioAttributes.USAGE_ASSISTANT)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build()
+                )
                 val locale = Locale.forLanguageTag(languageTag)
                 val language = engine.setLanguage(locale)
                 if (language < 0) {
@@ -235,7 +240,19 @@ class AndroidVoiceAudio internal constructor(
                 val finalId = "$ticket:${chunks.lastIndex}"
                 engine.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                     override fun onStart(utteranceId: String?) {
-                        main.post { if (!closed && ticket == generation) event("tts_audio_started") }
+                        main.post {
+                            if (!closed && ticket == generation) {
+                                event("tts_audio_started")
+                                val index = utteranceId?.substringAfterLast(':')?.toIntOrNull()
+                                val length = index?.let(chunks::getOrNull)?.length ?: 3000
+                                armWatchdog((length * 150L + 15_000).coerceIn(30_000, 480_000)) {
+                                    if (!closed && ticket == generation) {
+                                        stop()
+                                        error("Speech playback stopped responding. Your answer remains in chat.")
+                                    }
+                                }
+                            }
+                        }
                     }
                     override fun onDone(utteranceId: String?) {
                         if (utteranceId == finalId) {
@@ -253,6 +270,12 @@ class AndroidVoiceAudio internal constructor(
                         main.post { if (!closed && ticket == generation) error("Could not play this response. Turn off the speaker to continue with captions.") }
                     }
                 })
+                armWatchdog(15_000) {
+                    if (!closed && ticket == generation) {
+                        stop()
+                        error("Speech playback did not start. Your answer remains in chat.")
+                    }
+                }
                 for ((index, chunk) in chunks.withIndex()) {
                     if (engine.speak(chunk, TextToSpeech.QUEUE_ADD, null, "$ticket:$index") == TextToSpeech.ERROR) {
                         error("Could not play this response. Captions are still available.")
@@ -268,6 +291,13 @@ class AndroidVoiceAudio internal constructor(
             return
         }
         pendingSpeech = play
+        armWatchdog(10_000) {
+            if (!closed && ticket == generation && !speechReady) {
+                stop()
+                releaseSpeech()
+                error("The speech engine did not initialize. Your answer remains in chat.")
+            }
+        }
         if (tts == null) {
             val initialization = ++speechGeneration
             try {
@@ -278,6 +308,8 @@ class AndroidVoiceAudio internal constructor(
                         val pending = pendingSpeech
                         pendingSpeech = null
                         if (speechReady) {
+                            watchdog?.let(main::removeCallbacks)
+                            watchdog = null
                             pending?.invoke()
                         } else {
                             val failed = playbackError
@@ -308,7 +340,7 @@ class AndroidVoiceAudio internal constructor(
         generation++
         watchdog?.let(main::removeCallbacks)
         watchdog = null
-        focus?.let { audioManager?.abandonAudioFocusRequest(it) }
+        focus?.let { runCatching { audioManager?.abandonAudioFocusRequest(it) } }
         focus = null
         pendingSpeech = null
         playbackError = null

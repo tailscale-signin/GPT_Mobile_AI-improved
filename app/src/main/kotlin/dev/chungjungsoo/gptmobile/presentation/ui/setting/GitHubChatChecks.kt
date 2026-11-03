@@ -153,7 +153,7 @@ internal fun GitHubCheckWatchCard(
                 Text(title, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(gitHubWatchBrief(watch), modifier = Modifier.weight(1f), style = MaterialTheme.typography.labelSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
-            Text("${watch.branch.ifBlank { watch.headSha.take(12) }} · ${if (watch.terminal) "Total" else "Elapsed"} ${dev.chungjungsoo.gptmobile.data.github.githubElapsedTime(watch.startedAt, if (watch.terminal) watch.updatedAt else clock)}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("${watch.branch.ifBlank { watch.headSha.take(12) }} · ${if (watch.terminal) "Watch total" else "Watching"} ${dev.chungjungsoo.gptmobile.data.github.githubElapsedTime(watch.startedAt, if (watch.terminal) watch.updatedAt else clock)}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Row(Modifier.fillMaxWidth()) {
                 TextButton(modifier = Modifier.weight(1f), onClick = { showDetails = true }, contentPadding = PaddingValues(horizontal = 4.dp)) { Text("Details", maxLines = 1) }
                 TextButton(modifier = Modifier.weight(1f), onClick = onOpen, contentPadding = PaddingValues(horizontal = 4.dp)) { Text("GitHub", maxLines = 1) }

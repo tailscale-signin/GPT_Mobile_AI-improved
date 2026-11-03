@@ -24,7 +24,7 @@ Checkpoint: source inspection complete; implementation and regression validation
 
 ## Verification
 
-Host regression suite: 54 tests passed, including voice duplicate starts, late callbacks, throttling escalation, explicit retry, draft review/restoration, streamed sentence deduplication, interruption, credential rotation, APK extraction safeguards, workflow timing parsing and concise task titles. The new search preview provenance tests are included for Android CI.
+Host regression suite: 57 tests passed, including voice duplicate starts, late callbacks, throttling escalation, explicit retry, draft review/restoration, streamed sentence deduplication, interruption, credential rotation, APK extraction safeguards, workflow timing parsing and concise task titles. The new search preview provenance tests are included for Android CI.
 
 Canonical fast validation passed all 295 Python host tests, resource checks, literal Android regex checks, CI/dependency policy checks and diff whitespace checks. ktlint 1.3.1 passed for changed Kotlin files.
 
@@ -33,3 +33,7 @@ Full Android compile was attempted using JDK 21 and SDK 37 but stopped during de
 Physical acceptance remains required on the ROG Phone 9 Pro and another speech implementation: font scaling, TalkBack, privacy mic toggle, permission denial, Bluetooth changes, incoming calls, screen lock, 30-turn voice sessions and workflow APK installation. Performance percentiles are not measured. A sustained streaming speech engine for always-open hands-free use and separately published plugin packaging remain future capabilities, as specified by the document.
 
 References: Android SpeechRecognizer and TextToSpeech API contracts; Material 3 ColorScheme; Android audio focus and accessibility guidance; https://docs.github.com/en/rest/actions/artifacts for authenticated archive redirects and Actions read permissions.
+
+## Final integration review
+
+The CI architecture-index freshness failure was corrected by regenerating the index. A second review moved task-subject generation ahead of the active-generation gate, connected the voice screen to the coordinator StateFlow, paired selected communication routes with TTS audio attributes, added the normal MODIFY_AUDIO_SETTINGS permission, and bounded TTS initialization/playback waits. Private speech policy changes stop an already active online route before taking effect.

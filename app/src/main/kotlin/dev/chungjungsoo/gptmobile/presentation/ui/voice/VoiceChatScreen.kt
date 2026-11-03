@@ -176,7 +176,7 @@ internal fun VoiceChatScreen(onEnd: () -> Unit, onOpenChat: () -> Unit, model: C
     val consent by model.pendingFreeToolConsent.collectAsStateWithLifecycle()
     val providerNotice by model.freeProviderNotice.collectAsStateWithLifecycle()
     val notice by model.attachmentNotice.collectAsStateWithLifecycle()
-    var state by remember { mutableStateOf(VoiceState()) }
+    var priorPhase by remember { mutableStateOf(VoicePhase.PAUSED) }
     var afterMessage by rememberSaveable { mutableIntStateOf(Int.MAX_VALUE) }
     var retainedTranscript by rememberSaveable { mutableStateOf("") }
     var retainedReply by rememberSaveable { mutableStateOf("") }
@@ -189,9 +189,9 @@ internal fun VoiceChatScreen(onEnd: () -> Unit, onOpenChat: () -> Unit, model: C
             model.submitVoiceTranscript(text)
         }, changed = {
             if (it.hasDraft || it.phase == VoicePhase.ERROR) model.checkpointVoiceDraft(it.transcript)
-            if (it.phase == VoicePhase.THINKING && state.phase != VoicePhase.THINKING && it.awaitingReply) model.checkpointVoiceDraft("")
-            state = it
-            // Disposal closes audio; it must not erase the state restored after rotation.
+            if (it.phase == VoicePhase.THINKING && priorPhase != VoicePhase.THINKING && it.awaitingReply) model.checkpointVoiceDraft("")
+            priorPhase = it.phase
+            // Disposal closes audio; preserve the paused draft for rotation and text handoff.
             if (it.phase != VoicePhase.CLOSED) {
                 retainedTranscript = it.transcript
                 retainedReply = it.reply
@@ -200,6 +200,7 @@ internal fun VoiceChatScreen(onEnd: () -> Unit, onOpenChat: () -> Unit, model: C
             }
         }).also { it.restore(retainedTranscript, retainedReply, retainedReview, retainedPending) }
     }
+    val state by session.states.collectAsStateWithLifecycle()
     val enabled = features.isToolPluginEnabled(ToolPluginId.VOICE_CHAT)
     val currentEnabled by rememberUpdatedState(enabled)
     var permission by remember { mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) }
@@ -237,6 +238,7 @@ internal fun VoiceChatScreen(onEnd: () -> Unit, onOpenChat: () -> Unit, model: C
     LaunchedEffect(state.transcript) { draft = state.transcript }
     LaunchedEffect(language, allowOnline, editBeforeSend, automatic, rate, privateSpeech, voiceName) {
         audio.languageTag = language
+        if (privateSpeech && audio.allowOnlineSpeech) session.pause()
         audio.allowOnlineSpeech = allowOnline && !privateSpeech
         audio.selectedVoice = voiceName.takeIf(String::isNotBlank)
         audio.speechRate = rate

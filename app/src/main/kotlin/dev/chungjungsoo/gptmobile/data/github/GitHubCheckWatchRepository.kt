@@ -190,11 +190,16 @@ class GitHubCheckWatchRepository @Inject constructor(
     }
 
     internal suspend fun inspect(watch: GitHubCheckWatch, api: GitHubEngineeringApi): GitHubCheckWatch {
+        var observed = watch
         val root = GitHubEngineeringApi.root(watch.owner, watch.repo)
         if (watch.pullNumber != null) {
             val pull = Json.parseToJsonElement(api.request("$root/pulls/${watch.pullNumber}")).jsonObject
+            observed = watch.copy(
+                draft = pull["draft"]?.jsonPrimitive?.booleanOrNull ?: watch.draft,
+                branch = pull["head"]?.jsonObject?.get("ref")?.jsonPrimitive?.contentOrNull ?: watch.branch
+            )
             val current = pull["head"]?.jsonObject?.get("sha")?.jsonPrimitive?.content
-            if (current != watch.headSha) return watch.copy(status = "STALE", detail = "PR head changed. This watch is attached to ${watch.headSha.take(12)}; start a new watch for the new revision.")
+            if (current != watch.headSha) return observed.copy(status = "STALE", detail = "PR head changed. This watch is attached to ${watch.headSha.take(12)}; start a new watch for the new revision.")
             closedPullRequestWatch(watch, pull)?.let { return it }
         }
         if (watch.runId != null) {
@@ -205,18 +210,18 @@ class GitHubCheckWatchRepository @Inject constructor(
             if (watch.pullNumber != null) {
                 val after = Json.parseToJsonElement(api.request("$root/pulls/${watch.pullNumber}")).jsonObject
                 if (after["head"]?.jsonObject?.get("sha")?.jsonPrimitive?.content != watch.headSha) {
-                    return watch.copy(status = "STALE", detail = "PR head changed while the workflow was loading. Refresh this watch.", health = null)
+                    return observed.copy(status = "STALE", detail = "PR head changed while the workflow was loading. Refresh this watch.", health = null)
                 }
             }
             val result = workflowWatchStatus(run)
-            return watch.copy(status = result, detail = "Workflow ${watch.runId}: ${run["conclusion"]?.jsonPrimitive?.contentOrNull ?: "in progress"} · ${watch.headSha.take(12)}", retryAt = 0)
+            return observed.copy(status = result, detail = "Workflow ${watch.runId}: ${run["conclusion"]?.jsonPrimitive?.contentOrNull ?: "in progress"} · ${watch.headSha.take(12)}", retryAt = 0)
         }
         val runs = mutableListOf<kotlinx.serialization.json.JsonElement>()
         var total = -1
         for (page in 1..10) {
             val checks = Json.parseToJsonElement(api.request("$root/commits/${watch.headSha}/check-runs?per_page=100&page=$page")).jsonObject
             val pageTotal = checks["total_count"]?.jsonPrimitive?.content?.toIntOrNull() ?: -1
-            if (pageTotal < 0 || total >= 0 && total != pageTotal) return watch.copy(status = "UNKNOWN", detail = "Check inventory changed during pagination; refreshing.")
+            if (pageTotal < 0 || total >= 0 && total != pageTotal) return observed.copy(status = "UNKNOWN", detail = "Check inventory changed during pagination; refreshing.")
             total = pageTotal
             val rows = checks["check_runs"]?.jsonArray.orEmpty()
             runs += rows
@@ -240,10 +245,10 @@ class GitHubCheckWatchRepository @Inject constructor(
         // Re-read the mutable PR after fetching checks so a concurrent push cannot produce a green card.
         val after = Json.parseToJsonElement(api.request("$root/pulls/${watch.pullNumber}")).jsonObject
         if (after["head"]?.jsonObject?.get("sha")?.jsonPrimitive?.content != watch.headSha) {
-            return watch.copy(status = "STALE", detail = "PR head changed while checks were loading. Refresh this watch.", health = null)
+            return observed.copy(status = "STALE", detail = "PR head changed while checks were loading. Refresh this watch.", health = null)
         }
         closedPullRequestWatch(watch, after)?.let { return it }
-        return watch.copy(status = summary, detail = "PR #${watch.pullNumber} · ${watch.headSha.take(12)}", retryAt = 0, health = health)
+        return observed.copy(status = summary, detail = "PR #${watch.pullNumber} · ${watch.headSha.take(12)}", retryAt = 0, health = health)
     }
 }
 

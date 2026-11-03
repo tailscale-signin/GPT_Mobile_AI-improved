@@ -5,6 +5,9 @@ on:
     branches: [main]
     paths:
       - .github/workflows/release-build.yml
+      - gradle/verification-metadata.xml
+      - scripts/await_release_checks.py
+      - scripts/android_pipeline.py
   push:
     branches: [main]
     paths:

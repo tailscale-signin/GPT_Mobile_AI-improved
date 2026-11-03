@@ -1,6 +1,6 @@
-# GPT Mobile 0.9.66.3
+# GPT Mobile 0.9.66.4
 
-Android build 137. Signed release of the merged GitHub, voice, recovery and gateway integration changes since v0.9.65.0.
+Android build 138. Signed release of the merged GitHub, voice, recovery and gateway integration changes since v0.9.65.0.
 
 ## Changes
 
@@ -15,6 +15,13 @@ Android build 137. Signed release of the merged GitHub, voice, recovery and gate
 - Use the shared bounded Android pipeline for signed release packaging, retaining the existing memory ceilings, APK budgets, signing checks and artifact verification.
 
 - Run signed-release validation in separate one-worker compilation, test and lint processes, and exercise the same validation on release-workflow PRs before merge.
+
+- Select MockK's JVM test artifact explicitly, pin five publisher-verified Byte Buddy and MockK test artifacts and descriptors for cold resolution, and require canonical PR Validation to pass on the exact published commit.
+
+- Complete required release lint in a separate bounded process before APK packaging so cold lint analysis cannot retain the heap needed by Zipflinger; lint failures still block packaging.
+
+- Add revision-bound repository graph inspection, cumulative capability testing, immutable provider usage observations and Room schema 48 migration.
+- Preserve GitHub tasks across branch changes and approved commits, recover malformed reviewer output with a bounded saved retry, and synchronize smooth prompt and bottom following with the UI frame clock.
 
 ## Qualification and remaining work
 
@@ -41,5 +48,8 @@ Android build 137. Signed release of the merged GitHub, voice, recovery and gate
 - Android webhook push, complete approval/activity history, unified model readiness, full mutation fixtures, attestation retrieval and remaining performance/accessibility work are partial.
 - Voice speech services, GitHub prompt anchoring during physical gestures/IME/rotation, process death and reboot still require device acceptance. This release does not claim those cases passed.
 - The Android signed release does not install or publish a new Windows gateway package; Windows installer checks are tracked separately.
+
+- External Graphify server behavior and physical-device graph, speech and scrolling performance have not been qualified by these host and emulator checks.
+- Automated mutation fixtures cover owned disposable branch creation, dependency inspection and cleanup; content writes, releases, merges and cancellations require separately authorized fixture plans.
 
 Publication requires successful validation of this exact commit, current main checks, signature continuity, APK/AAB identity and native-library verification.

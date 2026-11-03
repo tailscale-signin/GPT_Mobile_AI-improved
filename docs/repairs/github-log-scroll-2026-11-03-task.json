@@ -66,5 +66,21 @@
     },
     "state": "IMPLEMENTED_HOST_VALIDATED_PENDING_ANDROID",
     "observed_sha": "5f2b367e25d40308ab3f9a38b4acd646ae25cddb"
+  },
+  "integration_followup": {
+    "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+    "working_branch": "fix/github-log-scroll-stability-2026-11-03",
+    "base_sha": "052c6df27c876f4611ed5c10cb21bdec0d420814",
+    "main_sha": "94d8a4a87f3e27b838439c4ae6b3d32171c7b90a",
+    "release_pr": 793,
+    "release_sha": "2beb4a5fc3906dbe83f22138fe425c604926de97",
+    "intent": "Validate the remaining release and scrolling repairs together before merging into main, preserving both histories and the already merged graph implementation.",
+    "scope_repair": "The combined tree exposes 41 graph/audit/scrolling paths absent from the older release manifest. Add only these exact paths and disclose the graph/schema/recovery changes and remaining fixture/device qualifications; retain the same base commit and strict release gates.",
+    "state": "IMPLEMENTED_PENDING_INTEGRATION_CI",
+    "validation": {
+      "canonical_fast": "PASSED: 301 script tests plus policy/dependency/secret/regex/resource/provenance checks",
+      "release_scope": "PASSED against the complete staged integration tree and unchanged qualification rules",
+      "android": "PENDING on published integration head"
+    }
   }
 }

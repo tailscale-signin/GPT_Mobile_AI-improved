@@ -1,4 +1,5 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.main
+// Test file for mutation verification
 
 import android.content.ActivityNotFoundException
 import android.content.Intent

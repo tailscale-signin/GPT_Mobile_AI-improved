@@ -40,6 +40,17 @@ internal suspend fun collectGitHubHealth(fetch: suspend (String?) -> JsonObject)
     if (!complete) return first
     val after = fetch(null)
     if (pr(after)?.get("headRefOid") != pr(first)?.get("headRefOid") || pr(after)?.get("baseRefOid") != pr(first)?.get("baseRefOid") || contexts(after)?.get("totalCount") != initial["totalCount"]) return first
+    // A rerun or conclusion change need not change the head, base or inventory count.
+    // Never replace the fresh first page with superseded successful observations.
+    val refreshed = contexts(after)?.get("nodes") as? JsonArray ?: return first
+    if (refreshed.any { raw ->
+            val node = raw as? JsonObject ?: return@any true
+            val key = (node["id"] as? JsonPrimitive)?.contentOrNull ?: listOf(node["__typename"], node["name"], node["context"]).joinToString(":")
+            rows[key] != node
+        }
+    ) {
+        return after
+    }
     fun replace(value: JsonObject): JsonObject = JsonObject(
         value.mapValues { (key, child) ->
             when {

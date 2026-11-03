@@ -33,5 +33,13 @@
   },
   "pr": 795,
   "publication": "Published through GitHub integration; matching tree hashes verified. Concurrent bounded APK packaging repair retained.",
-  "latest_reconciled_head": "c7d615dea3e69c26e37f40d5cd88df2815588602"
+  "latest_reconciled_head": "ba05d5b0105da6da75e112b05d4d492fdff11280",
+  "ci_test_followup": {
+    "run": 41707217540,
+    "job": 126166369561,
+    "head": "ba05d5b0105da6da75e112b05d4d492fdff11280",
+    "result": "6174 tests: 6168 passed, 4 skipped, 2 fixture failures",
+    "repairs": "Replace obsolete hard-coded white assertion with light/dark theme foreground checks; align cold-discovery fixture with task-aware catalog selection and assert next-round advertisement plus actual dispatch for generic and GitHub tasks. Preserve production selection policy.",
+    "status": "awaiting_fresh_full_ci"
+  }
 }

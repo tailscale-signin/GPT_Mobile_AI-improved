@@ -87,6 +87,14 @@ class ExtractionTests(unittest.TestCase):
         self.assertEqual('wrong_name', result['consumer_fields_without_producer'][0]['name'])
         self.assertFalse(graph.diagnose('at server.py:2 in response')['root_cause_proven'])
 
+    def test_diagnostics_select_containing_declaration_from_source_line(self):
+        graph = Graph(snapshot({'service.py': 'def first():\n    return 1\n\ndef second():\n    return 2\n'}))
+        for log in ['at service.py:5', 'File "service.py", line 5']:
+            result = graph.diagnose(log)
+            self.assertEqual('second', result['nodes'][0]['name'])
+            self.assertNotIn('first', [n['name'] for n in result['nodes']])
+            self.assertEqual(5, result['nodes'][0]['diagnostic_locations'][0]['line'])
+
     def test_cycles_documentation_and_pr_overlap_are_review_signals(self):
         graph = Graph(snapshot({'a.py': 'import b\ndef one(): pass\n', 'b.py': 'import a\ndef two(): pass\n'}))
         self.assertTrue(graph.architecture()['dependency_cycles'])

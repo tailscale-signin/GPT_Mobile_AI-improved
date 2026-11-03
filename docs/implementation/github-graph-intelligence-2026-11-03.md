@@ -63,10 +63,11 @@ Notes are capped at 4,096 per namespace; retrieval scans the newest 512 and retu
 
 ## Validation ledger
 
-- 24 focused graph tests passed, covering structural parsing, ambiguity, import resolution, invalidation, contracts, bounded context, encrypted restart, account/branch/principal isolation, revoked permissions, key loss, resume cursors, requirement receipts, federation authorization, capture/resume and private-model recall.
+- 25 focused graph tests passed, covering structural parsing, ambiguity, import resolution, invalidation, contracts, exact diagnostic line mapping, bounded context, encrypted restart, account/branch/principal isolation, revoked permissions, key loss, resume cursors, requirement receipts, federation authorization, capture/resume and private-model recall.
 - Two graph HTTP tests cover existing engineering-principal authorization and bounded-capacity responses.
 - Four Android regressions added for immutable request binding, scope-override rejection, operation routing/uncertainty and endpoint response handling. Android execution is tracked by the PR's normal validation workflow; this host lacks JDK 21 and Android SDK 37.
-- Final `python gateway/check_gateway.py` passed: 366 Python tests (one existing platform-specific skip) and seven browser bridge tests, including the 24 graph regressions.
+- Final `python gateway/check_gateway.py` passed: 367 Python tests (one existing platform-specific skip) and seven browser bridge tests, including the 25 graph regressions. An intermediate run rejected the edited package's stale hash manifest; regenerating the manifest restored the passing full run.
+- Desktop `validate-engine` now extracts a function with all five native grammar variants before admitting a candidate executable. Source-mode preflight passed locally; the Windows installer smoke executes this same check inside the frozen executable.
 - `bash scripts/validate-local.sh fast` passed: 297 script tests plus repository, resources, regex, icon, dependency and provenance checks. Changed Kotlin sources passed ktlint 1.3.1; final generated indexes and package manifest are regenerated before publication.
 - Measured local working-tree smoke: 3,879 files parsed in 9,312 ms; 31,521 nodes and 67,743 edges; graph construction 2,217 ms; a sample query 64 ms. 37 files parsed partially and 244,842 references remained unresolved. This was a development working tree, not an immutable release checkout, phone benchmark or network-indexing measurement.
 

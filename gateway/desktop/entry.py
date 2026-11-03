@@ -32,6 +32,16 @@ def main():
             apply(root, remove=args.command == 'remove-firewall')
         return 0
     if args.command in {'serve-engine', 'validate-engine'}:
+        if args.command == 'validate-engine':
+            # Run inside the candidate executable so missing frozen native grammars fail update preflight.
+            from v14.code_graph.extract import extract
+            samples = {'kt': 'fun probe(): Int { return 1 }', 'java': 'class Probe { int probe() { return 1; } }',
+                       'js': 'function probe() { return 1; }', 'ts': 'function probe(): number { return 1; }',
+                       'tsx': 'function probe(): number { return 1; }'}
+            for extension, source in samples.items():
+                fragment = extract('probe.' + extension, source)
+                if fragment['status'] != 'indexed' or not any(n['name'] == 'probe' and n['kind'] == 'function' for n in fragment['nodes']):
+                    raise RuntimeError('Packaged graph parser failed validation: ' + extension)
         token = os.environ.get('GATEWAY_MANAGEMENT_TOKEN', '')
         quiesced = os.environ.get('GATEWAY_START_QUIESCED', '')
         env = environment(root, load(root), token)

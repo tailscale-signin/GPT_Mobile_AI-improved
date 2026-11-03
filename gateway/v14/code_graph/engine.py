@@ -357,12 +357,21 @@ class Graph:
                 'total_changes': len(after.keys() - before.keys()) + len(before.keys() - after.keys()) + len(new - old) + len(old - new)}
 
     def diagnose(self, log):
+        locations = [(match.group(1).replace('\\', '/'), int(match.group(2))) for pattern in
+                     (r'([\w./\\-]+\.(?:py|kt|kts|java|jsx?|tsx?)):(\d+)', r'File "([^"]+)", line (\d+)')
+                     for match in list(re.finditer(pattern, log))[:100]]
         rows = []
         for node in self.nodes.values():
             filename = node['path'].split('/')[-1]
-            if node['path'] in log or filename in log or (len(node['name']) >= 5 and re.search(r'\b' + re.escape(node['name']) + r'\b', log)):
-                rows.append(node)
-        rows.sort(key=lambda n: (n['path'] not in log, n['kind'] == 'file', n['path'], n['line']))
+            source_locations = [(path, line) for path, line in locations if path == node['path'] or
+                                path.endswith('/' + node['path']) or path.split('/')[-1] == filename]
+            containing = [(path, line) for path, line in source_locations if node['line'] <= line <= node['end_line']]
+            if source_locations:
+                if containing:
+                    rows.append(dict(node, diagnostic_locations=[{'path': p, 'line': n} for p, n in containing], match_reason='source_line'))
+            elif node['path'] in log or filename in log or (len(node['name']) >= 5 and re.search(r'\b' + re.escape(node['name']) + r'\b', log)):
+                rows.append(dict(node, diagnostic_locations=[], match_reason='name_candidate'))
+        rows.sort(key=lambda n: (n['match_reason'] != 'source_line', n['path'] not in log, n['kind'] == 'file', n['end_line'] - n['line'], n['path'], n['line']))
         return {'status': 'CANDIDATES' if rows else 'NO_MATCH_IN_INDEX', 'nodes': rows[:30],
                 'impact': self.impact({n['path'] for n in rows[:10]}, 1), 'root_cause_proven': False}
 

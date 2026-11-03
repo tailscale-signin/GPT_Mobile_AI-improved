@@ -138,7 +138,7 @@
       "id": 22,
       "feature": "Signed packaging failure repair",
       "state": "IMPLEMENTED_PENDING_ANDROID_VALIDATION",
-      "implementation": "Confirmed main job125874097879 failed in APK packaging with Java heap OOM; adopted bounded shared pipeline correction from PR790 (no release version changes). PR790 is now merged into main1a3dd3d4 and inherited via branch merge86d10b06."
+      "implementation": "Confirmed main job125874097879 failed in APK packaging with Java heap OOM; adopted bounded shared pipeline correction from PR790 (no release version changes). PR790 is now merged into main1a3dd3d4 and inherited via branch merge86d10b06. A later main1a3dd3d4 validation compiler OOM is addressed by PR792/19eb4e73, which isolates compile/tests/debug lint/release lint at the existing 3 GiB limit; inherited via main9118a4ea and merge5ec950c9."
     },
     {
       "id": 23,
@@ -201,13 +201,25 @@
       "cause": "Java heap space in Zipflinger BytesSource/ApkFlinger",
       "existing_fix_pr": 790,
       "existing_fix_sha": "71b19180e01608fefb93e837db4f205ff01f8a2f"
+    },
+    {
+      "issue": 22,
+      "job_id": 125912185406,
+      "run_id": 41634485370,
+      "sha": "1a3dd3d45cd9be58be56f2208ca42d492cacc6dc",
+      "branch": "main",
+      "failed_task": ":app:compileDebugKotlin",
+      "cause": "Signed-release validation combined compilation, tests and lint in a 3 GiB process; compiler reported insufficient heap. Packaging was skipped.",
+      "existing_fix_pr": 792,
+      "existing_fix_sha": "19eb4e73",
+      "inherited_via": "5ec950c92a961d038caa1a556dfc8a814144eb56"
     }
   ],
   "implementation_base_sha": "8db2900f30e132abe1a4fca597b4160bf054f799",
   "validation": {
-    "portable_jvm_scenarios": "15 passed using production pure logic with host contract adapters; not Android execution",
-    "android": "CI head9915c49 compiled successfully; 6124 tests, 3 failures, 4 skips. Corrected fixture source argument, action-restricted read planning and stale-state assertion; final rerun required.",
-    "room_schema48": "Compiler-generated schema from job125925964962 at9915c49 added; identity ea98fd7836adb932c915d1d455198328; final comparison pending.",
+    "portable_jvm_scenarios": "16 passed using production pure logic with host contract adapters; not Android execution",
+    "android": "dd0700cc compiled; 6135 tests ran: 6130 passed, 1 stale fixture failed, 4 skipped. The remaining fixture now uses the injected clock and actual pinned call arguments; final CI rerun required.",
+    "room_schema48": "PASS: compiler-generated schema matches committed migration history in job125947668437 at dd0700cc; identity ea98fd7836adb932c915d1d455198328.",
     "source_archive": "Not supplied; evidence from user review plus fetched exact failed-job log/annotations",
     "fast": "PASS: 297 script tests plus resource, icon, regex, provenance and coverage checks",
     "gateway": "PASS: full gateway/check_gateway.py including graph regressions and 7 browser bridge tests",

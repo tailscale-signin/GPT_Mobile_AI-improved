@@ -397,7 +397,7 @@ fun GitHubWorkspaceScreen(
                                     }, enabled = state.canWrite && canNavigate && branchName.isNotBlank()) { Text("Create working branch") }
                                     WorkspaceAction(Icons.Rounded.Check, "Checks & builds") { tab = 4 }
                                     WorkspaceAction(Icons.Rounded.Refresh, "Refresh repository") { viewModel.refreshBranch() }
-                                    WorkspaceAction(Icons.Rounded.Launch, "Open repository on GitHub") { uriHandler.openUri("https://github.com/${state.selection.fullName}") }
+                                    WorkspaceAction(Icons.Rounded.Launch, "Open repository on GitHub") { state.selection?.let { uriHandler.openUri("https://github.com/${it.fullName}") } }
                                     WorkspaceAction(Icons.Rounded.AccountTree, "Status and pull requests") { tab = 2 }
                                     WorkspaceAction(Icons.Rounded.FolderOpen, "Repository files") { tab = 0 }
                                     WorkspaceAction(Icons.Rounded.Commit, "Review changes") { openChanges() }

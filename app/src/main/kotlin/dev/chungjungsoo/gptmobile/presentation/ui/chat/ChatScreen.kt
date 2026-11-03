@@ -920,7 +920,7 @@ private fun ChatScreenContent(
                             val timeline = activeMessage.effectiveTimeline()
                             val taskId = activeMessage.currentRunId?.let(agentRunsById::get)?.userMessageId
                             val task = groupedMessages.userMessages.firstOrNull { it.id == taskId }?.content ?: groupedMessages.userMessages.lastOrNull()?.content.orEmpty()
-                            GitHubLiveProgressCard(timeline, task)
+                            GitHubLiveProgressCard(timeline, task, activeMessage.currentRunId?.let(toolEventsByRun::get).orEmpty())
                         }
                     }
                     chatToolConfig.github?.let { github ->
@@ -1636,7 +1636,7 @@ internal fun ChatMessagePair(
                     debugMode = debugMode,
                     showExecutionTrace = !isCombinedConversation,
                     responseIcon = if (LocalChatProgressInHeader.current && !hasCombinedTabs) {
-                        { GPTMobileIcon(loading = isCurrentPlatformLoading) }
+                        { GPTMobileIcon(loading = isCurrentPlatformLoading, github = LocalChatProgressInHeader.current) }
                     } else {
                         null
                     },
@@ -2188,7 +2188,7 @@ fun ChatInputBox(
                                 ) {
                                     if (inputState.text.isEmpty()) {
                                         Text(
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
                                             text = placeholder ?: if (chatEnabled) stringResource(R.string.write_a_message) else stringResource(R.string.some_platforms_disabled)
                                         )
                                     }

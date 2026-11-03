@@ -846,7 +846,7 @@ internal fun DetailsButton(
 }
 
 @Composable
-fun GPTMobileIcon(loading: Boolean) {
+fun GPTMobileIcon(loading: Boolean, github: Boolean = false) {
     Box(
         modifier = Modifier
             .padding(start = 4.dp)
@@ -861,7 +861,11 @@ fun GPTMobileIcon(loading: Boolean) {
                 trackColor = Color.Transparent
             )
         }
-        dev.chungjungsoo.gptmobile.presentation.common.ThemedAppIcon(Modifier.size(34.dp))
+        if (github) {
+            Icon(ImageVector.vectorResource(R.drawable.ic_github_outline), "GitHub assistant", Modifier.size(34.dp), tint = MaterialTheme.colorScheme.primary)
+        } else {
+            dev.chungjungsoo.gptmobile.presentation.common.ThemedAppIcon(Modifier.size(34.dp))
+        }
     }
 }
 

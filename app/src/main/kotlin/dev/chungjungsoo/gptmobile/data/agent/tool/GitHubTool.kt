@@ -1563,10 +1563,30 @@ class GitHubTool(
         val text = response.bodyAsText()
         return if (response.status.isSuccess()) {
             val pr = jsonParser.parseToJsonElement(text).jsonObject
+            // A successful write remains successful even if monitoring cannot be attached.
+            val monitoring = if (watchChecks != null) {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
+                    kotlinx.coroutines.withTimeoutOrNull(5000) {
+                        runCatching {
+                            watchChecks.invoke(
+                                buildJsonObject {
+                                    put("owner", owner)
+                                    put("repo", repo)
+                                    put("pr_number", requireNotNull(pr["number"]))
+                                    pr["head"]?.jsonObject?.get("sha")?.let { put("commit_sha", it) }
+                                }
+                            )
+                        }.getOrNull()
+                    }
+                }
+            } else {
+                null
+            }
             successResult(
                 callId,
                 buildJsonObject {
                     put("pull_request", pr)
+                    put("background_monitoring", monitoring ?: JsonNull)
                     put("upstream_completed", true)
                     put("readiness", "not_observed")
                     put(

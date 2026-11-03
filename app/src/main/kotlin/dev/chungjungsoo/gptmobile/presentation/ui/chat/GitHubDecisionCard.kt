@@ -96,7 +96,7 @@ internal fun GitHubDecisionCard(decision: GitHubChatDecision, waiting: Boolean, 
 }
 
 @Composable
-internal fun GitHubLiveProgressCard(timeline: List<dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem>, task: String = "") {
+internal fun GitHubLiveProgressCard(timeline: List<dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem>, task: String = "", events: List<dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent> = emptyList()) {
     // Also clean retained timelines exported or saved by older versions.
     var previousPreview: String? = null
     var previousSummary: String? = null
@@ -112,6 +112,7 @@ internal fun GitHubLiveProgressCard(timeline: List<dev.chungjungsoo.gptmobile.da
             keep
         }
     }
+    val search = remember(events) { gitHubSearchActivity(events) }
     val latestPreview = lines.lastIndex.takeIf { it >= 0 && !lines[it].statusSummary } ?: -1
     val motion = rememberGitHubProgressMotion(latestPreview >= 0)
     Column(
@@ -119,12 +120,13 @@ internal fun GitHubLiveProgressCard(timeline: List<dev.chungjungsoo.gptmobile.da
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         if (lines.none { it.statusSummary }) GitHubActivitySummary(dev.chungjungsoo.gptmobile.data.github.GitHubProgressPresentation.introduction(task))
+        if (search != null && latestPreview < 0) GitHubActivityPreview("Searching websites", latest = true, motion = motion, search = search)
         lines.forEachIndexed { index, item ->
             androidx.compose.runtime.key(item.progressId ?: index, item.statusSummary) {
                 if (item.statusSummary) {
                     GitHubActivitySummary(item.content)
                 } else {
-                    GitHubActivityPreview(item.content, latest = index == latestPreview, motion = motion)
+                    GitHubActivityPreview(item.content, latest = index == latestPreview, motion = motion, search = search.takeIf { index == latestPreview })
                 }
             }
         }

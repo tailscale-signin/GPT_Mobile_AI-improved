@@ -57,7 +57,9 @@ internal data class GitHubCheckWatch(
     val status: String = "RUNNING",
     val detail: String = "Watching GitHub checks in the background.",
     val retryAt: Long = 0,
-    val health: GitHubPullRequestHealth? = null
+    val health: GitHubPullRequestHealth? = null,
+    val branch: String = "",
+    val draft: Boolean = false
 ) {
     val terminal: Boolean get() = status !in setOf("RUNNING", "UNKNOWN", "NONE", "RETRYING")
 }
@@ -75,7 +77,10 @@ class GitHubCheckWatchRepository @Inject constructor(
     private val mutex = Mutex()
     internal fun observe(chatId: Int) = workspace.dao.observeGitHubChecks(chatId).map { rows -> rows.mapNotNull { decode(it) } }
     private fun decode(row: WorkspaceRecord): GitHubCheckWatch? = runCatching { workspace.json.decodeFromString<GitHubCheckWatch>(row.payload) }.getOrNull()
-    private suspend fun save(watch: GitHubCheckWatch) = workspace.dao.save(WorkspaceRecord(watch.id, "github_checks", "${watch.owner}/${watch.repo} · ${watch.status}", workspace.json.encodeToString(watch), watch.chatId, updatedAt = watch.updatedAt))
+    private suspend fun save(watch: GitHubCheckWatch) {
+        workspace.dao.save(WorkspaceRecord(watch.id, "github_checks", "${watch.owner}/${watch.repo} · ${watch.status}", workspace.json.encodeToString(watch), watch.chatId, updatedAt = watch.updatedAt))
+        GitHubWatchNotifications.publish(context, watch)
+    }
     private suspend fun api(watch: GitHubCheckWatch): GitHubEngineeringApi {
         require(workspace.database.chatRoomDao().getChatRoomsByIds(listOf(watch.chatId)).singleOrNull()?.isTemporary == false) { "Conversation was removed or is temporary." }
         val connection = requireNotNull(connections.getConnection(watch.connectionUid)) { "GitHub connection removed." }
@@ -99,7 +104,10 @@ class GitHubCheckWatchRepository @Inject constructor(
         val id = "github-checks:" + GitHubRepositoryStateStore.digest("$chatId|$connectionUid|$profileUid|$owner/$repo|$pull|$run")
         val initial = GitHubCheckWatch(id, chatId, connectionUid, profileUid, owner, repo, pull, run, "", connection.updatedAt)
         val api = api(initial)
-        val pullHead = pull?.let { Json.parseToJsonElement(api.request("$root/pulls/$it")).jsonObject["head"]?.jsonObject?.get("sha")?.jsonPrimitive?.content }
+        val pullData = pull?.let { Json.parseToJsonElement(api.request("$root/pulls/$it")).jsonObject }
+        val pullHead = pullData?.get("head")?.jsonObject?.get("sha")?.jsonPrimitive?.content
+        val branch = pullData?.get("head")?.jsonObject?.get("ref")?.jsonPrimitive?.contentOrNull.orEmpty()
+        val draft = pullData?.get("draft")?.jsonPrimitive?.booleanOrNull == true
         val runHead = run?.let { Json.parseToJsonElement(api.request("$root/actions/runs/$it")).jsonObject["head_sha"]?.jsonPrimitive?.content }
         require(pullHead == null || runHead == null || pullHead == runHead) { "The workflow run belongs to a different PR revision." }
         val head = requireNotNull(pullHead ?: runHead).also { require(it.matches(Regex("[a-fA-F0-9]{40}"))) }
@@ -109,7 +117,7 @@ class GitHubCheckWatchRepository @Inject constructor(
         mutex.withLock {
             val existing = workspace.dao.get(id)?.let(::decode)
             require(existing?.terminal == false || workspace.dao.forChat(chatId).filter { it.kind == "github_checks" }.mapNotNull(::decode).count { !it.terminal } < 20) { "Stop an existing check watch before adding another (20 active watches per chat)." }
-            if (existing == null || existing.terminal || existing.headSha != head) save(initial.copy(headSha = head))
+            if (existing == null || existing.terminal || existing.headSha != head) save(initial.copy(headSha = head, branch = branch, draft = draft))
             val work = OneTimeWorkRequestBuilder<GitHubCheckWatchWorker>()
                 .setInputData(workDataOf("watch_id" to id))
                 .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())

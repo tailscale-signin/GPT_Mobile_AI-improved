@@ -51,6 +51,7 @@ internal fun GitHubLoadingHeader(
     progress: Float? = null,
     modifier: Modifier = Modifier
 ) {
+    if (!active) return
     val colors = MaterialTheme.colorScheme
     val label = remember(activity) { GitHubProgressPresentation.activity(activity) }
     val motion = rememberGitHubProgressMotion(active)

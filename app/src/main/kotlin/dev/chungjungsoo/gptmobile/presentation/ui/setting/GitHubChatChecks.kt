@@ -35,6 +35,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.chungjungsoo.gptmobile.data.github.GitHubCheckWatch
@@ -71,12 +72,20 @@ class GitHubChatChecksViewModel @Inject constructor(private val watches: GitHubC
 }
 
 @Composable
-internal fun GitHubChatChecks(chatId: Int, model: GitHubChatChecksViewModel = hiltViewModel()) {
+internal fun GitHubChatChecks(chatId: Int, model: GitHubChatChecksViewModel = hiltViewModel(), expanded: Boolean = false) {
     val watches by remember(model, chatId) { model.observe(chatId) }.collectAsStateWithLifecycle(emptyList())
     if (watches.isEmpty()) return
     val refreshError by model.refreshError.collectAsStateWithLifecycle()
     refreshError?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(horizontal = 12.dp)) }
     val uriHandler = LocalUriHandler.current
+    if (expanded) {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            watches.forEach { watch ->
+                GitHubCheckWatchCard(watch, { uriHandler.openUri("https://github.com/${watch.owner}/${watch.repo}/" + (watch.pullNumber?.let { "pull/$it" } ?: "actions/runs/${watch.runId}")) }, { model.refresh(watch.id) }, { model.cancel(watch.id) }, Modifier.fillMaxWidth())
+            }
+        }
+        return
+    }
     BoxWithConstraints(Modifier.fillMaxWidth()) {
         val cardWidth = (maxWidth - 24.dp).coerceAtLeast(0.dp)
         LazyRow(contentPadding = PaddingValues(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -119,6 +128,16 @@ internal fun GitHubCheckWatchCard(
     onStop: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    var clock by remember(watch.id) { androidx.compose.runtime.mutableLongStateOf(System.currentTimeMillis()) }
+    val lifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
+    androidx.compose.runtime.LaunchedEffect(watch.id, watch.terminal, lifecycle) {
+        lifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
+            while (!watch.terminal) {
+                clock = System.currentTimeMillis()
+                kotlinx.coroutines.delay(1000)
+            }
+        }
+    }
     var showDetails by remember(watch.id) { mutableStateOf(false) }
     val health = watch.health
     val color = if (watch.status == "FAILED" || health?.state in setOf("FAILED", "CONFLICTS")) {
@@ -130,9 +149,11 @@ internal fun GitHubCheckWatchCard(
     Card(modifier.widthIn(min = 280.dp, max = 400.dp), colors = CardDefaults.cardColors(containerColor = color)) {
         Column(Modifier.padding(horizontal = 8.dp, vertical = 2.dp)) {
             Row(Modifier.fillMaxWidth().semantics { liveRegion = LiveRegionMode.Polite }, horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                GitHubStatusLight(watch.status)
                 Text(title, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(gitHubWatchBrief(watch), modifier = Modifier.weight(1f), style = MaterialTheme.typography.labelSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
+            Text("${watch.branch.ifBlank { watch.headSha.take(12) }} · ${if (watch.terminal) "Total" else "Elapsed"} ${dev.chungjungsoo.gptmobile.data.github.githubElapsedTime(watch.startedAt, if (watch.terminal) watch.updatedAt else clock)}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Row(Modifier.fillMaxWidth()) {
                 TextButton(modifier = Modifier.weight(1f), onClick = { showDetails = true }, contentPadding = PaddingValues(horizontal = 4.dp)) { Text("Details", maxLines = 1) }
                 TextButton(modifier = Modifier.weight(1f), onClick = onOpen, contentPadding = PaddingValues(horizontal = 4.dp)) { Text("GitHub", maxLines = 1) }

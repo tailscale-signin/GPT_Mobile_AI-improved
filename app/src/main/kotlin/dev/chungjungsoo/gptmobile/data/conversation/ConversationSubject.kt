@@ -56,6 +56,20 @@ object ConversationSubject {
 
 /** Keeps GitHub chat subjects recognizable without exposing the owner/branch prefix. */
 object GitHubConversationSubject {
+    fun taskSummary(task: String): String {
+        if (task.length > 160) {
+            val voice = Regex("(?i)\\b(?:voice|speech|microphone)\\b").containsMatchIn(task)
+            val github = Regex("(?i)\\bgithub\\b").containsMatchIn(task)
+            if (voice && github) return "Voice and GitHub update"
+            if (voice) return "Voice integration update"
+            if (github) return "GitHub workspace update"
+        }
+        val text = task.replace(Regex("(?i)https?://[^\\s]+"), " ")
+            .replace(Regex("(?i)\\b(?:please|can you|could you|i want you to|i need you to|ensure to)\\b"), " ")
+            .replace(Regex("[\\p{Cc}#*`<>]"), " ").trim()
+        return ConversationSubject.clean(text)?.replaceFirstChar { it.titlecase() } ?: "Development task"
+    }
+
     fun task(rawUserContext: String, owner: String, repo: String, ref: String): String {
         val prefix = "GitHub workspace: $owner/$repo\nBranch: $ref\n\n"
         return rawUserContext.removePrefix(prefix).trim().ifBlank { rawUserContext.trim() }

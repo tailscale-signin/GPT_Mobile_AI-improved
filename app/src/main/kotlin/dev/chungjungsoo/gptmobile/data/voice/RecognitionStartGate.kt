@@ -1,17 +1,33 @@
 package dev.chungjungsoo.gptmobile.data.voice
 
-/** Monotonic admission survives recognizer destruction; stop/start cannot bypass cooldown. */
+/** Shared monotonic admission survives session and recognizer destruction. Never reset on navigation. */
 internal class RecognitionStartGate(private val now: () -> Long = { System.nanoTime() / 1_000_000 }) {
-    private var nextStart = Long.MIN_VALUE
+    private var nextStart = 0L
+    private var throttles = 0
 
-    fun acquire(): Boolean {
-        val time = now()
-        if (time < nextStart) return false
-        nextStart = time + 500
+    @Synchronized fun remainingMillis(): Long = (nextStart - now()).coerceAtLeast(0)
+
+    @Synchronized fun acquire(): Boolean {
+        if (remainingMillis() > 0) return false
+        nextStart = now() + 500
         return true
     }
 
-    fun failed(tooManyRequests: Boolean) {
-        nextStart = maxOf(nextStart, now() + if (tooManyRequests) 10_000 else 2_000)
+    @Synchronized fun succeeded() {
+        throttles = 0
+    }
+
+    @Synchronized fun failed(tooManyRequests: Boolean) {
+        val delay = if (tooManyRequests) {
+            throttles++
+            when (throttles) {
+                1 -> 10_000L
+                2 -> 30_000L
+                else -> 60_000L
+            }
+        } else {
+            2_000L
+        }
+        nextStart = maxOf(nextStart, now() + delay)
     }
 }

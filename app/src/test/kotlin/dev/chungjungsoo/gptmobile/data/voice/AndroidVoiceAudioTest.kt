@@ -30,6 +30,7 @@ class AndroidVoiceAudioTest {
             callbacks += listener
             mock(TextToSpeech::class.java).also { engines += it }
         }
+        audio.allowOnlineSpeech = true
         try {
             audio.speak("First reply", {}, failures::add)
             callbacks[0].onInit(TextToSpeech.ERROR)
@@ -59,6 +60,7 @@ class AndroidVoiceAudioTest {
             callbacks += listener
             mock(TextToSpeech::class.java)
         }
+        audio.allowOnlineSpeech = true
         try {
             audio.speak("Cancelled reply", {}, failures::add)
             audio.stop()

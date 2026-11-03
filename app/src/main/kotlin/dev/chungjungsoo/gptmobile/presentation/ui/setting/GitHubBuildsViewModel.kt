@@ -136,13 +136,10 @@ constructor(
                     val result = withContext(Dispatchers.IO) {
                         val connection = requireNotNull(connections.getConnection(destination.connectionUid)) { context.getString(R.string.github_builds_connection_missing) }
                         require(connection.type == ToolConnectionType.GITHUB) { context.getString(R.string.github_builds_connection_missing) }
-                        if (connection.secretRef != null) gitHubPublicAuth?.accessToken(connection)
-                        val bytes = connection.secretRef?.let { vault.read(it) }
-                        val token = try {
-                            bytes?.decodeToString()?.trim().orEmpty()
-                        } finally {
-                            bytes?.fill(0)
-                        }
+                        val token = dev.chungjungsoo.gptmobile.data.github.gitHubDownloadCredential(
+                            refresh = gitHubPublicAuth?.takeIf { connection.secretRef != null }?.let { auth -> { auth.accessToken(connection) } },
+                            readLegacy = { connection.secretRef?.let { vault.read(it) } }
+                        )
                         require(token.isNotBlank()) { context.getString(R.string.github_builds_reconnect) }
                         val catalog = GitHubBuildCatalog(token)
                         if (source == GitHubBuildSource.RELEASE) {

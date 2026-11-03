@@ -169,6 +169,7 @@ for test in ('oneToFiveItemsAtCompactWidth', 'oneToFiveItemsAtWideWidth', 'oneTo
     check_instrumentation(folder / 'settings-home-instrumentation.txt', 'dev.chungjungsoo.gptmobile.presentation.ui.setting.SettingsHomeInstrumentedTest', test)
 check_instrumentation(folder / 'navigation-motion-instrumentation.txt', 'dev.chungjungsoo.gptmobile.presentation.navigation.NavigationMotionInstrumentedTest', 'backUsesFadeWithoutScalingAndCompletesOnThePreviousScreen')
 check_instrumentation(folder / 'github-prompt-motion-instrumentation.txt', 'dev.chungjungsoo.gptmobile.presentation.ui.chat.GitHubPromptMotionInstrumentedTest', 'promptMovesOverOneAndHalfSecondsWithoutAnImmediateJump')
+check_instrumentation(folder / 'github-prompt-motion-instrumentation.txt', 'dev.chungjungsoo.gptmobile.presentation.ui.chat.GitHubPromptMotionInstrumentedTest', 'reattachmentWaitsForTheUserScrollAndRechecksAnchorIntent')
 for test in ('openingExistingChat_overridesOldPositionAndShowsTrueBottomOfLongResponse', 'openingUnreadResponse_centersItsBeginningBetweenHeaderAndComposer', 'growingContentWhileFollowing_keepsTheTrueBottomVisible', 'bottomButton_reenablesFollowingForLateContentGrowth'):
     check_instrumentation(folder / 'chat-bottom-scroll-instrumentation.txt', 'dev.chungjungsoo.gptmobile.presentation.ui.chat.ChatBottomAutoScrollerInstrumentedTest', test)
 for test in ('shortHoldDoesNotOpenMenuAndOneSecondHoldPreservesAction', 'movingToScrollCancelsTheHold'):

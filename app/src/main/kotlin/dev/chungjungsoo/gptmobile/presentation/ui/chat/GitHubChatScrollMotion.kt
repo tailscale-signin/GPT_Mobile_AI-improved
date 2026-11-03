@@ -9,8 +9,16 @@ import androidx.compose.runtime.snapshotFlow
 import kotlinx.coroutines.flow.first
 
 /** A single cancellable animation, with the distance corrected as lazy rows are measured. */
-internal suspend fun LazyListState.animateToGitHubPrompt(targetItem: Int) {
+internal suspend fun LazyListState.animateToGitHubPrompt(
+    targetItem: Int,
+    isUserDragging: () -> Boolean = { false },
+    shouldAnchor: () -> Boolean = { true }
+) {
     snapshotFlow { layoutInfo }.first { it.totalItemsCount > targetItem && it.viewportSize.height > 0 }
+    // Reattachment is requested from nested scroll while the user's scroll mutation
+    // still owns the list. Wait for it instead of losing the animation to its priority.
+    snapshotFlow { isScrollInProgress || isUserDragging() }.first { !it }
+    if (!shouldAnchor()) return
     scroll {
         val layout = LazyLayoutScrollScope(this@animateToGitHubPrompt, this)
         var previous = 0f

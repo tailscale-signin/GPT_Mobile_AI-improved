@@ -702,7 +702,11 @@ private fun ChatScreenContent(
         if (githubPromptMode && entryPositioned && promptAttached && anchoredPromptKey == newestPromptKey) {
             promptPositioning = true
             try {
-                listState.animateToGitHubPrompt(latestTurnItem)
+                listState.animateToGitHubPrompt(
+                    latestTurnItem,
+                    isUserDragging = { isUserDragging },
+                    shouldAnchor = { promptAttached && !githubBottomFollow && anchoredPromptKey == newestPromptKey }
+                )
             } finally {
                 promptPositioning = false
             }

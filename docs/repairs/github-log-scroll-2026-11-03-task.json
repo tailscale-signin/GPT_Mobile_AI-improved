@@ -43,5 +43,10 @@
       "physical_device": "not measured",
       "regression_before_repair": "Both new search-ordering tests fail on the original production helper, retaining the same ten-test suite."
     }
+  },
+  "gesture_handoff_followup": {
+    "base_sha": "5f2b367e25d40308ab3f9a38b4acd646ae25cddb",
+    "intent": "Wait for user scroll ownership to end before reattaching, then recheck current anchor intent so history or bottom navigation wins.",
+    "validation": "299 canonical host checks, changed Kotlin formatting and shell/whitespace checks passed. Compose user-priority scroll regression added to both emulator acceptance runs; Android execution pending."
   }
 }

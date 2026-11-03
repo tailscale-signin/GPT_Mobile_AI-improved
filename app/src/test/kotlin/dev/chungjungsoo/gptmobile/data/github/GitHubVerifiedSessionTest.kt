@@ -55,7 +55,25 @@ class GitHubVerifiedSessionTest {
         assertEquals(1, extractions)
         assertEquals("PARTIAL", (events.last() as ProviderEvent.Failed).taskOutcome)
         val noEvidence = GitHubVerifiedSession(source, GitHubEvidenceBook("empty", "o/r", "main", emptySet()), "Explain", { 8192 }, { error("No receipts") }, {}, {})
-        assertEquals(listOf(failure), noEvidence.streamRound(emptyList(), emptyList()).toList())
+        val noEvidenceEvents = noEvidence.streamRound(emptyList(), emptyList()).toList()
+        assertEquals(failure, noEvidenceEvents.last())
+        assertTrue(noEvidenceEvents.filterIsInstance<ProviderEvent.TextDelta>().single().text.contains("draft remains unverified"))
+        assertTrue(noEvidenceEvents.none { it == ProviderEvent.Completed })
+    }
+
+    @Test fun assistantFailureQuestionUsesOnlyHistoricalDiagnostics() = runBlocking {
+        val book = GitHubEvidenceBook("b", "o/r", "main", emptySet(), latestVerdict = {
+            Json.parseToJsonElement("""{"binding":"b","verification_failure":"GITHUB_TASK_INCOMPLETE"}""").jsonObject
+        })
+        val source = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): kotlinx.coroutines.flow.Flow<ProviderEvent> = error("No unrelated CI investigation")
+        }
+        for (task in listOf("why are you failing?", "GitHub workspace: o/r\nBranch: main\n\nWhy is your response empty?")) {
+            val gate = GitHubVerifiedSession(source, book, task, { 8192 }, { error("No extraction model") }, {}, {})
+            val events = gate.streamRound(emptyList(), emptyList()).toList()
+            assertTrue(events.filterIsInstance<ProviderEvent.TextDelta>().single().text.contains("GITHUB_TASK_INCOMPLETE"))
+            assertEquals(ProviderEvent.Completed, events.last())
+        }
     }
 
     private fun answer(text: String) = object : AgentProviderSession {
@@ -66,7 +84,7 @@ class GitHubVerifiedSessionTest {
         val source = object : AgentProviderSession {
             override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): kotlinx.coroutines.flow.Flow<ProviderEvent> = error("No generation for a plain greeting")
         }
-        for (task in listOf("hi", "Hello!", " hey ")) {
+        for (task in listOf("hi", "Hello!", " hey ", "GitHub workspace: o/r\nBranch: main\n\nhello")) {
             val gate = GitHubVerifiedSession(source, GitHubEvidenceBook("b", "o/r", "main", emptySet()), task, { 8000 }, { error("No extraction") }, { error("No repository claims") }, {})
             val events = gate.streamRound(listOf(AgentToolDefinition("github_context", "Status", JsonObject(emptyMap()))), emptyList()).toList()
             assertEquals(listOf(ProviderEvent.TextDelta("Hello! How can I help?"), ProviderEvent.Completed), events)

@@ -114,7 +114,33 @@ jobs:
         run: |
           set -o pipefail
           chmod +x gradlew
-          python3 scripts/gradle_retry.py -- --no-daemon --stacktrace :app:assembleDebug 2>&1 | tee audit-apk.log
+          # The exact-head audit stalled in packageDebug after native compilation.
+          # Keep the existing heap/step bounds, limit ApkFlinger's separate pool,
+          # and capture evidence before terminating all build descendants.
+          (
+            sleep 900 &
+            timer_pid=$!
+            trap 'kill "$timer_pid" 2>/dev/null || true' EXIT
+            wait "$timer_pid" || exit 0
+            {
+              date -u '+captured_at=%Y-%m-%dT%H:%M:%SZ'
+              ps -eo pid=,ppid=,stat=,etime=,%cpu=,%mem=,rss=,comm= --sort=-%cpu | head -n 80 || true
+              while read -r pid; do
+                [[ "$pid" =~ ^[0-9]+$ ]] || continue
+                echo "Gradle daemon $pid heap"
+                timeout 15s jcmd "$pid" GC.heap_info || true
+                echo "Gradle daemon $pid threads"
+                timeout 30s jcmd "$pid" Thread.print -l || true
+              done < <(jcmd -l | awk '/GradleDaemon/ {print $1}' | tail -n 2)
+            } > audit-apk-watchdog.log 2>&1
+          ) &
+          watchdog_pid=$!
+          cleanup_watchdog() {
+            kill "$watchdog_pid" 2>/dev/null || true
+            wait "$watchdog_pid" 2>/dev/null || true
+          }
+          trap cleanup_watchdog EXIT
+          python3 scripts/gradle_retry.py --timeout-seconds 1140 -- --no-daemon --max-workers=1 --stacktrace :app:assembleDebug '-Dorg.gradle.jvmargs=-Xmx3072m -XX:MaxMetaspaceSize=1024m -Djava.util.concurrent.ForkJoinPool.common.parallelism=2 -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8' 2>&1 | tee audit-apk.log
       - name: Android lint
         timeout-minutes: 35
         if: ${{ !cancelled() && steps.environment.outcome == 'success' }}

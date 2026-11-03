@@ -93,6 +93,57 @@ class ToolBatchCheckpointTest {
         }
     }
 
+    @Test fun verifiedBranchSelectionSurvivesRestartButUnrelatedDestinationDoesNot() = runBlocking {
+        val file = File.createTempFile("branch-transition", ".json").apply { delete() }
+        try {
+            val original = ToolBatchJobContext("Full GitHub test", "GITHUB_ENGINEERING", "owner/repo", "main", "a".repeat(40))
+            val journal = ToolBatchCheckpoint(file, "same-turn", original)
+            val branch = ProviderEvent.ToolCall(
+                "created-branch",
+                "github_commit__github_api",
+                buildJsonObject {
+                    put("action", "branch")
+                    put("branch", "test")
+                }
+            )
+            journal.enqueue(listOf(branch))
+            journal.execute(branch) {
+                AgentToolResult(
+                    branch.callId,
+                    ToolResultContent.Json(
+                        buildJsonObject {
+                            put(
+                                "data",
+                                buildJsonObject {
+                                    put("receipt_verified", true)
+                                    put("head_sha", "a".repeat(40))
+                                    put(
+                                        "context",
+                                        buildJsonObject {
+                                            put("owner", "owner")
+                                            put("repo", "repo")
+                                            put("ref", "test")
+                                            put("commit_sha", "a".repeat(40))
+                                        }
+                                    )
+                                }
+                            )
+                        }
+                    ),
+                    false
+                )
+            }
+            val restored = ToolBatchCheckpoint(file, "same-turn", original.copy(branch = "test"))
+            assertEquals(1, restored.recoverySnapshot().completedCount)
+            assertTrue(!restored.execute(branch) { error("Already created; never dispatch again") }.isError)
+            for (invalid in listOf(original.copy(branch = "unrelated"), original.copy(repository = "other/repo"), original.copy(objective = "Different task"))) {
+                assertTrue(runCatching { ToolBatchCheckpoint(file, "same-turn", invalid).recoverySnapshot() }.isFailure)
+            }
+        } finally {
+            file.delete()
+        }
+    }
+
     @Test fun explicitBudgetRetryReopensOnlyUndispatchedBudgetFailuresAndKeepsReceipts() = runBlocking {
         val journal = ToolBatchCheckpoint(null, "retry")
         val calls = listOf("budget", "completed", "uncertain", "invalid", "dispatched-budget").map { ProviderEvent.ToolCall(it, "write", JsonObject(emptyMap())) }

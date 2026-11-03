@@ -10,6 +10,15 @@ import org.junit.Test
 class TaskRecoveryActionTest {
     private fun user(id: Int, text: String) = MessageV2(id = id, chatId = 1, content = text, platformType = null)
 
+    @Test fun approvedCommitAndFailureQuestionsRetainTheOriginalTaskAcrossRestart() {
+        val task = user(1, "Test all authorized GitHub integration tools")
+        val commit = user(3, "GitHub workspace: o/r\nBranch: test-branch\n\nCommit ${"a".repeat(40)} was approved and published. Continue from the saved task using this exact commit. Subscribe with github_watch_checks when CI is pending; do not repeat the commit.")
+        val messages = listOf(task, user(2, "why are you failing?"), commit)
+        assertEquals(1, resolveTaskRecovery(messages)!!.sourceMessageId)
+        assertEquals("1:1", rootWorkId(messages + user(4, "GitHub workspace: o/r\nBranch: test-branch\n\ncontinue"), "unused"))
+        assertEquals(task.content, resolveTaskRecovery(messages)!!.originalRequest)
+    }
+
     @Test fun equivalentIntegrationRequestsAndDiagnosticsKeepOriginalTask() {
         val original = user(1, "Test all GitHub tools")
         val messages = listOf(original, user(2, "continue"), user(3, "Why did the previous response stop?"), user(4, "test all"), user(5, "Why did the previous response stop?"), user(6, "continue"))

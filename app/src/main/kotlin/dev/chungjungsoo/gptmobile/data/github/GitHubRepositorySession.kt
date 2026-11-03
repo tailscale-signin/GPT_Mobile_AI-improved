@@ -870,7 +870,7 @@ internal class GitHubRepositorySession(
         require(edits.size in 1..20) { "Supply 1–20 exact edits." }
         val entries = tree(context)["tree"]!!.jsonArray.map { it.jsonObject }.associateBy { it.s("path") }
         val originals = edits.map { it.jsonObject.s("path") }.distinct().associateWith { path ->
-            val entry = entries[path] ?: error("Patch path does not exist in the pinned tree: $path")
+            val entry = requireNotNull(entries[path]) { "Patch path does not exist in the pinned tree: $path. Paths are repository-relative; do not prefix them with a branch name. Use github_search mode=paths to discover the exact file, then read its content before staging." }
             require(entry.s("mode") in setOf("100644", "100755")) { "Patch may only replace regular text blobs." }
             entry.s("sha") to blob(context, entry).s("content")
         }

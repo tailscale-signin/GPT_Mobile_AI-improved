@@ -50,7 +50,7 @@ internal object GitHubStatusRequest {
         }
         return null
     }
-    fun matches(text: String): Boolean = text.trim().lowercase().trimEnd('.', '?', '!').trim() in setOf(
+    fun matches(text: String): Boolean = GitHubTaskContinuity.request(text).lowercase(java.util.Locale.ROOT).trimEnd('.', '?', '!').trim() in setOf(
         "status",
         "repo status",
         "status of repo",
@@ -65,7 +65,7 @@ internal object GitHubStatusRequest {
         "what is the repository status"
     )
 
-    fun isGreeting(text: String): Boolean = text.trim().lowercase().trimEnd('.', '?', '!').trim() in setOf("hi", "hello", "hey", "good morning", "good afternoon", "good evening")
+    fun isGreeting(text: String): Boolean = GitHubTaskContinuity.request(text).lowercase(java.util.Locale.ROOT).trimEnd('.', '?', '!').trim() in setOf("hi", "hello", "hey", "good morning", "good afternoon", "good evening")
 
     const val INSTRUCTION = "Status: inspect the current repository/branch, recent commits, open PRs and latest checks with four scoped read-only calls plus at most two calls for failed-read recovery. Do not read source, resume work, edit or poll. Separate latest workflow from required checks; unknown worktree/tests stay unknown."
 }

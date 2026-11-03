@@ -1,0 +1,137 @@
+{
+  "schema": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "feat/github-graph-intelligence-2026-11-03",
+  "base_sha": "6ef54ecf39403da2892be78b5dba6c866f4b01e2",
+  "parent_pr": 791,
+  "working_branch": "fix/github-log-scroll-stability-2026-11-03",
+  "intent": "Fix export_Status_1793716534359.zip issues and implement smooth prompt anchoring, timed history release, summary-first progress and bottom streaming follow.",
+  "source": {
+    "version": "0.9.66.3",
+    "build": 137,
+    "commit": "9118a4ea9750f20de002a427423a3e997103ca36",
+    "runs": 5,
+    "tool_events": 60,
+    "journal_events": 628,
+    "diagnostic_events": 295,
+    "app_log_records": 500
+  },
+  "state": "IMPLEMENTED_PENDING_ANDROID_VALIDATION",
+  "implementation_ledger": "docs/implementation/github-log-scroll-stability-2026-11-03.md",
+  "validation": {
+    "canonical_fast": "PASSED: 299 tests; policy/dependency/secret/regex/resource/provenance/whitespace checks",
+    "portable_regressions": "PASSED: 27 production-logic tests; host adapters for Android AtomicFile and timeline DTO",
+    "android_ci": "pending; prompt motion and all four bottom scrolling regressions explicitly wired into API 34/36 acceptance",
+    "device_motion": "not measured",
+    "external_mcp_reachability": "not measured",
+    "changed_kotlin_format": "PASSED: ktlint 1.3.1"
+  },
+  "review_followup": {
+    "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+    "base_branch": "main",
+    "base_sha": "9118a4ea9750f20de002a427423a3e997103ca36",
+    "parent_pr": 791,
+    "working_branch": "fix/github-log-scroll-stability-2026-11-03",
+    "head_sha": "89fcf7d5b438553c0286fe427863def47efc7eb5",
+    "intent": "Keep web-search fallback previews below the introducing summary and include them in the same ordered presentation and motion logic.",
+    "state": "IMPLEMENTED_PENDING_ANDROID_VALIDATION",
+    "validation": {
+      "portable_production_logic": "PASSED: 10 JUnit tests covering activity order, branch receipt parsing and gesture timing; host timeline and unrelated dependency adapters, not Android validation.",
+      "canonical_fast": "PASSED: 299 script tests and canonical policy/dependency/secret/regex/resource/provenance checks",
+      "changed_kotlin_format": "PASSED: ktlint 1.3.1 on all three changed Kotlin files",
+      "android_ci": "required on new head; not yet run",
+      "physical_device": "not measured",
+      "regression_before_repair": "Both new search-ordering tests fail on the original production helper, retaining the same ten-test suite."
+    }
+  },
+  "gesture_handoff_followup": {
+    "base_sha": "5f2b367e25d40308ab3f9a38b4acd646ae25cddb",
+    "intent": "Wait for user scroll ownership to end before reattaching, then recheck current anchor intent so history or bottom navigation wins.",
+    "validation": "299 canonical host checks, changed Kotlin formatting and shell/whitespace checks passed. Compose user-priority scroll regression added to both emulator acceptance runs; Android execution pending."
+  },
+  "emulator_followup": {
+    "base_sha": "bb1082bbdd5c9378af378fc35affb41cdc1d9459",
+    "base_branch": "fix/github-log-scroll-stability-2026-11-03",
+    "main_sha": "9118a4ea9750f20de002a427423a3e997103ca36",
+    "intent": "Repair the API 34 bottom-follow regression without weakening its existing behavior assertions.",
+    "observed_run": 41664445350,
+    "observed_job": 126016631724,
+    "regression": "ChatBottomAutoScrollerInstrumentedTest.growingContentWhileFollowing_keepsTheTrueBottomVisible failed its initial canScrollForward assertion at line 112.",
+    "cause": "The new 32 ms wall-clock delay is outside Compose animation idling. The viewport can be reported idle before the pending initial follow starts.",
+    "repair": "Coalesce measured growth on the Compose frame clock before starting the existing cancellable smooth scroll; preserve all four original bottom-follow regressions.",
+    "validation": {
+      "canonical_fast": "PASSED: 299 script tests and canonical policy/dependency/secret/regex/resource/provenance checks",
+      "changed_kotlin_format": "PASSED: ktlint 1.3.1",
+      "android_api34_api36": "PENDING on the new published revision; no emulator pass claimed locally"
+    },
+    "state": "IMPLEMENTED_HOST_VALIDATED_PENDING_ANDROID",
+    "observed_sha": "5f2b367e25d40308ab3f9a38b4acd646ae25cddb"
+  },
+  "integration_followup": {
+    "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+    "working_branch": "fix/github-log-scroll-stability-2026-11-03",
+    "base_sha": "052c6df27c876f4611ed5c10cb21bdec0d420814",
+    "main_sha": "94d8a4a87f3e27b838439c4ae6b3d32171c7b90a",
+    "release_pr": 793,
+    "release_sha": "2beb4a5fc3906dbe83f22138fe425c604926de97",
+    "intent": "Validate the remaining release and scrolling repairs together before merging into main, preserving both histories and the already merged graph implementation.",
+    "scope_repair": "The combined tree exposes 41 graph/audit/scrolling paths absent from the older release manifest. Add only these exact paths and disclose the graph/schema/recovery changes and remaining fixture/device qualifications; retain the same base commit and strict release gates.",
+    "state": "IMPLEMENTED_PENDING_INTEGRATION_CI",
+    "validation": {
+      "canonical_fast": "PASSED: 301 script tests plus policy/dependency/secret/regex/resource/provenance checks",
+      "release_scope": "PASSED against the complete staged integration tree and unchanged qualification rules",
+      "android": "PENDING on published integration head"
+    },
+    "reconciled_release_sha": "d00140c5c849f5d03088e7759851bc443ae0a1b6",
+    "scope_reconciliation": "Retain both branches' exact scope entries and every qualification limitation; preserve detailed structural-graph disclosures and scrolling/recovery changes while resolving their concurrent release-note edits."
+  },
+  "review_regression_followup": {
+    "observed_sha": "f7f3d80481f8d836441406d30762e6d52b6b35f5",
+    "workflow_run": 41670556671,
+    "job": 126038085172,
+    "finding": "Full Android unit execution found one legacy recovery assertion still expecting immediate blocking after malformed review output; the reviewed feature now permits one persisted format-only restart.",
+    "repair": "Update the legacy regression to require the saved draft, a single persisted format retry, no repeated generation or tools, continued draft privacy, and blocking after exhaustion. Production retry and publication policies remain unchanged.",
+    "validation": {
+      "portable_production_regressions": "PASSED: 98 tests, including the previously failing recovery class and current reviewed-session/checkpoint cases. Host adapters do not qualify Android execution.",
+      "kotlin_format": "PASSED: ktlint 1.3.1",
+      "android": "PENDING on updated published head"
+    }
+  },
+  "diagnostic_packaging_followup": {
+    "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+    "working_branch": "fix/github-log-scroll-stability-2026-11-03",
+    "base_sha": "df96568485182c3f3c152b22e7d2447b399daefc",
+    "main_sha": "94d8a4a87f3e27b838439c4ae6b3d32171c7b90a",
+    "intent": "Bound the diagnostic APK compression pool and clean up stalled build descendants while retaining all validation and memory limits.",
+    "workflow_run": 41674885494,
+    "job": 126053566137,
+    "finding": "Android unit tests and lint passed. Native compilation completed, but packageDebug emitted no further output from 17:02:20Z until the 20-minute APK step timeout at 17:13:53Z. Four build processes survived into final job cleanup. The retained log establishes a packaging stall, not a confirmed OOM or signing deadlock.",
+    "comparison": "The same head passed PR Validation APK packaging (job 126053339333), UI Review APK, both API 34/36 emulator suites, native smoke and GenieX preview. The diagnostic failure remains a merge blocker regardless of these passes.",
+    "repair": "Bound ApkFlinger common-pool parallelism to two while preserving the 3072 MiB heap, 1024 MiB metaspace, one Gradle worker, signing and 20-minute step limit. Use the existing tested 1140-second process-group deadline so a stalled daemon cannot overlap lint. Capture bounded heap/thread diagnostics after 15 minutes without environment or command-line arguments, retained by the existing audit log artifact.",
+    "validation": {
+      "canonical_fast": "PASSED: 301 canonical host tests including actual process-group timeout/descendant termination regressions, CI policy, dependency, secret, regex, resource and provenance checks",
+      "android": "PENDING on the new published head; packaging recovery is not yet qualified",
+      "workflow_syntax": "PASSED: workflow YAML and bash -n for every diagnostic workflow run block",
+      "workflow_process_smoke": "PASSED: execute the actual APK shell block against fast-success, exit-7 failure and stalled Gradle fixtures; preserve exit 0/7/124, terminate timer promptly and capture stall diagnostics"
+    },
+    "state": "HOST_VALIDATED_PENDING_ANDROID"
+  },
+  "watchdog_review_followup": {
+    "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+    "base_branch": "main",
+    "base_sha": "3de77a00946f5c621443dc7c8668dc8879ef0d1c",
+    "working_branch": "fix/github-log-scroll-stability-2026-11-03",
+    "head_sha": "f748fa502919774485171a167ead0c7316098bc6",
+    "parent_pr": 793,
+    "intent": "Keep diagnostic process-list SIGPIPE from suppressing subsequent bounded heap/thread probes; preserve build exit codes and deadlines.",
+    "regression_before_repair": "Actual APK shell under bash -e -o pipefail preserved exit 0/7/124, but forced process-list SIGPIPE 141 stopped the stall watchdog before heap/thread capture.",
+    "state": "HOST_VALIDATED_PENDING_EXACT_REVISION_CI",
+    "validation": {
+      "actual_shell": "PASSED under bash -e -o pipefail: fast success exits 0, failure exits 7, stall exits 124 and terminates its child; forced ps exit 141 no longer prevents bounded heap/thread capture. Repository 900/1140 second budgets unchanged.",
+      "canonical_fast": "PASSED: all 301 canonical host tests and policy/dependency/secret/regex/resource/provenance checks",
+      "android": "PENDING fresh published head; not executed locally",
+      "workflow_syntax": "PASSED: YAML parse and bash -n for every diagnostic run block"
+    },
+    "main_reconciliation": "PR #793 merged concurrently. A three-way merge of f748fa5 and main 3de77a0 has the identical f748fa5 tree; retain main as second parent with no feature changes."
+  }
+}

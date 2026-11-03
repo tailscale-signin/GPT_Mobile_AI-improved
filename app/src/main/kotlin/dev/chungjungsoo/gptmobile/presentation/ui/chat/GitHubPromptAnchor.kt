@@ -1,11 +1,13 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
-/** Gesture distances are pixels supplied by the UI's current density. Streaming never moves the anchor. */
+/** Intent comes only from a sustained user drag, never streaming layout changes or inertia. */
 internal class GitHubPromptAnchor(private val releaseDistance: Float, private val resumeDistance: Float) {
     var attached = true
         private set
     private var towardHistory = 0f
     private var towardCurrent = 0f
+    private var historyStartedAt: Long? = null
+    private var lastHistoryAt: Long? = null
 
     data class Movement(val consumed: Float = 0f, val reattach: Boolean = false)
 
@@ -22,21 +24,21 @@ internal class GitHubPromptAnchor(private val releaseDistance: Float, private va
     fun beginGesture() {
         towardHistory = 0f
         towardCurrent = 0f
+        historyStartedAt = null
+        lastHistoryAt = null
     }
 
-    /** onPreFling is a user gesture; a fast flick can express intent without a long drag. */
+    /** A quick upward flick must not bypass the one-second history-release gesture. */
     fun fling(velocity: Float, threshold: Float): Movement {
-        if (attached && velocity > threshold) {
-            detach()
-        } else if (!attached && velocity < -threshold) {
+        if (!attached && velocity < -threshold) {
             attach()
             return Movement(velocity, reattach = true)
         }
         return Movement()
     }
 
-    /** Positive motion reveals older messages. Inertial deltas never change intent; user flings are handled separately. */
-    fun move(delta: Float, distanceToPrompt: Float, userInput: Boolean): Movement {
+    /** Positive motion reveals history; negative motion returns to the current prompt. */
+    fun move(delta: Float, distanceToPrompt: Float, userInput: Boolean, nowMillis: Long = System.nanoTime() / 1_000_000): Movement {
         if (delta == 0f) return Movement()
         if (!userInput) return Movement(if (attached && delta > 0) (delta - distanceToPrompt.coerceAtLeast(0f)).coerceAtLeast(0f) else 0f)
         if (!attached) {
@@ -48,15 +50,28 @@ internal class GitHubPromptAnchor(private val releaseDistance: Float, private va
             return Movement()
         }
         if (delta <= 0) {
-            towardHistory = 0f
+            beginGesture()
             return Movement()
         }
         val excess = (delta - distanceToPrompt.coerceAtLeast(0f)).coerceAtLeast(0f)
+        if (excess == 0f) {
+            beginGesture()
+            return Movement()
+        }
+        // Holding a finger still, reversing direction or separate swipes cannot accumulate time.
+        if (lastHistoryAt?.let { nowMillis - it !in 0..250 } == true) beginGesture()
+        if (historyStartedAt == null) historyStartedAt = nowMillis
+        lastHistoryAt = nowMillis
         towardHistory += excess
-        if (towardHistory >= releaseDistance) {
+        if (towardHistory >= releaseDistance && nowMillis - requireNotNull(historyStartedAt) >= HISTORY_RELEASE_MILLIS) {
             detach()
             return Movement()
         }
         return Movement(excess)
+    }
+
+    companion object {
+        const val PROMPT_ANIMATION_MILLIS = 1500
+        const val HISTORY_RELEASE_MILLIS = 1000L
     }
 }

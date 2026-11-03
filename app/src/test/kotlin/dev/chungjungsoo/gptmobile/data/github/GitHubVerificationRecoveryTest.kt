@@ -58,7 +58,7 @@ class GitHubVerificationRecoveryTest {
         assertFalse(events.contains(ProviderEvent.Completed))
     }
 
-    @Test fun invalidReviewGetsOneDifferentFormatRepairAndBlocksUnchangedResume() = runBlocking {
+    @Test fun invalidReviewRepairsFormatAndAllowsOnlyOneSavedRetryBeforeBlocking() = runBlocking {
         val rows = mutableMapOf<String, JsonObject>()
         fun checkpoint() = GitHubReviewCheckpoint("task", { rows[it] }, { key, value -> rows[key] = value })
         val prompts = mutableListOf<String>()
@@ -72,10 +72,26 @@ class GitHubVerificationRecoveryTest {
         assertTrue(prompts[1].contains("format_repair"))
         assertEquals("GITHUB_REVIEW_INVALID_VERDICT", first.filterIsInstance<ProviderEvent.Failed>().single().errorCode)
         assertEquals(JsonPrimitive("BLOCKED"), rows.getValue("active")["state"])
-        val resumed = GitHubReviewedSession(answer("must not regenerate"), GitHubReviewEvidence(), "task", 8192, { _, _ -> error("Unchanged review must not repeat") }, {}, checkpoint = checkpoint())
+        val noRegeneration = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = error("Saved draft must not regenerate or repeat tools")
+        }
+        val resumed = GitHubReviewedSession(noRegeneration, GitHubReviewEvidence(), "task", 8192, { prompt, _ ->
+            prompts += prompt
+            answer("still not JSON")
+        }, {}, checkpoint = checkpoint())
         val second = resumed.streamRound(emptyList(), emptyList()).toList()
-        assertEquals("GITHUB_REVIEW_BLOCKED", second.filterIsInstance<ProviderEvent.Failed>().single().errorCode)
+        assertEquals("GITHUB_REVIEW_INVALID_VERDICT", second.filterIsInstance<ProviderEvent.Failed>().single().errorCode)
+        assertEquals(4, prompts.size)
+        assertTrue(prompts[2].contains("private draft"))
+        assertTrue(prompts[3].contains("format_repair"))
+        assertEquals(JsonPrimitive(1), rows.getValue("active")["format_retries"])
+        assertEquals(JsonPrimitive("BLOCKED"), rows.getValue("active")["state"])
         assertTrue(second.none { it is ProviderEvent.TextDelta })
+        val exhausted = GitHubReviewedSession(noRegeneration, GitHubReviewEvidence(), "task", 8192, { _, _ -> error("Exhausted review must not repeat") }, {}, checkpoint = checkpoint())
+        val third = exhausted.streamRound(emptyList(), emptyList()).toList()
+        assertEquals("GITHUB_REVIEW_BLOCKED", third.filterIsInstance<ProviderEvent.Failed>().single().errorCode)
+        assertTrue(third.none { it is ProviderEvent.TextDelta })
+        assertEquals(4, prompts.size)
     }
 
     @Test fun malformedVerdictCanRecoverOnceWithoutRerunningTools() = runBlocking {

@@ -5,6 +5,7 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
@@ -55,6 +56,8 @@ internal class GitHubReviewCheckpoint(
         require(receipts.size <= 4096 && receipts.sumOf { it.toByteArray().size.toLong() } <= 16 * 1024 * 1024)
         val draftRef = text(draft)
         val refs = receipts.map { text(it) }
+        val previous = read("active")
+        val sameCandidate = previous?.get("task") == JsonPrimitive(taskHash) && previous["draft"] == JsonPrimitive(draftRef) && previous["receipts"] == JsonArray(refs.map(::JsonPrimitive))
         write(
             "active",
             buildJsonObject {
@@ -62,8 +65,19 @@ internal class GitHubReviewCheckpoint(
                 put("draft", draftRef)
                 put("receipts", JsonArray(refs.map(::JsonPrimitive)))
                 put("state", "PENDING")
+                put("format_retries", if (sameCandidate) (previous.get("format_retries") as? JsonPrimitive)?.intOrNull ?: 0 else 0)
             }
         )
+    }
+
+    /** One explicit restart may recover a model format failure. Persist before dispatch. */
+    suspend fun claimFormatRetry(): Boolean {
+        val current = read("active") ?: return false
+        if (current["task"] != JsonPrimitive(taskHash) || current["state"] != JsonPrimitive("BLOCKED") || current["failure_code"] != JsonPrimitive("GITHUB_REVIEW_INVALID_VERDICT")) return false
+        val attempts = (current["format_retries"] as? JsonPrimitive)?.intOrNull ?: 0
+        if (attempts != 0) return false
+        write("active", JsonObject(current + mapOf("state" to JsonPrimitive("PENDING"), "format_retries" to JsonPrimitive(1))))
+        return true
     }
     suspend fun load(): Saved? {
         val row = read("active") ?: return null

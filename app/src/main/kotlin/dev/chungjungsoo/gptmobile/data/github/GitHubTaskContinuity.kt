@@ -2,24 +2,49 @@ package dev.chungjungsoo.gptmobile.data.github
 
 /** Only explicit controls and equivalent integration-test requests may reuse the active task. */
 internal object GitHubTaskContinuity {
-    fun diagnostic(text: String): Boolean = Regex("(?i)\\b(?:why|explain|what happened|reason)\\b").containsMatchIn(text) && Regex("(?i)\\b(?:stopp?ed|stop|interrupt(?:ed|ion)?|incomplete|previous (?:run|response)|last (?:run|response))\\b").containsMatchIn(text)
+    /** Strip only the exact workspace header emitted by GitHubProgrammerViewModel. */
+    fun request(text: String): String = text.trim().replaceFirst(
+        Regex("^GitHub workspace: [^\\s/]+/[^\\s/]+\\r?\\nBranch: [^\\r\\n]+\\r?\\n\\r?\\n"),
+        ""
+    ).trim()
+
+    fun diagnostic(text: String): Boolean {
+        val prompt = request(text)
+        val question = Regex("(?i)\\b(?:why|explain|what happened|reason)\\b").containsMatchIn(prompt)
+        val previous = Regex("(?i)\\b(?:stopp?ed|stop|interrupt(?:ed|ion)?|incomplete|previous (?:run|response)|last (?:run|response))\\b").containsMatchIn(prompt)
+        val assistantFailure = Regex("(?i)\\b(?:you|your (?:answer|response)|the (?:assistant|answer|response|reviewer))\\b").containsMatchIn(prompt) &&
+            Regex("(?i)\\b(?:fail(?:ed|ing|ure|ures)?|blank|empty|withheld|blocked|stuck)\\b").containsMatchIn(prompt)
+        return question && (previous || assistantFailure)
+    }
+
+    /** This identifies a resume request only. The claimed commit is verified by read receipts. */
+    fun publishedCommit(text: String): String? = Regex(
+        "^Commit ([a-fA-F0-9]{40}) was approved and published\\. Continue from the saved task using this exact commit\\. Subscribe with github_watch_checks when CI is pending; do not repeat the commit\\.$"
+    ).matchEntire(request(text))?.groupValues?.get(1)?.lowercase(java.util.Locale.ROOT)
+
+    fun control(text: String): Boolean = request(text).lowercase(java.util.Locale.ROOT).trimEnd('.', '!', '?').trim() in
+        setOf("continue", "continue run", "continue response", "resume", "proceed", "retry", "retry failed stage", "try again") ||
+        publishedCommit(text) != null
+
     fun reuse(current: String, previous: String): Boolean = diagnostic(current) ||
-        current.trim().lowercase().trimEnd('.', '!', '?') in setOf("continue", "continue run", "resume", "proceed", "retry", "try again") ||
-        GitHubTestChecklist.integration(current) &&
-        GitHubTestChecklist.integration(previous) &&
-        !Regex("(?i)\\b(?:new|fresh|restart|start over|different)\\b").containsMatchIn(current)
+        control(current) ||
+        GitHubTestChecklist.integration(request(current)) &&
+        GitHubTestChecklist.integration(request(previous)) &&
+        !Regex("(?i)\\b(?:new|fresh|restart|start over|different)\\b").containsMatchIn(request(current))
 
     fun explain(verdict: kotlinx.serialization.json.JsonObject?, receipts: Map<String, kotlinx.serialization.json.JsonObject>): String {
-        fun kotlinx.serialization.json.JsonObject.text(key: String) = (get(key) as? kotlinx.serialization.json.JsonPrimitive)?.content.orEmpty()
+        fun kotlinx.serialization.json.JsonObject.text(key: String) = (get(key) as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { it.isString }?.content.orEmpty()
         if (verdict == null) return "The previous run's terminal verification record is unavailable. Its cause cannot be established from the retained operation receipts. ${receipts.size} prior receipts are available; successful tool calls alone do not establish task completion."
         val reason = verdict.text("verification_failure").ifBlank { verdict.text("failure_code") }.ifBlank { "No failure code was recorded" }
         val last = receipts.values.lastOrNull { it["success"] == kotlinx.serialization.json.JsonPrimitive(true) }
-        val unfinished = ((verdict["test_checklist"] as? kotlinx.serialization.json.JsonObject)?.get("capabilities") as? kotlinx.serialization.json.JsonArray).orEmpty().mapNotNull { it as? kotlinx.serialization.json.JsonObject }.filter { it.text("status") != "PASSED" }
+        val unfinished = ((verdict["test_checklist"] as? kotlinx.serialization.json.JsonObject)?.get("capabilities") as? kotlinx.serialization.json.JsonArray).orEmpty().mapNotNull { it as? kotlinx.serialization.json.JsonObject }.filter { it.text("status") !in setOf("PASSED", "RECOVERED") }
         return buildString {
             append("The previous response ended with **${reason.replace(Regex("[^A-Z0-9_]"), " ")}**. ")
             append(
                 when (reason) {
                     "GITHUB_TASK_INCOMPLETE" -> "The completion check found unfinished requirements. This is partial task completion; it does not establish a tool or transport failure."
+                    "GITHUB_REVIEW_INVALID_VERDICT", "GITHUB_REVIEW_BLOCKED" -> "The reviewer did not supply a valid structured verdict. This does not prove that a GitHub operation failed; the private draft remains unverified. Retry can resume the bounded format recovery without repeating completed operations."
+                    "ANSWER_REQUEST_UNSATISFIED", "EMPTY_ANSWER", "EMPTY_MODEL_ROUND" -> "The model produced no usable visible answer. Reasoning or token usage alone cannot satisfy the request."
                     "GITHUB_EVIDENCE_REQUIRED" -> "The answer verifier could not establish the requested claims from the evidence supplied to that run."
                     else -> "This is the recorded terminal reason; no additional cause has been established."
                 }

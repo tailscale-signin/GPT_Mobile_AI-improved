@@ -345,8 +345,7 @@ private class StreamingMessageBuffer(
             statusSummary = true
         )
         if (githubProgress) {
-            val priorSummary = timeline.lastOrNull { it.statusSummary }
-            if (priorSummary?.content != item.content.take(600)) {
+            if (timeline.none { it.statusSummary && it.content == item.content.take(600) }) {
                 timeline += item.copy(content = item.content.take(600), progressCheckpoint = true)
             }
             chunk.preview?.takeIf(String::isNotBlank)?.let { preview ->
@@ -387,7 +386,7 @@ private class StreamingMessageBuffer(
     private fun boundGitHubProgress() {
         if (!githubProgress) return
         var excess = timeline.count { it.progressCheckpoint } - 48
-        if (excess > 0) timeline.removeAll { it.progressCheckpoint && excess-- > 0 }
+        if (excess > 0) timeline.removeAll { it.progressCheckpoint && dev.chungjungsoo.gptmobile.data.github.GitHubProgressPresentation.liveKey(it.content) == null && excess-- > 0 }
         // Retained rows keep their identity when the bounded history shifts.
         for (index in timeline.indices) {
             val item = timeline[index]
@@ -457,6 +456,15 @@ private class StreamingMessageBuffer(
 
     fun appendProgress(text: String, modelAuthored: Boolean) {
         flushTimelineText()
+        val liveKey = if (githubProgress && !modelAuthored) dev.chungjungsoo.gptmobile.data.github.GitHubProgressPresentation.liveKey(text) else null
+        if (liveKey != null) {
+            val index = timeline.indexOfLast { it.progressCheckpoint && dev.chungjungsoo.gptmobile.data.github.GitHubProgressPresentation.liveKey(it.content) == liveKey }
+            val item = AssistantTimelineItem(AssistantTimelineItemType.NOTICE, content = text.take(4000), progressCheckpoint = true, progressId = liveKey)
+            if (index < 0) timeline += item else timeline[index] = item
+            boundGitHubProgress()
+            timelineVersion++
+            return
+        }
         if (!modelAuthored && repeatsGitHubPreview(text)) return
         val last = timeline.lastOrNull()
         if (modelAuthored && last?.progressCheckpoint == true && (!githubProgress || last.modelAuthored) && !last.statusSummary) {

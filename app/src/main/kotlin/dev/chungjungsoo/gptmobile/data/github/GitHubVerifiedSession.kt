@@ -64,16 +64,20 @@ internal class GitHubVerifiedSession(
         }
         if (GitHubTestChecklist.integration(task) && (tools.isNotEmpty() || evidence.snapshot().first.values.any { it["trusted"] == kotlinx.serialization.json.JsonPrimitive(true) })) {
             val receipts = evidence.snapshot().first
-            val checkpoint = GitHubTestChecklist.checkpoint(task, receipts, authorizedTools)
+            val (checkpoint, planned, missing) = withContext(computationDispatcher) {
+                Triple(
+                    GitHubTestChecklist.checkpoint(task, receipts, authorizedTools),
+                    GitHubTestChecklist.nextCall(task, tools, receipts),
+                    authorizedTools.filter { definition -> definition.name.startsWith("github_") && tools.none { it.name == definition.name } && receipts.values.none { it["tool"] == kotlinx.serialization.json.JsonPrimitive(definition.name) } }.take(12)
+                )
+            }
             val discovery = tools.firstOrNull { it.name == "discover_available_tools" }
             val discovered = receipts.values.any { it["tool"] == kotlinx.serialization.json.JsonPrimitive("discover_available_tools") }
-            val planned = GitHubTestChecklist.nextCall(task, tools, receipts)
-            val missing = authorizedTools.filter { definition -> definition.name.startsWith("github_") && tools.none { it.name == definition.name } && receipts.values.none { it["tool"] == kotlinx.serialization.json.JsonPrimitive(definition.name) } }.take(12)
             val discoveryArgs = if (!discovered) JsonObject(emptyMap()) else buildJsonObject { put("names", JsonArray(missing.map { kotlinx.serialization.json.JsonPrimitive(it.name) })) }
             val discoveryAlreadyTried = receipts.values.any { it["tool"] == kotlinx.serialization.json.JsonPrimitive("discover_available_tools") && it["arguments"] == discoveryArgs }
             val next = if (discovery != null && (!discovered || planned == null && missing.isNotEmpty()) && !discoveryAlreadyTried) ProviderEvent.ToolCall("checklist-discovery-" + GitHubEvidenceBook.digest(discoveryArgs.toString()).take(20), discovery.name, discoveryArgs) else planned
             if (checkpoint != lastChecklist) {
-                if (receipts.isNotEmpty()) evidence.retainChecklist(checkpoint)
+                if (receipts.isNotEmpty()) withContext(computationDispatcher) { evidence.retainChecklist(checkpoint) }
                 lastChecklist = checkpoint
                 if (receipts.isNotEmpty()) {
                     progress(GitHubTestChecklist.progressSummary(checkpoint, next))
@@ -224,8 +228,10 @@ internal class GitHubVerifiedSession(
                 withContext(computationDispatcher) { verificationRequest(draft, receipts) }
             }
             val (renderedText, report) = status ?: coverage ?: if (request == null) partial(receipts, epoch, failureCode ?: "GITHUB_EXTRACTION_UNAVAILABLE") else extract(request, receipts, epoch)
-            val checklist = if (coverage != null) GitHubTestChecklist.checkpoint(task, receipts, authorizedTools) else null
-            val progressDigest = checklist?.let { GitHubTestChecklist.progressDigest(task, receipts, authorizedTools) }
+            val (checklist, progressDigest) = withContext(computationDispatcher) {
+                val checklist = if (coverage != null) GitHubTestChecklist.checkpoint(task, receipts, authorizedTools) else null
+                checklist to checklist?.let { GitHubTestChecklist.progressDigest(task, receipts, authorizedTools) }
+            }
             val stalled = progressDigest != null && evidence.diagnostic()?.get("checklist_progress_digest") == kotlinx.serialization.json.JsonPrimitive(progressDigest)
             val text = if (stalled) {
                 val blockers = (checklist?.get("capabilities") as? JsonArray).orEmpty().filterIsInstance<JsonObject>().filter { it["blocker"] != null }

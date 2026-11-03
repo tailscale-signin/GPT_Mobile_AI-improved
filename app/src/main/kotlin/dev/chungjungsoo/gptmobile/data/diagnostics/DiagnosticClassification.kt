@@ -13,6 +13,8 @@ internal fun classifyDiagnostic(level: String?, tag: String?, message: String): 
     val capturedTag = capturedAndroidPrefix.find(diagnosticRecorderPayload(message))?.groupValues?.get(1)?.trim()?.lowercase()
     return when {
         "oom_recovery" in text || "out_of_memory_recovered" in text -> DiagnosticClassification("memory_recovery", "warning", true, "retained_state_after_oom")
+        text.startsWith("run_terminal") && Regex("(?:^| · )status=(?:partial|blocked|evidence_missing)(?: · |$)").containsMatchIn(text) ->
+            DiagnosticClassification("task_incomplete", "warning", true, "resume_pending_work_or_resolve_blocker")
         "outofmemoryerror" in text || "failed to allocate" in text && "bytes" in text -> DiagnosticClassification("fatal", "critical", true, "reduce_peak_memory")
         text.startsWith("synthesis_quality") && "completed_with_issues" in text -> DiagnosticClassification("combined_contract", "warning", true, "retain_answer_and_review_quality")
         "required_work_unfunded" in text || "optional combined work allowance" in text -> DiagnosticClassification("admission", "warning", true, "retain_pending_work")

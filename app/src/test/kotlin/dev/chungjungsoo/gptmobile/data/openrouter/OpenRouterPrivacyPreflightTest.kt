@@ -20,4 +20,10 @@ class OpenRouterPrivacyPreflightTest {
     @Test fun incompleteMetadataIsUnknownAndCannotInventCompatibilityOrIncompatibility() {
         assertNull(OpenRouterPrivacyPreflight.compatible(Json.parseToJsonElement("""[{"model_id":"vendor/model"}]""") as JsonArray, "vendor/model", OpenRouterProviderRouting(zdr = true)))
     }
+
+    @Test fun dynamicRoutersAndFamilyAliasesRequireServerResolution() {
+        for (model in listOf("openrouter/auto", "openrouter/free", "~vendor/latest")) {
+            assertNull(OpenRouterPrivacyPreflight.compatible(rows, model, OpenRouterProviderRouting(zdr = true)))
+        }
+    }
 }

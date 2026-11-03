@@ -126,7 +126,7 @@ class GitHubIncidentRegressionTest {
             )
         )
         val representative = requireNotNull(GitHubTestChecklist.nextCall("test all tools", tools, records))
-        assertEquals(JsonPrimitive("status"), representative.arguments["action"])
+        assertEquals(page["arguments"], representative.arguments)
         assertEquals(page, GitHubTestChecklist.pendingPages(records).single())
         val local = ProviderEvent.ToolCall("local", "github_ci", page["arguments"] as JsonObject)
         records[local.callId] = receipt(

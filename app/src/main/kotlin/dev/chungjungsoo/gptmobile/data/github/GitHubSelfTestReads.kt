@@ -24,16 +24,20 @@ internal object GitHubSelfTestReads {
             fields.firstNotNullOfOrNull { root[it] as? JsonArray }.orEmpty().filterIsInstance<JsonObject>()
         }
         val status = roots("github_context", "status").firstOrNull()
-        val sha = status?.get("commit_sha")
+        val sha = (status?.get("commit_sha") as? JsonPrimitive)?.takeIf { it.content.matches(Regex("[a-fA-F0-9]{40}")) }
         val branch = status?.get("branch")
-        val run = records("github_ci", "runs", "workflow_runs").firstOrNull { it.text("status") == "completed" }
+        val run = records("github_ci", "runs", "workflow_runs").firstOrNull { it.text("status") == "completed" && it.text("conclusion") !in setOf("skipped", "neutral") }
             ?: records("github_ci", "runs", "workflow_runs").firstOrNull()
-        val job = records("github_ci", "jobs", "jobs").firstOrNull { it.text("status") == "completed" }
+        val logAttempts = observations.filter { it.text("tool").substringBefore("__") == "github_ci" && (it["arguments"] as? JsonObject)?.text("action") == "logs" }
+        val job = records("github_ci", "jobs", "jobs").firstOrNull { candidate ->
+            candidate.text("status") == "completed" &&
+                candidate.text("conclusion") !in setOf("skipped", "neutral", "cancelled") &&
+                logAttempts.none { (it["arguments"] as? JsonObject)?.get("job_id") == candidate["id"] }
+        }
         val pr = records("github_pr", "list", "pull_requests", "items").firstOrNull()
         val issue = records("github_issue", "list", "items", "issues").firstOrNull { "pull_request" !in it }
         val release = records("github_release", "list", "items", "releases").firstOrNull()
         val tag = records("github_release", "tags", "items", "tags").firstOrNull()
-        val workflow = records("github_ci", "workflows", "workflows").firstOrNull()
         val paths = records("github_search", "search", "matches", "results", "files", "items")
         val path = paths.firstNotNullOfOrNull { it["path"] as? JsonPrimitive }
         val recipes = buildList<Pair<String, JsonObject>> {
@@ -52,7 +56,7 @@ internal object GitHubSelfTestReads {
                 recipe("github_context", "changes", "base_sha" to sha, "commit_sha" to sha)
             }
             if (branch != null) listOf("branch", "branch_dependencies").forEach { recipe("github_context", it, "branch" to branch) }
-            ((status?.get("repository") as? JsonObject)?.get("full_name"))?.let { recipe("github_context", "repositories", "query" to it) }
+            // The programmer workspace is pinned to one repository; account-wide discovery is outside its scope.
             recipe("github_search", "search", "query" to JsonPrimitive("README"), "mode" to JsonPrimitive("paths"), "commit_sha" to sha)
             if (path != null) {
                 recipe(
@@ -73,10 +77,13 @@ internal object GitHubSelfTestReads {
                 listOf("search_repository", "search_code").forEach { recipe("github_search", it, "query" to path, "mode" to JsonPrimitive("paths"), "path_suffix" to path, "commit_sha" to sha) }
             }
             recipe("github_issue", "list", "state" to JsonPrimitive("all"))
-            listOf("status", "tags", "list").forEach { recipe("github_release", it) }
+            listOf("tags", "list").forEach { recipe("github_release", it) }
+            (release?.get("tag_name") ?: tag?.get("name"))?.let { recipe("github_release", "status", "tag_name" to it) }
             tag?.get("name")?.let { recipe("github_release", "tag", "tag_name" to it) }
             release?.get("tag_name")?.let { recipe("github_release", "detail", "tag_name" to it) }
-            workflow?.get("id")?.let { recipe("github_ci", "definitions", "workflow_id" to it, "commit_sha" to sha) }
+            // Actions inventory includes deleted and generated workflows. Discover definitions
+            // from the pinned source tree instead of assuming the first live ID exists there.
+            if (sha != null) recipe("github_ci", "definitions", "commit_sha" to sha)
             run?.get("id")?.let { id ->
                 listOf("run", "status", "jobs", "artifacts").forEach { recipe("github_ci", it, "run_id" to id) }
                 if (run.text("status") == "completed" && run.text("conclusion") in setOf("failure", "timed_out")) recipe("github_ci", "failure", "run_id" to id)
@@ -90,7 +97,18 @@ internal object GitHubSelfTestReads {
         }
         for ((name, args) in recipes) {
             val tool = tools.firstOrNull { it.name.substringBefore("__") == name } ?: continue
-            if (observations.any { it.text("tool") == tool.name && (it["arguments"] as? JsonObject)?.text("action") == args.text("action") }) continue
+            val prior = observations.filter { it.text("tool") == tool.name && (it["arguments"] as? JsonObject)?.text("action") == args.text("action") }
+            if (prior.isNotEmpty()) {
+                if (prior.any { it["success"] == JsonPrimitive(true) || it["arguments"] == args }) continue
+                // Correct legacy planner arguments once. Authorization failures never
+                // unlock another attempt, and absent logs get only one alternate job.
+                val correctable = when (name to args.text("action")) {
+                    "github_release" to "status", "github_ci" to "definitions" -> prior.all { it.text("error_code") == "INVALID_ARGUMENTS" }
+                    "github_ci" to "logs" -> prior.size == 1 && prior.single().text("error_code") == "GITHUB_NOT_FOUND_OR_HIDDEN"
+                    else -> false
+                }
+                if (!correctable) continue
+            }
             if (ToolArgumentValidator.errors(args, tool.inputSchema).isNotEmpty()) continue
             return ProviderEvent.ToolCall("checklist-" + GitHubEvidenceBook.digest("${tool.name}:$args").take(24), tool.name, args)
         }

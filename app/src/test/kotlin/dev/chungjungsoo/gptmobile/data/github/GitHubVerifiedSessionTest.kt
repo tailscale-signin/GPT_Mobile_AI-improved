@@ -12,6 +12,8 @@ import dev.chungjungsoo.gptmobile.data.agent.GitHubTaskRecovery
 import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import dev.chungjungsoo.gptmobile.data.context.TextTokenEstimate
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
@@ -31,6 +33,19 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubVerifiedSessionTest {
+    @Test fun checklistPlanningYieldsToTheComputationDispatcher() = runTest {
+        val tools = listOf(AgentToolDefinition("github_context", "Status", JsonObject(emptyMap())))
+        val gate = GitHubVerifiedSession(
+            answer("unused"), GitHubEvidenceBook("b", "o/r", "main", setOf("github_context")),
+            "test all tools", { 8192 }, { error("No model for checklist planning") }, {}, {},
+            computationDispatcher = StandardTestDispatcher(testScheduler), authorizedTools = tools
+        )
+        val result = async(start = CoroutineStart.UNDISPATCHED) { gate.streamRound(tools, emptyList()).toList() }
+        assertFalse(result.isCompleted)
+        testScheduler.runCurrent()
+        assertEquals(JsonPrimitive("status"), result.await().filterIsInstance<ProviderEvent.ToolCall>().single().arguments["action"])
+    }
+
     @Test fun invalidReviewerCanRecoverOnlyReceiptBackedClaimsFromPrivateDraft() = runBlocking {
         val book = GitHubEvidenceBook("b", "o/r", "main", setOf("github_context"), now = { 1000L })
         val call = ProviderEvent.ToolCall("read", "github_context", Json.parseToJsonElement("""{"action":"checks"}""").jsonObject)

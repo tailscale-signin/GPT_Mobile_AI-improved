@@ -44,7 +44,7 @@ class TaskRecoveryActionTest {
 
     @Test fun textRetryCommandsReopenBudgetRefusalsButContinueCommandsDoNot() {
         val original = user(1, "Inspect the repository")
-        for (command in listOf("retry", "Retry full", "retry failed stage", "try again")) {
+        for (command in listOf("test again", "retest", "retry", "Retry full", "retry failed stage", "try again")) {
             assertTrue(resolveTaskRecovery(listOf(original, user(2, command)))!!.retryUndispatchedBudgetFailures)
         }
         for (command in listOf("continue", "retry writing", "proceed primary-only")) {

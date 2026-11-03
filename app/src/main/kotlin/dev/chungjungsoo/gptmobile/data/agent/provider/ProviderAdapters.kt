@@ -971,6 +971,9 @@ class OpenAICompatibleAdapter @Inject constructor(
                                     }
                                 }
                             }
+                        if (roundFailed && parsedRouting != null) {
+                            privacyPreflight?.recordRejection(platform.apiUrl.orEmpty(), activeKey, platform.model, parsedRouting, lastFailedMessage.orEmpty())
+                        }
                         assembler.discardIncomplete().forEach { publishAssembly(it) }
                         llamaReasoningParser?.flush()?.forEach { state ->
                             state.toProviderEvent()?.let { emit(it) }

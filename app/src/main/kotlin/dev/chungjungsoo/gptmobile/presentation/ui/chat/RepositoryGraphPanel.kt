@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material.icons.outlined.AccountTree
 import androidx.compose.material3.Card
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -56,7 +57,9 @@ import kotlinx.serialization.json.put
 fun RepositoryGraphPanel(context: GitHubConversationContext, profile: PlatformV2?, model: RepositoryGraphViewModel = hiltViewModel()) {
     if (!GitHubAutonomousEngineeringPolicy.supportsSavedJobs(profile)) return
     var open by remember(context) { mutableStateOf(false) }
-    TextButton(onClick = { open = true }) { Text("Repository map") }
+    androidx.compose.material3.IconButton(onClick = { open = true }) {
+        androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.Outlined.AccountTree, contentDescription = "Open repository map")
+    }
     if (!open) return
     LaunchedEffect(context) { model.bind(context) }
     val state by model.state.collectAsStateWithLifecycle()

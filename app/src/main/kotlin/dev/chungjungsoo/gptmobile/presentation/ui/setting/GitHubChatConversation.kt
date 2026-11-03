@@ -3,6 +3,7 @@ package dev.chungjungsoo.gptmobile.presentation.ui.setting
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -10,6 +11,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -64,17 +66,29 @@ internal fun GitHubChatConversation(
                     }
                 }
                 androidx.compose.runtime.CompositionLocalProvider(dev.chungjungsoo.gptmobile.presentation.ui.chat.LocalChatProgressInHeader provides true) {
-                    ChatScreen(
-                        chatViewModel = model,
-                        onBackAction = onBack,
-                        onOpenConversation = { id, _ -> onOpenConversation(id) },
-                        onReviewEvidenceAccess = onReviewEvidenceAccess,
-                        onNavigateToLocalModels = onNavigateToLocalModels,
-                        showTopBar = false,
-                        allowResearchPanels = false,
-                        exportRequestedForChatId = chatId.takeIf { exportRequested },
-                        onExportHandled = onExportHandled
-                    )
+                    val typography = MaterialTheme.typography
+                    fun larger(style: androidx.compose.ui.text.TextStyle) = style.copy(fontSize = (style.fontSize.value + 2).sp, lineHeight = (style.lineHeight.value + 2).sp)
+                    MaterialTheme(
+                        typography = typography.copy(
+                            bodySmall = larger(typography.bodySmall), bodyMedium = larger(typography.bodyMedium), bodyLarge = larger(typography.bodyLarge),
+                            titleSmall = larger(typography.titleSmall), titleMedium = larger(typography.titleMedium), titleLarge = larger(typography.titleLarge),
+                            labelSmall = larger(typography.labelSmall), labelMedium = larger(typography.labelMedium), labelLarge = larger(typography.labelLarge),
+                            headlineSmall = larger(typography.headlineSmall), headlineMedium = larger(typography.headlineMedium), headlineLarge = larger(typography.headlineLarge),
+                            displaySmall = larger(typography.displaySmall), displayMedium = larger(typography.displayMedium), displayLarge = larger(typography.displayLarge)
+                        )
+                    ) {
+                        ChatScreen(
+                            chatViewModel = model,
+                            onBackAction = onBack,
+                            onOpenConversation = { id, _ -> onOpenConversation(id) },
+                            onReviewEvidenceAccess = onReviewEvidenceAccess,
+                            onNavigateToLocalModels = onNavigateToLocalModels,
+                            showTopBar = false,
+                            allowResearchPanels = false,
+                            exportRequestedForChatId = chatId.takeIf { exportRequested },
+                            onExportHandled = onExportHandled
+                        )
+                    }
                 }
             }
         }

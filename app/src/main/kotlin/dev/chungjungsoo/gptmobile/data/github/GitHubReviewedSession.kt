@@ -96,6 +96,7 @@ internal class GitHubReviewedSession(
             val latest = evidence.snapshot()
             if (saved.blockedReason != null && latest.all { it in saved.receipts }) {
                 if (saved.blockedReason != "GITHUB_REVIEW_INVALID_VERDICT" || checkpoint?.claimFormatRetry() != true) {
+                    progress("Answer review is blocked · saved draft and ${saved.receipts.size} evidence records retained · change the draft, evidence or reviewer configuration before retrying")
                     emit(ProviderEvent.Failed("Saved review requires new evidence or a changed draft: ${saved.blockedReason}", errorCode = "GITHUB_REVIEW_BLOCKED", transportComplete = true))
                     return@flow
                 }
@@ -198,12 +199,15 @@ internal class GitHubReviewedSession(
             }
             val blocked = failure !is ReviewPassFailure || failure.splittable
             checkpoint?.failed(code, blocked)
+            val formatRetry = failure is ReviewVerdictFailure && checkpoint?.formatRetryAvailable() == true
             val recovery = when {
-                failure is ReviewVerdictFailure -> "Retained facts remain available. One explicit retry may resume format recovery; repeated invalid verdicts require a changed draft or new evidence."
+                formatRetry -> "The saved draft and evidence remain available. One explicit retry can resume answer review without repeating GitHub operations."
+                failure is ReviewVerdictFailure -> "Saved review requires new evidence or a changed draft; the bounded format retry is exhausted. Choose a reviewer that supports the required verdict format."
                 blocked -> "Retained facts remain available; the unchanged draft will not be reviewed again."
                 else -> "Retry can resume saved verdicts after model availability recovers."
             }
-            emit(ProviderEvent.Failed("GitHub answer withheld: ${failure.message.orEmpty().take(1200)} $recovery", errorCode = code, transportComplete = true))
+            progress("Answer review blocked · $code · saved draft and ${receipts.size} evidence records retained. $recovery")
+            emit(ProviderEvent.Failed("$code: GitHub answer withheld: ${failure.message.orEmpty().take(1200)} $recovery", errorCode = code, transportComplete = true))
         }
     }
 

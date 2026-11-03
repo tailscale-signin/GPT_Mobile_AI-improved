@@ -6,6 +6,15 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class DiagnosticIncidentClassificationTest {
+    @Test fun incompleteTasksRemainActionableWithoutMisclassifyingUserCancellation() {
+        for (status in listOf("PARTIAL", "BLOCKED", "EVIDENCE_MISSING")) {
+            val result = classifyDiagnostic("I", "Agent", "RUN_TERMINAL · runId=run-1 · status=$status · reason=TASK_INCOMPLETE")
+            assertTrue(result.actionable)
+            assertEquals("task_incomplete", result.category)
+        }
+        assertFalse(classifyDiagnostic("I", "Agent", "RUN_TERMINAL · status=CANCELED · reason=USER_WHOLE_RUN").actionable)
+    }
+
     @Test fun transportFallbackPreservesComponentAndRecoveryClassifications() {
         assertEquals("transport_availability", classifyDiagnostic("I", "Gateway", "Unexpected end of stream").category)
         assertEquals("native_operation_failure", classifyDiagnostic("I", "LocalModel", "SEND_FAILED · unexpected end of stream").category)

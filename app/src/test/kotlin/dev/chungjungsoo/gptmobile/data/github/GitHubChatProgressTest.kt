@@ -31,7 +31,7 @@ class GitHubChatProgressTest {
         for (tool in listOf("web_search__connection", "fetch_webpage")) {
             val progress = GitHubChatProgress("Investigate the issue")
             progress.observe(ApiState.GatewayProgressChanged(GatewayProgress(event = "tool_started", toolName = tool)))
-            val preview = progress.updates().take(2).toList().last().preview.orEmpty()
+            val preview = progress.updates().take(1).toList().single().preview.orEmpty()
             assertEquals(GitHubProgressPresentation.PreviewKind.WEB, GitHubProgressPresentation.previewKind(preview))
             assertEquals(GitHubProgressPresentation.PreviewKind.WEB, GitHubProgressPresentation.previewKind(GitHubChatProgress.milestone(tool, false, false)))
         }
@@ -54,19 +54,24 @@ class GitHubChatProgressTest {
 
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     @Test
-    fun taskIntroductionIsImmediateAndUnchangedHeartbeatsAreSuppressed() = kotlinx.coroutines.test.runTest {
+    fun updatesFollowEventsImmediatelyAndDoNotRepeatIdleHeartbeats() = kotlinx.coroutines.test.runTest {
         val progress = GitHubChatProgress()
-        val received = mutableListOf<Long>()
-        val collection = launch { progress.updates().take(3).collect { received += testScheduler.currentTime } }
+        val received = mutableListOf<ApiState.ActivitySummary>()
+        val collection = backgroundScope.launch { progress.updates().collect { received += it } }
         runCurrent()
         advanceTimeBy(60_000)
         runCurrent()
-        assertEquals(listOf(0L, 20_000L), received)
-        progress.observe(ApiState.Thinking("private planning"))
-        advanceTimeBy(20_000)
+        assertEquals(1, received.size)
+        progress.observe(ApiState.GatewayProgressChanged(GatewayProgress(event = "tool_started", toolName = "github_ci", toolArgs = kotlinx.serialization.json.Json.parseToJsonElement("""{"action":"logs","job_id":42}""") as kotlinx.serialization.json.JsonObject)))
         runCurrent()
-        collection.join()
-        assertEquals(listOf(0L, 20_000L, 80_000L), received)
+        assertEquals(2, received.size)
+        assertTrue(received.last().text.contains("Job 42"))
+        assertTrue(received.last().text.contains("failing step"))
+        progress.observe(ApiState.Thinking("unrelated private text"))
+        advanceTimeBy(60_000)
+        runCurrent()
+        assertEquals(2, received.size)
+        collection.cancel()
     }
 
     @Test fun summariesBindTheTaskToObservedActivityAndKeepPreviewSeparate() = kotlinx.coroutines.test.runTest {
@@ -77,12 +82,12 @@ class GitHubChatProgressTest {
         assertTrue(first.text.startsWith("I’ll"))
         assertTrue(first.preview.orEmpty().contains("Preparing"))
         progress.observe(ApiState.GatewayProgressChanged(GatewayProgress(event = "tool_started", toolName = "github_read__account")))
-        assertTrue(progress.heartbeat().contains("Reading the relevant source files"))
+        assertTrue(progress.heartbeat().contains("where the behavior originates"))
         progress.observe(ApiState.GatewayProgressChanged(GatewayProgress(event = "tool_completed", toolName = "github_read__account")))
         progress.observe(ApiState.GatewayProgressChanged(GatewayProgress(event = "tool_started", toolName = "github_ci__account")))
-        val update = progress.updates().take(2).toList().last()
-        assertTrue(update.text.contains("Repository information is ready to review"))
-        assertTrue(update.text.contains("Inspecting the build and test results"))
+        val update = progress.updates().take(1).toList().single()
+        assertFalse(update.text.contains("Repository information is ready to review"))
+        assertTrue(update.text.contains("pending or skipped jobs"))
         assertEquals("Inspecting the build and test results.", update.preview)
         assertFalse(update.text.contains("passed") || update.text.contains("github_read"))
     }

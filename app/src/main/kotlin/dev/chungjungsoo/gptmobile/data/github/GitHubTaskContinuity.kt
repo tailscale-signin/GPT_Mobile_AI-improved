@@ -23,7 +23,7 @@ internal object GitHubTaskContinuity {
     ).matchEntire(request(text))?.groupValues?.get(1)?.lowercase(java.util.Locale.ROOT)
 
     fun control(text: String): Boolean = request(text).lowercase(java.util.Locale.ROOT).trimEnd('.', '!', '?').trim() in
-        setOf("continue", "continue run", "continue response", "resume", "proceed", "retry", "retry failed stage", "try again") ||
+        setOf("test again", "retest", "continue", "continue run", "continue response", "resume", "proceed", "retry", "retry failed stage", "try again") ||
         publishedCommit(text) != null
 
     fun reuse(current: String, previous: String): Boolean = diagnostic(current) ||

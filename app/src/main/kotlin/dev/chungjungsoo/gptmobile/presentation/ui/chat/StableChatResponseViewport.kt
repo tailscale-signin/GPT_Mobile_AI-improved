@@ -24,7 +24,7 @@ internal fun StableChatResponseViewport(contentKey: Any, reservedHeight: Dp = 0.
         // after rotation, split-screen resizing or a font change distorts the turn.
         val measuredHeights = remember(maxWidth, density.density, density.fontScale) { mutableStateMapOf<Any, Int>() }
         val minimumHeight = with(density) { (measuredHeights.values.maxOrNull() ?: 0).toDp() }
-        Box(Modifier.fillMaxWidth().heightIn(min = maxOf(minimumHeight, reservedHeight))) {
+        Box(Modifier.fillMaxWidth().heightIn(min = maxOf(minimumHeight, reservedHeight)), contentAlignment = androidx.compose.ui.Alignment.TopStart) {
             // Measure natural content rather than the reserved outer height.
             Column(Modifier.fillMaxWidth().onSizeChanged { measuredHeights[contentKey] = it.height }, content = content)
         }

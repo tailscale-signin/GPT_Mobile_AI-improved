@@ -18,6 +18,8 @@ Android build 138. Signed release of the merged GitHub, voice, recovery and gate
 
 - Pin four publisher-verified Byte Buddy and MockK test artifacts required by cold lint resolution, and require canonical PR Validation to pass on the exact published commit.
 
+- Complete required release lint in a separate bounded process before APK packaging so cold lint analysis cannot retain the heap needed by Zipflinger; lint failures still block packaging.
+
 ## Qualification and remaining work
 
 - Unified Reliability v2 is not complete; its remaining acceptance cases are not represented as passed.

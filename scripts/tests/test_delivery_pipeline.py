@@ -64,7 +64,7 @@ class PipelineTest(unittest.TestCase):
                 self.assertTrue(any('ForkJoinPool.common.parallelism=2' in arg for arg in package))
                 self.assertIn(f'-PgeniexRuntime={str(runtime == "geniex").lower()}', shrink)
                 self.assertTrue(any('minify' in arg for arg in shrink))
-        for args in [('legacy', 'debug', 'shrink'), ('evil;touch file', 'debug', 'debug'), ('legacy', 'debug', 'bundle')]:
+        for args in [('legacy', 'debug', 'shrink'), ('legacy', 'debug', 'lint'), ('evil;touch file', 'debug', 'debug'), ('legacy', 'debug', 'bundle')]:
             with self.assertRaises(ValueError):
                 pipeline.command_for(*args)
 
@@ -78,6 +78,37 @@ class PipelineTest(unittest.TestCase):
                 pipeline.execute('legacy', 'debug', 'debug', output, Mock(side_effect=KeyboardInterrupt))
             self.assertEqual('INTERRUPTED', json.loads(output.read_text())['status'])
             self.assertFalse(json.loads(output.read_text())['remote_state_changed'])
+
+    def test_release_packaging_waits_for_separate_lint_process(self):
+        for variant in ('release', 'nativeSmoke'):
+            with self.subTest(variant=variant), tempfile.TemporaryDirectory() as directory:
+                output = Path(directory) / 'package.json'
+                run = Mock(return_value=subprocess.CompletedProcess([], 0))
+                self.assertEqual(0, pipeline.execute('legacy', variant, 'package', output, run))
+                self.assertEqual(2, run.call_count)
+                lint, package = [call.args[0] for call in run.call_args_list]
+                suffix = variant[0].upper() + variant[1:]
+                self.assertIn(f':app:lintVital{suffix}', lint)
+                self.assertNotIn(f':app:assemble{suffix}', lint)
+                self.assertIn(f':app:assemble{suffix}', package)
+                for command in (lint, package):
+                    self.assertIn('--no-daemon', command)
+                    self.assertIn('--max-workers=1', command)
+                    self.assertNotIn('-x', command)
+                self.assertEqual('COMPLETED', json.loads(output.read_text())['status'])
+                self.assertEqual('COMPLETED', json.loads(output.with_name('package-lint.json').read_text())['status'])
+
+    def test_failed_release_lint_prevents_packaging(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / 'package.json'
+            run = Mock(return_value=subprocess.CompletedProcess([], 23))
+            self.assertEqual(23, pipeline.execute('legacy', 'release', 'package', output, run))
+            self.assertEqual(1, run.call_count)
+            self.assertIn(':app:lintVitalRelease', run.call_args.args[0])
+            checkpoint = json.loads(output.read_text())
+            self.assertEqual('FAILED', checkpoint['status'])
+            self.assertEqual('lint', checkpoint['failed_phase'])
+            self.assertEqual(23, checkpoint['exit_code'])
 
 
 class VisualRegressionTest(unittest.TestCase):

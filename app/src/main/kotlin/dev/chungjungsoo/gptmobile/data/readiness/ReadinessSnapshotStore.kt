@@ -23,6 +23,13 @@ internal class ReadinessSnapshotStore<K, V>(private val maxEntries: Int = 16, pr
         return true
     }
 
+    /** A slow disk restore must never replace a live response published in the meantime. */
+    @Synchronized
+    fun restore(key: K, value: V, bytes: Int, expectedEpoch: Long): Boolean {
+        if (entries.containsKey(key)) return false
+        return publish(key, value, bytes, expectedEpoch)
+    }
+
     @Synchronized
     fun invalidate() {
         generation.incrementAndGet()

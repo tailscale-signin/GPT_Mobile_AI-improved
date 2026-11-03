@@ -40,6 +40,12 @@ internal class ResearchConnectivityGate(private val now: () -> Long = { System.n
         if (lease != 0L && probeLease == lease) probeLease = null
     }
 
+    @Synchronized fun recoveryDelayMillis(host: String? = null): Long {
+        expire()
+        if (dnsIndependent(host) || healthy(host)) return 0
+        return maxOf((blockedUntil - now()).coerceAtLeast(0), if (probeLease == null) 0 else (120_000L - (now() - probeStarted)).coerceAtLeast(0))
+    }
+
     @Synchronized fun success(host: String) {
         val key = host.lowercase().trim().removeSuffix(".")
         if (key.isEmpty()) return

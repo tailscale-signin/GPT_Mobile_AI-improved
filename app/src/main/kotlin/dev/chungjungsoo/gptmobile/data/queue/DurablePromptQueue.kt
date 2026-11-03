@@ -109,6 +109,9 @@ class DurablePromptQueue @Inject constructor(
                                 queuedPausedProfiles = pausedProfiles
                             )
                         )
+                        result.runs.forEach { run ->
+                            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Send", "QUEUED_SEND_ACCEPTED · requestId=${payload.requestId ?: prompt.id} · queueId=${prompt.id} · runId=${run.runId} · chatId=$chatId · dispatched=false")
+                        }
                         val users = before.filter { it.platformType == null } + result.userMessage
                         val assistants = users.map { user ->
                             (before + result.assistantMessages).filter { it.platformType != null && it.linkedMessageId == user.id }
@@ -144,7 +147,9 @@ class DurablePromptQueue @Inject constructor(
 
     suspend fun enqueue(chatId: Int, text: String, payload: PendingPromptPayload) {
         require(chatId > 0 && (text.isNotBlank() || payload.attachments.isNotEmpty()))
-        dao.enqueue(PendingPrompt(UUID.randomUUID().toString(), chatId, text, Json.encodeToString(payload), 0))
+        val promptId = UUID.randomUUID().toString()
+        dao.enqueue(PendingPrompt(promptId, chatId, text, Json.encodeToString(payload), 0))
+        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Send", "SEND_QUEUE_PERSISTED · requestId=${payload.requestId ?: promptId} · queueId=$promptId · chatId=$chatId")
         start()
     }
 

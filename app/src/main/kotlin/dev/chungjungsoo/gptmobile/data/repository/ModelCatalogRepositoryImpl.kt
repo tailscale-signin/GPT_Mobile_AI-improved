@@ -14,6 +14,7 @@ import java.io.File
 import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 class ModelCatalogRepositoryImpl(
@@ -27,6 +28,31 @@ class ModelCatalogRepositoryImpl(
 ) : ModelCatalogRepository {
 
     private val refreshMutex = kotlinx.coroutines.sync.Mutex()
+    private val refreshWindow = CatalogRefreshWindow()
+    private var lastRemoteCatalog: ModelCatalog? = null
+
+    private suspend fun fetchRemoteCatalog(): ModelCatalog? = refreshMutex.withLock {
+        val time = System.nanoTime() / 1_000_000
+        if (!refreshWindow.available(time, dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.networkEpoch)) return@withLock lastRemoteCatalog
+        var failureClass = "INVALID_OR_UNSUPPORTED_CATALOG"
+        val result = fetchParsableCatalog(
+            source = {
+                try {
+                    fetchRemoteJson()
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Exception) {
+                    failureClass = dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.classify(error).name
+                    throw error
+                }
+            },
+            onParsed = writeCacheJson
+        )
+        refreshWindow.completed(System.nanoTime() / 1_000_000, result != null)
+        lastRemoteCatalog = result
+        if (result == null) dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("ModelCatalog", "REFRESH_UNAVAILABLE · failureClass=$failureClass · lastValidRetained=true · boundedBackoff=true", "W")
+        result
+    }
 
     // Fast in-memory cache to avoid redundant JSON parsing across screen navigations
     private val inMemoryCatalogCache = AtomicReference<ModelCatalog?>(null)
@@ -69,9 +95,8 @@ class ModelCatalogRepositoryImpl(
     )
 
     override suspend fun getSnapshot(refresh: Boolean): dev.chungjungsoo.gptmobile.data.catalog.CatalogSnapshot = withContext(Dispatchers.IO) {
-        if (refresh) refreshMutex.lock()
-        try {
-            val remote = if (refresh) fetchParsableCatalog({ fetchRemoteJson() }, writeCacheJson) else null
+        run {
+            val remote = if (refresh) fetchRemoteCatalog() else null
             val cached = inMemoryCatalogCache.get() ?: fetchParsableCatalog({ readCacheJson() })
             val bundled = fetchParsableCatalog({ readBundledJson() })
             val selected = listOfNotNull(remote, cached, bundled).maxByOrNull { it.revision }
@@ -87,18 +112,13 @@ class ModelCatalogRepositoryImpl(
                 selected != null,
                 selected?.source
             )
-        } finally {
-            if (refresh) refreshMutex.unlock()
         }
     }
 
     override suspend fun getVisibleEntries(): List<CatalogEntry> = withContext(Dispatchers.IO) {
         visibleEntries(
             remote = {
-                fetchParsableCatalog(
-                    source = { fetchRemoteJson() },
-                    onParsed = writeCacheJson
-                )
+                fetchRemoteCatalog()
             },
             cached = {
                 inMemoryCatalogCache.get() ?: fetchParsableCatalog(source = { readCacheJson() })

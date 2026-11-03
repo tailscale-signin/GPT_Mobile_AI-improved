@@ -85,6 +85,8 @@ object ResilientStreamingClient {
     }
 
     fun isRetryable(throwable: Throwable): Boolean {
+        if (generateSequence(throwable) { it.cause?.takeUnless { cause -> cause === it } }.take(8).any { it is kotlinx.serialization.SerializationException }) return false
+
         val causes = generateSequence(throwable) { it.cause?.takeUnless { cause -> cause === it } }.take(8).toList()
         // Older gateways wrapped model contract failures as HTTP 502. Replaying
         // those requests restarts the entire budget after the bounded repair.

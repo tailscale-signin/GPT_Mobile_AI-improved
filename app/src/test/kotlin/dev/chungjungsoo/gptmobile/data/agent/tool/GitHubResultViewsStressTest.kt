@@ -19,6 +19,19 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubResultViewsStressTest {
+    @Test fun alteredRecoveryCursorGetsExactIssuedCorrectionWithoutGrantingAnUnissuedOffset() {
+        val views = GitHubResultViews(pageBytes = 2048)
+        val first = data(views.present("scope", "github_read", "github_read", AgentToolResult("first", ToolResultContent.Json(JsonPrimitive("source")), false)))
+        val issued = first.getValue("recovery_call").jsonObject.getValue("arguments").jsonObject.getValue("view_cursor").jsonPrimitive.content
+        val altered = issued.substringBeforeLast(':')
+        val refused = views.read("scope", "github_read", "github_read", altered, "altered")
+        assertEquals("SAVED_VIEW_CURSOR_ALTERED", refused.errorCode)
+        assertEquals(JsonPrimitive(issued), data(refused).getValue("correction_call").jsonObject.getValue("arguments").jsonObject["view_cursor"])
+        assertFalse(refused.dispatched)
+        assertEquals("SAVED_VIEW_UNAVAILABLE", views.read("other", "github_read", "github_read", altered, "foreign").errorCode)
+        assertEquals("SAVED_VIEW_UNAVAILABLE", views.read("scope", "github_read", "github_read", issued.substringBefore(':') + ":999", "guessed").errorCode)
+    }
+
     @Test fun expiredImmutableViewsExposeExactRecoveryOnlyToTheirAuthorizedScope() {
         var clock = 0L
         val views = GitHubResultViews(now = { clock })

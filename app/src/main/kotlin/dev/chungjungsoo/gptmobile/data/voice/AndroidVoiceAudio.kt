@@ -31,9 +31,15 @@ class AndroidVoiceAudio internal constructor(
     private var generation = 0L
     private var pendingSpeech: (() -> Unit)? = null
     private var playbackError: ((String) -> Unit)? = null
+    private val recognitionGate = RecognitionStartGate()
 
     override fun listen(listener: VoiceAudio.Listener) {
         check(Looper.myLooper() == Looper.getMainLooper())
+        if (closed || recognizer != null) return
+        if (!recognitionGate.acquire()) {
+            listener.error("The speech service is cooling down. Wait a moment, then tap the wave to listen again.")
+            return
+        }
         stop()
         if (closed) return
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
@@ -68,12 +74,19 @@ class AndroidVoiceAudio internal constructor(
                     if (active()) listener.partial(partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull().orEmpty())
                 }
                 override fun onResults(results: Bundle?) {
-                    if (active()) listener.final(results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull().orEmpty())
+                    if (!active()) return
+                    val text = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull().orEmpty()
+                    stop()
+                    listener.final(text)
                 }
                 override fun onError(error: Int) {
                     if (!active()) return
+                    recognitionGate.failed(error == SpeechRecognizer.ERROR_TOO_MANY_REQUESTS)
+                    stop()
                     listener.error(
                         when (error) {
+                            SpeechRecognizer.ERROR_TOO_MANY_REQUESTS -> "The speech service received too many requests. Wait ten seconds, then tap the wave to retry."
+                            SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "The speech service is busy. Wait a moment before trying again."
                             SpeechRecognizer.ERROR_NO_MATCH, SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "I didn’t catch that. Tap the wave to listen again."
                             SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "Microphone permission is needed for voice chat."
                             SpeechRecognizer.ERROR_NETWORK, SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "The speech service could not connect. Tap to try again."
@@ -92,6 +105,8 @@ class AndroidVoiceAudio internal constructor(
                 }
             )
         } catch (_: Exception) {
+            recognitionGate.failed(false)
+            stop()
             listener.error("Could not open the microphone. Check Android permissions and your speech service.")
         }
     }

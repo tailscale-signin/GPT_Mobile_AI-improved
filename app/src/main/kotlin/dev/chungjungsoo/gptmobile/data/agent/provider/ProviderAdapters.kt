@@ -704,7 +704,9 @@ class OpenAICompatibleAdapter @Inject constructor(
                                     ).forEach { state ->
                                         state.toProviderEvent()?.let { publish(it) }
                                     }
-                                    if (choice.finishReason != null) terminalReceived = true
+                                    if (choice.finishReason != null) {
+                                        terminalReceived = true
+                                    }
                                     if (choice.finishReason == "length") {
                                         assembler.discardIncomplete()
                                         emit(ProviderEvent.Usage(finishReason = choice.finishReason))

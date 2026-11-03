@@ -603,22 +603,28 @@ class ChatViewModel @Inject constructor(
     }
 
     fun askQuestion() {
+        val attempt = dev.chungjungsoo.gptmobile.data.diagnostics.SendAttemptTrace()
         val questionText = question.text.toString()
         val hasReadyAttachments = _selectedAttachments.value.any { it.status == ChatAttachmentDraft.Status.Ready }
         val hasPreparingAttachments = _selectedAttachments.value.any { it.status == ChatAttachmentDraft.Status.Preparing }
-        if (questionText.isBlank() && !hasReadyAttachments && !hasPreparingAttachments) return
+        if (questionText.isBlank() && !hasReadyAttachments && !hasPreparingAttachments) {
+            attempt.finish("EMPTY_INPUT")
+            return
+        }
         if (_selectedAttachments.value.any { it.status == ChatAttachmentDraft.Status.Failed }) {
             _attachmentNotice.update { "Remove failed attachments before sending." }
+            attempt.finish("ATTACHMENT_FAILED")
             return
         }
 
         if (hasPreparingAttachments) {
             // Do not accept a half-prepared submission or clear a newer composer draft.
             _attachmentNotice.value = "Preparing attachments. Your draft is kept until they are ready."
+            attempt.finish("ATTACHMENT_PREPARING")
             return
         }
 
-        submitOrQueueQuestion(questionText, _selectedAttachments.value)
+        submitOrQueueQuestion(questionText, _selectedAttachments.value, attempt)
     }
 
     private fun rejectUnavailableFreeProfile(profile: PlatformV2): Boolean {
@@ -628,32 +634,42 @@ class ChatViewModel @Inject constructor(
         return true
     }
 
-    private fun submitOrQueueQuestion(questionText: String, attachments: List<ChatAttachmentDraft>) {
+    private fun submitOrQueueQuestion(questionText: String, attachments: List<ChatAttachmentDraft>, attempt: dev.chungjungsoo.gptmobile.data.diagnostics.SendAttemptTrace = dev.chungjungsoo.gptmobile.data.diagnostics.SendAttemptTrace()) {
         if (_combinedSettingsSaveState.value.isCommitting) {
             _attachmentNotice.value = "Saving the Combined setup. Your message draft is kept."
+            attempt.finish("VALIDATION_REJECTED")
             return
         }
         val oneMessageUid = nextMessageProfileUid.value
         if (oneMessageUid != null && (oneMessageUid !in _activePlatformUids.value || oneMessageUid in _disabledPlatformUids.value || _platformsInApp.value.none { it.uid == oneMessageUid && it.enabled })) {
             _attachmentNotice.value = "The one-message profile is unavailable. Choose another profile; your draft is kept."
+            attempt.finish("VALIDATION_REJECTED")
             return
         }
         val acceptedTools = try {
             captureCombinedTools(questionText)
         } catch (error: IllegalArgumentException) {
             _attachmentNotice.value = error.message ?: "Could not accept the Combined setup. Your draft is kept."
+            attempt.finish("VALIDATION_REJECTED")
             return
         }
         val acceptedProfiles = acceptedTools.combined?.requested?.participantUids ?: oneMessageUid?.let(::listOf) ?: _activePlatformUids.value
         val acceptedModels = acceptedTools.combined?.requested?.requestedModels ?: _chatPlatformModels.value
         val unavailable = if (acceptedTools.combined != null) emptyList() else _platformsInApp.value.filter { it.uid in acceptedProfiles && (acceptedTools.combined != null || it.uid !in _disabledPlatformUids.value) }.map { it.copy(model = acceptedModels[it.uid] ?: it.model) }.filter { rejectUnavailableFreeProfile(it) }
-        if (unavailable.isNotEmpty()) return
+        if (unavailable.isNotEmpty()) {
+            attempt.finish("PROFILE_UNAVAILABLE")
+            return
+        }
         if (isGenerationBusy() || !hasUnpausedProfile() || _pendingPrompts.value.isNotEmpty()) {
             if (durablePromptQueue != null) {
-                if (queueSubmissionPending) return
+                if (queueSubmissionPending) {
+                    attempt.finish("QUEUE_SAVE_IN_PROGRESS")
+                    return
+                }
                 val roomId = _chatRoom.value.id
                 if (roomId == 0) {
                     _attachmentNotice.value = "The conversation is starting. Your draft is kept; send it again when ready."
+                    attempt.finish("CONVERSATION_STARTING")
                     return
                 }
                 queueSubmissionPending = true
@@ -667,16 +683,20 @@ class ChatViewModel @Inject constructor(
                                 snapshot.mapNotNull { it.attachment },
                                 acceptedProfiles,
                                 acceptedModels,
-                                acceptedTools
+                                acceptedTools,
+                                requestId = attempt.requestId
                             )
                         )
+                        attempt.finish("DURABLY_QUEUED")
                         if (nextMessageProfileUid.value == oneMessageUid) savedStateHandle["nextMessageProfileUid"] = null
                         if (question.text.toString() == questionText) question.clearText()
                         _selectedAttachments.update { current -> current.filterNot { it in snapshot } }
                         _attachmentNotice.value = "Queued. Use the buttons beside the message to edit or stop it."
                     } catch (cancellation: CancellationException) {
+                        attempt.finish("QUEUE_SAVE_CANCELLED")
                         throw cancellation
                     } catch (_: Exception) {
+                        attempt.finish("QUEUE_SAVE_FAILED")
                         _attachmentNotice.value = "Could not save the queued prompt. Your draft is kept."
                     } finally {
                         queueSubmissionPending = false
@@ -689,11 +709,11 @@ class ChatViewModel @Inject constructor(
             _queuedPromptCount.value = queuedPrompts.size
             question.clearText()
             _selectedAttachments.value = emptyList()
-
+            attempt.finish("SESSION_QUEUED")
             return
         }
         savedStateHandle["nextMessageProfileUid"] = null
-        sendQuestion(questionText, attachments, profileUid = oneMessageUid, acceptedTools = acceptedTools)
+        sendQuestion(questionText, attachments, profileUid = oneMessageUid, acceptedTools = acceptedTools, attempt = attempt)
     }
 
     private fun captureCombinedTools(text: String): ChatMcpToolConfig {
@@ -2488,7 +2508,8 @@ class ChatViewModel @Inject constructor(
     private fun completeChat(
         persistSnapshotFirst: Boolean = false,
         oneMessageUid: String? = null,
-        acceptedTools: ChatMcpToolConfig = _chatToolConfig.value
+        acceptedTools: ChatMcpToolConfig = _chatToolConfig.value,
+        attempt: dev.chungjungsoo.gptmobile.data.diagnostics.SendAttemptTrace = dev.chungjungsoo.gptmobile.data.diagnostics.SendAttemptTrace()
     ) {
         // Update all the platform loading states to Loading
         _loadingStates.update { List(enabledPlatformsInChat.size) { LoadingState.Loading } }
@@ -2496,8 +2517,15 @@ class ChatViewModel @Inject constructor(
 
         pendingRunDispatches += 1
         val readinessLease = dev.chungjungsoo.gptmobile.data.readiness.ReadinessWorkloadSignals.enter()
-        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Readiness", "SEND_TAPPED")
         viewModelScope.launch {
+            var acceptedRunIds = emptyList<String>()
+            suspend fun failUndispatched(reason: String) {
+                withContext(kotlinx.coroutines.NonCancellable) {
+                    acceptedRunIds.forEach { runId ->
+                        chatRepository.finishQueuedAgentRun(runId, AgentRunStatus.FAILED, currentTimeStamp, reason)
+                    }
+                }
+            }
             try {
                 val disabled = _disabledPlatformUids.value
                 val activeUids = acceptedTools.combined?.requested?.participantUids?.toSet()
@@ -2516,6 +2544,7 @@ class ChatViewModel @Inject constructor(
                     }
                 if (acceptedTools.combined == null && platforms.any { rejectUnavailableFreeProfile(it.value) }) {
                     _loadingStates.update { List(enabledPlatformsInChat.size) { LoadingState.Idle } }
+                    attempt.finish("PREPARATION_REJECTED")
                     return@launch
                 }
                 val unavailableIndexes = enabledPlatformsInChat.indices - platforms.mapTo(mutableSetOf()) { it.index }
@@ -2526,12 +2555,14 @@ class ChatViewModel @Inject constructor(
                 }
                 if (platforms.isEmpty()) {
                     _loadingStates.update { List(enabledPlatformsInChat.size) { LoadingState.Idle } }
+                    attempt.finish("PREPARATION_REJECTED")
                     return@launch
                 }
                 val timestamp = currentTimeStamp
                 val userMessage = _groupedMessages.value.userMessages.getOrNull(turnIndex)
                 if (userMessage == null) {
                     _loadingStates.update { List(enabledPlatformsInChat.size) { LoadingState.Idle } }
+                    attempt.finish("PREPARATION_REJECTED")
                     return@launch
                 }
                 var dispatchTools = acceptedTools
@@ -2586,6 +2617,8 @@ class ChatViewModel @Inject constructor(
                         )
                     },
                     startProvider = { persisted ->
+                        acceptedRunIds = persisted.runs.map { it.runId }
+                        attempt.accepted(acceptedRunIds, persisted.chatRoom.id, persisted.userMessage.id)
                         _agentRunsById.update { it + persisted.runs.associateBy(AgentRun::runId) }
                         val wasNewConversation = _chatRoom.value.id <= 0
                         _chatRoom.update { persisted.chatRoom }
@@ -2673,12 +2706,17 @@ class ChatViewModel @Inject constructor(
                         )
                     },
                     onFailure = { error ->
+                        attempt.finish("PERSISTENCE_FAILED")
                         showPersistenceFailure(turnIndex, platforms.map { it.index }, error)
                     }
                 )
             } catch (cancelled: CancellationException) {
+                attempt.finish("PREPARATION_CANCELLED")
+                failUndispatched("PREPARATION_CANCELLED_BEFORE_HANDOFF")
                 throw cancelled
             } catch (error: Exception) {
+                attempt.finish("PREPARATION_FAILED")
+                failUndispatched("PREPARATION_FAILED_BEFORE_HANDOFF: ${error.javaClass.simpleName}")
                 val user = _groupedMessages.value.userMessages.getOrNull(turnIndex)
                 if (user != null && user.id <= 0 && question.text.isEmpty()) question.edit { append(user.content) }
                 _attachmentNotice.value = error.message ?: "The accepted request could not start. Your question is kept."
@@ -2855,7 +2893,8 @@ class ChatViewModel @Inject constructor(
         attachments: List<ChatAttachmentDraft>,
         clearComposer: Boolean = true,
         profileUid: String? = null,
-        acceptedTools: ChatMcpToolConfig = captureCombinedTools(questionText)
+        acceptedTools: ChatMcpToolConfig = captureCombinedTools(questionText),
+        attempt: dev.chungjungsoo.gptmobile.data.diagnostics.SendAttemptTrace = dev.chungjungsoo.gptmobile.data.diagnostics.SendAttemptTrace()
     ) {
         MessageV2(
             chatId = chatRoomId,
@@ -2872,7 +2911,7 @@ class ChatViewModel @Inject constructor(
             val index = enabledPlatformsInChat.indexOf(uid)
             if (index >= 0) _indexStates.update { states -> states.dropLast(1) + index }
         }
-        completeChat(oneMessageUid = profileUid, acceptedTools = acceptedTools)
+        completeChat(oneMessageUid = profileUid, acceptedTools = acceptedTools, attempt = attempt)
     }
 
     private fun rejectDraftAttachment(

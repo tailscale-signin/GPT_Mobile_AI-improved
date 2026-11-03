@@ -87,10 +87,11 @@ class McpClientManager internal constructor(
     private val statistics: dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsRepository? = null,
     private val retryJitterMs: () -> Long = { kotlin.random.Random.nextLong(0, 1001) },
     private val catalogueScope: kotlinx.coroutines.CoroutineScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO),
-    private val catalogueTimeoutMs: Long = 30_000L
+    private val catalogueTimeoutMs: Long = 30_000L,
+    private val savedCatalogues: McpCatalogStore? = null
 ) {
     @Inject
-    constructor(networkClient: NetworkClient, mediaStore: McpMediaStore, interactions: McpInteractions, tasks: dev.chungjungsoo.gptmobile.data.workspace.RemoteTaskStore, trust: dev.chungjungsoo.gptmobile.data.permissions.ToolTrustStore, statistics: dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsRepository, @dev.chungjungsoo.gptmobile.di.ReadinessScope scope: kotlinx.coroutines.CoroutineScope) : this(networkClient(), mediaStore, interactions, modern = ModernMcpTransport(networkClient(), interactions, tasks), trust = trust, statistics = statistics, catalogueScope = scope)
+    constructor(networkClient: NetworkClient, mediaStore: McpMediaStore, interactions: McpInteractions, tasks: dev.chungjungsoo.gptmobile.data.workspace.RemoteTaskStore, trust: dev.chungjungsoo.gptmobile.data.permissions.ToolTrustStore, statistics: dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsRepository, @dev.chungjungsoo.gptmobile.di.ReadinessScope scope: kotlinx.coroutines.CoroutineScope, savedCatalogues: McpCatalogStore) : this(networkClient(), mediaStore, interactions, modern = ModernMcpTransport(networkClient(), interactions, tasks), trust = trust, statistics = statistics, catalogueScope = scope, savedCatalogues = savedCatalogues)
 
     private val mutex = Mutex()
     private val healthOrder = McpHealthObservationOrder()
@@ -132,6 +133,7 @@ class McpClientManager internal constructor(
 
     private val catalogue = dev.chungjungsoo.gptmobile.data.readiness.ReadinessSnapshotStore<String, List<Tool>>(clock = { System.nanoTime() / 1_000_000 })
     private val catalogueIdentities = ConcurrentHashMap<String, Pair<Long, String>>()
+    private val restoredCatalogues = ConcurrentHashMap.newKeySet<String>()
     private val catalogueProducers = ConcurrentHashMap<String, kotlinx.coroutines.Deferred<List<Tool>>>()
 
     fun peekTools(config: McpConnectionConfig): List<Tool>? = catalogue.peek(config.validatedKey() + ":" + dev.chungjungsoo.gptmobile.data.readiness.ReadinessInvalidation.epoch)?.value
@@ -176,6 +178,7 @@ class McpClientManager internal constructor(
 
     fun clearReadinessCache(cancelProducers: Boolean = true) {
         catalogueIdentities.clear()
+        restoredCatalogues.clear()
         catalogue.invalidate()
         if (cancelProducers) {
             synchronized(catalogueProducers) {
@@ -201,6 +204,30 @@ class McpClientManager internal constructor(
             // health controller owns recovery; execution still validates live access.
             return peekToolsForConnection(config.connectionUid, config.endpointUrl, config.allowCleartext).orEmpty()
         }
+        // Restore metadata only for the exact endpoint and credential identity. A saved
+        // schema is never a handshake/authorization receipt; live calls still validate.
+        val restoreEpoch = catalogue.epoch
+        if (restoredCatalogues.size > 64) restoredCatalogues.clear()
+        val restored = if (!forceRefresh && !awaitCompletion && restoredCatalogues.add(key)) {
+            try {
+                savedCatalogues?.load(config.connectionUid, config.catalogueIdentity(), nowMs())?.takeIf {
+                    policyEpoch == dev.chungjungsoo.gptmobile.data.readiness.ReadinessInvalidation.epoch && restoreEpoch == catalogue.epoch
+                }?.let { tools ->
+                    val bytes = tools.sumOf { it.toString().toByteArray().size }
+                    if (catalogue.restore(key, tools, bytes, restoreEpoch)) {
+                        catalogueIdentities[config.connectionUid] = policyEpoch to key
+                        tools
+                    } else {
+                        catalogue.peek(key)?.value
+                    }
+                }
+            } catch (cancelled: CancellationException) {
+                restoredCatalogues.remove(key)
+                throw cancelled
+            }
+        } else {
+            null
+        }
         val producer = synchronized(catalogueProducers) {
             catalogueProducers[key] ?: catalogueScope.async(start = kotlinx.coroutines.CoroutineStart.LAZY) {
                 withTimeout(catalogueTimeoutMs) {
@@ -214,6 +241,13 @@ class McpClientManager internal constructor(
                     if (catalogue.publish(key, tools, bytes.toInt(), epoch)) {
                         if (catalogueIdentities.size >= 16) catalogueIdentities.keys.firstOrNull()?.let(catalogueIdentities::remove)
                         catalogueIdentities[config.connectionUid] = policyEpoch to key
+                        try {
+                            savedCatalogues?.save(config.connectionUid, config.catalogueIdentity(), tools, nowMs())
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (failure: Exception) {
+                            AppLogRecorder.record("MCP", "CATALOG_PERSIST_UNAVAILABLE · connection=${config.connectionUid} · reason=${failure.javaClass.simpleName} · liveCatalogRetained=true", "W")
+                        }
                     }
                     tools
                 }
@@ -223,6 +257,7 @@ class McpClientManager internal constructor(
             }
         }
         producer.start()
+        if (restored != null) return restored
         // Interactive resolution may use a cached snapshot, but a health check must
         // observe the completed catalogue before claiming the endpoint has no tools.
         val result = if (awaitCompletion) {
@@ -244,6 +279,7 @@ class McpClientManager internal constructor(
         return try {
             listToolsUnchecked(config, forceRefresh, observation)
         } catch (cancelled: CancellationException) {
+            AppLogRecorder.record("MCP", "CATALOG_ACQUISITION_CANCELLED · connection=${config.connectionUid} · owner=APPLICATION_DISCOVERY · reason=${if (cancelled is kotlinx.coroutines.TimeoutCancellationException) "CATALOG_DEADLINE" else "OWNER_CANCELLED_OR_INVALIDATED"} · transportFailure=${cancelled is kotlinx.coroutines.TimeoutCancellationException}")
             if (cancelled is kotlinx.coroutines.TimeoutCancellationException) recordFailure(config.connectionUid, McpCatalogueTimeoutException(catalogueTimeoutMs), observation = observation)
             throw cancelled
         } catch (error: Exception) {
@@ -501,35 +537,40 @@ class McpClientManager internal constructor(
         }
     }
 
-    private fun recordFailure(connectionUid: String, error: Throwable, retryAtMs: Long? = null, observation: McpHealthObservationOrder.Token) = healthOrder.publish(observation) {
-        val now = nowMs()
-        var updated = McpConnectionHealth()
-        _health.update { current ->
-            val previous = current[connectionUid] ?: McpConnectionHealth()
-            val failures = previous.consecutiveFailures + 1
-            val delay = retryDelayMs(failures) + retryJitterMs().coerceIn(0, 1000)
-            val authenticationRequired = error.isMcpUnauthorized()
-            updated = previous.copy(
-                state = when {
-                    authenticationRequired -> McpConnectionHealthState.AUTHENTICATION_REQUIRED
-                    error is McpCatalogueTimeoutException -> McpConnectionHealthState.DEGRADED
-                    error is McpEndpointConfigurationException || failures >= CIRCUIT_BREAKER_FAILURES -> McpConnectionHealthState.UNREACHABLE
-                    else -> McpConnectionHealthState.DEGRADED
-                },
-                lastFailureAtMs = now,
-                consecutiveFailures = failures,
-                nextRetryAtMs = if (error is McpEndpointConfigurationException || authenticationRequired) Long.MAX_VALUE else retryAtMs ?: (now + delay),
-                lastError = dev.chungjungsoo.gptmobile.data.diagnostics.redactLogMessage(error.message.orEmpty().take(1024)),
-                connectionHealth = dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.classify(error)
+    private fun recordFailure(connectionUid: String, error: Throwable, retryAtMs: Long? = null, observation: McpHealthObservationOrder.Token) {
+        if (dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.classify(error) == dev.chungjungsoo.gptmobile.data.network.ConnectionHealth.DNS_RECOVERY) return
+        healthOrder.publish(observation) {
+            // A shared DNS lease wait is recovery coordination, not another failed
+            // connection attempt. Do not amplify it into an endpoint circuit breaker.
+            val now = nowMs()
+            var updated = McpConnectionHealth()
+            _health.update { current ->
+                val previous = current[connectionUid] ?: McpConnectionHealth()
+                val failures = previous.consecutiveFailures + 1
+                val delay = retryDelayMs(failures) + retryJitterMs().coerceIn(0, 1000)
+                val authenticationRequired = error.isMcpUnauthorized()
+                updated = previous.copy(
+                    state = when {
+                        authenticationRequired -> McpConnectionHealthState.AUTHENTICATION_REQUIRED
+                        error is McpCatalogueTimeoutException -> McpConnectionHealthState.DEGRADED
+                        error is McpEndpointConfigurationException || failures >= CIRCUIT_BREAKER_FAILURES -> McpConnectionHealthState.UNREACHABLE
+                        else -> McpConnectionHealthState.DEGRADED
+                    },
+                    lastFailureAtMs = now,
+                    consecutiveFailures = failures,
+                    nextRetryAtMs = if (error is McpEndpointConfigurationException || authenticationRequired) Long.MAX_VALUE else retryAtMs ?: (now + delay),
+                    lastError = dev.chungjungsoo.gptmobile.data.diagnostics.redactLogMessage(error.message.orEmpty().take(1024)),
+                    connectionHealth = dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.classify(error)
+                )
+                current + (connectionUid to updated)
+            }
+            statistics?.observeHealth(connectionUid, updated.state.name, "PASSIVE_FAILURE", now)
+            AppLogRecorder.record(
+                "MCP",
+                "Health · connection=$connectionUid · state=${updated.state} · failures=${updated.consecutiveFailures} · retryAtMs=${updated.nextRetryAtMs} · failureClass=${updated.connectionHealth} · error=${updated.lastError.orEmpty()}",
+                "W"
             )
-            current + (connectionUid to updated)
         }
-        statistics?.observeHealth(connectionUid, updated.state.name, "PASSIVE_FAILURE", now)
-        AppLogRecorder.record(
-            "MCP",
-            "Health · connection=$connectionUid · state=${updated.state} · failures=${updated.consecutiveFailures} · retryAtMs=${updated.nextRetryAtMs} · failureClass=${updated.connectionHealth} · error=${updated.lastError.orEmpty()}",
-            "W"
-        )
     }
 
     private fun markRecovering(connectionUid: String) {
@@ -659,7 +700,7 @@ class McpClientManager internal constructor(
             AppLogRecorder.record("MCP", "Connect started · connection=${config.connectionUid} · host=$endpointHost · transportTimeoutMs=$transportConnectTimeoutMs · initializationTimeoutMs=$effectiveSessionTimeoutMs")
             val result = runCatching {
                 val connectivity = dev.chungjungsoo.gptmobile.data.research.academic.ResearchConnectivityGate.shared
-                val lease = connectivity.acquire(endpointHost) ?: error("DNS_RECOVERY: MCP connection is waiting for the single connectivity probe.")
+                val lease = connectivity.acquire(endpointHost) ?: error("DNS_RECOVERY: MCP connection is waiting for the single connectivity probe; retryAfterMs=${connectivity.recoveryDelayMillis(endpointHost)}.")
                 try {
                     val transport = StreamableHttpClientTransport(httpClient, config.endpointUrl) {
                         timeout {
@@ -744,6 +785,9 @@ class McpClientManager internal constructor(
             mutex.unlock()
         }
     }
+
+    private fun McpConnectionConfig.catalogueIdentity(): String =
+        ("catalog-v1|$connectionUid|$endpointUrl|$allowCleartext|${authorizationHeader.orEmpty().sha256()}|${googleApiKey.orEmpty().sha256()}").sha256()
 
     private fun McpConnectionConfig.validatedKey(): String {
         require(connectionUid.isNotBlank()) { "MCP connection ID is required." }

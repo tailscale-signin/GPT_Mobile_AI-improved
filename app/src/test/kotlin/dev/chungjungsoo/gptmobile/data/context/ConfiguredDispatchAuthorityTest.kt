@@ -17,6 +17,19 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ConfiguredDispatchAuthorityTest {
+    @Test fun policyFieldsSerializeNonDefaultPluginGrantsWithoutSortedMapPolymorphism() {
+        val settings = AppFeatureSettings(toolPluginStates = sortedMapOf("second" to false, "first" to false))
+        assertEquals("{\"first\":false,\"second\":false}", ConfiguredDispatchAuthority.policyFields(settings, "p", 1).getValue("tools").toString())
+    }
+
+    @Test fun explicitToolDefaultsDoNotInvalidateAnActiveRequestButRevocationsDo() {
+        val before = AppFeatureSettings()
+        val defaults = before.copy(toolPluginStates = mapOf("news" to before.isToolPluginEnabled("news")))
+        assertEquals(ConfiguredDispatchAuthority.policyRevision(before, "p", 1), ConfiguredDispatchAuthority.policyRevision(defaults, "p", 1))
+        val revoked = before.copy(toolPluginStates = mapOf("news" to !before.isToolPluginEnabled("news")))
+        assertFalse(ConfiguredDispatchAuthority.policyRevision(before, "p", 1) == ConfiguredDispatchAuthority.policyRevision(revoked, "p", 1))
+    }
+
     @Test fun outputIncreasesAreHarmlessButDecreasesAndCredentialChangesRequireReview() {
         val before = PlatformV2(uid = "p", name = "P", model = "model", maxTokens = 1024, token = "secret")
         assertTrue(ConfiguredDispatchAuthority.allowsAcceptedProfile(before, before.copy(maxTokens = 4096, name = "Renamed")))

@@ -14,6 +14,12 @@ object ErrorTemplates {
     )
 
     fun getTemplateFor(error: ClassifiedError): UiErrorTemplate = when (error.category) {
+        ErrorCategory.PROVIDER_PRIVACY_RESTRICTED -> UiErrorTemplate(
+            title = "Compatible Endpoint Needed",
+            description = error.userMessage,
+            actionButtonLabel = "Open Settings",
+            autoRetry = false
+        )
         ErrorCategory.INVALID_OUTPUT_CAP -> UiErrorTemplate(
             title = "Output Limit Needs Adjustment",
             description = error.userMessage,

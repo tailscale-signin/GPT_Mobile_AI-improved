@@ -10,6 +10,19 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ConflatedCheckpointWriterTest {
+    @Test fun terminalDrainBypassesIntermediateCoalescingDelay() = runTest {
+        val committed = mutableListOf<Int>()
+        val writer = ConflatedCheckpointWriter<Int>(this, minimumIntervalMillis = 10_000) { committed += it }
+        writer.offer(1)
+        runCurrent()
+        writer.offer(2)
+        runCurrent()
+        val start = testScheduler.currentTime
+        writer.drain()
+        assertEquals(start, testScheduler.currentTime)
+        assertEquals(listOf(1, 2), committed)
+    }
+
     @Test fun fastDatabaseStillCoalescesTokenUpdatesAndFlushesLatestAtDrain() = runTest {
         val committed = mutableListOf<Int>()
         val writer = ConflatedCheckpointWriter<Int>(this, minimumIntervalMillis = 500) { committed += it }

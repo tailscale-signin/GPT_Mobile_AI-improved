@@ -286,8 +286,12 @@ private fun ChatScreenContent(
         )
     }
     val focusManager = LocalFocusManager.current
-    androidx.compose.runtime.DisposableEffect(focusManager) {
-        onDispose { focusManager.clearFocus(force = true) }
+    val keyboardController = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+    androidx.compose.runtime.DisposableEffect(focusManager, keyboardController) {
+        onDispose {
+            keyboardController?.hide()
+            focusManager.clearFocus(force = true)
+        }
     }
     val systemChatMargin = 16.dp
     val maximumUserChatBubbleWidth = (viewportWidth - systemChatMargin).coerceAtLeast(0.dp) * 0.8F

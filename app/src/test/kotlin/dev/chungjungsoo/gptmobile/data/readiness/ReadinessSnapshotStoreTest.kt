@@ -7,6 +7,17 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ReadinessSnapshotStoreTest {
+    @Test fun delayedRestoreCannotReplaceFreshDiscoveryOrAnInvalidatedEpoch() {
+        val store = ReadinessSnapshotStore<String, String>()
+        val epoch = store.epoch
+        assertTrue(store.publish("endpoint", "fresh", 10, epoch))
+        assertFalse(store.restore("endpoint", "old", 10, epoch))
+        assertEquals("fresh", store.peek("endpoint")?.value)
+        store.invalidate()
+        assertFalse(store.restore("endpoint", "old", 10, epoch))
+        assertNull(store.peek("endpoint"))
+    }
+
     @Test fun invalidationRejectsLateProducerAndClockRollback() {
         var now = 100L
         val store = ReadinessSnapshotStore<String, String>(clock = { now })

@@ -2,11 +2,12 @@ package dev.chungjungsoo.gptmobile.data.agent
 
 import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 /** One in-flight write and one newest pending snapshot. Terminal owners drain or supersede it. */
 internal class ConflatedCheckpointWriter<T>(
@@ -20,6 +21,7 @@ internal class ConflatedCheckpointWriter<T>(
     private data class Pending<T>(val value: T, val queuedAt: Long)
     private val queue = Channel<Pending<T>>(Channel.CONFLATED)
     private val failure = AtomicReference<Throwable?>()
+    private val draining = CompletableDeferred<Unit>()
 
     @Volatile var lastQueueAgeMillis = 0L
         private set
@@ -32,7 +34,7 @@ internal class ConflatedCheckpointWriter<T>(
             for (queued in queue) {
                 // A fast database must not cause a full message serialization per token.
                 // Keep at most the newest snapshot while waiting; drain still flushes it.
-                if (!first && minimumIntervalMillis > 0) delay(minimumIntervalMillis)
+                if (!first && minimumIntervalMillis > 0) withTimeoutOrNull(minimumIntervalMillis) { draining.await() }
                 first = false
                 var pending = queued
                 while (true) pending = queue.tryReceive().getOrNull() ?: break
@@ -55,6 +57,7 @@ internal class ConflatedCheckpointWriter<T>(
     }
 
     suspend fun drain() {
+        draining.complete(Unit)
         queue.close()
         job.join()
         failure.get()?.let { throw it }

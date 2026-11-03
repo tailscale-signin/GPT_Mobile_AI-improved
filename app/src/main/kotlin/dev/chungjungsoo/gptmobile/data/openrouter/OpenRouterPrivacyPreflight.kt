@@ -21,7 +21,8 @@ class OpenRouterPrivacyPreflight @Inject constructor(private val client: OpenRou
     private val cache = ConcurrentHashMap<String, Cached>()
 
     suspend fun check(endpoint: String, credential: String?, model: String, policy: OpenRouterProviderRouting) {
-        if (policy.zdr != true || credential.isNullOrBlank() || !model.matches(Regex("[A-Za-z0-9_.:-]+/[A-Za-z0-9_.:-]+"))) return
+        val selectedModel = model.removePrefix("~")
+        if (policy.zdr != true || credential.isNullOrBlank() || !selectedModel.matches(Regex("[A-Za-z0-9_.:-]+/[A-Za-z0-9_.:-]+"))) return
         val base = runCatching { OpenRouterIdentity.endpoint(endpoint) }.getOrNull() ?: return
         val identity = OpenRouterIdentity.digest("$base|$credential")
         val rows = locks.computeIfAbsent(identity) { Mutex() }.withLock {
@@ -39,7 +40,7 @@ class OpenRouterPrivacyPreflight @Inject constructor(private val client: OpenRou
             cache[identity] = Cached(now + if (result == null) 30_000 else 300_000, result)
             result
         }
-        val compatible = rows?.let { compatible(it, model, policy) }
+        val compatible = rows?.let { compatible(it, selectedModel, policy) }
         AppLogRecorder.record("OpenRouter", "PRIVACY_PREFLIGHT · profileModel=$model · zdr=true · result=${compatible?.let { if (it) "AVAILABLE" else "INCOMPATIBLE" } ?: "UNKNOWN"} · policyUnchanged=true")
         check(compatible != false) { "POLICY_RESTRICTED: No endpoint for $model satisfies the selected zero-data-retention and provider restrictions. Choose a compatible model or provider in Settings; privacy protections were preserved." }
     }

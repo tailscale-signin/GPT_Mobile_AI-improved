@@ -7,6 +7,22 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ResearchConnectivityGateTest {
+    @Test fun abandonedDiscoveryProbeReportsBoundedDelayAndCannotReleaseItsReplacement() {
+        var time = 0L
+        val gate = ResearchConnectivityGate { time }
+        gate.failed("a", UnknownHostException())
+        gate.failed("b", UnknownHostException())
+        time = 15_000
+        val old = requireNotNull(gate.acquire("a"))
+        org.junit.Assert.assertEquals(120_000L, gate.recoveryDelayMillis("a"))
+        time += 120_000
+        val replacement = requireNotNull(gate.acquire("a"))
+        gate.release(old)
+        org.junit.Assert.assertNull(gate.acquire("a"))
+        gate.release(replacement)
+        org.junit.Assert.assertNotNull(gate.acquire("a"))
+    }
+
     @Test fun publicDnsOutageDoesNotSuppressLiteralLocalOrTailscaleEndpoints() {
         val gate = ResearchConnectivityGate { 0L }
         gate.failed("first.example", java.net.UnknownHostException())

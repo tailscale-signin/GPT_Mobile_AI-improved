@@ -16,6 +16,7 @@ enum class ErrorSeverity {
 enum class ErrorCategory {
     INVALID_OUTPUT_CAP,
     POLICY_STALE,
+    PROVIDER_PRIVACY_RESTRICTED,
     SAVED_POLICY_UNAVAILABLE,
     MEMORY_STALE,
     PERMISSION_REQUIRED,
@@ -75,8 +76,9 @@ object ErrorClassification {
             "research_attempt_superseded" in msg -> ClassifiedError(ErrorCategory.POLICY_STALE, ErrorSeverity.LOW, false, 0, "This queued request belongs to an earlier Research attempt. Continue from the current attempt; this request was not sent.", throwable)
             causes.any { it is dev.chungjungsoo.gptmobile.data.context.DispatchPolicyChangedException } -> {
                 val fields = causes.filterIsInstance<dev.chungjungsoo.gptmobile.data.context.DispatchPolicyChangedException>().first().fields.joinToString(", ")
-                ClassifiedError(ErrorCategory.POLICY_STALE, ErrorSeverity.MEDIUM, false, 0, "Request settings changed: $fields. Resume final synthesis to revalidate the saved contributions; completed profiles do not need to run again.", throwable)
+                ClassifiedError(ErrorCategory.POLICY_STALE, ErrorSeverity.MEDIUM, false, 0, "Request settings changed: $fields. Resume the unfinished task to revalidate saved results. Completed actions remain recorded.", throwable)
             }
+            "policy_restricted" in msg || "no endpoints found matching your data policy" in msg -> ClassifiedError(ErrorCategory.PROVIDER_PRIVACY_RESTRICTED, ErrorSeverity.MEDIUM, false, 0, "No provider endpoint matches this model and your privacy requirements. Choose a compatible model or endpoint while keeping your existing privacy policy. Repeating this request unchanged will not help.", throwable)
             "research_configuration_changed" in msg || "dispatch_policy_changed" in msg || "profile_configuration_changed" in msg || "request_identity_changed" in msg -> ClassifiedError(ErrorCategory.POLICY_STALE, ErrorSeverity.MEDIUM, false, 0, "Permissions, budgets or profile settings changed. Review the settings and resume to prepare a fresh request; no stale request was sent.", throwable)
             "source_permission_revoked" in msg || "blocked_permission" in msg -> ClassifiedError(ErrorCategory.PERMISSION_REQUIRED, ErrorSeverity.MEDIUM, false, 0, "Saved evidence permission is missing. Restore its source/tool grants in Plugins/Tools and retry, or start a fresh request without protected evidence. Completed actions will not be replayed.", throwable)
             "admission_expired" in msg -> ClassifiedError(ErrorCategory.RESOURCE_DEADLINE, ErrorSeverity.MEDIUM, false, 0, "The accepted deadline expired while waiting for an inference resource. No provider request was dispatched. Resume when the resource is available.", throwable)

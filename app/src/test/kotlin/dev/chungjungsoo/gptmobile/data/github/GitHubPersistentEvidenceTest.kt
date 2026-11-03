@@ -673,10 +673,11 @@ class GitHubPersistentEvidenceTest {
         }
         val client = session(GitHubRepositoryStateStore(), request = fetch)
         val first = client.execute("search_repository", "owner", "repo", args("query" to JsonPrimitive("missing"), "path_prefix" to JsonPrimitive("src/"))).jsonObject
-        assertEquals(16, blobs)
+        assertEquals(4, blobs)
         assertTrue(first["has_more"]!!.jsonPrimitive.booleanOrNull == true)
         assertFalse(first["complete"]!!.jsonPrimitive.booleanOrNull == true)
         val continuation = first["continuation"]!!.jsonObject
+        assertEquals(JsonPrimitive(4), continuation["max_new_blobs"])
         assertEquals("src/", continuation["path_prefix"]!!.jsonPrimitive.content)
         var page = client.execute("search_repository", "owner", "repo", continuation).jsonObject
         while (page["has_more"]?.jsonPrimitive?.booleanOrNull == true) {
@@ -701,8 +702,8 @@ class GitHubPersistentEvidenceTest {
             }
         })
         val result = client.execute("search_repository", "owner", "repo", args("query" to JsonPrimitive("absent"))).jsonObject
-        assertEquals(16, blobs)
-        assertEquals(16, result["skipped_files"]!!.jsonPrimitive.intOrNull)
+        assertEquals(4, blobs)
+        assertEquals(4, result["skipped_files"]!!.jsonPrimitive.intOrNull)
         assertTrue(result["has_more"]!!.jsonPrimitive.booleanOrNull == true)
     }
 

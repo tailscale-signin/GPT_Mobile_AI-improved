@@ -186,7 +186,8 @@ internal class GitHubVerifiedSession(
             )
             evidence.retainVerdict(retained)
             val cause = originalFailure?.let { "**Task interrupted:** ${it.message}\n\n" }.orEmpty()
-            Publication(cause + text, partial, retained)
+            val failures = if (GitHubTaskCoverage.boundedDiagnostic(task)) withContext(computationDispatcher) { GitHubFailureSummary.render(receipts) } else ""
+            Publication(cause + text + failures, partial, retained)
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: Exception) {

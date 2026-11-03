@@ -38,5 +38,6 @@ data class PendingPromptPayload(
     val models: Map<String, String> = emptyMap(),
     val tools: ChatMcpToolConfig = ChatMcpToolConfig(),
     val localOnly: Boolean = false,
-    val requiresSpendAllowance: Boolean = false
+    val requiresSpendAllowance: Boolean = false,
+    val requestId: String? = null
 )

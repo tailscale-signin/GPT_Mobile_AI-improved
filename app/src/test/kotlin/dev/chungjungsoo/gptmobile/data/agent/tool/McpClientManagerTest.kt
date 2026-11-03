@@ -29,6 +29,33 @@ import org.junit.Assert.fail
 import org.junit.Test
 
 class McpClientManagerTest {
+    @Test fun dnsRecoveryWaitDoesNotBecomeAnEndpointCircuitFailure() = runBlocking {
+        val gate = dev.chungjungsoo.gptmobile.data.research.academic.ResearchConnectivityGate.shared
+        gate.failed("failed-a.example", java.net.UnknownHostException())
+        gate.failed("failed-b.example", java.net.UnknownHostException())
+        var requests = 0
+        val client = HttpClient(
+            io.ktor.client.engine.mock.MockEngine {
+                requests++
+                error("A recovery wait must not dispatch")
+            }
+        )
+        val manager = McpClientManager(client, modern = ModernMcpTransport(client))
+        val config = McpConnectionConfig("waiting", "https://new.example/mcp", false)
+        try {
+            repeat(3) {
+                val error = runCatching { manager.listTools(config, awaitCompletion = true) }.exceptionOrNull()
+                assertTrue(error?.message.orEmpty().contains("DNS_RECOVERY"))
+            }
+            assertEquals(0, requests)
+            assertEquals(0, manager.healthSnapshot("waiting").consecutiveFailures)
+            assertEquals(null, manager.healthSnapshot("waiting").nextRetryAtMs)
+        } finally {
+            manager.closeAll()
+            client.close()
+        }
+    }
+
     // Managers share endpoint cooldowns across instances, so isolate each test's network state.
     @org.junit.Before fun resetEndpointHealth() = dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.networkChanged()
 

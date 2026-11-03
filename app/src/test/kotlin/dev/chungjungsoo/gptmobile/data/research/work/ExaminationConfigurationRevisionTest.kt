@@ -10,6 +10,15 @@ import org.junit.Assert.assertNotEquals
 import org.junit.Test
 
 class ExaminationConfigurationRevisionTest {
+    @Test fun sortedSelectionMapHasAStableMapSerializer() {
+        val selections = sortedMapOf(2 to MultiSearchResearchSelection(), 1 to MultiSearchResearchSelection())
+        val settings = AppFeatureSettings(conversationResearch = selections)
+        assertEquals(
+            examinationConfigurationRevision(settings, emptyList()),
+            examinationConfigurationRevision(settings.copy(conversationResearch = selections.toMap()), emptyList())
+        )
+    }
+
     private val profile = PlatformV2(uid = "crawler", name = "Crawler", enabled = true)
     private val price = ModelPrice("model", 10, 20, "catalog", 1)
     private val features = AppFeatureSettings(researchFeature = dev.chungjungsoo.gptmobile.data.research.feature.ResearchFeatureSettings(crawlerProfileUid = "crawler"), spendBudget = SpendBudgetSettings(prices = mapOf("crawler" to price)))

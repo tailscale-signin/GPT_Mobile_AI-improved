@@ -20,6 +20,8 @@ internal fun isDeterministicDelegateConfigurationFailure(message: String): Boole
     "REASONING_OFF_UNSUPPORTED",
     "REASONING_ON_UNSUPPORTED",
     "MODEL_CONFIGURATION",
+    "Serializer for subclass",
+    "Serializer for class",
     "LOCAL_CONTEXT_EXHAUSTED",
     "LOCAL_CONTEXT_UNVERIFIED",
     "NATIVE_SESSION_QUARANTINED",

@@ -40,7 +40,7 @@ class ProviderTransportWarmer @Inject constructor(private val client: NetworkCli
         if (attempts.size > 64) attempts.keys.filter { it != key }.take(32).forEach { attempts.remove(it) }
         try {
             withTimeout(1_800L) {
-                client().request(origin) {
+                val response = client().request(origin) {
                     method = HttpMethod.Head
                     timeout {
                         requestTimeoutMillis = 1_600L
@@ -48,6 +48,7 @@ class ProviderTransportWarmer @Inject constructor(private val client: NetworkCli
                         socketTimeoutMillis = 1_500L
                     }
                 }
+                dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Readiness", "PROVIDER_ORIGIN_WARMED · host=${URI(origin).host} · httpStatus=${response.status.value} · evidence=HTTP_REACHABILITY_ONLY · apiReady=unknown · authorized=unknown · modelAvailable=unknown")
             }
         } catch (cancelled: CancellationException) {
             attempts.remove(key, now)

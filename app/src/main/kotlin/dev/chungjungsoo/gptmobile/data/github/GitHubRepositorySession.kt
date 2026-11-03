@@ -451,7 +451,7 @@ internal class GitHubRepositorySession(
         val extension = args.s("file_extension").removePrefix(".").lowercase(java.util.Locale.ROOT)
         require(extension.isEmpty() || extension.matches(Regex("[a-z0-9]+"))) { "file_extension must be a single extension such as kt or .kt." }
         val batchSize = args.s("batch_size").ifBlank { "1000" }.toInt().also { require(it in 1..1000) }
-        val maxNewBlobs = args.s("max_new_blobs").ifBlank { "16" }.toInt().also { require(it in 1..100) }
+        val maxNewBlobs = args.s("max_new_blobs").ifBlank { "4" }.toInt().also { require(it in 1..100) }
         val pathPrefix = args.s("path_prefix")
         val searchId = GitHubRepositoryStateStore.digest(listOf(context.commitSha, query, mode, pathPrefix, extension, options.json().toString()).joinToString("\u0000"))
         require(args.s("search_id").isBlank() || args.s("search_id") == searchId) { "Search parameters changed. Start at index_cursor=0 without search_id, or use the exact continuation." }

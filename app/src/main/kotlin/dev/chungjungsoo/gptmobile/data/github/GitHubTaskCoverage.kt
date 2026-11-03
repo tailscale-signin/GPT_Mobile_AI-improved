@@ -18,7 +18,7 @@ internal object GitHubTaskCoverage {
     fun boundedDiagnostic(task: String): Boolean {
         val text = task.lowercase()
         val history = Regex("\\b(?:all|entire|complete|full)\\s+(?:workflow\\s+|ci\\s+|run\\s+)?history\\b|\\ball\\s+(?:workflow\\s+)?runs\\b").containsMatchIn(text)
-        val sessionDiagnosis = listOf("explain", "diagnos", "investigat").any { it in text } && listOf("this session", "this very session", "connection", "integration").any { it in text }
+        val sessionDiagnosis = listOf("explain", "diagnos", "investigat", "analy", "why").any { it in text } && listOf("this session", "this very session", "connection", "integration", "interrupt", "failure", "failing", "failed", "error").any { it in text }
         val integrationTest = matches(task) && (stress.containsMatchIn(task.trim()) || text.trim() == "test" || listOf("tools", "tool system", "integration", "connection", "this session").any { it in text })
         return !history && (integrationTest || sessionDiagnosis)
     }

@@ -387,6 +387,9 @@ interface ResearchDao {
     @Query("SELECT * FROM research_outbox WHERE id LIKE 'auto-examine:%' AND id>:after ORDER BY id LIMIT 100")
     suspend fun pendingExaminations(after: String = ""): List<ResearchOutbox>
 
+    @Query("SELECT EXISTS(SELECT 1 FROM research_outbox WHERE id LIKE 'auto-examine:%' OR id LIKE 'ingest:%') OR EXISTS(SELECT 1 FROM research_jobs WHERE stage IN (:stages) OR (stage='PAUSED' AND origin!='USER_EXAMINE' AND (terminalReason='Process interrupted; explicit resume required' OR cancellationOrigin='WAITING_FOR_CONFIGURATION')))")
+    suspend fun hasExaminationRecoveryWork(stages: List<String>): Boolean
+
     @Query("SELECT * FROM research_outbox ORDER BY createdAt LIMIT 100")
     suspend fun pendingOutbox(): List<ResearchOutbox>
 

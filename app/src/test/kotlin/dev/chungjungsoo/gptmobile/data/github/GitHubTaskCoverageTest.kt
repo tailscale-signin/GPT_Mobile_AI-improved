@@ -10,6 +10,11 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubTaskCoverageTest {
+    @org.junit.Test fun interruptionAnalysisAndItsRecoveryPromptRemainBounded() {
+        org.junit.Assert.assertTrue(GitHubTaskCoverage.boundedDiagnostic("Try to analyze why these interruptions are happening."))
+        org.junit.Assert.assertTrue(GitHubTaskCoverage.boundedDiagnostic("Original task: analyze why these interruptions are happening. Recovery action: RETRY_FAILED_STAGE"))
+        org.junit.Assert.assertFalse(GitHubTaskCoverage.boundedDiagnostic("Implement cancellation tracing across all workers"))
+    }
     private fun json(text: String) = Json.parseToJsonElement(text) as JsonObject
     private fun receipt(id: String, success: Boolean, trusted: Boolean = true) = json("""{"receipt_id":"$id","tool":"github_read__api","trusted":$trusted,"success":$success,"arguments":{"action":"ranges"},"error_code":${if (success) "null" else "\"INVALID_ARGUMENTS\""},"result":{"path":"Test.kt","content":"@Test fun passes() {}"}}""")
 

@@ -15,6 +15,7 @@ internal object GitHubEngineeringMemoryPolicy {
             put("task", verdict["task"] ?: JsonPrimitive(""))
             put("task_outcome", verdict["task_outcome"] ?: JsonPrimitive("PARTIAL"))
             put("operation_coverage", verdict["operation_coverage"] ?: JsonArray(emptyList()))
+            verdict["test_checklist"]?.let { put("test_checklist", it) }
             put("completion_verified", false)
             put("next_action", "Resume unresolved requirements using retained receipt IDs. Refresh mutable CI/PR state; source reads are not test execution. Do not repeat a completed mutation.")
         }

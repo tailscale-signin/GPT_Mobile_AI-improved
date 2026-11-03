@@ -24,6 +24,7 @@ internal object JournalCaptureSummary {
         return buildJsonObject {
             put("availability", availability)
             enabled?.let { put("captureEnabled", it) }
+            journal?.get("captureLevel")?.let { put("captureLevel", it) }
             put("policyKnown", enabled != null)
             put("eventCount", eventCount)
             put("eventScope", "selected_run_ids")

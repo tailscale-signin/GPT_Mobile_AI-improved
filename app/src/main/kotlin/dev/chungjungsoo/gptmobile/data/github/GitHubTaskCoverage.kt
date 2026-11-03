@@ -12,7 +12,7 @@ internal object GitHubTaskCoverage {
     private val testing = Regex("(?i)^(?:please\\s+)?(?:test\\b|do\\s+testing\\b|run\\s+(?:all\\s+)?tests?\\b|(?:verify|validate)\\s+(?:all\\s+)?(?:tools|functionality|integrations)\\b)")
     private val stress = Regex("(?i)^(?:please\\s+)?(?:(?:do|run|perform|execute)\\s+(?:a\\s+|the\\s+)?)?(?:(?:massive|full|complete|comprehensive|integration|extended)\\s+)*(?:stress[- ]?test|benchmark|load[- ]?test)\\b")
     private val fullTest = Regex("(?i)^(?:please\\s+)?(?:do|run|perform|execute)\\s+(?:(?:a|the)\\s+)?(?:(?:full|complete|comprehensive|integration|smoke)\\s+)*tests?\\b")
-    fun matches(task: String) = testing.containsMatchIn(task.trim()) || stress.containsMatchIn(task.trim()) || fullTest.containsMatchIn(task.trim())
+    fun matches(task: String) = !dev.chungjungsoo.gptmobile.data.agent.CurrentRequestContract.from(task).conversational && (testing.containsMatchIn(task.trim()) || stress.containsMatchIn(task.trim()) || fullTest.containsMatchIn(task.trim()))
 
     /** A diagnostic turn has a finite acquisition budget; explicit history audits keep pagination. */
     fun boundedDiagnostic(task: String): Boolean {
@@ -38,13 +38,16 @@ internal object GitHubTaskCoverage {
                     else -> "default"
                 }
             }
-            tool to action
+            listOf(tool, action, receipt.text("branch"), receipt.text("source_head_sha"), args?.text("pull_number").orEmpty())
         }.map { (key, observations) ->
             val successful = observations.count { it["success"] == JsonPrimitive(true) }
             val errors = observations.mapNotNull { it.text("error_code").takeIf { code -> code.isNotBlank() && code != "null" } }.distinct()
             buildJsonObject {
-                put("tool", key.first)
-                put("action", key.second)
+                put("tool", key[0])
+                put("action", key[1])
+                put("branch", key[2])
+                put("commit_sha", key[3])
+                put("pull_number", key[4])
                 put("successful_observations", successful)
                 put("failed_observations", observations.size - successful)
                 put("error_codes", JsonArray(errors.map(::JsonPrimitive)))
@@ -52,19 +55,24 @@ internal object GitHubTaskCoverage {
             }
         }
 
-    fun render(receipts: Map<String, JsonObject>): String = buildString {
+    fun render(receipts: Map<String, JsonObject>, task: String = "test all tools"): String = buildString {
         append("**Task outcome: partial verification.** The table records observed tool operations, including failures. It does not establish that every feature or test suite passed.\n\n")
         val rows = rows(receipts)
         if (rows.isEmpty()) {
             append("**Test not executed.** No trusted GitHub operation receipts are available for this task. No success rate or timing measurement is available.\n")
         } else {
-            append("| Tool / operation | Successful observations | Failed observations | Recorded errors |\n| --- | ---: | ---: | --- |\n")
+            append("| Tool / operation | Branch / SHA / PR | Successful observations | Failed observations | Recorded errors |\n| --- | --- | ---: | ---: | --- |\n")
             rows.forEach { row ->
                 val errors = (row["error_codes"] as? JsonArray).orEmpty().joinToString(", ") { (it as JsonPrimitive).content }
-                append("| ${safe(row.text("tool"))} / ${safe(row.text("action"))} | ${row.text("successful_observations")} | ${row.text("failed_observations")} | ${safe(errors.ifBlank { "None recorded" })} |\n")
+                append("| ${safe(row.text("tool"))} / ${safe(row.text("action"))} | ${safe(listOf(row.text("branch"), row.text("commit_sha").takeUnless { it == "null" }.orEmpty(), row.text("pull_number").takeIf { it.isNotBlank() }?.let { "PR #$it" }.orEmpty()).filter(String::isNotBlank).joinToString(" / ").ifBlank { "Scope not recorded" })} | ${row.text("successful_observations")} | ${row.text("failed_observations")} | ${safe(errors.ifBlank { "None recorded" })} |\n")
             }
         }
         append("\nFile reads establish source inspection. Workflow lists and existing check summaries establish CI observations. Test execution requires a run/job result tied to the tested revision; dispatch acceptance alone is insufficient.\n")
+        if (GitHubTestChecklist.integration(task)) {
+            append(GitHubTestChecklist.render(receipts))
+        } else {
+            append("\n**Score:** Not measured until the requested test suite has execution results at its exact revision. **Solutions / next actions:** execute the requested tests, retain run/job evidence, resolve recorded failures and keep pending checks explicit.\n")
+        }
         append("\n**Remaining scope:** reconcile the requested test checklist with execution receipts, including write operations and device tests where requested. A tool omitted from this table has no trusted receipt in this task; that does not mean it is unavailable.\n")
     }
 

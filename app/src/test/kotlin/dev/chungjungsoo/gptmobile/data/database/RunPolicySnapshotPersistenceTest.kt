@@ -54,6 +54,23 @@ class RunPolicySnapshotPersistenceTest {
         }
     }
 
+    @Test fun measuredUsageReplacementClearsLegacyTotalsWhenAnyInvocationIsUnmeasured() = runBlocking {
+        val db = memory()
+        try {
+            val run = seed(db).single()
+            db.agentRunDao().updateUsage(run.runId, 10810, 1519, 46485)
+            db.agentRunDao().replaceMeasuredUsage(run.runId, 10810, 1519, null)
+            val unknown = requireNotNull(db.agentRunDao().getById(run.runId))
+            assertEquals(10810, unknown.inputTokens)
+            assertEquals(1519, unknown.outputTokens)
+            assertNull(unknown.totalTokens)
+            db.agentRunDao().replaceMeasuredUsage(run.runId, 11000, 1600, 12600)
+            assertEquals(12600, db.agentRunDao().getById(run.runId)?.totalTokens)
+        } finally {
+            db.close()
+        }
+    }
+
     private suspend fun count(db: ChatDatabaseV2, table: String): Int = withContext(Dispatchers.IO) {
         db.openHelper.readableDatabase.query("SELECT COUNT(*) FROM $table").use {
             it.moveToFirst()

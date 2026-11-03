@@ -122,6 +122,9 @@ interface AgentRunDao : RunPolicySnapshotAccess {
         totalTokens: Int?
     ): Int
 
+    @Query("UPDATE agent_runs SET input_tokens = :inputTokens, output_tokens = :outputTokens, total_tokens = :totalTokens WHERE run_id = :runId")
+    suspend fun replaceMeasuredUsage(runId: String, inputTokens: Int?, outputTokens: Int?, totalTokens: Int?): Int
+
     @Query("SELECT * FROM agent_runs WHERE gateway_job_id IS NOT NULL AND status IN ('QUEUED', 'RUNNING', 'INTERRUPTED')")
     suspend fun rawGetRecoverableGatewayRuns(): List<AgentRun>
 

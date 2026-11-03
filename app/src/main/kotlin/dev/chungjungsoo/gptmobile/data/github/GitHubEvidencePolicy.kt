@@ -55,8 +55,29 @@ internal object GitHubEvidencePolicy {
             observed != claim["value"] -> "CONTRADICTED"
             else -> "VERIFIED"
         }
+        val reason = when {
+            receipt == null -> "RECEIPT_NOT_FOUND"
+            receipt["trusted"] != JsonPrimitive(true) -> "UNTRUSTED_RECEIPT"
+            receipt["success"] != JsonPrimitive(true) -> "OPERATION_FAILED"
+            "value" !in claim -> "CLAIM_VALUE_MISSING"
+            observed == null -> "POINTER_NOT_IN_EVIDENCE"
+            timestamp <= 0 || timestamp > now -> "OBSERVATION_TIME_UNKNOWN"
+            status == "STALE" -> "MUTABLE_EVIDENCE_EXPIRED_OR_REVISION_CHANGED"
+            status == "CONTRADICTED" -> "VALUE_MISMATCH"
+            else -> "EXACT_RECEIPT_MATCH"
+        }
         return buildJsonObject {
             put("status", status)
+            put("reason", reason)
+            put(
+                "recovery",
+                when (reason) {
+                    "POINTER_NOT_IN_EVIDENCE", "CLAIM_VALUE_MISSING", "VALUE_MISMATCH" -> "Correct this claim against the retained receipt/catalog; do not repeat supported operations."
+                    "MUTABLE_EVIDENCE_EXPIRED_OR_REVISION_CHANGED", "OBSERVATION_TIME_UNKNOWN" -> "Refresh only this mutable observation at the selected revision."
+                    "RECEIPT_NOT_FOUND" -> "Find the exact retained receipt or read only the missing source."
+                    else -> "Retain the observation and its provenance."
+                }
+            )
             put("receipt_id", id)
             put("pointer", path)
             put("observed_at_ms", timestamp)
@@ -86,7 +107,7 @@ internal object GitHubEvidencePolicy {
                     val result = verifySelected(claim).also { checked += it }
                     val source = label(result.string("pointer"), receipts[result.string("receipt_id")])
                     when (result.string("status")) {
-                        "VERIFIED" -> "| $source | ${display(result.getValue("observed"))} |"
+                        "VERIFIED" -> if (GitHubStatusRequest.matches(task) && (receipts[result.string("receipt_id")]?.get("arguments") as? JsonObject)?.get("action") == JsonPrimitive("commits") && Regex("(?:/data)?/(?:items|recent_commits)/[0-9]+/.*").matches(result.string("pointer"))) "" else "| $source | ${display(result.getValue("observed"))} |"
                         "CONTRADICTED" -> "- **Updated finding — $source:** the source reports ${display(result.getValue("observed"))}."
                         "STALE" -> "- **$source:** Not available / Not measured — refresh required."
                         else -> "- **$source:** Not available / Not measured — no valid receipt."
@@ -132,6 +153,8 @@ internal object GitHubEvidencePolicy {
             put("schema", "github.verification.v1")
             put("verified_at_ms", now)
             put("claims", JsonArray(checked))
+            put("verified_claim_count", checked.count { it.string("status") == "VERIFIED" })
+            put("unresolved_claims", JsonArray(checked.filter { it.string("status") !in setOf("VERIFIED", "INFERRED") }))
             put("completion_verified", false)
             put("partial", true)
             put("response_prepared", true)
@@ -140,13 +163,14 @@ internal object GitHubEvidencePolicy {
             put("task_outcome", "PARTIAL")
             put("task", task)
             put("operation_coverage", JsonArray(GitHubTaskCoverage.rows(receipts)))
+            if (GitHubTaskCoverage.matches(task)) put("test_checklist", GitHubTestChecklist.checkpoint(task, receipts))
             put("completion_scope", "Field observations only. Feature acceptance and execution of unobserved tests are not inferred.")
         }
         val questions = (answer["questions"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.contentOrNull }.take(4)
         val facts = lines.filter { it.startsWith("| ") }.distinct()
         val notes = lines.filter { it.isNotBlank() && !it.startsWith("| ") }.distinct()
         val text = if (GitHubTaskCoverage.matches(task)) {
-            "# GitHub verification report\n\n" + GitHubTaskCoverage.render(receipts) +
+            "# GitHub verification report\n\n" + GitHubTaskCoverage.render(receipts, task) +
                 if (facts.isNotEmpty()) "\n## Verified observations\n\n| Detail | Result |\n| --- | --- |\n" + facts.joinToString("\n") else ""
         } else {
             GitHubAnswerPresentation.render(task, facts, notes, excerpts, questions.map { safe(it.take(240)) })
@@ -335,7 +359,39 @@ internal object GitHubEvidencePolicy {
         )
         val missingText = if (missing.isEmpty()) "" else "\n\n**Unavailable observations:**\n\n" + missing.joinToString("\n") { "- $it: no current matching receipt; unavailable or incomplete read, or no returned records." }
         val workflowText = if (coverage.getValue("Latest workflow")) "\n\nThe workflow above describes its own branch and commit; it does not establish overall branch health." else ""
-        return text.replace("# Repository update", "# Repository status") + checkOutcomes(scopedReceipts, now, epoch) + missingText + workflowText to outcome
+        return text.replace("# Repository update", "# Repository status") + commitSummaries(scopedReceipts, now, epoch) + checkOutcomes(scopedReceipts, now, epoch) + missingText + workflowText to outcome
+    }
+
+    private fun commitSummaries(receipts: Map<String, JsonObject>, now: Long, epoch: Long): String {
+        for ((id, receipt) in receipts.entries.reversed()) {
+            if ((receipt["arguments"] as? JsonObject)?.get("action") != JsonPrimitive("commits")) continue
+            val root = receipt["result"] as? JsonObject ?: continue
+            val data = (root["data"] as? JsonObject) ?: root
+            val head = data["commit_sha"] ?: continue
+            val prefix = if (data === root) "" else "/data"
+            val marker = buildJsonObject {
+                put("receipt_id", id)
+                put("pointer", "$prefix/commit_sha")
+                put("value", head)
+            }
+            if (verify(marker, receipts, now, epoch).string("status") != "VERIFIED") continue
+            val items = (data["items"] as? JsonArray).orEmpty().mapNotNull { it as? JsonObject }.take(5)
+            if (items.isEmpty()) return ""
+            return buildString {
+                append("\n\n## Recent commits\n\nHistory observed at ${display(head)}.\n\n| Commit | Subject | Author | Date |\n| --- | --- | --- | --- |\n")
+                items.forEach { item ->
+                    val commit = item["commit"] as? JsonObject
+                    val author = commit?.get("author") as? JsonObject
+                    val sha = item.string("sha")
+                    val url = item.string("html_url").takeIf { it.matches(Regex("https://github\\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/commit/[a-fA-F0-9]{40}")) && it.endsWith(sha) }
+                    val label = safe(sha.take(8))
+                    val reference = if (url == null) label else "[$label]($url)"
+                    val subject = commit?.string("subject").orEmpty().ifBlank { commit?.string("message").orEmpty().lineSequence().firstOrNull().orEmpty() }
+                    append("| $reference | ${safe(subject.take(240))} | ${safe(author?.string("name").orEmpty())} | ${safe(author?.string("date").orEmpty())} |\n")
+                }
+            }
+        }
+        return ""
     }
 
     private fun checkOutcomes(receipts: Map<String, JsonObject>, now: Long, epoch: Long): String {

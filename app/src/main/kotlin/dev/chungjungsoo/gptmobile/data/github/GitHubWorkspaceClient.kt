@@ -176,22 +176,24 @@ class GitHubWorkspaceClient(
 
         val page = field("page").ifBlank { "1" }.toInt()
         require(page in 1..1000) { "Page must be between 1 and 1000." }
-        val pagination = "per_page=30&page=$page"
+        val perPage = args["per_page"]?.jsonPrimitive?.intOrNull ?: 30
+        require(perPage in 1..100) { "per_page must be between 1 and 100." }
+        val pagination = "per_page=$perPage&page=$page"
         if (action == "get_account") return request("/user", authenticated = true)
         if (action == "list_installations") {
             val result = request("/user/installations?$pagination", authenticated = true).jsonObject
-            return pageResult(result["installations"] ?: JsonArray(emptyList()), page, "id", "account", "app_slug", "permissions", "repository_selection", "suspended_at")
+            return pageResult(result["installations"] ?: JsonArray(emptyList()), page, perPage, "id", "account", "app_slug", "permissions", "repository_selection", "suspended_at")
         }
         if (action == "list_installation_repositories") {
             val installation = required("installation_id")
             require(installation.matches(Regex("[1-9][0-9]{0,19}"))) { "Choose a valid GitHub App installation." }
             val result = request("/user/installations/$installation/repositories?$pagination", authenticated = true).jsonObject
-            return pageResult(result["repositories"] ?: JsonArray(emptyList()), page, "name", "full_name", "private", "owner", "default_branch", "permissions", "html_url")
+            return pageResult(result["repositories"] ?: JsonArray(emptyList()), page, perPage, "name", "full_name", "private", "owner", "default_branch", "permissions", "html_url")
         }
         if (action == "list_repositories") {
             return pageResult(
                 request("/user/repos?sort=updated&$pagination", authenticated = true),
-                page,
+                page, perPage,
                 "name", "full_name", "private", "owner", "default_branch", "permissions", "html_url"
             )
         }
@@ -223,11 +225,11 @@ class GitHubWorkspaceClient(
         val refQuery = ref.takeIf { it.isNotBlank() }?.let { "?ref=${segment(it)}" }.orEmpty()
 
         return when (action) {
-            "list_open_pull_requests" -> pageResult(request("$root/pulls?state=open&sort=updated&direction=desc&$pagination"), page, "number", "title", "state", "draft", "head", "base", "html_url", "updated_at")
+            "list_open_pull_requests" -> pageResult(request("$root/pulls?state=open&sort=updated&direction=desc&$pagination"), page, perPage, "number", "title", "state", "draft", "head", "base", "html_url", "updated_at")
             "list_commits" -> {
                 val pinned = request("$root/commits/${segment(ref.ifBlank { "HEAD" })}").jsonObject["sha"]!!.jsonPrimitive.content
                 val items = request("$root/commits?sha=${segment(pinned)}&$pagination")
-                val result = pageResult(items, page, "sha", "commit", "author", "committer", "parents", "html_url")
+                val result = pageResult(items, page, perPage, "sha", "commit", "author", "committer", "parents", "html_url")
                 buildJsonObject {
                     result.forEach { (key, value) -> put(key, value) }
                     put("commit_sha", pinned)
@@ -276,6 +278,7 @@ class GitHubWorkspaceClient(
                             "continuation",
                             buildJsonObject {
                                 put("action", "list_commits")
+                                put("per_page", perPage)
                                 put("ref", pinned)
                                 put("commit_sha", pinned)
                                 put("page", page + 1)
@@ -323,7 +326,7 @@ class GitHubWorkspaceClient(
             "get_repository" -> request(root)
             "write_capabilities" -> writeCapabilities(root)
             "repo_status" -> repoStatus(owner, repo, root, args)
-            "list_branches" -> pageResult(request("$root/branches?$pagination"), page)
+            "list_branches" -> pageResult(request("$root/branches?$pagination"), page, perPage)
             "get_branch_head" -> request("$root/git/ref/heads/${segment(required("branch"))}")
             "browse_files" -> browseFiles(root, refQuery, field("path"), page)
             "read_code" -> readCode(root, refQuery, ref, required("path"), field("start_line"), field("end_line"))
@@ -335,23 +338,23 @@ class GitHubWorkspaceClient(
             "related_files" -> relatedFiles(root, ref, required("path"))
             "get_pull_request_files" -> {
                 val number = required("pull_number").toInt().also { require(it > 0) }
-                pageResult(request("$root/pulls/$number/files?$pagination"), page, "filename", "status", "additions", "deletions", "changes", "sha", "previous_filename", "patch")
+                pageResult(request("$root/pulls/$number/files?$pagination"), page, perPage, "filename", "status", "additions", "deletions", "changes", "sha", "previous_filename", "patch")
             }
             "get_pull_request_comments" -> pullRequestComments(root, required("pull_number").toInt().also { require(it > 0) }, page)
             "pr_context" -> prContext(root, required("pull_number").toInt().also { require(it > 0) }, args, page)
             "ci_failure_digest" -> ciFailureDigest(root, ref, args)
-            "get_commit_checks" -> compactChecks(request("$root/commits/${segment(required("ref"))}/check-runs?$pagination").jsonObject, page)
+            "get_commit_checks" -> compactChecks(request("$root/commits/${segment(required("ref"))}/check-runs?$pagination").jsonObject, page, perPage)
             "compare_refs" -> compactCompare(request("$root/compare/${segment(required("base"))}...${segment(required("head"))}?$pagination").jsonObject)
             "changed_since" -> {
                 val head = field("head").ifBlank { ref.ifBlank { "HEAD" } }
                 compactCompare(request("$root/compare/${segment(required("base"))}...${segment(head)}?per_page=100").jsonObject)
             }
-            "list_releases" -> releasePageResult(request("$root/releases?$pagination"), page)
+            "list_releases" -> releasePageResult(request("$root/releases?$pagination"), page, perPage)
             "get_release" -> compactRelease(
                 request("$root/releases/${required("release_id").toLong().also { require(it > 0) }}").jsonObject
             )
             "get_release_by_tag" -> compactRelease(request("$root/releases/tags/${segment(required("tag_name"))}").jsonObject)
-            "list_tags" -> pageResult(request("$root/tags?$pagination"), page, "name", "commit", "zipball_url", "tarball_url")
+            "list_tags" -> pageResult(request("$root/tags?$pagination"), page, perPage, "name", "commit", "zipball_url", "tarball_url")
             "release_status" -> releaseStatus(root, args)
             "delete_branch" -> deleteBranch(root, args)
             "create_tag" -> createTag(root, args)
@@ -839,16 +842,17 @@ class GitHubWorkspaceClient(
         }
     }
 
-    private fun compactChecks(result: JsonObject, page: Int = 1): JsonObject {
+    private fun compactChecks(result: JsonObject, page: Int = 1, perPage: Int = 30): JsonObject {
         val runs = result["check_runs"]?.jsonArray.orEmpty()
         return buildJsonObject {
             val total = result["total_count"]?.jsonPrimitive?.content?.toIntOrNull() ?: runs.size
             put("total_count", total)
             put("returned", runs.size)
             put("truncated", total > runs.size)
-            put("has_more", page * 30 < total)
+            put("has_more", page * perPage < total)
             put("page", page)
-            if (page * 30 < total) put("next_page", page + 1)
+            put("per_page", perPage)
+            if (page * perPage < total) put("next_page", page + 1)
             put(
                 "check_runs",
                 buildJsonArray {
@@ -1543,14 +1547,14 @@ class GitHubWorkspaceClient(
             ?.let { project(it, "id", "name", "path", "state", "html_url") }
     }
 
-    private fun releasePageResult(value: JsonElement, page: Int): JsonObject = buildJsonObject {
+    private fun releasePageResult(value: JsonElement, page: Int, perPage: Int): JsonObject = buildJsonObject {
         val items = value.jsonArray
         put("items", buildJsonArray { items.forEach { add(compactRelease(it.jsonObject)) } })
         put("page", page)
         put("returned", items.size)
-        put("per_page", 30)
-        put("has_more", items.size == 30)
-        if (items.size == 30) put("next_page", page + 1)
+        put("per_page", perPage)
+        put("has_more", items.size == perPage)
+        if (items.size == perPage) put("next_page", page + 1)
     }
 
     private fun compactRelease(value: JsonObject): JsonObject = buildJsonObject {
@@ -1718,14 +1722,14 @@ class GitHubWorkspaceClient(
         }
     }
 
-    private fun pageResult(value: JsonElement, page: Int, vararg fields: String): JsonObject = buildJsonObject {
+    private fun pageResult(value: JsonElement, page: Int, perPage: Int, vararg fields: String): JsonObject = buildJsonObject {
         val items = value.jsonArray
         put("items", if (fields.isEmpty()) items else buildJsonArray { items.forEach { add(project(it.jsonObject, *fields)) } })
         put("page", page)
         put("returned", items.size)
-        put("per_page", 30)
-        put("has_more", items.size == 30)
-        if (items.size == 30) put("next_page", page + 1)
+        put("per_page", perPage)
+        put("has_more", items.size == perPage)
+        if (items.size == perPage) put("next_page", page + 1)
     }
 
     private suspend fun graphQl(query: String, variables: JsonObject): JsonObject {

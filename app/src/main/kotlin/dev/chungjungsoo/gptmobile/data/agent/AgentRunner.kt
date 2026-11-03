@@ -63,7 +63,8 @@ class AgentRunner(
     private val checkpoint: ToolBatchCheckpoint? = null,
     private val healthCatalog: ProgressiveToolCatalog? = null,
     private val retryUndispatchedBudgetFailures: Boolean = false,
-    private val onToolResult: (suspend (ProviderEvent.ToolCall, AgentToolResult) -> Unit)? = null
+    private val onToolResult: (suspend (ProviderEvent.ToolCall, AgentToolResult) -> Unit)? = null,
+    private val resumeToolBudget: Boolean = false
 ) {
     fun run(session: AgentProviderSession, tools: List<AgentTool>, dynamicTools: () -> List<AgentTool> = { emptyList() }, selectDefinitions: (List<AgentToolDefinition>) -> List<AgentToolDefinition> = { it }): Flow<AgentRunEvent> = flow {
         if (tools.isNotEmpty() && !session.handlesToolsInternally && limits.maxReplayTokens <= 0) {
@@ -84,7 +85,7 @@ class AgentRunner(
         val recovery = checkpoint?.recoverySnapshot(limits.checkpointRestoreObjective)
         // An explicit retry grants a new bounded tranche. Historical receipts
         // still reconcile effects; they must not exhaust the new attempt's budget.
-        var toolCallCount = if (retryUndispatchedBudgetFailures) 0 else recovery?.dispatchedCount ?: 0
+        var toolCallCount = if (retryUndispatchedBudgetFailures || resumeToolBudget) 0 else recovery?.dispatchedCount ?: 0
         var toolMayHaveExecuted = (recovery?.dispatchedCount ?: 0) > 0
         var retriedWithoutTools = false
 

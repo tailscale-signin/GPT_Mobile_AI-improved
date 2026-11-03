@@ -4,6 +4,14 @@ import kotlinx.serialization.Serializable
 
 @Serializable
 data class CurrentRequestContract(val intent: String, val originalRequestDigest: String, val answerPolicy: CombinedAnswerPolicy) {
+    val conversational: Boolean get() = intent in setOf("GREETING", "TEST", "PROVIDER_TEST")
+
+    /** An acknowledgement confirms message receipt, never an unperformed endpoint test. */
+    fun acknowledgement(): String = when (intent) {
+        "TEST", "PROVIDER_TEST" -> "Message received. No repository checks were run."
+        else -> "Hello! How can I help?"
+    }
+
     fun instruction(): String = when (intent) {
         "GREETING" -> "Answer the current greeting briefly. Prior topics do not create a new request."
         "PROVIDER_TEST" -> "Acknowledge this provider connection test briefly. The application will summarize observed results across selected providers. Do not continue an earlier topic."

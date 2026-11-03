@@ -31,19 +31,52 @@ internal class GitHubVerifiedSession(
     private val progress: suspend (String) -> Unit,
     private val now: () -> Long = System::currentTimeMillis,
     private val computationDispatcher: CoroutineDispatcher = Dispatchers.Default,
-    private val privateReviewCandidate: () -> String? = { null }
+    private val privateReviewCandidate: () -> String? = { null },
+    private val lifecycle: (dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind) -> Unit = {}
 ) : AgentProviderSession by delegate {
+    private var lastChecklist: JsonObject? = null
+
     override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> = flow {
-        if (GitHubStatusRequest.isGreeting(task)) {
-            emit(ProviderEvent.TextDelta("Hello! How can I help?"))
+        val intent = dev.chungjungsoo.gptmobile.data.agent.CurrentRequestContract.from(task)
+        if (intent.conversational) {
+            emit(ProviderEvent.TextDelta(intent.acknowledgement()))
             emit(ProviderEvent.Completed)
             return@flow
         }
         exchanges.forEach { exchange -> exchange.results.forEach { result -> exchange.calls.firstOrNull { it.callId == result.callId }?.let { evidence.observe(it, result) } } }
+        if (GitHubTestChecklist.integration(task)) {
+            val receipts = evidence.snapshot().first
+            val checkpoint = GitHubTestChecklist.checkpoint(task, receipts)
+            val next = GitHubTestChecklist.nextCall(task, tools, receipts)
+            if (checkpoint != lastChecklist) {
+                if (receipts.isNotEmpty()) evidence.retainChecklist(checkpoint)
+                lastChecklist = checkpoint
+                if (receipts.isNotEmpty()) {
+                    val latest = receipts.values.last()
+                    val outcome = if (latest["success"] == kotlinx.serialization.json.JsonPrimitive(true)) "Latest operation succeeded" else "Latest operation failed; its receipt is retained"
+                    val nextAction = (next?.arguments?.get("action") as? kotlinx.serialization.json.JsonPrimitive)?.content?.replace('_', ' ')
+                        ?: if (next?.arguments?.containsKey("view_cursor") == true) {
+                            "read the next result page"
+                        } else if (next != null) {
+                            "monitor the pending check"
+                        } else {
+                            "review remaining untested capabilities"
+                        }
+                    progress("$outcome. ${receipts.size} receipts recorded. Next: $nextAction.")
+                }
+            }
+            if (next != null) {
+                lifecycle(dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.CONTINUATION_SELECTED)
+                emit(next)
+                emit(ProviderEvent.Completed)
+                return@flow
+            }
+        }
         if (GitHubStatusRequest.matches(task) && tools.isNotEmpty()) {
             val (receipts, _) = evidence.snapshot()
             val next = GitHubStatusRequest.nextCall(tools, receipts)
             if (next != null) {
+                lifecycle(dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.CONTINUATION_SELECTED)
                 emit(next)
                 emit(ProviderEvent.Completed)
                 return@flow
@@ -181,7 +214,7 @@ internal class GitHubVerifiedSession(
                             }
                         )
                     }
-                    if (partial && "verification_failure" !in report) put("verification_failure", failureCode ?: "GITHUB_EVIDENCE_REQUIRED")
+                    if (partial && "verification_failure" !in report) put("verification_failure", failureCode ?: if (coverage != null || report["claims_verified"] == kotlinx.serialization.json.JsonPrimitive(true)) "GITHUB_TASK_INCOMPLETE" else "GITHUB_EVIDENCE_REQUIRED")
                 }
             )
             evidence.retainVerdict(retained)
@@ -200,10 +233,11 @@ internal class GitHubVerifiedSession(
         evidence.retainVerdict(JsonObject(report + ("response_delivered" to kotlinx.serialization.json.JsonPrimitive(true))))
         val extractionCode = (report["failure_code"] as? kotlinx.serialization.json.JsonPrimitive)?.content?.takeUnless { it == "null" }
         if (partial) {
+            lifecycle(dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.VERIFICATION_REJECTED)
             emit(
                 ProviderEvent.Failed(
                     originalFailure?.message ?: "Partial response delivered. The requested task remains incomplete; saved receipts and the task checkpoint are available for continuation.",
-                    errorCode = failureCode ?: extractionCode ?: "GITHUB_EVIDENCE_REQUIRED",
+                    errorCode = failureCode ?: extractionCode ?: (report["verification_failure"] as? kotlinx.serialization.json.JsonPrimitive)?.content ?: "GITHUB_TASK_INCOMPLETE",
                     transportComplete = true,
                     taskOutcome = "PARTIAL",
                     failureDetails = originalFailure?.failureDetails

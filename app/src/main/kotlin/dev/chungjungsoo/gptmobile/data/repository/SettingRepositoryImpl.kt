@@ -435,6 +435,13 @@ class SettingRepositoryImpl @Inject constructor(
         val providerConnectionUid = persisted?.providerConnectionUid ?: platform.providerConnectionUid
         chatPlatformModelV2Dao.deleteByPlatformUid(platform.uid)
         platformV2Dao.deletePlatform(platform)
+        mutateFeatureSettings { settings ->
+            if (settings.localAssistPolicy.profileUid == platform.uid) {
+                settings.copy(localAssist = false, localAssistPolicy = settings.localAssistPolicy.copy(profileUid = null, permissionEpoch = java.util.UUID.randomUUID().toString()))
+            } else {
+                settings
+            }
+        }
         if (providerConnectionUid == null || platform.compatibleType == ClientType.FREE) {
             secretRef?.let { secretVault.delete(it) }
         }

@@ -45,7 +45,34 @@ internal object GitHubResultProjection {
             is JsonArray -> JsonArray(value.map(::visit))
             else -> value
         }
-        val compact = visit(source) as JsonObject
+        var compact = visit(source) as JsonObject
+        if (operation == "github_context" && request["action"] == JsonPrimitive("commits")) {
+            val items = compact["items"] as? JsonArray
+            if (items != null) {
+                compact = JsonObject(
+                    compact - "history_graph" - "recent_commits" + (
+                        "items" to JsonArray(
+                            items.map { raw ->
+                                val item = raw as? JsonObject ?: return@map raw
+                                val commit = item["commit"] as? JsonObject
+                                buildJsonObject {
+                                    item["sha"]?.let { put("sha", it) }
+                                    item["html_url"]?.let { put("html_url", it) }
+                                    put(
+                                        "commit",
+                                        buildJsonObject {
+                                            put("subject", ((commit?.get("message") ?: commit?.get("subject")) as? JsonPrimitive)?.content.orEmpty().lineSequence().firstOrNull().orEmpty().take(240))
+                                            commit?.get("author")?.let { put("author", it) }
+                                        }
+                                    )
+                                }
+                            }
+                        )
+                        )
+                )
+                omitted++
+            }
+        }
         if (omitted == 0) return source
         return JsonObject(
             compact + (

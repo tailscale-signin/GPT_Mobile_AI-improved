@@ -215,8 +215,18 @@ class FollowUpAgentSessionTest {
         assertEquals(history, turns.first())
         assertTrue(turns.last().userMessage.content.startsWith(original))
         assertTrue(turns.last().userMessage.content.contains("Also include dates"))
-        assertTrue(turns.last().userMessage.content.contains("ALL original requirements"))
+        assertTrue(turns.last().userMessage.content.contains("current request and the explicit additions"))
         assertEquals(current.userMessage.id, turns.last().userMessage.id)
+    }
+
+    @Test fun privateRewriteDoesNotInheritAppendOnlyContinuationInstructions() {
+        val current = ConversationTurn(MessageV2(chatId = 1, content = "test", platformType = null), null, true)
+        val turns = appendFollowUpContext(listOf(current), "\nRewrite only the acknowledgement", "An unrelated investigation", replaceAnswer = true)
+        val text = turns.single().userMessage.content
+        assertTrue(text.startsWith("test"))
+        assertTrue(text.contains("Replace this private candidate in full"))
+        assertFalse(text.contains("Continue the same answer"))
+        assertFalse(text.contains("ALL original requirements"))
     }
 
     @Test

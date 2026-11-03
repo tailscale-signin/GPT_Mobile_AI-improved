@@ -26,7 +26,12 @@ data class GitHubConversationContext(
 
     /** Request-local scope only; this does not grant tools, credentials or write access. */
     fun promptContext(request: String = ""): String = buildString {
-        if (GitHubTaskCoverage.matches(request)) append("Testing: maintain a checklist of requested tool/actions and features. Execute available authorized checks; reading tests is only inspection. Discover exact paths first. Reuse pinned reads; follow the exact continuation_call tool and arguments. Preserve successful and failed receipts. Continue unfinished authorized work; ask only for a concrete blocker. Report execution coverage separately from generation completion.\n")
+        val intent = dev.chungjungsoo.gptmobile.data.agent.CurrentRequestContract.from(request)
+        if (intent.conversational) {
+            append(intent.instruction())
+            return@buildString
+        }
+        if (GitHubTaskCoverage.matches(request)) append("Testing acceptance: every requested operation must be passed, failed, blocked or explicitly untested with a reason; retain receipt IDs, exact branch/PR/SHA and pending local/remote pages. Separate authorized isolated write exercises and cleanup from read smoke tests. Application tests need a newly executed run/job at the tested SHA. Report coverage, failures, a measured-scope score or scoring limitation, and solutions. Resume the first unfinished item; do not repeat a partial report without new evidence or a specific blocker. Maintain a checklist of requested tool/actions and features. Execute available authorized checks; reading tests is only inspection. Discover exact paths first. Reuse pinned reads; follow the exact continuation_call tool and arguments. Preserve successful and failed receipts. Continue unfinished authorized work; ask only for a concrete blocker. Report execution coverage separately from generation completion.\n")
         if (GitHubStatusRequest.matches(request)) append(GitHubStatusRequest.INSTRUCTION).append('\n')
         append("Presentation: begin with one descriptive Markdown # title and a plain-language outcome. Use concise ## sections, bullets and small tables. Separate unknowns and next steps; ground every claim.\n")
         append("GitHub workspace: $owner/$repo\nBranch: $ref\nPinned head: $commitSha\n")

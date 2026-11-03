@@ -1580,6 +1580,9 @@ internal fun ChatMessagePair(
         isSourceResponse -> selectedProfile.status == CombinedResponseStatus.GENERATING
         else -> isActiveMessage && loadingStates.getOrElse(displayPlatformIndex) { ChatViewModel.LoadingState.Idle } == ChatViewModel.LoadingState.Loading
     }
+    val reviewRetryBlock = dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.reviewRetryBlock(
+        assistantTimeline.lastOrNull { it.runError != null }?.runError ?: agentRun?.terminalError
+    )
     StableChatResponseViewport(contentKey = if (isCombinedConversation) "combined" else selectedPlatformUid, reservedHeight = reservedTurnHeight) {
         Column(
             modifier = Modifier
@@ -1713,7 +1716,8 @@ internal fun ChatMessagePair(
                             selectedPlatformUid in participatingUids &&
                             enabledPlatformLookup[selectedPlatformUid]?.enabled == true
                     } else {
-                        !isSourceResponse &&
+                        reviewRetryBlock == null &&
+                            !isSourceResponse &&
                             canUseChat &&
                             (isActiveMessage || agentRun?.status in setOf(AgentRunStatus.FAILED, AgentRunStatus.INTERRUPTED, AgentRunStatus.CANCELED, AgentRunStatus.PARTIAL, AgentRunStatus.EVIDENCE_MISSING, AgentRunStatus.BLOCKED)) &&
                             !isCurrentPlatformLoading &&
@@ -1842,7 +1846,10 @@ internal fun ChatMessagePair(
                         )
                         Text(error, style = MaterialTheme.typography.bodySmall)
                         if (error.contains("QUEUE_") && selectedRunId != null) TextButton(onClick = { onCheckQueuedRun(selectedRunId) }) { Text(stringResource(R.string.audit_check_status)) }
-                        if (!hasCombinedTabs) TextButton(onClick = { onRetry(messageIndex, displayPlatformIndex) }, enabled = isIdle && canUseChat) { Text(stringResource(R.string.audit_generate_again)) }
+                        if (!hasCombinedTabs) {
+                            reviewRetryBlock?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                            TextButton(onClick = { onRetry(messageIndex, displayPlatformIndex) }, enabled = isIdle && canUseChat && reviewRetryBlock == null) { Text(stringResource(R.string.audit_generate_again)) }
+                        }
                     }
                 }
             }

@@ -7,7 +7,7 @@
   "intent": "Audit export_Test_1793730947653.zip; implement GitHub chat settings, typography, activity history and evidence-based progress; repair directly reproducible diagnostic issues.",
   "status": "implemented_pending_android_ci",
   "host_checks": 301,
-  "focused_jvm_checks": 34,
+  "focused_jvm_checks": 35,
   "android_tests": "Blocked before execution: Gradle download Network is unreachable; JDK 17 and no SDK 37 locally",
   "report": "docs/repairs/github-chat-progress-1793730947653.md",
   "parent_pr_state": "merged",
@@ -16,7 +16,7 @@
   "merge_authorization": "User: Continue and merge to main when all green",
   "additional_intent": "Reconcile 28 reported issue families with current source; repair review recovery, executable discovery, early privacy checks, voice worker/configuration/preferences and causal diagnostics; verify exact published head before merge.",
   "additional_report": "docs/repairs/build138-diagnostic-followup.md",
-  "additional_validation": "301 host tests and 34 focused JVM tests passed; Android voice/discovery/review regressions await full CI.",
+  "additional_validation": "301 host checks and 35 focused JVM tests passed; full Android CI must pass on final PR head.",
   "ci_packaging_followup": {
     "repository": "tailscale-signin/GPT_Mobile_AI-improved",
     "base_branch": "main",
@@ -30,5 +30,8 @@
     "state": "HOST_VALIDATED_PENDING_FRESH_CI",
     "concurrent_work": "Preserved six owner follow-up files from65b2bed: dynamic privacy aliases remain UNKNOWN while observed policy rejection cache still applies; voice settings stay disabled until preferences load; behavior regression and release scope retained.",
     "validation": "Actual YAML APK shell plus production build_metrics and gradle_retry pass success0/failure7/stall124 fixtures. Failure/timeout skip all artifact validators; success runs them. Timeout terminates spawned child and metrics retain real exit. Fixture uses1-second timeout; repository retains1140-second deadline and20-minute step. 301 canonical host and34 focused JVM tests passed before workflow-only repair; fresh canonical validation follows. Fresh canonical fast validation passed all301 tests and policy/dependency/secret/regex/resource/provenance checks after reconciliation."
-  }
+  },
+  "pr": 795,
+  "publication": "Published through GitHub integration; matching tree hashes verified. Concurrent bounded APK packaging repair retained.",
+  "latest_reconciled_head": "c7d615dea3e69c26e37f40d5cd88df2815588602"
 }

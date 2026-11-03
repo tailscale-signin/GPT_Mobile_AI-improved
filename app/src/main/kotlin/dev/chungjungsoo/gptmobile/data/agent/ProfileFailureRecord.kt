@@ -19,6 +19,10 @@ data class ProfileFailureRecord(
     val resourceKeys: Set<String> = emptySet()
 ) {
     companion object {
+        fun reviewRetryBlock(details: String?): String? = details?.takeIf { classify(it).category == "REVIEW_INPUT_REQUIRED" }?.let {
+            "This saved review requires an updated request or new evidence. Send an updated prompt; the saved draft and tool results are retained."
+        }
+
         private val httpStatus = Regex("""(?i)\b(?:HTTP(?:/\d(?:\.\d)?)?(?:\s+(?:error|status)(?:\s+code)?)?|status(?:\s+code)?|statusCode|responseCode)["']?(?:\s*[:=]\s*|\s+)(\d{3})\b""")
 
         fun classify(details: String, demoExcluded: Boolean = false): ProfileFailureRecord {

@@ -114,7 +114,7 @@ internal fun settingsHomePoints(
                 }
                 SettingsHomePoint(id, "Plugins & Tools", "${subjects.size} selected", if (subjects.isEmpty()) "Choose plugins and tools" else "Observed status; individual grants still apply", tone, subjects = subjects)
             }
-            SettingsHomeConfiguration.PRIVACY -> SettingsHomePoint(id, "Privacy choices", "Diagnostics ${if (features.diagnosticsCollection) "on" else "off"}", "Local Assist ${if (features.localAssist) "on" else "off"} · location tool ${if (features.deviceLocationTool) "allowed" else "off"}")
+            SettingsHomeConfiguration.PRIVACY -> SettingsHomePoint(id, "Privacy choices", "Detailed diagnostics ${if (features.diagnosticsCollection) "on" else "off"}", "Local Assist ${if (features.localAssist) "on" else "off"} · location tool ${if (features.deviceLocationTool) "allowed" else "off"}")
             SettingsHomeConfiguration.BACKUP -> SettingsHomePoint(id, "Backup & Restore", backup.lastBackupEpochMs?.let { settingsHomeAge(it / 1000, nowSeconds) } ?: "No recorded backup", "${backup.backupCount} backups recorded by this app")
             else -> SettingsHomePoint(id, "Unavailable category", "Unavailable", "Choose Home categories")
         }

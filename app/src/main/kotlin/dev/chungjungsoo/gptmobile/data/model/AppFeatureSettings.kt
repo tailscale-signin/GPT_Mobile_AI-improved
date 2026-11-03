@@ -261,8 +261,8 @@ enum class AppFeature(
         "Index models from supported remote providers for searchable profile model pickers."
     ),
     DIAGNOSTICS(
-        "Diagnostics Collection",
-        "Collect local performance, token, runtime and tool metrics for Debug Mode."
+        "Detailed Diagnostics",
+        "Collect detailed local performance, token, runtime and tool metrics for Debug Mode. Saved chats retain a small history of task steps even when this is off. Temporary chats do not retain that history."
     ),
     OPENROUTER_BATCH(
         "OpenRouter Batch Processing",

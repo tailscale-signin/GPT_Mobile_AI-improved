@@ -7,7 +7,7 @@ import time
 import urllib.request
 from pathlib import Path
 
-REQUIRED_WORKFLOWS = ('Build Android APK', 'Post-merge correctness', 'CodeQL Advanced', 'v0.9.50 Android acceptance')
+REQUIRED_WORKFLOWS = ('PR Validation', 'Build Android APK', 'Post-merge correctness', 'CodeQL Advanced', 'v0.9.50 Android acceptance')
 
 
 def required_workflows(manifest):

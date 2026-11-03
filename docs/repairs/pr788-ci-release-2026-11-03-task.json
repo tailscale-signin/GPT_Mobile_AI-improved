@@ -2,9 +2,9 @@
   "schema_version": 1,
   "repository": "tailscale-signin/GPT_Mobile_AI-improved",
   "base_branch": "main",
-  "base_sha": "1a3dd3d45cd9be58be56f2208ca42d492cacc6dc",
-  "working_branch": "release/isolated-signed-validation-2026-11-03",
-  "starting_sha": "1a3dd3d45cd9be58be56f2208ca42d492cacc6dc",
+  "base_sha": "9118a4ea9750f20de002a427423a3e997103ca36",
+  "working_branch": "release/verified-test-pins-2026-11-03",
+  "starting_sha": "9118a4ea9750f20de002a427423a3e997103ca36",
   "intent": "Fix all open draft PR checks, merge only after successful current checks, then publish a new signed Android release.",
   "requirements": [
     {
@@ -61,11 +61,79 @@
     },
     {
       "id": "isolated-signed-release-validation",
-      "status": "RUNNING",
+      "status": "DONE",
       "evidence": [
         "Release validation overrides the repository one-worker ceiling with --max-workers=2 and combines compilation, tests and lint in one 3 GiB JVM; compileDebugKotlin failed with insufficient compilation memory.",
         "Separate unit compilation, test execution, debug lint and release lint with --max-workers=1; preserve the 3 GiB heap, disabled configuration cache and all validation tasks.",
-        "Run the exact validation job for release-workflow PRs, with signing/publication disabled on pull_request events, so the release-only gate is exercised before merge."
+        "Run the exact validation job for release-workflow PRs, with signing/publication disabled on pull_request events, so the release-only gate is exercised before merge.",
+        "PR #792 passed the exact signed validator, full unsigned APK/AAB build and all 20 applicable checks before merge."
+      ]
+    },
+    {
+      "id": "verified-lint-dependencies-and-canonical-release-gate",
+      "status": "RUNNING",
+      "evidence": [
+        "Main PR Validation 41647417061 retry lint job 125964357554 rejected four unpinned Byte Buddy 1.17.7 and MockK 1.14.11 artifacts.",
+        "Signed release 41647417269 was cancelled before publishing build 137.",
+        "Verify exact artifact bytes against Maven Central publisher SHA-512 sidecars, add only the four missing SHA-256 pins, and require PR Validation on the exact release commit."
+      ],
+      "publisher_verification": [
+        {
+          "group": "net.bytebuddy",
+          "name": "byte-buddy",
+          "version": "1.17.7",
+          "artifact": "byte-buddy-1.17.7.jar",
+          "url": "https://repo.maven.apache.org/maven2/net/bytebuddy/byte-buddy/1.17.7/byte-buddy-1.17.7.jar",
+          "bytes": 9015334,
+          "sha256": "3575dcb8a98faf943d3c1595c47a16047c4fce8a83ebbb26262f1a2f67546357",
+          "publisher": {
+            "algorithm": "sha512",
+            "digest": "9c10e50598e139fe7099ff8c5f13adebeacb12df07c6ae23129a462e87e085c66a763900eaa5fabaf9cb7bb0a8410fc3af1ce7eadd4f40983bf9a0c4be7c42d1",
+            "url": "https://repo.maven.apache.org/maven2/net/bytebuddy/byte-buddy/1.17.7/byte-buddy-1.17.7.jar.sha512"
+          }
+        },
+        {
+          "group": "net.bytebuddy",
+          "name": "byte-buddy-agent",
+          "version": "1.17.7",
+          "artifact": "byte-buddy-agent-1.17.7.jar",
+          "url": "https://repo.maven.apache.org/maven2/net/bytebuddy/byte-buddy-agent/1.17.7/byte-buddy-agent-1.17.7.jar",
+          "bytes": 366248,
+          "sha256": "a9ba887dca252ad61b7d5153294f34e6f3bdf4b2736b04373d13615a695fc0ff",
+          "publisher": {
+            "algorithm": "sha512",
+            "digest": "c349b190e773447a155db48c90d976056daed8c9d52b6026d42f3c283fc984430430a53b27218ebb9ad980cb166cbe8cc796306a7c8368fde91ecc241cf662d5",
+            "url": "https://repo.maven.apache.org/maven2/net/bytebuddy/byte-buddy-agent/1.17.7/byte-buddy-agent-1.17.7.jar.sha512"
+          }
+        },
+        {
+          "group": "io.mockk",
+          "name": "mockk",
+          "version": "1.14.11",
+          "artifact": "mockk-1.14.11.jar",
+          "url": "https://repo.maven.apache.org/maven2/io/mockk/mockk/1.14.11/mockk-1.14.11.jar",
+          "bytes": 647,
+          "sha256": "089e24417bf9f6c34eec5720eebb2cbcc82ea2855ecef90133eb17e1079d5868",
+          "publisher": {
+            "algorithm": "sha512",
+            "digest": "f9c081b46244233787a52aabb776722b019e9521c3a89a6b4e55a669be9cfee3411764e79d1de9563bc03c6e61e4fe541deee4b30affd96a14de6dd2fdca1dc9",
+            "url": "https://repo.maven.apache.org/maven2/io/mockk/mockk/1.14.11/mockk-1.14.11.jar.sha512"
+          }
+        },
+        {
+          "group": "io.mockk",
+          "name": "mockk",
+          "version": "1.14.11",
+          "artifact": "mockk-1.14.11.pom",
+          "url": "https://repo.maven.apache.org/maven2/io/mockk/mockk/1.14.11/mockk-1.14.11.pom",
+          "bytes": 2457,
+          "sha256": "6151c96a4b775b98a40dd8bdb3af7f449e121631b6dd3ee8a8c137807a9817fc",
+          "publisher": {
+            "algorithm": "sha512",
+            "digest": "d9097e6118e3fecab51afbe351408b5e50cb081389031e36687a3039d8c26d8a009dfaa4ef4da06fd6a1fc5a22014387a1d7968875fe14af234a058715089bc9",
+            "url": "https://repo.maven.apache.org/maven2/io/mockk/mockk/1.14.11/mockk-1.14.11.pom.sha512"
+          }
+        }
       ]
     }
   ],
@@ -82,8 +150,8 @@
     }
   },
   "validation": {
-    "local": "37 focused delivery, release-scope, release-trigger, milestone-gate and Gradle-retry tests passed; 297 canonical fast checks passed. Workflow YAML, shell syntax, read-only PR permissions, publication gating and whitespace verified. Exact release validation and unsigned APK/AAB CI remain required before merge.",
-    "release_target": "0.9.66.3 / build 137",
+    "local": "39 focused release-scope, delivery, release-trigger, milestone-gate and Gradle-retry tests passed; 299 canonical fast checks passed. Four artifact hashes matched Maven Central publisher SHA-512 sidecars. Workflow YAML, shell syntax and whitespace verified. Full Android PR validation, exact signed validation and unsigned APK/AAB build remain required.",
+    "release_target": "0.9.66.4 / build 138",
     "publication": "PENDING"
   },
   "previous_packaging_repair": {
@@ -102,5 +170,13 @@
     "successful_checks": 18,
     "unsigned_release_run": 41626679909,
     "unsigned_release_result": "Full APK/AAB build, size, native-library and packaging checks passed."
+  },
+  "previous_isolated_validation_repair": {
+    "pull_request": 792,
+    "validated_sha": "19eb4e73fc4e59c5544074e19766747a9955bc16",
+    "merged_sha": "9118a4ea9750f20de002a427423a3e997103ca36",
+    "successful_checks": 20,
+    "signed_validation_run": 41637040515,
+    "unsigned_release_run": 41637040486
   }
 }

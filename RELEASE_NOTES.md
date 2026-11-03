@@ -1,6 +1,6 @@
-# GPT Mobile 0.9.66.3
+# GPT Mobile 0.9.66.4
 
-Android build 137. Signed release of the merged GitHub, voice, recovery and gateway integration changes since v0.9.65.0.
+Android build 138. Signed release of the merged GitHub, voice, recovery and gateway integration changes since v0.9.65.0.
 
 ## Changes
 
@@ -15,6 +15,8 @@ Android build 137. Signed release of the merged GitHub, voice, recovery and gate
 - Use the shared bounded Android pipeline for signed release packaging, retaining the existing memory ceilings, APK budgets, signing checks and artifact verification.
 
 - Run signed-release validation in separate one-worker compilation, test and lint processes, and exercise the same validation on release-workflow PRs before merge.
+
+- Pin four publisher-verified Byte Buddy and MockK test artifacts required by cold lint resolution, and require canonical PR Validation to pass on the exact published commit.
 
 ## Qualification and remaining work
 

@@ -13,6 +13,7 @@ class VoiceSessionTest {
         var closed = false
         override fun listen(listener: VoiceAudio.Listener) {
             listeners += listener
+            listener.ready()
         }
         override fun speak(text: String, complete: () -> Unit, error: (String) -> Unit) {
             spoken += text
@@ -30,7 +31,7 @@ class VoiceSessionTest {
     private val session = VoiceSession(audio, {
         prompts += it
         true
-    }, {})
+    }, {}).apply { autoContinue = true }
     private fun start() {
         session.access(true, true, true)
         session.resume()
@@ -180,6 +181,7 @@ class VoiceSessionTest {
         audio.listeners.last().final("Hello")
         assertEquals(VoicePhase.ERROR, rejecting.state.phase)
         assertEquals(1, audio.listeners.size)
+        rejecting.discardDraft()
         rejecting.resume()
         audio.listeners.last().error("Network unavailable")
         assertEquals(2, audio.listeners.size)

@@ -31,6 +31,40 @@ import org.robolectric.annotation.Config
 class ConversationEntryTest {
     @get:Rule val compose = createComposeRule()
 
+    @Test fun githubPromptUsesEmptyResponseSpaceAndStaysAtTopAsTheAnswerGrows() {
+        lateinit var state: LazyListState
+        var answerHeight by mutableStateOf(0.dp)
+        var expectedTop = 0
+        compose.setContent {
+            state = rememberLazyListState()
+            expectedTop = with(LocalDensity.current) { 48.dp.roundToPx() }
+            Box(Modifier.size(320.dp, 400.dp)) {
+                LazyColumn(Modifier.fillMaxSize(), state, contentPadding = androidx.compose.foundation.layout.PaddingValues(top = 48.dp, bottom = 96.dp)) {
+                    item(key = "history") { Spacer(Modifier.height(700.dp)) }
+                    item(key = "new-prompt") {
+                        StableChatResponseViewport("answer", reservedHeight = 256.dp) {
+                            Spacer(Modifier.height(48.dp))
+                            Spacer(Modifier.height(answerHeight))
+                        }
+                    }
+                }
+                LaunchedEffect(Unit) { state.scrollToConversationEntry(1) }
+            }
+        }
+        compose.waitForIdle()
+        fun assertPromptAtTop() = compose.runOnIdle {
+            val prompt = state.layoutInfo.visibleItemsInfo.first { it.key == "new-prompt" }
+            assertEquals(expectedTop, prompt.offset - state.layoutInfo.viewportStartOffset)
+        }
+        assertPromptAtTop()
+        compose.runOnIdle { answerHeight = 80.dp }
+        compose.waitForIdle()
+        assertPromptAtTop()
+        compose.runOnIdle { answerHeight = 700.dp }
+        compose.waitForIdle()
+        assertPromptAtTop()
+    }
+
     @Test fun unreadResponseBeginningAlignsBetweenHeaderAndComposer() {
         lateinit var state: LazyListState
         var responseOffset = 0

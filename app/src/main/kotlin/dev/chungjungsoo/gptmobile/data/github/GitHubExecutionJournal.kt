@@ -54,9 +54,20 @@ internal class GitHubExecutionBlocked(val checkpoint: JsonObject) :
 internal class GitHubExecutionJournal(
     private val store: GitHubRepositoryStateStore,
     private val scope: String,
-    private val now: () -> Long = System::currentTimeMillis
+    private val now: () -> Long = System::currentTimeMillis,
+    private val legacyScopes: List<String> = emptyList()
 ) {
     suspend fun run(action: String, arguments: JsonObject, reconcile: (suspend () -> JsonElement?)? = null, singleHttpRequest: Boolean = false, block: suspend () -> JsonElement): JsonElement {
+        // Old token-scoped fences remain authoritative after upgrade/refresh, including pruned receipts.
+        for (legacy in legacyScopes.distinct().filter { it != scope }) {
+            val oldId = GitHubRepositoryStateStore.digest("$legacy|$action|${canonical(arguments)}")
+            val previous = store.read(legacy, "execution:$oldId")
+            if (previous != null && previous.text("status") != "REJECTED") {
+                return GitHubExecutionJournal(store, legacy, now).run(action, arguments, reconcile, singleHttpRequest) {
+                    error("A legacy publication fence cannot dispatch a new mutation")
+                }
+            }
+        }
         val identity = GitHubRepositoryStateStore.digest("$scope|$action|${canonical(arguments)}")
         val claim = UUID.randomUUID().toString()
         val row = store.update(scope, "execution:$identity") { previous ->

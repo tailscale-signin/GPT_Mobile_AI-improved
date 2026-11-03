@@ -25,7 +25,7 @@ internal object CombinedContributionUsability {
 
     fun assess(status: String?, rawContent: String, allowPartial: Boolean = false, request: String? = null, demo: Boolean = false, finishReason: String? = null, outputTokens: Int? = null, outputAllowance: Int? = null): CombinedContributionAssessment {
         val content = dev.chungjungsoo.gptmobile.data.conversation.ConversationSubject.withoutMetadata(rawContent).trim()
-        val terminalFailure = status in setOf(AgentRunStatus.FAILED, AgentRunStatus.CANCELED, AgentRunStatus.INTERRUPTED)
+        val terminalFailure = status in setOf(AgentRunStatus.FAILED, AgentRunStatus.CANCELED, AgentRunStatus.INTERRUPTED, AgentRunStatus.PARTIAL, AgentRunStatus.EVIDENCE_MISSING, AgentRunStatus.BLOCKED)
         if (terminalFailure && (!allowPartial || status == AgentRunStatus.CANCELED)) return CombinedContributionAssessment(false, 0, "terminal_provider_failure")
         if (content.isBlank()) return CombinedContributionAssessment(false, 0, "empty_contribution")
         if (content == "This model reached its response limit. Would you like me to continue?") return CombinedContributionAssessment(false, 0, "application_notice_only")

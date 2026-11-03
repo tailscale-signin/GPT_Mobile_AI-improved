@@ -63,8 +63,14 @@ class AgentRunner(
     private val checkpoint: ToolBatchCheckpoint? = null,
     private val healthCatalog: ProgressiveToolCatalog? = null,
     private val retryUndispatchedBudgetFailures: Boolean = false,
-    private val onToolResult: (suspend (ProviderEvent.ToolCall, AgentToolResult) -> Unit)? = null
+    private val onToolResult: (suspend (ProviderEvent.ToolCall, AgentToolResult) -> Unit)? = null,
+    private val resumeToolBudget: Boolean = false
 ) {
+    private val replayRenderCache = ToolExchangeCompactor.RenderCache()
+
+    private fun compactReplay(exchanges: List<AgentToolExchange>, maxReplayTokens: Int, maxResultTokens: Int, consumedCallIds: Set<String> = emptySet()) =
+        ToolExchangeCompactor.compact(exchanges, maxReplayTokens, maxResultTokens, consumedCallIds, replayRenderCache)
+
     fun run(session: AgentProviderSession, tools: List<AgentTool>, dynamicTools: () -> List<AgentTool> = { emptyList() }, selectDefinitions: (List<AgentToolDefinition>) -> List<AgentToolDefinition> = { it }): Flow<AgentRunEvent> = flow {
         if (tools.isNotEmpty() && !session.handlesToolsInternally && limits.maxReplayTokens <= 0) {
             emit(AgentRunEvent.Provider(ProviderEvent.Failed("No actionable tool receipt fits the replay budget. Reallocate stage output or narrow schemas before starting tool work.", errorCode = "REPLAY_EVIDENCE_REQUIRED")))
@@ -84,7 +90,7 @@ class AgentRunner(
         val recovery = checkpoint?.recoverySnapshot(limits.checkpointRestoreObjective)
         // An explicit retry grants a new bounded tranche. Historical receipts
         // still reconcile effects; they must not exhaust the new attempt's budget.
-        var toolCallCount = if (retryUndispatchedBudgetFailures) 0 else recovery?.dispatchedCount ?: 0
+        var toolCallCount = if (retryUndispatchedBudgetFailures || resumeToolBudget) 0 else recovery?.dispatchedCount ?: 0
         var toolMayHaveExecuted = (recovery?.dispatchedCount ?: 0) > 0
         var retriedWithoutTools = false
 
@@ -169,7 +175,7 @@ class AgentRunner(
                 exchanges += exchange
             }
         }
-        replayTokens = ToolExchangeCompactor.estimateTokens(ToolExchangeCompactor.compact(exchanges, limits.maxReplayTokens, limits.maxReplayResultTokens)).toLong()
+        replayTokens = ToolExchangeCompactor.estimateTokens(compactReplay(exchanges, limits.maxReplayTokens, limits.maxReplayResultTokens)).toLong()
 
         while (true) {
             if (executionToolCallLimit < Int.MAX_VALUE && toolCallCount >= executionToolCallLimit && restoredCalls.isEmpty()) {
@@ -511,7 +517,7 @@ class AgentRunner(
         // Deferred mutations cannot become prerequisites of the decision that
         // must be answered before those mutations may be planned.
         val dependencyCalls = if (calls.any { it.name in questionNames }) calls.filter { it.name in questionNames } else calls
-        val plan = dependencyClosedPlan(planToolBatch(calls, batchAllowance, toolsForBatch.keys, toolCallsByName, blockedReadScopes, MAX_SAME_TOOL_CALLS_PER_RUN, restoredRetained, ::failureScope), planIntelligentBatch(dependencyCalls, toolsForBatch), restoredRetained)
+        val plan = dependencyClosedPlan(planToolBatch(calls, batchAllowance, toolsForBatch.keys, toolCallsByName, blockedReadScopes, if (limits.githubTask) limits.maxToolCalls else MAX_SAME_TOOL_CALLS_PER_RUN, restoredRetained, ::failureScope), planIntelligentBatch(dependencyCalls, toolsForBatch), restoredRetained)
         val executableCalls = plan.executable
         val deferredCalls = plan.deferred
         val perToolSuppressedIds = plan.perToolSuppressedIds
@@ -711,7 +717,7 @@ class AgentRunner(
         replayTokens: Long,
         selectDefinitions: (List<AgentToolDefinition>) -> List<AgentToolDefinition>
     ): ToolCatalogUpdate? {
-        val additions = discovered.filter { it.definition.name !in toolByName && it.definition.name !in executableToolByName && (consecutiveToolFailures[it.definition.name] ?: 0) < 2 && (toolCallsByName[it.definition.name] ?: 0) < MAX_SAME_TOOL_CALLS_PER_RUN }
+        val additions = discovered.filter { it.definition.name !in toolByName && it.definition.name !in executableToolByName && (consecutiveToolFailures[it.definition.name] ?: 0) < 2 && (toolCallsByName[it.definition.name] ?: 0) < (if (limits.githubTask) limits.maxToolCalls else MAX_SAME_TOOL_CALLS_PER_RUN) }
         if (additions.groupBy { it.definition.name }.any { it.value.size > 1 }) {
             emit(failed("Ambiguous discovered tool aliases; no discovered action dispatched."))
             return null
@@ -779,7 +785,7 @@ class AgentRunner(
         val projectedExchanges = exchanges + AgentToolExchange(calls, allResults)
         val projectedReplayTokens = ToolExchangeCompactor.estimateTokens(projectedExchanges)
         val replayTokens = ToolExchangeCompactor.estimateTokens(
-            ToolExchangeCompactor.compact(
+            compactReplay(
                 exchanges = projectedExchanges,
                 maxReplayTokens = limits.maxReplayTokens,
                 maxResultTokens = if (projectedReplayTokens <= limits.maxReplayTokens) limits.maxReplayTokens else limits.maxReplayResultTokens
@@ -893,7 +899,7 @@ class AgentRunner(
         // Retain bounded observations on ingress, including trace/retained payloads.
         val retentionBudget = limits.maxRetainedEvidenceTokens.coerceIn(1024, if (limits.githubTask) 262_144 else 32_000)
         val observations = exchanges + AgentToolExchange(calls, allResults.map { it.copy(traceContent = null, retainedContent = null) })
-        val retained = ToolExchangeCompactor.compact(
+        val retained = compactReplay(
             observations,
             retentionBudget,
             // Preserve complete evidence while it fits the retained budget.
@@ -1006,7 +1012,7 @@ class AgentRunner(
                 return@flow
             }
             val rawReplayTokens = ToolExchangeCompactor.estimateTokens(exchanges)
-            val replayExchanges = ToolExchangeCompactor.compact(
+            val replayExchanges = compactReplay(
                 exchanges = exchanges,
                 maxReplayTokens = limits.maxReplayTokens,
                 maxResultTokens = if (rawReplayTokens <= limits.maxReplayTokens) limits.maxReplayTokens else limits.maxReplayResultTokens,

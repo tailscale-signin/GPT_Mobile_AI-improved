@@ -905,6 +905,13 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    /** Preserve an unsent recognized draft through the existing durable conversation draft path. */
+    fun checkpointVoiceDraft(text: String) {
+        if (!_isLoaded.value) return
+        question.edit { replace(0, length, text.take(8000)) }
+        checkpointComposer()
+    }
+
     /** Voice uses the normal durable chat dispatcher and never bypasses tool approvals. */
     fun submitVoiceTranscript(text: String): Boolean {
         if (!_isLoaded.value || text.isBlank() || !featureSettings.value.isToolPluginEnabled(dev.chungjungsoo.gptmobile.data.model.ToolPluginId.VOICE_CHAT) || _loadingStates.value.any { it != LoadingState.Idle }) return false
@@ -972,7 +979,7 @@ class ChatViewModel @Inject constructor(
                 val deliveryRetry = record.attempt.nextAction == dev.chungjungsoo.gptmobile.data.research.ResearchNextAction.RETRY_DELIVERY || (needsReview && responses.any { it.isCombinedSynthesis() })
                 val targets = responses.indices.filter { index ->
                     val response = responses[index]
-                    response.platformType in record.accepted.participantUids && !response.isCombinedSynthesis() && response.currentRunId?.let { _agentRunsById.value[it]?.status } in setOf(AgentRunStatus.FAILED, AgentRunStatus.INTERRUPTED, AgentRunStatus.CANCELED)
+                    response.platformType in record.accepted.participantUids && !response.isCombinedSynthesis() && response.currentRunId?.let { _agentRunsById.value[it]?.status } in setOf(AgentRunStatus.FAILED, AgentRunStatus.INTERRUPTED, AgentRunStatus.CANCELED, AgentRunStatus.PARTIAL, AgentRunStatus.EVIDENCE_MISSING, AgentRunStatus.BLOCKED)
                 }
                 if (!deliveryRetry && targets.isEmpty() && record.attempt.state == dev.chungjungsoo.gptmobile.data.research.ResearchAttemptState.BLOCKED_CONFIGURATION) {
                     _attachmentNotice.value = "Review the selected profiles, then regenerate this research request. Saved evidence is retained."
@@ -3550,6 +3557,28 @@ class ChatViewModel @Inject constructor(
 
     private fun checkAndGenerateAiTitle(runsById: Map<String, AgentRun>) {
         val room = _chatRoom.value
+        val github = _chatToolConfig.value.github
+        if (github != null && room.id > 0 && !room.isTitleCustomized && !autoTitleGenerationInFlight) {
+            val firstPrompt = _groupedMessages.value.userMessages.firstOrNull()?.content
+            if (!firstPrompt.isNullOrBlank()) {
+                val task = dev.chungjungsoo.gptmobile.data.conversation.GitHubConversationSubject.task(firstPrompt, github.owner, github.repo, github.ref)
+                val subject = dev.chungjungsoo.gptmobile.data.conversation.GitHubConversationSubject.taskSummary(task)
+                autoTitleGenerationInFlight = true
+                viewModelScope.launch {
+                    try {
+                        val current = _chatRoom.value
+                        if (current.id == room.id && !current.isTitleCustomized) {
+                            chatRepository.updateChatTitle(current, subject, isCustomized = true)
+                            if (_chatRoom.value.id == room.id) _chatRoom.update { it.copy(title = subject, isTitleCustomized = true) }
+                            lastAutoTitleUserTurnCount = 1
+                        }
+                    } finally {
+                        autoTitleGenerationInFlight = false
+                    }
+                }
+            }
+            return
+        }
         if (!featureSettings.value.automaticConversationTitles) return
         if (room.id <= 0 || room.isTitleCustomized) return
 
@@ -3672,9 +3701,11 @@ class ChatViewModel @Inject constructor(
         if (pendingRunDispatches > 0 || pendingMessageGrouping > 0) return
         val runs = _agentRunsById.value
         syncLoadingStates(runs)
+        // GitHub subjects come from the first persisted prompt and do not wait for a response.
+        if (_chatToolConfig.value.github != null) checkAndGenerateAiTitle(runs)
         if (_combinedFailures.value.isNotEmpty() || isGenerationBusy()) return
         maybeStartCombinedSynthesis(runs)
-        checkAndGenerateAiTitle(runs)
+        if (_chatToolConfig.value.github == null) checkAndGenerateAiTitle(runs)
         drainPromptQueueIfIdle()
     }
 

@@ -15,6 +15,14 @@ class GitHubCheckWatchWorker @AssistedInject constructor(
 ) : CoroutineWorker(context, parameters) {
     override suspend fun doWork(): Result {
         val id = inputData.getString("watch_id") ?: return Result.failure()
-        return if (watches.poll(id, runAttemptCount)) Result.success() else Result.retry()
+        return try {
+            if (!watches.poll(id, runAttemptCount)) watches.scheduleNext(id)
+            Result.success()
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            // Only failed persistence/scheduling uses WorkManager retry. Healthy CI polls schedule a new observation.
+            Result.retry()
+        }
     }
 }

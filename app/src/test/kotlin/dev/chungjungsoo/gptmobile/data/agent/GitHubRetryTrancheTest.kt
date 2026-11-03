@@ -70,4 +70,34 @@ class GitHubRetryTrancheTest {
         assertEquals(1, dispatched)
         assertEquals(2, checkpoint.dispatchedCount())
     }
+
+    @Test fun explicitContinueGetsBudgetButRetainsHistoricalReceipts() = runBlocking {
+        val checkpoint = ToolBatchCheckpoint(null, "same-authorized-task")
+        val previous = ProviderEvent.ToolCall("old", "github_read", buildJsonObject { put("path", "Old.kt") })
+        checkpoint.enqueue(listOf(previous))
+        checkpoint.complete(previous, AgentToolResult("old", ToolResultContent.Text("Historical source"), false))
+        var dispatched = 0
+        val tool = object : AgentTool {
+            override val definition = AgentToolDefinition("github_read", "read", buildJsonObject {})
+            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+                dispatched++
+                return AgentToolResult(callId, ToolResultContent.Text("New source"), false)
+            }
+        }
+        var round = 0
+        val session = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                if (round++ == 0) {
+                    assertTrue(tools.isNotEmpty())
+                    emit(ProviderEvent.ToolCall("new", "github_read", buildJsonObject { put("path", "New.kt") }))
+                } else {
+                    emit(ProviderEvent.TextDelta("Historical and new findings retained."))
+                }
+                emit(ProviderEvent.Completed)
+            }
+        }
+        AgentRunner(AgentRunLimits(githubTask = true, maxToolCalls = 1), checkpoint, resumeToolBudget = true).run(session, listOf(tool)).collect()
+        assertEquals(1, dispatched)
+        assertEquals(2, checkpoint.dispatchedCount())
+    }
 }

@@ -4,9 +4,7 @@ import io.ktor.client.HttpClient
 import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.request.header
-import io.ktor.client.request.request
 import io.ktor.client.request.setBody
-import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpMethod
@@ -17,6 +15,7 @@ import java.nio.charset.StandardCharsets
 import java.util.Base64
 import kotlin.coroutines.AbstractCoroutineContextElement
 import kotlin.coroutines.CoroutineContext
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
@@ -47,7 +46,7 @@ data class GitHubRepositoryContext(val owner: String, val repo: String, val ref:
  * GraphQL responses stay inside this layer so they do not waste model context.
  */
 class GitHubWorkspaceClient(
-    private val token: String,
+    private var token: String,
     private val client: HttpClient = sharedClient,
     private val responseCache: GitHubResponseCache = if (client === sharedClient) GitHubSessionCaches.forCredential(token) else GitHubResponseCache(),
     private val rateLimits: GitHubRateLimitManager = if (client === sharedClient) GitHubSessionCaches.rateLimitsForCredential(token) else GitHubRateLimitManager(),
@@ -62,7 +61,10 @@ class GitHubWorkspaceClient(
     private val scheduler: GitHubRequestScheduler = if (client === sharedClient) GitHubSessionCaches.schedulerForCredential(token) else GitHubRequestScheduler(),
     private val requestPriority: Int = 0,
     private val authenticationRejected: java.util.concurrent.atomic.AtomicBoolean = if (client === sharedClient) GitHubSessionCaches.authenticationForCredential(token) else java.util.concurrent.atomic.AtomicBoolean(),
-    private val engineeringPrepare: (suspend (String, JsonObject) -> JsonObject)? = null
+    private val engineeringPrepare: (suspend (String, JsonObject) -> JsonObject)? = null,
+    private val durableIdentity: String = GitHubRepositoryStateStore.digest(token),
+    private val legacyCredentialIdentities: List<String> = emptyList(),
+    private val credentialProvider: (suspend () -> String)? = null
 ) {
     companion object {
         const val API_VERSION = "2026-03-10"
@@ -113,7 +115,7 @@ class GitHubWorkspaceClient(
     private val repositoryState = if (persistentState) stateStore ?: if (client === sharedClient) GitHubSessionCaches.stateForCredential(token) else GitHubRepositoryStateStore() else GitHubRepositoryStateStore()
     private val repositorySession by lazy {
         GitHubRepositorySession(
-            GitHubRepositoryStateStore.digest(token),
+            durableIdentity,
             connectionUid,
             conversationId,
             taskId,
@@ -123,9 +125,11 @@ class GitHubWorkspaceClient(
             { root, args -> reconcileCommit(root, args) }
         )
     }
-    private val executionScope = listOf(GitHubRepositoryStateStore.digest(token), connectionUid, conversationId, taskId).joinToString(":")
-    private val releaseReceiptScope = listOf(GitHubRepositoryStateStore.digest(token), connectionUid, conversationId).joinToString(":")
-    private val executionJournal by lazy { GitHubExecutionJournal(repositoryState, executionScope) }
+    private val executionScope = listOf(durableIdentity, connectionUid, conversationId, taskId).joinToString(":")
+    private val releaseReceiptScope = listOf(durableIdentity, connectionUid, conversationId).joinToString(":")
+    private val executionJournal by lazy {
+        GitHubExecutionJournal(repositoryState, executionScope, legacyScopes = legacyCredentialIdentities.map { listOf(it, connectionUid, conversationId, taskId).joinToString(":") })
+    }
     suspend fun taskSnapshot(): GitHubTaskSnapshot? = repositorySession.snapshot()
     suspend fun taskContext(): GitHubRepositoryContext? = repositorySession.context()
     internal suspend fun trackExecution(action: String, arguments: JsonObject, block: suspend () -> JsonElement): JsonObject =
@@ -139,6 +143,15 @@ class GitHubWorkspaceClient(
 
     private class Invocation(val identity: String) : AbstractCoroutineContextElement(Key) {
         companion object Key : CoroutineContext.Key<Invocation>
+    }
+
+    private suspend fun refreshCredential() {
+        val refreshed = credentialProvider?.invoke() ?: return
+        if (refreshed != token) {
+            token = refreshed
+            responseCache.clear()
+            authenticationRejected.set(false)
+        }
     }
 
     suspend fun execute(action: String, args: JsonObject): JsonElement {
@@ -171,27 +184,30 @@ class GitHubWorkspaceClient(
             return buildJsonObject {
                 put("requests", scheduler.metrics())
                 put("rate_limits", rateLimits.toJson())
+                put("publication_fences", repositoryState.publicationCapacity())
             }
         }
 
         val page = field("page").ifBlank { "1" }.toInt()
         require(page in 1..1000) { "Page must be between 1 and 1000." }
-        val pagination = "per_page=30&page=$page"
+        val perPage = args["per_page"]?.jsonPrimitive?.intOrNull ?: 30
+        require(perPage in 1..100) { "per_page must be between 1 and 100." }
+        val pagination = "per_page=$perPage&page=$page"
         if (action == "get_account") return request("/user", authenticated = true)
         if (action == "list_installations") {
             val result = request("/user/installations?$pagination", authenticated = true).jsonObject
-            return pageResult(result["installations"] ?: JsonArray(emptyList()), page, "id", "account", "app_slug", "permissions", "repository_selection", "suspended_at")
+            return pageResult(result["installations"] ?: JsonArray(emptyList()), page, perPage, "id", "account", "app_slug", "permissions", "repository_selection", "suspended_at")
         }
         if (action == "list_installation_repositories") {
             val installation = required("installation_id")
             require(installation.matches(Regex("[1-9][0-9]{0,19}"))) { "Choose a valid GitHub App installation." }
             val result = request("/user/installations/$installation/repositories?$pagination", authenticated = true).jsonObject
-            return pageResult(result["repositories"] ?: JsonArray(emptyList()), page, "name", "full_name", "private", "owner", "default_branch", "permissions", "html_url")
+            return pageResult(result["repositories"] ?: JsonArray(emptyList()), page, perPage, "name", "full_name", "private", "owner", "default_branch", "permissions", "html_url")
         }
         if (action == "list_repositories") {
             return pageResult(
                 request("/user/repos?sort=updated&$pagination", authenticated = true),
-                page,
+                page, perPage,
                 "name", "full_name", "private", "owner", "default_branch", "permissions", "html_url"
             )
         }
@@ -223,11 +239,11 @@ class GitHubWorkspaceClient(
         val refQuery = ref.takeIf { it.isNotBlank() }?.let { "?ref=${segment(it)}" }.orEmpty()
 
         return when (action) {
-            "list_open_pull_requests" -> pageResult(request("$root/pulls?state=open&sort=updated&direction=desc&$pagination"), page, "number", "title", "state", "draft", "head", "base", "html_url", "updated_at")
+            "list_open_pull_requests" -> pageResult(request("$root/pulls?state=open&sort=updated&direction=desc&$pagination"), page, perPage, "number", "title", "state", "draft", "head", "base", "html_url", "updated_at")
             "list_commits" -> {
                 val pinned = request("$root/commits/${segment(ref.ifBlank { "HEAD" })}").jsonObject["sha"]!!.jsonPrimitive.content
                 val items = request("$root/commits?sha=${segment(pinned)}&$pagination")
-                val result = pageResult(items, page, "sha", "commit", "author", "committer", "parents", "html_url")
+                val result = pageResult(items, page, perPage, "sha", "commit", "author", "committer", "parents", "html_url")
                 buildJsonObject {
                     result.forEach { (key, value) -> put(key, value) }
                     put("commit_sha", pinned)
@@ -276,6 +292,7 @@ class GitHubWorkspaceClient(
                             "continuation",
                             buildJsonObject {
                                 put("action", "list_commits")
+                                put("per_page", perPage)
                                 put("ref", pinned)
                                 put("commit_sha", pinned)
                                 put("page", page + 1)
@@ -323,7 +340,7 @@ class GitHubWorkspaceClient(
             "get_repository" -> request(root)
             "write_capabilities" -> writeCapabilities(root)
             "repo_status" -> repoStatus(owner, repo, root, args)
-            "list_branches" -> pageResult(request("$root/branches?$pagination"), page)
+            "list_branches" -> pageResult(request("$root/branches?$pagination"), page, perPage)
             "get_branch_head" -> request("$root/git/ref/heads/${segment(required("branch"))}")
             "browse_files" -> browseFiles(root, refQuery, field("path"), page)
             "read_code" -> readCode(root, refQuery, ref, required("path"), field("start_line"), field("end_line"))
@@ -335,23 +352,23 @@ class GitHubWorkspaceClient(
             "related_files" -> relatedFiles(root, ref, required("path"))
             "get_pull_request_files" -> {
                 val number = required("pull_number").toInt().also { require(it > 0) }
-                pageResult(request("$root/pulls/$number/files?$pagination"), page, "filename", "status", "additions", "deletions", "changes", "sha", "previous_filename", "patch")
+                pageResult(request("$root/pulls/$number/files?$pagination"), page, perPage, "filename", "status", "additions", "deletions", "changes", "sha", "previous_filename", "patch")
             }
             "get_pull_request_comments" -> pullRequestComments(root, required("pull_number").toInt().also { require(it > 0) }, page)
             "pr_context" -> prContext(root, required("pull_number").toInt().also { require(it > 0) }, args, page)
             "ci_failure_digest" -> ciFailureDigest(root, ref, args)
-            "get_commit_checks" -> compactChecks(request("$root/commits/${segment(required("ref"))}/check-runs?$pagination").jsonObject, page)
+            "get_commit_checks" -> compactChecks(request("$root/commits/${segment(required("ref"))}/check-runs?$pagination").jsonObject, page, perPage)
             "compare_refs" -> compactCompare(request("$root/compare/${segment(required("base"))}...${segment(required("head"))}?$pagination").jsonObject)
             "changed_since" -> {
                 val head = field("head").ifBlank { ref.ifBlank { "HEAD" } }
                 compactCompare(request("$root/compare/${segment(required("base"))}...${segment(head)}?per_page=100").jsonObject)
             }
-            "list_releases" -> releasePageResult(request("$root/releases?$pagination"), page)
+            "list_releases" -> releasePageResult(request("$root/releases?$pagination"), page, perPage)
             "get_release" -> compactRelease(
                 request("$root/releases/${required("release_id").toLong().also { require(it > 0) }}").jsonObject
             )
             "get_release_by_tag" -> compactRelease(request("$root/releases/tags/${segment(required("tag_name"))}").jsonObject)
-            "list_tags" -> pageResult(request("$root/tags?$pagination"), page, "name", "commit", "zipball_url", "tarball_url")
+            "list_tags" -> pageResult(request("$root/tags?$pagination"), page, perPage, "name", "commit", "zipball_url", "tarball_url")
             "release_status" -> releaseStatus(root, args)
             "delete_branch" -> deleteBranch(root, args)
             "create_tag" -> createTag(root, args)
@@ -839,16 +856,17 @@ class GitHubWorkspaceClient(
         }
     }
 
-    private fun compactChecks(result: JsonObject, page: Int = 1): JsonObject {
+    private fun compactChecks(result: JsonObject, page: Int = 1, perPage: Int = 30): JsonObject {
         val runs = result["check_runs"]?.jsonArray.orEmpty()
         return buildJsonObject {
             val total = result["total_count"]?.jsonPrimitive?.content?.toIntOrNull() ?: runs.size
             put("total_count", total)
             put("returned", runs.size)
             put("truncated", total > runs.size)
-            put("has_more", page * 30 < total)
+            put("has_more", page * perPage < total)
             put("page", page)
-            if (page * 30 < total) put("next_page", page + 1)
+            put("per_page", perPage)
+            if (page * perPage < total) put("next_page", page + 1)
             put(
                 "check_runs",
                 buildJsonArray {
@@ -1543,14 +1561,14 @@ class GitHubWorkspaceClient(
             ?.let { project(it, "id", "name", "path", "state", "html_url") }
     }
 
-    private fun releasePageResult(value: JsonElement, page: Int): JsonObject = buildJsonObject {
+    private fun releasePageResult(value: JsonElement, page: Int, perPage: Int): JsonObject = buildJsonObject {
         val items = value.jsonArray
         put("items", buildJsonArray { items.forEach { add(compactRelease(it.jsonObject)) } })
         put("page", page)
         put("returned", items.size)
-        put("per_page", 30)
-        put("has_more", items.size == 30)
-        if (items.size == 30) put("next_page", page + 1)
+        put("per_page", perPage)
+        put("has_more", items.size == perPage)
+        if (items.size == perPage) put("next_page", page + 1)
     }
 
     private fun compactRelease(value: JsonObject): JsonObject = buildJsonObject {
@@ -1654,7 +1672,16 @@ class GitHubWorkspaceClient(
                 }
             }
         }
+        val changedPaths = try {
+            if (head.matches(Regex("[a-fA-F0-9]{40}"))) (request("$root/commits/$head?per_page=100").jsonObject["files"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonObject)?.get("filename")?.jsonPrimitive?.content }.toSet() else emptySet()
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            emptySet()
+        }
         return buildJsonObject {
+            put("diagnosis", GitHubCiDiagnosis.group(excerpts, changedPaths))
+            put("changed_file_scope", "First page of the exact commit's changed files; absence of a match is not proof of no relationship")
             put("status", "available")
             put("run_id", runId)
             put("job_id", jobId)
@@ -1718,17 +1745,21 @@ class GitHubWorkspaceClient(
         }
     }
 
-    private fun pageResult(value: JsonElement, page: Int, vararg fields: String): JsonObject = buildJsonObject {
+    private fun pageResult(value: JsonElement, page: Int, perPage: Int, vararg fields: String): JsonObject = buildJsonObject {
         val items = value.jsonArray
         put("items", if (fields.isEmpty()) items else buildJsonArray { items.forEach { add(project(it.jsonObject, *fields)) } })
         put("page", page)
         put("returned", items.size)
-        put("per_page", 30)
-        put("has_more", items.size == 30)
-        if (items.size == 30) put("next_page", page + 1)
+        put("per_page", perPage)
+        put("has_more", items.size == perPage)
+        if (items.size == perPage) put("next_page", page + 1)
     }
 
     private suspend fun graphQl(query: String, variables: JsonObject): JsonObject {
+        if (query == gitHubPullRequestHealthQuery && "cursor" !in variables) {
+            return collectGitHubHealth { cursor -> graphQl(query, JsonObject(variables + ("cursor" to (cursor?.let(::JsonPrimitive) ?: JsonNull)))) }
+        }
+        refreshCredential()
         require(token.isNotBlank()) { "A GitHub credential is required for GraphQL." }
         check(!authenticationRejected.get()) { "GitHub authentication was rejected (HTTP 401). Reconnect the GitHub account before retrying any operation." }
         return scheduler.execute(priority = requestPriority) {
@@ -1737,7 +1768,7 @@ class GitHubWorkspaceClient(
             scheduler.recordRequest()
             val readOnlyQuery = !query.trimStart().startsWith("mutation")
             if (readOnlyQuery) GitHubDispatchAccounting.started(false)
-            val response = client.request("https://api.github.com/graphql") {
+            val response = client.githubRequest("https://api.github.com/graphql") {
                 method = HttpMethod.Post
                 header(HttpHeaders.Accept, "application/vnd.github+json")
                 header(HttpHeaders.UserAgent, "GPT-Mobile-App")
@@ -1812,6 +1843,7 @@ class GitHubWorkspaceClient(
         body: JsonObject?,
         authenticated: Boolean
     ): JsonElement {
+        refreshCredential()
         if (authenticated || method != HttpMethod.Get) require(token.isNotBlank()) { "A GitHub credential is required." }
         check(!authenticationRejected.get()) { "GitHub authentication was rejected (HTTP 401). Reconnect the GitHub account before retrying any operation." }
         val cacheKey = "${method.value}:$path"
@@ -1840,7 +1872,7 @@ class GitHubWorkspaceClient(
                 scheduler.recordRequest()
                 if (method != HttpMethod.Get) GitHubMutationAttempts.dispatched()
                 GitHubDispatchAccounting.started(method != HttpMethod.Get)
-                val response = client.request("https://api.github.com$path") {
+                val response = client.githubRequest("https://api.github.com$path") {
                     this.method = method
                     header(HttpHeaders.Accept, "application/vnd.github+json")
                     header(HttpHeaders.UserAgent, "GPT-Mobile-App")

@@ -50,6 +50,19 @@ class GitHubCheckWatchTest {
         assertEquals(listOf("/repos/owner/repo/pulls/758"), paths)
     }
 
+    @Test fun followPullStartsFreshRevisionWithoutReusingOldValidation() = runTest {
+        val api = object : GitHubEngineeringApi({ "token" }) {
+            override suspend fun request(path: String, method: String, body: JSONObject?): String = """{"head":{"sha":"${"b".repeat(40)}"}}"""
+        }
+        val result = repository().inspect(watch.copy(followPullRequest = true, status = "PASSED"), api)
+        assertEquals("RUNNING", result.status)
+        assertEquals("b".repeat(40), result.headSha)
+        assertEquals(null, result.health)
+        assertFalse(result.terminal)
+        assertFalse(watch.copy(followPullRequest = true, status = "PASSED").terminal)
+        assertTrue(watch.copy(followPullRequest = true, status = "CANCELLED").terminal)
+    }
+
     @Test fun emptyChecksNeverReportSuccess() = runTest {
         val api = object : GitHubEngineeringApi({ "token" }) {
             override suspend fun pullRequestHealth(owner: String, repo: String, number: Int): String = "{}"

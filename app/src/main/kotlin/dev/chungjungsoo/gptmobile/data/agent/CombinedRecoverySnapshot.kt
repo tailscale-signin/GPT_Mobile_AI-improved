@@ -15,7 +15,7 @@ internal object CombinedRecoverySnapshot {
     private val json = Json { ignoreUnknownKeys = true }
 
     fun prepare(run: AgentRun, message: MessageV2, primaryUid: String?, platform: PlatformV2, segments: List<AnswerSegment>, providerWait: Boolean = false, durableRecordAnswer: String? = null): CombinedInputSnapshot {
-        require(run.runId.startsWith("combined-synthesis:") && (run.status in setOf("COMPLETED", "FAILED", "CANCELED", "INTERRUPTED") || providerWait && run.status == "WAITING_PROVIDER_LIMIT")) { "The Combined writer is still active." }
+        require(run.runId.startsWith("combined-synthesis:") && (run.status in dev.chungjungsoo.gptmobile.data.database.entity.AgentRunStatus.terminal || providerWait && run.status == "WAITING_PROVIDER_LIMIT")) { "The Combined writer is still active." }
         require(message.currentRunId == run.runId && message.ownershipFence == run.ownershipFence && message.id == run.assistantMessageId && message.chatId == run.chatId) { "The saved answer owner changed." }
         require(CombinedRecoveryFailure.retained(message.copy(activeRevisionIndex = dev.chungjungsoo.gptmobile.data.database.entity.ACTIVE_REVISION_LATEST), run.terminalError)?.category != CombinedRecoveryCategory.REQUIREMENTS_UNMET) {
             "COMBINED_REQUIREMENTS_UNMET: The saved answer finished. Create a new answer revision to correct it; there is no unfinished delivery to resume."

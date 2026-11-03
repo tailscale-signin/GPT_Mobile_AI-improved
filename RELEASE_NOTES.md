@@ -1,16 +1,17 @@
-# GPT Mobile AI 0.9.65.0 (build 133)
+# GPT Mobile 0.9.66.0
 
-GitHub work now retains pinned source context and scoped receipts through interruption, detects incompatible tool contracts, and keeps uncertain writes from being silently repeated.
+Android build 134. Signed release of the merged GitHub, voice, recovery and gateway integration changes since v0.9.65.0.
 
 ## Changes
 
-- Preserve GitHub source context, immutable staged patches, scoped operation receipts and uncertain write claims across recovery.
-- Validate local tool contract versions and call/result identities across direct, budgeted, delegated and provider-owned execution; prevent repeating uncertain mutations.
-- Expand bounded pinned search, multi-file and history context, inventory caching, action relationships and version-bound tool health observations.
-- Restore Android checkpoint backup files, report recovery dispositions and an optional checkpoint-load objective, and reduce diagnostic log rendering work.
-- Validate GenieX cold packaging and artifact identity, collect CI metrics, prepare ancestry-checked forward rollback proposals, and repair Android emulator home selection.
+- Add opt-in full-screen Voice Chat with speech lifecycle recovery, editable drafts, captions and audio routing.
+- Improve GitHub task continuation, bounded evidence recovery, current-revision CI decisions, credential rotation and persistent task history.
+- Add prompt-top anchoring, recurring activity summaries, expanded workflow status and APK provenance views.
+- Repair MCP discovery, tool argument serialization, pagination, provider outcome accounting and diagnostic export pressure.
+- Add the Gateway 15 desktop dashboard and Windows installer infrastructure, configurable listeners, durable engineering jobs and isolated publication validation.
+- Fix legacy credential replacement admission, Android voice lint and streaming coroutine DEX size without weakening validation gates.
 
-## Qualification and limitations
+## Qualification and remaining work
 
 - Unified Reliability v2 is not complete; its remaining acceptance cases are not represented as passed.
 - Physical-device performance and a production baseline profile remain unqualified until measured on a reference device.
@@ -30,7 +31,10 @@ GitHub work now retains pinned source context and scoped receipts through interr
 - Checkpoint loading objectives and local recovery counters do not establish end-to-end recovery time or remote transaction reconciliation.
 - Tool health reports version-bound observations from actual executions; it does not actively probe services or guarantee present availability.
 - The diagnostics log rendering changes require physical-device frame measurements to quantify their effect. Forward rollback proposals require a reviewed new release; published tags are never rewritten.
+- Compiler-resolved Kotlin/Java navigation, a dedicated conflict workspace and native GitHub Enterprise support remain unimplemented; the integration expansion is partial.
+- Gateway publication requires an operator-provisioned GATEWAY_ENGINEERING_VALIDATION_POLICY with a local mirror, pinned Docker image and approved commands. Actual isolated Docker execution remains unqualified.
+- Android webhook push, complete approval/activity history, unified model readiness, full mutation fixtures, attestation retrieval and remaining performance/accessibility work are partial.
+- Voice speech services, GitHub prompt anchoring during physical gestures/IME/rotation, process death and reboot still require device acceptance. This release does not claim those cases passed.
+- The Android signed release does not install or publish a new Windows gateway package; Windows installer checks are tracked separately.
 
-## Validation
-
-Release publication requires successful exact-commit Android build, post-merge correctness, CodeQL and emulator acceptance, followed by signed-release tests, native/APK audits, artifact identity and signing-certificate continuity. PR qualification also includes GenieX cold packaging. Pending checks are not passing evidence. Host regressions cover receipt identity, interruption and concurrency, backup restoration, bounded search, dependency metadata, health observations, rollback ancestry and artifact tampering. Host checks do not qualify external services or a physical device.
+Publication requires successful validation of this exact commit, current main checks, signature continuity, APK/AAB identity and native-library verification.

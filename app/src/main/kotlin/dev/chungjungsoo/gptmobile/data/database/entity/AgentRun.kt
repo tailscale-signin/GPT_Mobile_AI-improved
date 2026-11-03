@@ -157,6 +157,10 @@ object AgentRunStatus {
     const val FAILED = "FAILED"
     const val CANCELED = "CANCELED"
     const val INTERRUPTED = "INTERRUPTED"
+    const val PARTIAL = "PARTIAL"
+    const val EVIDENCE_MISSING = "EVIDENCE_MISSING"
+    const val BLOCKED = "BLOCKED"
+    val terminal = setOf(COMPLETED, FAILED, CANCELED, INTERRUPTED, PARTIAL, EVIDENCE_MISSING, BLOCKED)
 }
 
 object AgentRunTerminalError {

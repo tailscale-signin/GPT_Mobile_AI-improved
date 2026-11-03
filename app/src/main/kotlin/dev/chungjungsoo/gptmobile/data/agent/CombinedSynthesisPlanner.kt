@@ -68,7 +68,7 @@ class CombinedSynthesisPlanner @Inject constructor(
             )
             return null
         }
-        if (responses.any { runs[it.currentRunId]?.status !in setOf("COMPLETED", "FAILED", "INTERRUPTED", "CANCELED") }) return null
+        if (responses.any { runs[it.currentRunId]?.status !in dev.chungjungsoo.gptmobile.data.database.entity.AgentRunStatus.terminal }) return null
         val profiles = settingRepository.fetchPlatformV2s()
         if (accepted.context.requested.singlePass && collectionDecisions != null) {
             val failures = dev.chungjungsoo.gptmobile.presentation.ui.chat.combinedProfileFailures(
@@ -503,7 +503,7 @@ class CombinedSynthesisPlanner @Inject constructor(
         val owner = messages.singleOrNull { it.id == prior.assistantMessageId && it.currentRunId == prior.runId && it.ownershipFence == prior.ownershipFence } ?: return null
         val failure = owner.timeline.lastOrNull { it.combinedFailure != null }?.combinedFailure
         if (userRequested && policy.requested.singlePass) {
-            if (prior.status !in setOf("FAILED", "INTERRUPTED", "CANCELED", "COMPLETED")) return null
+            if (prior.status !in dev.chungjungsoo.gptmobile.data.database.entity.AgentRunStatus.terminal) return null
         } else if (
             prior.status !in setOf("FAILED", "INTERRUPTED") ||
             !(

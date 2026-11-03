@@ -10,6 +10,17 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ToolExchangeCompactorTest {
+    @Test fun replayRenderCacheReusesImmutableBodiesWithinABoundedRunWindow() {
+        val cache = ToolExchangeCompactor.RenderCache(maxCharacters = 1024, maxEntries = 4)
+        val content = ToolResultContent.Json(kotlinx.serialization.json.buildJsonObject { put("value", kotlinx.serialization.json.JsonPrimitive("x".repeat(200))) })
+        val first = cache.render(content)
+        org.junit.Assert.assertSame(first, cache.render(content))
+        repeat(20) { cache.render(ToolResultContent.Text("y".repeat(200))) }
+        org.junit.Assert.assertTrue(cache.retainedCharacters() <= 1024)
+        cache.clear()
+        org.junit.Assert.assertEquals(0, cache.retainedCharacters())
+    }
+
     @Test fun compactSavedPageRetainsRevisionAndResumesAtFirstOmittedCharacter() {
         val text = "Retained evidence 😀 ".repeat(2000)
         val call = ProviderEvent.ToolCall("read", "read_recovery_context", buildJsonObject { put("offset", 100) })

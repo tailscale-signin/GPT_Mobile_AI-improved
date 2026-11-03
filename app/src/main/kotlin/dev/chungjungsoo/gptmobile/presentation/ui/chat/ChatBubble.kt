@@ -433,7 +433,7 @@ fun OpponentChatBubble(
                     }
 
                     AssistantChronologicalContent(
-                        outputTrace = agentRun?.let { dev.chungjungsoo.gptmobile.data.diagnostics.OutputTraceOwner(it.runId, it.ownershipFence, "0") },
+                        outputTrace = agentRun?.let { dev.chungjungsoo.gptmobile.data.diagnostics.OutputTraceOwner(it.runId, it.ownershipFence, "0", it.assistantMessageId, it.profileUid) },
                         animateResponse = debugSettings.responseAnimation, timeline = contentTimeline,
                         proseColor = profileColorIdentity?.let { ProfileAttributionPalette.foreground(it, bubbleColor.compositeOver(MaterialTheme.colorScheme.background)) },
                         toolEvents = processToolEvents,
@@ -846,7 +846,7 @@ internal fun DetailsButton(
 }
 
 @Composable
-fun GPTMobileIcon(loading: Boolean) {
+fun GPTMobileIcon(loading: Boolean, github: Boolean = false) {
     Box(
         modifier = Modifier
             .padding(start = 4.dp)
@@ -861,7 +861,11 @@ fun GPTMobileIcon(loading: Boolean) {
                 trackColor = Color.Transparent
             )
         }
-        dev.chungjungsoo.gptmobile.presentation.common.ThemedAppIcon(Modifier.size(34.dp))
+        if (github) {
+            Icon(ImageVector.vectorResource(R.drawable.ic_github_outline), "GitHub assistant", Modifier.size(34.dp), tint = MaterialTheme.colorScheme.primary)
+        } else {
+            dev.chungjungsoo.gptmobile.presentation.common.ThemedAppIcon(Modifier.size(34.dp))
+        }
     }
 }
 

@@ -232,7 +232,7 @@ private fun ChatMarkdownContent(
                 progress = { formattingProgress = it }
             ) {
                 withContext(Dispatchers.Default) {
-                    CombinedOperationTrace.measure("markdown_prepare", CombinedOperationOwner(runId = request.outputTrace?.runId, blockId = request.outputTrace?.partId)) {
+                    CombinedOperationTrace.measure("markdown_prepare", CombinedOperationOwner(runId = request.outputTrace?.runId, blockId = request.outputTrace?.partId, messageId = request.outputTrace?.messageId, profileUid = request.outputTrace?.profileUid)) {
                         val visibleSource = dev.chungjungsoo.gptmobile.data.conversation.ConversationSubject.withoutMetadata(request.content)
                         val renderContext = currentCoroutineContext()
                         val parsed = parseChatMarkdown(visibleSource, cacheResult = !request.streaming, checkActive = { renderContext.ensureActive() })
@@ -652,7 +652,7 @@ private fun ChatMarkdownContent(
             }
             val parserFailed = renderedDigest != null && parserState !is MarkdownParseState.Loading && parserState !is MarkdownParseState.Success
             val animations = markdownAnimations(animateTextSize = { this })
-            val layoutOwner = remember(outputTrace, rendered.contentDigest) { CombinedOperationOwner(runId = outputTrace?.runId, revisionId = rendered.contentDigest, blockId = outputTrace?.partId, digest = rendered.contentDigest) }
+            val layoutOwner = remember(outputTrace, rendered.contentDigest) { CombinedOperationOwner(runId = outputTrace?.runId, revisionId = rendered.contentDigest, blockId = outputTrace?.partId, digest = rendered.contentDigest, messageId = outputTrace?.messageId, profileUid = outputTrace?.profileUid) }
 
             Box(Modifier.heightIn(min = if (awaitingContent) minimumPendingHeight else 0.dp), propagateMinConstraints = true) {
                 if (formattingFailed || parserTimedOut || parserFailed) {

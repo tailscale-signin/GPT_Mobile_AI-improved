@@ -54,7 +54,10 @@ class GitHubPublicAuthCoordinator internal constructor(
         val refreshState: String = "READY",
         val refreshOperationId: String? = null,
         val refreshMethod: String = "BROKER",
-        val verifyAfterRestore: Boolean = false
+        val verifyAfterRestore: Boolean = false,
+        val legacyFingerprint: String? = null,
+        val legacyConnectionUpdatedAt: Long? = null,
+        val legacyPermission: String? = null
     ) {
         override fun toString() = "Encrypted GitHub session (credentials redacted)"
     }
@@ -166,34 +169,43 @@ class GitHubPublicAuthCoordinator internal constructor(
 
     /** A refresh interrupted after dispatch is never replayed automatically. */
     suspend fun accessToken(connection: ToolConnection): String = credentialMutex(connection.connectionUid).withLock {
-        val reference = connection.secretRef ?: error("Connect GitHub in Plugins/Tools before using private repositories or writes.")
+        val liveConnection = requireNotNull(connections.getConnection(connection.connectionUid)) { "GitHub connection removed" }
+        check(liveConnection.type == connection.type && liveConnection.authType == connection.authType && liveConnection.oauthClientId == connection.oauthClientId && liveConnection.endpointUrl == connection.endpointUrl && liveConnection.toolPolicy == connection.toolPolicy && liveConnection.approvedReadTools == connection.approvedReadTools) { "GitHub authorization configuration changed. Reload the current connection." }
+        val reference = liveConnection.secretRef ?: error("Connect GitHub in Plugins/Tools before using private repositories or writes.")
         val bytes = vault.read(reference) ?: error("GitHub credential is missing. Reconnect GitHub.")
         val currentToken = try {
             bytes.decodeToString().trim()
         } finally {
             bytes.fill(0)
         }
-        val session = session(connection.connectionUid) ?: run {
-            val binding = read(bindingReference(connection.connectionUid), Account.serializer())
+        val session = session(liveConnection.connectionUid) ?: run {
+            val binding = read(bindingReference(liveConnection.connectionUid), Account.serializer())
             if (binding != null) {
                 val account = accountIdentity(currentToken)
-                check(account.id == binding.id) { "This GitHub connection belongs to another account. Add a separate connection." }
-                put(sessionReference(connection.connectionUid), Session(account, fingerprint(currentToken), configuration.clientId), Session.serializer())
+                check(account.id == binding.id) { "This GitHub connection belongs to another account. Add a separate liveConnection." }
+                put(sessionReference(liveConnection.connectionUid), Session(account, fingerprint(currentToken), configuration.clientId), Session.serializer())
             }
+            if (binding == null) {
+                val account = accountIdentity(currentToken)
+                put(bindingReference(liveConnection.connectionUid), account, Account.serializer())
+                put(sessionReference(liveConnection.connectionUid), Session(account, fingerprint(currentToken), configuration.clientId), Session.serializer())
+            }
+            GitHubSessionCaches.bind(currentToken, durableIdentity(liveConnection.connectionUid))
             return@withLock currentToken
         }
         check(session.fingerprint == fingerprint(currentToken)) { "GitHub credentials changed. Reconnect to verify this account." }
-        if (session.refreshToken != null || connection.authType == "OAUTH") {
-            check(connection.authType == "OAUTH" && connection.oauthClientId == session.clientId) { "GitHub App configuration changed. Reconnect to verify this client and account." }
+        if (session.refreshToken != null || liveConnection.authType == "OAUTH") {
+            check(liveConnection.authType == "OAUTH" && liveConnection.oauthClientId == session.clientId) { "GitHub App configuration changed. Reconnect to verify this client and account." }
         }
         val rejected = GitHubSessionCaches.authenticationForCredential(currentToken).get()
         if (!rejected && (session.expiresAt == null || clock() + 60_000 < session.expiresAt)) {
             if (session.verifyAfterRestore) {
                 val account = accountIdentity(currentToken)
                 check(account.id == session.account.id) { "Restored GitHub credentials belong to another account. Reconnect GitHub." }
-                put(bindingReference(connection.connectionUid), account, Account.serializer())
-                put(sessionReference(connection.connectionUid), session.copy(verifyAfterRestore = false), Session.serializer())
+                put(bindingReference(liveConnection.connectionUid), account, Account.serializer())
+                put(sessionReference(liveConnection.connectionUid), session.copy(verifyAfterRestore = false), Session.serializer())
             }
+            GitHubSessionCaches.bind(currentToken, durableIdentity(liveConnection.connectionUid))
             return@withLock currentToken
         }
         val canRefresh = when (session.refreshMethod) {
@@ -204,7 +216,7 @@ class GitHubPublicAuthCoordinator internal constructor(
         check(canRefresh && session.refreshState == "READY" && session.refreshToken != null && (session.refreshExpiresAt == null || clock() < session.refreshExpiresAt)) { "GitHub authorization expired or refresh needs reconciliation. Reconnect GitHub." }
         val operationId = java.util.UUID.randomUUID().toString()
         val rotating = session.copy(refreshState = "REFRESHING", refreshOperationId = operationId)
-        put(sessionReference(connection.connectionUid), rotating, Session.serializer())
+        put(sessionReference(liveConnection.connectionUid), rotating, Session.serializer())
         try {
             val rotated = if (session.refreshMethod == "DEVICE") {
                 deviceRefresh(session.clientId, session.refreshToken)
@@ -213,12 +225,13 @@ class GitHubPublicAuthCoordinator internal constructor(
             }
             val account = accountIdentity(rotated.accessToken)
             check(account.id == session.account.id) { "GitHub refresh changed account identity. Reconnect GitHub." }
-            save(connection, rotated, account, session.clientId, session.refreshMethod)
+            save(liveConnection, rotated, account, session.clientId, session.refreshMethod)
+            GitHubSessionCaches.bind(rotated.accessToken, durableIdentity(liveConnection.connectionUid))
             rotated.accessToken
         } catch (failure: Exception) {
             withContext(NonCancellable) {
-                if (connections.getConnection(connection.connectionUid)?.matchesAuthorizationSnapshot(connection) == true && session(connection.connectionUid)?.refreshOperationId == operationId) {
-                    put(sessionReference(connection.connectionUid), rotating.copy(refreshState = "REAUTH_REQUIRED"), Session.serializer())
+                if (connections.getConnection(liveConnection.connectionUid)?.matchesAuthorizationSnapshot(liveConnection) == true && session(liveConnection.connectionUid)?.refreshOperationId == operationId) {
+                    put(sessionReference(liveConnection.connectionUid), rotating.copy(refreshState = "REAUTH_REQUIRED"), Session.serializer())
                 }
             }
             if (failure is CancellationException) throw failure
@@ -235,8 +248,18 @@ class GitHubPublicAuthCoordinator internal constructor(
         } finally {
             bytes.fill(0)
         }
-        put(sessionReference(connection.connectionUid), Session(account, fingerprint(credential.accessToken), clientId, credential.refreshToken, credential.expiresAt, credential.refreshExpiresAt, refreshMethod = refreshMethod), Session.serializer())
+        val previous = session(connection.connectionUid)
+        val oldPermission = kotlinx.serialization.json.JsonArray(listOf(previous?.fingerprint.orEmpty(), connection.authType, connection.toolPolicy, connection.approvedReadTools, connection.endpointUrl.orEmpty()).map { kotlinx.serialization.json.JsonPrimitive(it) }).toString()
+        put(sessionReference(connection.connectionUid), Session(account, fingerprint(credential.accessToken), clientId, credential.refreshToken, credential.expiresAt, credential.refreshExpiresAt, refreshMethod = refreshMethod, legacyFingerprint = previous?.legacyFingerprint ?: previous?.fingerprint, legacyConnectionUpdatedAt = previous?.legacyConnectionUpdatedAt ?: connection.updatedAt, legacyPermission = previous?.legacyPermission ?: oldPermission), Session.serializer())
     }
+
+    internal suspend fun durableIdentity(connectionUid: String): String {
+        val account = requireNotNull(session(connectionUid)?.account) { "Verify the GitHub account before opening durable state." }
+        return GitHubAuthorizationIdentity.scope(account.id, connectionUid)
+    }
+
+    internal suspend fun legacyCredentialIdentities(connectionUid: String): List<String> =
+        session(connectionUid)?.let { listOfNotNull(it.legacyFingerprint, it.fingerprint).distinct() }.orEmpty()
 
     private suspend fun <T> read(reference: String, serializer: kotlinx.serialization.KSerializer<T>): T? {
         val bytes = vault.read(reference) ?: return null

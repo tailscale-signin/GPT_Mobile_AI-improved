@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="agent_run_partial">Partially complete</string>
+    <string name="agent_run_evidence_missing">Evidence needed</string>
+    <string name="agent_run_blocked">Work blocked</string>
+</resources>

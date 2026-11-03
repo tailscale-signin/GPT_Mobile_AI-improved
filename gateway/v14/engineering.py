@@ -98,9 +98,25 @@ class EngineeringStore:
                                'input_digest TEXT NOT NULL, output_json TEXT, PRIMARY KEY(job_id,revision))')
                     db.execute('CREATE TABLE IF NOT EXISTS engineering_events ('
                                'job_id TEXT NOT NULL, revision INTEGER NOT NULL, data TEXT NOT NULL, PRIMARY KEY(job_id,revision))')
+                    db.execute('CREATE TABLE IF NOT EXISTS engineering_webhooks (principal TEXT NOT NULL, delivery TEXT NOT NULL, digest TEXT NOT NULL, received_at REAL NOT NULL, PRIMARY KEY(principal,delivery))')
                     return operation(db)
             finally:
                 db.close()
+
+    def accept_webhook(self, principal, delivery, body_digest):
+        """Durable replay filter. A delivery identifier cannot be rebound to another payload."""
+        def accept(db):
+            existing = db.execute('SELECT digest FROM engineering_webhooks WHERE principal=? AND delivery=?', (principal, delivery)).fetchone()
+            if existing:
+                if existing[0] != body_digest:
+                    raise PermissionError('Webhook delivery identifier changed payload')
+                return False
+            db.execute('DELETE FROM engineering_webhooks WHERE received_at < ?', (self.now() - 7 * 86400,))
+            if db.execute('SELECT COUNT(*) FROM engineering_webhooks').fetchone()[0] >= 100000:
+                raise ValueError('Webhook replay filter is full; polling remains available')
+            db.execute('INSERT INTO engineering_webhooks VALUES(?,?,?,?)', (principal, delivery, body_digest, self.now()))
+            return True
+        return self.tx(accept)
 
     @staticmethod
     def decode(row):
@@ -388,6 +404,9 @@ class EngineeringService:
                     else:
                         job['patches'].append(patch)
                         phase = 'REVIEW'
+                elif phase == 'REVIEW' and output.get('local_validation', {}).get('status') == 'BLOCKED':
+                    phase = 'NEEDS_INPUT'
+                    job['message'] = output['local_validation'].get('reason', 'Pre-publication validation configuration is required')
                 elif phase == 'REVIEW' and output.get('review', {}).get('approved') is not True:
                     fingerprint = digest(output.get('review', {}))
                     phase = 'IMPLEMENT' if EngineeringSupervisor.repair(job, fingerprint) else 'NEEDS_INPUT'

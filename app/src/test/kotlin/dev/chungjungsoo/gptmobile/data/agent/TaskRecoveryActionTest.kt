@@ -10,6 +10,14 @@ import org.junit.Test
 class TaskRecoveryActionTest {
     private fun user(id: Int, text: String) = MessageV2(id = id, chatId = 1, content = text, platformType = null)
 
+    @Test fun equivalentIntegrationRequestsAndDiagnosticsKeepOriginalTask() {
+        val original = user(1, "Test all GitHub tools")
+        val messages = listOf(original, user(2, "continue"), user(3, "Why did the previous response stop?"), user(4, "test all"), user(5, "Why did the previous response stop?"), user(6, "continue"))
+        assertEquals(1, resolveTaskRecovery(messages)!!.sourceMessageId)
+        assertEquals("1:1", rootWorkId(messages, "unused"))
+        assertEquals(8, resolveTaskRecovery(messages + user(7, "Inspect this file") + user(8, "Test all GitHub tools") + user(9, "continue"))!!.sourceMessageId)
+    }
+
     @Test fun onlyExplicitRetryDescriptorsCanReopenUndispatchedBudgetFailures() {
         val messages = listOf(user(1, "Inspect the repository"))
         val automatic = TaskResumeDescriptor("1:1", 1, "provider-resume:fixture", TaskRecoveryAction.RETRY_FAILED_STAGE)

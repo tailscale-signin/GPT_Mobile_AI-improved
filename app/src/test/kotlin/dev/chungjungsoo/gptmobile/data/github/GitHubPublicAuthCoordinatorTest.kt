@@ -106,6 +106,21 @@ class GitHubPublicAuthCoordinatorTest {
         }
     }
 
+    @Test fun anOpenedWorkspaceUsesTheCurrentSecretReferenceAfterRotation() = runBlocking {
+        Fixture().use { f ->
+            val coordinator = f.coordinator()
+            coordinator.completeDevice(f.connection, f.config.clientId, GitHubOAuthCredential("ghu_first", "ghr_first", f.now + 1000, f.now + 100_000))
+            val opened = f.connection
+            f.now += 2000
+            assertEquals("ghu_rotated", coordinator.accessToken(opened))
+            f.vault.put("rotated-reference", "ghu_rotated".encodeToByteArray())
+            f.vault.delete("stored-access")
+            f.connection = f.connection.copy(secretRef = "rotated-reference", updatedAt = f.connection.updatedAt + 1)
+            assertEquals("ghu_rotated", coordinator.accessToken(opened))
+            assertEquals(1, f.deviceRotations)
+        }
+    }
+
     @Test fun deviceCredentialsUseTheSameDurableRefreshAndAccountBoundary() = runBlocking {
         Fixture().use { f ->
             val coordinator = f.coordinator()

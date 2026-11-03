@@ -91,7 +91,10 @@ internal fun structuredDiagnosticLine(
         put("retainedLength", safe.length)
         put("kind", if (match == null) "continuation" else "event")
         put("message", message)
-        put("eventName", diagnosticEventMessage(message).substringBefore(" · ").trim())
+        val eventMessage = diagnosticEventMessage(message)
+        val trace = runCatching { Json.parseToJsonElement(eventMessage) as? JsonObject }.getOrNull()?.takeIf { it["schema"] == JsonPrimitive("github.trace.v1") }
+        put("eventName", if (trace != null) "GITHUB_TOOL_COMPLETED" else eventMessage.substringBefore(" · ").trim().take(128))
+        if (trace != null) put("trace", diagnosticJsonValue(trace))
         if (match != null) {
             put("timestamp", match.groupValues[1])
             put("level", match.groupValues[2])

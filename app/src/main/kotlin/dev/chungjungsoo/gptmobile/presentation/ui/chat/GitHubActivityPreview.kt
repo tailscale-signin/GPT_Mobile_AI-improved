@@ -38,8 +38,8 @@ import dev.chungjungsoo.gptmobile.data.github.GitHubProgressPresentation.Preview
 import java.util.Locale
 
 @Composable
-internal fun GitHubActivityPreview(raw: String, latest: Boolean, motion: State<Float>) {
-    val text = remember(raw) { GitHubProgressPresentation.preview(raw).replace(Regex("\\s+"), " ") }
+internal fun GitHubActivityPreview(raw: String, latest: Boolean, motion: State<Float>, search: GitHubSearchActivity? = null) {
+    val text = search?.label ?: remember(raw) { GitHubProgressPresentation.preview(raw).replace(Regex("\\s+"), " ") }
     val kind = remember(text) { GitHubProgressPresentation.previewKind(text) }
     val colors = MaterialTheme.colorScheme
     val previewColor = colors.onSurface.copy(alpha = 0.5f)
@@ -68,12 +68,16 @@ internal fun GitHubActivityPreview(raw: String, latest: Boolean, motion: State<F
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Icon(
-            imageVector = kind.outlineIcon(),
-            contentDescription = null,
-            tint = previewColor,
-            modifier = Modifier.size(18.dp).testTag("github_preview_icon_${kind.name.lowercase(Locale.ROOT)}")
-        )
+        if (search != null) {
+            GitHubSearchBrandStack(search)
+        } else {
+            Icon(
+                imageVector = kind.outlineIcon(),
+                contentDescription = null,
+                tint = previewColor,
+                modifier = Modifier.size(18.dp).testTag("github_preview_icon_${kind.name.lowercase(Locale.ROOT)}")
+            )
+        }
         Text(
             text,
             modifier = Modifier.weight(1f).testTag(if (latest) "github_latest_preview" else "github_previous_preview"),

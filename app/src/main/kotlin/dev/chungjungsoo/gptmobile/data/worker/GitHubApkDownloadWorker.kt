@@ -155,16 +155,12 @@ class GitHubApkDownloadWorker @AssistedInject constructor(
         val connection = connections.getConnection(record.connectionUid)
             ?: throw GitHubApkDownloadException("This GitHub connection was removed. Reconnect before downloading.")
         if (connection.type != ToolConnectionType.GITHUB) throw GitHubApkDownloadException("Choose the native GitHub account for this download.")
-        if (connection.secretRef != null) gitHubPublicAuth?.accessToken(connection)
-        val bytes = connection.secretRef?.let { secretVault.read(it) }
-        val token = try {
-            bytes?.decodeToString()?.trim().orEmpty()
-        } finally {
-            bytes?.fill(0)
-        }
-        if ('\r' in token || '\n' in token) throw GitHubApkDownloadException("The GitHub credential is invalid. Reconnect the account.")
+        val token = dev.chungjungsoo.gptmobile.data.github.gitHubDownloadCredential(
+            refresh = gitHubPublicAuth?.takeIf { connection.secretRef != null }?.let { auth -> { auth.accessToken(connection) } },
+            readLegacy = { connection.secretRef?.let { secretVault.read(it) } }
+        )
         if (record.source == GitHubBuildSource.WORKFLOW && token.isBlank()) {
-            throw GitHubApkDownloadException("A GitHub token with Actions read access is needed to download workflow builds.")
+            throw GitHubApkDownloadException("Reconnect GitHub with repository Actions read access to download workflow builds.")
         }
         return token
     }
@@ -172,7 +168,12 @@ class GitHubApkDownloadWorker @AssistedInject constructor(
     private suspend fun transfer(key: String, record: GitHubApkDownloadRecord, part: File, token: String): Long {
         val partialBytes = part.length()
         val initial = GitHubApkTransferPolicy.assetUri(record.owner, record.repo, record.assetId, record.source == GitHubBuildSource.WORKFLOW)
-        val connection = openDownload(initial, token, partialBytes)
+        var connection = openDownload(initial, token, partialBytes, record.source == GitHubBuildSource.WORKFLOW)
+        // Signed archive URLs expire quickly. Reacquire one once; never retry an API authorization denial.
+        if (!GitHubApkTransferPolicy.mayAuthorize(connection.url.toURI()) && connection.responseCode in setOf(401, 403)) {
+            connection.disconnect()
+            connection = openDownload(initial, token, partialBytes, record.source == GitHubBuildSource.WORKFLOW)
+        }
         try {
             val status = connection.responseCode
             if (status == 416) {
@@ -253,7 +254,7 @@ class GitHubApkDownloadWorker @AssistedInject constructor(
         }
     }
 
-    private suspend fun openDownload(initial: URI, token: String, partialBytes: Long): HttpURLConnection {
+    private suspend fun openDownload(initial: URI, token: String, partialBytes: Long, workflow: Boolean): HttpURLConnection {
         var uri = initial
         repeat(6) {
             currentCoroutineContext().ensureActive()
@@ -262,7 +263,7 @@ class GitHubApkDownloadWorker @AssistedInject constructor(
             connection.instanceFollowRedirects = false
             connection.connectTimeout = 15_000
             connection.readTimeout = 30_000
-            connection.setRequestProperty("Accept", "application/octet-stream")
+            connection.setRequestProperty("Accept", if (workflow && GitHubApkTransferPolicy.mayAuthorize(uri)) "application/vnd.github+json" else "application/octet-stream")
             connection.setRequestProperty("Accept-Encoding", "identity")
             connection.setRequestProperty("User-Agent", "GPT-Mobile-App")
             if (partialBytes > 0) connection.setRequestProperty("Range", "bytes=$partialBytes-")

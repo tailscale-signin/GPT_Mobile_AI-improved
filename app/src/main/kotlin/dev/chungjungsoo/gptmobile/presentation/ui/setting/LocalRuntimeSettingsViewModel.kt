@@ -136,6 +136,10 @@ class LocalRuntimeSettingsViewModel @Inject constructor(
         policy: dev.chungjungsoo.gptmobile.data.localruntime.LocalExecutionPolicy? = null
     ) = perform {
         updates.withLock {
+            if (assist == true) {
+                val selected = repository.getFeatureSettings().localAssistPolicy.profileUid
+                require(repository.fetchPlatformV2s().any { it.uid == selected && it.enabled }) { "Select an available helper profile before enabling Local Assist." }
+            }
             repository.mutateFeatureSettings { current ->
                 current.copy(
                     localExecutionPolicy = policy ?: current.localExecutionPolicy,

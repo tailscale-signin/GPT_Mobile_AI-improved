@@ -4,7 +4,7 @@ import dev.chungjungsoo.gptmobile.data.agent.AgentToolExchange
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import dev.chungjungsoo.gptmobile.data.context.ConversationTurn
 
-internal fun appendFollowUpContext(turns: List<ConversationTurn>, additions: String, answerTail: String, exchanges: List<AgentToolExchange> = emptyList()): List<ConversationTurn> =
+internal fun appendFollowUpContext(turns: List<ConversationTurn>, additions: String, answerTail: String, exchanges: List<AgentToolExchange> = emptyList(), replaceAnswer: Boolean = false): List<ConversationTurn> =
     turns.mapIndexed { index, turn ->
         if (index != turns.lastIndex) {
             turn
@@ -23,8 +23,14 @@ internal fun appendFollowUpContext(turns: List<ConversationTurn>, additions: Str
                                 "$name · error=${result.isError}: $body"
                             }
                         } +
-                        "\n\nThe follow-ups expand the original request above. Satisfy ALL original requirements and additions together, unless the user explicitly changes a requirement. Preserve completed research and tool results. Do not restart research already completed unless the user explicitly requests it." +
-                        if (answerTail.isBlank()) "" else "\n\nContinue the same answer without repeating text already shown. Answer already shown (bounded tail):\n$answerTail"
+                        "\n\nFollow only the current request and the explicit additions above. Earlier conversation topics are context, not unfinished obligations. Preserve relevant completed evidence; do not repeat tool actions." +
+                        if (answerTail.isBlank()) {
+                            ""
+                        } else if (replaceAnswer) {
+                            "\n\nReplace this private candidate in full. It is not a continuation target:\n$answerTail"
+                        } else {
+                            "\n\nContinue the same answer without repeating text already shown. Answer already shown (bounded tail):\n$answerTail"
+                        }
                 )
             )
         }

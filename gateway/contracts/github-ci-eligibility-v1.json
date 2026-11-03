@@ -1,0 +1,14 @@
+{
+  "schema": "github.ci-eligibility.v1",
+  "policy": "Required checks explicitly succeed; optional neutral/skipped checks must be terminal. Unknown requiredness or pending status blocks validation.",
+  "cases": [
+    {"name": "required_success", "status": "COMPLETED", "conclusion": "SUCCESS", "isRequired": true, "passed": true},
+    {"name": "required_skipped", "status": "COMPLETED", "conclusion": "SKIPPED", "isRequired": true, "passed": false},
+    {"name": "required_neutral", "status": "COMPLETED", "conclusion": "NEUTRAL", "isRequired": true, "passed": false},
+    {"name": "optional_skipped", "status": "COMPLETED", "conclusion": "SKIPPED", "isRequired": false, "passed": true},
+    {"name": "optional_neutral", "status": "COMPLETED", "conclusion": "NEUTRAL", "isRequired": false, "passed": true},
+    {"name": "optional_failure", "status": "COMPLETED", "conclusion": "FAILURE", "isRequired": false, "passed": false},
+    {"name": "pending_old_success", "status": "IN_PROGRESS", "conclusion": "SUCCESS", "isRequired": true, "passed": false},
+    {"name": "unknown_requiredness", "status": "COMPLETED", "conclusion": "SUCCESS", "isRequired": null, "passed": false}
+  ]
+}

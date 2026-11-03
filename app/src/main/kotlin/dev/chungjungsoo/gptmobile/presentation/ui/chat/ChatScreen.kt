@@ -333,6 +333,26 @@ private fun ChatScreenContent(
         }
     }
     var showProfileManagement by rememberSaveable { mutableStateOf(false) }
+    var showGitHubPresets by rememberSaveable { mutableStateOf(false) }
+    if (showGitHubPresets) {
+        AlertDialog(
+            onDismissRequest = { showGitHubPresets = false },
+            title = { Text("GitHub workflow presets") },
+            text = {
+                Column {
+                    dev.chungjungsoo.gptmobile.data.github.GitHubWorkflowPreset.all.forEach { preset ->
+                        TextButton(onClick = {
+                            val draft = chatViewModel.question.text.toString()
+                            chatViewModel.checkpointVoiceDraft(preset.prompt() + if (draft.isBlank()) "" else "\n\nRequest details:\n$draft")
+                            showGitHubPresets = false
+                        }) { Text("${preset.title} · ${preset.toolCalls} calls / ${preset.minutes} min") }
+                    }
+                    Text("Choosing a preset fills the composer with its acceptance criteria for review before sending.", style = MaterialTheme.typography.bodySmall)
+                }
+            },
+            confirmButton = { TextButton(onClick = { showGitHubPresets = false }) { Text("Close") } }
+        )
+    }
     val freeProviderNotice by chatViewModel.freeProviderNotice.collectAsStateWithLifecycle()
     freeProviderNotice?.let { notice ->
         AlertDialog(
@@ -433,6 +453,28 @@ private fun ChatScreenContent(
     }
     val context = LocalContext.current
     val lastMessageIndex = groupedMessages.userMessages.lastIndex
+    val newestPromptKey = groupedMessages.userMessages.lastOrNull()?.let { chatMessagePairKey(it, lastMessageIndex) }
+    var observedPromptKey by rememberSaveable(chatRoom.id) { mutableStateOf<String?>(null) }
+    var promptTrackingReady by rememberSaveable(chatRoom.id) { mutableStateOf(false) }
+    var anchoredPromptKey by rememberSaveable(chatRoom.id) { mutableStateOf<String?>(null) }
+    var promptAttached by rememberSaveable(chatRoom.id) { mutableStateOf(true) }
+    var promptAnchorRevision by remember(chatRoom.id) { mutableIntStateOf(0) }
+    val promptDensity = LocalDensity.current
+    val promptAnchor = remember(chatRoom.id, promptDensity.density) { GitHubPromptAnchor(with(promptDensity) { 64.dp.toPx() }, with(promptDensity) { 32.dp.toPx() }).apply { if (!promptAttached) detach() } }
+    val githubPromptMode = chatToolConfig.github != null && anchoredPromptKey != null
+    LaunchedEffect(isLoaded, newestPromptKey, chatToolConfig.github != null) {
+        if (!isLoaded) return@LaunchedEffect
+        if (chatToolConfig.github != null && promptTrackingReady && newestPromptKey != null && newestPromptKey != observedPromptKey) {
+            anchoredPromptKey = newestPromptKey
+            promptAttached = true
+            promptAnchor.attach()
+            promptAnchorRevision++
+            isFollowingBottom = false
+            isHoldingEntryCenter = false
+        }
+        observedPromptKey = newestPromptKey
+        promptTrackingReady = true
+    }
     var inspectedCombinedTurn by rememberSaveable(chatRoom.id) { mutableStateOf<String?>(null) }
     var inspectedCombinedProfileUid by rememberSaveable(chatRoom.id) { mutableStateOf<String?>(null) }
     LaunchedEffect(activePlatformUids, inspectedCombinedProfileUid) {
@@ -626,7 +668,7 @@ private fun ChatScreenContent(
     val latestTurnItem = lastMessageIndex - firstVisibleTurn + historyHeaderCount
     var navigatedFromTarget by remember(chatRoom.id) { mutableStateOf(false) }
     LaunchedEffect(isUserDragging) { if (isUserDragging) navigatedFromTarget = true }
-    val boundaryEnabled = isIdle && entryPositioned && (!hasTargetMessage || navigatedFromTarget) && latestResponseOffset >= 0
+    val boundaryEnabled = !githubPromptMode && isIdle && entryPositioned && (!hasTargetMessage || navigatedFromTarget) && latestResponseOffset >= 0
     val latestBoundaryEnabled by androidx.compose.runtime.rememberUpdatedState(boundaryEnabled)
     val latestBoundaryItem by androidx.compose.runtime.rememberUpdatedState(latestTurnItem)
     val minimumFlingVelocity = with(LocalDensity.current) { 1000.dp.toPx() }
@@ -652,10 +694,46 @@ private fun ChatScreenContent(
         }
     }
 
+    LaunchedEffect(anchoredPromptKey, promptAnchorRevision, entryPositioned, latestTurnItem) {
+        if (githubPromptMode && entryPositioned && promptAttached && anchoredPromptKey == newestPromptKey) {
+            listState.scrollToConversationEntry(latestTurnItem)
+        }
+    }
+    val promptModeState by androidx.compose.runtime.rememberUpdatedState(githubPromptMode)
+    val promptItemState by androidx.compose.runtime.rememberUpdatedState(latestTurnItem)
+    val promptConnection = remember(listState, promptAnchor, minimumFlingVelocity) {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                if (!promptModeState) return Offset.Zero
+                val item = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == promptItemState }
+                val distance = item?.offset?.let { -it.toFloat() } ?: if (listState.firstVisibleItemIndex > promptItemState) Float.MAX_VALUE else 0f
+                val movement = promptAnchor.move(available.y, distance, source == NestedScrollSource.UserInput)
+                promptAttached = promptAnchor.attached
+                if (movement.reattach) {
+                    isFollowingBottom = false
+                    promptAnchorRevision++
+                }
+                return Offset(0f, movement.consumed)
+            }
+
+            override suspend fun onPreFling(available: androidx.compose.ui.unit.Velocity): androidx.compose.ui.unit.Velocity {
+                if (!promptModeState) return androidx.compose.ui.unit.Velocity.Zero
+                val movement = promptAnchor.fling(available.y, minimumFlingVelocity)
+                promptAttached = promptAnchor.attached
+                if (movement.reattach) {
+                    isFollowingBottom = false
+                    promptAnchorRevision++
+                }
+                return androidx.compose.ui.unit.Velocity(0f, movement.consumed)
+            }
+        }
+    }
+
     ChatBottomAutoScroller(
         listState = listState,
         animate = !isIdle,
-        isEnabled = featureSettings.smoothStreaming &&
+        isEnabled = !githubPromptMode &&
+            featureSettings.smoothStreaming &&
             entryPositioned &&
             !isModelTabPositionLocked &&
             shouldAutoScrollToBottom(
@@ -725,10 +803,12 @@ private fun ChatScreenContent(
                 modifier = Modifier
                     .fillMaxSize()
                     .nestedScroll(boundaryConnection)
-                    .pointerInput(responseBoundary) {
+                    .nestedScroll(promptConnection)
+                    .pointerInput(responseBoundary, promptAnchor) {
                         awaitEachGesture {
                             awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
                             responseBoundary.beginGesture()
+                            promptAnchor.beginGesture()
                             do {
                                 val event = awaitPointerEvent(PointerEventPass.Initial)
                             } while (event.changes.any { it.pressed })
@@ -766,6 +846,7 @@ private fun ChatScreenContent(
                 ) { visibleIndex, message ->
                     val index = firstVisibleTurn + visibleIndex
                     ChatMessagePair(
+                        reservedTurnHeight = if (githubPromptMode && index == lastMessageIndex) (with(density) { listState.layoutInfo.viewportSize.height.toDp() } - composerHeight - 16.dp - innerPadding.calculateTopPadding()).coerceAtLeast(0.dp) else 0.dp,
                         replyRevision = pendingReplies.hashCode().toLong(),
                         replyVisible = listState.layoutInfo.visibleItemsInfo.any { it.key == chatMessagePairKey(message, index) },
                         onAnswerDisplayed = { displayed -> chatViewModel.acknowledgeDisplayedReplies(listOf(displayed), pendingReplies) },
@@ -920,7 +1001,7 @@ private fun ChatScreenContent(
                             val timeline = activeMessage.effectiveTimeline()
                             val taskId = activeMessage.currentRunId?.let(agentRunsById::get)?.userMessageId
                             val task = groupedMessages.userMessages.firstOrNull { it.id == taskId }?.content ?: groupedMessages.userMessages.lastOrNull()?.content.orEmpty()
-                            GitHubLiveProgressCard(timeline, task)
+                            GitHubLiveProgressCard(timeline, task, activeMessage.currentRunId?.let(toolEventsByRun::get).orEmpty())
                         }
                     }
                     chatToolConfig.github?.let { github ->
@@ -942,7 +1023,7 @@ private fun ChatScreenContent(
                 }
             }
 
-            if (!isFollowingBottom && listState.canScrollForward) {
+            if (githubPromptMode && !promptAttached || !githubPromptMode && !isFollowingBottom && listState.canScrollForward) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -954,8 +1035,15 @@ private fun ChatScreenContent(
                         isHoldingEntryCenter = false
                         isModelTabPositionLocked = false
                         scope.launch {
-                            listState.scrollToItem((listState.layoutInfo.totalItemsCount - 1).coerceAtLeast(0))
-                            isFollowingBottom = true
+                            if (githubPromptMode) {
+                                promptAnchor.attach()
+                                promptAttached = true
+                                promptAnchorRevision++
+                                listState.scrollToConversationEntry(latestTurnItem)
+                            } else {
+                                listState.scrollToItem((listState.layoutInfo.totalItemsCount - 1).coerceAtLeast(0))
+                                isFollowingBottom = true
+                            }
                         }
                     }
                 }
@@ -983,6 +1071,7 @@ private fun ChatScreenContent(
                             Text(stringResource(R.string.next_message_label, enabledPlatformLookup[uid]?.name ?: uid))
                         }
                     }
+                    if (chatToolConfig.github != null && isIdle) TextButton(onClick = { showGitHubPresets = true }) { Text("Workflow presets") }
                     ChatInputBox(
                         modifier = Modifier.fillMaxWidth(),
                         inputState = chatViewModel.question,
@@ -1054,7 +1143,7 @@ private fun ChatScreenContent(
                                 }
                             },
                             onPause = chatViewModel::togglePlatformDisabled,
-                            failedUids = if (combined) frozenProfiles.filter { it.status == CombinedResponseStatus.FAILED }.mapTo(hashSetOf()) { it.uid } + combinedFailures.filter { it.userMessageId == dockMessage?.id }.map { it.profileUid } else replies.filter { response -> response.currentRunId?.let(agentRunsById::get)?.status in setOf(AgentRunStatus.FAILED, AgentRunStatus.CANCELED, AgentRunStatus.INTERRUPTED) }.mapNotNull { it.platformType }.toSet(),
+                            failedUids = if (combined) frozenProfiles.filter { it.status == CombinedResponseStatus.FAILED }.mapTo(hashSetOf()) { it.uid } + combinedFailures.filter { it.userMessageId == dockMessage?.id }.map { it.profileUid } else replies.filter { response -> response.currentRunId?.let(agentRunsById::get)?.status in setOf(AgentRunStatus.FAILED, AgentRunStatus.CANCELED, AgentRunStatus.INTERRUPTED, AgentRunStatus.PARTIAL, AgentRunStatus.EVIDENCE_MISSING, AgentRunStatus.BLOCKED) }.mapNotNull { it.platformType }.toSet(),
                             responseLabels = frozenProfiles.associate { profile ->
                                 profile.uid to when {
                                     profile.message?.content.isNullOrBlank() -> "No response"
@@ -1277,6 +1366,7 @@ private fun ChatScreenContent(
 
 @Composable
 internal fun ChatMessagePair(
+    reservedTurnHeight: Dp = 0.dp,
     replyRevision: Long,
     replyVisible: Boolean,
     onAnswerDisplayed: (MessageV2) -> Unit,
@@ -1481,7 +1571,7 @@ internal fun ChatMessagePair(
         isSourceResponse -> selectedProfile.status == CombinedResponseStatus.GENERATING
         else -> isActiveMessage && loadingStates.getOrElse(displayPlatformIndex) { ChatViewModel.LoadingState.Idle } == ChatViewModel.LoadingState.Loading
     }
-    StableChatResponseViewport(contentKey = if (isCombinedConversation) "combined" else selectedPlatformUid) {
+    StableChatResponseViewport(contentKey = if (isCombinedConversation) "combined" else selectedPlatformUid, reservedHeight = reservedTurnHeight) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -1615,7 +1705,7 @@ internal fun ChatMessagePair(
                     } else {
                         !isSourceResponse &&
                             canUseChat &&
-                            (isActiveMessage || agentRun?.status in setOf(AgentRunStatus.FAILED, AgentRunStatus.INTERRUPTED, AgentRunStatus.CANCELED)) &&
+                            (isActiveMessage || agentRun?.status in setOf(AgentRunStatus.FAILED, AgentRunStatus.INTERRUPTED, AgentRunStatus.CANCELED, AgentRunStatus.PARTIAL, AgentRunStatus.EVIDENCE_MISSING, AgentRunStatus.BLOCKED)) &&
                             !isCurrentPlatformLoading &&
                             selectedPlatformUid in participatingUids
                     },
@@ -1629,14 +1719,14 @@ internal fun ChatMessagePair(
                     isLoading = if (hasCombinedTabs) {
                         isCurrentPlatformLoading
                     } else {
-                        activeAgentRun != null || (isCurrentPlatformLoading && agentRun?.status !in setOf(AgentRunStatus.COMPLETED, AgentRunStatus.FAILED, AgentRunStatus.INTERRUPTED, AgentRunStatus.CANCELED))
+                        activeAgentRun != null || (isCurrentPlatformLoading && agentRun?.status !in setOf(AgentRunStatus.COMPLETED, AgentRunStatus.FAILED, AgentRunStatus.INTERRUPTED, AgentRunStatus.CANCELED, AgentRunStatus.PARTIAL, AgentRunStatus.EVIDENCE_MISSING, AgentRunStatus.BLOCKED))
                     },
                     isError = agentRun?.status == AgentRunStatus.FAILED && isAssistantErrorMessage(assistantContent),
                     isFavorite = selectedAssistantMessage?.isFavorite ?: false,
                     debugMode = debugMode,
                     showExecutionTrace = !isCombinedConversation,
                     responseIcon = if (LocalChatProgressInHeader.current && !hasCombinedTabs) {
-                        { GPTMobileIcon(loading = isCurrentPlatformLoading) }
+                        { GPTMobileIcon(loading = isCurrentPlatformLoading, github = LocalChatProgressInHeader.current) }
                     } else {
                         null
                     },
@@ -1728,7 +1818,18 @@ internal fun ChatMessagePair(
                 )
                 assistantTimeline.lastOrNull { it.runError != null }?.runError?.let { error ->
                     Column(Modifier.fillMaxWidth().padding(12.dp)) {
-                        Text(stringResource(R.string.audit_response_interrupted), style = MaterialTheme.typography.titleSmall)
+                        Text(
+                            if (agentRun?.status == AgentRunStatus.PARTIAL) {
+                                "Work remaining"
+                            } else if (agentRun?.status == AgentRunStatus.EVIDENCE_MISSING) {
+                                "Evidence needed"
+                            } else if (agentRun?.status == AgentRunStatus.BLOCKED) {
+                                "Work blocked"
+                            } else {
+                                stringResource(R.string.audit_response_interrupted)
+                            },
+                            style = MaterialTheme.typography.titleSmall
+                        )
                         Text(error, style = MaterialTheme.typography.bodySmall)
                         if (error.contains("QUEUE_") && selectedRunId != null) TextButton(onClick = { onCheckQueuedRun(selectedRunId) }) { Text(stringResource(R.string.audit_check_status)) }
                         if (!hasCombinedTabs) TextButton(onClick = { onRetry(messageIndex, displayPlatformIndex) }, enabled = isIdle && canUseChat) { Text(stringResource(R.string.audit_generate_again)) }
@@ -2188,7 +2289,7 @@ fun ChatInputBox(
                                 ) {
                                     if (inputState.text.isEmpty()) {
                                         Text(
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
                                             text = placeholder ?: if (chatEnabled) stringResource(R.string.write_a_message) else stringResource(R.string.some_platforms_disabled)
                                         )
                                     }

@@ -12,7 +12,7 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
 @Serializable
-enum class RunDiagnosticKind { CACHE_OBSERVATION, INPUT_PERSISTED, DISPATCH_ELIGIBLE, PREPARATION_DIRECT, PREPARATION_CONTEXTUAL, PREPARATION_REQUIRED, HTTP_CALL_START, REQUEST_BODY_END, RESPONSE_HEADERS, FIRST_TEXT, FIRST_REASONING, FIRST_TOOL, FIRST_VISIBLE_TEXT, PROVIDER_COOLDOWN, PREPARATION_PHASE, REQUEST_SERIALIZED, INVOCATION_STARTED, INVOCATION_FINISHED, ASSIST_DECISION, REDUCER_CHECKPOINT, SEGMENT_COMMITTED, OUTPUT_CHECKPOINT, PROGRESS_STAGE, PROGRESS_DEADLINE, RUN_TERMINAL, CAPTURE_GAP }
+enum class RunDiagnosticKind { INTENT_CONVERSATIONAL, INTENT_SUBSTANTIVE, TOOL_ADMITTED, TOOL_RESULT, CONTINUATION_SELECTED, VERIFICATION_REJECTED, ANSWER_REWRITE, CACHE_OBSERVATION, INPUT_PERSISTED, DISPATCH_ELIGIBLE, PREPARATION_DIRECT, PREPARATION_CONTEXTUAL, PREPARATION_REQUIRED, HTTP_CALL_START, REQUEST_BODY_END, RESPONSE_HEADERS, FIRST_TEXT, FIRST_REASONING, FIRST_TOOL, FIRST_VISIBLE_TEXT, PROVIDER_COOLDOWN, PREPARATION_PHASE, REQUEST_SERIALIZED, INVOCATION_STARTED, INVOCATION_FINISHED, ASSIST_DECISION, REDUCER_CHECKPOINT, SEGMENT_COMMITTED, OUTPUT_CHECKPOINT, PROGRESS_STAGE, PROGRESS_DEADLINE, RUN_TERMINAL, CAPTURE_GAP }
 
 @Serializable
 enum class ProgressDeadlineCode { RUN_DEADLINE_EXCEEDED, GENERATION_STALLED, QUEUE_DEADLINE_EXCEEDED, LOAD_DEADLINE_EXCEEDED, MODEL_PROGRESS_TIMEOUT }
@@ -95,7 +95,7 @@ data class RunJournalSnapshot(
     val lossReasons: Map<String, Long> = emptyMap()
 )
 
-/** Optional capture only. Generation state and accounting must not depend on this journal. */
+/** Typed lifecycle metadata is retained for saved runs; verbose capture remains optional. Generation never depends on this journal. */
 internal class RunDiagnosticJournal(
     private val vault: SecretVault,
     scope: CoroutineScope,
@@ -234,7 +234,7 @@ internal class RunDiagnosticJournal(
         outputPartId: String? = null,
         localAdmissionReceipt: dev.chungjungsoo.gptmobile.data.localruntime.LocalAdmissionReceipt? = null
     ) {
-        if (!enabled) {
+        if (!enabled && kind !in minimalKinds) {
             disabledSuppressed.incrementAndGet()
             return
         }
@@ -264,7 +264,7 @@ internal class RunDiagnosticJournal(
             return
         }
         synchronized(lock) {
-            if (!enabled || privateSession || runId !in permittedRuns || runId in terminals && kind in setOf(RunDiagnosticKind.RUN_TERMINAL, RunDiagnosticKind.REDUCER_CHECKPOINT, RunDiagnosticKind.SEGMENT_COMMITTED)) return
+            if ((!enabled && kind !in minimalKinds) || privateSession || runId !in permittedRuns || runId in terminals && kind in setOf(RunDiagnosticKind.RUN_TERMINAL, RunDiagnosticKind.REDUCER_CHECKPOINT, RunDiagnosticKind.SEGMENT_COMMITTED)) return
             if (kind == RunDiagnosticKind.FIRST_VISIBLE_TEXT && (runId to fence) in firstVisible) return
             val prior = sequences[runId] ?: 0L
             if (prior == Long.MAX_VALUE || prior == 0L && sequences.size >= 10_000) {
@@ -365,6 +365,7 @@ internal class RunDiagnosticJournal(
             storageFailed = failed,
             missingSequences = frozen.entries.sumOf { (stream, high) -> (high - retained.count { it.streamId == stream }).coerceAtLeast(0) },
             captureEnabled = enabled,
+            captureLevel = if (enabled) "metadata" else "minimal_lifecycle",
             lossReasons = mapOf("suppressed_disabled" to disabledSuppressed.get(), "suppressed_private" to privacySuppressed.get(), "rejected_validation" to rejected.get(), "capacity_dropped" to capacityDropped.get(), "storage_failed_events" to storageFailedEvents.get(), "retention_pruned_batches" to retentionPrunedBatches.get())
         )
     }
@@ -405,7 +406,8 @@ internal class RunDiagnosticJournal(
         }
     }
 
-    private val criticalKinds = setOf(RunDiagnosticKind.RUN_TERMINAL, RunDiagnosticKind.INVOCATION_FINISHED, RunDiagnosticKind.SEGMENT_COMMITTED, RunDiagnosticKind.PROGRESS_DEADLINE, RunDiagnosticKind.CAPTURE_GAP)
+    private val minimalKinds = setOf(RunDiagnosticKind.INVOCATION_STARTED, RunDiagnosticKind.INVOCATION_FINISHED, RunDiagnosticKind.FIRST_TEXT, RunDiagnosticKind.FIRST_REASONING, RunDiagnosticKind.FIRST_TOOL, RunDiagnosticKind.INTENT_CONVERSATIONAL, RunDiagnosticKind.INTENT_SUBSTANTIVE, RunDiagnosticKind.TOOL_ADMITTED, RunDiagnosticKind.TOOL_RESULT, RunDiagnosticKind.CONTINUATION_SELECTED, RunDiagnosticKind.VERIFICATION_REJECTED, RunDiagnosticKind.ANSWER_REWRITE, RunDiagnosticKind.RUN_TERMINAL)
+    private val criticalKinds = setOf(RunDiagnosticKind.INTENT_CONVERSATIONAL, RunDiagnosticKind.INTENT_SUBSTANTIVE, RunDiagnosticKind.VERIFICATION_REJECTED, RunDiagnosticKind.ANSWER_REWRITE) + setOf(RunDiagnosticKind.RUN_TERMINAL, RunDiagnosticKind.INVOCATION_FINISHED, RunDiagnosticKind.SEGMENT_COMMITTED, RunDiagnosticKind.PROGRESS_DEADLINE, RunDiagnosticKind.CAPTURE_GAP)
 
     private fun identity(value: String) = java.security.MessageDigest.getInstance("SHA-256").digest(value.toByteArray()).take(12).joinToString("") { "%02x".format(it) }
     private fun safeId(value: String) = value.length in 1..192 && value.all { it.isLetterOrDigit() || it in "_.:-" }

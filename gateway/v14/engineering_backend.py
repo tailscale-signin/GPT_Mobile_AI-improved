@@ -19,6 +19,7 @@ import requests
 
 from v14.batch import BatchExecutor, BatchJournal, digest
 from v14.github import ImmutableGitHubReads
+from v14.engineering_validation import validate as validate_checkout, patch_identity
 
 HEALTH_QUERY = '''query($owner:String!,$repo:String!,$number:Int!,$after:String) {
  repository(owner:$owner,name:$repo) { pullRequest(number:$number) {
@@ -195,7 +196,7 @@ class GitHubEngineeringBackend:
         expected = job['data'].get('actor_id')
         if expected is not None and actor['id'] != expected:
             raise ValueError('The GitHub account changed; job authorization is invalid')
-        job['data']['permission_scope'] = hashlib.sha256((self.token() + '\0' + os.getenv('GATEWAY_ENGINEERING_GITHUB_SERVER', '')).encode()).hexdigest()
+        job['data']['permission_scope'] = hashlib.sha256(json.dumps([actor['id'], job['principal'], 'api.github.com'], separators=(',', ':')).encode()).hexdigest()
         return actor
 
     def ref(self, job, branch):
@@ -233,6 +234,9 @@ class GitHubEngineeringBackend:
                        '"edits":[{"old":"unique exact anchor","new":"replacement"}]}],"summary":"..."}. '
                        'A new/small file may use content instead of edits. Use delete:true alone for deletion. '
                        'Existing files must have been read. Do not invent file contents; include meaningful tests.')
+        # Access must still exist before historical private source reaches a model.
+        metadata = self.api(self.root(job), job=job)
+        job['data']['permission_revision'] = digest(metadata.get('permissions', {}))
         historical = self.recall_memory(job, job['request']['objective'])
         # Optional independent model on the same private gateway; review is supplemental,
         # and never overrides the deterministic receipt or merge gates.
@@ -362,16 +366,22 @@ class GitHubEngineeringBackend:
                 before = data['files'].get(change['path'], {}).get('content', '')
                 after = change['content'] or ''
                 patches.append(''.join(difflib.unified_diff(before.splitlines(True), after.splitlines(True), fromfile=change['path'], tofile=change['path'])))
+            validation = validate_checkout(job, data['changes'])
             review = self.model(job, 'independent reviewer', {'plan': data['plan'], 'diff': patches, 'ci': data.get('ci'),
-                                                              'validation': 'CI runs after branch publication. No local build execution is claimed.'})
+                                                              'validation': validation})
             if type(review.get('approved')) is not bool or not isinstance(review.get('issues'), list) or any(not isinstance(item, str) for item in review['issues']):
                 raise ValueError('Reviewer did not return a complete review')
+            if validation['status'] != 'PASSED':
+                review['issues'].append('Pre-publication validation: ' + validation.get('reason', validation['status']))
             if review['issues']:
                 review['approved'] = False
-            return {'review': review}
+            return {'review': review, 'local_validation': validation}
         if phase == 'COMMIT':
             if data.get('review', {}).get('approved') is not True:
                 raise ValueError('Independent review is required before publishing changes')
+            validation = data.get('local_validation', {})
+            if validation.get('status') != 'PASSED' or validation.get('patch_identity') != patch_identity(data['head_sha'], data['changes']):
+                raise ValueError('Exact patch has no passing isolated validation receipt')
             current = self.ref(job, job['request']['branch'])
             if current is not None and current != data['head_sha']:
                 raise ValueError('Working branch moved before publication')
@@ -472,9 +482,10 @@ class GitHubEngineeringBackend:
         failed_checks = [check for check in checks if check.get('conclusion', check.get('state')) in {'FAILURE', 'ERROR', 'CANCELLED', 'TIMED_OUT', 'ACTION_REQUIRED', 'STALE'}]
         checks_known = bool(checks) and all(type(check.get('isRequired')) is bool for check in checks)
         passed = checks_known and not failed_checks and all(
-            check.get('conclusion', check.get('state')) == 'SUCCESS' or not check['isRequired'] and check.get('conclusion') in {'NEUTRAL', 'SKIPPED'} for check in checks)
+            (check.get('status') == 'COMPLETED' or 'conclusion' not in check and check.get('state') == 'SUCCESS') and
+            (check.get('conclusion', check.get('state')) == 'SUCCESS' or not check['isRequired'] and check.get('conclusion') in {'NEUTRAL', 'SKIPPED'}) for check in checks)
         result = {'node_id': pr['id'], 'pr': job['data']['pr'], 'head_sha': pr['headRefOid'], 'base_sha': pr['baseRefOid'], 'state': pr['state'],
-                  'checks_passed': passed, 'checks_failed': bool(failed_checks), 'draft': pr['isDraft'],
+                  'checks_passed': passed, 'requested_validation_passed': passed, 'github_permits_merging': pr['mergeStateStatus'] == 'CLEAN' and pr['mergeable'] == 'MERGEABLE', 'checks_failed': bool(failed_checks), 'draft': pr['isDraft'],
                   'mergeable': pr['mergeable'] == 'MERGEABLE', 'policy_verified': pr['mergeStateStatus'] == 'CLEAN',
                   'reviews_satisfied': 'reviewDecision' in pr and pr['reviewDecision'] in {None, 'APPROVED'},
                   'checks': [{'name': check.get('name', check.get('context')), 'status': check.get('conclusion', check.get('state', check.get('status'))), 'required': check.get('isRequired')} for check in checks],

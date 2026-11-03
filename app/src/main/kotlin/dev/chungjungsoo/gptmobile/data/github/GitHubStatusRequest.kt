@@ -14,14 +14,18 @@ internal object GitHubStatusRequest {
         val steps = listOf("github_context" to "status", "github_context" to "checks", "github_pr" to "list", "github_context" to "commits")
         for ((operation, action) in steps) {
             val tool = tools.firstOrNull { it.name.substringBefore("__") == operation } ?: continue
-            if (receipts.values.any { it["tool"] == JsonPrimitive(tool.name) && (it["arguments"] as? JsonObject)?.get("action") == JsonPrimitive(action) }) continue
+            val attempts = receipts.values.filter { it["tool"] == JsonPrimitive(tool.name) && (it["arguments"] as? JsonObject)?.get("action") == JsonPrimitive(action) }
+            if (attempts.isNotEmpty()) {
+                val retryable = attempts.last()["error_code"] in setOf("NETWORK_ERROR", "HTTP_502", "HTTP_503", "HTTP_504", "TOOL_TIMEOUT").map(::JsonPrimitive)
+                if (attempts.any { it["success"] == JsonPrimitive(true) } || attempts.size >= 2 || !retryable) continue
+            }
             val context = receipts.values.firstNotNullOfOrNull { receipt ->
                 if ((receipt["arguments"] as? JsonObject)?.get("action") != JsonPrimitive("status") || receipt["success"] != JsonPrimitive(true)) return@firstNotNullOfOrNull null
                 val root = receipt["result"] as? JsonObject
                 (root?.get("data") as? JsonObject) ?: root
             }
             return ProviderEvent.ToolCall(
-                "status-$action",
+                "status-$action" + if (attempts.isEmpty()) "" else "-recovery",
                 tool.name,
                 buildJsonObject {
                     put("action", action)
@@ -53,5 +57,5 @@ internal object GitHubStatusRequest {
 
     fun isGreeting(text: String): Boolean = text.trim().lowercase().trimEnd('.', '?', '!').trim() in setOf("hi", "hello", "hey", "good morning", "good afternoon", "good evening")
 
-    const val INSTRUCTION = "Status: inspect the current repository/branch, recent commits, open PRs and latest checks with at most four read-only calls. Do not read source, resume work, edit or poll. Separate latest workflow from required checks; unknown worktree/tests stay unknown."
+    const val INSTRUCTION = "Status: inspect the current repository/branch, recent commits, open PRs and latest checks with four scoped read-only calls plus at most two calls for failed-read recovery. Do not read source, resume work, edit or poll. Separate latest workflow from required checks; unknown worktree/tests stay unknown."
 }

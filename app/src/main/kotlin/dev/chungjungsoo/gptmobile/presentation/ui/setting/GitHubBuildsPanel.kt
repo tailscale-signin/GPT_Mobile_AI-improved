@@ -482,6 +482,7 @@ private fun GitHubDownloadedFile(
         Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(apk.fileName, style = MaterialTheme.typography.titleSmall)
             GitHubApkVariantBadge(apk.fileName)
+            apk.provenance.forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
             Text(
                 Formatter.formatShortFileSize(context, apk.sizeBytes),
                 style = MaterialTheme.typography.labelSmall,

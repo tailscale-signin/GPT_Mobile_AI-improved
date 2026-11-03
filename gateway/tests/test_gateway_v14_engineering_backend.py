@@ -30,6 +30,8 @@ class EngineeringBackendTests(unittest.TestCase):
 
     def api(self, path, method='GET', body=None, job=None, text=False):
         self.requests.append((path, method, body))
+        if path == '/repos/owner/repo':
+            return {'permissions': {'pull': True, 'push': True}}
         if path == '/graphql':
             page = int(body['variables']['after'] or 0)
             pr = copy.deepcopy(self.pr)
@@ -42,6 +44,28 @@ class EngineeringBackendTests(unittest.TestCase):
         if path.endswith('/pulls/7'):
             return {'head': {'sha': self.pr['headRefOid']}, 'base': {'sha': self.pr['baseRefOid'], 'ref': self.pr['baseRefName']}, 'state': 'open'}
         raise AssertionError(path)
+
+    def test_shared_android_gateway_check_contract(self):
+        fixture = json.loads((Path(__file__).resolve().parents[1] / 'contracts/github-ci-eligibility-v1.json').read_text())
+        for case in fixture['cases']:
+            with self.subTest(case=case['name']):
+                self.pages = [{key: value for key, value in case.items() if key != 'passed'}]
+                self.pages = [self.pages + [dict(self.check, name="baseline")]]
+                self.backend.failure_logs = Mock(return_value=[])
+                result = self.backend.inspect(self.job)
+                self.assertEqual(case['passed'], result['requested_validation_passed'])
+                self.assertTrue(result['github_permits_merging'])
+
+    def test_token_rotation_preserves_account_memory_namespace(self):
+        backend = GitHubEngineeringBackend(self.runtime)
+        backend.api = Mock(return_value={'id': 42, 'login': 'owner'})
+        backend.token = Mock(return_value='first')
+        self.job['data']['actor_id'] = 42
+        backend.identity(self.job)
+        original = self.job['data']['permission_scope']
+        backend.token = Mock(return_value='rotated')
+        backend.identity(self.job)
+        self.assertEqual(original, self.job['data']['permission_scope'])
 
     def test_actual_policy_parser_paginates_and_includes_whole_pr_diff(self):
         self.pages = [[dict(self.check, name='check_' + str(i)) for i in range(100)], [self.check]]

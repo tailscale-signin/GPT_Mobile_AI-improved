@@ -10,6 +10,27 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class RunDiagnosticJournalTest {
+    @Test fun minimalLifecyclePersistsWithVerboseCaptureOffAndHonorsPrivacy() = runTest {
+        val journal = RunDiagnosticJournal(MemoryVault(), backgroundScope)
+        journal.setRunPrivacy("normal", false)
+        journal.setRunPrivacy("private", true)
+        journal.record("normal", RunDiagnosticKind.INTENT_SUBSTANTIVE)
+        journal.record("normal", RunDiagnosticKind.TOOL_ADMITTED)
+        journal.record("normal", RunDiagnosticKind.TOOL_RESULT, successful = true)
+        journal.record("normal", RunDiagnosticKind.CONTINUATION_SELECTED)
+        journal.record("normal", RunDiagnosticKind.VERIFICATION_REJECTED)
+        journal.record("normal", RunDiagnosticKind.RUN_TERMINAL, successful = false)
+        journal.record("private", RunDiagnosticKind.INTENT_SUBSTANTIVE)
+        journal.record("normal", RunDiagnosticKind.REQUEST_SERIALIZED)
+        runCurrent()
+        val snapshot = journal.snapshot(setOf("normal", "private"))
+        assertEquals(6, snapshot.events.size)
+        assertEquals("minimal_lifecycle", snapshot.captureLevel)
+        assertFalse(snapshot.captureEnabled == true)
+        assertTrue(snapshot.events.all { it.runId == "normal" })
+        assertTrue(snapshot.events.all { it.outputFingerprint == null })
+    }
+
     @Test fun compositeRendererPartsRetainCorrelatedReceiptsWithoutRawIdentifiers() = runTest {
         val vault = MemoryVault()
         val journal = RunDiagnosticJournal(vault, backgroundScope).apply {

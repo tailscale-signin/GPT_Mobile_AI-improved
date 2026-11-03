@@ -35,7 +35,7 @@ internal fun conversationWorkProgress(
         contributors[uid]?.let { it.status == AgentRunStatus.COMPLETED } ?: (budget?.completedProfiles?.contains(uid) == true)
     }
     val final = turnRuns.filter { it.isCombinedFinal() }.maxWithOrNull(conversationAttemptOrder)
-    val stopped = setOf(AgentRunStatus.FAILED, AgentRunStatus.CANCELED, AgentRunStatus.INTERRUPTED)
+    val stopped = setOf(AgentRunStatus.FAILED, AgentRunStatus.CANCELED, AgentRunStatus.INTERRUPTED, AgentRunStatus.PARTIAL, AgentRunStatus.EVIDENCE_MISSING, AgentRunStatus.BLOCKED)
     val contributorsRunning = contributors.values.any { it.status in setOf(AgentRunStatus.QUEUED, AgentRunStatus.RUNNING) }
     // Contributor success alone cannot complete Combined. Require the current final text,
     // final run, and delivery receipt; failed/excluded contributors need not all succeed.

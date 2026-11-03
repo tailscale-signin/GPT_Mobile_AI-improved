@@ -1,9 +1,11 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.setting
 
 import android.content.ClipData
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -55,11 +57,11 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.ClipEntry
 import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalUriHandler
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -67,7 +69,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogProperties
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection
 import dev.chungjungsoo.gptmobile.data.github.GitHubPublicAuthConfiguration
 import dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog as AlertDialog
@@ -202,31 +203,20 @@ fun GitHubWorkspaceScreen(
                     TopAppBar(
                         title = {
                             Column {
-                                Text(state.selection?.fullName ?: "GitHub Workspace", style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(state.selection?.fullName ?: "GitHub Workspace", style = MaterialTheme.typography.titleLarge.copy(fontSize = MaterialTheme.typography.titleLarge.fontSize * 0.7f), color = MaterialTheme.colorScheme.primary, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 Text(
                                     state.selection?.ref ?: connection.name,
                                     style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
                             }
                         },
                         navigationIcon = { IconButton(onClick = { close() }, enabled = !state.busy) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Close workspace") } },
-                        actions = {
-                            state.selection?.let { repo ->
-                                IconButton(onClick = { uriHandler.openUri("https://github.com/${repo.fullName}") }) { Icon(Icons.Rounded.Launch, "Open repository on GitHub") }
-                                IconButton(onClick = {
-                                    when (tab) {
-                                        4 -> buildsViewModel.refresh()
-                                        2 -> viewModel.loadPullRequests()
-                                        else -> viewModel.refreshBranch()
-                                    }
-                                }, enabled = if (tab == 4) !buildsState.list().loading else canNavigate) { Icon(Icons.Rounded.Refresh, if (tab == 4) stringResource(R.string.github_builds_refresh) else "Refresh branch") }
-                            }
-                        }
+                        actions = {}
                     )
-                    GitHubChatProgress(state, visibleProgrammer, engineeringJob)
+                    Column(Modifier.padding(start = 56.dp, end = 16.dp)) { GitHubChatProgress(state, visibleProgrammer, engineeringJob) }
                 }
             },
             bottomBar = {}
@@ -335,20 +325,20 @@ fun GitHubWorkspaceScreen(
                         Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall, modifier = Modifier.fillMaxWidth().heightIn(max = 80.dp).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp))
                     }
                 }
-                val workspaceTabs = listOf(3 to "Chat", 2 to "PR", 0 to "Files", 1 to "Changes", 4 to "Checks", 5 to "Settings")
-                dev.chungjungsoo.gptmobile.presentation.ui.chat.ChatProfileDock(
-                    profileUids = workspaceTabs.map { it.first.toString() },
-                    names = workspaceTabs.associate { (id, label) -> id.toString() to if (id == 1 && state.staged.isNotEmpty()) "$label (${state.staged.size})" else label },
-                    selectedUid = tab.toString(),
-                    pausedUids = emptySet(),
-                    generatingUids = emptySet(),
-                    combined = false,
-                    combinedGenerating = false,
-                    onSelect = { id -> if (!editorDirty) id?.toIntOrNull()?.let { tab = it } },
-                    onPause = null,
-                    showStatus = false,
-                    showContainer = false
-                )
+                val workspaceTabs = listOf(3 to "Chat", 2 to "Status", 5 to "Settings")
+                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    workspaceTabs.forEach { (id, label) ->
+                        val selected = tab == id || id == 5 && tab in setOf(0, 1, 4)
+                        OutlinedButton(
+                            onClick = { if (!editorDirty) tab = id },
+                            modifier = Modifier.weight(1f).heightIn(min = 48.dp),
+                            shape = RoundedCornerShape(14.dp),
+                            border = BorderStroke(if (selected) 1.5.dp else 1.dp, MaterialTheme.colorScheme.primary.copy(alpha = if (selected) 1f else 0.35f)),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                            colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(containerColor = Color.Transparent)
+                        ) { Text(label, style = MaterialTheme.typography.labelLarge) }
+                    }
+                }
                 Column(Modifier.weight(1f).then(if (tab in setOf(3, 4)) Modifier else Modifier.verticalScroll(workspaceScroll)).padding(if (tab in setOf(3, 4)) 0.dp else 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     if (state.selection == null && tab !in setOf(3, 5)) {
                         WorkspaceEmpty(Icons.Rounded.FolderOpen, "Your code, within reach", "Choose a repository above to browse files, prepare changes and review pull requests.")
@@ -406,7 +396,9 @@ fun GitHubWorkspaceScreen(
                                         viewModel.createBranch(branchName.trim(), state.headSha, programmerState.chatId)
                                     }, enabled = state.canWrite && canNavigate && branchName.isNotBlank()) { Text("Create working branch") }
                                     WorkspaceAction(Icons.Rounded.Check, "Checks & builds") { tab = 4 }
-                                    WorkspaceAction(Icons.Rounded.AccountTree, "Pull requests") { tab = 2 }
+                                    WorkspaceAction(Icons.Rounded.Refresh, "Refresh repository") { viewModel.refreshBranch() }
+                                    WorkspaceAction(Icons.Rounded.Launch, "Open repository on GitHub") { state.selection?.let { uriHandler.openUri("https://github.com/${it.fullName}") } }
+                                    WorkspaceAction(Icons.Rounded.AccountTree, "Status and pull requests") { tab = 2 }
                                     WorkspaceAction(Icons.Rounded.FolderOpen, "Repository files") { tab = 0 }
                                     WorkspaceAction(Icons.Rounded.Commit, "Review changes") { openChanges() }
                                 }
@@ -530,8 +522,10 @@ fun GitHubWorkspaceScreen(
                                 }
                             }
                             2 -> {
+                                visibleProgrammer.chatId?.let { GitHubChatChecks(it, expanded = true) }
+                                GitHubRepositoryStatusPanel(connection, requireNotNull(state.selection), state.pullRequests, viewModel::loadPullRequests, chatId = visibleProgrammer.chatId)
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text("Pull requests", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                                    Text("Live status", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
                                     IconButton(onClick = viewModel::loadPullRequests, enabled = !state.busy) { Icon(Icons.Rounded.Refresh, "Refresh pull requests") }
                                     IconButton(onClick = { createPr = !createPr }, enabled = state.canWrite) { Icon(if (createPr) Icons.Rounded.Close else Icons.Rounded.Add, "Create draft pull request") }
                                 }
@@ -545,7 +539,7 @@ fun GitHubWorkspaceScreen(
                                 state.pullRequests.forEach { pr ->
                                     Surface(onClick = { viewModel.inspectPullRequest(pr.text("number").toInt()) }, enabled = !state.busy, shape = RoundedCornerShape(18.dp), color = MaterialTheme.colorScheme.surfaceContainerLow, modifier = Modifier.fillMaxWidth()) {
                                         Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                            Icon(Icons.Rounded.AccountTree, null, Modifier.size(22.dp))
+                                            GitHubStatusLight(pr.text("check_state"))
                                             GitHubCheckBadge(pr.text("check_state"))
                                             Column(Modifier.weight(1f)) {
                                                 Text(pr.text("title"), style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)

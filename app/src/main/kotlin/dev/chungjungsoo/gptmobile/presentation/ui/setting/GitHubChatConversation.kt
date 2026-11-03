@@ -21,7 +21,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.effectiveTimeline
 import dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext
 import dev.chungjungsoo.gptmobile.presentation.ui.chat.ChatScreen
 
-private val GITHUB_TERMINAL_RUN_STATUSES = setOf(AgentRunStatus.COMPLETED, AgentRunStatus.FAILED, AgentRunStatus.CANCELED, AgentRunStatus.INTERRUPTED)
+private val GITHUB_TERMINAL_RUN_STATUSES = setOf(AgentRunStatus.COMPLETED, AgentRunStatus.FAILED, AgentRunStatus.CANCELED, AgentRunStatus.INTERRUPTED, AgentRunStatus.PARTIAL, AgentRunStatus.EVIDENCE_MISSING, AgentRunStatus.BLOCKED)
 
 /** A real Chat destination supplies its own SavedStateHandle and lifecycle to the standard chat renderer. */
 @Composable
@@ -107,7 +107,8 @@ internal fun GitHubChatProgress(workspace: GitHubWorkspaceState, state: GitHubPr
     val activeRuns = state.runs.filter { it.status !in GITHUB_TERMINAL_RUN_STATUSES }
     val activeIds = activeRuns.mapTo(hashSetOf()) { it.runId }
     val generating = state.submitting || state.pending.any { !it.paused } || activeRuns.isNotEmpty()
-    val active = workspace.busy || generating
+    val active = generating || engineeringJob?.terminal == false
+    if (!active && engineeringJob == null) return
     val currentTask = (activeRuns.maxByOrNull { it.createdAt } ?: state.runs.maxByOrNull { it.createdAt })?.userMessageId
     val taskRuns = state.runs.filter { it.userMessageId == currentTask }
     val fallbackStart = androidx.compose.runtime.saveable.rememberSaveable(state.chatId, active) { System.currentTimeMillis() }
@@ -118,9 +119,9 @@ internal fun GitHubChatProgress(workspace: GitHubWorkspaceState, state: GitHubPr
     dev.chungjungsoo.gptmobile.presentation.ui.chat.ChatGenerationProgress(
         toolEvents = state.events.filter { it.runId in activeIds },
         timeline = timeline,
-        modifier = Modifier.fillMaxWidth().testTag("github_chat_progress").padding(horizontal = 16.dp, vertical = 8.dp),
+        modifier = Modifier.fillMaxWidth().testTag("github_chat_progress").padding(vertical = 4.dp),
         active = active,
-        textSizeIncrease = 3,
+        textSizeIncrease = 0,
         startedAtMillis = started,
         completedAtMillis = completed,
         engineeringJob = engineeringJob,

@@ -63,7 +63,7 @@ class GitHubTaskCoverageTest {
     }
 
     @Test fun diagnosticsAreBoundedButExplicitHistoryAuditsRemainAvailable() {
-        assertTrue(GitHubTaskCoverage.boundedDiagnostic("test"))
+        assertFalse(GitHubTaskCoverage.boundedDiagnostic("test"))
         assertTrue(GitHubTaskCoverage.boundedDiagnostic("Do a massive full stress test benchmark and list all the issues encountered."))
         assertTrue(GitHubTaskCoverage.boundedDiagnostic("Can you explain in depth the issues in this very session with the GitHub integration?"))
         assertFalse(GitHubTaskCoverage.boundedDiagnostic("Test pagination across all workflow history"))

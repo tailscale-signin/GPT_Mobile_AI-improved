@@ -233,7 +233,12 @@ internal suspend fun writeChatDebugExport(
         put("featureSettings", json.encodeToJsonElement(features))
         put("composerDraft", draft)
         records.forEach { (key, value) ->
-            if (key == "answerSegments" && value is JsonArray) {
+            if (key == "invocations" && value is JsonArray) {
+                array(key, value.asSequence()) { row ->
+                    val invocation = row as JsonObject
+                    JsonObject(invocation + ("usageEvidence" to dev.chungjungsoo.gptmobile.data.accounting.invocationUsageEvidence(invocation)))
+                }
+            } else if (key == "answerSegments" && value is JsonArray) {
                 val previous = mutableMapOf<String, String>()
                 array(key, value.asSequence()) { element ->
                     val segment = element as JsonObject

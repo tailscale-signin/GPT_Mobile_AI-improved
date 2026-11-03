@@ -21,9 +21,12 @@ internal class GitHubChatProgress(task: String = "") {
 
     fun updates(): Flow<ApiState.ActivitySummary> = flow {
         emit(ApiState.ActivitySummary(introduction, preview = preview()))
+        var previous: ApiState.ActivitySummary? = null
         while (true) {
             delay(HEARTBEAT_MILLIS)
-            emit(update())
+            val next = update()
+            if (next != previous) emit(next)
+            previous = next
         }
     }
 

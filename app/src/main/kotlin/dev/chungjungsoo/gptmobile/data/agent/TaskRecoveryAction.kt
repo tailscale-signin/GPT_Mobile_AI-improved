@@ -53,15 +53,26 @@ internal data class ResolvedTaskRecovery(val action: TaskRecoveryAction, val sou
 
 /** Reconstruct from persisted user turns, including chains of controls after process restart. */
 internal fun resolveTaskRecovery(messages: List<MessageV2>): ResolvedTaskRecovery? {
-    val action = TaskRecoveryAction.fromText(messages.lastOrNull()?.content.orEmpty()) ?: return null
-    val previous = messages.dropLast(1)
-    val sourceIndex = previous.indexOfLast { it.content.isNotBlank() && TaskRecoveryAction.fromText(it.content) == null }
+    val latest = messages.lastOrNull() ?: return null
+    val current = latest.content
+    val previous = messages.dropLast(1).filter { it.chatId == latest.chatId && it.platformType == null }
+    fun substantive(message: MessageV2) = message.content.isNotBlank() && TaskRecoveryAction.fromText(message.content) == null && !dev.chungjungsoo.gptmobile.data.github.GitHubTaskContinuity.diagnostic(message.content)
+    var sourceIndex = previous.indexOfLast(::substantive)
     if (sourceIndex < 0) return null
-    val source = previous[sourceIndex]
-    val primaryOnly = action == TaskRecoveryAction.CONTINUE_PRIMARY_ONLY ||
-        previous.drop(sourceIndex + 1).any {
-            TaskRecoveryAction.fromText(it.content) == TaskRecoveryAction.CONTINUE_PRIMARY_ONLY
+    val priorTask = previous[sourceIndex]
+    val equivalent = dev.chungjungsoo.gptmobile.data.github.GitHubTestChecklist.integration(current) && dev.chungjungsoo.gptmobile.data.github.GitHubTaskContinuity.reuse(current, priorTask.content)
+    val action = TaskRecoveryAction.fromText(current) ?: if (equivalent) TaskRecoveryAction.CONTINUE_RUN else return null
+    // Walk the persisted intent chain, skipping controls and diagnostic questions. Never
+    // cross an unrelated substantive request or derive identity from matching text alone.
+    if (dev.chungjungsoo.gptmobile.data.github.GitHubTestChecklist.integration(priorTask.content)) {
+        while (sourceIndex > 0) {
+            val older = previous.take(sourceIndex).indexOfLast(::substantive)
+            if (older < 0 || !dev.chungjungsoo.gptmobile.data.github.GitHubTaskContinuity.reuse(previous[sourceIndex].content, previous[older].content)) break
+            sourceIndex = older
         }
+    }
+    val source = previous[sourceIndex]
+    val primaryOnly = action == TaskRecoveryAction.CONTINUE_PRIMARY_ONLY || previous.drop(sourceIndex + 1).any { TaskRecoveryAction.fromText(it.content) == TaskRecoveryAction.CONTINUE_PRIMARY_ONLY }
     return ResolvedTaskRecovery(action, source.id, source.content, primaryOnly, action == TaskRecoveryAction.RETRY_FAILED_STAGE)
 }
 

@@ -45,7 +45,7 @@ internal fun combinedResponseStatus(
     run: AgentRun?,
     preparing: Boolean = false
 ): CombinedResponseStatus = when {
-    run?.status in setOf(AgentRunStatus.FAILED, AgentRunStatus.CANCELED, AgentRunStatus.INTERRUPTED) -> CombinedResponseStatus.FAILED
+    run?.status in setOf(AgentRunStatus.FAILED, AgentRunStatus.CANCELED, AgentRunStatus.INTERRUPTED, AgentRunStatus.PARTIAL, AgentRunStatus.EVIDENCE_MISSING, AgentRunStatus.BLOCKED) -> CombinedResponseStatus.FAILED
     run?.status in setOf(AgentRunStatus.WAITING_PROVIDER_LIMIT, AgentRunStatus.WAITING_REMOTE_JOB) -> CombinedResponseStatus.PAUSED
     run?.status in setOf(AgentRunStatus.QUEUED, AgentRunStatus.RUNNING) || preparing -> CombinedResponseStatus.GENERATING
     message?.content.isNullOrBlank() || isAssistantErrorMessage(message.content) -> CombinedResponseStatus.FAILED
@@ -127,7 +127,7 @@ internal data class CombinedResponseProjection(val message: MessageV2?, val stat
 internal fun combinedResponseProjection(original: MessageV2?, source: CombinedModelResponse?, preparing: Boolean, runsById: Map<String, AgentRun>): CombinedResponseProjection {
     val response = source?.let { sourceMessage(original, it) }
         ?: original?.let { latest ->
-            if (latest.currentRunId?.let { runsById[it]?.status } in setOf(AgentRunStatus.FAILED, AgentRunStatus.INTERRUPTED, AgentRunStatus.CANCELED)) {
+            if (latest.currentRunId?.let { runsById[it]?.status } in setOf(AgentRunStatus.FAILED, AgentRunStatus.INTERRUPTED, AgentRunStatus.CANCELED, AgentRunStatus.PARTIAL, AgentRunStatus.EVIDENCE_MISSING, AgentRunStatus.BLOCKED)) {
                 selectCombinedContribution(latest, runsById, null).message.copy(activeRevisionIndex = ACTIVE_REVISION_LATEST)
             } else {
                 latest.copy(activeRevisionIndex = ACTIVE_REVISION_LATEST)
@@ -143,7 +143,7 @@ internal fun combinedResponseProjection(original: MessageV2?, source: CombinedMo
         }
     } else if (run?.status == AgentRunStatus.COMPLETED && response != null && CombinedContributionUsability.assess(run.status, response.content, allowPartial = true, finishReason = response.timeline.lastOrNull { it.generation != null }?.generation?.finishReason).usablePartial) {
         CombinedResponseStatus.FAILED
-    } else if (run == null && source?.completionStatus in setOf(AgentRunStatus.FAILED, AgentRunStatus.INTERRUPTED, AgentRunStatus.CANCELED)) {
+    } else if (run == null && source?.completionStatus in setOf(AgentRunStatus.FAILED, AgentRunStatus.INTERRUPTED, AgentRunStatus.CANCELED, AgentRunStatus.PARTIAL, AgentRunStatus.EVIDENCE_MISSING, AgentRunStatus.BLOCKED)) {
         CombinedResponseStatus.FAILED
     } else {
         combinedResponseStatus(response, run, preparing && source == null && run == null)

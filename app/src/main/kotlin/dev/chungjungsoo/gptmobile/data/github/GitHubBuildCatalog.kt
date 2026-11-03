@@ -53,7 +53,8 @@ data class GitHubApkBuild(
     val prerelease: Boolean = false,
     val expired: Boolean = false,
     val digest: String? = null,
-    val runId: Long? = null
+    val runId: Long? = null,
+    val runAttempt: Int? = null
 )
 
 @Serializable
@@ -175,7 +176,8 @@ class GitHubBuildCatalog(
                     commitSha = run.string("head_sha").takeIf(COMMIT_SHA::matches),
                     expired = artifact.boolean("expired") == true || runCatching { java.time.Instant.parse(artifact.string("expires_at")).toEpochMilli() <= System.currentTimeMillis() }.getOrDefault(false),
                     digest = artifact.string("digest").takeIf { it.isNotBlank() },
-                    runId = runId
+                    runId = runId,
+                    runAttempt = run.long("run_attempt")?.takeIf { it in 1..Int.MAX_VALUE }?.toInt()
                 )
             }
             val more = response.hasNext ?: result.long("total_count")?.let { page.toLong() * ARTIFACTS_PER_PAGE < it }

@@ -3,9 +3,12 @@ package dev.chungjungsoo.gptmobile.presentation.ui.setting
 import androidx.lifecycle.viewModelScope
 import dev.chungjungsoo.gptmobile.data.agent.tool.GitHubTool
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection
+import dev.chungjungsoo.gptmobile.data.github.GitHubPublicAuthCoordinator
 import dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryContext
 import dev.chungjungsoo.gptmobile.data.github.GitHubWorkspaceClient
 import dev.chungjungsoo.gptmobile.data.github.GitHubWorkspaceDraftStore
+import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
+import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import dev.chungjungsoo.gptmobile.data.repository.ToolConnectionRepository
 import dev.chungjungsoo.gptmobile.data.security.SecretVault
 import io.mockk.coEvery
@@ -39,6 +42,8 @@ class GitHubWorkspaceAdmissionTest {
     private lateinit var drafts: GitHubWorkspaceDraftStore
     private lateinit var connections: ToolConnectionRepository
     private lateinit var vault: SecretVault
+    private lateinit var auth: GitHubPublicAuthCoordinator
+    private lateinit var settings: SettingRepository
     private lateinit var state: MutableStateFlow<GitHubWorkspaceState>
 
     @Before fun setup() {
@@ -46,7 +51,10 @@ class GitHubWorkspaceAdmissionTest {
         drafts = mockk(relaxed = true)
         connections = mockk()
         vault = mockk()
-        model = GitHubWorkspaceViewModel(connections, vault, mockk(), drafts, mockk())
+        auth = mockk()
+        settings = mockk()
+        coEvery { settings.getFeatureSettings() } returns AppFeatureSettings()
+        model = GitHubWorkspaceViewModel(connections, vault, mockk(), drafts, settings, gitHubPublicAuth = auth)
         @Suppress("UNCHECKED_CAST")
         state = GitHubWorkspaceViewModel::class.java.getDeclaredField("_state").apply { isAccessible = true }.get(model) as MutableStateFlow<GitHubWorkspaceState>
         state.value = GitHubWorkspaceState(selection = GitHubRepositoryContext("owner", "repo", "main"), headSha = "a".repeat(40), error = "HTTP 401")
@@ -127,6 +135,10 @@ class GitHubWorkspaceAdmissionTest {
         coEvery { connections.getConnection("connection") } returns requireNotNull(state.value.connection).copy(toolPolicy = "READ_ONLY")
         assertTrue(rejected("api", "commit_files", buildJsonObject {}).message.orEmpty().contains("policy"))
         assertTrue(rejected("toolRequest", "create_branch", buildJsonObject {}).message.orEmpty().contains("policy"))
+        invokeSuspending("requireActiveConnection", false)
+        org.junit.Assert.assertEquals("READ_ONLY", state.value.connection?.toolPolicy)
+        // The policy change creates a fresh transport; bind its execution at the HTTP boundary.
+        GitHubWorkspaceViewModel::class.java.getDeclaredField("client").apply { isAccessible = true }.set(model, client)
         coEvery { client.execute("get_repository", any()) } returns buildJsonObject { put("name", "repo") }
         invokeSuspending("api", "get_repository", buildJsonObject {})
         coVerify(exactly = 1) { client.execute("get_repository", any()) }
@@ -134,36 +146,47 @@ class GitHubWorkspaceAdmissionTest {
         coVerify(exactly = 0) { tool.execute(any(), any()) }
     }
 
-    @Test fun sameReferenceCredentialRotationRequiresReopenAndWipesFreshBytes() = runBlocking {
-        val client = authorize()
-        val rotated = "replacement-token".encodeToByteArray()
+    @Test fun verifiedSameAccountRotationRecreatesTransportWithoutLosingDrafts() = runBlocking {
+        val originalClient = authorize()
         val draft = mapOf("File.kt" to "unsaved change")
-        state.value = state.value.copy(editorDrafts = draft)
-        coEvery { vault.read("credential") } returns rotated
-        assertTrue(rejected("api", "commit_files", buildJsonObject {}).message.orEmpty().contains("credentials changed"))
-        assertTrue(rotated.all { it == 0.toByte() })
+        val staged = listOf(GitHubStagedFile("Other.kt", "old", "new"))
+        state.value = state.value.copy(editorDrafts = draft, staged = staged)
+        for (reference in listOf("credential", "rotated-secret")) {
+            val current = requireNotNull(state.value.connection).copy(secretRef = reference)
+            coEvery { connections.getConnection("connection") } returns current
+            coEvery { auth.accessToken(current) } returns "replacement-$reference"
+            invokeSuspending("requireActiveConnection", false)
+            org.junit.Assert.assertNotSame(originalClient, GitHubWorkspaceViewModel::class.java.getDeclaredField("client").apply { isAccessible = true }.get(model))
+            org.junit.Assert.assertEquals(current, state.value.connection)
+            org.junit.Assert.assertEquals(draft, state.value.editorDrafts)
+            org.junit.Assert.assertEquals(staged, state.value.staged)
+        }
+        coVerify(exactly = 0) { originalClient.execute(any(), any()) }
+    }
+
+    @Test fun aDifferentVerifiedAccountCannotReuseTheOpenedWorkspace() = runBlocking {
+        val client = authorize()
+        coEvery { auth.durableIdentity("connection") } returns "different-account"
+        assertTrue(rejected("api", "get_repository", buildJsonObject {}).message.orEmpty().contains("account changed"))
         coVerify(exactly = 0) { client.execute(any(), any()) }
-        org.junit.Assert.assertEquals(draft, state.value.editorDrafts)
     }
 
     @Test fun changedConnectionIdentityCannotReuseTheOpenedCredential() = runBlocking {
         val client = authorize()
         val original = requireNotNull(state.value.connection)
-        for (changed in listOf(original.copy(type = "MCP"), original.copy(secretRef = "other"), original.copy(authType = "OAUTH"), original.copy(endpointUrl = "https://different.example"))) {
+        for (changed in listOf(original.copy(type = "MCP"), original.copy(authType = "OAUTH"), original.copy(endpointUrl = "https://different.example"))) {
             coEvery { connections.getConnection("connection") } returns changed
             assertTrue(rejected("api", "get_repository", buildJsonObject {}).message.orEmpty().contains("Reopen"))
         }
         coVerify(exactly = 0) { client.execute(any(), any()) }
     }
 
-    @Test fun unchangedCredentialsPermitAnAuthorizedMutationAndAreWipedAfterChecking() = runBlocking {
+    @Test fun unchangedVerifiedCredentialsPermitAnAuthorizedMutation() = runBlocking {
         val client = authorize()
-        val fresh = "workspace-token".encodeToByteArray()
-        coEvery { vault.read("credential") } returns fresh
         coEvery { client.execute("commit_files", any()) } returns buildJsonObject { put("sha", "b".repeat(40)) }
         invokeSuspending("api", "commit_files", buildJsonObject {})
         coVerify(exactly = 1) { client.execute("commit_files", any()) }
-        assertTrue(fresh.all { it == 0.toByte() })
+        coVerify(exactly = 1) { auth.accessToken(requireNotNull(state.value.connection)) }
     }
 
     @Test fun appConnectionsCannotListOrRestoreRepositoriesWithoutAnInstallation() = runBlocking {
@@ -221,7 +244,10 @@ class GitHubWorkspaceAdmissionTest {
         val connection = ToolConnection("connection", "GitHub", "github", "GITHUB", null, "BEARER", "credential", null)
         state.value = state.value.copy(connection = connection, canWrite = true)
         coEvery { connections.getConnection(connection.connectionUid) } returns connection
-        coEvery { vault.read("credential") } answers { "workspace-token".encodeToByteArray() }
+        coEvery { auth.accessToken(any()) } returns "workspace-token"
+        coEvery { auth.durableIdentity("connection") } returns "verified-account-connection"
+        coEvery { auth.legacyCredentialIdentities("connection") } returns emptyList()
+        GitHubWorkspaceViewModel::class.java.getDeclaredField("authorizationIdentity").apply { isAccessible = true }.set(model, "verified-account-connection")
         GitHubWorkspaceViewModel::class.java.getDeclaredField("credentialDigest").apply { isAccessible = true }.set(model, MessageDigest.getInstance("SHA-256").digest("workspace-token".encodeToByteArray()))
         return mockk<GitHubWorkspaceClient>().also { client ->
             GitHubWorkspaceViewModel::class.java.getDeclaredField("client").apply { isAccessible = true }.set(model, client)

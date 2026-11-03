@@ -266,6 +266,7 @@ class GitHubSchedulerAndPaginationTest {
                     }
                     request.url.encodedPath.endsWith("/actions/jobs/7") -> respond("""{"id":7,"run_id":8,"status":"completed"}""")
                     request.url.encodedPath.endsWith("/actions/runs/8") -> respond("""{"id":8,"head_sha":"$head"}""")
+                    request.url.encodedPath.endsWith("/commits/$head") -> respond("""{"files":[{"filename":"app/Compiler.kt"}]}""")
                     else -> error(request.url.toString())
                 }
             }
@@ -283,7 +284,7 @@ class GitHubSchedulerAndPaginationTest {
             assertTrue(result["excerpts"].toString().contains("late compiler failure"))
             assertFalse(result.toString().contains("sig=secret"))
             assertTrue(result.toString().length < 30000)
-            assertEquals(4, requests.size)
+            assertEquals(5, requests.size)
         } finally {
             http.close()
         }

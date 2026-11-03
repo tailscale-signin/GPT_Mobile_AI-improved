@@ -481,6 +481,14 @@ private fun ChatMarkdownContent(
 
         markdownComponents(
             table = { model ->
+                // Long evidence tables compose a bounded page until the reader expands it.
+                // Stable content keeps the page and layout inputs across progress updates.
+                val tableLines = remember(model.content, model.node.startOffset, model.node.endOffset) {
+                    model.content.substring(model.node.startOffset, model.node.endOffset).lines()
+                }
+                var visibleRows by remember(model.content, model.node.startOffset) { mutableIntStateOf(12) }
+                val visibleEnd = remember(tableLines, visibleRows) { model.node.startOffset + tableLines.take(visibleRows + 2).sumOf { it.length + 1 } }
+                val remainingRows = (tableLines.count { it.isNotBlank() } - 2 - visibleRows).coerceAtLeast(0)
                 val settings = annotatorSettings(
                     LocalMarkdownTypography.current.textLink,
                     LocalMarkdownTypography.current.inlineCode.toSpanStyle(),
@@ -507,17 +515,20 @@ private fun ChatMarkdownContent(
                             )
                         },
                         rowBlock = { tableContent, row, tableWidth, style ->
-                            MarkdownTableRow(
-                                tableContent,
-                                row,
-                                tableWidth,
-                                style,
-                                maxLines = Int.MAX_VALUE,
-                                overflow = androidx.compose.ui.text.style.TextOverflow.Clip,
-                                annotatorSettings = settings
-                            )
+                            if (row.startOffset < visibleEnd) {
+                                MarkdownTableRow(
+                                    tableContent,
+                                    row,
+                                    tableWidth,
+                                    style,
+                                    maxLines = Int.MAX_VALUE,
+                                    overflow = androidx.compose.ui.text.style.TextOverflow.Clip,
+                                    annotatorSettings = settings
+                                )
+                            }
                         }
                     )
+                    if (remainingRows > 0) TextButton(onClick = { visibleRows += 12 }) { Text("Show ${minOf(12, remainingRows)} more rows · $remainingRows remaining") }
                     CombinedSharedSourceMarkers(combinedMarkdown, profileIndex.overlapping(model.node.startOffset, model.node.endOffset), wording) { passage, owners -> if (interactionOwner.accepts(renderedDigest)) attributionSelection = passage to owners }
                 }
             },
@@ -602,6 +613,7 @@ private fun ChatMarkdownContent(
                 } else {
                     Column(Modifier.streamFade(model.node.startOffset)) {
                         DefaultParagraph(model.content, model.node, model.typography.paragraph, annotator)
+                        if (remainingRows > 0) TextButton(onClick = { visibleRows += 12 }) { Text("Show ${minOf(12, remainingRows)} more rows · $remainingRows remaining") }
                         CombinedSharedSourceMarkers(combinedMarkdown, profileIndex.overlapping(model.node.startOffset, model.node.endOffset), wording) { passage, owners -> if (interactionOwner.accepts(renderedDigest)) attributionSelection = passage to owners }
                     }
                 }

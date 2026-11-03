@@ -28,9 +28,17 @@ internal class ConflatedCheckpointWriter<T>(
 
     @Volatile var lastWriteMillis = 0L
         private set
+
+    @Volatile var skippedUnchangedWrites = 0L
+        private set
+
+    @Volatile var completedWrites = 0L
+        private set
     private val job = scope.launch {
         try {
             var first = true
+            var lastWritten: T? = null
+            var hasWritten = false
             for (queued in queue) {
                 // A fast database must not cause a full message serialization per token.
                 // Keep at most the newest snapshot while waiting; drain still flushes it.
@@ -38,9 +46,16 @@ internal class ConflatedCheckpointWriter<T>(
                 first = false
                 var pending = queued
                 while (true) pending = queue.tryReceive().getOrNull() ?: break
+                if (hasWritten && pending.value == lastWritten) {
+                    skippedUnchangedWrites++
+                    continue
+                }
                 val start = System.nanoTime()
                 lastQueueAgeMillis = (start - pending.queuedAt) / 1_000_000L
                 write(pending.value)
+                lastWritten = pending.value
+                hasWritten = true
+                completedWrites++
                 lastWriteMillis = (System.nanoTime() - start) / 1_000_000L
             }
         } catch (cancelled: CancellationException) {

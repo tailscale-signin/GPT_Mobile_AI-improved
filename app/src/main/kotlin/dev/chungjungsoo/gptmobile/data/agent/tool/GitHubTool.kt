@@ -988,16 +988,28 @@ class GitHubTool(
         if (write) requireToken()
         if (action == "get_job_logs") {
             val jobId = positiveId("job_id")
-            if (arguments["run_id"] != null || arguments["expected_head_sha"] != null) {
-                val response = getGitHubApi("$base/jobs/$jobId")
-                val text = response.bodyAsText()
-                if (!response.status.isSuccess()) return classifyGitHubHttpFailure(callId, action, arguments, response, text)
-                val job = jsonParser.parseToJsonElement(text).jsonObject
-                arguments["run_id"]?.let { require(job["run_id"] == it) { "Job belongs to another workflow run; rediscover jobs using run_id." } }
-                arguments["expected_head_sha"]?.let { require(job["head_sha"] == it) { "CI evidence belongs to a different commit; refresh the job head." } }
+            val response = getGitHubApi("$base/jobs/$jobId")
+            val text = response.bodyAsText()
+            if (!response.status.isSuccess()) return classifyGitHubHttpFailure(callId, action, arguments, response, text)
+            val job = jsonParser.parseToJsonElement(text).jsonObject
+            arguments["run_id"]?.let { require(job["run_id"] == it) { "Job belongs to another workflow run; rediscover jobs using run_id." } }
+            arguments["expected_head_sha"]?.let { require(job["head_sha"] == it) { "CI evidence belongs to a different commit; refresh the job head." } }
+            if (job["status"] != JsonPrimitive("completed")) {
+                return successResult(
+                    callId,
+                    buildJsonObject {
+                        put("status", "PENDING_LOG_AVAILABILITY")
+                        put("job_id", jobId)
+                        listOf("run_id", "head_sha", "head_branch").forEach { key -> job[key]?.let { put(key, it) } }
+                        put("job_status", job["status"] ?: JsonPrimitive("unknown"))
+                        put("logs_available", false)
+                        put("complete", false)
+                        put("retry_when", "The observed job status changes to completed. Use a background check watch; do not repeat unchanged log downloads.")
+                    }.toString()
+                )
             }
             val log = dev.chungjungsoo.gptmobile.data.github.GitHubCiLogReader(httpClient, apiToken, scheduler, responseCache, authenticationRejected = authenticationRejected)
-                .read("/repos/$owner/$repo/actions/jobs/$jobId/logs", immutable = false)
+                .read("/repos/$owner/$repo/actions/jobs/$jobId/logs", immutable = true)
             val safe = dev.chungjungsoo.gptmobile.data.diagnostics.redactLogMessage(log.text).let { if (apiToken.isNotBlank()) it.replace(apiToken, "[REDACTED]") else it }
             return successResult(callId, dev.chungjungsoo.gptmobile.data.github.GitHubCiLogPage.render(log.copy(text = safe), arguments).toString())
         }

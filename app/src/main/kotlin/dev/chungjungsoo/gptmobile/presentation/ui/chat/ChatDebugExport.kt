@@ -206,7 +206,7 @@ internal suspend fun writeChatDebugExport(
         put(
             "appLogSnapshot",
             JsonArray(
-                appLogSnapshot.takeLast(500).map { entry ->
+                appLogSnapshot.takeLast(2000).map { entry ->
                     buildJsonObject {
                         put("time", entry.time)
                         put("level", entry.level)
@@ -223,8 +223,14 @@ internal suspend fun writeChatDebugExport(
         put(
             "appLogSnapshotAvailability",
             buildJsonObject {
-                put("retainedEvents", appLogSnapshot.size.coerceAtMost(500))
-                put("limit", 500)
+                put("retainedEvents", appLogSnapshot.size.coerceAtMost(2000))
+                put("limit", 2000)
+                put("availableEvents", appLogSnapshot.size)
+                put("omittedByExport", (appLogSnapshot.size - 2000).coerceAtLeast(0))
+                put("firstRetainedTime", appLogSnapshot.takeLast(2000).firstOrNull()?.time?.let(::JsonPrimitive) ?: kotlinx.serialization.json.JsonNull)
+                put("lastRetainedTime", appLogSnapshot.lastOrNull()?.time?.let(::JsonPrimitive) ?: kotlinx.serialization.json.JsonNull)
+                put("completeIncident", false)
+                put("completenessReason", "Bounded process log window; events before capture, queue loss and older evicted records may be absent")
                 put("scope", "Recent sanitized app events; Settings > Debug > Logs can export the full retained log window.")
             }
         )

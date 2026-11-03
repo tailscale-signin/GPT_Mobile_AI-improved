@@ -409,4 +409,21 @@ class GitHubVerifiedSessionTest {
         val result = runCatching { gate.streamRound(emptyList(), emptyList()).collect { throw failure } }
         assertSame(failure, result.exceptionOrNull())
     }
+
+    @Test fun stalledChecklistRendersConcreteBlockersWithoutAnotherModelDraft() = runTest {
+        var verdict: JsonObject? = null
+        val book = GitHubEvidenceBook("task", "o/r", "main", setOf("github_context", "github_ci"), now = { 1000L }, save = { id, row -> if (id.startsWith("verification_")) verdict = row }, latestVerdict = { verdict })
+        book.observe(ProviderEvent.ToolCall("status", "github_context", Json.parseToJsonElement("""{"action":"status"}""").jsonObject), AgentToolResult("status", ToolResultContent.Json(Json.parseToJsonElement("""{"commit_sha":"${"a".repeat(40)}"}""")), false))
+        val tools = listOf(AgentToolDefinition("github_ci", "logs", Json.parseToJsonElement("""{"properties":{"action":{"const":"logs"}}}""").jsonObject))
+        val delegate = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): kotlinx.coroutines.flow.Flow<ProviderEvent> = error("A coverage gap cannot be repaired by a model draft")
+        }
+        val session = GitHubVerifiedSession(delegate, book, "test all tools", { 8192 }, { error("No rewrite") }, {}, {}, now = { 1000L }, authorizedTools = tools)
+        val first = session.streamRound(tools, emptyList()).toList().filterIsInstance<ProviderEvent.TextDelta>().single().text
+        val second = session.streamRound(tools, emptyList()).toList().filterIsInstance<ProviderEvent.TextDelta>().single().text
+        assertTrue(first != second)
+        assertTrue(second.contains("No new test evidence"))
+        assertTrue(second.contains("completed job"))
+        assertEquals(JsonPrimitive("BLOCKED_UNCHANGED"), verdict?.get("progress_state"))
+    }
 }

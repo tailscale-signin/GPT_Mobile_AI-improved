@@ -49,8 +49,11 @@ internal class GitHubInspection(private val get: suspend (String) -> JsonElement
                     put("page", page)
                     put("returned", issues.size)
                     put("upstream_returned", raw.size)
+                    put("upstream_record_ids", JsonArray(raw.mapNotNull { (it as? JsonObject)?.get("id") }))
+                    put("resource_type", "issue")
                     put("pull_requests_excluded", raw.size - issues.size)
                     put("has_more", raw.size == 30)
+                    put("traversal_state", if (raw.size == 30) "MORE" else "COMPLETE")
                     put("empty", issues.isEmpty())
                     if (raw.size == 30) put("continuation", JsonObject(args + mapOf("action" to JsonPrimitive(action), "page" to JsonPrimitive(page + 1))))
                 }

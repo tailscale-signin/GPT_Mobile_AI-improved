@@ -85,4 +85,18 @@ class ConflatedCheckpointWriterTest {
         runCurrent()
         assertEquals("disk unavailable", runCatching { writer.drain() }.exceptionOrNull()?.message)
     }
+
+    @Test fun unchangedSnapshotsDoNotRewriteButFinalChangeIsDurable() = runTest {
+        val committed = mutableListOf<String>()
+        val writer = ConflatedCheckpointWriter<String>(this) { committed += it }
+        writer.offer("same")
+        runCurrent()
+        writer.offer("same")
+        runCurrent()
+        writer.offer("final")
+        writer.drain()
+        assertEquals(listOf("same", "final"), committed)
+        assertEquals(1L, writer.skippedUnchangedWrites)
+        assertEquals(2L, writer.completedWrites)
+    }
 }

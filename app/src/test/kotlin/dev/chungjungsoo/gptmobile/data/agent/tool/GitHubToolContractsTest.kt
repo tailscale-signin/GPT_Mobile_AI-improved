@@ -258,7 +258,9 @@ class GitHubToolContractsTest {
     @Test fun directLogsFollowRedirectsWithoutSendingCredentialsToStorage() = runTest {
         val http = HttpClient(
             MockEngine { request ->
-                if (request.url.host == "api.github.com") {
+                if (request.url.encodedPath == "/repos/o/r/actions/jobs/8") {
+                    respond("""{"id":8,"status":"completed"}""")
+                } else if (request.url.host == "api.github.com") {
                     assertEquals("Bearer private-token", request.headers[HttpHeaders.Authorization])
                     respond("", HttpStatusCode.Found, headersOf(HttpHeaders.Location, "https://logs.blob.core.windows.net/log.txt"))
                 } else {

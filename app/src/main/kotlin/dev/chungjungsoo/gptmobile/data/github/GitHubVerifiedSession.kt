@@ -52,7 +52,7 @@ internal class GitHubVerifiedSession(
             emit(ProviderEvent.Completed)
             return@flow
         }
-        if (GitHubTestChecklist.integration(task)) {
+        if (GitHubTestChecklist.integration(task) && (tools.isNotEmpty() || evidence.snapshot().first.values.any { it["trusted"] == kotlinx.serialization.json.JsonPrimitive(true) })) {
             val receipts = evidence.snapshot().first
             val checkpoint = GitHubTestChecklist.checkpoint(task, receipts, authorizedTools)
             val discovery = tools.firstOrNull { it.name == "discover_available_tools" }
@@ -81,10 +81,14 @@ internal class GitHubVerifiedSession(
             }
             if (next != null) {
                 lifecycle(dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.CONTINUATION_SELECTED)
-                emit(next)
+                emit(next.copy(callId = next.callId + "-${receipts.size}"))
                 emit(ProviderEvent.Completed)
                 return@flow
             }
+            // Coverage fields come exclusively from the cumulative ledger. No model draft
+            // or answer rewrite can supply missing executions or unlock a blocked dependency.
+            emitAll(publish(null))
+            return@flow
         }
         if (GitHubStatusRequest.matches(task) && tools.isNotEmpty()) {
             val (receipts, _) = evidence.snapshot()
@@ -170,7 +174,9 @@ internal class GitHubVerifiedSession(
     }
 
     override fun retainedFailureResponse(failure: ProviderEvent.Failed): Flow<ProviderEvent> = flow {
-        if (dev.chungjungsoo.gptmobile.data.agent.GitHubTaskRecovery.isConnectionUnavailable(failure.message)) {
+        if (failure.errorCode == "DISPATCH_POLICY_CHANGED" || failure.message.startsWith("DISPATCH_POLICY_CHANGED:")) {
+            emit(failure.copy(errorCode = "DISPATCH_POLICY_CHANGED", taskOutcome = "CONFIGURATION_INVALIDATED"))
+        } else if (dev.chungjungsoo.gptmobile.data.agent.GitHubTaskRecovery.isConnectionUnavailable(failure.message)) {
             // A failed connection is not a claim-verification failure. Keep its actionable cause.
             emit(failure.copy(errorCode = failure.errorCode ?: "LOCAL_SERVICE_UNREACHABLE"))
         } else {
@@ -208,13 +214,25 @@ internal class GitHubVerifiedSession(
                 progress("Verifying factual claims against exact tool receipts")
                 withContext(computationDispatcher) { verificationRequest(draft, receipts) }
             }
-            val (text, report) = status ?: coverage ?: if (request == null) partial(receipts, epoch, failureCode ?: "GITHUB_EXTRACTION_UNAVAILABLE") else extract(request, receipts, epoch)
+            val (renderedText, report) = status ?: coverage ?: if (request == null) partial(receipts, epoch, failureCode ?: "GITHUB_EXTRACTION_UNAVAILABLE") else extract(request, receipts, epoch)
+            val checklist = if (coverage != null) GitHubTestChecklist.checkpoint(task, receipts, authorizedTools) else null
+            val progressDigest = checklist?.let { GitHubEvidenceBook.digest(it.toString()) }
+            val stalled = progressDigest != null && evidence.diagnostic()?.get("checklist_progress_digest") == kotlinx.serialization.json.JsonPrimitive(progressDigest)
+            val text = if (stalled) {
+                val blockers = (checklist?.get("capabilities") as? JsonArray).orEmpty().filterIsInstance<JsonObject>().filter { it["blocker"] != null }
+                "No new test evidence or changed blockers since the saved checkpoint. ${receipts.size} receipts retained. " +
+                    "Resume is waiting on these dependencies:\n\n" + blockers.distinctBy { it["blocker"] }.joinToString("\n") { "- ${(it["blocker"] as? kotlinx.serialization.json.JsonPrimitive)?.content.orEmpty()}" }
+            } else {
+                renderedText
+            }
             validatePublication()
             val partial = failureCode != null || report["task_outcome"] != kotlinx.serialization.json.JsonPrimitive("COMPLETED") || report["completion_verified"] != kotlinx.serialization.json.JsonPrimitive(true)
             val oversizedWithoutEvidence = draft != null && status == null && coverage == null && request == null && receipts.isEmpty()
             check(!oversizedWithoutEvidence) { "No retained GitHub evidence is available for publication" }
             val retained = JsonObject(
                 report + buildJsonObject {
+                    progressDigest?.let { put("checklist_progress_digest", it) }
+                    put("progress_state", if (stalled) "BLOCKED_UNCHANGED" else "ADVANCED_OR_FIRST_REPORT")
                     put("partial", partial)
                     put("resume_required", partial)
                     if (partial) {
@@ -245,7 +263,21 @@ internal class GitHubVerifiedSession(
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: Exception) {
-            emit(ProviderEvent.Failed("GitHub answer withheld: ${failure.message.orEmpty().take(400)}. Not available / Not measured. Retained evidence can be inspected or refreshed.", errorCode = "GITHUB_EVIDENCE_REQUIRED"))
+            val policy = generateSequence<Throwable>(failure) { it.cause }.filterIsInstance<dev.chungjungsoo.gptmobile.data.context.DispatchPolicyChangedException>().firstOrNull()
+            if (policy != null) {
+                evidence.retainVerdict(
+                    buildJsonObject {
+                        put("task_outcome", "CONFIGURATION_INVALIDATED")
+                        put("changed_policy_fields", JsonArray(policy.fields.map { kotlinx.serialization.json.JsonPrimitive(it) }))
+                        put("resume_required", true)
+                        put("receipt_count", evidence.snapshot().first.size)
+                        put("recovery", "Rebuild using the current authorized catalog and resume the first unfinished requirement; never replay a mutation without reconciliation.")
+                    }
+                )
+                throw policy
+            } else {
+                emit(ProviderEvent.Failed("GitHub answer withheld: ${failure.message.orEmpty().take(400)}. Not available / Not measured. Retained evidence can be inspected or refreshed.", errorCode = "GITHUB_EVIDENCE_REQUIRED"))
+            }
             return@flow
         }
         // Collector exceptions must propagate unchanged; they are not formatter failures.

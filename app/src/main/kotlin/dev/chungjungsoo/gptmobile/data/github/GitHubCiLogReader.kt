@@ -28,6 +28,7 @@ internal class GitHubCiLogReader(private val client: HttpClient, private val tok
             try {
                 var url = "https://api.github.com$path"
                 val seen = mutableSetOf<String>()
+                var refreshedExpiredRedirect = false
                 for (hop in 0..5) {
                     require(seen.add(url)) { "CI log redirect loop." }
                     val target = URI(url)
@@ -54,6 +55,13 @@ internal class GitHubCiLogReader(private val client: HttpClient, private val tok
                             if (host == "api.github.com" && response.status.value == 401) {
                                 authenticationRejected.set(true)
                                 cache.clear()
+                            }
+                            if (host != "api.github.com" && response.status.value in setOf(403, 404) && !refreshedExpiredRedirect) {
+                                // Signed storage URLs expire. Refresh the GitHub redirect once;
+                                // never retry an API permission denial or forward credentials.
+                                refreshedExpiredRedirect = true
+                                seen.clear()
+                                return@responseBlock Hop(redirect = "https://api.github.com$path")
                             }
                             check(response.status.value in 200..299) { "GitHub CI log HTTP ${response.status.value}." }
                             val output = ByteArrayOutputStream()

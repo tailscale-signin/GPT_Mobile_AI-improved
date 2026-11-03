@@ -50,7 +50,7 @@ internal object GitHubEvidencePolicy {
         val immutable = receipt?.get("immutable") == JsonPrimitive(true)
         val status = when {
             receipt == null || observed == null || "value" !in claim -> "NOT_MEASURED"
-            receipt["success"] != JsonPrimitive(true) || receipt["trusted"] != JsonPrimitive(true) -> "NOT_MEASURED"
+            receipt["success"] != JsonPrimitive(true) || receipt["trusted"] != JsonPrimitive(true) || receipt["verification_eligible"] == JsonPrimitive(false) -> "NOT_MEASURED"
             timestamp <= 0 || timestamp > now || !immutable && (now - timestamp > MAX_AGE_MS || receipt["epoch"] != JsonPrimitive(currentEpoch)) -> "STALE"
             observed != claim["value"] -> "CONTRADICTED"
             else -> "VERIFIED"
@@ -58,6 +58,7 @@ internal object GitHubEvidencePolicy {
         val reason = when {
             receipt == null -> "RECEIPT_NOT_FOUND"
             receipt["trusted"] != JsonPrimitive(true) -> "UNTRUSTED_RECEIPT"
+            receipt["verification_eligible"] == JsonPrimitive(false) -> "AUTHORIZATION_REVALIDATION_REQUIRED"
             receipt["success"] != JsonPrimitive(true) -> "OPERATION_FAILED"
             "value" !in claim -> "CLAIM_VALUE_MISSING"
             observed == null -> "POINTER_NOT_IN_EVIDENCE"
@@ -359,6 +360,7 @@ internal object GitHubEvidencePolicy {
             val time = (receipt["observed_at_ms"] as? JsonPrimitive)?.longOrNull ?: return false
             return receipt["success"] == JsonPrimitive(true) &&
                 receipt["trusted"] == JsonPrimitive(true) &&
+                receipt["verification_eligible"] != JsonPrimitive(false) &&
                 time in (now - MAX_AGE_MS)..now &&
                 receipt["epoch"] == JsonPrimitive(epoch)
         }
@@ -381,7 +383,10 @@ internal object GitHubEvidencePolicy {
         val missing = coverage.filterValues { !it }.keys
         val coverageRows = coverage.map { (item, available) ->
             buildJsonObject {
+                put("id", GitHubRequestCompletion.id(item))
                 put("item", item)
+                put("requirement", item)
+                put("status", if (available) "PASSED" else "BLOCKED")
                 put("observed", available)
                 if (!available) put("reason", "No current, matching successful receipt; the read was unavailable, incomplete or returned no records.")
             }
@@ -394,12 +399,14 @@ internal object GitHubEvidencePolicy {
                 put("task_outcome", if (completed) "COMPLETED" else "PARTIAL")
                 put("partial", !completed)
                 put("status_coverage", JsonArray(coverageRows))
+                put("requirements", JsonArray(coverageRows))
+                put("remaining_requirements", JsonArray(coverageRows.filter { it["observed"] != JsonPrimitive(true) }))
                 put("completion_scope", "Bounded current repository snapshot; no changes, tests or merge readiness inferred.")
             }
         )
         val missingText = if (missing.isEmpty()) "" else "\n\n**Unavailable observations:**\n\n" + missing.joinToString("\n") { "- $it: no current matching receipt; unavailable or incomplete read, or no returned records." }
         val workflowText = if (coverage.getValue("Latest workflow")) "\n\nThe workflow above describes its own branch and commit; it does not establish overall branch health." else ""
-        return text.replace("# Repository update", "# Repository status") + commitSummaries(scopedReceipts, now, epoch) + checkOutcomes(scopedReceipts, now, epoch) + missingText + workflowText to outcome
+        return text.substringBefore("\n\n## Remaining work").replace("# Repository update", "# Repository status") + commitSummaries(scopedReceipts, now, epoch) + checkOutcomes(scopedReceipts, now, epoch) + missingText + workflowText to outcome
     }
 
     private fun commitSummaries(receipts: Map<String, JsonObject>, now: Long, epoch: Long): String {
@@ -458,7 +465,12 @@ internal object GitHubEvidencePolicy {
 
     private fun label(pointer: String, receipt: JsonObject? = null): String = when (pointer) {
         "/data/branch" -> "Observed branch"
-        "/state", "/data/state" -> "Observed check state"
+        "/state", "/data/state" -> when (receipt?.string("tool")?.substringBefore("__")) {
+            "github_pr" -> "Pull request state"
+            "github_issue" -> "Issue state"
+            "github_context", "github_ci" -> if ((receipt?.get("arguments") as? JsonObject)?.string("action") in setOf("checks", "status")) "Commit check summary" else "Resource state"
+            else -> "Resource state"
+        }
         "/checks", "/data/checks", "/check_details/total_count" -> "Check runs observed"
         "/statuses", "/data/statuses" -> "Commit statuses observed"
         "/commit_sha", "/data/commit_sha" -> "Observed commit"

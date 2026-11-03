@@ -1,0 +1,222 @@
+{
+  "schema": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "feat/github-graph-intelligence-2026-11-03",
+  "base_sha": "b0040d9b4bf0556511f2b36980acd17b44f18dfe",
+  "working_branch": "feat/github-graph-intelligence-2026-11-03",
+  "pull_request": 791,
+  "intent": "Implement all 30 user-supplied Status export solutions while retaining all 22 graph features. Preserve permissions and exact evidence.",
+  "report_source": "User-provided review of export_Status_1793706025034.zip; archive not supplied in this turn",
+  "items": [
+    {
+      "id": 1,
+      "feature": "Durable per-capability execution",
+      "state": "IMPLEMENTED_PENDING_ANDROID_VALIDATION",
+      "implementation": "Expanded deterministic dependency-aware read plan and persisted capability/fixture checkpoints; remaining operations carry blockers."
+    },
+    {
+      "id": 2,
+      "feature": "Receipt-aware continuation",
+      "state": "IMPLEMENTED_PENDING_ANDROID_VALIDATION",
+      "implementation": "Stable task scope survives catalog revisions; matching successful operations are reused and repeated calls retain reasons."
+    },
+    {
+      "id": 3,
+      "feature": "No-progress retry guard",
+      "state": "IMPLEMENTED_PENDING_ANDROID_VALIDATION",
+      "implementation": "Checkpoint fingerprint detects unchanged retries and renders a short blocker result without another model invocation."
+    },
+    {
+      "id": 4,
+      "feature": "Cumulative historical evidence",
+      "state": "IMPLEMENTED_PENDING_ANDROID_VALIDATION",
+      "implementation": "Historical receipts retained with explicit current-authorization exclusions and recovered status."
+    },
+    {
+      "id": 5,
+      "feature": "Receipt-derived result tables",
+      "state": "IMPLEMENTED_PENDING_ANDROID_VALIDATION",
+      "implementation": "Integration coverage is rendered from structured receipts; no private draft or rewrite can supply missing executions."
+    },
+    {
+      "id": 6,
+      "feature": "Typed claim field paths",
+      "state": "IMPLEMENTED_PENDING_ANDROID_VALIDATION",
+      "implementation": "PR state uses typed labels; exact receipt paths remain required."
+    },
+    {
+      "id": 7,
+      "feature": "Informational acceptance parity",
+      "state": "IMPLEMENTED_PENDING_ANDROID_VALIDATION",
+      "implementation": "Status requirements, missing observations and terminal outcome share one coverage evaluation."
+    },
+    {
+      "id": 8,
+      "feature": "Catalog invalidation recovery",
+      "state": "IMPLEMENTED_PENDING_ANDROID_VALIDATION",
+      "implementation": "Tools-only invalidation can reprepare a durable checklist under current authorization; other permission/profile changes remain blocked."
+    },
+    {
+      "id": 9,
+      "feature": "Recovery prompt/tool dependency",
+      "state": "IMPLEMENTED_PENDING_ANDROID_VALIDATION",
+      "implementation": "Recovery reader retained in catalog; prompts use inline checkpoints if reader is not actually advertised."
+    },
+    {
+      "id": 10,
+      "feature": "Canonical discovery and negative cache",
+      "state": "IMPLEMENTED_PENDING_ANDROID_VALIDATION",
+      "implementation": "Exact unknown names negatively cached per catalog contract version."
+    },
+    {
+      "id": 11,
+      "feature": "Action schema argument validation",
+      "state": "IMPLEMENTED_PENDING_ANDROID_VALIDATION",
+      "implementation": "Release per_page supported in advertised schema; action-specific prerequisites validated before dispatch."
+    },
+    {
+      "id": 12,
+      "feature": "Expected-head branch requirements",
+      "state": "IMPLEMENTED_PENDING_ANDROID_VALIDATION",
+      "implementation": "Machine-readable conditional expected_head_sha requirement for branch creation."
+    },
+    {
+      "id": 13,
+      "feature": "64-bit GitHub identifiers",
+      "state": "IMPLEMENTED_PENDING_ANDROID_VALIDATION",
+      "implementation": "Release workflow run IDs accept positive 64-bit integers; source review distinguishes GraphQL resource numbers from global IDs."
+    },
+    {
+      "id": 14,
+      "feature": "Issue versus PR resource typing",
+      "state": "IMPLEMENTED_PENDING_ANDROID_VALIDATION",
+      "implementation": "Issue recipes use only issue-list observations; header receipts carry resource_type."
+    },
+    {
+      "id": 15,
+      "feature": "Upstream pagination identity",
+      "state": "IMPLEMENTED_PENDING_ANDROID_VALIDATION",
+      "implementation": "Pagination compares upstream IDs before filtering; empty filtered pages alone never imply duplicate."
+    },
+    {
+      "id": 16,
+      "feature": "Authoritative pagination terminal state",
+      "state": "IMPLEMENTED_PENDING_ANDROID_VALIDATION",
+      "implementation": "Display, retained payload and execution receipt share one STALLED state without continuations."
+    },
+    {
+      "id": 17,
+      "feature": "Pending/completed CI log handling",
+      "state": "IMPLEMENTED_PENDING_ANDROID_VALIDATION",
+      "implementation": "Active jobs return pending logs without download; planner selects completed jobs; expired external redirects refresh once without leaking bearer credentials."
+    },
+    {
+      "id": 18,
+      "feature": "Discovered workflow identity",
+      "state": "IMPLEMENTED_PENDING_ANDROID_VALIDATION",
+      "implementation": "Workflow definition recipes use discovered IDs and pinned SHA."
+    },
+    {
+      "id": 19,
+      "feature": "Cumulative coverage denominators",
+      "state": "IMPLEMENTED_PENDING_ANDROID_VALIDATION",
+      "implementation": "Cumulative catalog denominator and separate passed/failed/preflight-rejected/blocked/untested/recovered counts."
+    },
+    {
+      "id": 20,
+      "feature": "Search completeness and continuation",
+      "state": "IMPLEMENTED_PENDING_ANDROID_VALIDATION",
+      "implementation": "Incomplete endpoint results remain blocked for coverage; issued continuations remain in checkpoint."
+    },
+    {
+      "id": 21,
+      "feature": "Resource branch/SHA provenance",
+      "state": "IMPLEMENTED_PENDING_ANDROID_VALIDATION",
+      "implementation": "Workspace branch and resource branch/SHA retained separately."
+    },
+    {
+      "id": 22,
+      "feature": "Signed packaging failure repair",
+      "state": "IMPLEMENTED_PENDING_ANDROID_VALIDATION",
+      "implementation": "Confirmed main job125874097879 failed in APK packaging with Java heap OOM; adopted bounded shared pipeline correction from PR790 (no release version changes). PR790 is now merged into main1a3dd3d4 and inherited via branch merge86d10b06."
+    },
+    {
+      "id": 23,
+      "feature": "Deterministic bounded reporting",
+      "state": "IMPLEMENTED_PENDING_ANDROID_VALIDATION",
+      "implementation": "Routine integration and status reports bypass answer draft/rewrite models."
+    },
+    {
+      "id": 24,
+      "feature": "Immutable token usage evidence",
+      "state": "IMPLEMENTED_PENDING_ANDROID_VALIDATION",
+      "implementation": "Separate immutable estimate/interim/final usage lanes, provider-receipt observations and invocation-keyed persisted evidence (Room48)."
+    },
+    {
+      "id": 25,
+      "feature": "Unknown final usage and costs",
+      "state": "IMPLEMENTED_PENDING_ANDROID_VALIDATION",
+      "implementation": "Export separates reservation/estimate, interim, final and unknown cost; no absent final total is invented."
+    },
+    {
+      "id": 26,
+      "feature": "Markdown rendering performance",
+      "state": "IMPLEMENTED_PENDING_ANDROID_VALIDATION",
+      "implementation": "Existing background Markdown parse/cache retained; long tables compose 12 rows with explicit expansion."
+    },
+    {
+      "id": 27,
+      "feature": "Incremental durable checkpoints",
+      "state": "IMPLEMENTED_PENDING_ANDROID_VALIDATION",
+      "implementation": "Existing incremental checkpoint storage retained; conflated writer now skips identical snapshots, measures write counts and drains durable final changes."
+    },
+    {
+      "id": 28,
+      "feature": "Serialized speech recognition",
+      "state": "IMPLEMENTED_PENDING_ANDROID_VALIDATION",
+      "implementation": "Existing availability/cooldown/destroy retained; recognition gate now owns active sessions across instances and ignores another owner release."
+    },
+    {
+      "id": 29,
+      "feature": "No-op resource diagnostics",
+      "state": "IMPLEMENTED_PENDING_ANDROID_VALIDATION",
+      "implementation": "No-op embedding release checks no longer emit release-policy messages; actual closes remain logged. No leak/OOM claim made."
+    },
+    {
+      "id": 30,
+      "feature": "Bounded incident diagnostics",
+      "state": "IMPLEMENTED_PENDING_ANDROID_VALIDATION",
+      "implementation": "Redacted catalog snapshots and changed policy field names retained; claim paths/exclusions/continuation decisions persisted; export has 2000-event bounded window with explicit completeness metadata."
+    }
+  ],
+  "confirmed_evidence": [
+    {
+      "issue": 22,
+      "job_id": 125874097879,
+      "run_id": 41614053223,
+      "sha": "e76ff28bcb220965c145f6ab8461e15a75a6f964",
+      "branch": "main",
+      "failed_step": "Build release artifacts",
+      "failed_task": ":app:packageRelease",
+      "cause": "Java heap space in Zipflinger BytesSource/ApkFlinger",
+      "existing_fix_pr": 790,
+      "existing_fix_sha": "71b19180e01608fefb93e837db4f205ff01f8a2f"
+    }
+  ],
+  "implementation_base_sha": "8db2900f30e132abe1a4fca597b4160bf054f799",
+  "validation": {
+    "portable_jvm_scenarios": "8 passed using production pure logic with host contract adapters; not Android execution",
+    "android": "pending CI, local JDK21/SDK37 unavailable",
+    "room_schema48": "Await compiler-generated CI export; migration implemented",
+    "source_archive": "Not supplied; evidence from user review plus fetched exact failed-job log/annotations",
+    "fast": "PASS: 297 script tests plus resource, icon, regex, provenance and coverage checks",
+    "gateway": "PASS: full gateway/check_gateway.py including graph regressions and 7 browser bridge tests",
+    "formatting": "PASS: changed Kotlin formatted/checked with ktlint 1.3.1"
+  },
+  "limitations": [
+    "Write fixture automation currently covers unchanged disposable branch create/dependency-check/delete. Content writes, releases, merge/cancel and unrelated workflows require separately authorized fixture plans and stay blocked.",
+    "Device frame times, microphone service binding and native resource cleanup require device measurements; no device performance claim.",
+    "All exact-head required checks must pass before merge."
+  ],
+  "publication_parent_sha": "f27c7bf945ed9a218acff71081b4dcfb2802706c"
+}

@@ -96,4 +96,19 @@ class ProtocolAndUsageRecoveryTest {
         assertFalse(failure.message.orEmpty().contains("漢"))
         assertFalse(failure.transportComplete || failure.schemaValid || failure.stageAccepted)
     }
+
+    @Test fun interimUsageNeverRelabelsAnEarlierEstimateAndCorrectionsRemainExact() {
+        val counter = ProviderUsageCounter()
+        counter.accept(11736, true, "estimated", ProviderUsagePhase.INTERIM)
+        counter.accept(8838, true, "provider_reported", ProviderUsagePhase.INTERIM)
+        assertEquals(8838L, counter.value)
+        assertEquals("provider_reported_interim", counter.source)
+        assertFalse(measuredUsageSource(counter.source, counter.phase))
+        counter.accept(12000, true, "estimated", ProviderUsagePhase.INTERIM)
+        assertEquals(8838L, counter.value)
+        counter.accept(8800, true, "provider_reported", ProviderUsagePhase.FINAL)
+        assertEquals(8800L, counter.value)
+        assertEquals(listOf(11736L, 8838L, 12000L, 8800L), counter.observations.map { it.tokens })
+        assertTrue(counter.evidence().toString().contains("final_confirmed"))
+    }
 }

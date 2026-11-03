@@ -60,7 +60,8 @@ data class ModelInvocation(
     val requestAdmissionReceipts: String? = null,
     @androidx.room.ColumnInfo(defaultValue = "0") val assistInclusionVerified: Boolean = false,
     val observedInputTokens: Long? = null,
-    val observedOutputTokens: Long? = null
+    val observedOutputTokens: Long? = null,
+    val usageEvidenceJson: String? = null
 )
 
 class TokenAllowanceReached : IllegalStateException("The conversation turn reached its total token allowance.")
@@ -447,7 +448,11 @@ class InvocationLedger @Inject constructor(
                         toolCallCount = toolCallCount,
                         visibleBytes = visibleBytes,
                         reasoningBytes = reasoningBytes,
-                        reasoningTokens = providerReasoningTokens
+                        reasoningTokens = providerReasoningTokens,
+                        usageObservations = kotlinx.serialization.json.buildJsonObject {
+                            put("input", inputCounter.evidence())
+                            put("output", outputCounter.evidence())
+                        }
                     ).json()
                     dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Model", "PROVIDER_RECEIPT · receipt=$providerReceipt")
                     dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Model", "Finished ${record.id} · incidentId=${record.id} · status=$status · completionDisposition=$roundOutcome · toolCallCount=$toolCallCount · durationMs=${(System.nanoTime() - started) / 1_000_000} · output=$recordedOutput · estimated=${estimatedUsage()} · inputSource=$inputSource · outputSource=$outputSource · visibleBytes=$visibleBytes · reasoningBytes=$reasoningBytes · usageBreakdownReliable=false · usageBreakdownUnavailable=visibleOutputTokens,toolCallTokens${if (providerReasoningTokens == null) ",reasoningTokens" else ""} · reportedReasoningTokens=${providerReasoningTokens ?: "unknown"} · toolCallTokens=unknown · visibleOutputTokens=unknown · finishReason=${finishReason ?: "unreported"} · settingsConfirmed=$settingsConfirmed · parentRunId=$parentRunId · turnKey=$turnKey · requestKind=$kind", if (status in setOf("COMPLETED", "CANCELED", "WAITING_REMOTE_JOB")) "I" else "W")
@@ -467,6 +472,15 @@ class InvocationLedger @Inject constructor(
                                 requestAdmissionReceipts = dispatch.receipts.toList().takeIf { it.isNotEmpty() }?.let { kotlinx.serialization.json.Json.encodeToString(it) },
                                 observedInputTokens = input?.toLong(),
                                 observedOutputTokens = output?.toLong(),
+                                usageEvidenceJson = kotlinx.serialization.json.buildJsonObject {
+                                    put("invocation_id", kotlinx.serialization.json.JsonPrimitive(record.id))
+                                    put("input_reservation", kotlinx.serialization.json.JsonPrimitive(record.inputTokens))
+                                    put("output_reservation", kotlinx.serialization.json.JsonPrimitive(record.outputTokens))
+                                    put("input", inputCounter.evidence())
+                                    put("output", outputCounter.evidence())
+                                    put("final_usage_complete", kotlinx.serialization.json.JsonPrimitive(!estimatedUsage()))
+                                    put("cost_confirmed", kotlinx.serialization.json.JsonPrimitive(!estimatedUsage() && price != null))
+                                }.toString(),
                                 costMicros = if (entirelyUnsent) {
                                     0
                                 } else if ((status == "COMPLETED" || completedWithoutAnswer) && !estimatedUsage()) {

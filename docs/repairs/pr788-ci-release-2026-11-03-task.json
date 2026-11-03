@@ -4,7 +4,7 @@
   "base_branch": "main",
   "base_sha": "9118a4ea9750f20de002a427423a3e997103ca36",
   "working_branch": "release/verified-test-pins-2026-11-03",
-  "starting_sha": "8cb0fe7dad772ada359bfe2cb469a175023da59d",
+  "starting_sha": "dc08a1a69e3cfc4f3682e03e42be9eb381ebb58b",
   "intent": "Fix all open draft PR checks, merge only after successful current checks, then publish a new signed Android release.",
   "requirements": [
     {
@@ -75,7 +75,8 @@
       "evidence": [
         "Main PR Validation 41647417061 retry lint job 125964357554 rejected four unpinned Byte Buddy 1.17.7 and MockK 1.14.11 artifacts.",
         "Signed release 41647417269 was cancelled before publishing build 137.",
-        "Verify exact artifact bytes against Maven Central publisher SHA-512 sidecars, add only the four missing SHA-256 pins, and require PR Validation on the exact release commit."
+        "Verify exact artifact bytes against Maven Central publisher sidecars, pin the four missing artifacts plus the explicit JVM dependency descriptor, and require PR Validation on the exact release commit.",
+        "PR791 audit run41651790338 at6ef54ecf stopped in compileDebugUnitTestKotlin with unresolved MockK imports; tests did not run. The multiplatform root JAR has no classes. Select mockk-jvm1.14.11 explicitly; its already-pinned JAR has337classes including MockKKt, and add its publisher-verified POM for strict cold resolution. Dependency versions and all test assertions remain unchanged."
       ],
       "publisher_verification": [
         {
@@ -133,6 +134,20 @@
             "digest": "d9097e6118e3fecab51afbe351408b5e50cb081389031e36687a3039d8c26d8a009dfaa4ef4da06fd6a1fc5a22014387a1d7968875fe14af234a058715089bc9",
             "url": "https://repo.maven.apache.org/maven2/io/mockk/mockk/1.14.11/mockk-1.14.11.pom.sha512"
           }
+        },
+        {
+          "group": "io.mockk",
+          "name": "mockk-jvm",
+          "version": "1.14.11",
+          "artifact": "mockk-jvm-1.14.11.pom",
+          "url": "https://repo.maven.apache.org/maven2/io/mockk/mockk-jvm/1.14.11/mockk-jvm-1.14.11.pom",
+          "bytes": 3287,
+          "sha256": "5d4fdda8def4da028e288d778764765b34bc8cda481d7a8ab56052de1b1bf0b1",
+          "publisher": {
+            "algorithm": "sha512",
+            "digest": "006d93a2ffa63c77715e20b74b6cf3649e4b6f433674c01e1fb2a2eadadbfc86d6f5b7476b7aee0e7586fdd252348fc3cde076e01770729ae7ac4e3ee0417b6a",
+            "url": "https://repo.maven.apache.org/maven2/io/mockk/mockk-jvm/1.14.11/mockk-jvm-1.14.11.pom.sha512"
+          }
         }
       ]
     },
@@ -159,7 +174,7 @@
     }
   },
   "validation": {
-    "local": "41 focused release-scope, delivery, release-trigger, milestone-gate and Gradle-retry tests passed; 301 canonical fast checks passed. Regression tests require separate lint completion before packaging and stop on lint failure. Full Android CI must pass on the updated revision before merge.",
+    "local": "41 focused release-scope, delivery, release-trigger, milestone-gate and Gradle-retry tests and 301 canonical fast checks passed after explicit JVM selection while preserving the separate lint-before-package repair. Five artifact/descriptor pins verified against Maven Central publisher sidecars. Existing JVM JAR/module pins matched actual payloads. All test assertions, validation gates and memory ceilings remain intact. Full exact-head Android CI remains required.",
     "release_target": "0.9.66.4 / build 138",
     "publication": "PENDING"
   },

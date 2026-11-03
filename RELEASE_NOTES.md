@@ -16,7 +16,7 @@ Android build 138. Signed release of the merged GitHub, voice, recovery and gate
 
 - Run signed-release validation in separate one-worker compilation, test and lint processes, and exercise the same validation on release-workflow PRs before merge.
 
-- Pin four publisher-verified Byte Buddy and MockK test artifacts required by cold lint resolution, and require canonical PR Validation to pass on the exact published commit.
+- Select MockK's JVM test artifact explicitly, pin five publisher-verified Byte Buddy and MockK test artifacts and descriptors for cold resolution, and require canonical PR Validation to pass on the exact published commit.
 
 - Complete required release lint in a separate bounded process before APK packaging so cold lint analysis cannot retain the heap needed by Zipflinger; lint failures still block packaging.
 

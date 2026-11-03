@@ -120,7 +120,7 @@ litertlm = { group = "com.google.ai.edge.litertlm", name = "litertlm-android", v
 qnn-runtime = { group = "com.qualcomm.qti", name = "qnn-runtime", version.ref = "qnn" }
 play-services-location = { group = "com.google.android.gms", name = "play-services-location", version.ref = "playServicesLocation" }
 kotlinx-coroutines-play-services = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-play-services", version.ref = "coroutines" }
-mockk = { group = "io.mockk", name = "mockk", version.ref = "mockk" }
+mockk = { group = "io.mockk", name = "mockk-jvm", version.ref = "mockk" }
 mockito-core = { group = "org.mockito", name = "mockito-core", version.ref = "mockito" }
 ktor-client-mock = { group = "io.ktor", name = "ktor-client-mock", version.ref = "ktor" }
 robolectric = { group = "org.robolectric", name = "robolectric", version.ref = "robolectric" }

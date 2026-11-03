@@ -160,7 +160,7 @@ internal fun VoiceEntryScreen(state: VoiceEntryState, origin: Offset, select: (S
 }
 
 @Composable
-internal fun VoiceChatScreen(onEnd: () -> Unit, onOpenChat: () -> Unit, model: ChatViewModel = hiltViewModel()) {
+internal fun VoiceChatScreen(onEnd: () -> Unit, onOpenChat: () -> Unit, model: ChatViewModel = hiltViewModel(), voiceSettings: VoicePreferencesViewModel = hiltViewModel()) {
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val lifecycleState by lifecycle.currentStateFlow.collectAsStateWithLifecycle()
@@ -202,21 +202,42 @@ internal fun VoiceChatScreen(onEnd: () -> Unit, onOpenChat: () -> Unit, model: C
     }
     val state by session.states.collectAsStateWithLifecycle()
     val enabled = features.isToolPluginEnabled(ToolPluginId.VOICE_CHAT)
-    val currentEnabled by rememberUpdatedState(enabled)
+    val savedPreferences by voiceSettings.preferences.collectAsStateWithLifecycle()
+    var preferencesApplied by remember { mutableStateOf(false) }
+    val currentEnabled by rememberUpdatedState(enabled && preferencesApplied)
     var permission by remember { mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) }
     var started by rememberSaveable { mutableStateOf(false) }
     var resumeWhenReady by remember { mutableStateOf(false) }
-    val preferences = remember { context.getSharedPreferences("voice_presentation", android.content.Context.MODE_PRIVATE) }
-    var captions by rememberSaveable { mutableStateOf(preferences.getBoolean("captions", true)) }
+    var captions by rememberSaveable { mutableStateOf(true) }
     var settingsOpen by remember { mutableStateOf(false) }
     var transcriptOpen by remember { mutableStateOf(false) }
     var draft by rememberSaveable { mutableStateOf("") }
-    var language by rememberSaveable { mutableStateOf(preferences.getString("language", java.util.Locale.getDefault().toLanguageTag()).orEmpty()) }
-    var allowOnline by rememberSaveable { mutableStateOf(preferences.getBoolean("online", false)) }
-    var voiceName by rememberSaveable { mutableStateOf(preferences.getString("voice", "").orEmpty()) }
-    var editBeforeSend by rememberSaveable { mutableStateOf(preferences.getBoolean("review", false)) }
-    var automatic by rememberSaveable { mutableStateOf(preferences.getBoolean("automatic", false)) }
-    var rate by remember { androidx.compose.runtime.mutableFloatStateOf(preferences.getFloat("rate", 1f)) }
+    var language by rememberSaveable { mutableStateOf(java.util.Locale.getDefault().toLanguageTag()) }
+    var allowOnline by rememberSaveable { mutableStateOf(false) }
+    var voiceName by rememberSaveable { mutableStateOf("") }
+    var editBeforeSend by rememberSaveable { mutableStateOf(false) }
+    var automatic by rememberSaveable { mutableStateOf(false) }
+    var rate by remember { androidx.compose.runtime.mutableFloatStateOf(1f) }
+    LaunchedEffect(savedPreferences) {
+        val saved = savedPreferences ?: return@LaunchedEffect
+        if (!preferencesApplied) {
+            language = saved.language
+            allowOnline = saved.online
+            captions = saved.captions
+            editBeforeSend = saved.review
+            automatic = saved.automatic
+            rate = saved.rate
+            voiceName = saved.voice
+            // Configure before permitting the first listen, including after restoring the screen.
+            audio.languageTag = language
+            audio.allowOnlineSpeech = allowOnline && !privateSpeech
+            audio.selectedVoice = voiceName.takeIf(String::isNotBlank)
+            audio.speechRate = rate
+            session.editBeforeSend = editBeforeSend
+            session.autoContinue = automatic
+            preferencesApplied = true
+        }
+    }
     var route by remember { mutableStateOf(audio.routeName()) }
     var routeOpen by remember { mutableStateOf(false) }
     var remaining by remember { mutableIntStateOf(0) }
@@ -252,9 +273,9 @@ internal fun VoiceChatScreen(onEnd: () -> Unit, onOpenChat: () -> Unit, model: C
         if (!granted) session.fail("Microphone access is off. Allow it in Android app permissions to use voice chat.")
     }
     fun listen() {
-        if (!enabled || !loaded) return
+        if (!enabled || !loaded || !preferencesApplied) return
         permission = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
-        session.access(enabled, permission, lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED))
+        session.access(enabled && preferencesApplied, permission, lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED))
         if (permission) session.resume() else permissionRequest.launch(Manifest.permission.RECORD_AUDIO)
     }
     fun end() {
@@ -284,9 +305,9 @@ internal fun VoiceChatScreen(onEnd: () -> Unit, onOpenChat: () -> Unit, model: C
             session.close()
         }
     }
-    LaunchedEffect(enabled, loaded, lifecycleState, resumeWhenReady) {
-        session.access(enabled, permission, lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED))
-        if (enabled && loaded && lifecycleState == Lifecycle.State.RESUMED && (!started || resumeWhenReady)) {
+    LaunchedEffect(enabled, loaded, preferencesApplied, lifecycleState, resumeWhenReady) {
+        session.access(enabled && preferencesApplied, permission, lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED))
+        if (enabled && loaded && preferencesApplied && lifecycleState == Lifecycle.State.RESUMED && (!started || resumeWhenReady)) {
             started = true
             resumeWhenReady = false
             listen()
@@ -307,7 +328,7 @@ internal fun VoiceChatScreen(onEnd: () -> Unit, onOpenChat: () -> Unit, model: C
     val profileName = profiles.firstOrNull { it.uid in model.enabledPlatformsInChat }?.let { it.name.ifBlank { it.model } } ?: "Your AI profile"
     val status = when {
         !enabled -> "Voice chat is turned off"
-        !loaded -> "Getting ready"
+        !loaded || !preferencesApplied -> "Getting ready"
         waitingApproval -> "Your attention is needed"
         remaining > 0 -> "Retry in $remaining seconds"
         state.phase == VoicePhase.STARTING -> "Starting microphone"
@@ -455,7 +476,7 @@ internal fun VoiceChatScreen(onEnd: () -> Unit, onOpenChat: () -> Unit, model: C
             },
             confirmButton = {
                 TextButton(onClick = {
-                    preferences.edit().putString("language", language).putBoolean("online", allowOnline).putBoolean("captions", captions).putBoolean("review", editBeforeSend).putBoolean("automatic", automatic).putFloat("rate", rate).putString("voice", voiceName).apply()
+                    voiceSettings.save(VoicePreferences(language, allowOnline, captions, editBeforeSend, automatic, rate, voiceName))
                     settingsOpen = false
                 }) { Text("Done") }
             }

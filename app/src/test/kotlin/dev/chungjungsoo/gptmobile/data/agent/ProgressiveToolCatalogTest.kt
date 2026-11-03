@@ -21,6 +21,40 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ProgressiveToolCatalogTest {
+    @Test fun emptyColdDiscoveryInstallsExecutableSchemasOnTheNextRound() = runTest {
+        var executions = 0
+        var acquired = false
+        val reader = object : AgentTool {
+            override val definition = AgentToolDefinition("read_source", "Read source", JsonObject(emptyMap()))
+            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+                executions++
+                return AgentToolResult(callId, ToolResultContent.Text("Observed evidence"), false)
+            }
+        }
+        val catalog = ProgressiveToolCatalog(emptyList(), "Read source", acquireCold = { _, _ ->
+            acquired = true
+            listOf(reader.definition)
+        })
+        var round = 0
+        val session = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                when (round++) {
+                    0 -> emit(ProviderEvent.ToolCall("discover", ProgressiveToolCatalog.NAME, JsonObject(emptyMap())))
+                    1 -> {
+                        assertTrue(tools.any { it.name == reader.definition.name })
+                        emit(ProviderEvent.ToolCall("read", reader.definition.name, JsonObject(emptyMap())))
+                    }
+                    else -> emit(ProviderEvent.TextDelta("Evidence received"))
+                }
+                emit(ProviderEvent.Completed)
+            }
+        }
+        AgentRunner().run(session, listOf(catalog), dynamicTools = { if (acquired) listOf(reader) else emptyList() }, selectDefinitions = catalog::selected).toList()
+        assertEquals(1, executions)
+        val repeated = (catalog.execute("again", JsonObject(emptyMap())).content as ToolResultContent.Json).value.jsonObject
+        assertEquals(JsonPrimitive(true), repeated["catalog_unchanged"])
+    }
+
     @Test fun deferredWritesRemainDiscoverableWithTheirExactSchemasAfterLongRequests() = runTest {
         val definitions = GitHubOperationTool.names.map {
             GitHubOperationTool.definition(it, it + "__github_api")

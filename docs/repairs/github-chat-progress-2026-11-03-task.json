@@ -1,0 +1,20 @@
+{
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "3a05c621dd0d5dd1777a3decdd92abb8feb20273",
+  "parent_pr": 794,
+  "working_branch": "fix/github-chat-progress-2026-11-03",
+  "intent": "Audit export_Test_1793730947653.zip; implement GitHub chat settings, typography, activity history and evidence-based progress; repair directly reproducible diagnostic issues.",
+  "status": "implemented_pending_android_ci",
+  "host_checks": 301,
+  "focused_jvm_checks": 34,
+  "android_tests": "Blocked before execution: Gradle download Network is unreachable; JDK 17 and no SDK 37 locally",
+  "report": "docs/repairs/github-chat-progress-1793730947653.md",
+  "parent_pr_state": "merged",
+  "original_source_sha": "c9f4ff03cc0ef2b275c82a1fb3dc6ce5538922ad",
+  "starting_head": "1c9abdf87ecd2ab74b62b0e83c54f8469c4fea7b",
+  "merge_authorization": "User: Continue and merge to main when all green",
+  "additional_intent": "Reconcile 28 reported issue families with current source; repair review recovery, executable discovery, early privacy checks, voice worker/configuration/preferences and causal diagnostics; verify exact published head before merge.",
+  "additional_report": "docs/repairs/build138-diagnostic-followup.md",
+  "additional_validation": "301 host tests and 34 focused JVM tests passed; Android voice/discovery/review regressions await full CI."
+}

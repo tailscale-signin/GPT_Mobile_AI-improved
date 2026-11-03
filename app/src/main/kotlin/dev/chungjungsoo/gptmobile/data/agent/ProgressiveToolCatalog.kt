@@ -131,7 +131,7 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
         }
         lastSelection = identity
         unchangedSelections = 0
-        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("ToolCatalog", "SELECTED_SCHEMA · authorized=${allowed.size} · advertised=${selected.size} · names=${selected.joinToString { it.name }} · estimatedTokens=${selected.sumOf { schemaTokens(it).toLong() }} · measurement=UTF8_ESTIMATE")
+        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("ToolCatalog", "SELECTED_SCHEMA · authorized=${allowed.size} · advertised=${selected.size} · names=${selected.joinToString { it.name }} · omitted=${omitted.size} · omissionReasons=${omitted.values.groupingBy { it }.eachCount().toSortedMap()} · estimatedTokens=${selected.sumOf { schemaTokens(it).toLong() }} · measurement=UTF8_ESTIMATE")
         omitted.forEach { (name, reason) ->
             dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("ToolCatalog", "TOOL_OMITTED · stage=catalog · name=$name · reason=$reason · schemaAllowance=$schemaAllowance")
         }
@@ -182,6 +182,19 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
         val query = (arguments["query"] as? JsonPrimitive)?.content.orEmpty().take(4096)
         val names = (arguments["names"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.content }.take(12).map(::resolveName)
         if (query.isBlank() && names.isEmpty()) {
+            val previousActive = active.toSet()
+            // Cold inventory must seed an executable window, otherwise an empty call can
+            // discover tools forever while every subsequent request advertises only us.
+            if (active.isEmpty()) {
+                active.addAll(
+                    window(
+                        ranked(taskText).filter {
+                            dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it.name) !in deferredEngineering
+                        }
+                    ).map { it.name }
+                )
+                discovered.addAll(active)
+            }
             val inventory = candidates.values.sortedBy { it.name }
             val cursor = (arguments["inventory_cursor"] as? JsonPrimitive)?.content?.toIntOrNull() ?: 0
             if (cursor !in 0..inventory.size) return@synchronized AgentToolResult(callId, ToolResultContent.Text("Invalid inventory_cursor; use the exact continuation_call from the preceding inventory page."), true, errorCode = "INVALID_ARGUMENTS", dispatched = false)
@@ -259,6 +272,9 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
                             )
                         )
                         put("authorized_tool_count", inventory.size)
+                        put("available_next_round", JsonArray(active.map { name -> buildJsonObject { put("name", name) } }))
+                        put("catalog_unchanged", previousActive == active)
+                        put("newly_advertised", JsonArray(active.filterNot { it in previousActive }.map(::JsonPrimitive)))
                         put("inventory_version", version)
                         put("contract_version", 1)
                         put("returned", items.size)

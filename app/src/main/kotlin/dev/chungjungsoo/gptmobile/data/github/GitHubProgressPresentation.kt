@@ -33,6 +33,9 @@ internal object GitHubProgressPresentation {
         else -> "I’ll establish the repository state, locate the relevant implementation and check what is needed to complete the request."
     }
 
+    /** Counters are state, not another event in the public activity history. */
+    fun liveKey(text: String): String? = if (Regex("""^Checks:\s*\d+/\d+\s+complete\b""", RegexOption.IGNORE_CASE).containsMatchIn(text.trim())) "github-check-counts" else null
+
     /** Compare displayed lines, including whitespace and formatting differences. */
     fun lineKey(text: String): String = preview(text).replace(Regex("\\s+"), " ").trim().trimEnd('.', '…').lowercase(java.util.Locale.ROOT)
 

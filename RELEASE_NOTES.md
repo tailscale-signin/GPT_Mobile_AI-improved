@@ -4,6 +4,8 @@ Android build 138. Signed release of the merged GitHub, voice, recovery and gate
 
 ## Changes
 
+- Make GitHub chat progress event-driven, move workflow budgets to Settings, enlarge chat text and repair reproducible self-test and retry routing defects.
+
 - Add opt-in full-screen Voice Chat with speech lifecycle recovery, editable drafts, captions and audio routing.
 - Improve GitHub task continuation, bounded evidence recovery, current-revision CI decisions, credential rotation and persistent task history.
 - Add prompt-top anchoring, recurring activity summaries, expanded workflow status and APK provenance views.
@@ -58,3 +60,13 @@ Android build 138. Signed release of the merged GitHub, voice, recovery and gate
 - External Graphify execution, compiler-resolved navigation, and physical-device graph, speech and UI performance remain unqualified; host and emulator evidence does not establish those outcomes.
 
 Publication requires successful validation of this exact commit, current main checks, signature continuity, APK/AAB identity and native-library verification.
+
+- The November 3 build-138 chat audit implements bounded UI and planner repairs; full mutation fixtures, retained-page capacity recovery and physical-device acceptance remain incomplete.
+
+### Diagnostic follow-up for build 138
+
+- Move TTS Binder work to a serial worker, cache language/voice configuration, load voice preferences asynchronously and retain immutable voice-operation terminal receipts.
+- Make empty cold discovery install executable schemas; preserve matching aggregate search tools; reject known-incompatible privacy routes before expensive retrieval.
+- Permit the one available saved review-format retry and explicitly block exhausted retries. Retain private candidates/evidence and surface the failure stage without publishing unverified claims.
+- Add incomplete-task classification and reconcile catalog omission summaries. See `docs/repairs/build138-diagnostic-followup.md` for all 28 findings, existing safeguards and remaining device/provider acceptance checks.
+- Physical-device frame/StrictMode improvements, live privacy-route availability and database contention remain unqualified until measured on the updated build.

@@ -17,16 +17,27 @@ import kotlinx.serialization.json.JsonPrimitive
 @Singleton
 class OpenRouterPrivacyPreflight @Inject constructor(private val client: OpenRouterAccountClient) {
     private data class Cached(val until: Long, val rows: JsonArray?)
-    private val locks = ConcurrentHashMap<String, Mutex>()
+    private val locks = Array(32) { Mutex() }
+    private val rejections = PrivacyRejectionCache()
     private val cache = ConcurrentHashMap<String, Cached>()
 
+    private fun rejectionKey(endpoint: String, credential: String?, model: String, policy: OpenRouterProviderRouting): String =
+        OpenRouterIdentity.digest("${endpoint.trim().trimEnd('/')}|${credential.orEmpty()}|$model|$policy")
+
+    fun recordRejection(endpoint: String, credential: String?, model: String, policy: OpenRouterProviderRouting, message: String) {
+        rejections.record(rejectionKey(endpoint, credential, model, policy), message)
+    }
+
     suspend fun check(endpoint: String, credential: String?, model: String, policy: OpenRouterProviderRouting) {
+        check(!rejections.blocked(rejectionKey(endpoint, credential, model, policy))) {
+            "POLICY_RESTRICTED: This model was recently rejected under this account and privacy configuration. Choose a compatible model in Settings or retry after five minutes; privacy protections were preserved."
+        }
         val selectedModel = model.removePrefix("~")
         if (policy.zdr != true || credential.isNullOrBlank() || !selectedModel.matches(Regex("[A-Za-z0-9_.:-]+/[A-Za-z0-9_.:-]+"))) return
         val base = runCatching { OpenRouterIdentity.endpoint(endpoint) }.getOrNull() ?: return
         val identity = OpenRouterIdentity.digest("$base|$credential")
-        val rows = locks.computeIfAbsent(identity) { Mutex() }.withLock {
-            val now = System.currentTimeMillis()
+        val rows = locks[(identity.hashCode() and Int.MAX_VALUE) % locks.size].withLock {
+            val now = System.nanoTime() / 1_000_000
             cache[identity]?.takeIf { it.until > now }?.let { return@withLock it.rows }
             val result = try {
                 val root = client.objectResource(base, credential, "endpoints/zdr")

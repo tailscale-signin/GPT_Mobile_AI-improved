@@ -110,7 +110,9 @@ class GitHubReviewedSessionTest {
             )
             val result = gate.streamRound(emptyList(), emptyList()).toList()
             assertTrue(result.none { it is ProviderEvent.TextDelta })
-            assertEquals(if (index < 2) "GITHUB_REVIEW_INVALID_VERDICT" else "GITHUB_REVIEW_BLOCKED", result.filterIsInstance<ProviderEvent.Failed>().last().errorCode)
+            val failure = result.filterIsInstance<ProviderEvent.Failed>().last()
+            assertEquals(if (index < 2) "GITHUB_REVIEW_INVALID_VERDICT" else "GITHUB_REVIEW_BLOCKED", failure.errorCode)
+            assertEquals(index == 0, dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.classify(failure.message).retryAllowed)
         }
         assertEquals(1, generation)
         assertEquals(4, reviews)

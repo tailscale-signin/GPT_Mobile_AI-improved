@@ -333,26 +333,6 @@ private fun ChatScreenContent(
         }
     }
     var showProfileManagement by rememberSaveable { mutableStateOf(false) }
-    var showGitHubPresets by rememberSaveable { mutableStateOf(false) }
-    if (showGitHubPresets) {
-        AlertDialog(
-            onDismissRequest = { showGitHubPresets = false },
-            title = { Text("GitHub workflow presets") },
-            text = {
-                Column {
-                    dev.chungjungsoo.gptmobile.data.github.GitHubWorkflowPreset.all.forEach { preset ->
-                        TextButton(onClick = {
-                            val draft = chatViewModel.question.text.toString()
-                            chatViewModel.checkpointVoiceDraft(preset.prompt() + if (draft.isBlank()) "" else "\n\nRequest details:\n$draft")
-                            showGitHubPresets = false
-                        }) { Text("${preset.title} · ${preset.toolCalls} calls / ${preset.minutes} min") }
-                    }
-                    Text("Choosing a preset fills the composer with its acceptance criteria for review before sending.", style = MaterialTheme.typography.bodySmall)
-                }
-            },
-            confirmButton = { TextButton(onClick = { showGitHubPresets = false }) { Text("Close") } }
-        )
-    }
     val freeProviderNotice by chatViewModel.freeProviderNotice.collectAsStateWithLifecycle()
     freeProviderNotice?.let { notice ->
         AlertDialog(
@@ -1100,7 +1080,6 @@ private fun ChatScreenContent(
                             Text(stringResource(R.string.next_message_label, enabledPlatformLookup[uid]?.name ?: uid))
                         }
                     }
-                    if (chatToolConfig.github != null && isIdle) TextButton(onClick = { showGitHubPresets = true }) { Text("Workflow presets") }
                     ChatInputBox(
                         modifier = Modifier.fillMaxWidth(),
                         inputState = chatViewModel.question,
@@ -1535,7 +1514,7 @@ internal fun ChatMessagePair(
         isCombinedConversation && !synthesisStarted -> ""
         isSourceResponse && selectedProfile.status == CombinedResponseStatus.FAILED && selectedAssistantMessage?.content.isNullOrBlank() -> stringResource(R.string.combined_profile_no_response)
         isCombinedConversation -> combinedVisibleAnswer(rawAssistantContent, debugMode = false)
-        else -> rawAssistantContent
+        else -> if (LocalChatProgressInHeader.current) rawAssistantContent.trimStart('\n', '\r') else rawAssistantContent
     }
     val assistantThoughts = if (isCombinedConversation && !synthesisStarted) {
         ""
@@ -1630,7 +1609,7 @@ internal fun ChatMessagePair(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 8.dp, vertical = 12.dp)
+                .padding(start = 8.dp, end = 8.dp, top = if (LocalChatProgressInHeader.current) 0.dp else 12.dp, bottom = 12.dp)
         ) {
             OpponentResponseContainer(
                 isFavorite = selectedAssistantMessage?.isFavorite ?: false,

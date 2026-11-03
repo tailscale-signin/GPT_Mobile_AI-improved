@@ -7,12 +7,13 @@ import dev.chungjungsoo.gptmobile.data.github.GitHubProgressPresentation
 /** Repair ordering in retained timelines too: introduce the activity before any preview. */
 internal fun gitHubActivityLines(timeline: List<AssistantTimelineItem>, task: String, searchActive: Boolean = false): List<AssistantTimelineItem> {
     var previousPreview: String? = null
-    var previousSummary: String? = null
+    val summaries = mutableSetOf<String>()
+    val latestCounters = timeline.lastOrNull { it.progressCheckpoint && GitHubProgressPresentation.liveKey(it.content) != null }
     val lines = timeline.filter { it.progressCheckpoint && it.content.isNotBlank() }.filter { item ->
-        if (item.statusSummary) {
-            val keep = previousSummary != item.content
-            previousSummary = item.content
-            keep
+        if (GitHubProgressPresentation.liveKey(item.content) != null) {
+            item === latestCounters
+        } else if (item.statusSummary) {
+            summaries.add(GitHubProgressPresentation.lineKey(item.content))
         } else {
             val key = GitHubProgressPresentation.lineKey(item.content)
             val keep = key != previousPreview
@@ -20,10 +21,13 @@ internal fun gitHubActivityLines(timeline: List<AssistantTimelineItem>, task: St
             keep
         }
     }
-    val summary = lines.indexOfFirst { it.statusSummary }
+    val coalesced = lines.map { item ->
+        GitHubProgressPresentation.liveKey(item.content)?.let { key -> item.copy(content = item.content.substringBefore(". "), progressId = key, statusSummary = false) } ?: item
+    }
+    val summary = coalesced.indexOfFirst { it.statusSummary }
     val ordered = when {
-        summary == 0 -> lines
-        summary > 0 -> listOf(lines[summary]) + lines.take(summary) + lines.drop(summary + 1)
+        summary == 0 -> coalesced
+        summary > 0 -> listOf(coalesced[summary]) + coalesced.take(summary) + coalesced.drop(summary + 1)
         else -> listOf(
             AssistantTimelineItem(
                 type = AssistantTimelineItemType.NOTICE,
@@ -32,7 +36,7 @@ internal fun gitHubActivityLines(timeline: List<AssistantTimelineItem>, task: St
                 statusSummary = true,
                 progressId = "github-activity-introduction"
             )
-        ) + lines
+        ) + coalesced
     }
     return if (searchActive && ordered.last().statusSummary) {
         ordered + AssistantTimelineItem(
@@ -46,10 +50,21 @@ internal fun gitHubActivityLines(timeline: List<AssistantTimelineItem>, task: St
     }
 }
 
-/** A compact preview window always retains its preceding summary. */
-internal fun gitHubVisibleActivityLines(lines: List<AssistantTimelineItem>, compact: Boolean): List<AssistantTimelineItem> {
-    if (!compact || lines.size <= 3) return lines
-    val start = lines.size - 3
-    val tail = lines.drop(start)
-    return if (tail.first().statusSummary) tail else listOfNotNull(lines.take(start).lastOrNull { it.statusSummary }) + tail
+/** Count displayed text lines, preserving a leading summary in the recent window. */
+internal fun gitHubVisibleActivityLines(lines: List<AssistantTimelineItem>, compact: Boolean, lineCounts: List<Int> = lines.map { it.content.lines().size }): List<AssistantTimelineItem> {
+    require(lineCounts.size == lines.size)
+    if (!compact || lineCounts.sum() <= 20) return lines
+    var start = lines.lastIndex
+    var count = lineCounts.last()
+    while (start > 0 && count + lineCounts[start - 1] <= 20) {
+        start--
+        count += lineCounts[start]
+    }
+    if (lines[start].statusSummary) return lines.drop(start)
+    val summaryIndex = lines.take(start).indexOfLast { it.statusSummary }
+    if (summaryIndex < 0) return lines.drop(start)
+    while (start < lines.lastIndex && count + lineCounts[summaryIndex] > 20) {
+        count -= lineCounts[start++]
+    }
+    return listOf(lines[summaryIndex]) + lines.drop(start)
 }

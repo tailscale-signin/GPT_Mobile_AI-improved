@@ -23,7 +23,7 @@ data class CurrentRequestContract(val intent: String, val originalRequestDigest:
             val text = request.trim().lowercase(java.util.Locale.ROOT).trimEnd('.', '!', '?')
             val intent = when {
                 text in setOf("test all providers", "test selected providers", "test my providers", "check provider connections") -> "PROVIDER_TEST"
-                text in setOf("test", "testing", "connection test", "test connection") -> "TEST"
+                text in setOf("test", "testing", "connection test", "test connection", "this is just a useless message to see how you treat it", "just a test message", "this is a test message", "this is just a test", "just testing the chat", "testing the chat") -> "TEST"
                 dev.chungjungsoo.gptmobile.data.research.isResearchConversationOnly(request) -> "GREETING"
                 else -> "SUBSTANTIVE"
             }

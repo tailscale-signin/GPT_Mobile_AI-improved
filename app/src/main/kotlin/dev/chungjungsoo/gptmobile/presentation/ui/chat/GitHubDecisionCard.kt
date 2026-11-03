@@ -99,27 +99,34 @@ internal fun GitHubDecisionCard(decision: GitHubChatDecision, waiting: Boolean, 
 internal fun GitHubLiveProgressCard(timeline: List<dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem>, task: String = "", events: List<dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent> = emptyList()) {
     val search = remember(events) { gitHubSearchActivity(events) }
     val lines = remember(timeline, task, search != null) { gitHubActivityLines(timeline, task, searchActive = search != null) }
-    val compact = remember(task) { dev.chungjungsoo.gptmobile.data.github.GitHubTestChecklist.integration(task) }
     var expanded by remember(task) { mutableStateOf(false) }
-    val visibleLines = gitHubVisibleActivityLines(lines, compact && !expanded)
-    val latestPreview = visibleLines.lastIndex.takeIf { it >= 0 && !visibleLines[it].statusSummary } ?: -1
-    val motion = rememberGitHubProgressMotion(latestPreview >= 0)
-    Column(
-        Modifier.fillMaxWidth().padding(horizontal = 28.dp, vertical = 8.dp).testTag("github_live_activity"),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        visibleLines.forEachIndexed { index, item ->
-            androidx.compose.runtime.key(item.progressId ?: index, item.statusSummary) {
-                if (item.statusSummary) {
-                    GitHubActivitySummary(item.content)
-                } else {
-                    GitHubActivityPreview(item.content, latest = index == latestPreview, motion = motion, search = search.takeIf { index == latestPreview })
-                }
+    androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal = 28.dp, vertical = 8.dp)) {
+        val measurer = androidx.compose.ui.text.rememberTextMeasurer()
+        val density = androidx.compose.ui.platform.LocalDensity.current
+        val summaryStyle = MaterialTheme.typography.titleSmall
+        val width = with(density) { maxWidth.roundToPx() }.coerceAtLeast(1)
+        val lineCounts = remember(lines, width, summaryStyle, density.fontScale, measurer) {
+            lines.map { item ->
+                if (!item.statusSummary) 1 else measurer.measure(item.content, style = summaryStyle, constraints = androidx.compose.ui.unit.Constraints(maxWidth = width), maxLines = 4).lineCount
             }
         }
-        if (compact && lines.size > 3) {
-            TextButton(onClick = { expanded = !expanded }, modifier = Modifier.testTag("github_activity_history")) {
-                Text(if (expanded) "Show recent activity" else "Show earlier activity (${lines.size - 3})")
+        val visibleLines = gitHubVisibleActivityLines(lines, !expanded, lineCounts)
+        val latestPreview = visibleLines.lastIndex.takeIf { it >= 0 && !visibleLines[it].statusSummary } ?: -1
+        val motion = rememberGitHubProgressMotion(latestPreview >= 0)
+        Column(Modifier.fillMaxWidth().testTag("github_live_activity"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (lineCounts.sum() > 20) {
+                TextButton(onClick = { expanded = !expanded }, modifier = Modifier.testTag("github_activity_history")) {
+                    Text(if (expanded) "Show recent activity" else "Show earlier activity")
+                }
+            }
+            visibleLines.forEachIndexed { index, item ->
+                androidx.compose.runtime.key(item.progressId ?: item.content, item.statusSummary) {
+                    if (item.statusSummary) {
+                        GitHubActivitySummary(item.content)
+                    } else {
+                        GitHubActivityPreview(item.content, latest = index == latestPreview, motion = motion, search = search.takeIf { index == latestPreview && dev.chungjungsoo.gptmobile.data.github.GitHubProgressPresentation.liveKey(item.content) == null })
+                    }
+                }
             }
         }
     }
@@ -132,7 +139,7 @@ private fun GitHubActivitySummary(text: String) {
     Text(
         text,
         style = MaterialTheme.typography.titleSmall,
-        color = androidx.compose.ui.graphics.Color.White,
+        color = MaterialTheme.colorScheme.onSurface,
         maxLines = 4,
         overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
         modifier = Modifier.offset(y = (-6).dp * (1f - entry.value))

@@ -26,9 +26,9 @@ internal object GitHubSelfTestReads {
         val status = roots("github_context", "status").firstOrNull()
         val sha = status?.get("commit_sha")
         val branch = status?.get("branch")
-        val run = records("github_ci", "runs", "workflow_runs").firstOrNull { it.text("status") == "completed" }
+        val run = records("github_ci", "runs", "workflow_runs").firstOrNull { it.text("status") == "completed" && it.text("conclusion") !in setOf("skipped", "neutral") }
             ?: records("github_ci", "runs", "workflow_runs").firstOrNull()
-        val job = records("github_ci", "jobs", "jobs").firstOrNull { it.text("status") == "completed" }
+        val job = records("github_ci", "jobs", "jobs").firstOrNull { it.text("status") == "completed" && it.text("conclusion") !in setOf("skipped", "neutral", "cancelled") }
         val pr = records("github_pr", "list", "pull_requests", "items").firstOrNull()
         val issue = records("github_issue", "list", "items", "issues").firstOrNull { "pull_request" !in it }
         val release = records("github_release", "list", "items", "releases").firstOrNull()
@@ -52,7 +52,7 @@ internal object GitHubSelfTestReads {
                 recipe("github_context", "changes", "base_sha" to sha, "commit_sha" to sha)
             }
             if (branch != null) listOf("branch", "branch_dependencies").forEach { recipe("github_context", it, "branch" to branch) }
-            ((status?.get("repository") as? JsonObject)?.get("full_name"))?.let { recipe("github_context", "repositories", "query" to it) }
+            // The programmer workspace is pinned to one repository; account-wide discovery is outside its scope.
             recipe("github_search", "search", "query" to JsonPrimitive("README"), "mode" to JsonPrimitive("paths"), "commit_sha" to sha)
             if (path != null) {
                 recipe(
@@ -73,7 +73,8 @@ internal object GitHubSelfTestReads {
                 listOf("search_repository", "search_code").forEach { recipe("github_search", it, "query" to path, "mode" to JsonPrimitive("paths"), "path_suffix" to path, "commit_sha" to sha) }
             }
             recipe("github_issue", "list", "state" to JsonPrimitive("all"))
-            listOf("status", "tags", "list").forEach { recipe("github_release", it) }
+            listOf("tags", "list").forEach { recipe("github_release", it) }
+            (release?.get("tag_name") ?: tag?.get("name"))?.let { recipe("github_release", "status", "tag_name" to it) }
             tag?.get("name")?.let { recipe("github_release", "tag", "tag_name" to it) }
             release?.get("tag_name")?.let { recipe("github_release", "detail", "tag_name" to it) }
             workflow?.get("id")?.let { recipe("github_ci", "definitions", "workflow_id" to it, "commit_sha" to sha) }

@@ -17,6 +17,21 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ApiStateFlowExtensionsTest {
+    @Test fun githubCountersUpdateOnePersistedRowWithoutGrowingTheTimeline() = runBlocking {
+        var timeline = emptyList<AssistantTimelineItem>()
+        flowOf(
+            ApiState.GitHubRoundStarted,
+            ApiState.ProgressCheckpoint("Checks: 1/8 complete. Reading files."),
+            ApiState.ProgressCheckpoint("Reading a file."),
+            ApiState.ProgressCheckpoint("Checks: 3/8 complete; 1 failed. Checking jobs."),
+            ApiState.Error("Interrupted")
+        ).collectApiStateUpdates(onUpdate = { _, _, items -> timeline = items })
+        val counters = timeline.filter { it.content.startsWith("Checks:") }
+        assertEquals(1, counters.size)
+        assertEquals("github-check-counts", counters.single().progressId)
+        assertTrue(counters.single().content.startsWith("Checks: 3/8"))
+    }
+
     @Test fun duplicatePreviewsAreSuppressedAcrossSummariesAndCheckpointEvents() = runBlocking {
         var timeline = emptyList<AssistantTimelineItem>()
         flowOf(

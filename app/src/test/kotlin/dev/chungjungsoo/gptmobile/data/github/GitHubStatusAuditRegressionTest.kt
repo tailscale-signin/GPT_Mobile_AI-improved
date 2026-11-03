@@ -213,4 +213,14 @@ class GitHubStatusAuditRegressionTest {
             assertEquals(JsonPrimitive("$type.$field"), result["field_type"])
         }
     }
+
+    @Test fun skippedJobsHaveNoLogRecipeAndReleaseStatusRequiresAnObservedTag() {
+        val logs = AgentToolDefinition("github_ci", "logs", json("""{"type":"object","properties":{"action":{"const":"logs"}}}"""))
+        val skipped = json("""{"trusted":true,"success":true,"tool":"github_ci","arguments":{"action":"jobs"},"result":{"jobs":[{"id":42,"status":"completed","conclusion":"skipped"}]}}""")
+        assertEquals(null, GitHubSelfTestReads.next(listOf(logs), listOf(skipped)))
+        val status = AgentToolDefinition("github_release", "status", json("""{"type":"object","properties":{"action":{"const":"status"}}}"""))
+        assertEquals(null, GitHubSelfTestReads.next(listOf(status), emptyList()))
+        val tags = json("""{"trusted":true,"success":true,"tool":"github_release","arguments":{"action":"tags"},"result":{"items":[{"name":"v1"}]}}""")
+        assertEquals(JsonPrimitive("v1"), GitHubSelfTestReads.next(listOf(status), listOf(tags))?.arguments?.get("tag_name"))
+    }
 }

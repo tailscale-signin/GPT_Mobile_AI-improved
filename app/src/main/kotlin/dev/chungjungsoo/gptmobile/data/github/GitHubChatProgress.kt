@@ -5,74 +5,53 @@ import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolExchange
 import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
 import dev.chungjungsoo.gptmobile.data.dto.ApiState
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
 
-/** Public observable activity only; no model invocation is needed for the heartbeat. */
+/** Public observable activity changes only; no model invocation or periodic filler. */
 internal class GitHubChatProgress(task: String = "") {
-    private val introduction = GitHubProgressPresentation.introduction(task)
     private var activity = "Preparing to inspect the relevant repository details."
-    private var finished: String? = null
-    private var purpose = "I’m identifying which repository information is needed before choosing the next operation."
-    private var completedSteps = 0
-    private val completedCallIds = mutableSetOf<String>()
+    private var summary = GitHubProgressPresentation.introduction(task)
+    private val state = kotlinx.coroutines.flow.MutableStateFlow(ApiState.ActivitySummary(summary, preview = activity))
 
-    fun updates(): Flow<ApiState.ActivitySummary> = flow {
-        emit(ApiState.ActivitySummary(introduction, preview = preview()))
-        var previous: ApiState.ActivitySummary? = null
-        while (true) {
-            delay(HEARTBEAT_MILLIS)
-            val next = update()
-            if (next != previous) emit(next)
-            previous = next
-        }
-    }
+    fun updates(): Flow<ApiState.ActivitySummary> = state
 
-    @Synchronized fun observe(state: ApiState) {
-        activity = when (state) {
-            is ApiState.GatewayProgressChanged -> when (state.progress.event) {
-                "tool_formulating" -> "Preparing the next repository operation."
-                "tool_started" -> {
-                    purpose = activityPurpose(state.progress.toolName.orEmpty())
-                    currentActivity(state.progress.toolName.orEmpty()) + sourceFocus(state.progress.toolArgs)
+    @Synchronized fun observe(event: ApiState) {
+        when (event) {
+            is ApiState.GatewayProgressChanged -> {
+                val progress = event.progress
+                val name = progress.toolName.orEmpty()
+                when (progress.event) {
+                    "tool_started" -> {
+                        activity = currentActivity(name)
+                        summary = operationSummary(name, progress.toolArgs)
+                    }
+                    "tool_failed" -> {
+                        activity = "Checking how to continue after the problem."
+                        summary = "A step needs attention. I’m checking its failure before choosing a recovery action."
+                    }
+                    // Completion events already supply a receipt-backed preview. Do not
+                    // create a second paragraph repeating that preview or invent a finding.
+                    "tool_completed", "tool_finished" -> activity = milestone(name, false, false, progress.toolArgs)
                 }
-                "tool_completed", "tool_finished" -> {
-                    val callId = state.progress.toolCallId
-                    if (callId == null || completedCallIds.add(callId)) completedSteps++
-                    finished = milestone(state.progress.toolName.orEmpty(), false, false)
-                    "Reviewing the latest result and deciding what to check next."
-                }
-                "tool_failed" -> {
-                    finished = "A step needs attention."
-                    purpose = "I’m checking the failure and available alternatives before deciding whether another operation is appropriate."
-                    "Checking how to continue after the problem."
-                }
-                else -> activity
             }
             is ApiState.Success -> {
-                purpose = "I’m organizing the findings, separating confirmed results from work that still needs verification."
-                "Putting the response together."
+                activity = "Putting the response together."
+                summary = "Putting the response together. I’m separating confirmed findings from remaining work."
             }
-            is ApiState.GitHubRoundStarted -> activity
-            is ApiState.Thinking -> if (activity.startsWith("Preparing")) "Examining the request and planning the relevant checks." else activity
-            else -> activity
+            is ApiState.Thinking -> if (activity.startsWith("Preparing")) {
+                activity = "Examining the request and planning the relevant checks."
+                summary = "Examining the request and planning the relevant checks."
+            }
+            else -> return
         }
+        state.value = ApiState.ActivitySummary(summary, preview = activity)
     }
 
-    @Synchronized fun heartbeat(): String = buildString {
-        finished?.let { append(it).append(' ') }
-        append(activity).append(' ').append(purpose)
-        if (completedSteps > 0) append(" Results received from ").append(completedSteps).append(if (completedSteps == 1) " operation." else " operations.")
-    }
-
-    @Synchronized private fun preview(): String = activity
-
-    @Synchronized private fun update(): ApiState.ActivitySummary = ApiState.ActivitySummary(heartbeat(), preview = activity).also { finished = null }
+    @Synchronized fun heartbeat(): String = summary
 
     companion object {
-        const val HEARTBEAT_MILLIS = 20_000L
         private fun currentActivity(name: String): String = when (name.substringBefore("__")) {
             "web_search" -> "Searching the internet for relevant information."
             "fetch_webpage" -> "Reading the relevant web page."
@@ -88,11 +67,44 @@ internal class GitHubChatProgress(task: String = "") {
 
         private fun sourceFocus(args: kotlinx.serialization.json.JsonObject?): String {
             val ranges = args?.get("ranges") as? kotlinx.serialization.json.JsonArray
-            val path = (
-                (ranges?.firstOrNull() as? kotlinx.serialization.json.JsonObject)?.get("path")
-                    ?: args?.get("path")
-                ) as? kotlinx.serialization.json.JsonPrimitive
-            return path?.content?.takeIf { it.isNotBlank() }?.let { " Requested file: ${GitHubProgressPresentation.taskLabel(it)}." }.orEmpty()
+            val path = ((ranges?.firstOrNull() as? kotlinx.serialization.json.JsonObject)?.get("path") ?: args?.get("path")) as? kotlinx.serialization.json.JsonPrimitive
+            fun value(key: String) = (args?.get(key) as? kotlinx.serialization.json.JsonPrimitive)?.content?.let(GitHubProgressPresentation::taskLabel)
+            return when {
+                path != null -> "File: ${GitHubProgressPresentation.taskLabel(path.content)}. "
+                value("job_id") != null -> "Job ${value("job_id")}. "
+                value("run_id") != null -> "Run ${value("run_id")}. "
+                value("pull_number") != null -> "Pull request #${value("pull_number")}. "
+                value("branch") != null -> "Branch: ${value("branch")}. "
+                value("tag_name") != null -> "Tag: ${value("tag_name")}. "
+                value("commit_sha") != null -> "Revision ${value("commit_sha")?.take(12)}. "
+                else -> ""
+            }
+        }
+
+        private fun operationSummary(name: String, args: kotlinx.serialization.json.JsonObject?): String {
+            val action = (args?.get("action") as? kotlinx.serialization.json.JsonPrimitive)?.content.orEmpty()
+            val purpose = when (name.substringBefore("__") to action) {
+                "github_ci" to "logs" -> "I’m reading the job output to locate the failing step and its error."
+                "github_ci" to "jobs" -> "I’m identifying which jobs ran, failed or were skipped before opening their logs."
+                "github_ci" to "workflows" -> "I’m finding the available workflows so validation uses a real workflow definition."
+                "github_ci" to "runs" -> "I’m locating the workflow attempt associated with this revision."
+                "github_context" to "resolve" -> "Resolving the selected reference so every later observation uses the same revision."
+                "github_context" to "index" -> "Checking source-index coverage to see which files still need a direct read."
+                "github_context" to "efficiency" -> "Inspecting cached reads and reuse to identify unnecessary repeat work."
+                "github_context" to "capabilities" -> "Checking which repository operations are authorized before planning the remaining work."
+                "github_context" to "recovery" -> "Matching saved work with the current repository state before resuming it."
+                "github_context" to "commits" -> "Reading recent changes to establish how the selected branch reached its current state."
+                "github_release" to "status" -> "Checking the release attached to this tag and whether its artifacts are available."
+                "github_release" to "tags" -> "Finding existing tags before selecting a release to inspect."
+                "github_release" to "list" -> "Looking through published releases for the version relevant to this request."
+                "github_issue" to "list" -> "Looking for an existing issue that can supply the next read’s identifier."
+                "github_context" to "checks" -> "I’m checking the selected commit’s results; pending and skipped checks remain separate from passes."
+                "github_context" to "branches" -> "I’m comparing branch references to establish where the requested work belongs."
+                "github_pr" to "reviews" -> "I’m reading review decisions to identify unresolved requirements."
+                "github_pr" to "comments" -> "I’m reading the pull request discussion for outstanding questions and fixes."
+                else -> activityPurpose(name)
+            }
+            return sourceFocus(args) + purpose
         }
 
         private fun activityPurpose(name: String): String = when (name.substringBefore("__")) {
@@ -108,8 +120,10 @@ internal class GitHubChatProgress(task: String = "") {
             else -> "I’m comparing the available information with the remaining requirements to select the next useful check."
         }
 
-        fun milestone(toolName: String, failed: Boolean, shared: Boolean): String {
+        fun milestone(toolName: String, failed: Boolean, shared: Boolean, args: kotlinx.serialization.json.JsonObject? = null): String {
             val name = toolName.substringBefore("__")
+            val focus = sourceFocus(args).trim()
+            if (focus.isNotBlank()) return if (failed) "$focus Operation failed; inspecting the cause." else "$focus Result received."
             return when {
                 name == "github_decide" && !failed -> "Your choice is saved. Continuing with your direction."
                 failed -> "A step needs attention. Checking how to continue."

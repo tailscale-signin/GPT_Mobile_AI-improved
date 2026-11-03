@@ -14,7 +14,7 @@ enum class TaskRecoveryAction {
         fun fromText(text: String): TaskRecoveryAction? = when (dev.chungjungsoo.gptmobile.data.github.GitHubTaskContinuity.request(text).lowercase(Locale.ROOT).trimEnd('.', '!', '?').trim().replace(Regex("\\s+"), " ")) {
             "continue", "continue research", "continue run", "continue response", "resume", "proceed" -> CONTINUE_RUN
             "retry writing", "resume writing" -> RETRY_WRITING
-            "retry", "retry full", "retry failed stage", "try again" -> RETRY_FAILED_STAGE
+            "test again", "retest", "retry", "retry full", "retry failed stage", "try again" -> RETRY_FAILED_STAGE
             "proceed primary-only", "proceed primary only", "continue primary-only", "continue primary only", "primary-only" -> CONTINUE_PRIMARY_ONLY
             else -> if (dev.chungjungsoo.gptmobile.data.github.GitHubTaskContinuity.publishedCommit(text) != null) CONTINUE_RUN else null
         }

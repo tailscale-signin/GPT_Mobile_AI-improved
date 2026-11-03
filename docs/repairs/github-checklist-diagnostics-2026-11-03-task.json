@@ -1,0 +1,24 @@
+{
+  "schema": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "3a05c621dd0d5dd1777a3decdd92abb8feb20273",
+  "working_branch": "fix/github-checklist-diagnostics-2026-11-03",
+  "intent": "Repair self-test dependency selection, lost page recovery and checkpoint responsiveness from app-diagnostics-6228467361406318808.jsonl; validate all applicable checks before merging.",
+  "source": {
+    "records": 3419,
+    "events": 2196,
+    "continuations": 1223,
+    "version": "0.9.66.4",
+    "build": 138
+  },
+  "state": "IMPLEMENTED_PENDING_CI",
+  "overlap": "Preserve the repository-scope, release-tag and executed-job selection fixes independently reviewed in open PR #795; extend them with pinned workflow discovery and pagination recovery.",
+  "qualification": "Local endpoint reachability, ASUS framework behavior and physical-device frame performance require device evidence. No such qualification is claimed.",
+  "validation": {
+    "canonical_fast": "301 tests passed; policy, dependencies, secrets, regex, resources and provenance checks passed",
+    "focused_jvm": "13 tests passed with host DTO adapters and exact production authorization excerpts",
+    "android": "Pending CI; not run locally (JDK 17, no Android SDK)",
+    "physical_device": "Not measured"
+  }
+}

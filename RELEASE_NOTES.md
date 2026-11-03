@@ -26,6 +26,8 @@ Android build 138. Signed release of the merged GitHub, voice, recovery and gate
 
 - Persist cumulative GitHub audit evidence, owned mutation-fixture results and usage observations, with Room schema 48 migration, bounded table rendering and speech-start ownership.
 
+- Repair build 138 self-test dependency selection, pinned workflow discovery and bounded saved-page recovery; move checklist computation off the UI thread.
+
 ## Qualification and remaining work
 
 - Unified Reliability v2 is not complete; its remaining acceptance cases are not represented as passed.

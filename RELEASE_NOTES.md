@@ -1,6 +1,6 @@
-# GPT Mobile 0.9.66.3
+# GPT Mobile 0.9.66.4
 
-Android build 137. Signed release of the merged GitHub, voice, recovery and gateway integration changes since v0.9.65.0.
+Android build 138. Signed release of the merged GitHub, voice, recovery and gateway integration changes since v0.9.65.0.
 
 ## Changes
 
@@ -15,6 +15,13 @@ Android build 137. Signed release of the merged GitHub, voice, recovery and gate
 - Use the shared bounded Android pipeline for signed release packaging, retaining the existing memory ceilings, APK budgets, signing checks and artifact verification.
 
 - Run signed-release validation in separate one-worker compilation, test and lint processes, and exercise the same validation on release-workflow PRs before merge.
+
+- Select MockK's JVM test artifact explicitly, pin five publisher-verified Byte Buddy and MockK test artifacts and descriptors for cold resolution, and require canonical PR Validation to pass on the exact published commit.
+
+- Complete required release lint in a separate bounded process before APK packaging so cold lint analysis cannot retain the heap needed by Zipflinger; lint failures still block packaging.
+
+- Add opt-in bounded repository graph search, calls, impact and revision-aware retrieval with encrypted caches; structural navigation does not claim compiler-resolved Kotlin/Java semantics.
+- Persist cumulative GitHub audit evidence, owned mutation-fixture results and usage observations, with Room schema 48 migration, bounded table rendering and speech-start ownership.
 
 ## Qualification and remaining work
 
@@ -43,3 +50,5 @@ Android build 137. Signed release of the merged GitHub, voice, recovery and gate
 - The Android signed release does not install or publish a new Windows gateway package; Windows installer checks are tracked separately.
 
 Publication requires successful validation of this exact commit, current main checks, signature continuity, APK/AAB identity and native-library verification.
+
+- External Graphify execution, compiler-resolved navigation, and physical-device graph, speech and UI performance remain unqualified; host and emulator evidence does not establish those outcomes.

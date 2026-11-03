@@ -49,3 +49,26 @@ class ReleaseScopeTests(unittest.TestCase):
         self.assertEqual(([], ['Build']), checks.conclusions([success], 'different', ['Build']))
         self.assertEqual((['Build'], []), checks.conclusions([{**success, 'conclusion': 'skipped'}], 'candidate', ['Build']))
         self.assertEqual(([], ['Build']), checks.conclusions([success, {**success, 'id': 2, 'status': 'in_progress'}], 'candidate', ['Build']))
+
+    def test_canonical_validation_cannot_be_omitted_by_a_scoped_manifest(self):
+        required = checks.required_workflows({'requiredWorkflows': ['Build Android APK']})
+        runs = [dict(id=index, name=name, head_sha='candidate', event='push',
+                     status='completed', conclusion='success')
+                for index, name in enumerate(required) if name != 'PR Validation']
+        self.assertEqual(([], ['PR Validation']), checks.conclusions(runs, 'candidate', required))
+        canonical = dict(id=100, name='PR Validation', head_sha='candidate', event='push',
+                         status='completed', conclusion='success')
+        for conclusion in ('failure', 'cancelled', 'skipped', 'timed_out'):
+            with self.subTest(conclusion=conclusion):
+                self.assertEqual((['PR Validation'], []), checks.conclusions(
+                    [*runs, {**canonical, 'conclusion': conclusion}], 'candidate', required))
+        self.assertEqual(([], []), checks.conclusions([*runs, canonical], 'candidate', required))
+
+    def test_pull_request_validation_does_not_qualify_the_release_commit(self):
+        required = checks.required_workflows({})
+        runs = [dict(id=index, name=name, head_sha='candidate', event='push',
+                     status='completed', conclusion='success')
+                for index, name in enumerate(required) if name != 'PR Validation']
+        canonical = dict(id=100, name='PR Validation', head_sha='candidate', event='pull_request',
+                         status='completed', conclusion='success')
+        self.assertEqual(([], ['PR Validation']), checks.conclusions([*runs, canonical], 'candidate', required))

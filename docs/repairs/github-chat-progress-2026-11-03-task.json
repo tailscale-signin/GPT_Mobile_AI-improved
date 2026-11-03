@@ -16,5 +16,19 @@
   "merge_authorization": "User: Continue and merge to main when all green",
   "additional_intent": "Reconcile 28 reported issue families with current source; repair review recovery, executable discovery, early privacy checks, voice worker/configuration/preferences and causal diagnostics; verify exact published head before merge.",
   "additional_report": "docs/repairs/build138-diagnostic-followup.md",
-  "additional_validation": "301 host tests and 34 focused JVM tests passed; Android voice/discovery/review regressions await full CI."
+  "additional_validation": "301 host tests and 34 focused JVM tests passed; Android voice/discovery/review regressions await full CI.",
+  "ci_packaging_followup": {
+    "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+    "base_branch": "main",
+    "base_sha": "3a05c621dd0d5dd1777a3decdd92abb8feb20273",
+    "working_branch": "fix/github-chat-progress-2026-11-03",
+    "head_sha": "65b2bedc6efd55a08f505d5b65824ce7302b3548",
+    "intent": "Apply the already reviewed bounded diagnostic packaging process to PR Validation after main APK packaging stalls; retain all heap, time and artifact verification gates.",
+    "observed_run": 41695770995,
+    "observed_job": 126125763426,
+    "finding": "Main unit tests, separate 256 MiB heap tests and lint passed; packageDebug logged at19:15:05Z and review APK step timed out19:25:42Z. Root cause not established as OOM.",
+    "state": "HOST_VALIDATED_PENDING_FRESH_CI",
+    "concurrent_work": "Preserved six owner follow-up files from65b2bed: dynamic privacy aliases remain UNKNOWN while observed policy rejection cache still applies; voice settings stay disabled until preferences load; behavior regression and release scope retained.",
+    "validation": "Actual YAML APK shell plus production build_metrics and gradle_retry pass success0/failure7/stall124 fixtures. Failure/timeout skip all artifact validators; success runs them. Timeout terminates spawned child and metrics retain real exit. Fixture uses1-second timeout; repository retains1140-second deadline and20-minute step. 301 canonical host and34 focused JVM tests passed before workflow-only repair; fresh canonical validation follows. Fresh canonical fast validation passed all301 tests and policy/dependency/secret/regex/resource/provenance checks after reconciliation."
+  }
 }

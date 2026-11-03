@@ -100,6 +100,33 @@ import org.junit.Test
 class ChatRepositoryImplTest {
     @get:org.junit.Rule val testFiles = org.junit.rules.TemporaryFolder()
 
+    @Test fun knownPrivacyRejectionStopsBeforePreparationOrRetrieval() = runBlocking {
+        val privacy = mockk<dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterPrivacyPreflight>()
+        coEvery { privacy.check(any(), any(), any(), any()) } throws IllegalStateException("POLICY_RESTRICTED: choose a compatible model")
+        val resolver = mockk<AgentToolResolver>()
+        val settings = mockk<SettingRepository>()
+        val memory = mockk<FactVaultRepository>()
+        val api = RecordingOpenAIAPI()
+        val repository = createRepository(
+            openAIAPI = api,
+            agentToolResolver = resolver,
+            settingsOverride = settings,
+            factVault = memory,
+            privacyOverride = privacy
+        )
+        val states = repository.completeChat(
+            listOf(MessageV2(content = "Research recent sources and read their evidence", platformType = null)),
+            emptyList(),
+            customPlatform().copy(compatibleType = ClientType.OPENROUTER, apiUrl = "https://openrouter.ai/api/v1", model = "vendor/model", token = "test-key"),
+            "privacy-preflight-run"
+        ).toList()
+        assertTrue(states.filterIsInstance<ApiState.Error>().single().message.startsWith("POLICY_RESTRICTED"))
+        assertEquals(ApiState.Done, states.last())
+        assertEquals(0, api.streamChatCompletionCalls)
+        io.mockk.coVerify(exactly = 1) { privacy.check(any(), "test-key", "vendor/model", any()) }
+        io.mockk.confirmVerified(resolver, settings, memory)
+    }
+
     @Test fun deletingAndMakingChatsTemporaryResolveFilesOffTheCallerThread() = runBlocking {
         val caller = Thread.currentThread()
         val reads = java.util.concurrent.atomic.AtomicInteger()
@@ -1916,7 +1943,8 @@ class ChatRepositoryImplTest {
         invocationLedgerOverride: dev.chungjungsoo.gptmobile.data.accounting.InvocationLedger? = null,
         combinedBudgetsOverride: dev.chungjungsoo.gptmobile.data.agent.CombinedTurnBudgetStore = dev.chungjungsoo.gptmobile.data.agent.CombinedTurnBudgetStore.inMemory(),
         contextOverride: android.content.Context? = null,
-        runsOverride: dev.chungjungsoo.gptmobile.data.database.dao.AgentRunDao? = null
+        runsOverride: dev.chungjungsoo.gptmobile.data.database.dao.AgentRunDao? = null,
+        privacyOverride: dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterPrivacyPreflight? = null
     ): ChatRepositoryImpl = ChatRepositoryImpl(
         context = contextOverride ?: object : ContextWrapper(null) {
             override fun getFilesDir(): File = testFiles.root
@@ -1959,7 +1987,8 @@ class ChatRepositoryImplTest {
         knowledge = knowledgeOverride,
         pendingPromptDao = pendingOverride,
         invocationLedger = invocationLedgerOverride,
-        combinedBudgets = combinedBudgetsOverride
+        combinedBudgets = combinedBudgetsOverride,
+        privacyPreflight = privacyOverride
     )
 
     private fun emptyToolResolver(): AgentToolResolver {

@@ -31,7 +31,7 @@ internal class RepositoryGraphTool(
         }
         return try {
             val payload = JsonObject(options + (arguments - "options") + mapOf("budget_bytes" to JsonPrimitive(16000)))
-            AgentToolResult(callId, ToolResultContent.Json(query(payload)))
+            AgentToolResult(callId, ToolResultContent.Json(query(payload)), isError = false)
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: Exception) {

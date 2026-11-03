@@ -124,7 +124,7 @@ jobs:
             wait "$timer_pid" || exit 0
             {
               date -u '+captured_at=%Y-%m-%dT%H:%M:%SZ'
-              ps -eo pid=,ppid=,stat=,etime=,%cpu=,%mem=,rss=,comm= --sort=-%cpu | head -n 80
+              ps -eo pid=,ppid=,stat=,etime=,%cpu=,%mem=,rss=,comm= --sort=-%cpu | head -n 80 || true
               while read -r pid; do
                 [[ "$pid" =~ ^[0-9]+$ ]] || continue
                 echo "Gradle daemon $pid heap"

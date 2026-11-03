@@ -115,5 +115,23 @@
       "workflow_process_smoke": "PASSED: execute the actual APK shell block against fast-success, exit-7 failure and stalled Gradle fixtures; preserve exit 0/7/124, terminate timer promptly and capture stall diagnostics"
     },
     "state": "HOST_VALIDATED_PENDING_ANDROID"
+  },
+  "watchdog_review_followup": {
+    "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+    "base_branch": "main",
+    "base_sha": "3de77a00946f5c621443dc7c8668dc8879ef0d1c",
+    "working_branch": "fix/github-log-scroll-stability-2026-11-03",
+    "head_sha": "f748fa502919774485171a167ead0c7316098bc6",
+    "parent_pr": 793,
+    "intent": "Keep diagnostic process-list SIGPIPE from suppressing subsequent bounded heap/thread probes; preserve build exit codes and deadlines.",
+    "regression_before_repair": "Actual APK shell under bash -e -o pipefail preserved exit 0/7/124, but forced process-list SIGPIPE 141 stopped the stall watchdog before heap/thread capture.",
+    "state": "HOST_VALIDATED_PENDING_EXACT_REVISION_CI",
+    "validation": {
+      "actual_shell": "PASSED under bash -e -o pipefail: fast success exits 0, failure exits 7, stall exits 124 and terminates its child; forced ps exit 141 no longer prevents bounded heap/thread capture. Repository 900/1140 second budgets unchanged.",
+      "canonical_fast": "PASSED: all 301 canonical host tests and policy/dependency/secret/regex/resource/provenance checks",
+      "android": "PENDING fresh published head; not executed locally",
+      "workflow_syntax": "PASSED: YAML parse and bash -n for every diagnostic run block"
+    },
+    "main_reconciliation": "PR #793 merged concurrently. A three-way merge of f748fa5 and main 3de77a0 has the identical f748fa5 tree; retain main as second parent with no feature changes."
   }
 }

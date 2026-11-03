@@ -24,7 +24,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ToolEventStatus
 
 internal data class GitHubSearchActivity(val websites: Int, val brands: List<ChatSourceBrand>, val searching: Boolean) {
     val label get() = if (websites == 0) {
-        "Searching websites"
+        if (searching) "Searching websites" else "Search complete · no websites found"
     } else if (searching) {
         "Searching $websites ${if (websites == 1) "website" else "websites"}"
     } else {

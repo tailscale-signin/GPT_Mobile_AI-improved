@@ -23,6 +23,11 @@ class GitHubSearchActivityTest {
         assertEquals("Searching websites", search.label)
     }
 
+    @Test fun completedEmptySearchDoesNotClaimItIsStillRunning() {
+        val search = requireNotNull(gitHubSearchActivity(listOf(event(result = "{\"results\":[]}"))))
+        assertEquals("Search complete · no websites found", search.label)
+    }
+
     @Test fun githubCodeSearchAndFailedRequestsDoNotBecomeWebsitePreviews() {
         assertNull(gitHubSearchActivity(listOf(event(name = "github_search"))))
         assertNull(gitHubSearchActivity(listOf(event(status = ToolEventStatus.FAILED))))

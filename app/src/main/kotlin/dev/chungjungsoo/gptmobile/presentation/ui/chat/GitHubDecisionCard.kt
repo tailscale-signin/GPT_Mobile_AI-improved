@@ -97,8 +97,8 @@ internal fun GitHubDecisionCard(decision: GitHubChatDecision, waiting: Boolean, 
 
 @Composable
 internal fun GitHubLiveProgressCard(timeline: List<dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem>, task: String = "", events: List<dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent> = emptyList()) {
-    val lines = remember(timeline, task) { gitHubActivityLines(timeline, task) }
     val search = remember(events) { gitHubSearchActivity(events) }
+    val lines = remember(timeline, task, search != null) { gitHubActivityLines(timeline, task, searchActive = search != null) }
     val compact = remember(task) { dev.chungjungsoo.gptmobile.data.github.GitHubTestChecklist.integration(task) }
     var expanded by remember(task) { mutableStateOf(false) }
     val visibleLines = gitHubVisibleActivityLines(lines, compact && !expanded)
@@ -108,7 +108,6 @@ internal fun GitHubLiveProgressCard(timeline: List<dev.chungjungsoo.gptmobile.da
         Modifier.fillMaxWidth().padding(horizontal = 28.dp, vertical = 8.dp).testTag("github_live_activity"),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        if (search != null && latestPreview < 0) GitHubActivityPreview("Searching websites", latest = true, motion = motion, search = search)
         visibleLines.forEachIndexed { index, item ->
             androidx.compose.runtime.key(item.progressId ?: index, item.statusSummary) {
                 if (item.statusSummary) {

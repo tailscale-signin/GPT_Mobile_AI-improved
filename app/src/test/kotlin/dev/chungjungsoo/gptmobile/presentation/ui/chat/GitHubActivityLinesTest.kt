@@ -21,4 +21,20 @@ class GitHubActivityLinesTest {
         assertTrue(visible.first().statusSummary)
         assertEquals(listOf("Reading", "Checking", "Finishing"), visible.drop(1).map { it.content })
     }
+
+    @Test fun searchFallbackFollowsSummaryAndParticipatesInThePreviewWindow() {
+        val lines = gitHubActivityLines(listOf(line("Checking available websites", true)), "review", searchActive = true)
+        assertEquals(listOf("Checking available websites", "Searching websites"), lines.map { it.content })
+        assertTrue(lines.first().statusSummary)
+        assertTrue(!lines.last().statusSummary)
+        assertEquals(lines, gitHubVisibleActivityLines(lines, compact = true))
+    }
+
+    @Test fun searchFallbackUsesAnIntroductionAndDoesNotDuplicateAnExistingPreview() {
+        val empty = gitHubActivityLines(emptyList(), "review", searchActive = true)
+        assertTrue(empty.first().statusSummary)
+        assertEquals("Searching websites", empty.last().content)
+        val existing = gitHubActivityLines(listOf(line("Summary", true), line("Reading websites")), "review", searchActive = true)
+        assertEquals(listOf("Summary", "Reading websites"), existing.map { it.content })
+    }
 }

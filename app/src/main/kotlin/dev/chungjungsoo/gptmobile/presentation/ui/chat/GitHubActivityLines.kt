@@ -5,7 +5,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType
 import dev.chungjungsoo.gptmobile.data.github.GitHubProgressPresentation
 
 /** Repair ordering in retained timelines too: introduce the activity before any preview. */
-internal fun gitHubActivityLines(timeline: List<AssistantTimelineItem>, task: String): List<AssistantTimelineItem> {
+internal fun gitHubActivityLines(timeline: List<AssistantTimelineItem>, task: String, searchActive: Boolean = false): List<AssistantTimelineItem> {
     var previousPreview: String? = null
     var previousSummary: String? = null
     val lines = timeline.filter { it.progressCheckpoint && it.content.isNotBlank() }.filter { item ->
@@ -21,7 +21,7 @@ internal fun gitHubActivityLines(timeline: List<AssistantTimelineItem>, task: St
         }
     }
     val summary = lines.indexOfFirst { it.statusSummary }
-    return when {
+    val ordered = when {
         summary == 0 -> lines
         summary > 0 -> listOf(lines[summary]) + lines.take(summary) + lines.drop(summary + 1)
         else -> listOf(
@@ -33,6 +33,16 @@ internal fun gitHubActivityLines(timeline: List<AssistantTimelineItem>, task: St
                 progressId = "github-activity-introduction"
             )
         ) + lines
+    }
+    return if (searchActive && ordered.last().statusSummary) {
+        ordered + AssistantTimelineItem(
+            type = AssistantTimelineItemType.NOTICE,
+            content = "Searching websites",
+            progressCheckpoint = true,
+            progressId = "github-search-preview"
+        )
+    } else {
+        ordered
     }
 }
 

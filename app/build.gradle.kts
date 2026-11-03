@@ -152,8 +152,8 @@ extensions.configure<ApplicationExtension> {
         targetSdk = 37
         // Interim release: Play-ready artifact gates remain mandatory while full
         // Unified Reliability v2 milestone acceptance is still in progress.
-        versionCode = 134
-        versionName = "0.9.66.0"
+        versionCode = 135
+        versionName = "0.9.66.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -393,9 +393,10 @@ extensions.configure<ApplicationAndroidComponentsExtension> {
     onVariants { variant ->
         variant.sources.assets?.addGeneratedSourceDirectory(prepareMemoryModel, PrepareMemoryModel::outputDirectory)
         variant.androidTest?.sources?.assets?.addStaticSourceDirectory("$projectDir/schemas")
-        if (variant.buildType in setOf("release", "benchmark", "nativeSmoke")) {
+        if (variant.buildType in setOf("debug", "release", "benchmark", "nativeSmoke")) {
             // Compress DEX in directly distributed APKs to keep the existing download
-            // budgets without dropping a runtime or ABI. App-bundle packaging is separate.
+            // budgets without dropping a runtime or ABI, including coverage-instrumented
+            // debug builds. App-bundle packaging is separate.
             variant.packaging.dex.useLegacyPackaging.set(true)
         }
     }

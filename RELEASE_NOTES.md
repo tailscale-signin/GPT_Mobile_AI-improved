@@ -1,6 +1,6 @@
-# GPT Mobile 0.9.66.0
+# GPT Mobile 0.9.66.1
 
-Android build 134. Signed release of the merged GitHub, voice, recovery and gateway integration changes since v0.9.65.0.
+Android build 135. Signed release of the merged GitHub, voice, recovery and gateway integration changes since v0.9.65.0.
 
 ## Changes
 
@@ -10,6 +10,8 @@ Android build 134. Signed release of the merged GitHub, voice, recovery and gate
 - Repair MCP discovery, tool argument serialization, pagination, provider outcome accounting and diagnostic export pressure.
 - Add the Gateway 15 desktop dashboard and Windows installer infrastructure, configurable listeners, durable engineering jobs and isolated publication validation.
 - Fix legacy credential replacement admission, Android voice lint and streaming coroutine DEX size without weakening validation gates.
+
+- Compress debug APK DEX and enforce unchanged per-ABI download budgets in PR validation as well as main builds.
 
 ## Qualification and remaining work
 

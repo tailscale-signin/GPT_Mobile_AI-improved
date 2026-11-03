@@ -138,6 +138,7 @@ jobs:
           python3 scripts/build_metrics.py --label review-apk --output build/reports/profile/review-metrics.json -- python3 scripts/gradle_retry.py -- :app:assembleDebug --no-daemon 2>&1 | tee apk.log
           python3 scripts/check_local_runtime_apk.py app/build/outputs/apk/debug/*.apk
           python3 scripts/check_no_telemetry.py app/build/outputs/apk/debug/*.apk
+          python3 scripts/check_apk_size.py app/build/outputs/apk/debug --build-type debug --report apk-size-report.json
           for apk in app/build/outputs/apk/debug/*.apk; do
             python3 scripts/check_research_dispatch_size.py "$apk"
           done
@@ -185,6 +186,7 @@ jobs:
             heap.log
             lint.log
             apk.log
+            apk-size-report.json
             app/build/test-results/heapRecovery/*.xml
             app/build/reports/reliability-ui/*.png
             build/reports/profile/*-metrics.json

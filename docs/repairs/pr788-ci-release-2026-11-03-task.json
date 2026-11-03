@@ -2,36 +2,66 @@
   "schema_version": 1,
   "repository": "tailscale-signin/GPT_Mobile_AI-improved",
   "base_branch": "main",
-  "base_sha": "62d895f9db9ccfabf9619dde23ff71efc2385e1e",
-  "working_branch": "feat/voice-github-status-redesign-2026-11-02",
-  "starting_sha": "f9f7284310823916780a3f3a37e2816b15734fcb",
+  "base_sha": "376f03a5abd811141fcf40f01220e74178652cf5",
+  "working_branch": "fix/debug-apk-size-gate-2026-11-03",
+  "starting_sha": "376f03a5abd811141fcf40f01220e74178652cf5",
   "intent": "Fix all open draft PR checks, merge only after successful current checks, then publish a new signed Android release.",
   "requirements": [
     {
       "id": "credential-replacement",
-      "status": "RUNNING",
+      "status": "DONE",
       "evidence": [
-        "PR Validation 41583354746: AgentToolResolverTest.githubCredentialReplacementRevokesAnAlreadyResolvedToolEvenWhenMetadataIsUnchanged failed."
+        "PR Validation 41583354746: AgentToolResolverTest.githubCredentialReplacementRevokesAnAlreadyResolvedToolEvenWhenMetadataIsUnchanged failed.",
+        "PR head 5e8d29e9c66713295162e0f04a1d9b799b9d5a4b: all 23 applicable checks succeeded before merge."
       ]
     },
     {
       "id": "voice-lint",
-      "status": "RUNNING",
+      "status": "DONE",
       "evidence": [
-        "AndroidVoiceAudio.kt:50 WrongConstant: GET_DEVICES_ALL."
+        "AndroidVoiceAudio.kt:50 WrongConstant: GET_DEVICES_ALL.",
+        "PR head 5e8d29e9c66713295162e0f04a1d9b799b9d5a4b: all 23 applicable checks succeeded before merge."
       ]
     },
     {
       "id": "dispatch-size",
-      "status": "RUNNING",
+      "status": "DONE",
       "evidence": [
-        "UI Review APK 41583305623: streamPrimaryAnswer invokeSuspend is 17050 DEX code units; exclusive limit is 16383."
+        "UI Review APK 41583305623: streamPrimaryAnswer invokeSuspend is 17050 DEX code units; exclusive limit is 16383.",
+        "PR head 5e8d29e9c66713295162e0f04a1d9b799b9d5a4b: all 23 applicable checks succeeded before merge."
       ]
     },
     {
       "id": "merge-and-release",
-      "status": "PENDING",
-      "evidence": []
+      "status": "RUNNING",
+      "evidence": [
+        "PR #788 merged at 376f03a5abd811141fcf40f01220e74178652cf5; publication blocked by exact-commit debug APK size check."
+      ]
+    },
+    {
+      "id": "debug-apk-size",
+      "status": "RUNNING",
+      "evidence": [
+        "Main Build Android APK 41602795056, job 125805285640: x86_64 debug APK 262948334 bytes exceeds unchanged 262144000-byte budget.",
+        "Reuse existing DEX compression for debug APKs and execute the same artifact-derived size gate in PR validation. No ABI, runtime, or budget is removed or relaxed."
+      ]
     }
-  ]
+  ],
+  "previous_repair": {
+    "starting_sha": "f9f7284310823916780a3f3a37e2816b15734fcb",
+    "validated_sha": "5e8d29e9c66713295162e0f04a1d9b799b9d5a4b",
+    "pull_request": 788,
+    "merged_sha": "376f03a5abd811141fcf40f01220e74178652cf5",
+    "successful_checks": 23,
+    "unit_tests": {
+      "passed": 6099,
+      "skipped": 4,
+      "failed": 0
+    }
+  },
+  "validation": {
+    "local": "Unavailable: execution environment disconnected before the packaging follow-up. Fresh compilation, artifact measurement, emulator acceptance and repository contracts must run in GitHub CI.",
+    "release_target": "0.9.66.1 / build 135",
+    "publication": "PENDING"
+  }
 }

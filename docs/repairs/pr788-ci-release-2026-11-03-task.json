@@ -2,9 +2,9 @@
   "schema_version": 1,
   "repository": "tailscale-signin/GPT_Mobile_AI-improved",
   "base_branch": "main",
-  "base_sha": "376f03a5abd811141fcf40f01220e74178652cf5",
-  "working_branch": "fix/debug-apk-size-gate-2026-11-03",
-  "starting_sha": "376f03a5abd811141fcf40f01220e74178652cf5",
+  "base_sha": "e76ff28bcb220965c145f6ab8461e15a75a6f964",
+  "working_branch": "release/bounded-signed-packaging-2026-11-03",
+  "starting_sha": "e76ff28bcb220965c145f6ab8461e15a75a6f964",
   "intent": "Fix all open draft PR checks, merge only after successful current checks, then publish a new signed Android release.",
   "requirements": [
     {
@@ -35,15 +35,26 @@
       "id": "merge-and-release",
       "status": "RUNNING",
       "evidence": [
-        "PR #788 merged at 376f03a5abd811141fcf40f01220e74178652cf5; publication blocked by exact-commit debug APK size check."
+        "PR #788 merged at 376f03a5abd811141fcf40f01220e74178652cf5; publication blocked by exact-commit debug APK size check.",
+        "PR #789 merged after all 17 applicable checks succeeded. Signed release 41614053223 passed validation but failed packageRelease before publication; no v0.9.66.1 release was created."
       ]
     },
     {
       "id": "debug-apk-size",
-      "status": "RUNNING",
+      "status": "DONE",
       "evidence": [
         "Main Build Android APK 41602795056, job 125805285640: x86_64 debug APK 262948334 bytes exceeds unchanged 262144000-byte budget.",
-        "Reuse existing DEX compression for debug APKs and execute the same artifact-derived size gate in PR validation. No ABI, runtime, or budget is removed or relaxed."
+        "Reuse existing DEX compression for debug APKs and execute the same artifact-derived size gate in PR validation. No ABI, runtime, or budget is removed or relaxed.",
+        "PR #789 and exact merged main e76ff28bcb220965c145f6ab8461e15a75a6f964 passed artifact-size gates; x86_64 debug APK is 151359582 bytes."
+      ]
+    },
+    {
+      "id": "bounded-signed-release-packaging",
+      "status": "RUNNING",
+      "evidence": [
+        "Release workflow 41614053223, job 125874097879: packageRelease failed with Java heap space in ApkFlinger and Zipflinger Sources.from on the common ForkJoinPool.",
+        "The unsigned workflow already uses scripts/android_pipeline.py with a separate 4 GiB JVM, one Gradle worker, and two common-pool workers for package/bundle. The signed workflow bypassed that bound.",
+        "Route signed shrink/package/bundle phases through the same pipeline, keep performance checkpoints, and require the real unsigned APK/AAB build on the release/ repair branch before merge."
       ]
     }
   ],
@@ -60,8 +71,17 @@
     }
   },
   "validation": {
-    "local": "Unavailable: execution environment disconnected before the packaging follow-up. Fresh compilation, artifact measurement, emulator acceptance and repository contracts must run in GitHub CI.",
-    "release_target": "0.9.66.1 / build 135",
+    "local": "24 focused delivery-pipeline, release-scope and release-trigger tests passed; 297 canonical fast checks passed; scope and whitespace validation passed. Full unsigned release APK/AAB build and current-head CI remain required before merge.",
+    "release_target": "0.9.66.2 / build 136",
     "publication": "PENDING"
+  },
+  "previous_packaging_repair": {
+    "pull_request": 789,
+    "validated_sha": "6d4623fc6c37fa77916059223718cfbbc099c9be",
+    "merged_sha": "e76ff28bcb220965c145f6ab8461e15a75a6f964",
+    "successful_checks": 17,
+    "x86_64_debug_apk_bytes": 151359582,
+    "unchanged_budget_bytes": 262144000,
+    "main_checks": "All applicable main checks passed, including APK size and Android 14/16 acceptance."
   }
 }

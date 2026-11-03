@@ -1,0 +1,205 @@
+{
+  "schema": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "fix/github-log-scroll-stability-2026-11-03",
+  "base_sha": "cbf8a8e4964a7987e9e40d25af0aaa7ac902f357",
+  "working_branch": "fix/github-log-scroll-stability-2026-11-03",
+  "pull_request": 794,
+  "intent": "Audit all five files in export_Status_1793718669685.zip and repair remaining defects on the existing latest branch; preserve prior scrolling and stability fixes.",
+  "capture": {
+    "version": "0.9.66.3",
+    "build": 137,
+    "app_commit": "9118a4ea9750f20de002a427423a3e997103ca36",
+    "runs": 9,
+    "completed_runs": 1,
+    "partial_runs": 4,
+    "failed_runs": 4,
+    "tool_calls": 126,
+    "successful_calls": 107,
+    "failed_calls": 19,
+    "invocations": 59,
+    "journal_events": 1918,
+    "diagnostic_events": 837,
+    "recent_app_logs": 500,
+    "journal_gaps": 0,
+    "complete_capture": false
+  },
+  "state": "IMPLEMENTED_HOST_VALIDATED",
+  "planned_changes": [
+    "Normalize workspace-wrapped control and status prompts",
+    "Explain assistant failures from retained diagnostics",
+    "Retain task/evidence after approved commit and refresh exact revision with reads",
+    "Bounded resumable format recovery without accepting invalid verdicts",
+    "Visible review-failure explanation without unverified draft",
+    "Typed invalid patch paths and specific failure recovery guidance"
+  ],
+  "validation": {
+    "focused": "PASS: 89 production-logic JVM regressions, including restart/format retry, task identity, exact-SHA continuation, staged-path rejection, evidence preservation and catalog omission transitions. Host Android/storage/DTO adapters; not Android validation.",
+    "canonical_fast": "PASS: 299 tests plus policy/dependency/secret/regex/resource/provenance checks",
+    "formatting": "PASS: changed Kotlin files, ktlint 1.3.1; git diff --check",
+    "android": "PENDING on published head; local host has JRE17 and no Android SDK37. No device validation claimed."
+  },
+  "findings_report": "docs/repairs/github-status-1793718669685.md",
+  "findings": [
+    {
+      "id": 1,
+      "finding": "Full integration testing stops partial, including a preset run ending after 50 calls despite its 256-call/60-minute ceiling. A ceiling is not evidence that every operation is runnable.",
+      "resolution": "Existing deterministic capability planner executes authorized operations with observed prerequisites, checkpoints progress and reports actual blockers. Added continuation preserves the original task and its configured budgets instead of interpreting an approval message as a replacement objective."
+    },
+    {
+      "id": 2,
+      "finding": "Two retries fail with \u201cSaved engineering objective or destination changed\u201d after branch selection.",
+      "resolution": "Existing successful, repository-bound branch-transition receipts preserve task identity. Unknown outcomes and unrelated destinations remain blocked."
+    },
+    {
+      "id": 3,
+      "finding": "\u201cContinue\u201d repeats reads and loses previous write observations.",
+      "resolution": "Existing cumulative evidence and branch aliases retained. Added exact workspace-header normalization for continuation controls, including reconstruction from persisted user turns."
+    },
+    {
+      "id": 4,
+      "finding": "\u201cwhy are you failing?\u201d triggers 16 unrelated CI calls, including `run_id=8`.",
+      "resolution": "Added assistant-failure question classification and deterministic historical explanation. CI/build failure questions still trigger repository investigation. No new model/tool call is needed to explain the saved terminal reason."
+    },
+    {
+      "id": 5,
+      "finding": "One primary model round returns reasoning only: zero visible bytes, 2,539 reasoning bytes, `EMPTY_MODEL_ROUND`; the run ends `EMPTY_ANSWER`.",
+      "resolution": "Existing no-visible-answer failure classification retained. The new diagnostic path avoids this unnecessary generation entirely and explains empty-output failures without counting reasoning as an answer."
+    },
+    {
+      "id": 6,
+      "finding": "The post-approval prompt becomes a separate task; that run observes no new GitHub tool receipt.",
+      "resolution": "Added recognition of the exact generated continuation text, preservation of the original task/evidence, and fresh status, commit, checks and SHA-filtered run reads. The text's claim of publication is never treated as a receipt."
+    },
+    {
+      "id": 7,
+      "finding": "Post-commit continuation could inspect the old revision or subscribe to a different PR's checks.",
+      "resolution": "Added a bounded, read-only reconciliation plan keyed by user request and full commit SHA. Only observed pending runs with that exact SHA may be watched; retries reuse its completed reads."
+    },
+    {
+      "id": 8,
+      "finding": "Two reviewer invocations return unusable verdicts; the answer is withheld.",
+      "resolution": "Added acceptance of one optional JSON presentation fence while requiring the full verdict schema, actual boolean approval, string result IDs, exact coverage, and bounded findings. A format repair now receives the concrete validation error. Prose, missing coverage and contradictory verdicts still fail closed. The export does not retain enough reviewer output to establish which format defect occurred."
+    },
+    {
+      "id": 9,
+      "finding": "Retrying immediately fails again with `GITHUB_REVIEW_INVALID_VERDICT` retained as a permanent block.",
+      "resolution": "Added one explicit, persisted format-recovery retry of the saved candidate. The budget survives restart and repeated saves; successful verdicts remain cached. Further unchanged failures stop. Semantic rejection cannot consume this format-only exception."
+    },
+    {
+      "id": 10,
+      "finding": "Current answer bodies are blank after failed retries, even while prior revisions retain activity.",
+      "resolution": "Added a visible, deterministic reviewer-failure explanation when no trusted task receipts are available. It preserves the failed outcome and never exposes the unverified private draft. Existing receipt-backed partial fallback remains available when there is evidence."
+    },
+    {
+      "id": 11,
+      "finding": "Status reports contain an \u201cuntested: status\u201d item despite a completed status run.",
+      "resolution": "Existing shared informational acceptance evaluation retained. Added workspace-header normalization so status/greeting controls use the same deterministic route as ordinary chat."
+    },
+    {
+      "id": 12,
+      "finding": "Repeated discovery seeks nonexistent `github__github_api`; known tools already exist.",
+      "resolution": "Existing exact catalog selection, negative discovery cache, dependency-aware test runner and explicit availability blockers retained."
+    },
+    {
+      "id": 13,
+      "finding": "Invalid `github_commit action=status`, branch creation without `expected_head_sha`, commit without `message`.",
+      "resolution": "Existing action-specific contracts and deterministic recipes retained. Invalid calls remain pre-dispatch rejections, not network failures or successes."
+    },
+    {
+      "id": 14,
+      "finding": "Test tries to commit directly to `main`.",
+      "resolution": "Default-branch protection retained. Tests use an authorized, owned disposable fixture. Broad test language does not authorize arbitrary README or application edits. Added specific branch-selection/restaging guidance."
+    },
+    {
+      "id": 15,
+      "finding": "A main-bound stage is reused on `test-branch`.",
+      "resolution": "Existing branch-bound staging retained. The selected branch must be resolved and the patch restaged against its observed content. Branch continuity does not relax patch identity."
+    },
+    {
+      "id": 16,
+      "finding": "An edit searches for text from an earlier uncommitted patch; mixed `target_file` and `edits` forms are submitted.",
+      "resolution": "Existing exact-anchor, original-blob and mutually exclusive input checks retained; deterministic test planning avoids invented edits."
+    },
+    {
+      "id": 17,
+      "finding": "Invented `test-branch/README.md` and guessed Android package path fail; stage failures have no typed error code.",
+      "resolution": "Added `IllegalArgumentException` classification for absent staged paths, yielding the existing `INVALID_ARGUMENTS` handling. Guidance explicitly says repository-relative paths, no branch prefix, discover the file and read its content. No path is silently rewritten."
+    },
+    {
+      "id": 18,
+      "finding": "Two attempted commits hit `DUPLICATE_ACTION`.",
+      "resolution": "Deduplication remains enforced. Added explicit pending-approval/receipt reconciliation guidance, including that changing a message is not a way to bypass the guard. Completed or uncertain writes are never automatically repeated."
+    },
+    {
+      "id": 19,
+      "finding": "A fabricated small `run_id=8` yields 404.",
+      "resolution": "Existing observed resource-ID recipes and 64-bit ID handling retained. Added continuation reads use actual returned run IDs; assistant diagnostics no longer initiate this unrelated CI path."
+    },
+    {
+      "id": 20,
+      "finding": "The same active-job logs request yields 404 in two runs.",
+      "resolution": "Existing completed-job selection, pending-log availability, bounded external redirect refresh and distinct not-found/permission handling retained. Added failure guidance distinguishes pending logs from a genuine missing resource."
+    },
+    {
+      "id": 21,
+      "finding": "`github_watch_checks` combines PR #794 with the unrelated main SHA, then corrects it.",
+      "resolution": "Exact-head guard retained; new post-commit watcher uses matching returned run SHA and ID instead of guessing a PR."
+    },
+    {
+      "id": 22,
+      "finding": "`github_read` mixes a saved cursor with changed ranges; the same invalid call repeats.",
+      "resolution": "Existing exact cursor/context validation and cached preflight rejection retained. Deterministic pagination uses issued recipes unchanged. Mismatched selectors are never silently stripped to grant a different read."
+    },
+    {
+      "id": 23,
+      "finding": "Workflow dispatch puts workflow identity and inputs inside nested `inputs`, omitting top-level `workflow_id` and `ref`.",
+      "resolution": "Existing action-specific schema rejects before dispatch. Fixture runner requires operation-specific authorization and discovered workflow identity; no arbitrary workflow is launched to improve a test score."
+    },
+    {
+      "id": 24,
+      "finding": "Mutation fixture cleanup remains untested; arbitrary test content was staged and a later commit approved.",
+      "resolution": "Existing owned-fixture lifecycle and cleanup proof retained. This repair does not delete the user's `test-branch` or undo the separately approved commit. Changed/unowned fixtures are explicit blockers."
+    },
+    {
+      "id": 25,
+      "finding": "Reports misattribute all operations to `test-branch`, label PR state `open` as check state, and omit earlier coverage.",
+      "resolution": "Existing typed resource/field provenance, workspace-versus-resource branch/SHA and cumulative coverage retained. Added approval continuation now loads that cumulative ledger."
+    },
+    {
+      "id": 26,
+      "finding": "Reports leave 8 and 12 continuation handles unread, including workflows 5/41.",
+      "resolution": "Existing local/remote cursor separation, representative-first reads, bounded pagination and explicit incomplete/stalled status retained. Partial sampling is not exhaustive inventory coverage."
+    },
+    {
+      "id": 27,
+      "finding": "Long repeated tables and fallback reports obscure the direct answer and unfinished work.",
+      "resolution": "Existing receipt-derived reports, unchanged-progress detection and bounded table composition retained. New historical diagnostic and review-failure explanations are short and direct."
+    },
+    {
+      "id": 28,
+      "finding": "All 59 invocations lack final observed input/output token totals; aggregate counters are estimates/reservations. Context estimates increase across continuation.",
+      "resolution": "Existing immutable estimate/interim/final accounting and unknown-cost labeling retained. Deterministic diagnostics, status, integration planning and approval continuation avoid unnecessary planning/reviewer calls. No measured token saving is claimed."
+    },
+    {
+      "id": 29,
+      "finding": "Repeated `PERSONAL_DATA_LOCAL_ONLY` notices look like a blanket GitHub outage even though GitHub calls run.",
+      "resolution": "Added affected-tool name to the notice. Existing same-connection repository-memory isolation retained. Local-only content is not sent to unrelated external services and permission boundaries are not relaxed."
+    },
+    {
+      "id": 30,
+      "finding": "Hundreds of repeated missing/recovering MCP catalog entries crowd recent diagnostics.",
+      "resolution": "Added bounded per-connection change tracking: one summary with count and at most 16 sanitized names per changed omission set/reason. Recovery clears the state so a later outage is logged again."
+    },
+    {
+      "id": 31,
+      "finding": "Native feedback manager disables feedback tensors because the model does not expose one inference signature.",
+      "resolution": "This is a runtime capability warning, not evidence of a crash or failed inference. No unsupported feedback feature is forced on. Requires runtime/model inspection on the device if that optional feature is needed."
+    },
+    {
+      "id": 32,
+      "finding": "Capture completeness is unknown, semantic coverage is unverified and one display-order reconciliation is recorded.",
+      "resolution": "All manifest digests verified; no journal gaps or clock discontinuities are reported. Original capture order and explicit completeness metadata are retained. Absence from the capture is not proof that something never happened."
+    }
+  ]
+}

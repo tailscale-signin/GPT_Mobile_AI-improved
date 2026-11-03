@@ -733,6 +733,10 @@ class GitHubPersistentEvidenceTest {
         assertTrue(runCatching { client.execute("stage_patch", "owner", "repo", patch("duplicate")) }.isFailure)
         assertTrue(runCatching { client.execute("stage_patch", "owner", "repo", JsonObject(patch("41") + ("edits" to JsonArray(emptyList())))) }.isFailure)
         assertTrue(runCatching { client.execute("stage_patch", "owner", "repo", JsonObject(patch("41") + ("branch" to JsonPrimitive("other")))) }.isFailure)
+        val absent = runCatching { client.execute("stage_patch", "owner", "repo", JsonObject(patch("41") + ("target_file" to JsonPrimitive("work/A.kt")))) }.exceptionOrNull()
+        assertTrue(absent is IllegalArgumentException)
+        assertTrue(absent?.message.orEmpty().contains("repository-relative"))
+        assertEquals(1, blobReads)
         assertEquals(0, writes)
     }
 

@@ -95,8 +95,11 @@ internal class GitHubReviewedSession(
             evidence.retainCandidate(saved.draft)
             val latest = evidence.snapshot()
             if (saved.blockedReason != null && latest.all { it in saved.receipts }) {
-                emit(ProviderEvent.Failed("Saved review requires new evidence or a changed draft: ${saved.blockedReason}", errorCode = "GITHUB_REVIEW_BLOCKED", transportComplete = true))
-                return@flow
+                if (saved.blockedReason != "GITHUB_REVIEW_INVALID_VERDICT" || checkpoint?.claimFormatRetry() != true) {
+                    emit(ProviderEvent.Failed("Saved review requires new evidence or a changed draft: ${saved.blockedReason}", errorCode = "GITHUB_REVIEW_BLOCKED", transportComplete = true))
+                    return@flow
+                }
+                progress("Retrying the saved review format once; no GitHub operations will repeat")
             }
             progress("Resuming the saved review; completed GitHub operations are retained")
             publishReviewed(saved.draft, (saved.receipts + latest).distinct()).collect { emit(it) }
@@ -195,7 +198,11 @@ internal class GitHubReviewedSession(
             }
             val blocked = failure !is ReviewPassFailure || failure.splittable
             checkpoint?.failed(code, blocked)
-            val recovery = if (blocked) "Retained facts remain available; the unchanged draft will not be reviewed again." else "Retry can resume saved verdicts after model availability recovers."
+            val recovery = when {
+                failure is ReviewVerdictFailure -> "Retained facts remain available. One explicit retry may resume format recovery; repeated invalid verdicts require a changed draft or new evidence."
+                blocked -> "Retained facts remain available; the unchanged draft will not be reviewed again."
+                else -> "Retry can resume saved verdicts after model availability recovers."
+            }
             emit(ProviderEvent.Failed("GitHub answer withheld: ${failure.message.orEmpty().take(1200)} $recovery", errorCode = code, transportComplete = true))
         }
     }
@@ -320,12 +327,14 @@ internal class GitHubReviewedSession(
         var request = prompt
         repeat(2) { attempt ->
             val value = collectPass(request, kind, 32_768)
+            var formatError = ""
             val parsed = try {
                 verdict(value, ids)
             } catch (cancelled: CancellationException) {
                 throw cancelled
-            } catch (_: Exception) {
+            } catch (failure: Exception) {
                 if (attempt == 1) throw ReviewVerdictFailure("The reviewer did not return a valid verdict after one format repair.")
+                formatError = failure.message.orEmpty().take(240)
                 null
             }
             if (parsed != null) {
@@ -340,6 +349,7 @@ internal class GitHubReviewedSession(
                     "format_repair" to buildJsonObject {
                         put("required_format", "Return one JSON object with approved, reviewed_ids, issues and verified_claims. No prose or fences.")
                         put("expected_reviewed_ids", JsonArray(ids.map(::JsonPrimitive)))
+                        put("validation_error", formatError)
                     }
                     )
             ).toString()
@@ -395,10 +405,11 @@ internal class GitHubReviewedSession(
     }
 
     private fun verdict(text: String, ids: List<String>): Verdict {
-        val root = Json.parseToJsonElement(text.trim()) as? JsonObject ?: error("The review did not return a structured verdict.")
-        val checked = (root["reviewed_ids"] as? JsonArray)?.map { (it as? JsonPrimitive)?.contentOrNull ?: error("Invalid reviewed result identity.") } ?: error("Review coverage is missing.")
+        val root = GitHubReviewSchema.parseVerdict(text)
+        check(root.keys == setOf("approved", "reviewed_ids", "issues", "verified_claims")) { "Review fields do not match the verdict schema." }
+        val checked = (root["reviewed_ids"] as? JsonArray)?.map { (it as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull ?: error("Invalid reviewed result identity.") } ?: error("Review coverage is missing.")
         check(checked.size == ids.size && checked.toSet() == ids.toSet()) { "The review did not cover every supplied result." }
-        val approved = (root["approved"] as? JsonPrimitive)?.booleanOrNull ?: error("Review approval is missing.")
+        val approved = (root["approved"] as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull ?: error("Review approval must be a boolean.")
         fun strings(key: String): List<String> = (root[key] as? JsonArray)?.map { (it as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull?.takeIf { value -> value.length <= 1000 } ?: error("Invalid review findings.") }?.takeIf { it.size <= 8 } ?: error("Review findings are missing or exceed the limit.")
         val issues = strings("issues")
         val claims = strings("verified_claims")

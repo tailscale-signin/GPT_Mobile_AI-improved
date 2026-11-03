@@ -33,12 +33,14 @@ internal class GitHubVerifiedSession(
     private val computationDispatcher: CoroutineDispatcher = Dispatchers.Default,
     private val privateReviewCandidate: () -> String? = { null },
     private val authorizedTools: List<AgentToolDefinition> = emptyList(),
-    private val lifecycle: (dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind) -> Unit = {}
+    private val lifecycle: (dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind) -> Unit = {},
+    private val resumeCommitSha: String? = null,
+    private val resumeRequestKey: String = task
 ) : AgentProviderSession by delegate {
     private var lastChecklist: JsonObject? = null
 
     override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> = flow {
-        val intent = dev.chungjungsoo.gptmobile.data.agent.CurrentRequestContract.from(task)
+        val intent = dev.chungjungsoo.gptmobile.data.agent.CurrentRequestContract.from(GitHubTaskContinuity.request(task))
         if (intent.conversational) {
             emit(ProviderEvent.TextDelta(intent.acknowledgement()))
             emit(ProviderEvent.Completed)
@@ -51,6 +53,14 @@ internal class GitHubVerifiedSession(
             emit(ProviderEvent.TextDelta(GitHubTaskContinuity.explain(evidence.diagnostic(), receipts)))
             emit(ProviderEvent.Completed)
             return@flow
+        }
+        resumeCommitSha?.let { sha ->
+            GitHubCommitContinuation.next(sha, resumeRequestKey, tools, evidence.snapshot().first)?.let { call ->
+                progress("Reconciling the approved commit and its checks; completed writes are retained")
+                emit(call)
+                emit(ProviderEvent.Completed)
+                return@flow
+            }
         }
         if (GitHubTestChecklist.integration(task) && (tools.isNotEmpty() || evidence.snapshot().first.values.any { it["trusted"] == kotlinx.serialization.json.JsonPrimitive(true) })) {
             val receipts = evidence.snapshot().first
@@ -174,6 +184,15 @@ internal class GitHubVerifiedSession(
             if (receipts.values.none { it["trusted"] == kotlinx.serialization.json.JsonPrimitive(true) }) {
                 // No GitHub work was observed. A provider denial is a failed request,
                 // not partial task verification, and must retain its recovery metadata.
+                if (failure.errorCode?.startsWith("GITHUB_REVIEW_") == true) {
+                    validatePublication()
+                    emit(
+                        ProviderEvent.TextDelta(
+                            "The answer review could not finish. The draft remains unverified, and no GitHub completion is claimed. " +
+                                "Saved operations are retained. Retry resumes only the bounded review recovery; it does not repeat a commit.\n\nRecorded failure: `${failure.errorCode}`."
+                        )
+                    )
+                }
                 emit(failure)
             } else {
                 emitAll(publish(null, failureCode = failure.errorCode, originalFailure = failure))

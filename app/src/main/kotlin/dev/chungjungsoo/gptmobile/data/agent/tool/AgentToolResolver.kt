@@ -904,7 +904,7 @@ class AgentToolResolver @Inject constructor(
                 val rejection = if (external) personalContext?.externalToolRejection(consentPlatform, id) else null
                 if (rejection != null) {
                     dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("ToolCatalog", "TOOL_AUTHORIZATION_HIDDEN · tool=${resolved.modelToolName} · reason=${rejection.code} · state=PRECHECK_REJECTED · dispatched=false")
-                    onConnectionError(rejection.message.orEmpty())
+                    onConnectionError("${resolved.modelToolName}: ${rejection.message.orEmpty()}")
                     if (chatToolConfig?.github != null && (resolved.nativeGitHub || resolved.connectionUid == chatToolConfig.github.connectionUid)) throw rejection
                     return@mapNotNull null
                 }
@@ -1458,6 +1458,8 @@ class AgentToolResolver @Inject constructor(
         return tool.resolved(actualConnection.connectionUid, actualConnection.name, WEB_SEARCH_TOOL)
     }
 
+    private val catalogOmissions = McpCatalogOmissions()
+
     private suspend fun resolveMcpTools(
         connection: ToolConnection,
         bindings: List<AgentToolBindingWithConnection>,
@@ -1469,8 +1471,11 @@ class AgentToolResolver @Inject constructor(
     ): List<ResolvedAgentTool> {
         val selectedNames = bindings.map { it.binding.toolName }.toSet()
         val remoteTools = if (cachedOnly) mcpClientManager.peekToolsForConnection(connection.connectionUid, connection.endpointUrl, connection.allowCleartext).orEmpty() else discoverMcpTools(connection)
-        (selectedNames - remoteTools.map { it.name }.toSet()).forEach { name ->
-            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("ToolCatalog", "TOOL_OMITTED · stage=resolution · connection=${connection.connectionUid} · name=$name · reason=${if (cachedOnly) "CATALOG_DISCOVERY_PENDING_OR_RECOVERING" else "REMOTE_TOOL_NOT_LISTED"}")
+        val missing = selectedNames - remoteTools.map { it.name }.toSet()
+        val reason = if (cachedOnly) "CATALOG_DISCOVERY_PENDING_OR_RECOVERING" else "REMOTE_TOOL_NOT_LISTED"
+        if (catalogOmissions.changed(connection.connectionUid, missing, reason)) {
+            val names = missing.sorted().take(16).joinToString(",") { it.replace(Regex("[^A-Za-z0-9_.:-]"), "_").take(80) }
+            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("ToolCatalog", "TOOLS_OMITTED · stage=resolution · connection=${connection.connectionUid} · count=${missing.size} · names=$names · namesTruncated=${missing.size > 16} · reason=$reason")
         }
         val janNafta = AmazonJanNaftaTool.recognizes(connection, remoteTools.map { it.name }.toSet())
         return remoteTools

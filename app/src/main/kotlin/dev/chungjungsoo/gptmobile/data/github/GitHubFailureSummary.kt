@@ -17,6 +17,9 @@ internal object GitHubFailureSummary {
                     "SAVED_VIEW_UNAVAILABLE" -> "Reopen the immutable source using its retained source-recovery call."
                     "SAVED_VIEW_WRONG_OPERATION", "SAVED_VIEW_CURSOR_ALTERED" -> "Use the exact issued correction call and originating tool."
                     "INVALID_ARGUMENTS" -> "Discover exact paths and validate executable arguments; omit recovery envelopes."
+                    "DUPLICATE_ACTION" -> "Inspect the pending approval or saved mutation receipt. Reconcile unknown outcomes; do not repeat the write or change its message to bypass deduplication."
+                    "WORKING_BRANCH_REQUIRED" -> "Select an authorized working branch, resolve its head and restage against its observed content."
+                    "GITHUB_NOT_FOUND_OR_HIDDEN", "GITHUB_NOT_FOUND_OR_INACCESSIBLE" -> "Verify the observed resource ID and access once. Active-job logs remain pending; do not invent IDs or blindly retry a 404."
                     "BUDGET_EXHAUSTED" -> "Resume unfinished work with a fresh bounded allowance; preserve completed receipts."
                     else -> "Inspect the retained error receipt and correct its cause before retrying."
                 }

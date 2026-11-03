@@ -25,6 +25,115 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubReviewedSessionTest {
+    @Test fun singleJsonFenceIsAcceptedButProseAndMissingCoverageStillFail() = runBlocking {
+        for (wrapper in listOf<(String) -> String>({ "```json\n$it\n```" }, { "```\n$it\n```" })) {
+            val output = GitHubReviewedSession(
+                answer(),
+                GitHubReviewEvidence().also { receipt(it) },
+                "task",
+                8192,
+                { prompt, _ -> answer(wrapper(verdict(prompt))) },
+                {}
+            ).streamRound(emptyList(), emptyList()).toList()
+            assertEquals(ProviderEvent.Completed, output.last())
+        }
+        for (bad in listOf("approved", "Before\n{\"approved\":true}", "{\"approved\":true}\n{}", "```json\n{}\n```", """{"approved":"true","reviewed_ids":[],"issues":[],"verified_claims":[]}""")) {
+            val output = GitHubReviewedSession(
+                answer(),
+                GitHubReviewEvidence(),
+                "task",
+                8192,
+                { _, _ -> answer(bad) },
+                {}
+            ).streamRound(emptyList(), emptyList()).toList()
+            assertTrue(output.none { it is ProviderEvent.TextDelta })
+            assertEquals("GITHUB_REVIEW_INVALID_VERDICT", output.filterIsInstance<ProviderEvent.Failed>().last().errorCode)
+        }
+    }
+
+    @Test fun explicitFormatRetryResumesSavedCandidateWithoutRepeatingGeneration() = runBlocking {
+        val rows = mutableMapOf<String, JsonObject>()
+        fun checkpoint() = GitHubReviewCheckpoint("task", { rows[it] }, { key, value -> rows[key] = value })
+        var generated = 0
+        var reviews = 0
+        var valid = false
+        fun gate() = GitHubReviewedSession(
+            object : AgentProviderSession {
+                override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> = kotlinx.coroutines.flow.flow {
+                    generated++
+                    emit(ProviderEvent.TextDelta("Retained answer"))
+                    emit(ProviderEvent.Completed)
+                }
+            },
+            GitHubReviewEvidence(),
+            "task",
+            8192,
+            { prompt, _ ->
+                reviews++
+                answer(if (valid) verdict(prompt) else "not JSON")
+            },
+            {},
+            checkpoint = checkpoint()
+        )
+        assertEquals("GITHUB_REVIEW_INVALID_VERDICT", gate().streamRound(emptyList(), emptyList()).toList().filterIsInstance<ProviderEvent.Failed>().last().errorCode)
+        valid = true
+        val resumed = gate().streamRound(emptyList(), emptyList()).toList()
+        assertEquals(listOf("Retained answer"), resumed.filterIsInstance<ProviderEvent.TextDelta>().map { it.text })
+        assertEquals(1, generated)
+        assertEquals(3, reviews)
+        assertEquals(null, checkpoint().load())
+    }
+
+    @Test fun malformedReviewRetryBudgetSurvivesRestartAndCannotLoop() = runBlocking {
+        val rows = mutableMapOf<String, JsonObject>()
+        var generation = 0
+        var reviews = 0
+        repeat(3) { index ->
+            val checkpoint = GitHubReviewCheckpoint("task", { rows[it] }, { key, value -> rows[key] = value })
+            val gate = GitHubReviewedSession(
+                object : AgentProviderSession {
+                    override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> = kotlinx.coroutines.flow.flow {
+                        generation++
+                        emit(ProviderEvent.TextDelta("Saved"))
+                        emit(ProviderEvent.Completed)
+                    }
+                },
+                GitHubReviewEvidence(),
+                "task",
+                8192,
+                { _, _ ->
+                    reviews++
+                    answer("bad format")
+                },
+                {},
+                checkpoint = checkpoint
+            )
+            val result = gate.streamRound(emptyList(), emptyList()).toList()
+            assertTrue(result.none { it is ProviderEvent.TextDelta })
+            assertEquals(if (index < 2) "GITHUB_REVIEW_INVALID_VERDICT" else "GITHUB_REVIEW_BLOCKED", result.filterIsInstance<ProviderEvent.Failed>().last().errorCode)
+        }
+        assertEquals(1, generation)
+        assertEquals(4, reviews)
+    }
+
+    @Test fun semanticRejectionCannotUseFormatRetry() = runBlocking {
+        val rows = mutableMapOf<String, JsonObject>()
+        val checkpoint = GitHubReviewCheckpoint("task", { rows[it] }, { key, value -> rows[key] = value })
+        checkpoint.save("Unsupported draft", emptyList())
+        checkpoint.failed("GITHUB_REVIEW_REQUIRED")
+        assertFalse(checkpoint.claimFormatRetry())
+        val result = GitHubReviewedSession(
+            answer(),
+            GitHubReviewEvidence(),
+            "task",
+            8192,
+            { _, _ -> error("Rejected claims need changed evidence") },
+            {},
+            checkpoint = checkpoint
+        ).streamRound(emptyList(), emptyList()).toList()
+        assertEquals("GITHUB_REVIEW_BLOCKED", result.filterIsInstance<ProviderEvent.Failed>().last().errorCode)
+    }
+
     @Test fun transientProviderFailureKeepsItsIdentityForRunnerRecovery() = runBlocking {
         val failure = ProviderEvent.Failed("Connection reset", errorCode = "NETWORK_ERROR")
         val source = object : AgentProviderSession {

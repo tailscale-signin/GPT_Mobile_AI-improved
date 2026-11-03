@@ -156,7 +156,7 @@ import dev.chungjungsoo.gptmobile.presentation.common.hasGlassBackdrop
 import dev.chungjungsoo.gptmobile.util.isAssistantErrorMessage
 import java.io.File
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
@@ -459,6 +459,8 @@ private fun ChatScreenContent(
     var anchoredPromptKey by rememberSaveable(chatRoom.id) { mutableStateOf<String?>(null) }
     var promptAttached by rememberSaveable(chatRoom.id) { mutableStateOf(true) }
     var promptAnchorRevision by remember(chatRoom.id) { mutableIntStateOf(0) }
+    var githubBottomFollow by rememberSaveable(chatRoom.id) { mutableStateOf(false) }
+    var promptPositioning by remember(chatRoom.id) { mutableStateOf(false) }
     val promptDensity = LocalDensity.current
     val promptAnchor = remember(chatRoom.id, promptDensity.density) { GitHubPromptAnchor(with(promptDensity) { 64.dp.toPx() }, with(promptDensity) { 32.dp.toPx() }).apply { if (!promptAttached) detach() } }
     val githubPromptMode = chatToolConfig.github != null && anchoredPromptKey != null
@@ -468,9 +470,11 @@ private fun ChatScreenContent(
             anchoredPromptKey = newestPromptKey
             promptAttached = true
             promptAnchor.attach()
+            githubBottomFollow = false
             promptAnchorRevision++
             isFollowingBottom = false
             isHoldingEntryCenter = false
+            isModelTabPositionLocked = false
         }
         observedPromptKey = newestPromptKey
         promptTrackingReady = true
@@ -655,7 +659,7 @@ private fun ChatScreenContent(
 
     LaunchedEffect(groupedMessages.userMessages.size) {
         val currentCount = groupedMessages.userMessages.size
-        if (currentCount > previousMessageCount && entryPositioned) {
+        if (currentCount > previousMessageCount && entryPositioned && chatToolConfig.github == null) {
             isHoldingEntryCenter = false
             isModelTabPositionLocked = false
             isFollowingBottom = true
@@ -696,24 +700,45 @@ private fun ChatScreenContent(
 
     LaunchedEffect(anchoredPromptKey, promptAnchorRevision, entryPositioned, latestTurnItem) {
         if (githubPromptMode && entryPositioned && promptAttached && anchoredPromptKey == newestPromptKey) {
-            listState.scrollToConversationEntry(latestTurnItem)
+            promptPositioning = true
+            try {
+                listState.animateToGitHubPrompt(latestTurnItem)
+            } finally {
+                promptPositioning = false
+            }
         }
     }
     val promptModeState by androidx.compose.runtime.rememberUpdatedState(githubPromptMode)
     val promptItemState by androidx.compose.runtime.rememberUpdatedState(latestTurnItem)
     val promptConnection = remember(listState, promptAnchor, minimumFlingVelocity) {
         object : NestedScrollConnection {
+            private var movingTowardBottom = false
+
             override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
                 if (!promptModeState) return Offset.Zero
                 val item = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == promptItemState }
                 val distance = item?.offset?.let { -it.toFloat() } ?: if (listState.firstVisibleItemIndex > promptItemState) Float.MAX_VALUE else 0f
+                if (source == NestedScrollSource.UserInput && available.y != 0f) {
+                    movingTowardBottom = available.y < 0f
+                    if (available.y > 0f) githubBottomFollow = false
+                }
                 val movement = promptAnchor.move(available.y, distance, source == NestedScrollSource.UserInput)
                 promptAttached = promptAnchor.attached
                 if (movement.reattach) {
                     isFollowingBottom = false
+                    githubBottomFollow = false
                     promptAnchorRevision++
                 }
                 return Offset(0f, movement.consumed)
+            }
+
+            override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
+                if (promptModeState && movingTowardBottom && !promptPositioning && !listState.canScrollForward) {
+                    githubBottomFollow = true
+                    promptAnchor.attach()
+                    promptAttached = true
+                }
+                return Offset.Zero
             }
 
             override suspend fun onPreFling(available: androidx.compose.ui.unit.Velocity): androidx.compose.ui.unit.Velocity {
@@ -722,6 +747,7 @@ private fun ChatScreenContent(
                 promptAttached = promptAnchor.attached
                 if (movement.reattach) {
                     isFollowingBottom = false
+                    githubBottomFollow = false
                     promptAnchorRevision++
                 }
                 return androidx.compose.ui.unit.Velocity(0f, movement.consumed)
@@ -731,13 +757,13 @@ private fun ChatScreenContent(
 
     ChatBottomAutoScroller(
         listState = listState,
-        animate = !isIdle,
-        isEnabled = !githubPromptMode &&
-            featureSettings.smoothStreaming &&
+        animate = chatToolConfig.github != null || !isIdle,
+        isEnabled = !promptPositioning &&
+            (if (githubPromptMode) githubBottomFollow else featureSettings.smoothStreaming) &&
             entryPositioned &&
             !isModelTabPositionLocked &&
             shouldAutoScrollToBottom(
-                isFollowing = isFollowingBottom,
+                isFollowing = if (githubPromptMode) githubBottomFollow else isFollowingBottom,
                 isUserDragging = isUserDragging,
                 isScrollInProgress = listState.isScrollInProgress,
                 isScrollingAway = listState.lastScrolledBackward
@@ -846,6 +872,12 @@ private fun ChatScreenContent(
                 ) { visibleIndex, message ->
                     val index = firstVisibleTurn + visibleIndex
                     ChatMessagePair(
+                        githubProgress = {
+                            if (chatToolConfig.github != null) {
+                                val active = groupedMessages.assistantMessages.getOrNull(index)?.lastOrNull { it.currentRunId in activeAgentRuns }
+                                if (active != null) GitHubLiveProgressCard(active.effectiveTimeline(), message.content, active.currentRunId?.let(toolEventsByRun::get).orEmpty())
+                            }
+                        },
                         reservedTurnHeight = if (githubPromptMode && index == lastMessageIndex) (with(density) { listState.layoutInfo.viewportSize.height.toDp() } - composerHeight - 16.dp - innerPadding.calculateTopPadding()).coerceAtLeast(0.dp) else 0.dp,
                         replyRevision = pendingReplies.hashCode().toLong(),
                         replyVisible = listState.layoutInfo.visibleItemsInfo.any { it.key == chatMessagePairKey(message, index) },
@@ -996,14 +1028,6 @@ private fun ChatScreenContent(
                 }
                 if (chatToolConfig.github != null) {
                     val activeMessage = groupedMessages.assistantMessages.flatten().lastOrNull { it.currentRunId in activeAgentRuns }
-                    if (activeMessage != null) {
-                        item(key = "github-live-progress") {
-                            val timeline = activeMessage.effectiveTimeline()
-                            val taskId = activeMessage.currentRunId?.let(agentRunsById::get)?.userMessageId
-                            val task = groupedMessages.userMessages.firstOrNull { it.id == taskId }?.content ?: groupedMessages.userMessages.lastOrNull()?.content.orEmpty()
-                            GitHubLiveProgressCard(timeline, task, activeMessage.currentRunId?.let(toolEventsByRun::get).orEmpty())
-                        }
-                    }
                     chatToolConfig.github?.let { github ->
                         if (!chatRoom.isTemporary) item(key = "repository-graph") { RepositoryGraphPanel(github, appAllPlatforms.firstOrNull { it.uid == github.mainProfileUid }) }
                         item(key = "gateway-engineering-jobs") { GatewayEngineeringPanel(chatRoom.id, github, appAllPlatforms.firstOrNull { it.uid == github.mainProfileUid }, debugMode = debugMode) }
@@ -1024,7 +1048,7 @@ private fun ChatScreenContent(
                 }
             }
 
-            if (githubPromptMode && !promptAttached || !githubPromptMode && !isFollowingBottom && listState.canScrollForward) {
+            if (githubPromptMode && (!promptAttached || !githubBottomFollow && listState.canScrollForward) || !githubPromptMode && !isFollowingBottom && listState.canScrollForward) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -1039,8 +1063,8 @@ private fun ChatScreenContent(
                             if (githubPromptMode) {
                                 promptAnchor.attach()
                                 promptAttached = true
-                                promptAnchorRevision++
-                                listState.scrollToConversationEntry(latestTurnItem)
+                                githubBottomFollow = true
+                                listState.animateScrollToLatestChatMessage()
                             } else {
                                 listState.scrollToItem((listState.layoutInfo.totalItemsCount - 1).coerceAtLeast(0))
                                 isFollowingBottom = true
@@ -1367,6 +1391,7 @@ private fun ChatScreenContent(
 
 @Composable
 internal fun ChatMessagePair(
+    githubProgress: @Composable () -> Unit = {},
     reservedTurnHeight: Dp = 0.dp,
     replyRevision: Long,
     replyVisible: Boolean,
@@ -1597,6 +1622,7 @@ internal fun ChatMessagePair(
             }
         }
 
+        githubProgress()
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -1917,7 +1943,7 @@ internal fun ChatBottomAutoScroller(
             // The final item is a fixed-height bottom anchor. Follow growth in
             // measured message rows too, without reacting to their scroll offsets.
             info.totalItemsCount to info.visibleItemsInfo.map { it.index to it.size }
-        }.distinctUntilChanged().collectLatest { (totalItems, _) ->
+        }.distinctUntilChanged().conflate().collect { (totalItems, _) ->
             kotlinx.coroutines.delay(32)
             val latestItemIndex = totalItems - 1
             if (latestItemIndex >= 0 && listState.canScrollForward) {

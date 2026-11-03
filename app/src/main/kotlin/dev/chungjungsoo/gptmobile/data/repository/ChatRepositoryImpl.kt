@@ -4117,6 +4117,22 @@ class ChatRepositoryImpl(
                     workspace?.saveProtectedSynthesisCheckpoint("github-evidence:$binding:$id", user.chatId, runId, value, appendOnly = true)
                     val preferences = settingRepository.getFeatureSettings().githubProfileOverrides[platform.uid] ?: dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride()
                     engineeringMemory?.observe(github, user.chatId, value, preferences)
+                    dev.chungjungsoo.gptmobile.data.github.GitHubBranchTransition.fromEvidence("${github.owner}/${github.repo}", value)?.let { destination ->
+                        dispatchAuthority.validate()
+                        check(validateSavedEvidence()) { "Saved GitHub task access changed" }
+                        val destinationScope = "${user.chatId}:${platform.uid}:${github.connectionUid}:$identity:${github.owner}/${github.repo}:${destination.branch}"
+                        workspace?.saveProtectedSynthesisCheckpoint(
+                            "github-active-task:" + dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook.digest(destinationScope),
+                            user.chatId,
+                            runId,
+                            buildJsonObject {
+                                put("task", githubEffectiveTask)
+                                put("binding", binding)
+                                put("authorization_revision", dispatchAuthority.revision)
+                                put("transition_receipt", id)
+                            }
+                        )
+                    }
                 }
             ).also {
                 it.restore()

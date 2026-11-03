@@ -97,35 +97,19 @@ internal fun GitHubDecisionCard(decision: GitHubChatDecision, waiting: Boolean, 
 
 @Composable
 internal fun GitHubLiveProgressCard(timeline: List<dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem>, task: String = "", events: List<dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent> = emptyList()) {
-    // Also clean retained timelines exported or saved by older versions.
-    var previousPreview: String? = null
-    var previousSummary: String? = null
-    val lines = timeline.filter { it.progressCheckpoint && it.content.isNotBlank() }.filter { item ->
-        if (item.statusSummary) {
-            val keep = previousSummary != item.content
-            previousSummary = item.content
-            keep
-        } else {
-            val key = dev.chungjungsoo.gptmobile.data.github.GitHubProgressPresentation.lineKey(item.content)
-            val keep = key != previousPreview
-            previousPreview = key
-            keep
-        }
-    }
+    val lines = remember(timeline, task) { gitHubActivityLines(timeline, task) }
     val search = remember(events) { gitHubSearchActivity(events) }
     val compact = remember(task) { dev.chungjungsoo.gptmobile.data.github.GitHubTestChecklist.integration(task) }
     var expanded by remember(task) { mutableStateOf(false) }
-    val firstVisible = if (compact && !expanded) (lines.size - 3).coerceAtLeast(0) else 0
-    val latestPreview = lines.lastIndex.takeIf { it >= 0 && !lines[it].statusSummary } ?: -1
+    val visibleLines = gitHubVisibleActivityLines(lines, compact && !expanded)
+    val latestPreview = visibleLines.lastIndex.takeIf { it >= 0 && !visibleLines[it].statusSummary } ?: -1
     val motion = rememberGitHubProgressMotion(latestPreview >= 0)
     Column(
         Modifier.fillMaxWidth().padding(horizontal = 28.dp, vertical = 8.dp).testTag("github_live_activity"),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        if (lines.none { it.statusSummary }) GitHubActivitySummary(dev.chungjungsoo.gptmobile.data.github.GitHubProgressPresentation.introduction(task))
         if (search != null && latestPreview < 0) GitHubActivityPreview("Searching websites", latest = true, motion = motion, search = search)
-        lines.drop(firstVisible).forEachIndexed { offset, item ->
-            val index = firstVisible + offset
+        visibleLines.forEachIndexed { index, item ->
             androidx.compose.runtime.key(item.progressId ?: index, item.statusSummary) {
                 if (item.statusSummary) {
                     GitHubActivitySummary(item.content)

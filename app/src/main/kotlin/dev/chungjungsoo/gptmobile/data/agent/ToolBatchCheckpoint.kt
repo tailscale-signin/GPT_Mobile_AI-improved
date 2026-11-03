@@ -86,7 +86,26 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String, 
         require(saved.entries.all { (id, entry) -> id.isNotBlank() && id == entry.call.id }) { "Tool recovery journal has inconsistent receipts." }
         require(saved.consumedCallIds.size <= 1024 && saved.consumedCallIds.all { saved.entries[it]?.result != null }) { "Tool recovery ledger has invalid consumed identities." }
         if (initialJob != null && saved.jobContext != null) {
-            require(initialJob.objective == saved.jobContext.objective && initialJob.repository == saved.jobContext.repository && initialJob.branch == saved.jobContext.branch) { "Saved engineering objective or destination changed; reconcile the previous job before starting another." }
+            require(initialJob.objective == saved.jobContext.objective && initialJob.repository == saved.jobContext.repository) { "Saved engineering objective or repository changed; reconcile the previous job before starting another." }
+            // Branch creation/selection can legitimately update the conversation during a run.
+            // Derive that transition from durable successful receipts, including older journals.
+            val destinationVerified = initialJob.branch == saved.jobContext.branch ||
+                saved.entries.values.any { entry ->
+                    val operation = entry.call.name.substringBefore("__")
+                    val action = (entry.call.arguments["action"] as? JsonPrimitive)?.content
+                    if (!(operation == "github_commit" && action == "branch" || operation == "github_context" && action == "resolve")) return@any false
+                    val result = entry.result ?: return@any false
+                    dev.chungjungsoo.gptmobile.data.github.GitHubBranchTransition.verified(
+                        initialJob.repository,
+                        entry.call.name,
+                        entry.call.arguments,
+                        runCatching { Json.parseToJsonElement(result.body) }.getOrNull(),
+                        !result.error && result.code == null
+                    )?.branch == initialJob.branch
+                }
+            require(destinationVerified) {
+                "Saved engineering destination changed without a verified branch-selection receipt; reconcile the previous job before starting another."
+            }
         }
         return if (saved.jobContext == null && initialJob != null) saved.copy(jobContext = initialJob) else saved
     }

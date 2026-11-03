@@ -1,0 +1,29 @@
+{
+  "schema": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "feat/github-graph-intelligence-2026-11-03",
+  "base_sha": "6ef54ecf39403da2892be78b5dba6c866f4b01e2",
+  "parent_pr": 791,
+  "working_branch": "fix/github-log-scroll-stability-2026-11-03",
+  "intent": "Fix export_Status_1793716534359.zip issues and implement smooth prompt anchoring, timed history release, summary-first progress and bottom streaming follow.",
+  "source": {
+    "version": "0.9.66.3",
+    "build": 137,
+    "commit": "9118a4ea9750f20de002a427423a3e997103ca36",
+    "runs": 5,
+    "tool_events": 60,
+    "journal_events": 628,
+    "diagnostic_events": 295,
+    "app_log_records": 500
+  },
+  "state": "IMPLEMENTED_PENDING_ANDROID_VALIDATION",
+  "implementation_ledger": "docs/implementation/github-log-scroll-stability-2026-11-03.md",
+  "validation": {
+    "canonical_fast": "PASSED: 297 tests; policy/dependency/secret/regex/resource/provenance/whitespace checks",
+    "portable_regressions": "PASSED: 27 production-logic tests; host adapters for Android AtomicFile and timeline DTO",
+    "android_ci": "pending",
+    "device_motion": "not measured",
+    "external_mcp_reachability": "not measured",
+    "changed_kotlin_format": "PASSED: ktlint 1.3.1"
+  }
+}

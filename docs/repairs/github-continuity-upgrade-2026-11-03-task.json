@@ -590,11 +590,12 @@
     },
     "gateway": {
       "status": "PASSED_WITH_SKIP",
-      "python_passed": 335,
+      "python_passed": 339,
       "python_skipped": 1,
       "javascript_passed": 7,
       "skip_reason": "No bindable LAN interface in the environment",
-      "command": "python3 gateway/check_gateway.py with the pinned requirements installed"
+      "command": "python3 gateway/check_gateway.py with the pinned requirements installed",
+      "regression_note": "Windows CI exposed socket-only selectors on subprocess pipes. A bounded reader thread now handles output on both platforms; 7 process-boundary regressions pass locally. Remote Windows verification is pending."
     },
     "authentication": {
       "status": "PASSED",

@@ -1,3 +1,5 @@
+import hashlib
+import io
 import os
 from pathlib import Path
 import sys
@@ -30,3 +32,33 @@ class IsolatedValidationTests(unittest.TestCase):
                 run_bounded([sys.executable, '-c', 'print("x" * 9000)'], directory, 5, maximum=100)
             with self.assertRaises(TimeoutError):
                 run_bounded([sys.executable, '-c', 'import time; time.sleep(10)'], directory, .1)
+
+    def test_large_output_keeps_only_tail_and_hashes_all_bytes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            receipt = run_bounded([sys.executable, '-c', 'import sys; sys.stdout.buffer.write(b"x" * 100000)'], directory, 10)
+        self.assertEqual(0, receipt['exit_code'])
+        self.assertEqual('x' * 16000, receipt['output_tail'])
+        self.assertEqual(hashlib.sha256(b'x' * 100000).hexdigest(), receipt['output_sha256'])
+
+    def test_destination_is_bounded_before_writing_and_captures_binary(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = io.BytesIO()
+            receipt = run_bounded([sys.executable, '-c', 'import sys; sys.stdout.buffer.write(bytes(range(256)))'], directory, 10, destination=output)
+            self.assertEqual(bytes(range(256)), output.getvalue())
+            self.assertEqual('', receipt['output_tail'])
+            self.assertEqual(hashlib.sha256(output.getvalue()).hexdigest(), receipt['output_sha256'])
+            output = io.BytesIO()
+            with self.assertRaises(ValueError):
+                run_bounded([sys.executable, '-c', 'import sys; sys.stdout.buffer.write(b"x" * 100000)'], directory, 10, maximum=1000, destination=output)
+            self.assertLessEqual(len(output.getvalue()), 1000)
+
+    def test_failure_exit_and_stderr_are_preserved(self):
+        with tempfile.TemporaryDirectory() as directory:
+            receipt = run_bounded([sys.executable, '-c', 'import sys; sys.stderr.write("failed"); sys.exit(7)'], directory, 10)
+        self.assertEqual(7, receipt['exit_code'])
+        self.assertEqual('failed', receipt['output_tail'])
+
+    def test_deadline_applies_after_output_pipe_is_closed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with self.assertRaises(TimeoutError):
+                run_bounded([sys.executable, '-c', 'import os, time; os.close(1); os.close(2); time.sleep(10)'], directory, .5)

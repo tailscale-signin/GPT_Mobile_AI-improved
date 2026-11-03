@@ -3,11 +3,12 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import queue
 import re
-import selectors
 import subprocess
 import tarfile
 import tempfile
+import threading
 import time
 
 
@@ -22,35 +23,69 @@ def run_bounded(argv, cwd, timeout, maximum=4 * 1024 * 1024, destination=None):
     digest = hashlib.sha256()
     process = subprocess.Popen(argv, cwd=cwd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                env={'PATH': os.defpath, 'HOME': str(cwd), 'LANG': 'C.UTF-8'})
-    selector = selectors.DefaultSelector()
-    selector.register(process.stdout, selectors.EVENT_READ)
-    try:
-        while selector.get_map():
-            if time.monotonic() - started > timeout:
-                raise TimeoutError('Approved validation command exceeded its deadline')
-            for key, _ in selector.select(.25):
-                block = os.read(key.fd, 8192)
+    # Windows selectors accept sockets, not subprocess pipes. A bounded reader
+    # also lets the deadline run while the child is silent or emits no newline.
+    blocks = queue.Queue(maxsize=2)
+    stopped = threading.Event()
+
+    def send(value):
+        while not stopped.is_set():
+            try:
+                blocks.put(value, timeout=.05)
+                return
+            except queue.Full:
+                pass
+
+    def read_output():
+        try:
+            while not stopped.is_set():
+                block = process.stdout.read1(8192)
+                send(block)
                 if not block:
-                    selector.unregister(key.fd)
-                else:
-                    if total + len(block) > maximum:
-                        raise ValueError('Validation output exceeded its byte budget')
-                    total += len(block)
-                    digest.update(block)
-                    if destination is not None:
-                        destination.write(block)
-                    else:
-                        output.extend(block)
-                        del output[:-16000]
-        code = process.wait(timeout=max(1, timeout - (time.monotonic() - started)))
+                    break
+        except Exception as failure:
+            send(failure)
+        finally:
+            process.stdout.close()
+
+    reader = threading.Thread(target=read_output, name='validation-output', daemon=True)
+    reader.start()
+    try:
+        while True:
+            remaining = timeout - (time.monotonic() - started)
+            if remaining <= 0:
+                raise TimeoutError('Approved validation command exceeded its deadline')
+            try:
+                block = blocks.get(timeout=min(.25, remaining))
+            except queue.Empty:
+                continue
+            if isinstance(block, Exception):
+                raise block
+            if not block:
+                break
+            if total + len(block) > maximum:
+                raise ValueError('Validation output exceeded its byte budget')
+            total += len(block)
+            digest.update(block)
+            if destination is not None:
+                destination.write(block)
+            else:
+                output.extend(block)
+                del output[:-16000]
+        try:
+            code = process.wait(timeout=max(0, timeout - (time.monotonic() - started)))
+        except subprocess.TimeoutExpired as failure:
+            raise TimeoutError('Approved validation command exceeded its deadline') from failure
         return {'exit_code': code, 'elapsed_ms': round((time.monotonic() - started) * 1000),
                 'output_sha256': digest.hexdigest(), 'output_tail': output[-16000:].decode('utf-8', 'replace')}
     finally:
-        selector.close()
+        stopped.set()
         if process.poll() is None:
             process.kill()
             process.wait(timeout=10)
-        process.stdout.close()
+        # The reader owns the pipe. Do not close it under a blocked read: an
+        # inherited pipe may stay open until container cleanup kills descendants.
+        reader.join(timeout=.25)
 
 
 def validate(job, changes):

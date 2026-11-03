@@ -14,7 +14,9 @@
     "Use the shared bounded Android pipeline for signed release packaging, retaining the existing memory ceilings, APK budgets, signing checks and artifact verification.",
     "Run signed-release validation in separate one-worker compilation, test and lint processes, and exercise the same validation on release-workflow PRs before merge.",
     "Select MockK's JVM test artifact explicitly, pin five publisher-verified Byte Buddy and MockK test artifacts and descriptors for cold resolution, and require canonical PR Validation to pass on the exact published commit.",
-    "Complete required release lint in a separate bounded process before APK packaging so cold lint analysis cannot retain the heap needed by Zipflinger; lint failures still block packaging."
+    "Complete required release lint in a separate bounded process before APK packaging so cold lint analysis cannot retain the heap needed by Zipflinger; lint failures still block packaging.",
+    "Add opt-in bounded repository graph search, calls, impact and revision-aware retrieval with encrypted caches; structural navigation does not claim compiler-resolved Kotlin/Java semantics.",
+    "Persist cumulative GitHub audit evidence, owned mutation-fixture results and usage observations, with Room schema 48 migration, bounded table rendering and speech-start ownership."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; its remaining acceptance cases are not represented as passed.",
@@ -39,7 +41,8 @@
     "Gateway publication requires an operator-provisioned GATEWAY_ENGINEERING_VALIDATION_POLICY with a local mirror, pinned Docker image and approved commands. Actual isolated Docker execution remains unqualified.",
     "Android webhook push, complete approval/activity history, unified model readiness, full mutation fixtures, attestation retrieval and remaining performance/accessibility work are partial.",
     "Voice speech services, GitHub prompt anchoring during physical gestures/IME/rotation, process death and reboot still require device acceptance. This release does not claim those cases passed.",
-    "The Android signed release does not install or publish a new Windows gateway package; Windows installer checks are tracked separately."
+    "The Android signed release does not install or publish a new Windows gateway package; Windows installer checks are tracked separately.",
+    "External Graphify execution, compiler-resolved navigation, and physical-device graph, speech and UI performance remain unqualified; host and emulator evidence does not establish those outcomes."
   ],
   "requiredWorkflows": [
     "PR Validation",
@@ -728,6 +731,33 @@
     "scripts/tests/test_sign_preview_apks.py",
     "scripts/validate-local.sh",
     "scripts/validate.sh",
-    "settings.gradle.kts"
+    "settings.gradle.kts",
+    "app/schemas/dev.chungjungsoo.gptmobile.data.database.ChatDatabaseV2/48.json",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProviderUsageAccounting.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolArgumentValidator.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/RepositoryGraphTool.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/PreparationReplayFence.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/database/ChatDatabaseV2.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/database/ChatDatabaseV2Migrations.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayGraphRepository.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubInspection.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSelfTestFixtures.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSelfTestReads.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/RepositoryGraphPanel.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/RepositoryGraphViewModel.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProtocolAndUsageRecoveryTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/database/ChatDatabaseV2MigrationsTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayGraphTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubStatusAuditRegressionTest.kt",
+    "docs/implementation/github-graph-intelligence-2026-11-03.md",
+    "docs/implementation/github-status-audit-2026-11-03.md",
+    "docs/repairs/github-status-audit-2026-11-03-task.json",
+    "docs/repairs/shared-branch-build-2026-11-03-task.json",
+    "gateway/tests/test_gateway_v14_code_graph.py",
+    "gateway/v14/code_graph/__init__.py",
+    "gateway/v14/code_graph/engine.py",
+    "gateway/v14/code_graph/extract.py",
+    "gateway/v14/code_graph/service.py",
+    "gateway/v14/code_graph/tools.py"
   ]
 }

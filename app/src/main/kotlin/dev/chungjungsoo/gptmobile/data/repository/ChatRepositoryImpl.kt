@@ -2423,11 +2423,15 @@ class ChatRepositoryImpl(
         }
     }.flowOn(Dispatchers.Default + rebuildFence).retryWhen { error, attempt ->
         val rebuild = rebuildFence.canRebuild(error, attempt)
-        if (rebuild) {
-            AppLogRecorder.record("Admission", "POLICY_REBUILD · run=$runId · attempt=1 · physicalDispatches=0")
-            emit(ApiState.Notice("Settings or memory changed during preparation. Updating the request."))
+        val durableChecklist = chatToolConfig?.github != null &&
+            dev.chungjungsoo.gptmobile.data.github.GitHubTestChecklist.integration(userMessages.lastOrNull()?.content.orEmpty()) &&
+            userMessages.lastOrNull()?.chatId?.let { agentPersistenceDao.getChatRoom(it)?.isTemporary == false } == true
+        val resume = rebuildFence.canResumeGitHubChecklist(error, attempt, durableChecklist)
+        if (rebuild || resume) {
+            AppLogRecorder.record("Admission", "POLICY_REBUILD · run=$runId · attempt=${attempt + 1} · mode=${if (resume) "CHECKLIST_RECONCILIATION" else "BEFORE_DISPATCH"} · changedFields=${(error as? dev.chungjungsoo.gptmobile.data.context.DispatchPolicyChangedException)?.fields.orEmpty().joinToString(",")}")
+            emit(ApiState.Notice(if (resume) "The tool catalog changed. Revalidating saved receipts and resuming unfinished checks." else "Settings or memory changed during preparation. Updating the request."))
         }
-        rebuild
+        rebuild || resume
     }.catch { error ->
         if (error is CancellationException || error is dev.chungjungsoo.gptmobile.data.research.ResearchProviderDeferred) throw error
         val classified = ErrorClassification.classify(error)
@@ -2809,10 +2813,11 @@ class ChatRepositoryImpl(
         var reviewedPreparationUnavailable = requiresReviewedPreparation && !localResearch
         var exposedTools = initialPrimaryTools(taskRoutedTools, searchPolicy, localResearch, processingOwnership, reviewedPreparationUnavailable || !supportsTools)
         recovery()?.takeIf { it.contentLength > 0 }?.let { recovery ->
+            val recoveryTool = taskRoutedTools.firstOrNull { it.realToolName == "read_recovery_context" }
             val inlineCharacters = ((limits.contextTokens.coerceAtMost(32_768) / 8).coerceAtLeast(64) * 3).coerceAtMost(6000)
             val minimalLocalRetry = platform.compatibleType == ClientType.LITERT_LM && taskRecovery?.action == dev.chungjungsoo.gptmobile.data.agent.TaskRecoveryAction.RETRY_FAILED_STAGE
             val answerContinuation = !synthesisRun && input.resumeDescriptor?.continuationPrefixDigest != null
-            val prefix = when (val access = recovery.authorizedPrefix(inlineCharacters, supportsTools, minimalRetry = minimalLocalRetry, answerContinuation = answerContinuation)) {
+            val prefix = when (val access = recovery.authorizedPrefix(inlineCharacters, supportsTools && recoveryTool != null, minimalRetry = minimalLocalRetry, answerContinuation = answerContinuation)) {
                 is dev.chungjungsoo.gptmobile.data.agent.RecoveryPrefix.Allowed -> access.text
                 is dev.chungjungsoo.gptmobile.data.agent.RecoveryPrefix.Blocked -> {
                     AppLogRecorder.record("Recovery", "BLOCKED_PERMISSION · run=$runId · phase=context", "W")
@@ -2825,7 +2830,6 @@ class ChatRepositoryImpl(
             }
             updateContextTurns(contextTurns)
             // Local saved-work reads stay available even when new research is disabled.
-            val recoveryTool = taskRoutedTools.firstOrNull { it.realToolName == "read_recovery_context" }
             if (recoveryTool != null && exposedTools.none { it.realToolName == recoveryTool.realToolName }) {
                 exposedTools = listOf(recoveryTool) + exposedTools
             }
@@ -4068,12 +4072,16 @@ class ChatRepositoryImpl(
         var githubEffectiveTask = latestUser?.content.orEmpty()
         val verifiedEvidence = githubContext?.let { github ->
             val user = requireNotNull(latestUser)
-            val identity = effectiveTools.firstNotNullOfOrNull { it.authorizationIdentity }.orEmpty()
-            val scope = dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook.digest("${user.chatId}:${platform.uid}:${github.connectionUid}:$identity:${github.owner}/${github.repo}:${github.ref}:${dispatchAuthority.revision}")
+            val identity = effectiveTools.filter { it.nativeGitHub && it.connectionUid == github.connectionUid }.firstNotNullOfOrNull { it.authorizationIdentity }.orEmpty()
+            val scopeIdentity = "${user.chatId}:${platform.uid}:${github.connectionUid}:$identity:${github.owner}/${github.repo}:${github.ref}"
+            // A catalog revision invalidates dispatch preparation, not historical task identity.
+            // Account/profile/repository boundaries and live authorization still gate every restore.
+            val scope = dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook.digest(scopeIdentity)
             val pointerKey = "github-active-task:$scope"
             dispatchAuthority.validate()
             check(validateSavedEvidence()) { "Saved GitHub task access changed" }
             val previous = workspace?.protectedSynthesisCheckpoint(pointerKey)
+                ?: workspace?.protectedSynthesisCheckpoint("github-active-task:" + dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook.digest("$scopeIdentity:${dispatchAuthority.revision}"))
             val previousTask = (previous?.get("task") as? kotlinx.serialization.json.JsonPrimitive)?.content.orEmpty()
             val reuse = identity.isNotBlank() && previous != null && dev.chungjungsoo.gptmobile.data.github.GitHubTaskContinuity.reuse(user.content, previousTask)
             val binding = if (reuse) (previous?.get("binding") as? kotlinx.serialization.json.JsonPrimitive)?.content.orEmpty() else dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook.digest("$turnKey:$scope")
@@ -4087,6 +4095,7 @@ class ChatRepositoryImpl(
                     buildJsonObject {
                         put("task", githubEffectiveTask)
                         put("binding", binding)
+                        put("authorization_revision", dispatchAuthority.revision)
                     }
                 )
             }
@@ -4095,6 +4104,7 @@ class ChatRepositoryImpl(
                 repository = "${github.owner}/${github.repo}",
                 branch = github.ref,
                 trustedTools = effectiveTools.filter { it.nativeGitHub }.mapTo(hashSetOf()) { it.modelToolName } + listOfNotNull(catalog?.definition?.name),
+                currentToolContracts = effectiveTools.filter { it.nativeGitHub }.associate { it.modelToolName to it.tool.definition.inputSchema },
                 load = { id -> workspace?.protectedSynthesisCheckpoint("github-evidence:$binding:$id") },
                 latestVerdict = {
                     workspace?.dao?.githubTaskEvidence(user.chatId, "github-evidence:$binding:verification_")?.lastOrNull()?.let { workspace?.protectedSynthesisCheckpoint(it.id) }
@@ -4108,7 +4118,10 @@ class ChatRepositoryImpl(
                     val preferences = settingRepository.getFeatureSettings().githubProfileOverrides[platform.uid] ?: dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride()
                     engineeringMemory?.observe(github, user.chatId, value, preferences)
                 }
-            ).also { it.restore() }
+            ).also {
+                it.restore()
+                it.retainPolicy(dispatchAuthority.revision, effectiveTools.filter { tool -> tool.nativeGitHub }.map { tool -> tool.tool.definition })
+            }
         }
         return githubEffectiveTask to verifiedEvidence
     }

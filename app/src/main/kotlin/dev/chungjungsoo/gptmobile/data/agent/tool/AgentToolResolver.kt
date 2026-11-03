@@ -95,7 +95,8 @@ class AgentToolResolver @Inject constructor(
     private val gitHubPublicAuth: dev.chungjungsoo.gptmobile.data.github.GitHubPublicAuthCoordinator? = null,
     private val gitHubCheckWatches: dev.chungjungsoo.gptmobile.data.github.GitHubCheckWatchRepository? = null,
     private val gitHubDecisions: dev.chungjungsoo.gptmobile.data.github.GitHubChatDecisions? = null,
-    private val gitHubDecisionNotifications: dev.chungjungsoo.gptmobile.data.github.GitHubDecisionNotifications? = null
+    private val gitHubDecisionNotifications: dev.chungjungsoo.gptmobile.data.github.GitHubDecisionNotifications? = null,
+    private val repositoryGraphs: dev.chungjungsoo.gptmobile.data.github.GatewayGraphRepository? = null
 ) {
     suspend fun warmSelectedCatalogues(profileUid: String, limit: Int = 4) {
         val features = settingRepository.getFeatureSettings()
@@ -1202,7 +1203,11 @@ class AgentToolResolver @Inject constructor(
         } else {
             listOf(base) + github.operations().map { operation ->
                 base.copy(tool = operation, realToolName = operation.operation, modelToolName = operation.definition.name, shareableReadOnly = operation.operation in setOf("github_read", "github_search"))
-            }
+            } + listOfNotNull(
+                github.graphTool()?.let { graph ->
+                    base.copy(tool = graph, realToolName = "repository_graph", modelToolName = graph.definition.name, shareableReadOnly = false, nativeGitHub = false)
+                }
+            )
         }
     }
 
@@ -1280,6 +1285,16 @@ class AgentToolResolver @Inject constructor(
             engineeringPrepare = engineeringPrepare,
             repositoryScope = workspaceContext,
             credentialAdmissionFailed = authorizationFailed,
+            graphQuery = if (!authorizationFailed &&
+                repositoryGraphs != null &&
+                workspaceContext != null &&
+                dev.chungjungsoo.gptmobile.data.github.GitHubAutonomousEngineeringPolicy.supportsSavedJobs(settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }) &&
+                userMessage?.chatId?.let { factVault?.scopeForChat(it)?.isTemporary != true } == true
+            ) {
+                { args -> repositoryGraphs.execute(workspaceContext, args) }
+            } else {
+                null
+            },
             watchChecks = if (actualConnection != null && userMessage != null && gitHubCheckWatches != null) {
                 { args -> gitHubCheckWatches.subscribe(actualConnection.connectionUid, profileUid, userMessage.chatId, args) }
             } else {

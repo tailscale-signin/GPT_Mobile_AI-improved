@@ -7,8 +7,14 @@ internal fun measuredUsageSource(source: String, phase: ProviderUsagePhase = Pro
 internal fun usageSourceAtPhase(source: String, phase: ProviderUsagePhase): String =
     if (phase == ProviderUsagePhase.FINAL || source in setOf("estimated", "unavailable") || source.endsWith("_interim") || source.endsWith("_initial")) source else "${source}_${phase.name.lowercase()}"
 
-/** Keeps measured final counts authoritative even when an earlier estimate was higher. */
+/** Separate provenance lanes prevent an estimate from becoming a provider-labelled count. */
 internal class ProviderUsageCounter {
+    data class Observation(val tokens: Long, val source: String, val phase: ProviderUsagePhase, val cumulative: Boolean)
+    private val history = ArrayDeque<Observation>()
+    var omittedObservations = 0L
+        private set
+    val observations: List<Observation> get() = history.toList()
+    private val lanes = linkedMapOf<Pair<String, ProviderUsagePhase>, Long>()
     var value: Long? = null
         private set
     var source: String = "unavailable"
@@ -18,27 +24,48 @@ internal class ProviderUsageCounter {
 
     fun accept(tokens: Int?, cumulative: Boolean, source: String, phase: ProviderUsagePhase) {
         if (tokens == null || tokens < 0) return
-        val next = tokens.toLong()
-        val old = value
-        val wasMeasured = measuredUsageSource(this.source, this.phase)
-        val nowMeasured = measuredUsageSource(source, phase)
-        if (old == null || cumulative && nowMeasured && !wasMeasured) {
-            value = next
-            this.source = usageSourceAtPhase(source, phase)
-            this.phase = phase
-        } else if (cumulative) {
-            if (wasMeasured && !nowMeasured) return
-            value = maxOf(old, next)
-            this.source = usageSourceAtPhase(source, phase)
-            this.phase = phase
-        } else {
-            value = (old + next).coerceAtMost(Int.MAX_VALUE.toLong())
-            this.source = when {
-                wasMeasured && nowMeasured && this.source == source -> source
-                wasMeasured && nowMeasured -> "mixed_reported"
-                else -> "estimated"
+        val label = usageSourceAtPhase(source, phase)
+        val observation = Observation(tokens.toLong(), label, phase, cumulative)
+        if (history.lastOrNull() != observation) {
+            if (history.size == 512) {
+                history.removeFirst()
+                omittedObservations++
             }
-            this.phase = if (wasMeasured && nowMeasured) ProviderUsagePhase.FINAL else ProviderUsagePhase.INTERIM
+            history.addLast(observation)
         }
+        val key = label to phase
+        lanes[key] = if (cumulative) tokens.toLong() else ((lanes[key] ?: 0L) + tokens).coerceAtMost(Int.MAX_VALUE.toLong())
+        fun rank(name: String, at: ProviderUsagePhase): Int = when {
+            name in setOf("estimated", "unavailable") -> 0
+            measuredUsageSource(name, at) -> 3
+            at == ProviderUsagePhase.INTERIM -> 2
+            else -> 1
+        }
+        if (value == null || rank(label, phase) >= rank(this.source, this.phase)) {
+            // A corrected provider total may be lower than an estimate or an earlier frame.
+            value = lanes.getValue(key)
+            this.source = label
+            this.phase = phase
+        }
+    }
+
+    fun evidence(): kotlinx.serialization.json.JsonObject = kotlinx.serialization.json.buildJsonObject {
+        put("selected", value?.let { kotlinx.serialization.json.JsonPrimitive(it) } ?: kotlinx.serialization.json.JsonNull)
+        put("source", kotlinx.serialization.json.JsonPrimitive(source))
+        put("final_confirmed", kotlinx.serialization.json.JsonPrimitive(measuredUsageSource(source, phase)))
+        put("omitted_observations", kotlinx.serialization.json.JsonPrimitive(omittedObservations))
+        put(
+            "observations",
+            kotlinx.serialization.json.JsonArray(
+                observations.map { item ->
+                    kotlinx.serialization.json.buildJsonObject {
+                        put("tokens", kotlinx.serialization.json.JsonPrimitive(item.tokens))
+                        put("source", kotlinx.serialization.json.JsonPrimitive(item.source))
+                        put("phase", kotlinx.serialization.json.JsonPrimitive(item.phase.name))
+                        put("cumulative", kotlinx.serialization.json.JsonPrimitive(item.cumulative))
+                    }
+                }
+            )
+        )
     }
 }

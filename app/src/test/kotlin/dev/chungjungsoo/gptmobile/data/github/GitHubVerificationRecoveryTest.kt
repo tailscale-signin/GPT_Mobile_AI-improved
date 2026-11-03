@@ -92,20 +92,20 @@ class GitHubVerificationRecoveryTest {
     @Test fun statusUsesFourBoundedReadsAndPinsChecksAndCommitsToObservedCommit() {
         val tools = listOf("github_context", "github_pr").map { AgentToolDefinition(it, it, JsonObject(emptyMap())) }
         val sha = "a".repeat(40)
-        assertEquals(JsonPrimitive("status"), GitHubStatusRequest.nextCall(tools, emptyMap())!!.arguments["action"])
+        assertEquals(JsonPrimitive("status"), GitHubStatusRequest.nextCall(tools, emptyMap(), 1000L)!!.arguments["action"])
         val receipts = linkedMapOf("s" to receipt("""{"commit_sha":"$sha"}""", "status"))
-        val checks = GitHubStatusRequest.nextCall(tools, receipts)!!
+        val checks = GitHubStatusRequest.nextCall(tools, receipts, 1000L)!!
         assertEquals(JsonPrimitive("checks"), checks.arguments["action"])
         assertEquals(JsonPrimitive(sha), checks.arguments["commit_sha"])
-        receipts["c"] = receipt("{}")
-        assertEquals(JsonPrimitive(5), GitHubStatusRequest.nextCall(tools, receipts)!!.arguments["per_page"])
+        receipts["c"] = JsonObject(receipt("{}") + ("arguments" to checks.arguments))
+        assertEquals(JsonPrimitive(5), GitHubStatusRequest.nextCall(tools, receipts, 1000L)!!.arguments["per_page"])
         receipts["p"] = JsonObject(receipt("{}", "list") + ("tool" to JsonPrimitive("github_pr")))
-        val commits = requireNotNull(GitHubStatusRequest.nextCall(tools, receipts))
+        val commits = requireNotNull(GitHubStatusRequest.nextCall(tools, receipts, 1000L))
         assertEquals(JsonPrimitive("commits"), commits.arguments["action"])
         assertEquals(JsonPrimitive(sha), commits.arguments["commit_sha"])
         assertEquals(JsonPrimitive(5), commits.arguments["per_page"])
-        receipts["m"] = receipt("{}", "commits")
-        assertEquals(null, GitHubStatusRequest.nextCall(tools, receipts))
+        receipts["m"] = JsonObject(receipt("{}", "commits") + ("arguments" to commits.arguments))
+        assertEquals(null, GitHubStatusRequest.nextCall(tools, receipts, 1000L))
     }
 
     @Test fun statusSeparatesSkippedChecksAndRejectsAnotherRevision() {

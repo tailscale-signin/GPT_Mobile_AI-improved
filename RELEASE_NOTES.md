@@ -20,6 +20,9 @@ Android build 138. Signed release of the merged GitHub, voice, recovery and gate
 
 - Complete required release lint in a separate bounded process before APK packaging so cold lint analysis cannot retain the heap needed by Zipflinger; lint failures still block packaging.
 
+- Add opt-in bounded repository graph search, calls, impact and revision-aware retrieval with encrypted caches; structural navigation does not claim compiler-resolved Kotlin/Java semantics.
+- Persist cumulative GitHub audit evidence, owned mutation-fixture results and usage observations, with Room schema 48 migration, bounded table rendering and speech-start ownership.
+
 ## Qualification and remaining work
 
 - Unified Reliability v2 is not complete; its remaining acceptance cases are not represented as passed.
@@ -47,3 +50,5 @@ Android build 138. Signed release of the merged GitHub, voice, recovery and gate
 - The Android signed release does not install or publish a new Windows gateway package; Windows installer checks are tracked separately.
 
 Publication requires successful validation of this exact commit, current main checks, signature continuity, APK/AAB identity and native-library verification.
+
+- External Graphify execution, compiler-resolved navigation, and physical-device graph, speech and UI performance remain unqualified; host and emulator evidence does not establish those outcomes.

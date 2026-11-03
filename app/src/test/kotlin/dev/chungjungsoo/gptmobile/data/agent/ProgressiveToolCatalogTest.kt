@@ -384,4 +384,19 @@ class ProgressiveToolCatalogTest {
         assertEquals(listOf(acquired), catalog.selected(listOf(acquired)))
         assertTrue(catalog.selected(emptyList()).isEmpty())
     }
+
+    @Test fun recoveryReaderSurvivesDiscoveryAndUnknownNamesAreCachedPerVersion() = runTest {
+        val reader = AgentToolDefinition("read_recovery_context", "Read saved checkpoint", JsonObject(emptyMap()))
+        var cold = 0
+        val definitions = tools + reader
+        val catalog = ProgressiveToolCatalog(definitions, "Resume GitHub task", acquireCold = { _, _ ->
+            cold++
+            emptyList()
+        })
+        val args = buildJsonObject { put("names", JsonArray(listOf(JsonPrimitive("github__github_api")))) }
+        catalog.execute("first", args)
+        catalog.execute("again", args)
+        assertEquals(1, cold)
+        assertTrue(catalog.selected(definitions).any { it.name == reader.name })
+    }
 }

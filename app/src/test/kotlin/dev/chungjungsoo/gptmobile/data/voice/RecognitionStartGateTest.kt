@@ -29,4 +29,20 @@ class RecognitionStartGateTest {
         time = 2000
         assertTrue(gate.acquire())
     }
+
+    @Test fun activeRecognitionOwnsAdmissionBeyondTheTapDebounce() {
+        var time = 0L
+        val gate = RecognitionStartGate { time }
+        assertTrue(gate.acquire("first"))
+        time = 30_000
+        assertFalse(gate.acquire("second"))
+        gate.release("second")
+        assertFalse(gate.acquire("second"))
+        gate.release("first")
+        assertTrue(gate.acquire("second"))
+        gate.failed(true, "second")
+        assertFalse(gate.acquire("third"))
+        time += 10_000
+        assertTrue(gate.acquire("third"))
+    }
 }

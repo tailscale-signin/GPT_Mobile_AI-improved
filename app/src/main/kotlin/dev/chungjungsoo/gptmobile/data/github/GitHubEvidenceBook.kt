@@ -26,7 +26,8 @@ internal class GitHubEvidenceBook(
     private val load: suspend (String) -> JsonObject? = { null },
     private val save: suspend (String, JsonObject) -> Unit = { _, _ -> },
     private val retainedIds: suspend () -> List<String> = { emptyList() },
-    private val latestVerdict: suspend () -> JsonObject? = { null }
+    private val latestVerdict: suspend () -> JsonObject? = { null },
+    private val currentToolContracts: Map<String, JsonObject> = emptyMap()
 ) {
     private val mutex = Mutex()
     private val records = linkedMapOf<String, JsonObject>()
@@ -53,9 +54,27 @@ internal class GitHubEvidenceBook(
                 (saved["source_head_sha"] as? JsonPrimitive)?.contentOrNull?.let { observedHead = it }
             }
             epoch = maxOf(epoch, savedEpoch)
-            retain(id, saved)
+            retain(id, revalidate(saved))
         }
         check(!overflow) { "Retained task evidence exceeds the recovery allowance" }
+    }
+
+    private fun revalidate(saved: JsonObject): JsonObject {
+        val name = (saved["tool"] as? JsonPrimitive)?.contentOrNull.orEmpty()
+        val arguments = saved["arguments"] as? JsonObject
+        val contract = currentToolContracts[name]
+        val exclusion = when {
+            name !in trustedTools -> "TOOL_NOT_AUTHORIZED_IN_CURRENT_CATALOG"
+            contract != null && (arguments == null || dev.chungjungsoo.gptmobile.data.agent.ToolArgumentValidator.errors(arguments, contract).isNotEmpty()) -> "TOOL_ARGUMENT_CONTRACT_CHANGED"
+            else -> null
+        }
+        // Originals remain immutable. The current proof decision is a separate projection.
+        return JsonObject(
+            saved.filterKeys { it !in setOf("verification_eligible", "exclusion_reason") } + buildJsonObject {
+                put("verification_eligible", exclusion == null && saved["trusted"] == JsonPrimitive(true))
+                exclusion?.let { put("exclusion_reason", it) }
+            }
+        )
     }
 
     suspend fun observe(call: ProviderEvent.ToolCall, result: AgentToolResult) = mutex.withLock {
@@ -69,7 +88,7 @@ internal class GitHubEvidenceBook(
                 (existing["source_head_sha"] as? JsonPrimitive)?.contentOrNull?.let { observedHead = it }
             }
             epoch = maxOf(epoch, savedEpoch)
-            retain(id, existing)
+            retain(id, revalidate(existing))
             return@withLock
         }
         val content = when (val body = result.retainedContent ?: result.content) {
@@ -115,7 +134,27 @@ internal class GitHubEvidenceBook(
             put("tool", call.name)
             put("repository", if (selected) repository else "$owner/$repo")
             put("branch", targetBranch)
+            put("workspace_branch", branch)
+            val resourceBranch = (root?.get("head_branch") as? JsonPrimitive)?.contentOrNull
+                ?: (root?.get("head_ref") as? JsonPrimitive)?.contentOrNull
+                ?: ((root?.get("head") as? JsonObject)?.get("ref") as? JsonPrimitive)?.contentOrNull
+            resourceBranch?.let { put("resource_branch", it) }
+            head?.let { put("resource_sha", it) }
             put("arguments", effectiveArguments)
+            val priorAttempts = records.values.filter { it["tool"] == JsonPrimitive(call.name) && it["arguments"] == effectiveArguments }
+            if (priorAttempts.isNotEmpty()) {
+                put(
+                    "repeat_reason",
+                    if (priorAttempts.all { it["verification_eligible"] == JsonPrimitive(false) }) {
+                        "CATALOG_REVALIDATION"
+                    } else if (!immutable) {
+                        "MUTABLE_OBSERVATION_REFRESH"
+                    } else {
+                        "EXPLICIT_RETRY_REQUIRES_REVIEW"
+                    }
+                )
+                put("previous_attempt_ids", kotlinx.serialization.json.JsonArray(priorAttempts.mapNotNull { it["receipt_id"] }))
+            }
             val sourceTime = (result.executionReceipt?.get("source_observed_at_ms") as? JsonPrimitive)?.longOrNull
             put("observed_at_ms", sourceTime ?: if (result.sharedResult || !result.dispatched) 0 else now())
             put("epoch", epoch)
@@ -123,6 +162,7 @@ internal class GitHubEvidenceBook(
             put("head_observation", headObservation || remoteChange)
             put("immutable", immutable)
             put("trusted", trusted && selected)
+            put("verification_eligible", trusted && selected)
             put("success", !result.isError && result.errorCode == null)
             put("dispatched", result.dispatched)
             result.executionReceipt?.let { put("execution", it) }
@@ -160,6 +200,27 @@ internal class GitHubEvidenceBook(
     }
 
     suspend fun diagnostic(): JsonObject? = latestVerdict()?.takeIf { it["binding"] == JsonPrimitive(binding) }
+
+    suspend fun retainPolicy(revision: String, tools: List<dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition>) {
+        val policy = buildJsonObject {
+            put("schema", "github.policy-snapshot.v1")
+            put("binding", binding)
+            put("authorization_revision", revision)
+            put(
+                "catalog",
+                kotlinx.serialization.json.JsonArray(
+                    tools.sortedBy { it.name }.map { tool ->
+                        buildJsonObject {
+                            put("name", tool.name)
+                            put("contract_digest", digest(tool.inputSchema.toString()))
+                        }
+                    }
+                )
+            )
+            put("redaction", "Names and contract digests only; no credentials, provider destinations, prompts or argument values")
+        }
+        save("policy_" + digest(policy.toString()).take(24), policy)
+    }
 
     suspend fun retainChecklist(value: JsonObject) {
         save("checklist_" + digest("$binding|$value").take(24), JsonObject(value + ("binding" to JsonPrimitive(binding))))

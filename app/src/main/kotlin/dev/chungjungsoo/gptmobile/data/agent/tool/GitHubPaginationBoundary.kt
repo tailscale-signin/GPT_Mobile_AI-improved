@@ -32,7 +32,9 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
     /** Ignore transport/local-fragment metadata; advancing a remote page must change its rows. */
     @Synchronized fun repeatsRemotePage(operation: String, args: JsonObject, result: JsonObject): Boolean {
         if ("view_cursor" in args) return false
-        val rows = JsonObject(result.filter { (name, value) -> name in setOf("items", "workflow_runs", "workflows", "jobs", "artifacts", "check_runs", "pull_requests", "commits") && value is JsonArray })
+        val upstream = result["upstream_record_ids"] as? JsonArray
+        val rows = if (!upstream.isNullOrEmpty()) JsonObject(mapOf("upstream_record_ids" to upstream)) else JsonObject(result.filter { (name, value) -> name in setOf("items", "workflow_runs", "workflows", "jobs", "artifacts", "check_runs", "pull_requests", "commits") && value is JsonArray && value.isNotEmpty() })
+        // Filtered-empty pages are not identities. They can contain distinct upstream PR records.
         if (rows.isEmpty()) return false
         val key = key(operation, args)
         val digest = dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore.digest(rows.toString())

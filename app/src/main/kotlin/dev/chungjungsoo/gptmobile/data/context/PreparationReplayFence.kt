@@ -11,6 +11,11 @@ internal class PreparationReplayFence : AbstractCoroutineContextElement(Key) {
     fun dispatched() {
         attempted.set(true)
     }
+
+    /** This is checkpoint planning under a new catalog, never replay of the old request. */
+    fun canResumeGitHubChecklist(error: Throwable, attempt: Long, durableChecklist: Boolean): Boolean =
+        durableChecklist && attempt < 3L && error is DispatchPolicyChangedException && error.fields.isNotEmpty() && error.fields.all { it == "tools" }
+
     fun canRebuild(error: Throwable, attempt: Long): Boolean = !attempted.get() &&
         (
             // Re-capture the *entire* policy and evidence snapshot, never replay provider

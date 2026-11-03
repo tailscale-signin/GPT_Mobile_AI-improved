@@ -532,7 +532,7 @@ class GitHubToolTest {
 
     @Test
     fun `job log previews stop at the output budget`() = runTest {
-        val client = HttpClient(MockEngine { respond("L".repeat(100_000), HttpStatusCode.OK) })
+        val client = HttpClient(MockEngine { request -> if (request.url.encodedPath.endsWith("/logs")) respond("L".repeat(100_000), HttpStatusCode.OK) else respond("""{"id":20,"status":"completed"}""") })
         try {
             val result = GitHubTool(httpClient = client).execute(
                 "logs",

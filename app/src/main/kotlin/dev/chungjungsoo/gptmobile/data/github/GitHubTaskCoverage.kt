@@ -38,7 +38,10 @@ internal object GitHubTaskCoverage {
                     else -> "default"
                 }
             }
-            listOf(tool, action, receipt.text("branch"), receipt.text("source_head_sha"), args?.text("pull_number").orEmpty())
+            val root = (receipt["result"] as? JsonObject)?.let { (it["data"] as? JsonObject) ?: it }
+            val resourceBranch = receipt.text("resource_branch").ifBlank { (root?.get("head_branch") as? JsonPrimitive)?.contentOrNull.orEmpty() }
+            val identifiedResource = tool == "github_ci" && (args?.containsKey("run_id") == true || args?.containsKey("job_id") == true)
+            listOf(tool, action, resourceBranch.ifBlank { if (identifiedResource) "Resource branch not recorded" else receipt.text("branch") }, receipt.text("source_head_sha"), args?.text("pull_number").orEmpty())
         }.map { (key, observations) ->
             val successful = observations.count { it["success"] == JsonPrimitive(true) }
             val errors = observations.mapNotNull { it.text("error_code").takeIf { code -> code.isNotBlank() && code != "null" } }.distinct()
@@ -52,6 +55,17 @@ internal object GitHubTaskCoverage {
                 put("failed_observations", observations.size - successful)
                 put("error_codes", JsonArray(errors.map(::JsonPrimitive)))
                 put("receipt_ids", JsonArray(observations.mapNotNull { it["receipt_id"] }))
+                put(
+                    "excluded_from_current_verification",
+                    JsonArray(
+                        observations.filter { it["verification_eligible"] == JsonPrimitive(false) }.map {
+                            buildJsonObject {
+                                put("receipt_id", it["receipt_id"] ?: JsonPrimitive("unknown"))
+                                put("reason", it["exclusion_reason"] ?: JsonPrimitive("AUTHORIZATION_REVALIDATION_REQUIRED"))
+                            }
+                        }
+                    )
+                )
             }
         }
 

@@ -47,6 +47,7 @@ internal object GitHubHeaderQuery {
                     put(target, if (source == "state" && value is JsonPrimitive) JsonPrimitive(value.content.lowercase()) else value)
                 }
             }
+            put("resource_type", if (pullRequest) "pull_request" else "issue")
             put("projection", "headers")
             put("bodies_included", false)
             put("merge_readiness_verified", false)

@@ -7,7 +7,6 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.intOrNull
 
 /** Host validation shared by native callbacks and ordinary tools. Never guesses identifiers. */
@@ -34,8 +33,8 @@ internal object ToolArgumentValidator {
             "object" -> value is JsonObject
             "array" -> value is JsonArray
             "string" -> value is JsonPrimitive && value.isString
-            "integer" -> value is JsonPrimitive && !value.isString && value.doubleOrNull?.let { it.isFinite() && it % 1.0 == 0.0 } == true
-            "number" -> value is JsonPrimitive && !value.isString && value.doubleOrNull?.isFinite() == true
+            "integer" -> value is JsonPrimitive && !value.isString && value.content.toBigDecimalOrNull()?.let { it.stripTrailingZeros().scale() <= 0 } == true
+            "number" -> value is JsonPrimitive && !value.isString && value.content.toBigDecimalOrNull() != null
             "boolean" -> value is JsonPrimitive && !value.isString && value.booleanOrNull != null
             "null" -> value == JsonNull
             else -> false
@@ -83,9 +82,9 @@ internal object ToolArgumentValidator {
             }
         }
         if (value is JsonPrimitive && !value.isString) {
-            value.doubleOrNull?.let { number ->
-                (schema["minimum"] as? JsonPrimitive)?.doubleOrNull?.let { if (number < it) errors += "$path: below minimum" }
-                (schema["maximum"] as? JsonPrimitive)?.doubleOrNull?.let { if (number > it) errors += "$path: above maximum" }
+            value.content.toBigDecimalOrNull()?.let { number ->
+                (schema["minimum"] as? JsonPrimitive)?.content?.toBigDecimalOrNull()?.let { if (number < it) errors += "$path: below minimum" }
+                (schema["maximum"] as? JsonPrimitive)?.content?.toBigDecimalOrNull()?.let { if (number > it) errors += "$path: above maximum" }
             }
         }
         return errors

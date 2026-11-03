@@ -5,27 +5,37 @@ import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 
 /** Exact short status intents only: an audit or a repair keeps the full engineering workflow. */
 internal object GitHubStatusRequest {
     /** Four scoped reads; recovery/indexing and pagination cannot displace the checks read. */
-    fun nextCall(tools: List<AgentToolDefinition>, receipts: Map<String, JsonObject>): ProviderEvent.ToolCall? {
+    fun nextCall(tools: List<AgentToolDefinition>, receipts: Map<String, JsonObject>, now: Long = System.currentTimeMillis(), epoch: Long? = null): ProviderEvent.ToolCall? {
+        fun fresh(receipt: JsonObject): Boolean = receipt["trusted"] != JsonPrimitive(false) &&
+            receipt["verification_eligible"] != JsonPrimitive(false) &&
+            (epoch == null || receipt["epoch"] == JsonPrimitive(epoch)) &&
+            (receipt["observed_at_ms"] as? JsonPrimitive)?.longOrNull?.let { it > 0 && now - it in 0..GitHubEvidencePolicy.MAX_AGE_MS } == true
+        val context = receipts.values.toList().asReversed().firstNotNullOfOrNull { receipt ->
+            if ((receipt["tool"] as? JsonPrimitive)?.content?.substringBefore("__") != "github_context" || (receipt["arguments"] as? JsonObject)?.get("action") != JsonPrimitive("status") || receipt["success"] != JsonPrimitive(true) || !fresh(receipt)) return@firstNotNullOfOrNull null
+            val root = receipt["result"] as? JsonObject
+            (root?.get("data") as? JsonObject) ?: root
+        }
         val steps = listOf("github_context" to "status", "github_context" to "checks", "github_pr" to "list", "github_context" to "commits")
         for ((operation, action) in steps) {
             val tool = tools.firstOrNull { it.name.substringBefore("__") == operation } ?: continue
-            val attempts = receipts.values.filter { it["tool"] == JsonPrimitive(tool.name) && (it["arguments"] as? JsonObject)?.get("action") == JsonPrimitive(action) }
+            val attempts = receipts.values.filter {
+                it["tool"] == JsonPrimitive(tool.name) &&
+                    (it["arguments"] as? JsonObject)?.get("action") == JsonPrimitive(action) &&
+                    it["verification_eligible"] != JsonPrimitive(false) &&
+                    (it["success"] != JsonPrimitive(true) || fresh(it) && (action !in setOf("checks", "commits") || (it["arguments"] as? JsonObject)?.get("commit_sha") == context?.get("commit_sha")))
+            }
             if (attempts.isNotEmpty()) {
                 val retryable = attempts.last()["error_code"] in setOf("NETWORK_ERROR", "HTTP_502", "HTTP_503", "HTTP_504", "TOOL_TIMEOUT").map(::JsonPrimitive)
                 if (attempts.any { it["success"] == JsonPrimitive(true) } || attempts.size >= 2 || !retryable) continue
             }
-            val context = receipts.values.firstNotNullOfOrNull { receipt ->
-                if ((receipt["arguments"] as? JsonObject)?.get("action") != JsonPrimitive("status") || receipt["success"] != JsonPrimitive(true)) return@firstNotNullOfOrNull null
-                val root = receipt["result"] as? JsonObject
-                (root?.get("data") as? JsonObject) ?: root
-            }
             return ProviderEvent.ToolCall(
-                "status-$action" + if (attempts.isEmpty()) "" else "-recovery",
+                "status-$action-${receipts.size}" + if (attempts.isEmpty()) "" else "-recovery",
                 tool.name,
                 buildJsonObject {
                     put("action", action)

@@ -89,24 +89,30 @@ class AndroidVoiceAudio internal constructor(
     override fun listen(listener: VoiceAudio.Listener) {
         check(Looper.myLooper() == Looper.getMainLooper())
         if (closed || recognizer != null) return
-        if (!recognitionGate.acquire()) {
+        stop()
+        if (!recognitionGate.acquire(sessionId)) {
             listener.failure("Speech service is busy. Your chat is still available.", recognitionGate.remainingMillis())
             return
         }
-        stop()
-        if (closed) return
+        if (closed) {
+            recognitionGate.release(sessionId)
+            return
+        }
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            recognitionGate.release(sessionId)
             listener.error("Microphone permission is needed for voice chat.")
             return
         }
         val ticket = generation
         if (!SpeechRecognizer.isOnDeviceRecognitionAvailable(context) && !SpeechRecognizer.isRecognitionAvailable(context)) {
+            recognitionGate.release(sessionId)
             listener.error("Speech recognition is unavailable. Install or enable a speech service in Android settings.")
             return
         }
         try {
             val onDevice = SpeechRecognizer.isOnDeviceRecognitionAvailable(context) && !allowOnlineSpeech
             if (!onDevice && !allowOnlineSpeech) {
+                recognitionGate.release(sessionId)
                 listener.error("On device speech is unavailable. Choose a compatible speech service, or explicitly allow online speech in Voice settings.")
                 return
             }
@@ -148,14 +154,15 @@ class AndroidVoiceAudio internal constructor(
                 override fun onResults(results: Bundle?) {
                     if (!active()) return
                     val text = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull().orEmpty()
-                    if (text.isNotBlank()) recognitionGate.succeeded()
+                    if (text.isNotBlank()) recognitionGate.succeeded(sessionId)
                     stop()
                     event("recognition_final")
                     listener.final(text)
                 }
                 override fun onError(error: Int) {
                     if (!active()) return
-                    recognitionGate.failed(error == SpeechRecognizer.ERROR_TOO_MANY_REQUESTS)
+                    event("recognition_error_$error")
+                    recognitionGate.failed(error == SpeechRecognizer.ERROR_TOO_MANY_REQUESTS, sessionId)
                     stop()
                     dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("VoiceRecognition", "recognition_error=$error · locale=$languageTag · onDevice=$onDevice", "W")
                     listener.failure(
@@ -187,8 +194,9 @@ class AndroidVoiceAudio internal constructor(
                     putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
                 }
             )
-        } catch (_: Exception) {
-            recognitionGate.failed(false)
+        } catch (failure: Exception) {
+            event("recognition_start_failed_${failure.javaClass.simpleName}")
+            recognitionGate.failed(false, sessionId)
             stop()
             listener.error("Could not open the microphone. Check Android permissions and your speech service.")
         }
@@ -351,6 +359,7 @@ class AndroidVoiceAudio internal constructor(
         recognizer = null
         runCatching { previous?.cancel() }
         runCatching { previous?.destroy() }
+        recognitionGate.release(sessionId)
         runCatching { tts?.stop() }
     }
 

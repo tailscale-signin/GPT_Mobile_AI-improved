@@ -297,8 +297,11 @@ class EngineeringService:
         self.store, self.backend = store, backend
         self.evidence = EvidenceLedger(store)
         self.memory = EngineeringMemory(store, store.runtime)
+        from v14.code_graph.service import GraphService
+        self.graph = GraphService(store, backend, self.evidence)
         backend.record_evidence = lambda job, payload: self.evidence.append(job, 'github_api', payload)
         backend.recall_memory = self.memory.recall
+        backend.recall_graph = self.graph.recall
         self.stop = threading.Event()
         self.wake = threading.Event()
         self.thread = None
@@ -469,6 +472,10 @@ class EngineeringService:
         except Exception as error:
             # Memory failure must not lose a confirmed mutation receipt or replay a write.
             job['data']['memory_status'] = 'UNAVAILABLE:' + type(error).__name__
+        try:
+            self.graph.capture(job, job['state'], output)
+        except Exception as error:
+            job['data']['graph_status'] = 'UNAVAILABLE:' + type(error).__name__
         self.store.complete(job, lease, phase, output, delay)
 
     def start(self):

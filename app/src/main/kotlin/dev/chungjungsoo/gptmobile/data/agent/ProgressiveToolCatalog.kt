@@ -21,7 +21,8 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
     private val candidates = definitions.filter { it.modelVisible }.associateBy { it.name }.toMutableMap()
     private val deferredEngineering = setOf("github_write", "github_commit", "github_stage_patch", "github_release", "github_watch_checks")
     private val taskRequired = definitions.filter { definition ->
-        AgentToolCapability.USER_DECISION in definition.capabilities ||
+        definition.name == "read_recovery_context" ||
+            AgentToolCapability.USER_DECISION in definition.capabilities ||
             (
                 dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(definition.name) in
                     dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.taskTools(task) &&
@@ -35,6 +36,7 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
 
     // A catalog lives for one run: repeated discovery should not refetch the same cold source.
     private val acquiredQueryKeys = mutableSetOf<String>()
+    private val unknownNameVersions = linkedMapOf<String, String>()
     private val acquisitionMutex = Mutex()
     private data class Observation(val contract: String, val outcome: String, val at: Long, val errorCode: String?, val succeeded: Int, val failed: Int, val unknown: Int)
     private val observations = mutableMapOf<String, Observation>()
@@ -142,16 +144,20 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
             return AgentToolResult(callId, ToolResultContent.Text("Use inventory_cursor alone to continue the tool inventory; query/names start a separate discovery."), true, errorCode = "INVALID_ARGUMENTS", dispatched = false)
         }
         if (acquireCold != null && "inventory_cursor" !in arguments) {
-            // Cache only successful acquisitions. Offline or empty catalogs remain retryable.
+            // Cache exact unknown names per catalog version. Broad/empty discovery remains retryable.
             // Never suspend while holding the selection monitor.
             val key = query.trim().lowercase(java.util.Locale.ROOT) + "|" + names.sorted().joinToString("|")
             acquisitionMutex.withLock {
-                if (key !in acquiredQueryKeys) {
+                val version = synchronized(this) { fingerprint(candidates.values.sortedBy { it.name }.joinToString { it.name + contractFingerprint(it) }) }
+                if (key !in acquiredQueryKeys && unknownNameVersions[key] != version) {
                     val acquired = acquireCold.invoke(query, names).filter { it.modelVisible }
                     if (acquired.isNotEmpty()) {
                         synchronized(this) { acquired.forEach { candidates[it.name] = it } }
                         if (acquiredQueryKeys.size >= 128) acquiredQueryKeys.clear()
                         acquiredQueryKeys += key
+                    } else if (query.isBlank() && names.isNotEmpty() && names.none { synchronized(this) { it in candidates } }) {
+                        unknownNameVersions[key] = version
+                        while (unknownNameVersions.size > 128) unknownNameVersions.remove(unknownNameVersions.keys.first())
                     }
                 }
             }
@@ -314,6 +320,7 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
             put("selection_policy", "Explicitly requested capabilities receive priority; other authorized capabilities remain discoverable. Availability still requires the next request's context admission. Executable permissions are unchanged.")
             put("availability_note", "Unknown names are not in the authorized catalog. Enable/configure the relevant connection or permission before discovery; schema admission alone cannot grant access.")
             put("unknown_names", JsonArray(names.filterNot(candidates::containsKey).map(::JsonPrimitive)))
+            if (names.any { it !in candidates }) put("unknown_name_recovery", "These names are absent from this authorized catalog. Choose exact names from discovery; do not repeat unchanged unknown-name requests. Retry only after the catalog changes.")
             put("authorized_tool_count", candidates.size)
             put("remaining_tool_count", candidates.size - discovered.size)
             put("advertised_tool_count", active.size)
@@ -338,7 +345,7 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
         var tokens = 256L
         val selected = mutableListOf<AgentToolDefinition>()
         omissions.clear()
-        for (tool in ordered.distinctBy { it.name }) {
+        for (tool in (listOfNotNull(candidates["read_recovery_context"]) + ordered).distinctBy { it.name }) {
             val cost = schemaTokens(tool)
             val reason = when {
                 cost + 256 > schemaAllowance -> "SCHEMA_TOO_LARGE"

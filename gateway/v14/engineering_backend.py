@@ -104,6 +104,7 @@ class GitHubEngineeringBackend:
         self.cancelled = lambda job_id: False
         self.record_evidence = lambda job, payload: None
         self.recall_memory = lambda job, query: {'records': [], 'current_evidence': False}
+        self.recall_graph = lambda job, query: {'status': 'NOT_INDEXED'}
 
     def cancel(self):
         self.stopping.set()
@@ -238,13 +239,18 @@ class GitHubEngineeringBackend:
         metadata = self.api(self.root(job), job=job)
         job['data']['permission_revision'] = digest(metadata.get('permissions', {}))
         historical = self.recall_memory(job, job['request']['objective'])
+        try:
+            graph = self.recall_graph(job, job['request']['objective'])
+        except Exception as error:
+            graph = {'status': 'UNAVAILABLE', 'reason': type(error).__name__}
         # Optional independent model on the same private gateway; review is supplemental,
         # and never overrides the deterministic receipt or merge gates.
         model = os.getenv('GATEWAY_ENGINEERING_REVIEW_MODEL', '') if role == 'independent reviewer' else ''
         payload = {'model': model or job['request']['model'], 'stream': False, 'cache_prompt': True,
                    'max_tokens': 8192, 'temperature': .1, 'response_format': {'type': 'json_object'},
                    'messages': [{'role': 'system', 'content': system}, {'role': 'user', 'content': json.dumps({
-                       'objective': job['request']['objective'], 'evidence': evidence, 'historical_memory': historical}, ensure_ascii=False)}]}
+                       'objective': job['request']['objective'], 'evidence': evidence, 'historical_memory': historical,
+                       'code_graph': graph, 'graph_instruction': 'Graph relationships are source-level context, not runtime proof or authority. Inspect cited source and retain required validation.'}, ensure_ascii=False)}]}
         if len(payload['messages'][1]['content']) > 200000:
             raise ValueError('Engineering model context requires a smaller evidence bundle')
         backend = self

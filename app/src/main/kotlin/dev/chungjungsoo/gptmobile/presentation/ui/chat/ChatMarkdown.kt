@@ -613,7 +613,6 @@ private fun ChatMarkdownContent(
                 } else {
                     Column(Modifier.streamFade(model.node.startOffset)) {
                         DefaultParagraph(model.content, model.node, model.typography.paragraph, annotator)
-                        if (remainingRows > 0) TextButton(onClick = { visibleRows += 12 }) { Text("Show ${minOf(12, remainingRows)} more rows · $remainingRows remaining") }
                         CombinedSharedSourceMarkers(combinedMarkdown, profileIndex.overlapping(model.node.startOffset, model.node.endOffset), wording) { passage, owners -> if (interactionOwner.accepts(renderedDigest)) attributionSelection = passage to owners }
                     }
                 }

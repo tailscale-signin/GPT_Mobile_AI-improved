@@ -104,11 +104,11 @@ class GitHubIncidentRegressionTest {
         assertEquals(JsonPrimitive("a".repeat(40)), next.arguments["commit_sha"])
         assertEquals(next, GitHubTestChecklist.nextCall("test all tools", tools, records.toMap()))
         val report = GitHubTestChecklist.render(records)
-        assertTrue(report.contains("1 of 18"))
-        assertTrue(report.contains("1/1 successful"))
+        assertTrue(report.contains("18 capabilities in the cumulative catalog"))
+        assertTrue(report.contains("passed: 1"))
         assertTrue(report.contains("Overall integration health: Not measured"))
         assertTrue(report.contains("Solutions / next actions"))
-        assertTrue(report.contains("UNTESTED"))
+        assertTrue(report.contains("blocked:"))
     }
 
     @Test fun savedFragmentsFinishBeforeRemoteInventoryAndNeverDispatchMutationRecipes() {

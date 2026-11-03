@@ -13,9 +13,9 @@ def command_for(runtime, variant, phase):
     if runtime not in ('legacy', 'geniex') or variant not in ('debug', 'release', 'nativeSmoke'):
         raise ValueError('Unknown runtime or build variant')
     suffix = variant[0].upper() + variant[1:]
-    tasks = {'debug': ':app:assembleDebug', 'shrink': f':app:minify{suffix}WithR8',
+    tasks = {'debug': ':app:assembleDebug', 'shrink': f':app:minify{suffix}WithR8', 'lint': f':app:lintVital{suffix}',
              'package': f':app:assemble{suffix}', 'bundle': ':app:bundleRelease', 'ui': ':app:testDebugUnitTest'}
-    if phase not in tasks or (phase == 'shrink' and variant == 'debug') or (phase == 'bundle' and variant != 'release'):
+    if phase not in tasks or (phase in ('shrink', 'lint') and variant == 'debug') or (phase == 'bundle' and variant != 'release'):
         raise ValueError('Incompatible build phase/variant')
     command = [f'-PgeniexRuntime={str(runtime == "geniex").lower()}', tasks[phase],
                '--no-daemon', '--max-workers=1', '--console=plain', '--stacktrace', '--profile',
@@ -50,6 +50,17 @@ def execute(runtime, variant, phase, output, run=subprocess.run):
                   'remote_state_changed': False}
     atomic_json(output, checkpoint)
     try:
+        if phase == 'package' and variant in ('release', 'nativeSmoke'):
+            # A cold assemble runs lint analysis before ApkFlinger in the same JVM.
+            # Like R8, lint retains its heap until that process exits. Complete the
+            # mandatory lint tasks first, then package with their outputs up to date.
+            lint_output = output.with_name(output.stem + '-lint.json')
+            checkpoint['lint_checkpoint'] = str(lint_output)
+            atomic_json(output, checkpoint)
+            code = execute(runtime, variant, 'lint', lint_output, run)
+            if code != 0:
+                checkpoint.update(status='FAILED', exit_code=code, failed_phase='lint')
+                return code
         code = run([sys.executable, 'scripts/build_metrics.py', '--label', f'{runtime}-{variant}-{phase}',
                     '--output', str(metrics), '--', sys.executable, 'scripts/gradle_retry.py',
                     '--timeout-seconds', str(5160 if phase in ('package', 'bundle') else 1380), '--', *command]).returncode
@@ -66,12 +77,14 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--runtime', choices=('legacy', 'geniex'), default='legacy')
     parser.add_argument('--variant', choices=('debug', 'release', 'nativeSmoke'), default='debug')
-    parser.add_argument('--phase', choices=('debug', 'shrink', 'package', 'bundle', 'ui'), required=True)
+    parser.add_argument('--phase', choices=('debug', 'shrink', 'lint', 'package', 'bundle', 'ui'), required=True)
     parser.add_argument('--output', type=Path, default=Path('build/reports/pipeline/checkpoint.json'))
     parser.add_argument('--plan', action='store_true', help='Validate and print the exact command without running it')
     args = parser.parse_args()
     if args.plan:
         print(json.dumps({'gradle_arguments': command_for(args.runtime, args.variant, args.phase),
+                          'prerequisite_gradle_arguments': [command_for(args.runtime, args.variant, 'lint')]
+                          if args.phase == 'package' and args.variant in ('release', 'nativeSmoke') else [],
                           'remote_state_changed': False}))
         return 0
     return execute(args.runtime, args.variant, args.phase, args.output)

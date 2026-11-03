@@ -1,0 +1,101 @@
+package dev.chungjungsoo.gptmobile.data.github
+
+import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
+import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
+import dev.chungjungsoo.gptmobile.data.agent.ToolArgumentValidator
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.put
+
+/** Dependency-aware smoke reads. Identifiers retain the resource type that supplied them. */
+internal object GitHubSelfTestReads {
+    fun next(tools: List<AgentToolDefinition>, receipts: List<JsonObject>): ProviderEvent.ToolCall? {
+        val observations = receipts.filter { it["trusted"] == JsonPrimitive(true) && it["verification_eligible"] != JsonPrimitive(false) }
+        fun roots(tool: String, action: String? = null) = observations.filter {
+            it["success"] == JsonPrimitive(true) &&
+                it.text("tool").substringBefore("__") == tool &&
+                (action == null || (it["arguments"] as? JsonObject)?.text("action") == action)
+        }.mapNotNull { (it["result"] as? JsonObject)?.let { root -> (root["data"] as? JsonObject) ?: root } }.asReversed()
+        fun records(tool: String, action: String, vararg fields: String) = roots(tool, action).flatMap { root ->
+            fields.firstNotNullOfOrNull { root[it] as? JsonArray }.orEmpty().filterIsInstance<JsonObject>()
+        }
+        val status = roots("github_context", "status").firstOrNull()
+        val sha = status?.get("commit_sha")
+        val branch = status?.get("branch")
+        val run = records("github_ci", "runs", "workflow_runs").firstOrNull { it.text("status") == "completed" }
+            ?: records("github_ci", "runs", "workflow_runs").firstOrNull()
+        val job = records("github_ci", "jobs", "jobs").firstOrNull { it.text("status") == "completed" }
+        val pr = records("github_pr", "list", "pull_requests", "items").firstOrNull()
+        val issue = records("github_issue", "list", "items", "issues").firstOrNull { "pull_request" !in it }
+        val release = records("github_release", "list", "items", "releases").firstOrNull()
+        val tag = records("github_release", "tags", "items", "tags").firstOrNull()
+        val workflow = records("github_ci", "workflows", "workflows").firstOrNull()
+        val paths = records("github_search", "search", "matches", "results", "files", "items")
+        val path = paths.firstNotNullOfOrNull { it["path"] as? JsonPrimitive }
+        val recipes = buildList<Pair<String, JsonObject>> {
+            fun recipe(tool: String, action: String, vararg fields: Pair<String, JsonElement?>) {
+                add(
+                    tool to buildJsonObject {
+                        put("action", action)
+                        fields.forEach { (key, value) -> value?.let { put(key, it) } }
+                    }
+                )
+            }
+            listOf("resolve", "index", "efficiency", "capabilities", "repository", "recovery").forEach { recipe("github_context", it) }
+            if (sha != null) {
+                recipe("github_context", "commit", "commit_sha" to sha)
+                recipe("github_context", "commit_search", "query" to sha)
+                recipe("github_context", "changes", "base_sha" to sha, "commit_sha" to sha)
+            }
+            if (branch != null) listOf("branch", "branch_dependencies").forEach { recipe("github_context", it, "branch" to branch) }
+            ((status?.get("repository") as? JsonObject)?.get("full_name"))?.let { recipe("github_context", "repositories", "query" to it) }
+            recipe("github_search", "search", "query" to JsonPrimitive("README"), "mode" to JsonPrimitive("paths"), "commit_sha" to sha)
+            if (path != null) {
+                recipe(
+                    "github_read",
+                    "ranges",
+                    "commit_sha" to sha,
+                    "ranges" to JsonArray(
+                        listOf(
+                            buildJsonObject {
+                                put("path", path)
+                                put("start_line", 1)
+                                put("end_line", 40)
+                            }
+                        )
+                    )
+                )
+                // Exercise aliases explicitly on the observed path, without scanning the repository again.
+                listOf("search_repository", "search_code").forEach { recipe("github_search", it, "query" to path, "mode" to JsonPrimitive("paths"), "path_suffix" to path, "commit_sha" to sha) }
+            }
+            recipe("github_issue", "list", "state" to JsonPrimitive("all"))
+            listOf("status", "tags", "list").forEach { recipe("github_release", it) }
+            tag?.get("name")?.let { recipe("github_release", "tag", "tag_name" to it) }
+            release?.get("tag_name")?.let { recipe("github_release", "detail", "tag_name" to it) }
+            workflow?.get("id")?.let { recipe("github_ci", "definitions", "workflow_id" to it, "commit_sha" to sha) }
+            run?.get("id")?.let { id ->
+                listOf("run", "status", "jobs", "artifacts").forEach { recipe("github_ci", it, "run_id" to id) }
+                if (run.text("status") == "completed" && run.text("conclusion") in setOf("failure", "timed_out")) recipe("github_ci", "failure", "run_id" to id)
+            }
+            job?.get("id")?.let { id ->
+                recipe("github_ci", "job", "job_id" to id)
+                recipe("github_ci", "logs", "job_id" to id, "start_line" to JsonPrimitive(1), "end_line" to JsonPrimitive(40))
+            }
+            pr?.get("number")?.let { id -> listOf("headers", "context", "comments", "reviews").forEach { recipe("github_pr", it, "pull_number" to id) } }
+            issue?.get("number")?.let { id -> listOf("headers", "context", "comments", "history").forEach { recipe("github_issue", it, "issue_number" to id) } }
+        }
+        for ((name, args) in recipes) {
+            val tool = tools.firstOrNull { it.name.substringBefore("__") == name } ?: continue
+            if (observations.any { it.text("tool") == tool.name && (it["arguments"] as? JsonObject)?.text("action") == args.text("action") }) continue
+            if (ToolArgumentValidator.errors(args, tool.inputSchema).isNotEmpty()) continue
+            return ProviderEvent.ToolCall("checklist-" + GitHubEvidenceBook.digest("${tool.name}:$args").take(24), tool.name, args)
+        }
+        return null
+    }
+
+    private fun JsonObject.text(key: String) = (get(key) as? JsonPrimitive)?.contentOrNull.orEmpty()
+}

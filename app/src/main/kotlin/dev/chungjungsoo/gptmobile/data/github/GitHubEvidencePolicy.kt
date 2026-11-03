@@ -36,6 +36,24 @@ internal object GitHubEvidencePolicy {
         return found
     }
 
+    /** Meaning is bound to the operation and field path, independently of the value. */
+    private fun semanticType(receipt: JsonObject?, path: String): Pair<String, String> {
+        val tool = receipt?.string("tool")?.substringBefore("__").orEmpty()
+        val arguments = (receipt?.get("arguments") as? JsonObject) ?: JsonObject(emptyMap())
+        val nativeAction = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.nativeArguments(tool, arguments)?.string("action")
+        val resource = when {
+            "/check_runs/" in path -> "check_run"
+            "/jobs/" in path || nativeAction in setOf("get_workflow_job", "get_job_logs") -> "job"
+            "/workflow_runs/" in path || "/latest_workflow/" in path || nativeAction == "get_workflow_run" -> "workflow_run"
+            "/reviews/" in path -> "pull_request_review"
+            tool == "github_pr" || "/pull_requests/" in path -> "pull_request"
+            tool == "github_issue" -> "issue"
+            nativeAction == "get_commit_status_summary" -> "commit_checks"
+            else -> "resource"
+        }
+        return resource to "$resource.${path.substringAfterLast('/')}"
+    }
+
     fun verify(claim: JsonObject, receipts: Map<String, JsonObject>, now: Long, currentEpoch: Long, observations: Map<String, JsonElement>? = null): JsonObject {
         val id = claim.string("receipt_id")
         val path = claim.string("pointer")
@@ -48,9 +66,13 @@ internal object GitHubEvidencePolicy {
         }
         val timestamp = receipt?.get("observed_at_ms")?.let { (it as? JsonPrimitive)?.longOrNull } ?: 0
         val immutable = receipt?.get("immutable") == JsonPrimitive(true)
+        val (resourceType, fieldType) = semanticType(receipt, path)
+        val semanticsMismatch = claim["resource_type"]?.let { it != JsonPrimitive(resourceType) } == true ||
+            claim["field_type"]?.let { it != JsonPrimitive(fieldType) } == true
         val status = when {
             receipt == null || observed == null || "value" !in claim -> "NOT_MEASURED"
-            receipt["success"] != JsonPrimitive(true) || receipt["trusted"] != JsonPrimitive(true) -> "NOT_MEASURED"
+            receipt["success"] != JsonPrimitive(true) || receipt["trusted"] != JsonPrimitive(true) || receipt["verification_eligible"] == JsonPrimitive(false) -> "NOT_MEASURED"
+            semanticsMismatch -> "NOT_MEASURED"
             timestamp <= 0 || timestamp > now || !immutable && (now - timestamp > MAX_AGE_MS || receipt["epoch"] != JsonPrimitive(currentEpoch)) -> "STALE"
             observed != claim["value"] -> "CONTRADICTED"
             else -> "VERIFIED"
@@ -58,9 +80,11 @@ internal object GitHubEvidencePolicy {
         val reason = when {
             receipt == null -> "RECEIPT_NOT_FOUND"
             receipt["trusted"] != JsonPrimitive(true) -> "UNTRUSTED_RECEIPT"
+            receipt["verification_eligible"] == JsonPrimitive(false) -> "AUTHORIZATION_REVALIDATION_REQUIRED"
             receipt["success"] != JsonPrimitive(true) -> "OPERATION_FAILED"
             "value" !in claim -> "CLAIM_VALUE_MISSING"
             observed == null -> "POINTER_NOT_IN_EVIDENCE"
+            semanticsMismatch -> "FIELD_SEMANTICS_MISMATCH"
             timestamp <= 0 || timestamp > now -> "OBSERVATION_TIME_UNKNOWN"
             status == "STALE" -> "MUTABLE_EVIDENCE_EXPIRED_OR_REVISION_CHANGED"
             status == "CONTRADICTED" -> "VALUE_MISMATCH"
@@ -72,7 +96,7 @@ internal object GitHubEvidencePolicy {
             put(
                 "recovery",
                 when (reason) {
-                    "POINTER_NOT_IN_EVIDENCE", "CLAIM_VALUE_MISSING", "VALUE_MISMATCH" -> "Correct this claim against the retained receipt/catalog; do not repeat supported operations."
+                    "FIELD_SEMANTICS_MISMATCH", "POINTER_NOT_IN_EVIDENCE", "CLAIM_VALUE_MISSING", "VALUE_MISMATCH" -> "Correct this claim against the retained receipt/catalog; do not repeat supported operations."
                     "MUTABLE_EVIDENCE_EXPIRED_OR_REVISION_CHANGED", "OBSERVATION_TIME_UNKNOWN" -> "Refresh only this mutable observation at the selected revision."
                     "RECEIPT_NOT_FOUND" -> "Find the exact retained receipt or read only the missing source."
                     else -> "Retain the observation and its provenance."
@@ -80,6 +104,8 @@ internal object GitHubEvidencePolicy {
             )
             put("receipt_id", id)
             put("pointer", path)
+            put("resource_type", resourceType)
+            put("field_type", fieldType)
             put("observed_at_ms", timestamp)
             if (status in setOf("VERIFIED", "CONTRADICTED")) put("observed", requireNotNull(observed))
         }
@@ -359,6 +385,7 @@ internal object GitHubEvidencePolicy {
             val time = (receipt["observed_at_ms"] as? JsonPrimitive)?.longOrNull ?: return false
             return receipt["success"] == JsonPrimitive(true) &&
                 receipt["trusted"] == JsonPrimitive(true) &&
+                receipt["verification_eligible"] != JsonPrimitive(false) &&
                 time in (now - MAX_AGE_MS)..now &&
                 receipt["epoch"] == JsonPrimitive(epoch)
         }
@@ -381,7 +408,10 @@ internal object GitHubEvidencePolicy {
         val missing = coverage.filterValues { !it }.keys
         val coverageRows = coverage.map { (item, available) ->
             buildJsonObject {
+                put("id", GitHubRequestCompletion.id(item))
                 put("item", item)
+                put("requirement", item)
+                put("status", if (available) "PASSED" else "BLOCKED")
                 put("observed", available)
                 if (!available) put("reason", "No current, matching successful receipt; the read was unavailable, incomplete or returned no records.")
             }
@@ -394,12 +424,14 @@ internal object GitHubEvidencePolicy {
                 put("task_outcome", if (completed) "COMPLETED" else "PARTIAL")
                 put("partial", !completed)
                 put("status_coverage", JsonArray(coverageRows))
+                put("requirements", JsonArray(coverageRows))
+                put("remaining_requirements", JsonArray(coverageRows.filter { it["observed"] != JsonPrimitive(true) }))
                 put("completion_scope", "Bounded current repository snapshot; no changes, tests or merge readiness inferred.")
             }
         )
         val missingText = if (missing.isEmpty()) "" else "\n\n**Unavailable observations:**\n\n" + missing.joinToString("\n") { "- $it: no current matching receipt; unavailable or incomplete read, or no returned records." }
         val workflowText = if (coverage.getValue("Latest workflow")) "\n\nThe workflow above describes its own branch and commit; it does not establish overall branch health." else ""
-        return text.replace("# Repository update", "# Repository status") + commitSummaries(scopedReceipts, now, epoch) + checkOutcomes(scopedReceipts, now, epoch) + missingText + workflowText to outcome
+        return text.substringBefore("\n\n## Remaining work").replace("# Repository update", "# Repository status") + commitSummaries(scopedReceipts, now, epoch) + checkOutcomes(scopedReceipts, now, epoch) + missingText + workflowText to outcome
     }
 
     private fun commitSummaries(receipts: Map<String, JsonObject>, now: Long, epoch: Long): String {
@@ -458,7 +490,12 @@ internal object GitHubEvidencePolicy {
 
     private fun label(pointer: String, receipt: JsonObject? = null): String = when (pointer) {
         "/data/branch" -> "Observed branch"
-        "/state", "/data/state" -> "Observed check state"
+        "/state", "/data/state" -> when (receipt?.string("tool")?.substringBefore("__")) {
+            "github_pr" -> "Pull request state"
+            "github_issue" -> "Issue state"
+            "github_context", "github_ci" -> if ((receipt?.get("arguments") as? JsonObject)?.string("action") in setOf("checks", "status")) "Commit check summary" else "Resource state"
+            else -> "Resource state"
+        }
         "/checks", "/data/checks", "/check_details/total_count" -> "Check runs observed"
         "/statuses", "/data/statuses" -> "Commit statuses observed"
         "/commit_sha", "/data/commit_sha" -> "Observed commit"

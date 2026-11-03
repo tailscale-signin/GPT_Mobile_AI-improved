@@ -1,0 +1,11 @@
+{
+  "schema": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "feat/github-graph-intelligence-2026-11-03",
+  "base_sha": "092bdb0fc6f06ce6514b698b82c002595ea40521",
+  "working_branch": "feat/github-graph-intelligence-2026-11-03",
+  "intent": "Share the verified release packaging memory repair across active branches without altering release version or signing.",
+  "source_commit": "dc08a1a69e3cfc4f3682e03e42be9eb381ebb58b",
+  "implementation": "Run mandatory vital lint in a bounded process before release/nativeSmoke packaging; preserve lint failure propagation and existing memory limits.",
+  "validation": "Canonical fast checks passed, including all 299 script tests; Android CI required on the published head."
+}

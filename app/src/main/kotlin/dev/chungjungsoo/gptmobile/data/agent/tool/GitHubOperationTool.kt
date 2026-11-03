@@ -306,16 +306,21 @@ internal class GitHubOperationTool(
         }
         if (!result.isError && data != null) {
             if (pagination.repeatsRemotePage(operation, arguments, data)) {
+                val stopped = JsonObject(
+                    data.filterKeys { it !in setOf("continuation", "continuation_call", "remote_continuations", "next_page") } + buildJsonObject {
+                        put("schema", "github.pagination.v1")
+                        put("reason", "REPEATED_REMOTE_PAGE")
+                        put("complete", false)
+                        put("has_more", false)
+                        put("traversal_state", "STALLED")
+                        put("upstream_has_more", data["has_more"] ?: JsonPrimitive(false))
+                        put("message", "The next remote page repeated the previous upstream records. Traversal stopped with incomplete coverage. Refresh page 1 deliberately for a new observation.")
+                    }
+                )
                 return result.copy(
-                    content = ToolResultContent.Json(
-                        buildJsonObject {
-                            put("schema", "github.pagination.v1")
-                            put("reason", "REPEATED_REMOTE_PAGE")
-                            put("complete", false)
-                            put("message", "The next remote page repeated the previous records. Stop this traversal and use retained evidence; refresh page 1 deliberately if a fresh observation is required. This does not establish exhaustive coverage.")
-                        }
-                    ),
-                    retainedContent = result.retainedContent ?: result.content,
+                    content = ToolResultContent.Json(stopped),
+                    retainedContent = ToolResultContent.Json(stopped),
+                    executionReceipt = JsonObject(result.executionReceipt.orEmpty() + mapOf("traversal_state" to JsonPrimitive("STALLED"), "has_more" to JsonPrimitive(false))),
                     isError = true,
                     errorCode = "GITHUB_PAGINATION_STALLED"
                 )
@@ -601,6 +606,11 @@ internal class GitHubOperationTool(
                 "github_commit" -> {
                     properties["action"] = choice("commit", "commit_staged_patch", "branch", "delete_branch")
                     listOf("stage_id", "branch", "message", "expected_head_sha", "from_branch").forEach { properties[it] = field("string") }
+                    properties["expected_head_sha"] = buildJsonObject {
+                        put("type", "string")
+                        put("pattern", "^[a-fA-F0-9]{40}$")
+                        put("description", "Required safety lease. For action=branch use the observed source branch head; commit_sha is not a substitute. For commit/delete_branch use the current target branch head.")
+                    }
                 }
                 "github_write" -> {
                     properties["action"] = choice("commit")
@@ -745,12 +755,18 @@ internal class GitHubOperationTool(
                     }
                     properties["action"] = choice("status", "publish", "tags", "tag", "create_tag", "list", "detail")
                     listOf("tag_name", "target_commitish", "name", "body", "workflow_id", "expected_head_sha", "ref").forEach { properties[it] = field("string") }
-                    properties["workflow_run_id"] = integer(1, description = "Exact run ID from the accepted release dispatch receipt.")
+                    properties["workflow_run_id"] = buildJsonObject {
+                        put("type", "integer")
+                        put("minimum", 1)
+                        put("maximum", Long.MAX_VALUE)
+                        put("description", "Exact 64-bit run ID from the accepted release dispatch receipt; never a workflow ID.")
+                    }
                     properties["inputs"] = field("object")
                     properties["release_strategy"] = choice("auto", "workflow", "direct")
                     properties["draft"] = field("boolean")
                     properties["prerelease"] = field("boolean")
                     properties["page"] = field("integer")
+                    properties["per_page"] = integer(1, 100, default = 30)
                 }
                 "github_issue" -> {
                     properties["action"] = choice("list", "headers", "context", "comments", "history", "create", "update")
@@ -788,6 +804,7 @@ internal class GitHubOperationTool(
                     if (operation == "github_write") {
                         put("required", JsonArray(listOf("branch", "expected_head_sha", "message", "files").map(::JsonPrimitive)))
                     }
+                    GitHubOperationArguments.schemaAlternatives(operation)?.let { put("anyOf", it) }
                 },
                 workflowLinks = workflowLinks
             )

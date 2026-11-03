@@ -77,6 +77,8 @@ activity.install_tools(runtime)
 engineering = EngineeringService(EngineeringStore(runtime), GitHubEngineeringBackend(runtime))
 engineering.authorized = lambda job: principal_authorized(config, job['principal'], device_store)
 engineering.backend.cancelled = lambda job_id: (engineering.store.get(job_id) or {}).get('state') == 'CANCELLED'
+from v14.code_graph.tools import install_graph_tool
+install_graph_tool(runtime, engineering, lambda principal: principal_authorized(config, principal, device_store))
 app = FastAPI(title="Private Gateway 15", version=VERSION, lifespan=engineering.lifecycle(service.lifespan(runtime, config.shutdown_grace)),
               docs_url="/gateway/docs", openapi_url="/gateway/openapi.json")
 app.add_middleware(LoadGuard, config=config, state=service)
@@ -207,7 +209,7 @@ def capabilities():
                                     validatedToolArguments=True, githubClientOwnedFastPath=True,
                                     githubImmutableReadCache=True, githubPerformanceMetrics=True, intelligentToolBatch=True,
                                     batchDependencies=True, batchDurableReceipts=True, durableEngineeringJobs=True,
-                                    shaBoundMergeApproval=True, engineeringSupervisor=True,
+                                    shaBoundMergeApproval=True, engineeringSupervisor=True, repositoryCodeGraph=True,
                                     loopbackBrowserCsrf=config.mode == "loopback", boundedAdmission=True,
                                     versionedJournal=True, mcpCircuitBreakers=True, supervisedShutdown=True)})
     return result

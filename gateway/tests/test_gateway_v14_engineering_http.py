@@ -76,6 +76,21 @@ class EngineeringHTTPTests(unittest.TestCase):
         self.service.tick(job_id)
         self.assertEqual('COMPLETED', self.store.get(job_id)['state'])
 
+    def test_graph_route_requires_engineering_scope_and_keeps_principal_server_owned(self):
+        payload = {'action': 'status', 'repository': 'owner/repo', 'branch': 'feature', 'commit_sha': 'a' * 40}
+        with patch.object(self.service.graph, 'execute', return_value={'status': 'NOT_INDEXED'}) as graph:
+            denied = self.client.post('/gateway/engineering/graph', json=payload, headers={'Tailscale-User-Login': 'reader@example.test'})
+            self.assertEqual(403, denied.status_code)
+            graph.assert_not_called()
+            response = self.client.post('/v1/gateway/engineering/graph', json=payload, headers=self.headers)
+            self.assertEqual(200, response.status_code)
+            graph.assert_called_once_with('tailnet:owner', payload)
+
+    def test_graph_capacity_does_not_fail_as_a_successful_result(self):
+        with patch.object(self.service.graph, 'execute', side_effect=TimeoutError('capacity')):
+            response = self.client.post('/gateway/engineering/graph', json={'action': 'query'}, headers=self.headers)
+            self.assertEqual(503, response.status_code)
+
     def test_existing_read_scope_cannot_start_engineering_and_no_credential_is_returned(self):
         response = self.client.post('/gateway/engineering/jobs', json=self.request, headers={'Tailscale-User-Login': 'reader@example.test'})
         self.assertEqual(403, response.status_code)

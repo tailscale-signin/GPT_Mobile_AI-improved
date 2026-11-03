@@ -1005,6 +1005,7 @@ private fun ChatScreenContent(
                         }
                     }
                     chatToolConfig.github?.let { github ->
+                        if (!chatRoom.isTemporary) item(key = "repository-graph") { RepositoryGraphPanel(github, appAllPlatforms.firstOrNull { it.uid == github.mainProfileUid }) }
                         item(key = "gateway-engineering-jobs") { GatewayEngineeringPanel(chatRoom.id, github, appAllPlatforms.firstOrNull { it.uid == github.mainProfileUid }, debugMode = debugMode) }
                     }
                     items(visibleGitHubDecisions.size, key = { "github-decision-${visibleGitHubDecisions[it].id}" }) { index ->

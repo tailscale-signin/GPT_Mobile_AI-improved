@@ -207,8 +207,8 @@ class GitHubContinuityUpgradeTest {
         val rows = GitHubTestChecklist.rows(emptyMap(), listOf(definition)).map { it.jsonObject }
         for (action in listOf("jobs", "logs", "artifacts")) {
             val row = rows.single { it["id"] == JsonPrimitive("github_ci:$action") }
-            assertEquals(JsonPrimitive("UNTESTED"), row["status"])
-            assertTrue((row["next_action"] as JsonPrimitive).content.contains("no write fixture"))
+            assertEquals(JsonPrimitive("BLOCKED"), row["status"])
+            assertTrue((row["blocker"] as JsonPrimitive).content.contains("observed workflow"))
         }
     }
 

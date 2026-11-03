@@ -275,4 +275,15 @@ class ConfiguredDispatchAuthorityTest {
         assertFalse(ConfiguredDispatchAuthority.allowsAcceptedTokenPlan(before, before.copy(adaptiveToolCatalog = !before.adaptiveToolCatalog), "writer"))
         assertFalse(ConfiguredDispatchAuthority.allowsAcceptedTokenPlan(before, before.copy(profileContextCeilings = mapOf("writer" to 1024)), "writer"))
     }
+
+    @Test fun catalogResumeRequiresDurableChecklistAndOnlyToolPolicyChanges() {
+        val fence = PreparationReplayFence()
+        fence.dispatched()
+        val tools = DispatchPolicyChangedException(listOf("tools"))
+        assertFalse(fence.canRebuild(tools, 0))
+        assertTrue(fence.canResumeGitHubChecklist(tools, 0, true))
+        assertFalse(fence.canResumeGitHubChecklist(tools, 0, false))
+        assertFalse(fence.canResumeGitHubChecklist(tools, 3, true))
+        assertFalse(fence.canResumeGitHubChecklist(DispatchPolicyChangedException(listOf("tools", "profile.token")), 0, true))
+    }
 }

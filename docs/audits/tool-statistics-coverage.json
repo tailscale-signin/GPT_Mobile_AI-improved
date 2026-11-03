@@ -263,6 +263,14 @@
       "upstreamAttempts": "Observable MCP calls and correlated Ktor sends (including request retries/redirects); gateway-internal retries remain unavailable unless explicitly reported"
     },
     {
+      "source": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/RepositoryGraphTool.kt",
+      "canonicalOwner": "Selected private gateway repository graph",
+      "capture": "AgentToolResolver observed execution wrapper; gateway records bounded operation latency and output bytes",
+      "outcome": "Completed graph inspection, invalid argument precheck, unavailable gateway, or cancellation; graph links are not runtime proof",
+      "probe": "Explicit graph status/index/query; no background source upload at discovery",
+      "configuration": "Existing GitHub connection and private Llama/Ollama profile, GitHub tools and persistent engineering memory enabled"
+    },
+    {
       "source": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/SharedToolCallBroker.kt",
       "canonicalOwner": "ToolIdentity.of(realToolName, connectionUid); marketplace package instance retained",
       "capture": "ToolExecutionBudget after admission; ObservedTool records distinct child subjects under inherited collection policy and suppresses same-subject double wrapping",

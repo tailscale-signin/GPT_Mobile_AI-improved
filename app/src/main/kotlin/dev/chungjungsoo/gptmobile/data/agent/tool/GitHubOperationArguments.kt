@@ -4,9 +4,35 @@ import dev.chungjungsoo.gptmobile.data.github.GitHubWorkspaceClient
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 /** Action-specific admission after schema validation, before any repository request. */
 internal object GitHubOperationArguments {
+    /** Advertise the same conditional prerequisites enforced before dispatch. */
+    fun schemaAlternatives(operation: String): JsonArray? {
+        val alternatives: List<Pair<List<String>, List<String>>> = when (operation) {
+            "github_commit" -> listOf(listOf("branch", "delete_branch") to listOf("branch", "expected_head_sha"), listOf("commit", "commit_staged_patch") to listOf("stage_id", "branch", "message", "expected_head_sha"))
+            "github_pr" -> listOf(listOf("list") to emptyList(), listOf("headers", "context", "comments", "reviews") to listOf("pull_number"), listOf("create") to listOf("title", "head", "base"), listOf("update", "merge", "review") to listOf("pull_number", "expected_head_sha"), listOf("comment") to listOf("pull_number", "body", "expected_head_sha"), listOf("reply") to listOf("pull_number", "comment_id", "body", "expected_head_sha"))
+            "github_issue" -> listOf(listOf("list") to emptyList(), listOf("headers", "context", "comments", "history") to listOf("issue_number"), listOf("create") to listOf("title"), listOf("update") to listOf("issue_number", "expected_updated_at"))
+            "github_ci" -> listOf(listOf("failure", "workflows", "definitions", "runs", "status") to emptyList(), listOf("run", "artifacts", "rerun", "rerun_failed_jobs", "rerun_all", "cancel", "jobs") to listOf("run_id"), listOf("job", "logs", "jobs") to listOf("job_id"), listOf("dispatch") to listOf("workflow_id", "ref", "expected_head_sha"))
+            else -> return null
+        }
+        val default = when (operation) {
+            "github_commit" -> "commit"
+            "github_pr" -> "context"
+            "github_issue" -> "list"
+            else -> "workflows"
+        }
+        return JsonArray(
+            listOf(buildJsonObject { put("required", JsonArray(listOf(JsonPrimitive("view_cursor")))) }) + alternatives.map { (actions, required) ->
+                buildJsonObject {
+                    put("properties", buildJsonObject { put("action", buildJsonObject { put("enum", JsonArray(actions.map(::JsonPrimitive))) }) })
+                    put("required", JsonArray((required + if (default in actions) emptyList() else listOf("action")).map(::JsonPrimitive)))
+                }
+            }
+        )
+    }
     fun errors(operation: String, args: JsonObject): List<String> {
         fun text(key: String) = (args[key] as? JsonPrimitive)?.content.orEmpty()
         val errors = mutableListOf<String>()
@@ -108,6 +134,7 @@ internal object GitHubOperationArguments {
                     }
                 }
             }
+            "github_release" -> positive("workflow_run_id")
         }
         return errors
     }

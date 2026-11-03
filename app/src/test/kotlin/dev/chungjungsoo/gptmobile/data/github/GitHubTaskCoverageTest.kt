@@ -39,7 +39,9 @@ class GitHubTaskCoverageTest {
     @Test fun historicalCoverageDoesNotMakeStaleCheckStateCurrent() {
         val source = json("""{"receipt_id":"r","trusted":true,"success":true,"tool":"github_context","arguments":{"action":"checks"},"observed_at_ms":1000,"epoch":0,"result":{"state":"PASSED","checks":19}}""")
         val (text, report) = GitHubEvidencePolicy.testing(mapOf("r" to source), 200000, 0, "test all tools")
-        assertFalse(text.contains("PASSED"))
+        // Historical endpoint coverage may pass; a stale current-state claim may not.
+        assertFalse(text.contains("| Commit check summary | PASSED |"))
+        assertFalse((report["claims"] as JsonArray).filterIsInstance<JsonObject>().any { it["pointer"] == JsonPrimitive("/state") && it["status"] == JsonPrimitive("VERIFIED") })
         assertTrue(text.contains("github_context / checks"))
         assertEquals(JsonPrimitive(false), report["completion_verified"])
     }

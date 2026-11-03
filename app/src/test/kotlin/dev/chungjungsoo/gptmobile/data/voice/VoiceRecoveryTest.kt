@@ -150,4 +150,57 @@ class VoiceRecoveryTest {
         assertEquals("draft", session.state.transcript)
         assertTrue(session.state.hasDraft)
     }
+
+    @Test fun editedDraftSurvivesPauseAndSessionRecreation() {
+        val audio = Audio()
+        val session = VoiceSession(audio, { true }, {}).apply { editBeforeSend = true }
+        session.access(true, true, true)
+        session.resume()
+        audio.attempts.single().final("recognized")
+        session.editDraft("corrected draft")
+        session.pause()
+        val saved = session.state
+        session.close()
+        val sent = mutableListOf<String>()
+        val restoredAudio = Audio()
+        val restored = VoiceSession(restoredAudio, {
+            sent += it
+            true
+        }, {})
+        restored.restore(saved.transcript, saved.reply, saved.hasDraft, saved.awaitingReply)
+        restored.access(true, true, true)
+        restored.resume()
+        assertTrue(restoredAudio.attempts.isEmpty())
+        restored.sendDraft()
+        assertEquals(listOf("corrected draft"), sent)
+    }
+
+    @Test fun backgroundedPartialCaptureBecomesReviewableDraft() {
+        val audio = Audio()
+        val session = VoiceSession(audio, { true }, {})
+        session.access(true, true, true)
+        session.resume()
+        audio.attempts.single().partial("unfinished words")
+        session.access(true, true, false)
+        assertTrue(session.state.hasDraft)
+        session.access(true, true, true)
+        session.resume()
+        assertEquals(VoicePhase.REVIEWING, session.state.phase)
+        assertEquals("unfinished words", session.state.transcript)
+        assertEquals(1, audio.attempts.size)
+    }
+
+    @Test fun pausingNewCaptureDoesNotRestoreAlreadySentTranscript() {
+        val audio = Audio()
+        val session = VoiceSession(audio, { true }, {})
+        session.access(true, true, true)
+        session.resume()
+        audio.attempts.single().final("already sent")
+        session.reply("run", "answer")
+        audio.complete?.invoke()
+        session.resume()
+        session.pause()
+        assertFalse(session.state.hasDraft)
+        assertEquals("", session.state.transcript)
+    }
 }

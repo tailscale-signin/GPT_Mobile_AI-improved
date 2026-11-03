@@ -191,10 +191,13 @@ internal fun VoiceChatScreen(onEnd: () -> Unit, onOpenChat: () -> Unit, model: C
             if (it.hasDraft || it.phase == VoicePhase.ERROR) model.checkpointVoiceDraft(it.transcript)
             if (it.phase == VoicePhase.THINKING && state.phase != VoicePhase.THINKING && it.awaitingReply) model.checkpointVoiceDraft("")
             state = it
-            retainedTranscript = it.transcript
-            retainedReply = it.reply
-            retainedReview = it.hasDraft
-            retainedPending = it.awaitingReply
+            // Disposal closes audio; it must not erase the state restored after rotation.
+            if (it.phase != VoicePhase.CLOSED) {
+                retainedTranscript = it.transcript
+                retainedReply = it.reply
+                retainedReview = it.hasDraft
+                retainedPending = it.awaitingReply
+            }
         }).also { it.restore(retainedTranscript, retainedReply, retainedReview, retainedPending) }
     }
     val enabled = features.isToolPluginEnabled(ToolPluginId.VOICE_CHAT)
@@ -362,7 +365,7 @@ internal fun VoiceChatScreen(onEnd: () -> Unit, onOpenChat: () -> Unit, model: C
             if (state.phase == VoicePhase.REVIEWING) {
                 OutlinedTextField(draft, {
                     draft = it.take(8000)
-                    retainedTranscript = draft
+                    session.editDraft(draft)
                 }, label = { Text("Your message") }, modifier = Modifier.fillMaxWidth().padding(top = 12.dp), minLines = 2, maxLines = 4)
                 Button(onClick = { session.sendDraft(draft) }, enabled = draft.isNotBlank()) { Text("Send") }
                 TextButton(onClick = {

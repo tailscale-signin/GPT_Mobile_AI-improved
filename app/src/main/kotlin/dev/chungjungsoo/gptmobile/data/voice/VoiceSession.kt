@@ -73,6 +73,11 @@ class VoiceSession(
     }
     var editBeforeSend = false
     var autoContinue = false
+    fun editDraft(text: String) {
+        if (state.phase != VoicePhase.REVIEWING || waiting) return
+        draftPending = true
+        update(state.copy(transcript = text.take(8000)))
+    }
     private fun continueTurn() {
         if (autoContinue) resume() else pause()
     }
@@ -155,7 +160,7 @@ class VoiceSession(
             return
         }
         val ticket = generation
-        update(state.copy(phase = VoicePhase.STARTING, level = 0f, hasAudioLevel = false, notice = null, retryAtMillis = 0))
+        update(state.copy(phase = VoicePhase.STARTING, transcript = "", level = 0f, hasAudioLevel = false, notice = null, retryAtMillis = 0))
         fun valid() = ticket == generation && captureAllowed() && state.phase in setOf(VoicePhase.STARTING, VoicePhase.LISTENING, VoicePhase.FINALIZING)
         audio.listen(object : VoiceAudio.Listener {
             override fun ready() {
@@ -301,6 +306,7 @@ class VoiceSession(
     }
     fun pause() {
         if (state.phase == VoicePhase.CLOSED) return
+        if (state.phase in setOf(VoicePhase.STARTING, VoicePhase.LISTENING, VoicePhase.FINALIZING) && state.transcript.isNotBlank()) draftPending = true
         engaged = false
         stopAudio()
         update(state.copy(phase = VoicePhase.PAUSED, level = 0f))

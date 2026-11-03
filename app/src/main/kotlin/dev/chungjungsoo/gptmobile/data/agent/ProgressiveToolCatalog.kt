@@ -144,7 +144,7 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
             return AgentToolResult(callId, ToolResultContent.Text("Use inventory_cursor alone to continue the tool inventory; query/names start a separate discovery."), true, errorCode = "INVALID_ARGUMENTS", dispatched = false)
         }
         if (acquireCold != null && "inventory_cursor" !in arguments) {
-            // Cache only successful acquisitions. Offline or empty catalogs remain retryable.
+            // Cache exact unknown names per catalog version. Broad/empty discovery remains retryable.
             // Never suspend while holding the selection monitor.
             val key = query.trim().lowercase(java.util.Locale.ROOT) + "|" + names.sorted().joinToString("|")
             acquisitionMutex.withLock {

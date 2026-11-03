@@ -26,7 +26,8 @@ internal class GitHubEvidenceBook(
     private val load: suspend (String) -> JsonObject? = { null },
     private val save: suspend (String, JsonObject) -> Unit = { _, _ -> },
     private val retainedIds: suspend () -> List<String> = { emptyList() },
-    private val latestVerdict: suspend () -> JsonObject? = { null }
+    private val latestVerdict: suspend () -> JsonObject? = { null },
+    private val currentToolContracts: Map<String, JsonObject> = emptyMap()
 ) {
     private val mutex = Mutex()
     private val records = linkedMapOf<String, JsonObject>()
@@ -53,18 +54,27 @@ internal class GitHubEvidenceBook(
                 (saved["source_head_sha"] as? JsonPrimitive)?.contentOrNull?.let { observedHead = it }
             }
             epoch = maxOf(epoch, savedEpoch)
-            // Preserve the original receipt and explicitly exclude removed tools from current proof.
-            retain(
-                id,
-                JsonObject(
-                    saved + buildJsonObject {
-                        put("verification_eligible", saved["tool"] in trustedTools.map(::JsonPrimitive))
-                        if (saved["tool"] !in trustedTools.map(::JsonPrimitive)) put("exclusion_reason", "TOOL_NOT_AUTHORIZED_IN_CURRENT_CATALOG")
-                    }
-                )
-            )
+            retain(id, revalidate(saved))
         }
         check(!overflow) { "Retained task evidence exceeds the recovery allowance" }
+    }
+
+    private fun revalidate(saved: JsonObject): JsonObject {
+        val name = (saved["tool"] as? JsonPrimitive)?.contentOrNull.orEmpty()
+        val arguments = saved["arguments"] as? JsonObject
+        val contract = currentToolContracts[name]
+        val exclusion = when {
+            name !in trustedTools -> "TOOL_NOT_AUTHORIZED_IN_CURRENT_CATALOG"
+            contract != null && (arguments == null || dev.chungjungsoo.gptmobile.data.agent.ToolArgumentValidator.errors(arguments, contract).isNotEmpty()) -> "TOOL_ARGUMENT_CONTRACT_CHANGED"
+            else -> null
+        }
+        // Originals remain immutable. The current proof decision is a separate projection.
+        return JsonObject(
+            saved.filterKeys { it !in setOf("verification_eligible", "exclusion_reason") } + buildJsonObject {
+                put("verification_eligible", exclusion == null && saved["trusted"] == JsonPrimitive(true))
+                exclusion?.let { put("exclusion_reason", it) }
+            }
+        )
     }
 
     suspend fun observe(call: ProviderEvent.ToolCall, result: AgentToolResult) = mutex.withLock {
@@ -78,7 +88,7 @@ internal class GitHubEvidenceBook(
                 (existing["source_head_sha"] as? JsonPrimitive)?.contentOrNull?.let { observedHead = it }
             }
             epoch = maxOf(epoch, savedEpoch)
-            retain(id, existing)
+            retain(id, revalidate(existing))
             return@withLock
         }
         val content = when (val body = result.retainedContent ?: result.content) {

@@ -34,7 +34,7 @@ internal object GitHubSelfTestFixtures {
                     "github_commit" to buildJsonObject {
                         put("action", "branch")
                         put("branch", fixture)
-                        put("base", branch)
+                        put("from_branch", branch)
                         put("expected_head_sha", sha)
                     }
                 )

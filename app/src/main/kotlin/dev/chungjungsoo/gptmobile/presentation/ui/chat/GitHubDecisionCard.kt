@@ -113,6 +113,9 @@ internal fun GitHubLiveProgressCard(timeline: List<dev.chungjungsoo.gptmobile.da
         }
     }
     val search = remember(events) { gitHubSearchActivity(events) }
+    val compact = remember(task) { dev.chungjungsoo.gptmobile.data.github.GitHubTestChecklist.integration(task) }
+    var expanded by remember(task) { mutableStateOf(false) }
+    val firstVisible = if (compact && !expanded) (lines.size - 3).coerceAtLeast(0) else 0
     val latestPreview = lines.lastIndex.takeIf { it >= 0 && !lines[it].statusSummary } ?: -1
     val motion = rememberGitHubProgressMotion(latestPreview >= 0)
     Column(
@@ -121,13 +124,19 @@ internal fun GitHubLiveProgressCard(timeline: List<dev.chungjungsoo.gptmobile.da
     ) {
         if (lines.none { it.statusSummary }) GitHubActivitySummary(dev.chungjungsoo.gptmobile.data.github.GitHubProgressPresentation.introduction(task))
         if (search != null && latestPreview < 0) GitHubActivityPreview("Searching websites", latest = true, motion = motion, search = search)
-        lines.forEachIndexed { index, item ->
+        lines.drop(firstVisible).forEachIndexed { offset, item ->
+            val index = firstVisible + offset
             androidx.compose.runtime.key(item.progressId ?: index, item.statusSummary) {
                 if (item.statusSummary) {
                     GitHubActivitySummary(item.content)
                 } else {
                     GitHubActivityPreview(item.content, latest = index == latestPreview, motion = motion, search = search.takeIf { index == latestPreview })
                 }
+            }
+        }
+        if (compact && lines.size > 3) {
+            TextButton(onClick = { expanded = !expanded }, modifier = Modifier.testTag("github_activity_history")) {
+                Text(if (expanded) "Show recent activity" else "Show earlier activity (${lines.size - 3})")
             }
         }
     }

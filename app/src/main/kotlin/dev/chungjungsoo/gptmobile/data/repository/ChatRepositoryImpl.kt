@@ -4104,6 +4104,7 @@ class ChatRepositoryImpl(
                 repository = "${github.owner}/${github.repo}",
                 branch = github.ref,
                 trustedTools = effectiveTools.filter { it.nativeGitHub }.mapTo(hashSetOf()) { it.modelToolName } + listOfNotNull(catalog?.definition?.name),
+                currentToolContracts = effectiveTools.filter { it.nativeGitHub }.associate { it.modelToolName to it.tool.definition.inputSchema },
                 load = { id -> workspace?.protectedSynthesisCheckpoint("github-evidence:$binding:$id") },
                 latestVerdict = {
                     workspace?.dao?.githubTaskEvidence(user.chatId, "github-evidence:$binding:verification_")?.lastOrNull()?.let { workspace?.protectedSynthesisCheckpoint(it.id) }

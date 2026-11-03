@@ -24,7 +24,7 @@
       "id": 3,
       "feature": "No-progress retry guard",
       "state": "IMPLEMENTED_PENDING_ANDROID_VALIDATION",
-      "implementation": "Checkpoint fingerprint detects unchanged retries and renders a short blocker result without another model invocation."
+      "implementation": "Progress fingerprint ignores repeated identical observations and detects unchanged retries; short blocker results require no new model invocation."
     },
     {
       "id": 4,
@@ -42,7 +42,7 @@
       "id": 6,
       "feature": "Typed claim field paths",
       "state": "IMPLEMENTED_PENDING_ANDROID_VALIDATION",
-      "implementation": "PR state uses typed labels; exact receipt paths remain required."
+      "implementation": "Resource/field types derive from exact operation and path; semantic mismatches are rejected and PR state uses typed labels."
     },
     {
       "id": 7,
@@ -54,7 +54,7 @@
       "id": 8,
       "feature": "Catalog invalidation recovery",
       "state": "IMPLEMENTED_PENDING_ANDROID_VALIDATION",
-      "implementation": "Tools-only invalidation can reprepare a durable checklist under current authorization; other permission/profile changes remain blocked."
+      "implementation": "Tools-only invalidation can reprepare a durable checklist under current authorization; other permission/profile changes remain blocked. Restored and cached receipts are revalidated against current action schemas, with explicit exclusions."
     },
     {
       "id": 9,
@@ -84,7 +84,7 @@
       "id": 13,
       "feature": "64-bit GitHub identifiers",
       "state": "IMPLEMENTED_PENDING_ANDROID_VALIDATION",
-      "implementation": "Release workflow run IDs accept positive 64-bit integers; source review distinguishes GraphQL resource numbers from global IDs."
+      "implementation": "Release workflow run IDs accept positive 64-bit integers; source review distinguishes GraphQL resource numbers from global IDs. Contract bounds use exact decimal arithmetic rather than floating point."
     },
     {
       "id": 14,
@@ -162,7 +162,7 @@
       "id": 26,
       "feature": "Markdown rendering performance",
       "state": "IMPLEMENTED_PENDING_ANDROID_VALIDATION",
-      "implementation": "Existing background Markdown parse/cache retained; long tables compose 12 rows with explicit expansion."
+      "implementation": "Existing background Markdown parse/cache retained; long tables compose 12 rows with explicit expansion. Compact activity shows evaluated check counts and collapses earlier activity; stable table content preserves expansion during streaming."
     },
     {
       "id": 27,
@@ -205,9 +205,9 @@
   ],
   "implementation_base_sha": "8db2900f30e132abe1a4fca597b4160bf054f799",
   "validation": {
-    "portable_jvm_scenarios": "8 passed using production pure logic with host contract adapters; not Android execution",
-    "android": "pending CI, local JDK21/SDK37 unavailable",
-    "room_schema48": "Await compiler-generated CI export; migration implemented",
+    "portable_jvm_scenarios": "15 passed using production pure logic with host contract adapters; not Android execution",
+    "android": "CI head9915c49 compiled successfully; 6124 tests, 3 failures, 4 skips. Corrected fixture source argument, action-restricted read planning and stale-state assertion; final rerun required.",
+    "room_schema48": "Compiler-generated schema from job125925964962 at9915c49 added; identity ea98fd7836adb932c915d1d455198328; final comparison pending.",
     "source_archive": "Not supplied; evidence from user review plus fetched exact failed-job log/annotations",
     "fast": "PASS: 297 script tests plus resource, icon, regex, provenance and coverage checks",
     "gateway": "PASS: full gateway/check_gateway.py including graph regressions and 7 browser bridge tests",

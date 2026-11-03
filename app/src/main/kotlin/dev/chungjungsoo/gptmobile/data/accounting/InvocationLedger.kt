@@ -274,6 +274,8 @@ class InvocationLedger @Inject constructor(
             val outputCounter = ProviderUsageCounter()
             fun retainedInput(): Int = if (measuredUsageSource(inputSource)) input ?: record.inputTokens else maxOf(input ?: 0, record.inputTokens)
             fun retainedOutput(): Int = if (measuredUsageSource(outputSource)) output ?: 0 else maxOf(output ?: 0, ((generatedBytes + 2) / 3).coerceAtMost(Int.MAX_VALUE.toLong()).toInt())
+            fun retainedInputSource(): String = if (inputSource == "not_dispatched" || input != null && retainedInput() == input) inputSource else "estimated"
+            fun retainedOutputSource(): String = if (outputSource == "not_dispatched" || output != null && retainedOutput() == output) outputSource else "estimated"
             fun estimatedUsage(): Boolean = input == null || output == null || !measuredUsageSource(inputSource) || !measuredUsageSource(outputSource)
             var providerReasoningTokens: Int? = null
             var finishReason: String? = null
@@ -365,8 +367,8 @@ class InvocationLedger @Inject constructor(
                                         inputTokens = retainedInput(),
                                         outputTokens = retainedOutput(),
                                         estimated = estimatedUsage(),
-                                        inputTokenSource = inputSource,
-                                        outputTokenSource = outputSource,
+                                        inputTokenSource = retainedInputSource(),
+                                        outputTokenSource = retainedOutputSource(),
                                         finishReason = finishReason,
                                         actualRuntime = actualRuntime,
                                         durationMs = (now - started) / 1_000_000,
@@ -409,8 +411,8 @@ class InvocationLedger @Inject constructor(
                             invocationId = record.id,
                             inputTokens = if (entirelyUnsent) 0 else retainedInput().toLong(),
                             outputTokens = if (entirelyUnsent) 0 else retainedOutput().toLong(),
-                            inputSource = inputSource,
-                            outputSource = outputSource,
+                            inputSource = retainedInputSource(),
+                            outputSource = retainedOutputSource(),
                             visibleOutputEstimate = (visibleBytes + 2) / 3,
                             reasoningTokens = providerReasoningTokens?.toLong(),
                             firstTextMillis = first,
@@ -462,8 +464,8 @@ class InvocationLedger @Inject constructor(
                                 inputTokens = if (entirelyUnsent) 0 else retainedInput(),
                                 outputTokens = if (entirelyUnsent) 0 else retainedOutput(),
                                 estimated = !entirelyUnsent && estimatedUsage(),
-                                inputTokenSource = inputSource,
-                                outputTokenSource = outputSource,
+                                inputTokenSource = retainedInputSource(),
+                                outputTokenSource = retainedOutputSource(),
                                 finishReason = finishReason,
                                 actualRuntime = actualRuntime,
                                 status = status,
@@ -479,11 +481,11 @@ class InvocationLedger @Inject constructor(
                                     put("input", inputCounter.evidence())
                                     put("output", outputCounter.evidence())
                                     put("final_usage_complete", kotlinx.serialization.json.JsonPrimitive(!estimatedUsage()))
-                                    put("cost_confirmed", kotlinx.serialization.json.JsonPrimitive(!estimatedUsage() && price != null))
+                                    put("cost_confirmed", kotlinx.serialization.json.JsonPrimitive(entirelyUnsent || !estimatedUsage() && price != null))
                                 }.toString(),
                                 costMicros = if (entirelyUnsent) {
                                     0
-                                } else if ((status == "COMPLETED" || completedWithoutAnswer) && !estimatedUsage()) {
+                                } else if (!estimatedUsage()) {
                                     price?.cost(requireNotNull(input), requireNotNull(output))
                                 } else {
                                     record.costMicros

@@ -15,6 +15,8 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -153,7 +155,9 @@ class InvocationLedgerTest {
         InvocationLedger(database).wrap(session, "parent", "turn", "CUSTOM", "model", "delegate", 100, 500, 1000).streamRound(emptyList(), emptyList()).toList()
         assertTrue(saved.single().estimated)
         assertTrue(saved.single().outputTokens > 1)
-        assertEquals("provider_reported_initial", saved.single().outputTokenSource)
+        assertEquals("estimated", saved.single().outputTokenSource)
+        val lanes = kotlinx.serialization.json.Json.parseToJsonElement(requireNotNull(saved.single().usageEvidenceJson)).jsonObject
+        assertEquals("provider_reported_initial", lanes["output"]!!.jsonObject["source"]!!.jsonPrimitive.content)
         assertEquals(1L, saved.single().observedOutputTokens)
     }
 

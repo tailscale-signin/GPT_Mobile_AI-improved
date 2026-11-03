@@ -85,16 +85,14 @@ internal object GitHubTestChecklist {
                 val root = receipt["result"] as? JsonObject
                 ((root?.get("data") as? JsonObject) ?: root)?.get("commit_sha")
             }
-            return call(
-                tool.name,
-                buildJsonObject {
-                    put("action", capability.action)
-                    if (capability.action in setOf("branches", "workflows", "list")) put("per_page", 5)
-                    if (capability.action in setOf("commits", "runs")) put("per_page", 5)
-                    if (capability.action in setOf("checks", "commits") && head != null) put("commit_sha", head)
-                    if (capability.action == "list") put("state", "all")
-                }
-            )
+            val arguments = buildJsonObject {
+                put("action", capability.action)
+                if (capability.action in setOf("branches", "workflows", "list", "commits", "runs")) put("per_page", 5)
+                if (capability.action in setOf("checks", "commits") && head != null) put("commit_sha", head)
+                if (capability.action == "list") put("state", "all")
+            }
+            if (dev.chungjungsoo.gptmobile.data.agent.ToolArgumentValidator.errors(arguments, tool.inputSchema).isNotEmpty()) continue
+            return call(tool.name, arguments)
         }
         GitHubSelfTestReads.next(tools, observations)?.let { return it }
         val exhaustInventories = Regex("(?i)\\b(?:all|entire|complete|full)\\s+(?:branches|workflows|pull requests|inventor(?:y|ies)|history)\\b").containsMatchIn(task)
@@ -118,7 +116,7 @@ internal object GitHubTestChecklist {
         return tools.filter { it.name.substringBefore("__").startsWith("github_") }.flatMap { tool ->
             val name = tool.name.substringBefore("__")
             val properties = tool.inputSchema["properties"] as? JsonObject
-            val actions = ((properties?.get("action") as? JsonObject)?.get("enum") as? JsonArray)?.map { (it as JsonPrimitive).content }.orEmpty().ifEmpty { listOf("") }
+            val actions = ((properties?.get("action") as? JsonObject)?.get("enum") as? JsonArray)?.map { (it as JsonPrimitive).content }.orEmpty().ifEmpty { listOf(((properties?.get("action") as? JsonObject)?.get("const") as? JsonPrimitive)?.content.orEmpty()) }
             actions.map { action -> capabilities.firstOrNull { it.tool == name && it.action == action } ?: Capability(name, action, "$name / ${action.ifBlank { "default" }}") }
         }.distinctBy { it.tool to it.action }
     }
@@ -190,6 +188,49 @@ internal object GitHubTestChecklist {
         if (workflowExecutions(receipts).any { (it as JsonObject)["execution_verified"] != JsonPrimitive(true) }) return false
         return true
     }
+
+    /** Compact public progress uses evaluated outcomes, never receipt or call counts. */
+    fun progressSummary(checkpoint: JsonObject, next: ProviderEvent.ToolCall?): String {
+        val rows = (checkpoint["capabilities"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
+        val completed = rows.count { it.text("status") in setOf("PASSED", "RECOVERED") }
+        val failed = rows.count { it.text("status") in setOf("FAILED", "PREFLIGHT_REJECTED") }
+        val blocked = rows.count { it.text("status") == "BLOCKED" }
+        val nextAction = if (next == null) {
+            "Review remaining blockers in the results."
+        } else {
+            val tool = next.name.substringBefore("__")
+            val action = next.arguments.text("action")
+            val scope = rows.firstOrNull { it.text("id") == "$tool:$action" }?.text("scope")
+            val label = scope?.takeUnless { it.startsWith("github_") }
+                ?: when (tool) {
+                    "discover_available_tools" -> "Discover available operations"
+                    "github_watch_checks" -> "Watch pending checks"
+                    "github_search" -> "Search repository paths"
+                    "github_read" -> "Read the selected source"
+                    else -> action.replace('_', ' ').ifBlank { "Read the next result page" }
+                }
+            "Next: $label."
+        }
+        return "Checks: $completed/${rows.size} complete" + (if (failed > 0) "; $failed failed" else "") + (if (blocked > 0) "; $blocked blocked" else "") + ". $nextAction"
+    }
+
+    /** Repeating identical observations is history, not forward execution progress. */
+    fun progressDigest(task: String, receipts: Map<String, JsonObject>, tools: List<AgentToolDefinition>): String = GitHubEvidenceBook.digest(
+        buildJsonObject {
+            put("request_digest", GitHubEvidenceBook.digest(task))
+            put("capabilities", JsonArray(rows(receipts, tools).map { raw -> JsonObject((raw as JsonObject).filterKeys { !it.endsWith("_ids") }) }))
+            put("pending_pages", JsonArray(pendingPages(receipts)))
+            put(
+                "distinct_observations",
+                JsonArray(
+                    receipts.values.filter { it["trusted"] == JsonPrimitive(true) }.map { receipt ->
+                        JsonObject(receipt.filterKeys { it in setOf("tool", "arguments", "success", "error_code", "result_sha256", "verification_eligible") })
+                    }.distinct().sortedBy { it.toString() }
+                )
+            )
+            put("fixtures", JsonArray(GitHubSelfTestFixtures.checkpoint(receipts).map { raw -> JsonObject((raw as JsonObject).filterKeys { !it.endsWith("_receipt") }) }))
+        }.toString()
+    )
 
     fun checkpoint(task: String, receipts: Map<String, JsonObject>, tools: List<AgentToolDefinition> = emptyList()): JsonObject = buildJsonObject {
         put("schema", "github.test-checklist.v2")

@@ -161,6 +161,7 @@ class AndroidVoiceAudio internal constructor(
                 }
                 override fun onError(error: Int) {
                     if (!active()) return
+                    event("recognition_error_$error")
                     recognitionGate.failed(error == SpeechRecognizer.ERROR_TOO_MANY_REQUESTS, sessionId)
                     stop()
                     dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("VoiceRecognition", "recognition_error=$error · locale=$languageTag · onDevice=$onDevice", "W")
@@ -193,7 +194,8 @@ class AndroidVoiceAudio internal constructor(
                     putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
                 }
             )
-        } catch (_: Exception) {
+        } catch (failure: Exception) {
+            event("recognition_start_failed_${failure.javaClass.simpleName}")
             recognitionGate.failed(false, sessionId)
             stop()
             listener.error("Could not open the microphone. Check Android permissions and your speech service.")

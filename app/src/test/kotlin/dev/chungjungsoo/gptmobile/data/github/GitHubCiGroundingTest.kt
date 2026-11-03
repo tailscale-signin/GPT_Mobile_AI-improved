@@ -266,4 +266,51 @@ class GitHubCiGroundingTest {
             }
         }
     }
+
+    @Test fun activeJobIsPendingWithoutAttemptingALogDownload() = runTest {
+        var requests = 0
+        val http = HttpClient(
+            MockEngine { request ->
+                requests++
+                assertTrue(request.url.encodedPath.endsWith("/actions/jobs/125885674437"))
+                respond("""{"id":125885674437,"run_id":41626680355,"head_branch":"release/fixture","status":"in_progress"}""")
+            }
+        )
+        try {
+            val result = GitHubTool("token", http).execute("logs", json("""{"action":"get_job_logs","owner":"o","repo":"r","job_id":125885674437}"""))
+            assertFalse(result.isError)
+            assertEquals("PENDING_LOG_AVAILABILITY", data(result)["status"]?.jsonPrimitive?.content)
+            assertEquals("false", data(result)["complete"]?.jsonPrimitive?.content)
+            assertEquals("release/fixture", data(result)["head_branch"]?.jsonPrimitive?.content)
+            assertEquals(1, requests)
+        } finally {
+            http.close()
+        }
+    }
+
+    @Test fun expiredStorageUrlIsRefreshedOnceWithoutForwardingCredentials() = runTest {
+        var origins = 0
+        var storage = 0
+        val http = HttpClient(
+            MockEngine { request ->
+                if (request.url.host == "api.github.com") {
+                    origins++
+                    assertEquals("Bearer token", request.headers[io.ktor.http.HttpHeaders.Authorization])
+                    respond("", HttpStatusCode.Found, io.ktor.http.headersOf(io.ktor.http.HttpHeaders.Location, "https://logs.blob.core.windows.net/job?attempt=$origins"))
+                } else {
+                    storage++
+                    assertEquals(null, request.headers[io.ktor.http.HttpHeaders.Authorization])
+                    if (storage == 1) respond("expired", HttpStatusCode.Forbidden) else respond("completed log")
+                }
+            }
+        )
+        try {
+            val result = GitHubCiLogReader(http, "token", GitHubRequestScheduler(), GitHubResponseCache()).read("/repos/o/r/actions/jobs/7/logs", true)
+            assertEquals("completed log", result.text)
+            assertEquals(2, origins)
+            assertEquals(2, storage)
+        } finally {
+            http.close()
+        }
+    }
 }

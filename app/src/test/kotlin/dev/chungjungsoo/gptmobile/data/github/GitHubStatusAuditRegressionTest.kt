@@ -127,10 +127,78 @@ class GitHubStatusAuditRegressionTest {
         val tools = listOf("github_context", "github_commit").map { GitHubOperationTool.definition(it) }
         val status = json("""{"receipt_id":"status","binding":"task","trusted":true,"success":true,"tool":"github_context","arguments":{"action":"status"},"result":{"branch":"main","commit_sha":"${"a".repeat(40)}","repository":{"default_branch":"main"}}}""")
         val create = requireNotNull(GitHubSelfTestFixtures.next("test all tools", tools, mapOf("status" to status)))
+        assertEquals(JsonPrimitive("main"), create.arguments["from_branch"])
+        assertTrue(ToolArgumentValidator.errors(create.arguments, tools.first { it.name == create.name }.inputSchema).isEmpty())
         assertEquals(JsonPrimitive("branch"), create.arguments["action"])
         assertEquals(JsonPrimitive("a".repeat(40)), create.arguments["expected_head_sha"])
         val collision = JsonObject(mapOf("trusted" to JsonPrimitive(true), "success" to JsonPrimitive(true), "tool" to JsonPrimitive(create.name), "arguments" to create.arguments, "result" to json("""{"created":false,"already_exists":true}""")))
         assertEquals(null, GitHubSelfTestFixtures.next("test all tools", tools, mapOf("status" to status, "collision" to collision)))
         assertEquals(null, GitHubSelfTestFixtures.next("test all tools read-only", tools, mapOf("status" to status)))
+    }
+
+    @Test fun statusRefreshesOnlyExpiredMutableObservation() {
+        val tool = GitHubOperationTool.definition("github_context")
+        val old = json("""{"tool":"github_context","trusted":true,"success":true,"observed_at_ms":1000,"arguments":{"action":"status"},"result":{"commit_sha":"${"a".repeat(40)}"}}""")
+        assertEquals(JsonPrimitive("checks"), GitHubStatusRequest.nextCall(listOf(tool), mapOf("old" to old), 1001L)?.arguments?.get("action"))
+        assertEquals(JsonPrimitive("status"), GitHubStatusRequest.nextCall(listOf(tool), mapOf("old" to old), 200000L)?.arguments?.get("action"))
+        assertEquals(JsonPrimitive("status"), GitHubStatusRequest.nextCall(listOf(tool), mapOf("old" to old), 1001L, 1L)?.arguments?.get("action"))
+        val excluded = JsonObject(old + ("verification_eligible" to JsonPrimitive(false)))
+        assertEquals(JsonPrimitive("status"), GitHubStatusRequest.nextCall(listOf(tool), mapOf("old" to excluded), 1001L)?.arguments?.get("action"))
+    }
+
+    @Test fun duplicateReceiptsDoNotCountAsContinuationProgress() {
+        val first = json("""{"receipt_id":"one","call_id":"one","trusted":true,"success":true,"tool":"github_context","arguments":{"action":"status"},"result_sha256":"same","result":{"branch":"main"}}""")
+        val second = JsonObject(first + mapOf("receipt_id" to JsonPrimitive("two"), "call_id" to JsonPrimitive("two")))
+        val tools = listOf(GitHubOperationTool.definition("github_context"))
+        assertEquals(GitHubTestChecklist.progressDigest("test all tools", mapOf("one" to first), tools), GitHubTestChecklist.progressDigest("test all tools", mapOf("one" to first, "two" to second), tools))
+    }
+
+    @Test fun compactProgressCountsEvaluatedChecksAndSurvivesPresentationFiltering() {
+        val checkpoint = json("""{"capabilities":[{"status":"PASSED"},{"status":"RECOVERED"},{"status":"FAILED"},{"status":"BLOCKED"},{"status":"UNTESTED"}]}""")
+        val summary = GitHubTestChecklist.progressSummary(checkpoint, null)
+        assertTrue(summary.startsWith("Checks: 2/5 complete; 1 failed; 1 blocked."))
+        assertEquals(summary, GitHubProgressPresentation.preview(summary))
+    }
+
+    @Test fun pullRequestStateCannotVerifyAClaimAboutCheckHealth() {
+        val receipt = json("""{"tool":"github_pr","arguments":{"action":"headers"},"trusted":true,"success":true,"observed_at_ms":1000,"epoch":0,"result":{"state":"open"}}""")
+        val claim = json("""{"receipt_id":"pr","pointer":"/state","value":"open","resource_type":"check_run","field_type":"check_run.conclusion"}""")
+        val result = GitHubEvidencePolicy.verify(claim, mapOf("pr" to receipt), 1001L, 0)
+        assertEquals(JsonPrimitive("NOT_MEASURED"), result["status"])
+        assertEquals(JsonPrimitive("FIELD_SEMANTICS_MISMATCH"), result["reason"])
+        assertEquals(JsonPrimitive("pull_request.state"), result["field_type"])
+        val correct = JsonObject(claim + mapOf("resource_type" to JsonPrimitive("pull_request"), "field_type" to JsonPrimitive("pull_request.state")))
+        assertEquals(JsonPrimitive("VERIFIED"), GitHubEvidencePolicy.verify(correct, mapOf("pr" to receipt), 1001L, 0)["status"])
+    }
+
+    @Test fun retainedActionIsRevalidatedAgainstTheCurrentContractWithoutDeletingHistory() = runTest {
+        val saved = linkedMapOf<String, JsonObject>()
+        val first = GitHubEvidenceBook("binding", "owner/repo", "main", setOf("github_release"), now = { 1000 }, save = { id, row -> saved[id] = row })
+        val call = ProviderEvent.ToolCall("release", "github_release", json("""{"action":"list"}"""))
+        val result = AgentToolResult("release", ToolResultContent.Json(json("""{"items":[],"has_more":false}""")), isError = false)
+        first.observe(call, result)
+        val contract = json("""{"type":"object","properties":{"action":{"enum":["status"]}}}""")
+        for (restoreAll in listOf(true, false)) {
+            val restored = GitHubEvidenceBook("binding", "owner/repo", "main", setOf("github_release"), load = { saved[it] }, retainedIds = { saved.keys.toList() }, currentToolContracts = mapOf("github_release" to contract))
+            if (restoreAll) restored.restore() else restored.observe(call, result)
+            val receipt = restored.snapshot().first.values.single()
+            assertEquals(JsonPrimitive(true), receipt["success"])
+            assertEquals(JsonPrimitive(false), receipt["verification_eligible"])
+            assertEquals(JsonPrimitive("TOOL_ARGUMENT_CONTRACT_CHANGED"), receipt["exclusion_reason"])
+            assertEquals(JsonPrimitive(true), saved.values.single()["verification_eligible"])
+        }
+    }
+
+    @Test fun identifierBoundsDoNotRoundThroughFloatingPoint() {
+        val schema = json("""{"type":"object","properties":{"id":{"type":"integer","minimum":1,"maximum":9223372036854775807}}}""")
+        assertTrue(ToolArgumentValidator.errors(json("""{"id":9223372036854775807}"""), schema).isEmpty())
+        assertTrue(ToolArgumentValidator.errors(json("""{"id":9223372036854775808}"""), schema).isNotEmpty())
+        assertTrue(ToolArgumentValidator.errors(json("""{"id":9007199254740992.5}"""), schema).isNotEmpty())
+    }
+
+    @Test fun automaticReadsRespectActionRestrictedCatalogs() {
+        val tool = AgentToolDefinition("github_ci", "logs", json("""{"type":"object","properties":{"action":{"const":"logs"}}}"""))
+        assertEquals(null, GitHubTestChecklist.nextCall("test all tools", listOf(tool), emptyMap()))
+        assertEquals(JsonPrimitive("github_ci:logs"), GitHubTestChecklist.rows(emptyMap(), listOf(tool)).single().jsonObject["id"])
     }
 }

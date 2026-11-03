@@ -36,6 +36,23 @@ internal object GitHubEvidencePolicy {
         return found
     }
 
+    /** Meaning is bound to the operation and field path, independently of the value. */
+    private fun semanticType(receipt: JsonObject?, path: String): Pair<String, String> {
+        val tool = receipt?.string("tool")?.substringBefore("__").orEmpty()
+        val action = (receipt?.get("arguments") as? JsonObject)?.string("action").orEmpty()
+        val resource = when {
+            "/check_runs/" in path -> "check_run"
+            "/jobs/" in path || tool == "github_ci" && action in setOf("job", "logs", "get_job", "get_job_logs") -> "job"
+            "/workflow_runs/" in path || "/latest_workflow/" in path || tool == "github_ci" && action in setOf("run", "status") -> "workflow_run"
+            "/reviews/" in path -> "pull_request_review"
+            tool == "github_pr" || "/pull_requests/" in path -> "pull_request"
+            tool == "github_issue" -> "issue"
+            tool == "github_context" && action == "checks" -> "commit_checks"
+            else -> "resource"
+        }
+        return resource to "$resource.${path.substringAfterLast('/')}"
+    }
+
     fun verify(claim: JsonObject, receipts: Map<String, JsonObject>, now: Long, currentEpoch: Long, observations: Map<String, JsonElement>? = null): JsonObject {
         val id = claim.string("receipt_id")
         val path = claim.string("pointer")
@@ -48,9 +65,13 @@ internal object GitHubEvidencePolicy {
         }
         val timestamp = receipt?.get("observed_at_ms")?.let { (it as? JsonPrimitive)?.longOrNull } ?: 0
         val immutable = receipt?.get("immutable") == JsonPrimitive(true)
+        val (resourceType, fieldType) = semanticType(receipt, path)
+        val semanticsMismatch = claim["resource_type"]?.let { it != JsonPrimitive(resourceType) } == true ||
+            claim["field_type"]?.let { it != JsonPrimitive(fieldType) } == true
         val status = when {
             receipt == null || observed == null || "value" !in claim -> "NOT_MEASURED"
             receipt["success"] != JsonPrimitive(true) || receipt["trusted"] != JsonPrimitive(true) || receipt["verification_eligible"] == JsonPrimitive(false) -> "NOT_MEASURED"
+            semanticsMismatch -> "NOT_MEASURED"
             timestamp <= 0 || timestamp > now || !immutable && (now - timestamp > MAX_AGE_MS || receipt["epoch"] != JsonPrimitive(currentEpoch)) -> "STALE"
             observed != claim["value"] -> "CONTRADICTED"
             else -> "VERIFIED"
@@ -62,6 +83,7 @@ internal object GitHubEvidencePolicy {
             receipt["success"] != JsonPrimitive(true) -> "OPERATION_FAILED"
             "value" !in claim -> "CLAIM_VALUE_MISSING"
             observed == null -> "POINTER_NOT_IN_EVIDENCE"
+            semanticsMismatch -> "FIELD_SEMANTICS_MISMATCH"
             timestamp <= 0 || timestamp > now -> "OBSERVATION_TIME_UNKNOWN"
             status == "STALE" -> "MUTABLE_EVIDENCE_EXPIRED_OR_REVISION_CHANGED"
             status == "CONTRADICTED" -> "VALUE_MISMATCH"
@@ -73,7 +95,7 @@ internal object GitHubEvidencePolicy {
             put(
                 "recovery",
                 when (reason) {
-                    "POINTER_NOT_IN_EVIDENCE", "CLAIM_VALUE_MISSING", "VALUE_MISMATCH" -> "Correct this claim against the retained receipt/catalog; do not repeat supported operations."
+                    "FIELD_SEMANTICS_MISMATCH", "POINTER_NOT_IN_EVIDENCE", "CLAIM_VALUE_MISSING", "VALUE_MISMATCH" -> "Correct this claim against the retained receipt/catalog; do not repeat supported operations."
                     "MUTABLE_EVIDENCE_EXPIRED_OR_REVISION_CHANGED", "OBSERVATION_TIME_UNKNOWN" -> "Refresh only this mutable observation at the selected revision."
                     "RECEIPT_NOT_FOUND" -> "Find the exact retained receipt or read only the missing source."
                     else -> "Retain the observation and its provenance."
@@ -81,6 +103,8 @@ internal object GitHubEvidencePolicy {
             )
             put("receipt_id", id)
             put("pointer", path)
+            put("resource_type", resourceType)
+            put("field_type", fieldType)
             put("observed_at_ms", timestamp)
             if (status in setOf("VERIFIED", "CONTRADICTED")) put("observed", requireNotNull(observed))
         }

@@ -483,11 +483,10 @@ private fun ChatMarkdownContent(
             table = { model ->
                 // Long evidence tables compose a bounded page until the reader expands it.
                 // Stable content keeps the page and layout inputs across progress updates.
-                val tableLines = remember(model.content, model.node.startOffset, model.node.endOffset) {
-                    model.content.substring(model.node.startOffset, model.node.endOffset).lines()
-                }
-                var visibleRows by remember(model.content, model.node.startOffset) { mutableIntStateOf(12) }
-                val visibleEnd = remember(tableLines, visibleRows) { model.node.startOffset + tableLines.take(visibleRows + 2).sumOf { it.length + 1 } }
+                val tableSource = model.content.substring(model.node.startOffset, model.node.endOffset)
+                val tableLines = remember(tableSource) { tableSource.lines() }
+                var visibleRows by remember(tableSource, model.node.startOffset) { mutableIntStateOf(12) }
+                val visibleEnd = remember(tableLines, visibleRows, model.node.startOffset) { model.node.startOffset + tableLines.take(visibleRows + 2).sumOf { it.length + 1 } }
                 val remainingRows = (tableLines.count { it.isNotBlank() } - 2 - visibleRows).coerceAtLeast(0)
                 val settings = annotatorSettings(
                     LocalMarkdownTypography.current.textLink,

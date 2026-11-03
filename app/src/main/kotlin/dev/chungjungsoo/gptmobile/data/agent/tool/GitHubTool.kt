@@ -1011,7 +1011,8 @@ class GitHubTool(
             val log = dev.chungjungsoo.gptmobile.data.github.GitHubCiLogReader(httpClient, apiToken, scheduler, responseCache, authenticationRejected = authenticationRejected)
                 .read("/repos/$owner/$repo/actions/jobs/$jobId/logs", immutable = true)
             val safe = dev.chungjungsoo.gptmobile.data.diagnostics.redactLogMessage(log.text).let { if (apiToken.isNotBlank()) it.replace(apiToken, "[REDACTED]") else it }
-            return successResult(callId, dev.chungjungsoo.gptmobile.data.github.GitHubCiLogPage.render(log.copy(text = safe), arguments).toString())
+            val page = dev.chungjungsoo.gptmobile.data.github.GitHubCiLogPage.render(log.copy(text = safe), arguments)
+            return successResult(callId, JsonObject(page + job.filterKeys { it in setOf("run_id", "head_sha", "head_branch", "run_attempt") } + ("job_status" to JsonPrimitive("completed"))).toString())
         }
         if (action == "dispatch_workflow" && arguments["workflow_id"]?.jsonPrimitive?.content.isNullOrBlank()) {
             val discovery = handleWorkflowAction(callId, "list_workflows", arguments)

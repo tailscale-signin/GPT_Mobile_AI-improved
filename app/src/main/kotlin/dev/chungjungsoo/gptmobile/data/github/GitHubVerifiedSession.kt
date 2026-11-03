@@ -66,17 +66,7 @@ internal class GitHubVerifiedSession(
                 if (receipts.isNotEmpty()) evidence.retainChecklist(checkpoint)
                 lastChecklist = checkpoint
                 if (receipts.isNotEmpty()) {
-                    val latest = receipts.values.last()
-                    val outcome = if (latest["success"] == kotlinx.serialization.json.JsonPrimitive(true)) "Latest operation succeeded" else "Latest operation failed; its receipt is retained"
-                    val nextAction = (next?.arguments?.get("action") as? kotlinx.serialization.json.JsonPrimitive)?.content?.replace('_', ' ')
-                        ?: if (next?.arguments?.containsKey("view_cursor") == true) {
-                            "read the next result page"
-                        } else if (next != null) {
-                            "monitor the pending check"
-                        } else {
-                            "review remaining untested capabilities"
-                        }
-                    progress("$outcome. ${receipts.size} receipts recorded. Next: $nextAction.")
+                    progress(GitHubTestChecklist.progressSummary(checkpoint, next))
                 }
             }
             if (next != null) {
@@ -91,8 +81,8 @@ internal class GitHubVerifiedSession(
             return@flow
         }
         if (GitHubStatusRequest.matches(task) && tools.isNotEmpty()) {
-            val (receipts, _) = evidence.snapshot()
-            val next = GitHubStatusRequest.nextCall(tools, receipts)
+            val (receipts, epoch) = evidence.snapshot()
+            val next = GitHubStatusRequest.nextCall(tools, receipts, now(), epoch)
             if (next != null) {
                 lifecycle(dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.CONTINUATION_SELECTED)
                 emit(next)
@@ -216,7 +206,7 @@ internal class GitHubVerifiedSession(
             }
             val (renderedText, report) = status ?: coverage ?: if (request == null) partial(receipts, epoch, failureCode ?: "GITHUB_EXTRACTION_UNAVAILABLE") else extract(request, receipts, epoch)
             val checklist = if (coverage != null) GitHubTestChecklist.checkpoint(task, receipts, authorizedTools) else null
-            val progressDigest = checklist?.let { GitHubEvidenceBook.digest(it.toString()) }
+            val progressDigest = checklist?.let { GitHubTestChecklist.progressDigest(task, receipts, authorizedTools) }
             val stalled = progressDigest != null && evidence.diagnostic()?.get("checklist_progress_digest") == kotlinx.serialization.json.JsonPrimitive(progressDigest)
             val text = if (stalled) {
                 val blockers = (checklist?.get("capabilities") as? JsonArray).orEmpty().filterIsInstance<JsonObject>().filter { it["blocker"] != null }

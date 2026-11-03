@@ -17,6 +17,24 @@ internal object GitHubRequestCompletion {
     fun requirements(task: String): List<String> = task.lineSequence().map(String::trim).filter { it.isNotBlank() && it !in setOf("Acceptance criteria:", "Request details:") && !it.startsWith("Budget:") && !it.startsWith("[github-workflow-preset:") }.map { it.removePrefix("- ") }.toList().ifEmpty { listOf("Requested answer") }
     fun id(requirement: String): String = GitHubEvidenceBook.digest(requirement).take(24)
 
+    private fun latestAttempts(receipts: Map<String, JsonObject>): Map<String, Int> = buildMap {
+        fun observe(data: JsonObject) {
+            val run = (data["run_id"] as? JsonPrimitive)?.contentOrNull
+                ?: (data["id"] as? JsonPrimitive)?.contentOrNull?.takeIf { data.containsKey("run_attempt") }
+                ?: return
+            val attempt = listOf("run_attempt", "expected_run_attempt").mapNotNull { (data[it] as? JsonPrimitive)?.intOrNull }.maxOrNull() ?: return
+            if (attempt > 0) put(run, maxOf(get(run) ?: 0, attempt))
+        }
+        // Inspect every trusted observation, including accepted reruns, rather than
+        // letting an answer select only the receipts from a superseded success.
+        receipts.values.filter { it["trusted"] == JsonPrimitive(true) && it["success"] == JsonPrimitive(true) && (it["tool"] as? JsonPrimitive)?.contentOrNull?.substringBefore("__") == "github_ci" }.forEach { receipt ->
+            val result = receipt["result"] as? JsonObject ?: return@forEach
+            val data = (result["data"] as? JsonObject) ?: result
+            observe(data)
+            (data["workflow_runs"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>().forEach(::observe)
+        }
+    }
+
     private fun engineeringAcceptance(acceptance: JsonObject, receipts: Map<String, JsonObject>): Boolean {
         fun JsonObject.text(key: String) = (get(key) as? JsonPrimitive)?.contentOrNull.orEmpty()
         fun selected(key: String) = (acceptance[key] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.contentOrNull?.let(receipts::get) }
@@ -28,6 +46,7 @@ internal object GitHubRequestCompletion {
                 receipt.text("source_head_sha").matches(Regex("[a-fA-F0-9]{40}"))
         }
         if (implementations.isEmpty()) return false
+        val attempts = latestAttempts(receipts)
         val latestHead = receipts.values.lastOrNull { it["trusted"] == JsonPrimitive(true) && it["success"] == JsonPrimitive(true) && it["head_observation"] == JsonPrimitive(true) && it.text("source_head_sha").matches(Regex("[a-fA-F0-9]{40}")) }?.get("source_head_sha")
         return implementations.all { implementation ->
             if (latestHead != null && latestHead != implementation["source_head_sha"]) return@all false
@@ -40,7 +59,10 @@ internal object GitHubRequestCompletion {
                     data?.get("head_sha") == implementation["source_head_sha"] &&
                     (data?.get("run_attempt") as? JsonPrimitive)?.intOrNull?.let { it > 0 } == true
             }.mapNotNull(::root).groupBy { it["run_id"] to it["run_attempt"] }
-            pages.any { (_, observations) ->
+            pages.any { (identity, observations) ->
+                val run = (identity.first as? JsonPrimitive)?.contentOrNull ?: return@any false
+                val attempt = (identity.second as? JsonPrimitive)?.intOrNull ?: return@any false
+                if (attempt != attempts[run]) return@any false
                 val allJobs = GitHubWorkflowJobEvidence.completeJobs(observations)
                 val tests = allJobs.orEmpty().filter { Regex("(?i)\\b(?:tests?|unit|instrumentation)\\b").containsMatchIn(it.text("name")) }
                 allJobs != null && tests.isNotEmpty() && tests.all { it.text("status") == "completed" && it.text("conclusion") == "success" }

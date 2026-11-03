@@ -506,6 +506,7 @@
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubProgressPresentationTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubPublicAuthCoordinatorTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubReadProjectionTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRequestCompletionTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRequestSchedulerStressTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubReviewedSessionTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSchedulerAndPaginationTest.kt",

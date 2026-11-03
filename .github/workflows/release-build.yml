@@ -1,6 +1,10 @@
 name: Publish Signed Release
 on:
   workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/release-build.yml
   push:
     branches: [main]
     paths:
@@ -9,7 +13,7 @@ permissions:
   contents: read
   actions: read
 concurrency:
-  group: signed-release
+  group: ${{ github.event_name == 'pull_request' && format('signed-release-pr-{0}', github.event.pull_request.number) || 'signed-release' }}
   cancel-in-progress: false
 env:
   OBX_DISABLE_ANALYTICS: "true"
@@ -27,13 +31,14 @@ jobs:
           fetch-depth: 0
       - name: Select explicit or version-changing releases
         id: intent
+        if: github.event_name != 'pull_request'
         env:
           PUSH_BEFORE_SHA: ${{ github.event.before }}
         run: python3 scripts/check_release_trigger.py
 
   validate:
     needs: release_intent
-    if: needs.release_intent.outputs.publish == 'true'
+    if: github.event_name == 'pull_request' || needs.release_intent.outputs.publish == 'true'
     name: Validate exact release commit
     runs-on: ubuntu-latest
     timeout-minutes: 90
@@ -103,15 +108,23 @@ jobs:
           apt_options=(-o Acquire::Retries=2 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 -o DPkg::Lock::Timeout=60)
           sudo timeout --kill-after=15s 180s apt-get "${apt_options[@]}" update
           sudo env DEBIAN_FRONTEND=noninteractive timeout --kill-after=15s 180s apt-get "${apt_options[@]}" install --no-install-recommends -y glslc libvulkan-dev spirv-headers
-      - name: Unit tests, compatibility, resources and lint
-        run: |
-          set -euo pipefail
-          python3 scripts/check_android_resources.py
-          # Room/KSP exports schemas to a shared directory. Keep debug and release
-          # KSP work in separate Gradle invocations so variants cannot read a
-          # partially-written schema from each other.
-          ./gradlew :app:testDebugUnitTest :app:lintDebug --no-daemon --max-workers=2
-          ./gradlew :app:checkReleaseAarMetadata :app:lintRelease --no-daemon --max-workers=2
+      - name: Validate Android resources
+        run: python3 scripts/check_android_resources.py
+      # Match PR validation's bounded processes: release compiler state before
+      # tests or lint, and retain the repository's one-worker and 3 GiB ceilings.
+      - name: Compile release validation tests in a separate process
+        timeout-minutes: 25
+        run: python3 scripts/gradle_retry.py -- :app:compileDebugUnitTestKotlin :app:compileDebugUnitTestJavaWithJavac --no-daemon --max-workers=1 --console=plain
+      - name: Run release validation unit tests
+        timeout-minutes: 25
+        run: python3 scripts/gradle_retry.py -- :app:testDebugUnitTest --no-daemon --max-workers=1 --console=plain
+      - name: Lint debug in a separate process
+        timeout-minutes: 45
+        run: python3 scripts/gradle_retry.py -- :app:lintDebug --no-daemon --max-workers=1 --console=plain
+      # Keep debug/release Room KSP schema writes in separate invocations too.
+      - name: Verify release compatibility and lint
+        timeout-minutes: 45
+        run: python3 scripts/gradle_retry.py -- :app:checkReleaseAarMetadata :app:lintRelease --no-daemon --max-workers=1 --console=plain
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
@@ -122,6 +135,7 @@ jobs:
             app/build/reports/lint-results-*
   build:
     needs: validate
+    if: github.event_name != 'pull_request'
     name: Build, verify and publish
     runs-on: ubuntu-latest
     timeout-minutes: 180

@@ -171,13 +171,13 @@ jobs:
         run: python3 scripts/check_qnn_provenance.py
       - name: Shrink release code in a separate process
         run: |
-          # Match the unsigned build: compiler/R8 and packaging use fresh heaps.
-          python3 scripts/build_metrics.py --label minifyReleaseWithR8 --output build/reports/profile/minifyReleaseWithR8-metrics.json -- ./gradlew :app:minifyReleaseWithR8 --no-daemon --max-workers=1 --console=plain --stacktrace --profile '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -Dfile.encoding=UTF-8'
+          # Use the same bounded worker/common-pool settings as the unsigned build.
+          python3 scripts/android_pipeline.py --variant release --phase shrink --output build/reports/pipeline/shrink.json
       - name: Build release artifacts
         run: |
-          python3 scripts/build_metrics.py --label assembleRelease --output build/reports/profile/assembleRelease-metrics.json -- ./gradlew :app:assembleRelease --no-daemon --max-workers=1 --console=plain --stacktrace --profile '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -Dfile.encoding=UTF-8'
+          python3 scripts/android_pipeline.py --variant release --phase package --output build/reports/pipeline/package.json
           rm -rf app/build/intermediates/shrunk_resources_proto_format/release/minifyReleaseWithR8
-          python3 scripts/build_metrics.py --label bundleRelease --output build/reports/profile/bundleRelease-metrics.json -- ./gradlew :app:bundleRelease -PenableAbiSplits=false --no-daemon --max-workers=1 --console=plain --stacktrace --profile '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -Dfile.encoding=UTF-8'
+          python3 scripts/android_pipeline.py --variant release --phase bundle --output build/reports/pipeline/bundle.json
       - name: Sign and verify APKs and bundle
         env:
           EXPECTED_CERT_SHA256: ${{ vars.RELEASE_CERT_SHA256 }}
@@ -292,6 +292,7 @@ jobs:
           name: release-performance
           path: |
             build/reports/profile/
+            build/reports/pipeline/
             app/build/outputs/mapping/release/
           if-no-files-found: ignore
           retention-days: 14

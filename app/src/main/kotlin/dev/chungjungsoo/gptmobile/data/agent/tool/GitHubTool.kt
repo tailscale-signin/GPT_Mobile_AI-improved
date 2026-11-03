@@ -62,7 +62,8 @@ class GitHubTool(
     private val watchChecks: (suspend (JsonObject) -> JsonObject)? = null,
     private val durableIdentity: String = dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore.digest(apiToken),
     private val legacyCredentialIdentities: List<String> = emptyList(),
-    private val credentialProvider: (suspend () -> String)? = null
+    private val credentialProvider: (suspend () -> String)? = null,
+    private val graphQuery: (suspend (JsonObject) -> JsonObject)? = null
 ) : AgentTool {
 
     private val authenticationRejected = if (httpClient === defaultHttpClient) dev.chungjungsoo.gptmobile.data.github.GitHubSessionCaches.authenticationForCredential(apiToken) else java.util.concurrent.atomic.AtomicBoolean()
@@ -104,6 +105,11 @@ class GitHubTool(
         val suffix = modelToolName.removePrefix("github").takeIf { it.startsWith("__") }.orEmpty()
         val scope = GitHubResultViews.scope(apiToken, connectionUid, conversationId, taskId)
         return GitHubOperationTool.names.map { GitHubOperationTool(it, this, scope, it + suffix) }
+    }
+
+    internal fun graphTool(): AgentTool? = graphQuery?.let { query ->
+        val suffix = modelToolName.removePrefix("github").takeIf { it.startsWith("__") }.orEmpty()
+        RepositoryGraphTool("repository_graph$suffix", query)
     }
 
     companion object {

@@ -76,6 +76,10 @@ class GatewayEngineeringClient internal constructor(private val http: HttpClient
     suspend fun create(config: ProviderRequestConfig, payload: GatewayEngineeringRequest): GatewayEngineeringJob =
         json.decodeFromString(request(config, "jobs", json.encodeToString(payload)))
 
+    suspend fun graph(config: ProviderRequestConfig, arguments: kotlinx.serialization.json.JsonObject): kotlinx.serialization.json.JsonObject =
+        json.parseToJsonElement(request(config, "graph", arguments.toString())) as? kotlinx.serialization.json.JsonObject
+            ?: error("The gateway returned an invalid repository graph response.")
+
     suspend fun get(config: ProviderRequestConfig, id: String, afterRevision: Int): GatewayEngineeringJob {
         require(id.matches(Regex("eng_[a-f0-9]{32}")))
         return json.decodeFromString(request(config, "jobs/$id?after_revision=${afterRevision.coerceAtLeast(-1)}"))

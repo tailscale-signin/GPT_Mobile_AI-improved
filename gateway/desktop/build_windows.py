@@ -39,6 +39,8 @@ def main():
         '--specpath', str(ROOT / 'build'), '--paths', str(GATEWAY), '--add-data', str(staging) + os.pathsep + '.',
         '--collect-submodules', 'desktop', '--hidden-import', 'gateway_v14', '--collect-submodules', 'v14', '--collect-submodules', 'uvicorn',
         '--hidden-import', 'gateway_v13_runtime', '--hidden-import', 'gateway_v13_transport',
+        '--collect-all', 'tree_sitter', '--collect-all', 'tree_sitter_kotlin', '--collect-all', 'tree_sitter_java',
+        '--collect-all', 'tree_sitter_javascript', '--collect-all', 'tree_sitter_typescript',
         '--copy-metadata', 'fastapi', '--copy-metadata', 'uvicorn', '--copy-metadata', 'requests', '--copy-metadata', 'httpx',
         str(GATEWAY / 'desktop' / 'entry.py')], check=True)
     bundle = output / 'Gateway'

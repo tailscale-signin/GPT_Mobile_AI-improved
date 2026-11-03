@@ -46,7 +46,19 @@ def install_engineering_routes(app, service):
             return {'enabled': service.store.runtime.GATEWAY_DURABLE_JOBS and service.backend.available(), 'duration_hours': [3, 6, 12, 0], 'until_complete_limit_hours': 72,
                     'principal_id': owner,
                     'repair_attempts': 5, 'explicit_merge_approval': True, 'approval_ttl_seconds': 1800,
-                    'notifications': 'android_background_sync', 'batch_reads': True}
+                    'notifications': 'android_background_sync', 'batch_reads': True,
+                    'code_graph': {'schema_version': 1, 'enabled': True, 'incremental': True, 'source_level_only': True}}
+        return await execute(run)
+
+    @app.post('/gateway/engineering/graph')
+    @app.post('/v1/gateway/engineering/graph')
+    async def graph(request: Request):
+        async def run():
+            owner = principal(request)
+            if not service.store.runtime.GATEWAY_DURABLE_JOBS or not service.backend.available():
+                return JSONResponse({'error': {'code': 'graph_connection_required'}}, status_code=503)
+            payload = await body(request)
+            return await asyncio.to_thread(service.graph.execute, owner, payload)
         return await execute(run)
 
     @app.post('/gateway/engineering/jobs')

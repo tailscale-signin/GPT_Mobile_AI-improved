@@ -352,7 +352,7 @@ internal fun VoiceChatScreen(onEnd: () -> Unit, onOpenChat: () -> Unit, model: C
                 if (state.hasDraft) model.checkpointVoiceDraft(draft)
                 session.pause()
                 settingsOpen = true
-            }) { Icon(Icons.Rounded.GraphicEq, "Voice settings", tint = MaterialTheme.colorScheme.primary) }
+            }, enabled = preferencesApplied) { Icon(Icons.Rounded.GraphicEq, "Voice settings", tint = MaterialTheme.colorScheme.primary) }
             IconButton(onClick = ::openChat) { Icon(Icons.Rounded.ChatBubbleOutline, "Continue in text chat", tint = MaterialTheme.colorScheme.onSurface) }
         }
         Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {

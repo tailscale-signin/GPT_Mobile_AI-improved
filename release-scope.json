@@ -578,6 +578,7 @@
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/ResilientStreamingClientTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayRecoveryContractTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayV14CapabilitiesTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/openrouter/OpenRouterPrivacyPreflightTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/openrouter/PrivacyRejectionCacheTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/permissions/PersonalDataProvenanceTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/queue/FollowUpAgentSessionTest.kt",

@@ -32,7 +32,8 @@ class OpenRouterPrivacyPreflight @Inject constructor(private val client: OpenRou
         check(!rejections.blocked(rejectionKey(endpoint, credential, model, policy))) {
             "POLICY_RESTRICTED: This model was recently rejected under this account and privacy configuration. Choose a compatible model in Settings or retry after five minutes; privacy protections were preserved."
         }
-        val selectedModel = model.removePrefix("~")
+        if (dynamicModel(model)) return
+        val selectedModel = model
         if (policy.zdr != true || credential.isNullOrBlank() || !selectedModel.matches(Regex("[A-Za-z0-9_.:-]+/[A-Za-z0-9_.:-]+"))) return
         val base = runCatching { OpenRouterIdentity.endpoint(endpoint) }.getOrNull() ?: return
         val identity = OpenRouterIdentity.digest("$base|$credential")
@@ -57,8 +58,13 @@ class OpenRouterPrivacyPreflight @Inject constructor(private val client: OpenRou
     }
 
     companion object {
+        // These routes select a concrete model server-side; absence of the alias in
+        // an endpoint inventory is not evidence of policy incompatibility.
+        private fun dynamicModel(model: String): Boolean = model.startsWith("~") || model in setOf("openrouter/auto", "openrouter/free")
+
         /** Null means malformed/incomplete metadata, not proof that no provider is available. */
         internal fun compatible(rows: JsonArray, model: String, policy: OpenRouterProviderRouting): Boolean? {
+            if (dynamicModel(model)) return null
             if (rows.any { it !is JsonObject || (it["model_id"] as? JsonPrimitive)?.content.isNullOrBlank() || (it["tag"] as? JsonPrimitive)?.content.isNullOrBlank() }) return null
             fun matches(choice: String, tag: String) = tag.equals(choice, true) || tag.startsWith("$choice/", true)
             return rows.filterIsInstance<JsonObject>().any { row ->

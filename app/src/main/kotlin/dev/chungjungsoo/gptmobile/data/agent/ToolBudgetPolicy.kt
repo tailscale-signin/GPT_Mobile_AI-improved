@@ -16,7 +16,8 @@ object ToolBudgetPolicy {
         (limits.maxToolCalls / 5).coerceAtLeast(1)
 
     fun remainingAllowance(executionLimit: Int, toolCallCount: Int): Int =
-        if (executionLimit == Int.MAX_VALUE) Int.MAX_VALUE else (executionLimit - toolCallCount)
+        if (executionLimit == Int.MAX_VALUE) Int.MAX_VALUE else
+            (executionLimit.toLong() - toolCallCount.toLong()).coerceIn(0L, Int.MAX_VALUE.toLong()).toInt()
 
     fun shouldEmitWrapUpNotice(
         executionLimit: Int,

@@ -54,10 +54,11 @@ internal fun GitHubStatusLight(status: String, modifier: Modifier = Modifier) {
 @Composable
 internal fun GitHubRepositoryStatusPanel(connection: ToolConnection, selection: GitHubRepositoryContext, pulls: List<JsonObject>, refreshPulls: () -> Unit, chatId: Int? = null, model: GitHubLiveStatusViewModel = hiltViewModel()) {
     val state by model.state.collectAsStateWithLifecycle()
+    val currentPulls by androidx.compose.runtime.rememberUpdatedState(pulls)
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(connection, selection, lifecycle) {
-        lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) { model.observe(connection, selection, refreshPulls) }
+        lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) { model.observe(connection, selection, refreshPulls) { currentPulls.mapNotNull { (it["head"] as? JsonObject)?.text("sha") }.filter { it.matches(Regex("[a-fA-F0-9]{40}")) }.toSet() } }
     }
     LaunchedEffect(lifecycle) {
         lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -68,6 +69,7 @@ internal fun GitHubRepositoryStatusPanel(connection: ToolConnection, selection: 
         }
     }
     val uri = androidx.compose.ui.platform.LocalUriHandler.current
+    var selectedRun by remember(selection) { androidx.compose.runtime.mutableStateOf<String?>(null) }
     var query by remember { androidx.compose.runtime.mutableStateOf("") }
     var details by remember { androidx.compose.runtime.mutableStateOf(false) }
     var confirmation by remember { androidx.compose.runtime.mutableStateOf<Pair<GitHubLiveProcess, String>?>(null) }
@@ -75,7 +77,7 @@ internal fun GitHubRepositoryStatusPanel(connection: ToolConnection, selection: 
         if (url.startsWith("https://github.com/")) uri.openUri(url)
     }
     confirmation?.let { (row, action) ->
-        androidx.compose.material3.AlertDialog(
+        dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog(
             onDismissRequest = { confirmation = null },
             title = { Text(action.replace('_', ' ')) },
             text = { Text("${row.title} · attempt ${row.attempt} · ${row.headSha.take(12)}. GitHub state is rechecked before this action.") },
@@ -89,7 +91,7 @@ internal fun GitHubRepositoryStatusPanel(connection: ToolConnection, selection: 
         )
     }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("Workflows · ${selection.ref}", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+        Text("Repository status", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             listOf("ACTIVE" to "Active", "CURRENT" to "Current revision", "HISTORY" to "History").forEach { (value, label) ->
                 androidx.compose.material3.FilterChip(selected = state.filter == value, onClick = { model.filter(value) }, label = { Text(label) })
@@ -112,7 +114,12 @@ internal fun GitHubRepositoryStatusPanel(connection: ToolConnection, selection: 
             )
         }
         androidx.compose.material3.OutlinedTextField(value = query, onValueChange = { query = it }, label = { Text("Filter loaded runs, jobs and steps") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-        state.rows.filter { query.isBlank() || (it.title + it.status + it.stepDetails.joinToString()).contains(query, true) }.forEach { row ->
+        GitHubStatusOverview(pulls, state.rows.filter { query.isBlank() || it.title.contains(query, true) || it.status.contains(query, true) }, selection.ref, state.phase in setOf("STALE", "OFFLINE", "AUTHORIZATION"), ::open) { row ->
+            selectedRun = row.id
+            if (row.id !in state.expanded) model.expand(row.id)
+        }
+        if (selectedRun != null) androidx.compose.material3.TextButton(onClick = { selectedRun = null }) { Text("Close check details") }
+        state.rows.filter { selectedRun != null && (it.id == selectedRun || it.parentId == selectedRun) }.filter { query.isBlank() || (it.title + it.status + it.stepDetails.joinToString()).contains(query, true) }.forEach { row ->
             androidx.compose.runtime.key(row.id) {
                 Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainerLow, border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = .18f)), modifier = Modifier.fillMaxWidth().padding(start = if (row.parentId == null) 0.dp else 12.dp)) {
                     Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {

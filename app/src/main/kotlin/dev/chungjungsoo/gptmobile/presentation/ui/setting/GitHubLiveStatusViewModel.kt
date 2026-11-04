@@ -83,7 +83,7 @@ internal class GitHubLiveStatusViewModel @Inject constructor(
         refresh()
     }
 
-    suspend fun observe(connection: ToolConnection, selection: GitHubRepositoryContext, refreshPulls: () -> Unit) {
+    suspend fun observe(connection: ToolConnection, selection: GitHubRepositoryContext, refreshPulls: () -> Unit, pullHeads: () -> Set<String> = { emptySet() }) {
         val selectedScope = "${connection.connectionUid}:${selection.fullName}:${selection.ref}"
         if (scope != selectedScope) {
             scope = selectedScope
@@ -95,6 +95,7 @@ internal class GitHubLiveStatusViewModel @Inject constructor(
         }
         var failures = 0
         var cycle = 0
+        val pullChecks = mutableMapOf<String, Pair<Long, List<JsonObject>>>()
         while (true) {
             var nextDelay = 15_000L
             val filter = mutable.value.filter
@@ -124,6 +125,21 @@ internal class GitHubLiveStatusViewModel @Inject constructor(
                         if (page == pages && (count == null || page * 20 < count)) more = true
                     }
                 }
+                val heads = pullHeads().take(20).toSet()
+                pullChecks.keys.retainAll(heads)
+                for (head in heads) {
+                    val cached = pullChecks[head]
+                    val checks = if (cached != null && System.nanoTime() / 1_000_000 - cached.first < 60_000) {
+                        cached.second
+                    } else {
+                        val payload = read("$root/actions/runs?head_sha=$head&per_page=100&page=1")
+                        val observed = (payload["workflow_runs"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>().filter { it.text("head_sha") == head }
+                        pullChecks[head] = System.nanoTime() / 1_000_000 to observed
+                        observed
+                    }
+                    checks.forEach { runs[it.text("id")] = it }
+                }
+                if (heads.isNotEmpty()) knownTotal = false
                 val rows = mutableListOf<GitHubLiveProcess>()
                 val moreJobs = mutableSetOf<String>()
                 for ((id, run) in runs) {

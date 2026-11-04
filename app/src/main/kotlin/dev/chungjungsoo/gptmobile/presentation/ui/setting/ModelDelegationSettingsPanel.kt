@@ -436,9 +436,9 @@ internal fun ModelDelegationSettingsContent(
             }
         }
     }
-    if (previewPlan) androidx.compose.material3.AlertDialog(onDismissRequest = { previewPlan = false }, title = { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_preview_plan_11340)) }, text = { Text(dev.chungjungsoo.gptmobile.data.delegation.DelegationPolicyResolver.preview(config, profiles, profiles.firstOrNull { it.uid == previewPrimaryUid })) }, confirmButton = { TextButton(onClick = { previewPlan = false }) { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_close_7d9eb)) } })
+    if (previewPlan) dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog(onDismissRequest = { previewPlan = false }, title = { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_preview_plan_11340)) }, text = { Text(dev.chungjungsoo.gptmobile.data.delegation.DelegationPolicyResolver.preview(config, profiles, profiles.firstOrNull { it.uid == previewPrimaryUid })) }, confirmButton = { TextButton(onClick = { previewPlan = false }) { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_close_7d9eb)) } })
     if (resetConfirm) {
-        androidx.compose.material3.AlertDialog(onDismissRequest = { resetConfirm = false }, title = { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_restore_tuning_defaults_36a10)) }, text = { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_research_and_budget_tuning_will_return_to_rec_c3851)) }, confirmButton = {
+        dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog(onDismissRequest = { resetConfirm = false }, title = { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_restore_tuning_defaults_36a10)) }, text = { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_research_and_budget_tuning_will_return_to_rec_c3851)) }, confirmButton = {
             TextButton(onClick = {
                 onReset()
                 resetConfirm = false

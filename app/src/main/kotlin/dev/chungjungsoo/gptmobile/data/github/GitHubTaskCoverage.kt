@@ -24,7 +24,7 @@ internal object GitHubTaskCoverage {
     }
 
     fun rows(receipts: Map<String, JsonObject>): List<JsonObject> = receipts.entries
-        .filter { it.value["trusted"] == JsonPrimitive(true) }
+        .filter { it.value["trusted"] == JsonPrimitive(true) || it.value["success"] == JsonPrimitive(false) && it.value["dispatched"] == JsonPrimitive(false) }
         .distinctBy { it.value.text("call_id").ifBlank { it.value.text("receipt_id").ifBlank { it.key } } }
         .map { it.value }
         .groupBy { receipt ->

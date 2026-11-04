@@ -193,6 +193,7 @@ def capabilities():
     result = runtime.gateway_capabilities()
     result.update({"gatewayVersion": VERSION, "contractVersion": 1,
                    "build": build,
+                   "accepted_request_headers": ["X-Gateway-Job-ID", "X-Gateway-Performance-Profile", "X-Gateway-Slot-Pinning", "X-Gateway-Slot-Count", "X-Gateway-Cache-Prompt", "X-Gateway-Cache-Reuse", "X-Gateway-Reasoning-Effort", "X-Gateway-Tool-Optimization", "X-Gateway-Tool-Surface-Limit", "X-Gateway-Stable-Tool-Surface", "X-Gateway-Intermediate-Max-Tokens", "X-Gateway-Soft-Synthesis-Round", "X-Gateway-Result-Char-Limit", "X-Gateway-Delegated-Worker", "X-Gateway-Allow-Local-Tools", "X-Gateway-Request-Role", "X-Gateway-Attempt-ID"],
                    "auth": {"mode": config.mode, "apiKeyRequired": False, "legacyBearerEnabled": config.legacy_bearer},
                    "desktop": {"managed": bool(config.management_token), "maintenanceProtocol": 1,
                                "stateSchema": 1, "updateAuthority": "local-manager", "idleUpdates": True},

@@ -48,6 +48,7 @@ class OpenAIAPIImpl @Inject constructor(
     private val openRouterReceipts: dev.chungjungsoo.gptmobile.data.openrouter.account.OpenRouterReceiptStore? = null
 ) : OpenAIAPI {
     private val requestPreparation = ModelRequestPreparation(networkClient)
+    private val gatewayControls = dev.chungjungsoo.gptmobile.data.network.gateway.GatewayControlNegotiation(dev.chungjungsoo.gptmobile.data.network.gateway.GatewayAPIImpl(networkClient))
 
     override suspend fun checkSavedHordeJob(runId: String, chatId: Int, config: ProviderRequestConfig): String = FreeQueuedTransport(networkClient(), requestPreparation).checkSavedHordeJob(runId, chatId, config)
 
@@ -162,6 +163,7 @@ class OpenAIAPIImpl @Inject constructor(
                 FreeQueuedTransport(networkClient(), requestPreparation).generate(preparedRequest, config, timeoutSeconds) { emit(it) }
                 return@flow
             }
+            config = gatewayControls.prepare(config)
             LocalServiceHealth.probe(config.apiUrl)
             val endpoint = config.buildEndpoint("chat/completions")
 
@@ -554,6 +556,7 @@ class OpenAIAPIImpl @Inject constructor(
         var resolvedFreeModel: String? = null
         var preparedRequest = request.withModelSamplingPolicy()
         try {
+            config = gatewayControls.prepare(config)
             LocalServiceHealth.probe(config.apiUrl)
             val endpoint = config.buildEndpoint("responses")
 

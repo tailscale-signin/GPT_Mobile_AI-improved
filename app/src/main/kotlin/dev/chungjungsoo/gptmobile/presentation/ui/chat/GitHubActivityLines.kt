@@ -6,7 +6,7 @@ import dev.chungjungsoo.gptmobile.data.github.GitHubProgressPresentation
 
 /** Repair ordering in retained timelines too: introduce the activity before any preview. */
 internal fun gitHubActivityLines(timeline: List<AssistantTimelineItem>, task: String, searchActive: Boolean = false): List<AssistantTimelineItem> {
-    var previousPreview: String? = null
+    val previews = mutableSetOf<String>()
     val summaries = mutableSetOf<String>()
     val latestCounters = timeline.lastOrNull { it.progressCheckpoint && GitHubProgressPresentation.liveKey(it.content) != null }
     val lines = timeline.filter { it.progressCheckpoint && it.content.isNotBlank() }.filter { item ->
@@ -16,9 +16,7 @@ internal fun gitHubActivityLines(timeline: List<AssistantTimelineItem>, task: St
             summaries.add(GitHubProgressPresentation.lineKey(item.content))
         } else {
             val key = GitHubProgressPresentation.lineKey(item.content)
-            val keep = key != previousPreview
-            previousPreview = key
-            keep
+            previews.add(key)
         }
     }
     val coalesced = lines.map { item ->

@@ -8,14 +8,54 @@ import dev.chungjungsoo.gptmobile.data.dto.ApiState
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.isActive
 
 /** Public observable activity changes only; no model invocation or periodic filler. */
-internal class GitHubChatProgress(task: String = "") {
+internal class GitHubChatProgress(task: String = "", private val now: () -> Long = { System.nanoTime() / 1_000_000 }) {
     private var activity = "Preparing to inspect the relevant repository details."
+    private var nextStep = "inspect the request and identify the relevant repository evidence"
+    private var completed = 0
+    private var failures = 0
+    private var lastCompleted = ""
+    private var lastPreviewAt = now()
+    private var lastSummaryAt = lastPreviewAt
+    private var initial = true
     private var summary = GitHubProgressPresentation.introduction(task)
-    private val state = kotlinx.coroutines.flow.MutableStateFlow(ApiState.ActivitySummary(summary, preview = activity))
+    private val previews = mutableSetOf<String>()
+    private val terminalCalls = mutableSetOf<String>()
 
-    fun updates(): Flow<ApiState.ActivitySummary> = state
+    fun updates(): Flow<ApiState> = flow {
+        while (kotlinx.coroutines.currentCoroutineContext().isActive) {
+            tick().forEach { emit(it) }
+            kotlinx.coroutines.delay(250)
+        }
+    }
+
+    /** A single monotonic clock owns all public preview and summary admission. */
+    @Synchronized internal fun tick(): List<ApiState> = buildList {
+        val at = now()
+        if (initial || at - lastSummaryAt >= SUMMARY_INTERVAL_MS) {
+            if (!initial) {
+                summary = buildString {
+                    if (completed == 0) {
+                        append("I have received the request; no repository operation has completed yet. ")
+                    } else {
+                        append("I have completed $completed repository operations. $lastCompleted ")
+                    }
+                    if (failures > 0) append("$failures operations need recovery. ")
+                    append("Next, I will $nextStep, check the available evidence, and distinguish confirmed results from work that still needs verification.")
+                }
+            }
+            add(ApiState.ActivitySummary(summary))
+            initial = false
+            lastSummaryAt = at
+        }
+        val key = GitHubProgressPresentation.lineKey(activity)
+        if (activity.isNotBlank() && at - lastPreviewAt >= PREVIEW_INTERVAL_MS && previews.add(key)) {
+            add(ApiState.ProgressCheckpoint(activity))
+            lastPreviewAt = at
+        }
+    }
 
     @Synchronized fun observe(event: ApiState) {
         when (event) {
@@ -24,34 +64,38 @@ internal class GitHubChatProgress(task: String = "") {
                 val name = progress.toolName.orEmpty()
                 when (progress.event) {
                     "tool_started" -> {
-                        activity = currentActivity(name)
-                        summary = operationSummary(name, progress.toolArgs)
+                        activity = sourceFocus(progress.toolArgs) + currentActivity(name)
+                        nextStep = "continue the current operation and inspect its result"
                     }
                     "tool_failed" -> {
+                        if (progress.toolCallId != null && !terminalCalls.add(progress.toolCallId)) return
+                        failures++
                         activity = "Checking how to continue after the problem."
-                        summary = "A step needs attention. I’m checking its failure before choosing a recovery action."
+                        nextStep = "inspect the recorded failure and choose a bounded recovery action"
                     }
-                    // Completion events already supply a receipt-backed preview. Do not
-                    // create a second paragraph repeating that preview or invent a finding.
-                    "tool_completed", "tool_finished" -> activity = milestone(name, false, false, progress.toolArgs)
+                    "tool_completed", "tool_finished" -> {
+                        if (progress.toolCallId != null && !terminalCalls.add(progress.toolCallId)) return
+                        completed++
+                        activity = milestone(name, false, false, progress.toolArgs)
+                        lastCompleted = activity
+                        nextStep = "review these results and continue the remaining requested work"
+                    }
                 }
             }
+            is ApiState.ProgressCheckpoint -> activity = event.text
             is ApiState.Success -> {
                 activity = "Putting the response together."
-                summary = "Putting the response together. I’m separating confirmed findings from remaining work."
+                nextStep = "present the supported findings and identify any remaining work"
             }
-            is ApiState.Thinking -> if (activity.startsWith("Preparing")) {
-                activity = "Examining the request and planning the relevant checks."
-                summary = "Examining the request and planning the relevant checks."
-            }
-            else -> return
+            else -> Unit
         }
-        state.value = ApiState.ActivitySummary(summary, preview = activity)
     }
 
     @Synchronized fun heartbeat(): String = summary
 
     companion object {
+        const val PREVIEW_INTERVAL_MS = 3_000L
+        const val SUMMARY_INTERVAL_MS = 15_000L
         private fun currentActivity(name: String): String = when (name.substringBefore("__")) {
             "web_search" -> "Searching the internet for relevant information."
             "fetch_webpage" -> "Reading the relevant web page."

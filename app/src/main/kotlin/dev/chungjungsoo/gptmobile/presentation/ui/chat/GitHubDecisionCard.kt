@@ -96,10 +96,9 @@ internal fun GitHubDecisionCard(decision: GitHubChatDecision, waiting: Boolean, 
 }
 
 @Composable
-internal fun GitHubLiveProgressCard(timeline: List<dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem>, task: String = "", events: List<dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent> = emptyList()) {
+internal fun GitHubLiveProgressCard(timeline: List<dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem>, task: String = "", events: List<dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent> = emptyList(), expanded: Boolean = false) {
     val search = remember(events) { gitHubSearchActivity(events) }
     val lines = remember(timeline, task, search != null) { gitHubActivityLines(timeline, task, searchActive = search != null) }
-    var expanded by remember(task) { mutableStateOf(false) }
     androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal = 28.dp, vertical = 8.dp)) {
         val measurer = androidx.compose.ui.text.rememberTextMeasurer()
         val density = androidx.compose.ui.platform.LocalDensity.current
@@ -114,15 +113,10 @@ internal fun GitHubLiveProgressCard(timeline: List<dev.chungjungsoo.gptmobile.da
         val latestPreview = visibleLines.lastIndex.takeIf { it >= 0 && !visibleLines[it].statusSummary } ?: -1
         val motion = rememberGitHubProgressMotion(latestPreview >= 0)
         Column(Modifier.fillMaxWidth().testTag("github_live_activity"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (lineCounts.sum() > 20) {
-                TextButton(onClick = { expanded = !expanded }, modifier = Modifier.testTag("github_activity_history")) {
-                    Text(if (expanded) "Show recent activity" else "Show earlier activity")
-                }
-            }
             visibleLines.forEachIndexed { index, item ->
                 androidx.compose.runtime.key(item.progressId ?: item.content, item.statusSummary) {
                     if (item.statusSummary) {
-                        GitHubActivitySummary(item.content)
+                        GitHubActivitySummary(item.content, expanded)
                     } else {
                         GitHubActivityPreview(item.content, latest = index == latestPreview, motion = motion, search = search.takeIf { index == latestPreview && dev.chungjungsoo.gptmobile.data.github.GitHubProgressPresentation.liveKey(item.content) == null })
                     }
@@ -133,14 +127,14 @@ internal fun GitHubLiveProgressCard(timeline: List<dev.chungjungsoo.gptmobile.da
 }
 
 @Composable
-private fun GitHubActivitySummary(text: String) {
+private fun GitHubActivitySummary(text: String, expanded: Boolean) {
     val entry = remember { Animatable(0f) }
     LaunchedEffect(Unit) { entry.animateTo(1f, tween(300, easing = androidx.compose.animation.core.LinearEasing)) }
     Text(
         text,
         style = MaterialTheme.typography.titleSmall,
         color = MaterialTheme.colorScheme.onSurface,
-        maxLines = 4,
+        maxLines = if (expanded) Int.MAX_VALUE else 6,
         overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
         modifier = Modifier.offset(y = (-6).dp * (1f - entry.value))
             .testTag("github_activity_summary")

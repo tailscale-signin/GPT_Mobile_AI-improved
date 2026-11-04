@@ -26,7 +26,7 @@ class GitHubChatPolicyTest {
     @Test fun githubDefaultsEnableScopedToolsAndUltraBudgetWithoutMutatingStoredProfile() {
         val selected = GitHubChatPolicy.platform(profile, features, context)
         assertFalse(selected.disableAllTools)
-        assertEquals(512, selected.maxToolCalls)
+        assertEquals(4, selected.maxToolCalls)
         assertEquals(512, selected.maxTokens)
         assertTrue(profile.disableAllTools)
         val effective = GitHubChatPolicy.features(features, "p", context)

@@ -35,7 +35,8 @@ internal class GitHubVerifiedSession(
     private val authorizedTools: List<AgentToolDefinition> = emptyList(),
     private val lifecycle: (dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind) -> Unit = {},
     private val resumeCommitSha: String? = null,
-    private val resumeRequestKey: String = task
+    private val resumeRequestKey: String = task,
+    private val gatewayDiagnostic: (suspend () -> String)? = null
 ) : AgentProviderSession by delegate {
     private var lastChecklist: JsonObject? = null
 
@@ -47,10 +48,22 @@ internal class GitHubVerifiedSession(
             return@flow
         }
         exchanges.forEach { exchange -> exchange.results.forEach { result -> exchange.calls.firstOrNull { it.callId == result.callId }?.let { evidence.observe(it, result) } } }
+        if (!evidence.complete()) {
+            emitAll(publish(null, failureCode = "GITHUB_EVIDENCE_RETENTION_INCOMPLETE"))
+            return@flow
+        }
         if (GitHubTaskContinuity.diagnostic(task)) {
             validatePublication()
             val (receipts, _) = evidence.snapshot()
             emit(ProviderEvent.TextDelta(GitHubTaskContinuity.explain(evidence.diagnostic(), receipts)))
+            emit(ProviderEvent.Completed)
+            return@flow
+        }
+        if (isGatewayIntegrationTask(task)) {
+            validatePublication()
+            val report = gatewayDiagnostic?.invoke() ?: "Gateway integration: unavailable. Configure an engineering gateway connection in GitHub settings."
+            validatePublication()
+            emit(ProviderEvent.TextDelta(report))
             emit(ProviderEvent.Completed)
             return@flow
         }
@@ -241,13 +254,15 @@ internal class GitHubVerifiedSession(
                 renderedText
             }
             validatePublication()
-            val partial = failureCode != null || report["task_outcome"] != kotlinx.serialization.json.JsonPrimitive("COMPLETED") || report["completion_verified"] != kotlinx.serialization.json.JsonPrimitive(true)
+            val retentionComplete = evidence.complete()
+            val partial = !retentionComplete || originalFailure != null || failureCode != null || report["task_outcome"] != kotlinx.serialization.json.JsonPrimitive("COMPLETED") || report["completion_verified"] != kotlinx.serialization.json.JsonPrimitive(true)
             val oversizedWithoutEvidence = draft != null && status == null && coverage == null && request == null && receipts.isEmpty()
             check(!oversizedWithoutEvidence) { "No retained GitHub evidence is available for publication" }
             val retained = JsonObject(
                 report + buildJsonObject {
                     progressDigest?.let { put("checklist_progress_digest", it) }
                     put("progress_state", if (stalled) "BLOCKED_UNCHANGED" else "ADVANCED_OR_FIRST_REPORT")
+                    put("evidence_retention_complete", retentionComplete)
                     put("partial", partial)
                     put("resume_required", partial)
                     if (partial) {
@@ -291,7 +306,12 @@ internal class GitHubVerifiedSession(
                 )
                 throw policy
             } else {
-                emit(ProviderEvent.Failed("GitHub answer withheld: ${failure.message.orEmpty().take(400)}. Not available / Not measured. Retained evidence can be inspected or refreshed.", errorCode = "GITHUB_EVIDENCE_REQUIRED"))
+                if (originalFailure != null) {
+                    emit(ProviderEvent.TextDelta("The task was interrupted before verification finished. Completed operations remain saved; no completion is claimed.\n\nOriginal failure: ${originalFailure.message}\n\nVerification also could not finish: ${failure.message.orEmpty().take(400)}"))
+                    emit(originalFailure)
+                } else {
+                    emit(ProviderEvent.Failed("GitHub answer withheld: ${failure.message.orEmpty().take(400)}. Not available / Not measured. Retained evidence can be inspected or refreshed.", errorCode = "GITHUB_EVIDENCE_REQUIRED"))
+                }
             }
             return@flow
         }

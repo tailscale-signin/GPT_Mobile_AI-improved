@@ -1205,7 +1205,7 @@ class AgentToolResolver @Inject constructor(
                 base.copy(tool = operation, realToolName = operation.operation, modelToolName = operation.definition.name, shareableReadOnly = operation.operation in setOf("github_read", "github_search"))
             } + listOfNotNull(
                 github.graphTool()?.let { graph ->
-                    base.copy(tool = graph, realToolName = "repository_graph", modelToolName = graph.definition.name, shareableReadOnly = false, nativeGitHub = false)
+                    base.copy(tool = graph, realToolName = "repository_graph", modelToolName = graph.definition.name, shareableReadOnly = false, nativeGitHub = true)
                 }
             )
         }
@@ -1287,6 +1287,8 @@ class AgentToolResolver @Inject constructor(
             credentialAdmissionFailed = authorizationFailed,
             graphQuery = if (!authorizationFailed &&
                 repositoryGraphs != null &&
+                features.githubProfileOverrides[profileUid]?.engineeringGatewayProfileUid != null &&
+                features.githubProfileOverrides[profileUid]?.engineeringMemory != dev.chungjungsoo.gptmobile.data.github.GitHubEngineeringMemoryMode.SESSION_ONLY &&
                 workspaceContext != null &&
                 dev.chungjungsoo.gptmobile.data.github.GitHubAutonomousEngineeringPolicy.supportsSavedJobs(settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }) &&
                 userMessage?.chatId?.let { factVault?.scopeForChat(it)?.isTemporary != true } == true

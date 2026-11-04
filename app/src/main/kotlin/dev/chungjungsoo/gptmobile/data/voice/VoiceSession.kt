@@ -5,6 +5,7 @@ interface VoiceAudio {
     interface Listener {
         fun ending() = Unit
         fun failure(message: String, retryMillis: Long) = error(message)
+        fun retryableFailure(message: String, retryMillis: Long) = failure(message, retryMillis)
         fun ready()
         fun level(value: Float)
         fun partial(text: String)
@@ -55,6 +56,8 @@ class VoiceSession(
     private var waiting = false
     private var draftPending = false
     private var engaged = false
+    private var automaticRetry = false
+    private var recognitionFailures = 0
     private var lastReply: String? = null
     private var streamId: String? = null
     private var speechBuffer = VoiceSpeechBuffer()
@@ -82,7 +85,12 @@ class VoiceSession(
         if (autoContinue) resume() else pause()
     }
     fun tick() {
-        if (state.phase != VoicePhase.CLOSED && state.retryAtMillis > 0 && now() >= state.retryAtMillis) update(state.copy(retryAtMillis = 0))
+        if (state.phase != VoicePhase.CLOSED && state.retryAtMillis > 0 && now() >= state.retryAtMillis) {
+            val retry = automaticRetry && autoContinue && !state.muted && accessAllowed()
+            automaticRetry = false
+            update(state.copy(retryAtMillis = 0))
+            if (retry) resume()
+        }
     }
     fun discardDraft() {
         if (state.phase == VoicePhase.CLOSED || waiting) return
@@ -175,6 +183,13 @@ class VoiceSession(
                     update(state.copy(retryAtMillis = now() + retryMillis))
                 }
             }
+            override fun retryableFailure(message: String, retryMillis: Long) {
+                if (!valid()) return
+                val retry = autoContinue && !state.muted && ++recognitionFailures <= 3
+                fail(message)
+                automaticRetry = retry
+                update(state.copy(retryAtMillis = now() + maxOf(500, retryMillis)))
+            }
             override fun level(value: Float) {
                 if (valid()) update(state.copy(level = value.coerceIn(0f, 1f), hasAudioLevel = true))
             }
@@ -186,9 +201,15 @@ class VoiceSession(
                 stopAudio()
                 val prompt = text.trim().take(8000)
                 if (prompt.isEmpty()) {
-                    pause()
+                    if (autoContinue && !state.muted) {
+                        automaticRetry = true
+                        update(state.copy(phase = VoicePhase.PAUSED, retryAtMillis = now() + maxOf(500, audio.retryAfterMillis())))
+                    } else {
+                        pause()
+                    }
                     return
                 }
+                recognitionFailures = 0
                 draftPending = true
                 update(state.copy(phase = VoicePhase.REVIEWING, transcript = prompt, level = 0f))
                 if (!editBeforeSend) sendDraft()
@@ -222,7 +243,7 @@ class VoiceSession(
             queuedSpeech.clear()
             if (streamComplete) {
                 waiting = false
-                pause()
+                if (engaged) continueTurn() else pause()
             }
             return
         }
@@ -287,6 +308,8 @@ class VoiceSession(
 
     fun mute() {
         if (state.phase == VoicePhase.CLOSED) return
+        automaticRetry = false
+        recognitionFailures = 0
         update(state.copy(muted = !state.muted))
         if (state.phase == VoicePhase.SPEAKING || state.phase == VoicePhase.THINKING || state.phase == VoicePhase.REVIEWING) return
         if (state.muted) {
@@ -308,12 +331,14 @@ class VoiceSession(
         if (state.phase == VoicePhase.CLOSED) return
         if (state.phase in setOf(VoicePhase.STARTING, VoicePhase.LISTENING, VoicePhase.FINALIZING) && state.transcript.isNotBlank()) draftPending = true
         engaged = false
+        automaticRetry = false
         stopAudio()
         update(state.copy(phase = VoicePhase.PAUSED, level = 0f))
     }
     fun fail(message: String) {
         if (state.phase == VoicePhase.CLOSED) return
         engaged = false
+        automaticRetry = false
         stopAudio()
         waiting = false
         update(state.copy(phase = VoicePhase.ERROR, level = 0f, notice = message))

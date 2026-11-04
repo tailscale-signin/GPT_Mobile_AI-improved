@@ -128,11 +128,22 @@ class GitHubEvidencePolicyTest {
         assertEquals(JsonPrimitive(1000L), restarted.snapshot().first.getValue(id)["observed_at_ms"])
     }
 
+    @Test fun capacityFailureRetainsEarlierReceiptsAndPreventsCompletion() = runBlocking {
+        val book = GitHubEvidenceBook("binding", "owner/repo", "main", setOf("github_ci"))
+        repeat(4097) { index ->
+            val id = "call-$index"
+            book.observe(ProviderEvent.ToolCall(id, "github_ci", json("""{"action":"status"}""")), AgentToolResult(id, ToolResultContent.Json(json("""{"count":3}""")), false, dispatched = true))
+        }
+        assertEquals(4096, book.snapshot().first.size)
+        assertFalse(book.complete())
+    }
+
     @Test fun storageFailureCannotBeRetriedIntoAValidUnpersistedReceipt() = runBlocking {
         val book = GitHubEvidenceBook("binding", "owner/repo", "main", setOf("github_ci"), { 1000 }, save = { _, _ -> error("disk full") })
         val call = ProviderEvent.ToolCall("one", "github_ci", json("""{"action":"status"}"""))
         assertTrue(runCatching { book.observe(call, AgentToolResult("one", ToolResultContent.Json(json("""{"count":3}""")), false, dispatched = true)) }.isFailure)
-        assertTrue(runCatching { book.snapshot() }.isFailure)
+        assertTrue(book.snapshot().first.isEmpty())
+        assertFalse(book.complete())
     }
 
     @Test fun unknownCacheProvenanceAndForeignRepositoryCannotVerify() = runBlocking {

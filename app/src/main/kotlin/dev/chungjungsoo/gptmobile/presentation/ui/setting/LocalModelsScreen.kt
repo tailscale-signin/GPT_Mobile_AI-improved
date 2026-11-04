@@ -254,7 +254,7 @@ internal fun LocalMarketplaceScreen(
         }
     }
     if (filtersOpen) {
-        androidx.compose.material3.AlertDialog(onDismissRequest = { filtersOpen = false }, title = { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_model_filters_d4bb9)) }, text = {
+        dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog(onDismissRequest = { filtersOpen = false }, title = { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_model_filters_d4bb9)) }, text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_runtime_10931))
                 androidx.compose.foundation.layout.FlowRow { listOf("All", "LiteRT-LM", "llama.cpp", "GenieX").forEach { value -> TextButton(onClick = { viewModel.updateFilters { it.copy(runtime = value) } }) { Text(if (runtime == value) "✓ $value" else value) } } }
@@ -276,7 +276,7 @@ internal fun LocalMarketplaceScreen(
         })
     }
     if (why) {
-        androidx.compose.material3.AlertDialog(onDismissRequest = { why = false }, title = { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_why_these_models_6954d)) }, text = { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_these_are_curated_evaluation_candidates_with__5dd8b)) }, confirmButton = {
+        dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog(onDismissRequest = { why = false }, title = { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_why_these_models_6954d)) }, text = { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_these_are_curated_evaluation_candidates_with__5dd8b)) }, confirmButton = {
             TextButton(onClick = {
                 why = false
                 viewModel.updateFilters { it.copy(everyModel = true) }

@@ -447,6 +447,7 @@ internal class GitHubRepositorySession(
         require(query.isNotBlank() && query.length <= 200) { "Search requires a non-blank query of at most 200 characters." }
         val mode = args.s("mode").ifBlank { "literal" }
         require(mode in setOf("literal", "definitions", "references", "paths", "tests", "patterns"))
+        require(!Regex("(?:^|\\s)(?:extension|path):[^\\s]+").containsMatchIn(query)) { "Use file_extension and path_prefix arguments instead of extension:/path: query qualifiers. No content scan was dispatched." }
         val options = GitHubSearchOptions.from(args)
         val extension = args.s("file_extension").removePrefix(".").lowercase(java.util.Locale.ROOT)
         require(extension.isEmpty() || extension.matches(Regex("[a-z0-9]+"))) { "file_extension must be a single extension such as kt or .kt." }

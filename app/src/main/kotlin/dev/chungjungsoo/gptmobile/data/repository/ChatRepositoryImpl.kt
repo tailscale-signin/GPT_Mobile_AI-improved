@@ -259,6 +259,7 @@ class ChatRepositoryImpl(
         dev.chungjungsoo.gptmobile.data.agent.CombinedTurnBudgetStore(context),
     private val combinedDecisions: dev.chungjungsoo.gptmobile.data.agent.CombinedCollectionDecisionStore? = null,
     private val freeToolConsents: dev.chungjungsoo.gptmobile.data.permissions.FreeModelToolConsentStore? = null,
+    private val gatewayDiagnostics: dev.chungjungsoo.gptmobile.data.github.GatewayIntegrationDiagnostics? = null,
     private val gitHubDecisions: dev.chungjungsoo.gptmobile.data.github.GitHubChatDecisions? = null,
     private val gitHubDecisionNotifications: dev.chungjungsoo.gptmobile.data.github.GitHubDecisionNotifications? = null,
     private val engineeringMemory: dev.chungjungsoo.gptmobile.data.github.GitHubEngineeringMemory? = null,
@@ -1856,7 +1857,7 @@ class ChatRepositoryImpl(
                     }
                     else -> Unit
                 }
-                send(state)
+                if (githubProgress == null || state !is ApiState.ProgressCheckpoint && state !is ApiState.ActivitySummary) send(state)
             }
             val statusJob = launch {
                 if (githubProgress != null) {
@@ -1936,7 +1937,7 @@ class ChatRepositoryImpl(
             }
             val preparationStarted = System.nanoTime()
             emit(ApiState.Loading)
-            emit(ApiState.ProgressCheckpoint("Preparing the response and checking the available context."))
+            if (githubProgress == null) emit(ApiState.ProgressCheckpoint("Preparing the response and checking the available context."))
             // Isolate the heavyweight preparation state machine from the enclosing
             // coroutine exception table. On Android ART, oversized inlined suspend
             // methods have aborted with an invalid exception PC during native errors.
@@ -4119,7 +4120,13 @@ class ChatRepositoryImpl(
             val reuse = identity.isNotBlank() && previous != null && dev.chungjungsoo.gptmobile.data.github.GitHubTaskContinuity.reuse(originalUserRequest, previousTask)
             val binding = if (reuse) (previous?.get("binding") as? kotlinx.serialization.json.JsonPrimitive)?.content.orEmpty() else dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook.digest("$turnKey:$scope")
             check(binding.matches(Regex("[a-f0-9]{64}"))) { "Saved task identity is invalid" }
-            if (reuse && !dev.chungjungsoo.gptmobile.data.github.GitHubTaskContinuity.diagnostic(user.content)) githubEffectiveTask = dev.chungjungsoo.gptmobile.data.github.GitHubTaskContinuity.request(previousTask)
+            if (reuse && !dev.chungjungsoo.gptmobile.data.github.GitHubTaskContinuity.diagnostic(user.content)) {
+                githubEffectiveTask = if (dev.chungjungsoo.gptmobile.data.github.GitHubTaskContinuity.followUp(originalUserRequest)) {
+                    dev.chungjungsoo.gptmobile.data.github.GitHubTaskContinuity.resolved(originalUserRequest, previousTask)
+                } else {
+                    dev.chungjungsoo.gptmobile.data.github.GitHubTaskContinuity.request(previousTask)
+                }
+            }
             if (!dev.chungjungsoo.gptmobile.data.github.GitHubTaskContinuity.diagnostic(user.content)) {
                 workspace?.saveProtectedSynthesisCheckpoint(
                     pointerKey,
@@ -4149,7 +4156,13 @@ class ChatRepositoryImpl(
                 save = { id, value ->
                     workspace?.saveProtectedSynthesisCheckpoint("github-evidence:$binding:$id", user.chatId, runId, value, appendOnly = true)
                     val preferences = settingRepository.getFeatureSettings().githubProfileOverrides[platform.uid] ?: dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride()
-                    engineeringMemory?.observe(github, user.chatId, value, preferences)
+                    try {
+                        engineeringMemory?.observe(github, user.chatId, value, preferences)
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (failure: Exception) {
+                        AppLogRecorder.record("EngineeringMemory", "OPTIONAL_MEMORY_SAVE_DEFERRED · primaryReceiptSaved=true · cause=${failure.javaClass.simpleName}", "W")
+                    }
                     dev.chungjungsoo.gptmobile.data.github.GitHubBranchTransition.fromEvidence("${github.owner}/${github.repo}", value)?.let { destination ->
                         dispatchAuthority.validate()
                         check(validateSavedEvidence()) { "Saved GitHub task access changed" }
@@ -4916,7 +4929,7 @@ class ChatRepositoryImpl(
                 delegate = reviewedSession,
                 evidence = verifiedEvidence,
                 task = githubEffectiveTask,
-                authorizedTools = runnerTools.map { it.definition },
+                authorizedTools = runnerTools.map { it.definition }.filter { it.modelVisible },
                 inputLimit = { (reviewInputLimit() - dev.chungjungsoo.gptmobile.data.context.TextTokenEstimate.estimate(dev.chungjungsoo.gptmobile.data.github.GitHubEvidencePolicy.INSTRUCTION)).coerceAtLeast(0) },
                 openVerifier = { prompt ->
                     openPrimarySession(
@@ -4936,7 +4949,10 @@ class ChatRepositoryImpl(
                 privateReviewCandidate = { reviewEvidence?.privateCandidate() },
                 lifecycle = { dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.record(runId, it) },
                 resumeCommitSha = dev.chungjungsoo.gptmobile.data.github.GitHubTaskContinuity.publishedCommit(originalUserRequest),
-                resumeRequestKey = "${user.chatId}:${user.id}"
+                resumeRequestKey = "${user.chatId}:${user.id}",
+                gatewayDiagnostic = gatewayDiagnostics?.let { diagnostics ->
+                    { diagnostics.run(platform.uid, "${user.chatId}:${user.id}") { send(ApiState.ProgressCheckpoint(it)) } }
+                }
             )
         } else {
             reviewedSession
@@ -4964,6 +4980,8 @@ class ChatRepositoryImpl(
                     chatToolConfig?.github == null -> customRunner.limits.maxToolCalls
                     dev.chungjungsoo.gptmobile.data.github.GitHubStatusRequest.matches(githubEffectiveTask) -> minOf(6, customRunner.limits.maxToolCalls)
                     !dev.chungjungsoo.gptmobile.data.github.GitHubTestChecklist.integration(githubEffectiveTask) && dev.chungjungsoo.gptmobile.data.github.GitHubTaskCoverage.boundedDiagnostic(githubEffectiveTask) -> minOf(32, customRunner.limits.maxToolCalls)
+                    dev.chungjungsoo.gptmobile.data.github.GitHubRequestCompletion.informational(githubEffectiveTask) -> minOf(64, customRunner.limits.maxToolCalls)
+                    dev.chungjungsoo.gptmobile.data.github.GitHubTestChecklist.integration(githubEffectiveTask) -> minOf(256, githubPreset?.toolCalls ?: 256, customRunner.limits.maxToolCalls)
                     else -> minOf(githubPreset?.toolCalls ?: customRunner.limits.maxToolCalls, customRunner.limits.maxToolCalls)
                 },
                 maxRounds = if (chatToolConfig?.github != null && !dev.chungjungsoo.gptmobile.data.github.GitHubTestChecklist.integration(githubEffectiveTask) && dev.chungjungsoo.gptmobile.data.github.GitHubTaskCoverage.boundedDiagnostic(githubEffectiveTask)) minOf(24, customRunner.limits.maxRounds) else customRunner.limits.maxRounds,

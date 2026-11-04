@@ -39,8 +39,8 @@ internal class GitHubEvidenceBook(
     /** Explicit restoration never refreshes historical observations or borrows another task's proof. */
     suspend fun restore() = mutex.withLock {
         val ids = retainedIds().distinct()
-        check(ids.size <= 4096) { "Retained task evidence exceeds the recovery allowance" }
-        for (id in ids) {
+        if (ids.size > 4096) overflow = true
+        for (id in ids.take(4096)) {
             if (id in records) continue
             val saved = requireNotNull(load(id)) { "Retained task evidence is unavailable" }
             val callId = (saved["call_id"] as? JsonPrimitive)?.contentOrNull
@@ -56,7 +56,6 @@ internal class GitHubEvidenceBook(
             epoch = maxOf(epoch, savedEpoch)
             retain(id, revalidate(saved))
         }
-        check(!overflow) { "Retained task evidence exceeds the recovery allowance" }
     }
 
     private fun revalidate(saved: JsonObject): JsonObject {
@@ -97,7 +96,7 @@ internal class GitHubEvidenceBook(
             is ToolResultContent.ResourceLinks -> JsonNull
         }
         val operation = GitHubOperationTool.operationName(call.name) ?: "github".takeIf { call.name.substringBefore("__") == it }
-        val trusted = call.name in trustedTools && (operation != null || call.name == "discover_available_tools")
+        val trusted = call.name in trustedTools && (operation != null || call.name == "discover_available_tools" || call.name.substringBefore("__") == "repository_graph")
         val effectiveArguments = (result.executionReceipt?.get("corrected_arguments") as? JsonObject) ?: call.arguments
         val owner = (effectiveArguments["owner"] as? JsonPrimitive)?.contentOrNull
         val repo = (effectiveArguments["repo"] as? JsonPrimitive)?.contentOrNull
@@ -176,9 +175,9 @@ internal class GitHubEvidenceBook(
             if (visible is JsonObject && visible != content) put("view", visible)
             put("result_sha256", digest(content.toString()))
         }
-        check(records.size < 4096 && bytes + receipt.toString().encodeToByteArray().size <= 16 * 1024 * 1024) {
+        if (records.size >= 4096 || bytes + receipt.toString().encodeToByteArray().size > 16 * 1024 * 1024) {
             overflow = true
-            "Evidence capacity reached; no unverified response can be published"
+            return@withLock
         }
         try {
             save(id, receipt)
@@ -195,9 +194,10 @@ internal class GitHubEvidenceBook(
     }
 
     suspend fun snapshot(): Pair<Map<String, JsonObject>, Long> = mutex.withLock {
-        check(!overflow) { "Evidence exceeds the retained verification allowance" }
         records.toMap() to epoch
     }
+
+    suspend fun complete(): Boolean = mutex.withLock { !overflow }
 
     suspend fun diagnostic(): JsonObject? = latestVerdict()?.takeIf { it["binding"] == JsonPrimitive(binding) }
 

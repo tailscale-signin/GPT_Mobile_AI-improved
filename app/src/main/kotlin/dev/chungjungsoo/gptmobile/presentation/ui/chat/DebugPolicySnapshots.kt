@@ -21,7 +21,7 @@ internal class DebugPolicySnapshots(private val redact: (JsonElement) -> JsonEle
     }
 
     private fun visit(value: JsonElement, key: String? = null): JsonElement {
-        if (value is JsonPrimitive && value.isString && key in setOf("synthesisSnapshot", "acceptedPolicyJson")) {
+        if (value is JsonPrimitive && value.isString && key in setOf("synthesisSnapshot", "acceptedPolicyJson", "content", "payload")) {
             val parsed = runCatching { Json.parseToJsonElement(value.content) as? JsonObject }.getOrNull() ?: return value
             return JsonPrimitive(visit(parsed).toString())
         }
@@ -32,6 +32,7 @@ internal class DebugPolicySnapshots(private val redact: (JsonElement) -> JsonEle
         }
         if (normalized !is JsonObject) return normalized
         val kind = when {
+            normalized["schema"] == JsonPrimitive("github.policy-snapshot.v1") -> "GITHUB_AUTHORIZED_CATALOG"
             key in setOf("requested", "requestedPolicy") && "requestedPolicyDigest" in normalized && "participantUids" in normalized -> "COMBINED_REQUESTED_POLICY"
             key == "plan" && "baselineByOwner" in normalized && "effectivePlanDigest" in normalized -> "COMBINED_WORK_PLAN"
             else -> return normalized

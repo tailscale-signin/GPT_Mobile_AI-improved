@@ -77,7 +77,7 @@ class GitHubLiveProgressTest {
 
     @Test fun taskIntroductionAppearsBeforeAnyProgressEvents() {
         compose.setContent { MaterialTheme { GitHubLiveProgressCard(emptyList(), "status") } }
-        compose.onNodeWithText("I’ll check the repository status, current branch, pull requests and latest checks.").assertExists()
+        compose.onNodeWithText(dev.chungjungsoo.gptmobile.data.github.GitHubProgressPresentation.introduction("status")).assertExists()
         compose.onAllNodesWithTag("github_latest_preview").assertCountEquals(0)
     }
 

@@ -116,7 +116,7 @@ internal fun DelegationActivityPanel(model: DelegationActivityViewModel = hiltVi
         }
     }
     if (clear) {
-        androidx.compose.material3.AlertDialog(onDismissRequest = { clear = false }, title = { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_clear_delegation_history)) }, text = { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_clear_delegation_description)) }, confirmButton = {
+        dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog(onDismissRequest = { clear = false }, title = { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_clear_delegation_history)) }, text = { Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_clear_delegation_description)) }, confirmButton = {
             TextButton(onClick = {
                 operation { model.history.clear() }
                 clear = false

@@ -454,7 +454,8 @@ class OpenAICompatibleAdapter @Inject constructor(
                                         content = choice.effectiveDelta.content,
                                         reasoning = if (chunk.gatewayProgress == null) choice.effectiveDelta.effectiveReasoning else null,
                                         toolCalls = choice.effectiveDelta.toolCalls,
-                                        finishReason = choice.finishReason
+                                        finishReason = choice.finishReason,
+                                        choiceIndex = choice.index
                                     ).forEach { publishOllama(it) }
                                 }
                             }
@@ -717,7 +718,8 @@ class OpenAICompatibleAdapter @Inject constructor(
                                             content = null,
                                             reasoning = null,
                                             toolCalls = choice.delta?.toolCalls ?: choice.message?.toolCalls,
-                                            finishReason = choice.finishReason
+                                            finishReason = choice.finishReason,
+                                            choiceIndex = choice.index
                                         ).forEach { publish(it) }
                                     }
                                 }
@@ -769,7 +771,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                             temperature = effectiveTemperature,
                             topP = effectiveTopP,
                             topK = effectiveTopK,
-                            maxTokens = effectiveOutputTokens,
+                            maxTokens = if (!requestTools.isNullOrEmpty() && isLlama) minOf(effectiveOutputTokens ?: 4096, 4096) else effectiveOutputTokens,
                             frequencyPenalty = effectiveFrequencyPenalty,
                             presencePenalty = effectivePresencePenalty,
                             repetitionPenalty = effectiveRepetitionPenalty,
@@ -959,14 +961,16 @@ class OpenAICompatibleAdapter @Inject constructor(
                                             content = null,
                                             reasoning = null,
                                             toolCalls = choice.effectiveDelta.toolCalls,
-                                            finishReason = choice.finishReason
+                                            finishReason = choice.finishReason,
+                                            choiceIndex = choice.index
                                         ).forEach { publishAssembly(it) }
                                     } else {
                                         assembler.accept(
                                             content = choice.effectiveDelta.content,
                                             reasoning = effectiveReasoning,
                                             toolCalls = choice.effectiveDelta.toolCalls,
-                                            finishReason = choice.finishReason
+                                            finishReason = choice.finishReason,
+                                            choiceIndex = choice.index
                                         ).forEach { publishAssembly(it) }
                                     }
                                 }
@@ -1643,7 +1647,7 @@ private const val GROQ_OUTPUT_LIMIT_MESSAGE =
 
 private fun providerFailureMessage(error: Throwable, fallback: String): String =
     if (error is dev.chungjungsoo.gptmobile.data.network.error.CircuitBreakerOpenException) {
-        dev.chungjungsoo.gptmobile.data.network.error.ErrorClassification.classify(error).userMessage
+        dev.chungjungsoo.gptmobile.data.network.error.ErrorClassification.classify(error).userMessage + " CIRCUIT_BREAKER_OPEN: retryAfterMs=${error.cooldownRemainingMs}; dispatched=false"
     } else {
         error.message ?: fallback
     }

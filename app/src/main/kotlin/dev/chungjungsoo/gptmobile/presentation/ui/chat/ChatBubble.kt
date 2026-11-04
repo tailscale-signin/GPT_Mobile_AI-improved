@@ -89,6 +89,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.semantics.Role
@@ -237,6 +238,7 @@ fun OpponentChatBubble(
     debugMode: Boolean = false,
     showExecutionTrace: Boolean = true,
     responseIcon: (@Composable () -> Unit)? = null,
+    githubTask: String? = null,
     profileColorIdentity: dev.chungjungsoo.gptmobile.data.model.ProfileColorIdentity? = null,
     debugMemorySources: Map<String, DebugMemorySource> = emptyMap(),
     invocations: List<dev.chungjungsoo.gptmobile.data.accounting.ModelInvocation> = emptyList(),
@@ -270,6 +272,7 @@ fun OpponentChatBubble(
 ) {
     val effectiveExecutionTrace = debugMode && showExecutionTrace
     var activityExpanded by rememberSaveable(contentIdentity) { mutableStateOf(false) }
+    LaunchedEffect(isLoading) { if (!isLoading && githubTask != null) activityExpanded = false }
     val bubbleColor = animateColorAsState(
         targetValue = if (debugMode && activityExpanded) MaterialTheme.colorScheme.primary.copy(alpha = if (isFavorite) 0.138f else 0.069f) else Color.Transparent,
         animationSpec = tween(durationMillis = 1000),
@@ -443,7 +446,20 @@ fun OpponentChatBubble(
                         isLoading = isLoading,
                         debugMode = debugMode,
                         showExecutionTrace = effectiveExecutionTrace,
-                        responseIcon = responseIcon,
+                        responseIcon = if (githubTask != null) {
+                            {
+                                IconButton(onClick = { activityExpanded = !activityExpanded }, modifier = Modifier.testTag("github_activity_history").semantics { contentDescription = if (activityExpanded) "Hide activity history" else "Show activity history" }) {
+                                    responseIcon?.invoke()
+                                }
+                            }
+                        } else {
+                            responseIcon
+                        },
+                        beforeAnswer = {
+                            if (githubTask != null && (isLoading || activityExpanded)) {
+                                GitHubLiveProgressCard(timeline, githubTask, toolEvents, expanded = activityExpanded)
+                            }
+                        },
                         debugSettings = debugSettings,
                         debugMemorySources = debugMemorySources,
                         showReasoning = showReasoning,

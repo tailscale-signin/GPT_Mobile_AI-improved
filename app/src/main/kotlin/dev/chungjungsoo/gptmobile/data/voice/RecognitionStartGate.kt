@@ -30,12 +30,12 @@ internal class RecognitionStartGate(private val now: () -> Long = { System.nanoT
         val delay = if (tooManyRequests) {
             throttles++
             when (throttles) {
-                1 -> 10_000L
-                2 -> 30_000L
-                else -> 60_000L
+                1 -> 1_000L
+                2 -> 2_500L
+                else -> 5_000L
             }
         } else {
-            2_000L
+            500L
         }
         nextStart = maxOf(nextStart, now() + delay)
     }

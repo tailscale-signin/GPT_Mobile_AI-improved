@@ -5,13 +5,17 @@ import hmac
 import json
 import os
 import requests
+from pathlib import Path
+from v14 import VERSION
 from fastapi import Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from v14.engineering import public_job, validate_request
+from v14.engineering_diagnostics import diagnostic_job
 
 
 def install_engineering_routes(app, service):
+    server_build = "sha256:" + hashlib.sha256((Path(__file__).resolve().parents[1] / "manifest-v14.json").read_bytes()).hexdigest()
     def principal(request):
         user = request.state.principal
         if not user.local_admin and 'engineering' not in user.scopes:
@@ -43,11 +47,49 @@ def install_engineering_routes(app, service):
     async def capabilities(request: Request):
         async def run():
             owner = principal(request)
-            return {'enabled': service.store.runtime.GATEWAY_DURABLE_JOBS and service.backend.available(), 'duration_hours': [3, 6, 12, 0], 'until_complete_limit_hours': 72,
+            return {'service': 'engineering-gateway', 'protocol_version': 1, 'diagnostic_protocol': 1, 'gateway_version': VERSION, 'server_build': server_build, 'enabled': service.store.runtime.GATEWAY_DURABLE_JOBS and service.backend.available(), 'duration_hours': [3, 6, 12, 0], 'until_complete_limit_hours': 72,
                     'principal_id': owner,
                     'repair_attempts': 5, 'explicit_merge_approval': True, 'approval_ttl_seconds': 1800,
                     'notifications': 'android_background_sync', 'batch_reads': True,
                     'code_graph': {'schema_version': 1, 'enabled': True, 'incremental': True, 'source_level_only': True}}
+        return await execute(run)
+
+    @app.post('/gateway/engineering/diagnostics/jobs')
+    @app.post('/v1/gateway/engineering/diagnostics/jobs')
+    async def diagnostic_create(request: Request):
+        async def run():
+            owner = principal(request)
+            payload = await body(request)
+            if set(payload) != {'request_id', 'kind'} or payload['kind'] != 'transport_probe':
+                raise ValueError('Only a harmless transport probe is supported')
+            return await asyncio.to_thread(diagnostic_job, service.store, owner, payload['request_id'])
+        return await execute(run)
+
+    @app.get('/gateway/engineering/diagnostics/jobs/{job_id}/events')
+    @app.get('/v1/gateway/engineering/diagnostics/jobs/{job_id}/events')
+    async def diagnostic_events(job_id: str, request: Request):
+        async def run():
+            owner = principal(request)
+            result = await asyncio.to_thread(diagnostic_job, service.store, owner, job_id=job_id,
+                                             after=int(request.query_params.get('after', '0')))
+            if not result:
+                return JSONResponse({'error': {'code': 'unknown_diagnostic_job'}}, status_code=404)
+            async def events():
+                for event in result['events']:
+                    yield 'data: ' + json.dumps(dict(event, job_id=job_id)) + '\n\n'
+                yield 'data: [DONE]\n\n'
+            return StreamingResponse(events(), media_type='text/event-stream', headers={'Cache-Control': 'no-store'})
+        return await execute(run)
+
+    @app.get('/gateway/engineering/diagnostics/jobs/{job_id}')
+    @app.get('/v1/gateway/engineering/diagnostics/jobs/{job_id}')
+    async def diagnostic_resume(job_id: str, request: Request):
+        async def run():
+            owner = principal(request)
+            result = await asyncio.to_thread(diagnostic_job, service.store, owner, job_id=job_id,
+                                             after=int(request.query_params.get('after', '0')),
+                                             limit=int(request.query_params.get('limit', '10')))
+            return result if result else JSONResponse({'error': {'code': 'unknown_diagnostic_job'}}, status_code=404)
         return await execute(run)
 
     @app.post('/gateway/engineering/graph')

@@ -11,6 +11,13 @@ class GitHubSelfTestReadsTest {
     private fun json(text: String) = Json.parseToJsonElement(text) as JsonObject
     private fun tool(name: String, action: String) = AgentToolDefinition(name, action, json("""{"type":"object","properties":{"action":{"const":"$action"}}}"""))
 
+    @Test fun historicalGreenRunCannotSupplyCurrentRevisionAcceptance() {
+        val sha = "a".repeat(40)
+        val status = json("""{"trusted":true,"success":true,"tool":"github_context","arguments":{"action":"status"},"result":{"commit_sha":"$sha"}}""")
+        val runs = json("""{"trusted":true,"success":true,"tool":"github_ci","arguments":{"action":"runs"},"result":{"workflow_runs":[{"id":1,"head_sha":"${"b".repeat(40)}","status":"completed","conclusion":"success"},{"id":2,"head_sha":"$sha","status":"completed","conclusion":"failure"}]}}""")
+        assertEquals(JsonPrimitive(2), GitHubSelfTestReads.next(listOf(tool("github_ci", "run")), listOf(status, runs))?.arguments?.get("run_id"))
+    }
+
     @Test fun releaseStatusWaitsForAnObservedTag() {
         val definition = tool("github_release", "status")
         assertEquals(null, GitHubSelfTestReads.next(listOf(definition), emptyList()))

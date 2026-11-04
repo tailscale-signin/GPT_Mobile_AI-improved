@@ -110,7 +110,7 @@ internal object GitHubTestChecklist {
                         } == true
                 }
             val required = "view_cursor" in args || issueDependency
-            if (!exhaustive && !required && sampled >= 2) continue
+            // A missing issue dependency must not trigger unbounded remote inventory traversal.\n            // Preserve local view fragments, but cap sampled remote pages for ordinary tests.\n            if (!exhaustive && "view_cursor" !in args && sampled >= 8) continue\n            if (!exhaustive && !required && sampled >= 2) continue
             if ("view_cursor" in args || args.text("action") in setOf("branches", "workflows", "list", "commits", "runs") || Regex("(?i)\\b(?:all|entire|complete|full)\\s+(?:workflow |ci |run )?history\\b").containsMatchIn(task)) {
                 return call(page.text("tool"), args)
             }

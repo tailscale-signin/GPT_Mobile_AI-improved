@@ -20,14 +20,16 @@ internal class DebugPolicySnapshots(private val redact: (JsonElement) -> JsonEle
         put("entries", JsonObject(entries))
     }
 
-    private fun visit(value: JsonElement, key: String? = null): JsonElement {
+    private fun visit(value: JsonElement, key: String? = null, depth: Int = 0): JsonElement {
+        if (depth >= 32) return value
         if (value is JsonPrimitive && value.isString && key in setOf("synthesisSnapshot", "acceptedPolicyJson", "content", "payload")) {
+            if (value.content.length > 1_048_576) return value
             val parsed = runCatching { Json.parseToJsonElement(value.content) as? JsonObject }.getOrNull() ?: return value
-            return JsonPrimitive(visit(parsed).toString())
+            return JsonPrimitive(visit(redact(parsed), depth = depth + 1).toString())
         }
         val normalized = when (value) {
-            is JsonObject -> JsonObject(value.mapValues { (name, child) -> visit(child, name) })
-            is JsonArray -> JsonArray(value.map { visit(it) })
+            is JsonObject -> JsonObject(value.mapValues { (name, child) -> visit(child, name, depth + 1) })
+            is JsonArray -> JsonArray(value.map { visit(it, depth = depth + 1) })
             else -> value
         }
         if (normalized !is JsonObject) return normalized

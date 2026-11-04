@@ -21,6 +21,19 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class DebugPolicySnapshotsTest {
+    @Test fun embeddedWorkspacePolicyIsIndexedAndStructuredRedactionRunsAfterParsing() {
+        val normalizer = DebugPolicySnapshots { value ->
+            if (value is JsonObject && "sensitive" in value) JsonObject(value - "sensitive") else value
+        }
+        val payload = """{"schema":"github.policy-snapshot.v1","authorization_revision":"r1","catalog":[],"sensitive":"never-export"}"""
+        val record = normalizer.normalize(buildJsonObject { put("content", payload) }).jsonObject
+        val entries = normalizer.table().getValue("entries").jsonObject
+        assertEquals(1, entries.size)
+        assertTrue("never-export" !in normalizer.table().toString())
+        val expanded = DebugPolicySnapshots.resolveSnapshot(record.getValue("content").jsonPrimitive.content, normalizer.table())
+        assertEquals(JsonPrimitive("r1"), expanded["authorization_revision"])
+    }
+
     @Test fun actualProducerStoresOnePolicyAndPlanForNineRunsAndLegacyContentResolvesExactly() {
         val profiles = (1..9).map { "p$it" }
         val requested = CombinedPolicyResolver.accept(ConversationCombinedSettings(), profiles, profiles.associateWith { "model" }, "Retain the full accepted request")

@@ -80,6 +80,6 @@ internal object GitHubChatPolicy {
             if (config.webSearch) addAll(setOf("web_search", "read_url"))
         }
         val controlled = setOf(connection, "github_decide", "web_search", "read_url", "memory", "memory_recall", "memory_capture", "memory_search", "memory_read_document")
-        return request.copy(allowAllByDefault = false, enabledToolIds = (request.enabledToolIds - controlled) + enabled, disabledToolIds = (request.disabledToolIds - controlled) + (controlled - enabled), maxTools = maxOf(request.maxTools ?: 0, 64), maxToolCalls = minOf(profile.maxToolCalls, callLimit(config.engineeringMode)), reasoning = true)
+        return request.copy(allowAllByDefault = false, enabledToolIds = (request.enabledToolIds - controlled) + enabled, disabledToolIds = (request.disabledToolIds - controlled) + (controlled - enabled), maxTools = maxOf(request.maxTools ?: 0, 64), maxToolCalls = minOf(request.maxToolCalls ?: Int.MAX_VALUE, callLimit(config.engineeringMode)), reasoning = true)
     }
 }

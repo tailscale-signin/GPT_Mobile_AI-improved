@@ -173,11 +173,12 @@ class OpenAIAPIImpl @Inject constructor(
                 if (transportRetries > 0) emit(ChatCompletionChunk(retryDurationMs = (System.nanoTime() - transportStartedNs) / 1_000_000, retryAttempts = transportRetries))
                 ProviderCooldown.await(config)
                 config.freeDiagnostics?.stage = "preparation"
-                val admittedPayload = requestPreparation.prepare(NetworkClient.openAIJson.encodeToString(preparedRequest), config, preparedRequest.model, null)
+                var admittedOutputTokens: Int? = null
+                val admittedPayload = requestPreparation.prepare(NetworkClient.openAIJson.encodeToString(preparedRequest), config.copy(onSerializedOutputTokens = { admittedOutputTokens = it }), preparedRequest.model, null)
                 val reasoningControlReceipt = ReasoningControlReceipt.fromPayload(admittedPayload, config.allowReasoning)
                 // Continuation needs the admitted physical cap in every chat mode,
                 // including ordinary Free chats whose profile allows a larger output.
-                if (free != null || config.captureGenerationReceipt || config.requestRole == "synthesis") config.freeDiagnostics?.admission?.outputTokens?.toInt()?.let { emit(ChatCompletionChunk(serializedOutputTokens = it)) }
+                if (free != null || config.captureGenerationReceipt || config.requestRole == "synthesis") admittedOutputTokens?.let { emit(ChatCompletionChunk(serializedOutputTokens = it)) }
                 val quotaReservation = free?.let { provider ->
                     val receipt = config.freeDiagnostics?.admission
                     val estimate = dev.chungjungsoo.gptmobile.data.context.RequestAdmission.estimate(admittedPayload)
@@ -411,7 +412,11 @@ class OpenAIAPIImpl @Inject constructor(
                                 config.freeDiagnostics?.category = category
                                 decoded.copy(error = error.copy(message = "${category.name}: " + config.readableProviderError(providerErrorDetails(data, error.message, config.token), error.code), type = category.name.lowercase(), failureDetails = structuredProviderFailure(data)))
                             } ?: decoded
-                            val observedChunk = chunk.copy(reasoningControlReceipt = reasoningControlReceipt)
+                            chunk.timings?.let { timings ->
+                                fun measured(value: Double?): String = value?.takeIf { it.isFinite() && it >= 0 }?.toString() ?: "Not measured"
+                                dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Provider", "SERVER_TIMINGS · requestId=${providerRequestIdentity { response.headers[it] }} · queueMs=${measured(timings.queueMs)} · prefillMs=${measured(timings.promptMs)} · generationMs=${measured(timings.predictedMs)} · promptTokens=${timings.promptTokens ?: "Not measured"} · generatedTokens=${timings.predictedTokens ?: "Not measured"}")
+                            }
+                            val observedChunk = chunk.copy(reasoningControlReceipt = reasoningControlReceipt, observedFinishReason = chunk.choices.orEmpty().firstNotNullOfOrNull { it.finishReason })
                             if (free != null && !chunk.model.isNullOrBlank() && resolvedFreeModel != chunk.model) {
                                 resolvedFreeModel = chunk.model
                                 dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("FreeProvider", "MODEL_RESOLVED · profile=${config.profileUid} · requested=${request.model} · resolved=${chunk.model} · capabilityVerification=unverified")
@@ -556,7 +561,6 @@ class OpenAIAPIImpl @Inject constructor(
         var resolvedFreeModel: String? = null
         var preparedRequest = request.withModelSamplingPolicy()
         try {
-            config = gatewayControls.prepare(config)
             LocalServiceHealth.probe(config.apiUrl)
             val endpoint = config.buildEndpoint("responses")
 
@@ -575,7 +579,8 @@ class OpenAIAPIImpl @Inject constructor(
                 LocalServiceHealth.requireLocalAvailable(config.apiUrl)
                 ProviderCooldown.await(config)
                 config.freeDiagnostics?.stage = "preparation"
-                val admittedPayload = requestPreparation.prepare(NetworkClient.openAIJson.encodeToString(preparedRequest), config, preparedRequest.model, null)
+                var admittedOutputTokens: Int? = null
+                val admittedPayload = requestPreparation.prepare(NetworkClient.openAIJson.encodeToString(preparedRequest), config.copy(onSerializedOutputTokens = { admittedOutputTokens = it }), preparedRequest.model, null)
                 config.freeDiagnostics?.stage = "dispatch"
                 config.freeDiagnostics?.attempted()
                 networkClient().preparePost(endpoint) {

@@ -28,6 +28,7 @@ internal class ModelRequestPreparation(client: NetworkClient) {
         val budget = dev.chungjungsoo.gptmobile.data.context.PromptBudgets.capture(payload, measurement, outputTokens?.toLong(), capacity.contextTokens, runtime.templateRevision)
         val prepared = RequestAdmission.prepare(payload, config.requestRole, capacity, measurement, outputTokens?.toLong(), revision, config.requireKnownCapacity, "queued-native-v1", promptBudget = budget, requestDeadline = context[WorkerRequestBudget]?.preflight())
         config.freeDiagnostics?.admission = prepared.receipt
+        prepared.receipt.outputTokens?.takeIf { it in 1..Int.MAX_VALUE.toLong() }?.toInt()?.let { config.onSerializedOutputTokens?.invoke(it) }
         val wire = prepared.dispatchPayload(runtime, revision)
         val attempt = dev.chungjungsoo.gptmobile.data.context.PhysicalAttemptBoundary.dispatch(prepared.receipt)
         context[dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext]?.serialized(wire, prepared.receipt.copy(physicalAttemptId = attempt))
@@ -108,6 +109,7 @@ internal class ModelRequestPreparation(client: NetworkClient) {
             "FINAL_REQUEST · role=${config.requestRole} · promptTokens=${prepared.receipt.promptTokens} · outputTokens=${prepared.receipt.outputTokens ?: "unknown"} · safety=${prepared.receipt.safetyTokens} · contextTokens=${prepared.receipt.contextTokens ?: "unknown"} · measurement=${prepared.receipt.measurement} · capacity=${prepared.receipt.capacityProvenance} · checked=${prepared.receipt.capacityChecked} · reasoningRequested=${reasoning?.requested} · reasoningEffective=${reasoning?.effective} · reasoningControl=${reasoning?.transmittedControl} · reasoningObserved=unknown"
         )
         config.freeDiagnostics?.admission = prepared.receipt
+        prepared.receipt.outputTokens?.takeIf { it in 1..Int.MAX_VALUE.toLong() }?.toInt()?.let { config.onSerializedOutputTokens?.invoke(it) }
         val wire = prepared.dispatchPayload(snapshot.fingerprint, permissionRevision)
         val attemptId = dev.chungjungsoo.gptmobile.data.context.PhysicalAttemptBoundary.dispatch(prepared.receipt)
         kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext]?.serialized(wire, prepared.receipt.copy(physicalAttemptId = attemptId))

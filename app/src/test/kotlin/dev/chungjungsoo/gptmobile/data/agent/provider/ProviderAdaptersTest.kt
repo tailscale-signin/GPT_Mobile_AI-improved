@@ -821,6 +821,7 @@ class ProviderAdaptersTest {
 
         assertEquals(1, preferenceReads)
         assertEquals(4096, api.chatRequests.first().maxTokens)
+        assertEquals(true, api.chatRequests.first().streamOptions?.includeUsage)
         assertEquals(expectedHeaders + ("X-Gateway-Allow-Local-Tools" to "false"), api.configs.first().extraHeaders)
         assertEquals(expectedHeaders + mapOf("X-Gateway-Job-ID" to "job-123", "X-Gateway-Allow-Local-Tools" to "false"), api.configs.last().extraHeaders)
         assertEquals("none", api.chatRequests.last().toolChoice)

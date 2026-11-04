@@ -226,6 +226,62 @@ class GraphServiceTests(unittest.TestCase):
         self.assertFalse(second['has_more'])
         self.assertEqual(30, self.blob_reads)
 
+    def test_failed_blob_preserves_siblings_and_can_be_retried_explicitly(self):
+        original = self.backend.api
+        bad = '/git/blobs/' + blob_sha(self.files['a.py'])
+        def unavailable(path):
+            if bad in path:
+                raise OSError('private-token-do-not-retain')
+            return original(path)
+        self.backend.api = unavailable
+        result = self.call('index')
+        self.assertFalse(result['has_more'])
+        status = self.call('status')
+        self.assertFalse(status['graph']['complete'])
+        self.assertEqual({'failed': 1, 'indexed': 1}, status['graph']['file_statuses'])
+        self.assertNotIn('private-token-do-not-retain', encoded(status))
+        self.backend.api = original
+        self.call('index')
+        self.assertFalse(self.call('status')['graph']['complete'])
+        before = self.blob_reads
+        self.call('index', retry_failed=True)
+        self.assertEqual(before + 1, self.blob_reads)
+        self.assertTrue(self.call('status')['graph']['complete'])
+
+    def test_blob_digest_mismatch_is_not_indexed_or_retried_implicitly(self):
+        original = self.backend.api
+        def corrupt(path):
+            result = original(path)
+            if '/git/blobs/' in path:
+                result['content'] = base64.b64encode(b'def malicious(): pass').decode()
+            return result
+        self.backend.api = corrupt
+        self.call('index')
+        self.assertEqual({'failed': 2}, self.call('status')['graph']['file_statuses'])
+        self.assertEqual('NOT_FOUND_IN_INDEX', self.call('query', query='malicious')['status'])
+        reads = self.blob_reads
+        self.call('index')
+        self.assertEqual(reads, self.blob_reads)
+
+    def test_blob_revocation_and_cancellation_abort_without_committing_batch(self):
+        import requests
+        original = self.backend.api
+        errors = [PermissionError('revoked'), InterruptedError('stopped')]
+        for status in (401, 403):
+            response = requests.Response()
+            response.status_code = status
+            errors.append(requests.HTTPError(response=response))
+        for error in errors:
+            with self.subTest(error=type(error).__name__):
+                def denied(path):
+                    if '/git/blobs/' in path:
+                        raise error
+                    return original(path)
+                self.backend.api = denied
+                with self.assertRaises(type(error)):
+                    self.call('index')
+                self.assertEqual('NOT_INDEXED', self.call('status')['status'])
+
     def test_old_snapshot_is_marked_stale_and_metrics_are_measured(self):
         self.call('index')
         self.head = 'b' * 40
@@ -257,8 +313,10 @@ class GraphServiceTests(unittest.TestCase):
                 'result': {'head_sha': self.head, 'status': 'completed', 'conclusion': 'success'}}}}
         data = {'sha': self.head, 'repository': 'owner/repo'}
         self.assertEqual('LINKED_WORKFLOW_PASSED', self.service.requirement_evidence(note, data)['status'])
+        self.assertTrue(self.service.requirement_evidence(note, data)['same_commit'])
         note['receipt']['payload']['result']['head_sha'] = 'b' * 40
         self.assertEqual('RECEIPT_LINKED_REVIEW_REQUIRED', self.service.requirement_evidence(note, data)['status'])
+        self.assertFalse(self.service.requirement_evidence(note, data)['same_commit'])
 
     def test_federation_rechecks_every_repository(self):
         self.call('index')

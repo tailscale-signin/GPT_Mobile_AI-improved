@@ -15,5 +15,20 @@
   "merge_authorization": "User explicitly requested new branch, draft PR, and merge to main.",
   "report": "docs/repairs/merged-branch-quality-2026-11-03.md",
   "focused_host_tests": 34,
-  "canonical_host_tests": 301
+  "canonical_host_tests": 301,
+  "merge_order_additional_head": {
+    "791": "2616a0a1cacfad7ed8f6f309273e181f6e95a35d"
+  },
+  "graph_tests": 31,
+  "graph_repairs": [
+    "Preserve successful batch fragments while marking isolated blob read/integrity failures; explicit retry only; auth/cancellation remain fatal.",
+    "Bind requirement same_commit to observed workflow result."
+  ],
+  "pr": 798,
+  "gateway_validation": {
+    "python_tests": 373,
+    "skipped": 1,
+    "browser_tests": 7,
+    "original_service_regressions": "4 cases: 3 fail/error, 1 pass; all 4 pass after repair"
+  }
 }

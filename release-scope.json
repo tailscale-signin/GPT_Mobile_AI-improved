@@ -21,7 +21,8 @@
     "Repair build 138 self-test dependency selection, pinned workflow discovery and bounded saved-page recovery; move checklist computation off the UI thread.",
     "Make GitHub chat progress event-driven, move workflow budgets to Settings, enlarge chat text and repair reproducible self-test and retry routing defects.",
     "Repair cold discovery advertisement/execution, early privacy rejection, saved review retry admission, voice worker/configuration caching, asynchronous voice preferences and actionable terminal diagnostics.",
-    "Audit the five newest merged branches; require complete inventory and owned-fixture evidence, preserve scope-aware coverage and latest failures, bound reports and serialize voice preference writes."
+    "Audit the five newest merged branches; require complete inventory and owned-fixture evidence, preserve scope-aware coverage and latest failures, bound reports and serialize voice preference writes.",
+    "Cover both creation and merge order in the branch audit; preserve successful graph-index siblings after isolated source failures and bind requirement provenance to the executed workflow revision."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; its remaining acceptance cases are not represented as passed.",

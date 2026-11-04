@@ -12,6 +12,13 @@ explicit selection proxy. PR #795 was integrated through #796. Every final PR
 head below is an ancestor of the starting main, so none of their commits is missing.
 No PR discussion comments were returned for these five PRs.
 
+Merge order differs from creation order: the five latest merges are #791 and
+#793–#796. To cover both interpretations, this audit also reviewed #791 at
+`2616a0a1cacfad7ed8f6f309273e181f6e95a35d`, which is likewise an ancestor of
+starting main. Its 22 graph entry points map to the service, extraction, traversal,
+private persistence, gateway/mobile adapters and graph regression suite. A separate
+documentation-only audit PR #797 was observed during this work and left intact.
+
 | PR | Branch | Final reviewed head | Proposed change and audit |
 | --- | --- | --- | --- |
 | #792 | `release/isolated-signed-validation-2026-11-03` | `19eb4e73fc4e59c5544074e19766747a9955bc16` | Separate compile, tests, debug lint and release validation into one-worker processes. Present in release-build.yml; PR validation excludes publishing and signing. Existing phase/permission regressions retained. |
@@ -52,6 +59,29 @@ No PR discussion comments were returned for these five PRs.
   earlier save cannot overwrite a newer offline/privacy setting. Loading cannot
   overwrite a value changed while loading. Cancellation rejects subsequent writes.
 
+## Graph follow-up from merge-order selection
+
+#791's source-level graph features remain bounded and explicitly heuristic. The
+31-test graph suite exercises extraction, calls, imports, impact/tests, provenance,
+incremental/encrypted indexes, memory, requirements, contracts, diagnostics,
+federation, metrics, optional-provider absence, bounds and authorization.
+
+Two defects found during this review are repaired. Four regression cases pass on the repair; the same cases produce three failures/errors on the original production service, while authorization/cancellation rejection remains passing:
+
+- A failed blob fetch or integrity check used to abort a whole 24-file batch before
+  saving successful siblings. Persist a bounded failed-file marker and the good
+  fragments; explicit `retry_failed` retries only failed/unsupported fragments.
+  Missing or corrupt source is never indexed as code. Cancellation and HTTP
+  401/403/permission failures still abort without committing the batch. Exceptions
+  and credentials are not stored in graph warnings.
+- Requirement evidence's `same_commit` previously used the job's contextual head
+  even when the linked workflow executed another SHA. It now uses the observed
+  workflow result, matching the existing pass/fail gate.
+
+The full gateway validator passes: 373 Python tests (one existing platform-specific skip), including all native parser fixtures, and seven
+browser bridge tests. External Graphify execution and mobile/device performance
+remain unqualified. No compiler-resolved graph or runtime correctness is inferred.
+
 ## Reconciliation of the proposed follow-ups
 
 The source audit is not proof of live provider, device or full-product acceptance.
@@ -78,11 +108,12 @@ historical validation claims.
 
 ## Validation
 
-- All five final PR heads are ancestors of the pinned starting main.
+- All six heads spanning both selection orders are ancestors of the pinned starting main.
 - 34 focused JVM tests pass against current production checklist, fixture, planner,
   inventory and voice-writer logic. The host harness uses Android-independent DTOs,
   exact production operation mapping/read classification, and digest/status adapters;
   it does not execute Android, HTTP, Compose or speech services.
+- The 31 graph regressions and full gateway validator pass; dependency hashes remain enforced.
 - The canonical host suite passes 301 checks plus policy, dependency, secret, regex,
   resource/icon and provenance validation.
 - ktlint 1.3.1, architecture-index generation, release-scope and whitespace checks

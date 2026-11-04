@@ -40,7 +40,9 @@ documentation-only audit PR #797 was observed during this work and left intact.
 - Separate scope exclusions from failures: account-wide discovery is outside a
   pinned workspace; explicit read-only requests do not require mutation tests.
   Exclusions remain visible and are never called passes. Explicitly requested writes
-  or negated read-only wording cannot silently exclude mutations.
+  or negated read-only wording cannot silently exclude mutations. Negated write
+  requests such as “read-only, do not include writes” remain read-only and cannot
+  schedule a mutation fixture; affirmative “include writes” still requires proof.
 - Permit completion for the supported unchanged-branch fixture only with successful,
   currently eligible creation and later cleanup receipts, matching task/repository,
   deterministic owned branch, source/default branch, exact head and deletion proof.
@@ -109,7 +111,7 @@ historical validation claims.
 ## Validation
 
 - All six heads spanning both selection orders are ancestors of the pinned starting main.
-- 34 focused JVM tests pass against current production checklist, fixture, planner,
+- 35 focused JVM tests pass against current production checklist, fixture, planner,
   inventory and voice-writer logic. The host harness uses Android-independent DTOs,
   exact production operation mapping/read classification, and digest/status adapters;
   it does not execute Android, HTTP, Compose or speech services.

@@ -128,6 +128,18 @@ class GitHubMergedBranchAuditTest {
         assertEquals(JsonPrimitive("RECOVERED"), (GitHubTestChecklist.rows(linkedMapOf("earlier" to failed, "later" to source), tools).single() as JsonObject)["status"])
     }
 
+    @Test fun negatedWriteRequestsRemainReadOnlyAndCannotScheduleFixtures() {
+        for (task in listOf(
+            "Test all GitHub tools read-only, do not include writes",
+            "Test all GitHub tools read-only; never perform mutations",
+            "Test all GitHub tools read-only, don't allow the writes"
+        )) {
+            assertTrue(task, GitHubChecklistScope.readOnly(task))
+            assertEquals(null, GitHubSelfTestFixtures.next(task, fixtureTools, mapOf("source" to source)))
+            assertTrue(GitHubTestChecklist.apiComplete(task, mapOf("source" to source), fixtureTools))
+        }
+    }
+
     @Test fun explicitlyRequestedWritesCannotBeExcludedByNegatedReadOnlyWording() {
         assertFalse(GitHubChecklistScope.readOnly("Test all tools, not read-only"))
         assertFalse(GitHubChecklistScope.readOnly("Test read-only tools and include writes"))

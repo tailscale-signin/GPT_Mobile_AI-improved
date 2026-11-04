@@ -334,11 +334,17 @@ internal object GitHubTestChecklist {
     fun inventoryCoverage(receipts: Map<String, JsonObject>): JsonArray {
         val pending = pendingPages(receipts)
         val trusted = trusted(receipts)
+        fun filters(receipt: JsonObject): JsonObject {
+            val args = receipt["arguments"] as? JsonObject
+            val selected = args.orEmpty().filterKeys { it in setOf("state", "ref", "branch", "commit_sha", "workflow_id", "head", "base", "per_page") }
+            val pageSize = args?.get("per_page") ?: data(receipt)?.get("per_page")
+            return JsonObject(if (pageSize == null) selected else selected + ("per_page" to pageSize))
+        }
         val groups = trusted.filter { receipt ->
             receipt["success"] == JsonPrimitive(true) && (receipt["arguments"] as? JsonObject)?.text("action") in setOf("workflows", "branches", "list", "commits", "runs", "tags")
         }.groupBy {
             val args = it["arguments"] as? JsonObject
-            Triple(it.text("tool"), args?.text("action"), JsonObject(args.orEmpty().filterKeys { key -> key in setOf("state", "ref", "branch", "commit_sha", "workflow_id", "head", "base", "per_page") }))
+            Triple(it.text("tool"), args?.text("action"), filters(it))
         }
         return JsonArray(
             groups.mapNotNull { (key, observations) ->
@@ -360,7 +366,11 @@ internal object GitHubTestChecklist {
                     if (recipe.text("tool") != key.first) return false
                     val args = recipe["arguments"] as? JsonObject ?: return false
                     if ("view_cursor" in args) return args.text("view_cursor").substringBefore(':') in viewIds
-                    return args.text("action") == key.second && JsonObject(args.filterKeys { it in setOf("state", "ref", "branch", "commit_sha", "workflow_id", "head", "base", "per_page") }) == key.third
+                    val selected = filters(recipe)
+                    // Failed reads may not reveal the default page size; keep their
+                    // blocker for every otherwise matching inventory until recovered.
+                    val expected = if ("per_page" in selected) key.third else JsonObject(key.third.filterKeys { it != "per_page" })
+                    return args.text("action") == key.second && selected == expected
                 }
                 val end = byPage.keys.maxOrNull() ?: 0L
                 val contiguous = end in 1..1000 &&

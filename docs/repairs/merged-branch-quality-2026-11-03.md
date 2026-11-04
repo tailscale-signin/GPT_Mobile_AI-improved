@@ -30,7 +30,9 @@ documentation-only audit PR #797 was observed during this work and left intact.
 ## Repairs from this audit
 
 - Require contiguous inventory pages from page one, consistent totals, unique IDs,
-  the same page size and explicit terminal pagination. A last page or a short
+  the same observed page size and explicit terminal pagination. Omitted defaults
+  match an explicit continuation only when the response supplies that page size;
+  a failure without size evidence still blocks every matching inventory. A last page or a short
   result no longer certifies missing rows. A refresh replaces its old page rows;
   historical failures remain visible while a successful identical read can resolve
   the current coverage blocker.
@@ -111,7 +113,7 @@ historical validation claims.
 ## Validation
 
 - All six heads spanning both selection orders are ancestors of the pinned starting main.
-- 35 focused JVM tests pass against current production checklist, fixture, planner,
+- 36 focused JVM tests pass against current production checklist, fixture, planner,
   inventory and voice-writer logic. The host harness uses Android-independent DTOs,
   exact production operation mapping/read classification, and digest/status adapters;
   it does not execute Android, HTTP, Compose or speech services.

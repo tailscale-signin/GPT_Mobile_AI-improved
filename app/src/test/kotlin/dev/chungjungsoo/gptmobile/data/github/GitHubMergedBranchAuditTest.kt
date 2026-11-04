@@ -98,6 +98,16 @@ class GitHubMergedBranchAuditTest {
         assertEquals(2, GitHubTestChecklist.inventoryCoverage(mapOf("a" to page(1, true, total = 1), "b" to page(1, true, total = 1, size = 10))).size)
     }
 
+    @Test fun observedDefaultPageSizeMatchesExplicitContinuationWithoutHidingFailures() {
+        val first = receipt("github_ci", """{"action":"workflows","page":1}""", """{"workflows":[{"id":1}],"per_page":1,"has_more":true,"total_count":2}""")
+        val last = page(2, true, total = 2)
+        assertEquals("retrieval complete at observation", coverage(first, last))
+        val failed = receipt("github_ci", """{"action":"workflows","page":1}""", "{}").let { JsonObject(it + ("success" to JsonPrimitive(false))) }
+        assertEquals("incomplete or pending pagination", coverage(first, last, failed))
+        assertEquals("retrieval complete at observation", coverage(failed, first, last))
+        assertEquals(2, GitHubTestChecklist.inventoryCoverage(mapOf("a" to first, "b" to page(2, true, total = 2, size = 10))).size)
+    }
+
     @Test fun readRecoveryRetainsFailureButAllowsCompletedInventory() {
         val read = page(1, true, total = 1)
         val failed = JsonObject(read + ("success" to JsonPrimitive(false)))

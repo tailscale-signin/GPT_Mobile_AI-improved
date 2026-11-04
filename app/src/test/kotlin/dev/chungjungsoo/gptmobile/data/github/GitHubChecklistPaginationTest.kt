@@ -77,7 +77,7 @@ class GitHubChecklistPaginationTest {
             records["sample$i"] = json("""{"trusted":true,"success":true,"tool":"github_issue","arguments":{"action":"list","page":$i},"result":{}}""")
         }
         assertEquals(null, GitHubTestChecklist.nextCall("test all tools", issueTools, records))
-        assertEquals(remote["arguments"], GitHubTestChecklist.nextCall("test all tools and all issue history", issueTools, records)?.arguments)
+        assertEquals(remote["arguments"], GitHubTestChecklist.nextCall("test all tools and all history", issueTools, records)?.arguments)
     }
 
     @Test fun successfulPageClosesPendingContinuation() {

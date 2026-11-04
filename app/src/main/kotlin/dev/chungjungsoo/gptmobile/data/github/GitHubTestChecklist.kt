@@ -15,6 +15,7 @@ internal object GitHubTestChecklist {
     private data class Capability(val tool: String, val action: String, val scope: String, val automatic: Boolean = false)
     private val capabilities = listOf(
         Capability("github_context", "status", "Repository status", true),
+        Capability("repository_graph", "status", "Engineering gateway graph status", true),
         Capability("github_context", "checks", "Checks for selected SHA", true),
         Capability("github_context", "branches", "Branch inventory", true),
         Capability("github_context", "commits", "Recent commits", true),
@@ -166,7 +167,7 @@ internal object GitHubTestChecklist {
 
     private fun catalog(tools: List<AgentToolDefinition>): List<Capability> {
         if (tools.isEmpty()) return capabilities
-        return tools.filter { it.name.substringBefore("__").startsWith("github_") }.flatMap { tool ->
+        return tools.filter { it.modelVisible && (it.name.substringBefore("__").startsWith("github_") || it.name.substringBefore("__") == "repository_graph") }.flatMap { tool ->
             val name = tool.name.substringBefore("__")
             val properties = tool.inputSchema["properties"] as? JsonObject
             val actions = ((properties?.get("action") as? JsonObject)?.get("enum") as? JsonArray)?.map { (it as JsonPrimitive).content }.orEmpty().ifEmpty { listOf(((properties?.get("action") as? JsonObject)?.get("const") as? JsonPrimitive)?.content.orEmpty()) }

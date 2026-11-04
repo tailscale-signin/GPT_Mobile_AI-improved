@@ -209,7 +209,7 @@ internal class GitHubEvidenceBook(
             put(
                 "catalog",
                 kotlinx.serialization.json.JsonArray(
-                    tools.sortedBy { it.name }.map { tool ->
+                    tools.filter { it.modelVisible }.sortedBy { it.name }.map { tool ->
                         buildJsonObject {
                             put("name", tool.name)
                             put("contract_digest", digest(tool.inputSchema.toString()))

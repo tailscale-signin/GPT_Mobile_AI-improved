@@ -24,6 +24,15 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubEvidencePolicyTest {
+    @Test fun authorizedPolicyCatalogDoesNotAdvertiseInternalAliases() = runBlocking {
+        var saved: JsonObject? = null
+        val book = GitHubEvidenceBook("binding", "owner/repo", "main", emptySet(), save = { _, value -> saved = value })
+        val visible = dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition("github_context", "Context", json("""{"type":"object"}"""))
+        book.retainPolicy("revision-1", listOf(visible, visible.copy(name = "github__github_api", modelVisible = false)))
+        val catalog = saved?.get("catalog") as kotlinx.serialization.json.JsonArray
+        assertEquals(listOf(JsonPrimitive("github_context")), catalog.map { (it as JsonObject)["name"] })
+    }
+
     @Test fun explicitContinuationRestoresOriginalReceiptsWithoutRefreshingTheirTime() = runBlocking {
         val stored = linkedMapOf<String, JsonObject>()
         val book = GitHubEvidenceBook("binding", "owner/repo", "main", setOf("github_ci"), { 1000 }, save = { id, value -> stored[id] = value })

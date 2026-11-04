@@ -77,14 +77,17 @@ internal object GitHubTaskCoverage {
             append("**Test not executed.** No trusted GitHub operation receipts are available for this task. No success rate or timing measurement is available.\n")
         } else {
             append("| Tool / operation | Branch / SHA / PR | Successful observations | Failed observations | Recorded errors |\n| --- | --- | ---: | ---: | --- |\n")
-            rows.forEach { row ->
+            val detailed = Regex("(?i)\\b(?:detailed|full|complete|all)\\s+(?:report|results|receipts|coverage)\\b").containsMatchIn(task)
+            val visible = if (detailed) rows else rows.sortedByDescending { (it["failed_observations"] as? JsonPrimitive)?.content?.toIntOrNull() ?: 0 }.take(12)
+            visible.forEach { row ->
                 val errors = (row["error_codes"] as? JsonArray).orEmpty().joinToString(", ") { (it as JsonPrimitive).content }
                 append("| ${safe(row.text("tool"))} / ${safe(row.text("action"))} | ${safe(listOf(row.text("branch"), row.text("commit_sha").takeUnless { it == "null" }.orEmpty(), row.text("pull_number").takeIf { it.isNotBlank() }?.let { "PR #$it" }.orEmpty()).filter(String::isNotBlank).joinToString(" / ").ifBlank { "Scope not recorded" })} | ${row.text("successful_observations")} | ${row.text("failed_observations")} | ${safe(errors.ifBlank { "None recorded" })} |\n")
             }
+            if (visible.size < rows.size) append("\nShowing ${visible.size} of ${rows.size} operation groups, with failures first. The full evidence remains in the conversation export.\n")
         }
         append("\nFile reads establish source inspection. Workflow lists and existing check summaries establish CI observations. Test execution requires a run/job result tied to the tested revision; dispatch acceptance alone is insufficient.\n")
         if (GitHubTestChecklist.integration(task)) {
-            append(GitHubTestChecklist.render(receipts, tools))
+            append(GitHubTestChecklist.render(receipts, tools, task))
         } else {
             append("\n**Score:** Not measured until the requested test suite has execution results at its exact revision. **Solutions / next actions:** execute the requested tests, retain run/job evidence, resolve recorded failures and keep pending checks explicit.\n")
         }

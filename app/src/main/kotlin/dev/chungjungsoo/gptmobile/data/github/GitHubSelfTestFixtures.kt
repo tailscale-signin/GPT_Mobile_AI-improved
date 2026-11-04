@@ -17,7 +17,7 @@ internal object GitHubSelfTestFixtures {
     private fun args(receipt: JsonObject) = receipt["arguments"] as? JsonObject
 
     fun next(task: String, tools: List<AgentToolDefinition>, receipts: Map<String, JsonObject>): ProviderEvent.ToolCall? {
-        if (Regex("(?i)read.only|no writes|without (?:writes|changes)").containsMatchIn(task) || !Regex("(?i)\\b(?:all|full|complete|writes|mutations|fixtures)\\b").containsMatchIn(task)) return null
+        if (GitHubChecklistScope.readOnly(task) || !Regex("(?i)\\b(?:all|full|complete|writes|mutations|fixtures)\\b").containsMatchIn(task)) return null
         val observed = receipts.values.filter { it["trusted"] == JsonPrimitive(true) && it["verification_eligible"] != JsonPrimitive(false) }
         val source = observed.firstOrNull { it.text("tool").substringBefore("__") == "github_context" && args(it)?.text("action") == "status" && it["success"] == JsonPrimitive(true) } ?: return null
         val status = root(source) ?: return null
@@ -75,13 +75,51 @@ internal object GitHubSelfTestFixtures {
         return null
     }
 
+    private fun eligible(receipt: JsonObject): Boolean = receipt["trusted"] == JsonPrimitive(true) &&
+        receipt["verification_eligible"] != JsonPrimitive(false) &&
+        receipt["success"] == JsonPrimitive(true)
+
+    /** Both receipts must prove the same owned, unchanged branch in the same task/repository. */
     fun checkpoint(receipts: Map<String, JsonObject>): JsonArray = JsonArray(
         receipts.values.filter {
             it["trusted"] == JsonPrimitive(true) && it.text("tool").substringBefore("__") == "github_commit" && args(it)?.text("action") == "branch" && args(it)?.text("branch")?.startsWith("codex-self-test/") == true
         }.map { creation ->
             val branch = args(creation)?.text("branch").orEmpty()
-            val owned = root(creation)?.get("created") == JsonPrimitive(true) && root(creation)?.get("receipt_verified") == JsonPrimitive(true)
-            val cleanup = receipts.values.lastOrNull { it["trusted"] == JsonPrimitive(true) && it.text("tool").substringBefore("__") == "github_commit" && args(it)?.text("action") == "delete_branch" && args(it)?.text("branch") == branch }
+            val sha = args(creation)?.text("expected_head_sha").orEmpty()
+            val source = receipts.values.firstOrNull { receipt ->
+                eligible(receipt) &&
+                    receipt.text("tool").substringBefore("__") == "github_context" &&
+                    args(receipt)?.text("action") == "status" &&
+                    receipt["binding"] == creation["binding"] &&
+                    receipt["repository"] == creation["repository"] &&
+                    root(receipt)?.text("commit_sha") == sha &&
+                    root(receipt)?.text("branch") == args(creation)?.text("from_branch") &&
+                    (root(receipt)?.get("repository") as? JsonObject)?.text("default_branch") == args(creation)?.text("from_branch") &&
+                    branch == "codex-self-test/" + GitHubEvidenceBook.digest(receipt.text("binding") + receipt.text("receipt_id")).take(20)
+            }
+            val owned = eligible(creation) &&
+                source != null &&
+                sha.matches(Regex("[a-fA-F0-9]{40}")) &&
+                root(creation)?.get("created") == JsonPrimitive(true) &&
+                root(creation)?.get("receipt_verified") == JsonPrimitive(true) &&
+                root(creation)?.text("head_sha") == sha &&
+                root(creation)?.text("branch") == branch
+            val observations = receipts.values.toList()
+            val cleanup = observations.drop(observations.indexOf(creation) + 1).lastOrNull {
+                it["trusted"] == JsonPrimitive(true) &&
+                    it.text("tool").substringBefore("__") == "github_commit" &&
+                    args(it)?.text("action") == "delete_branch" &&
+                    args(it)?.text("branch") == branch &&
+                    it["binding"] == creation["binding"] &&
+                    it["repository"] == creation["repository"]
+            }
+            val cleaned = owned &&
+                cleanup != null &&
+                eligible(cleanup) &&
+                args(cleanup)?.text("expected_head_sha") == sha &&
+                root(cleanup)?.get("deleted") == JsonPrimitive(true) &&
+                root(cleanup)?.text("branch") == branch &&
+                root(cleanup)?.text("observed_head_sha") == sha
             buildJsonObject {
                 put("branch", branch)
                 put("ownership_verified", owned)
@@ -90,7 +128,7 @@ internal object GitHubSelfTestFixtures {
                     "cleanup_status",
                     if (!owned) {
                         "OWNERSHIP_NOT_ESTABLISHED"
-                    } else if (cleanup?.get("success") == JsonPrimitive(true) && root(cleanup)?.get("deleted") == JsonPrimitive(true)) {
+                    } else if (cleaned) {
                         "CLEANED"
                     } else {
                         "PENDING_OR_BLOCKED"
@@ -101,4 +139,16 @@ internal object GitHubSelfTestFixtures {
             }
         }
     )
+
+    fun complete(receipts: Map<String, JsonObject>): Boolean {
+        val fixtures = checkpoint(receipts).filterIsInstance<JsonObject>()
+        if (fixtures.isEmpty() || fixtures.any { it.text("cleanup_status") != "CLEANED" }) return false
+        val proved = fixtures.flatMap { listOfNotNull(it["creation_receipt"], it["cleanup_receipt"]) }.toSet()
+        return receipts.values.filter {
+            it["trusted"] == JsonPrimitive(true) &&
+                it["verification_eligible"] != JsonPrimitive(false) &&
+                it.text("tool").substringBefore("__") == "github_commit" &&
+                args(it)?.text("action") in setOf("branch", "delete_branch")
+        }.all { eligible(it) && it["receipt_id"] in proved }
+    }
 }

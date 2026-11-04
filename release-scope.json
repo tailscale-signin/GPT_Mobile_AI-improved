@@ -20,7 +20,8 @@
     "Persist cumulative GitHub audit evidence, owned mutation-fixture results and usage observations, with Room schema 48 migration, bounded table rendering and speech-start ownership.",
     "Repair build 138 self-test dependency selection, pinned workflow discovery and bounded saved-page recovery; move checklist computation off the UI thread.",
     "Make GitHub chat progress event-driven, move workflow budgets to Settings, enlarge chat text and repair reproducible self-test and retry routing defects.",
-    "Repair cold discovery advertisement/execution, early privacy rejection, saved review retry admission, voice worker/configuration caching, asynchronous voice preferences and actionable terminal diagnostics."
+    "Repair cold discovery advertisement/execution, early privacy rejection, saved review retry admission, voice worker/configuration caching, asynchronous voice preferences and actionable terminal diagnostics.",
+    "Audit the five newest merged branches; require complete inventory and owned-fixture evidence, preserve scope-aware coverage and latest failures, bound reports and serialize voice preference writes."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; its remaining acceptance cases are not represented as passed.",
@@ -792,6 +793,12 @@
     "scripts/tests/test_sign_preview_apks.py",
     "scripts/validate-local.sh",
     "scripts/validate.sh",
-    "settings.gradle.kts"
+    "settings.gradle.kts",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubChecklistScope.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePreferenceWriter.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubMergedBranchAuditTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePreferenceWriterTest.kt",
+    "docs/repairs/merged-branch-quality-2026-11-03-task.json",
+    "docs/repairs/merged-branch-quality-2026-11-03.md"
   ]
 }

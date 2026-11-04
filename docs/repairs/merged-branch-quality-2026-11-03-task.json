@@ -1,0 +1,19 @@
+{
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "6912b6404054728630174f1c4d9aa6c4b576e06c",
+  "working_branch": "fix/merged-branch-quality-audit-2026-11-03",
+  "intent": "Audit the five newest created/merged PR branches against their proposed changes; repair source defects, validate final head, create a draft PR and merge once all applicable checks pass.",
+  "audited_heads": {
+    "792": "19eb4e73fc4e59c5544074e19766747a9955bc16",
+    "793": "d00140c5c849f5d03088e7759851bc443ae0a1b6",
+    "794": "c9f4ff03cc0ef2b275c82a1fb3dc6ce5538922ad",
+    "795": "f2daff0bc7e158f577518da773d647f89d9c7151",
+    "796": "b2cd84807cb270aa0417b2bc60ec220e38a40c21"
+  },
+  "status": "HOST_VALIDATED_PENDING_ANDROID_CI",
+  "merge_authorization": "User explicitly requested new branch, draft PR, and merge to main.",
+  "report": "docs/repairs/merged-branch-quality-2026-11-03.md",
+  "focused_host_tests": 34,
+  "canonical_host_tests": 301
+}

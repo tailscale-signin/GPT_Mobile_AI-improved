@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import dev.chungjungsoo.gptmobile.data.voice.VoicePreferenceWriter
 import javax.inject.Inject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -27,10 +28,19 @@ internal data class VoicePreferences(
 internal class VoicePreferencesViewModel @Inject constructor(@ApplicationContext private val context: Context) : ViewModel() {
     private val _preferences = MutableStateFlow<VoicePreferences?>(null)
     val preferences = _preferences.asStateFlow()
+    private val writer = VoicePreferenceWriter<VoicePreferences>(viewModelScope) { value ->
+        withContext(Dispatchers.IO) {
+            context.getSharedPreferences("voice_presentation", Context.MODE_PRIVATE).edit()
+                .putString("language", value.language).putBoolean("online", value.online)
+                .putBoolean("captions", value.captions).putBoolean("review", value.review)
+                .putBoolean("automatic", value.automatic).putFloat("rate", value.rate)
+                .putString("voice", value.voice).apply()
+        }
+    }
 
     init {
         viewModelScope.launch {
-            _preferences.value = withContext(Dispatchers.IO) {
+            val loaded = withContext(Dispatchers.IO) {
                 val saved = context.getSharedPreferences("voice_presentation", Context.MODE_PRIVATE)
                 VoicePreferences(
                     language = saved.getString("language", java.util.Locale.getDefault().toLanguageTag()).orEmpty(),
@@ -42,17 +52,12 @@ internal class VoicePreferencesViewModel @Inject constructor(@ApplicationContext
                     voice = saved.getString("voice", "").orEmpty()
                 )
             }
+            _preferences.compareAndSet(null, loaded)
         }
     }
 
     fun save(value: VoicePreferences) {
         _preferences.value = value
-        viewModelScope.launch(Dispatchers.IO) {
-            context.getSharedPreferences("voice_presentation", Context.MODE_PRIVATE).edit()
-                .putString("language", value.language).putBoolean("online", value.online)
-                .putBoolean("captions", value.captions).putBoolean("review", value.review)
-                .putBoolean("automatic", value.automatic).putFloat("rate", value.rate)
-                .putString("voice", value.voice).apply()
-        }
+        writer.save(value)
     }
 }

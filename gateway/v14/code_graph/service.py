@@ -7,6 +7,7 @@ import re
 import subprocess
 import threading
 import time
+import requests
 from pathlib import Path
 from urllib.parse import quote
 
@@ -118,8 +119,24 @@ class GraphService:
                 raise ValueError('Graph source blob digest mismatch')
             return path, extract(path, content)
 
+        def read_isolated(path):
+            try:
+                return read(path)
+            except (PermissionError, InterruptedError):
+                # Revocation and cancellation stop the operation, not just one file.
+                raise
+            except requests.HTTPError as error:
+                if error.response is not None and error.response.status_code in {401, 403}:
+                    raise
+            except (requests.RequestException, ValueError, OSError):
+                pass
+            # Keep successful siblings and a bounded failure marker, never exception
+            # bodies (which can contain source, credentials or signed URLs).
+            return path, {'version': EXTRACTOR_VERSION, 'nodes': [], 'edges': [], 'references': [], 'imports': [], 'fields': [],
+                          'status': 'failed', 'warnings': ['Source read or integrity validation failed; retry_failed is required'], 'source_bytes': 0}
+
         with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
-            for path, fragment in pool.map(read, pending[:24]):
+            for path, fragment in pool.map(read_isolated, pending[:24]):
                 snapshot['fragments'][path] = fragment
                 snapshot['index_metrics']['parsed_files'] += 1
                 snapshot['index_metrics']['read_bytes'] += fragment['source_bytes']
@@ -272,7 +289,7 @@ class GraphService:
                 run.get('head_sha') == snapshot['sha'] and run.get('status') == 'completed'):
             status = 'LINKED_WORKFLOW_PASSED' if run.get('conclusion') == 'success' else 'LINKED_WORKFLOW_FAILED'
         return {'status': status, 'feature_completeness_proven': False,
-                'same_commit': payload.get('head_sha') == snapshot['sha'], 'receipt_id': note.get('receipt', {}).get('receipt_id')}
+                'same_commit': isinstance(run, dict) and run.get('head_sha') == snapshot['sha'], 'receipt_id': note.get('receipt', {}).get('receipt_id')}
 
     def federated(self, principal, request, actor):
         targets = request.get('targets', [])

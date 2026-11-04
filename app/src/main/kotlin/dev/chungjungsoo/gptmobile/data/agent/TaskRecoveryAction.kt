@@ -43,7 +43,14 @@ internal fun resolveTaskRecovery(messages: List<MessageV2>, descriptor: TaskResu
     val latest = messages.lastOrNull() ?: return null
     val source = messages.firstOrNull { it.id == descriptor.sourceMessageId && it.chatId == latest.chatId && it.platformType == null } ?: return null
     if (descriptor.rootWorkId != "${source.chatId}:${source.id}" || TaskRecoveryAction.fromText(source.content) != null) return null
-    return ResolvedTaskRecovery(descriptor.action, source.id, source.content, descriptor.action == TaskRecoveryAction.CONTINUE_PRIMARY_ONLY, descriptor.allowUndispatchedBudgetRetry && descriptor.action == TaskRecoveryAction.RETRY_FAILED_STAGE, descriptor.allowNewToolBudget || descriptor.allowUndispatchedBudgetRetry && descriptor.action == TaskRecoveryAction.RETRY_FAILED_STAGE)
+    return ResolvedTaskRecovery(
+        descriptor.action,
+        source.id,
+        source.content,
+        descriptor.action == TaskRecoveryAction.CONTINUE_PRIMARY_ONLY,
+        retryUndispatchedBudgetFailures = descriptor.allowUndispatchedBudgetRetry && descriptor.action == TaskRecoveryAction.RETRY_FAILED_STAGE,
+        renewsToolBudget = descriptor.allowNewToolBudget && descriptor.action != TaskRecoveryAction.RETRY_WRITING
+    )
 }
 
 internal data class ResolvedTaskRecovery(val action: TaskRecoveryAction, val sourceMessageId: Int, val originalRequest: String, val primaryOnly: Boolean, val retryUndispatchedBudgetFailures: Boolean = false, val renewsToolBudget: Boolean = false) {
@@ -75,7 +82,7 @@ internal fun resolveTaskRecovery(messages: List<MessageV2>): ResolvedTaskRecover
     }
     val source = previous[sourceIndex]
     val primaryOnly = action == TaskRecoveryAction.CONTINUE_PRIMARY_ONLY || previous.drop(sourceIndex + 1).any { TaskRecoveryAction.fromText(it.content) == TaskRecoveryAction.CONTINUE_PRIMARY_ONLY }
-    return ResolvedTaskRecovery(action, source.id, source.content, primaryOnly, action == TaskRecoveryAction.RETRY_FAILED_STAGE, action != TaskRecoveryAction.RETRY_WRITING)
+    return ResolvedTaskRecovery(action, source.id, source.content, primaryOnly, retryUndispatchedBudgetFailures = action == TaskRecoveryAction.RETRY_FAILED_STAGE)
 }
 
 /** Identity is derived only from this chat's persisted original message, never task text. */

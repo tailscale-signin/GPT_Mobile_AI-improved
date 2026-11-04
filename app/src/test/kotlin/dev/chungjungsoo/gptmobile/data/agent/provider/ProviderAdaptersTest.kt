@@ -126,7 +126,7 @@ class ProviderAdaptersTest {
                 .streamRound(listOf(definition), emptyList()).toList()
             val request = requestJson(compatible.chatRequests.single())
             assertEquals(if (type == ClientType.CUSTOM) null else "false", request["parallel_tool_calls"]?.jsonPrimitive?.content)
-            assertTrue(request.toString().contains("at most 8 tool calls"))
+            assertTrue("$type must receive the per-response tool-call bound", request.toString().contains("at most 8 tool calls"))
             assertEquals(1, compatible.chatRequests.single().tools?.size)
         }
 
@@ -134,6 +134,7 @@ class ProviderAdaptersTest {
         OpenAICompatibleAdapter(FakeOpenAIAPI(), groq, attachmentEncoder()).openSession(turns(), platform(ClientType.GROQ))
             .streamRound(listOf(definition), emptyList()).toList()
         assertEquals("false", requestJson(groq.requests.single())["parallel_tool_calls"]?.jsonPrimitive?.content)
+        assertTrue(requestJson(groq.requests.single()).toString().contains("at most 8 tool calls"))
         assertEquals(1, groq.requests.single().tools?.size)
 
         val anthropic = FakeAnthropicAPI(ArrayDeque(listOf(emptyFlow())))

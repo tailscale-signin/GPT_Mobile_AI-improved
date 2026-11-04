@@ -85,6 +85,25 @@ class GitHubAcceptanceLedgerTest {
         assertEquals(JsonPrimitive("BLOCKED"), diagnostic.getValue("acceptance_ledger").jsonObject.getValue("requirements").jsonArray.single().jsonObject["state"])
     }
 
+    @Test fun progressKeepsTheLastPublishedChecklistReferenceAcrossRestoration() = runBlocking {
+        val saved = linkedMapOf<String, JsonObject>()
+        fun book() = GitHubEvidenceBook("task", "owner/repo", "main", emptySet(), save = { id, row -> saved[id] = row }, latestVerdict = { saved.values.lastOrNull() })
+        val original = book()
+        val digest = GitHubTestChecklist.progressDigest(task, emptyMap(), tools)
+        original.retainVerdict(
+            buildJsonObject {
+                put("checklist_progress_digest", digest)
+                put("response_delivered", true)
+            }
+        )
+        original.retainProgress(task, tools)
+        assertEquals(JsonPrimitive(digest), saved.values.last()["last_published_checklist_progress_digest"])
+        book().retainProgress(task, tools, "MODEL_GENERATION_FAILED")
+        assertEquals(JsonPrimitive(digest), saved.values.last()["last_published_checklist_progress_digest"])
+        assertEquals(JsonPrimitive(false), saved.values.last()["completion_verified"])
+        assertEquals(JsonPrimitive("INTERRUPTED"), saved.values.last()["phase"])
+    }
+
     @Test fun acceptedMutationReceiptIsDurableEvenWhenReviewProjectionIsFull() = runBlocking {
         val saved = linkedMapOf<String, JsonObject>()
         val book = GitHubEvidenceBook("task", "owner/repo", "main", setOf("github_context", "github_commit"), save = { id, value -> saved[id] = value }, retentionLimitRecords = 1)

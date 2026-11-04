@@ -1941,8 +1941,7 @@ class ChatViewModel @Inject constructor(
             sourceMessageId,
             runId,
             recoveryAction,
-            allowUndispatchedBudgetRetry = recoveryAction == dev.chungjungsoo.gptmobile.data.agent.TaskRecoveryAction.RETRY_FAILED_STAGE,
-            allowNewToolBudget = recoveryAction != dev.chungjungsoo.gptmobile.data.agent.TaskRecoveryAction.RETRY_WRITING
+            allowUndispatchedBudgetRetry = recoveryAction == dev.chungjungsoo.gptmobile.data.agent.TaskRecoveryAction.RETRY_FAILED_STAGE
         )
         _loadingStates.update { states -> states.mapIndexed { index, state -> if (enabledPlatformsInChat.getOrNull(index) == ownerProfileUid) LoadingState.Loading else state } }
 

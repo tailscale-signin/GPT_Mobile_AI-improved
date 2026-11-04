@@ -25,9 +25,40 @@
       "resource_xml_files": 30
     },
     "android": {
-      "state": "IN_PROGRESS",
-      "unit_compile": "JDK 21 / SDK 37; existing bounded 4 GiB JVM settings; unit test compilation running.",
-      "initial_cold_build": "Stopped after a 3 GiB JVM heap-pressure warning before test execution."
+      "state": "CORRECTED_VALIDATING",
+      "observed_head": "2ad5a49c77498e3d5b9470d8706f835020eb75bd",
+      "unit_compile": "PASS: production and unit Kotlin/Java compilation, locally and in CI, JDK 21 / SDK 37.",
+      "initial_cold_build": "Stopped after a 3 GiB JVM heap-pressure warning before test execution; compilation passed with the repository existing bounded 4 GiB settings.",
+      "pr_unit_suite": {
+        "tests": 6340,
+        "failures": 26,
+        "errors": 0,
+        "skipped": 4,
+        "run": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/41848806800"
+      },
+      "diagnostic_unit_suite": {
+        "tests": 6340,
+        "failures": 25,
+        "errors": 0,
+        "skipped": 4,
+        "run": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/41848723656"
+      },
+      "lint": "PASS",
+      "emulator_acceptance": {
+        "state": "PASS",
+        "api_levels": [
+          34,
+          36
+        ],
+        "methods_per_device": 54,
+        "new_methods_per_device": 7,
+        "run": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/41848723652"
+      },
+      "ui_review_apk": {
+        "state": "PASS",
+        "run": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/41848723653"
+      },
+      "correction_validation": "Corrected Kotlin sources formatted; focused 16-class rerun pending compilation. Ordinary recovery retains the original task allowance, and undelivered checklists cannot be suppressed."
     },
     "physical_device_and_user_llama": "NOT_TESTED",
     "starting_head_ci": {

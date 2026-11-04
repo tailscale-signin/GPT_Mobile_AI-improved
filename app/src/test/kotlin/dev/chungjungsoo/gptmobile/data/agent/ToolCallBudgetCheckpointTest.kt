@@ -1,6 +1,8 @@
 package dev.chungjungsoo.gptmobile.data.agent
 
 import java.nio.file.Files
+import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.test.runTest
@@ -13,6 +15,104 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ToolCallBudgetCheckpointTest {
+    @Test fun temporaryBudgetRecreationPreservesTheAcceptedLimitAcrossBoundTools() = runTest {
+        val chatId = memoryChatIds.incrementAndGet()
+        var dispatched = 0
+        fun checkpoint() = ToolCallBudgetCheckpoint.inMemory(chatId, "accepted-source:profile")
+        val tool = object : AgentTool {
+            override val definition = AgentToolDefinition("github_read", "read", buildJsonObject {})
+            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+                dispatched++
+                return AgentToolResult(callId, ToolResultContent.Text("receipt"), false)
+            }
+        }
+        val limits = AgentRunLimits(githubTask = true, maxToolCalls = 2)
+        try {
+            val first = checkpoint()
+            val initial = ToolExecutionBudget(limits, initialCalls = first.initialize(2), durableCalls = first)
+            assertFalse(initial.bind(tool).execute("first", buildJsonObject {}).isError)
+            val recreated = checkpoint()
+            assertEquals(1, recreated.initialize(2))
+            val continued = ToolExecutionBudget(limits, initialCalls = recreated.initialize(2), durableCalls = recreated)
+            assertFalse(continued.bind(tool).execute("second", buildJsonObject {}).isError)
+            val exhausted = continued.bind(tool).execute("third", buildJsonObject {})
+            assertEquals("BUDGET_EXHAUSTED", exhausted.errorCode)
+            assertFalse(exhausted.dispatched)
+            assertEquals(2, dispatched)
+            assertEquals(2, checkpoint().initialize(200))
+            assertNull(checkpoint().acquire(200))
+        } finally {
+            ToolCallBudgetCheckpoint.clearInMemoryChat(chatId)
+        }
+    }
+
+    @Test fun concurrentTemporaryHandlesReserveAgainstOneCounter() = runTest {
+        val chatId = memoryChatIds.incrementAndGet()
+        try {
+            ToolCallBudgetCheckpoint.inMemory(chatId, "accepted-source").initialize(16)
+            val reservations = (1..48).map {
+                async(Dispatchers.Default) { ToolCallBudgetCheckpoint.inMemory(chatId, "accepted-source").acquire(16) }
+            }.awaitAll()
+            assertEquals((1..16).toList(), reservations.filterNotNull().sorted())
+            assertEquals(16, ToolCallBudgetCheckpoint.inMemory(chatId, "accepted-source").initialize(16))
+        } finally {
+            ToolCallBudgetCheckpoint.clearInMemoryChat(chatId)
+        }
+    }
+
+    @Test fun clearingTemporaryChatClosesKnownWorkersButAllowsANewTaskAndOtherChats() = runTest {
+        val chatId = memoryChatIds.incrementAndGet()
+        val otherChatId = memoryChatIds.incrementAndGet()
+        assertFalse(ToolCallBudgetCheckpoint.hasInMemoryAllowance(chatId, "old-source"))
+        val initialized = ToolCallBudgetCheckpoint.inMemory(chatId, "old-source")
+        val notInitialized = ToolCallBudgetCheckpoint.inMemory(chatId, "waiting-source")
+        val otherChat = ToolCallBudgetCheckpoint.inMemory(otherChatId, "old-source")
+        try {
+            assertTrue(ToolCallBudgetCheckpoint.hasInMemoryAllowance(chatId, "old-source"))
+            assertTrue(ToolCallBudgetCheckpoint.hasInMemoryAllowance(chatId, "waiting-source"))
+            assertFalse(ToolCallBudgetCheckpoint.hasInMemoryAllowance(otherChatId, "waiting-source"))
+            initialized.initialize(2)
+            assertEquals(1, initialized.acquire(2))
+            otherChat.initialize(2)
+            assertEquals(1, otherChat.acquire(2))
+            ToolCallBudgetCheckpoint.clearInMemoryChat(chatId)
+            assertTrue(ToolCallBudgetCheckpoint.hasInMemoryAllowance(chatId, "old-source"))
+            assertTrue(ToolCallBudgetCheckpoint.hasInMemoryAllowance(chatId, "waiting-source"))
+            assertTrue(runCatching { initialized.acquire(2) }.isFailure)
+            assertTrue(runCatching { initialized.initialize(2) }.isFailure)
+            assertTrue(runCatching { notInitialized.initialize(2) }.isFailure)
+            assertTrue(runCatching { ToolCallBudgetCheckpoint.inMemory(chatId, "old-source").initialize(2, "additional-allowance") }.isFailure)
+            assertTrue(runCatching { ToolCallBudgetCheckpoint.inMemory(chatId, "waiting-source").initialize(2) }.isFailure)
+            assertFalse(ToolCallBudgetCheckpoint.hasInMemoryAllowance(chatId, "new-source"))
+            val newTask = ToolCallBudgetCheckpoint.inMemory(chatId, "new-source")
+            assertEquals(0, newTask.initialize(1))
+            assertEquals(1, newTask.acquire(1))
+            assertEquals(1, ToolCallBudgetCheckpoint.inMemory(otherChatId, "old-source").initialize(2))
+            assertEquals(2, otherChat.acquire(2))
+        } finally {
+            ToolCallBudgetCheckpoint.clearInMemoryChat(chatId)
+            ToolCallBudgetCheckpoint.clearInMemoryChat(otherChatId)
+        }
+    }
+
+    @Test fun temporaryAllowanceRenewalIsExplicitAndIdempotentAcrossRecreatedHandles() = runTest {
+        val chatId = memoryChatIds.incrementAndGet()
+        fun checkpoint() = ToolCallBudgetCheckpoint.inMemory(chatId, "accepted-source")
+        try {
+            checkpoint().initialize(1)
+            assertEquals(1, checkpoint().acquire(1))
+            assertEquals(1, checkpoint().initialize(4))
+            assertNull(checkpoint().acquire(4))
+            assertEquals(0, checkpoint().initialize(2, "additional-allowance"))
+            assertEquals(1, checkpoint().acquire(2))
+            assertEquals(1, checkpoint().initialize(2, "additional-allowance"))
+            assertEquals(2, checkpoint().acquire(2))
+            assertNull(checkpoint().acquire(2))
+        } finally {
+            ToolCallBudgetCheckpoint.clearInMemoryChat(chatId)
+        }
+    }
+
     @Test fun unreadableExistingAllowanceCannotBeResetAndLegacyCallsAreRetained() = runTest {
         var writes = 0
         val unreadable = ToolCallBudgetCheckpoint("unreadable", { null }, { writes++ }, hasRecord = { true })
@@ -132,5 +232,9 @@ class ToolCallBudgetCheckpointTest {
         assertEquals("BUDGET_CHECKPOINT_UNAVAILABLE", failed.errorCode)
         assertFalse(failed.dispatched)
         assertEquals(0, dispatched)
+    }
+
+    companion object {
+        private val memoryChatIds = AtomicInteger(10_000)
     }
 }

@@ -52,5 +52,47 @@ class ToolCallBudgetCheckpoint(
 
     companion object {
         private val locks = Array(64) { Mutex() }
+        private data class MemoryKey(val chatId: Int, val binding: String)
+        private class MemoryState(var value: JsonObject? = null, var deleted: Boolean = false)
+        private val memoryLock = Any()
+        private val memoryStates = mutableMapOf<MemoryKey, MemoryState>()
+
+        /** Includes registered workers and tombstones without exposing or creating counter data. */
+        fun hasInMemoryAllowance(chatId: Int, binding: String): Boolean {
+            require(chatId > 0 && binding.isNotBlank())
+            return synchronized(memoryLock) { memoryStates.containsKey(MemoryKey(chatId, binding)) }
+        }
+
+        /** Temporary conversations share counters in this process without retaining a disk record. */
+        fun inMemory(chatId: Int, binding: String): ToolCallBudgetCheckpoint {
+            require(chatId > 0 && binding.isNotBlank())
+            // Register before initialization so cleanup also closes a worker that
+            // was created earlier but has not reserved its first allowance yet.
+            val state = synchronized(memoryLock) { memoryStates.getOrPut(MemoryKey(chatId, binding)) { MemoryState() } }
+            return ToolCallBudgetCheckpoint(
+                scope = "memory:$chatId:$binding",
+                read = { synchronized(memoryLock) { state.value } },
+                write = { value ->
+                    synchronized(memoryLock) {
+                        check(!state.deleted) { "The conversation's tool allowance was cleared; no stale worker may recreate it." }
+                        state.value = value
+                    }
+                },
+                hasRecord = { synchronized(memoryLock) { state.deleted || state.value != null } }
+            )
+        }
+
+        /** Discard counters and fence known bindings; a genuinely new task in this chat remains possible. */
+        fun clearInMemoryChat(chatId: Int) {
+            require(chatId > 0)
+            synchronized(memoryLock) {
+                memoryStates.forEach { (key, state) ->
+                    if (key.chatId == chatId) {
+                        state.value = null
+                        state.deleted = true
+                    }
+                }
+            }
+        }
     }
 }

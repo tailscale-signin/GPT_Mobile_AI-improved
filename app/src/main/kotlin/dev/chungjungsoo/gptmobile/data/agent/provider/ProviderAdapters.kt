@@ -556,7 +556,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                     exchanges.isEmpty()
                 val toolImages = if (platform.compatibleType == ClientType.GROQ || platform.compatibleType == ClientType.NVIDIA && NvidiaModelCapabilities.forModel(platform.model).supportsImages != true) emptyList() else attachmentEncoder.toolMedia(exchanges)
                 val roundSystemPrompt = toolRoundSystemPrompt(platform.systemPrompt, tools.isNotEmpty(), constraints)
-                val roundMessages = if (tools.isEmpty() && !promptToolBridge && !gatewayToolsAllowed && roundSystemPrompt != platform.systemPrompt) {
+                val roundMessages = if (roundSystemPrompt != platform.systemPrompt && (tools.isNotEmpty() || !promptToolBridge && !gatewayToolsAllowed)) {
                     listOf(ChatMessage(OpenAIRole.SYSTEM, listOf(OpenAITextContent(requireNotNull(roundSystemPrompt))))) +
                         initialMessages.filterNot { it.role == OpenAIRole.SYSTEM }
                 } else {

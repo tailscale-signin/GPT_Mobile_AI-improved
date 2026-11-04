@@ -53,7 +53,8 @@
     "Automated mutation fixtures cover owned disposable branch creation, dependency inspection and cleanup; content writes, releases, merges and cancellations require separately authorized fixture plans.",
     "External Graphify execution, compiler-resolved navigation, and physical-device graph, speech and UI performance remain unqualified; host and emulator evidence does not establish those outcomes.",
     "The November 3 build-138 chat audit implements bounded UI and planner repairs; full mutation fixtures, retained-page capacity recovery and physical-device acceptance remain incomplete.",
-    "The November 4 GitHub workspace repairs do not qualify physical-device process death, UI frame pacing or private Llama/server reachability; those outcomes require live device and service receipts. Saved evidence remains quota bounded, and an unavailable mutation result must be reconciled rather than replayed."
+    "The November 4 GitHub workspace repairs do not qualify physical-device process death, UI frame pacing or private Llama/server reachability; those outcomes require live device and service receipts. Saved evidence remains quota bounded, and an unavailable mutation result must be reconciled rather than replayed.",
+    "Temporary conversations do not persist recovery evidence; interrupted work with missing receipts or counters remains blocked, and changing storage mode does not grant more tool calls."
   ],
   "requiredWorkflows": [
     "PR Validation",
@@ -893,6 +894,7 @@
     "scripts/tests/test_sign_preview_apks.py",
     "scripts/validate-local.sh",
     "scripts/validate.sh",
-    "settings.gradle.kts"
+    "settings.gradle.kts",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/MultiEngineSearchToolTest.kt"
   ]
 }

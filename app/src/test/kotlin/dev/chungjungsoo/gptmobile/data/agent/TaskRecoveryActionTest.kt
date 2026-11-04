@@ -17,6 +17,7 @@ class TaskRecoveryActionTest {
         assertEquals(1, resolveTaskRecovery(messages)!!.sourceMessageId)
         assertEquals("1:1", rootWorkId(messages + user(4, "GitHub workspace: o/r\nBranch: test-branch\n\ncontinue"), "unused"))
         assertEquals(task.content, resolveTaskRecovery(messages)!!.originalRequest)
+        assertFalse(resolveTaskRecovery(messages)!!.renewsToolBudget)
     }
 
     @Test fun equivalentIntegrationRequestsAndDiagnosticsKeepOriginalTask() {
@@ -24,6 +25,7 @@ class TaskRecoveryActionTest {
         val messages = listOf(original, user(2, "continue"), user(3, "Why did the previous response stop?"), user(4, "test all"), user(5, "Why did the previous response stop?"), user(6, "continue"))
         assertEquals(1, resolveTaskRecovery(messages)!!.sourceMessageId)
         assertEquals("1:1", rootWorkId(messages, "unused"))
+        assertFalse(resolveTaskRecovery(messages)!!.renewsToolBudget)
         assertEquals(8, resolveTaskRecovery(messages + user(7, "Inspect this file") + user(8, "Test all GitHub tools") + user(9, "continue"))!!.sourceMessageId)
     }
 
@@ -37,20 +39,44 @@ class TaskRecoveryActionTest {
         val encoded = kotlinx.serialization.json.Json.encodeToString(TaskResumeDescriptor.serializer(), explicit)
         val restored = kotlinx.serialization.json.Json.decodeFromString(TaskResumeDescriptor.serializer(), encoded)
         assertTrue(resolveTaskRecovery(messages, restored)!!.retryUndispatchedBudgetFailures)
+        assertFalse(resolveTaskRecovery(messages, restored)!!.renewsToolBudget)
         for (action in TaskRecoveryAction.entries.filter { it != TaskRecoveryAction.RETRY_FAILED_STAGE }) {
             assertFalse(resolveTaskRecovery(messages, restored.copy(action = action))!!.retryUndispatchedBudgetFailures)
+            assertFalse(resolveTaskRecovery(messages, restored.copy(action = action))!!.renewsToolBudget)
         }
         val legacy = """{"rootWorkId":"1:1","sourceMessageId":1,"generationId":"old","action":"RETRY_FAILED_STAGE"}"""
-        assertFalse(resolveTaskRecovery(messages, kotlinx.serialization.json.Json.decodeFromString<TaskResumeDescriptor>(legacy))!!.retryUndispatchedBudgetFailures)
+        val legacyRecovery = resolveTaskRecovery(messages, kotlinx.serialization.json.Json.decodeFromString<TaskResumeDescriptor>(legacy))!!
+        assertFalse(legacyRecovery.retryUndispatchedBudgetFailures)
+        assertFalse(legacyRecovery.renewsToolBudget)
+    }
+
+    @Test fun serializedRecoveryRequiresAnIndependentToolAllowanceGrantAndWritingNeverRenews() {
+        val messages = listOf(user(1, "Inspect the repository with at most two tool calls"))
+        for (action in TaskRecoveryAction.entries) {
+            val ordinary = TaskResumeDescriptor("1:1", 1, "manual-${action.name}", action, allowUndispatchedBudgetRetry = true)
+            val ordinaryJson = kotlinx.serialization.json.Json.encodeToString(TaskResumeDescriptor.serializer(), ordinary)
+            assertFalse(ordinaryJson.contains("allowNewToolBudget"))
+            val restoredOrdinary = kotlinx.serialization.json.Json.decodeFromString(TaskResumeDescriptor.serializer(), ordinaryJson)
+            assertFalse(resolveTaskRecovery(messages, restoredOrdinary)!!.renewsToolBudget)
+
+            val grantJson = kotlinx.serialization.json.Json.encodeToString(TaskResumeDescriptor.serializer(), ordinary.copy(allowNewToolBudget = true))
+            val restoredGrant = kotlinx.serialization.json.Json.decodeFromString(TaskResumeDescriptor.serializer(), grantJson)
+            assertEquals(action != TaskRecoveryAction.RETRY_WRITING, resolveTaskRecovery(messages, restoredGrant)!!.renewsToolBudget)
+            assertEquals(action == TaskRecoveryAction.RETRY_FAILED_STAGE, resolveTaskRecovery(messages, restoredGrant)!!.retryUndispatchedBudgetFailures)
+        }
     }
 
     @Test fun textRetryCommandsReopenBudgetRefusalsButContinueCommandsDoNot() {
         val original = user(1, "Inspect the repository")
         for (command in listOf("test again", "retest", "retry", "Retry full", "retry failed stage", "try again")) {
-            assertTrue(resolveTaskRecovery(listOf(original, user(2, command)))!!.retryUndispatchedBudgetFailures)
+            val recovery = resolveTaskRecovery(listOf(original, user(2, command)))!!
+            assertTrue(recovery.retryUndispatchedBudgetFailures)
+            assertFalse(recovery.renewsToolBudget)
         }
-        for (command in listOf("continue", "retry writing", "proceed primary-only")) {
-            assertFalse(resolveTaskRecovery(listOf(original, user(2, command)))!!.retryUndispatchedBudgetFailures)
+        for (command in listOf("continue", "resume", "proceed", "retry writing", "proceed primary-only")) {
+            val recovery = resolveTaskRecovery(listOf(original, user(2, command)))!!
+            assertFalse(recovery.retryUndispatchedBudgetFailures)
+            assertFalse(recovery.renewsToolBudget)
         }
     }
 
@@ -62,6 +88,7 @@ class TaskRecoveryActionTest {
         assertEquals(1, recovery.sourceMessageId)
         assertEquals(TaskRecoveryAction.CONTINUE_RUN, recovery.action)
         assertTrue(recovery.primaryOnly)
+        assertFalse(recovery.renewsToolBudget)
         assertTrue(recovery.prompt().contains(task))
         assertTrue(recovery.prompt().contains("Do not search for the recovery command"))
     }

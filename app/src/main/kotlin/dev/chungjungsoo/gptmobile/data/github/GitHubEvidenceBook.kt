@@ -297,6 +297,8 @@ internal class GitHubEvidenceBook(
         val (receipts, _) = snapshot()
         val checkpoint = GitHubTestChecklist.checkpoint(task, receipts, tools)
         val retention = retentionStatus()
+        val previous = diagnostic()
+        val publishedProgressDigest = publishedChecklistDigest(previous)
         val requirements = GitHubRequestCompletion.requirements(task).map { requirement ->
             buildJsonObject {
                 put("id", GitHubRequestCompletion.id(requirement))
@@ -313,6 +315,7 @@ internal class GitHubEvidenceBook(
                 put("phase", if (failureCode == null) "IN_PROGRESS" else "INTERRUPTED")
                 put("request_digest", digest(task))
                 put("observed_at_ms", now())
+                publishedProgressDigest?.let { put("last_published_checklist_progress_digest", it) }
                 put("completion_verified", false)
                 retention.forEach { (key, value) -> put(key, value) }
                 put("response_prepared", false)
@@ -352,6 +355,13 @@ internal class GitHubEvidenceBook(
     }
 
     companion object {
+        /** Preparing a verdict does not prove that its visible delivery completed. */
+        fun publishedChecklistDigest(checkpoint: JsonObject?): JsonPrimitive? =
+            (
+                checkpoint?.get("checklist_progress_digest").takeIf { checkpoint?.get("response_delivered") == JsonPrimitive(true) }
+                    ?: checkpoint?.get("last_published_checklist_progress_digest")
+                ) as? JsonPrimitive
+
         fun digest(value: String) = MessageDigest.getInstance("SHA-256").digest(value.encodeToByteArray()).joinToString("") { "%02x".format(it) }
     }
 }

@@ -89,9 +89,9 @@ class AgentRunner(
         var rounds = 0
         if (retryUndispatchedBudgetFailures) checkpoint?.prepareExplicitBudgetRetry()
         val recovery = checkpoint?.recoverySnapshot(limits.checkpointRestoreObjective)
-        // An explicit retry grants a new bounded tranche. Historical receipts
-        // still reconcile effects; they must not exhaust the new attempt's budget.
-        var toolCallCount = initialToolCallCountOverride?.coerceAtLeast(0) ?: if (retryUndispatchedBudgetFailures || resumeToolBudget) 0 else recovery?.dispatchedCount ?: 0
+        // Reopening an undispatched refusal does not renew the accepted allowance.
+        // Only a separate explicit grant may start a new bounded tranche.
+        var toolCallCount = initialToolCallCountOverride?.coerceAtLeast(0) ?: if (resumeToolBudget) 0 else recovery?.dispatchedCount ?: 0
         var toolMayHaveExecuted = (recovery?.dispatchedCount ?: 0) > 0
         var retriedWithoutTools = false
 

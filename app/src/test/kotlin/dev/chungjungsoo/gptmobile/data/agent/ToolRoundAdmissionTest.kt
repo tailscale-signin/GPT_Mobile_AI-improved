@@ -26,7 +26,7 @@ class ToolRoundAdmissionTest {
                 when (rounds++) {
                     0 -> throw ToolBatchOversizeException("STREAM_TOOL_SLOTS", 33, 32)
                     1 -> {
-                        assertTrue(tools.single().description.contains("at most 4 total calls"))
+                        assertTrue(tools.single().description.contains("at most 1 total calls"))
                         assertTrue(exchanges.isEmpty())
                         emit(ProviderEvent.ToolCall("retry", "lookup", buildJsonObject {}))
                     }

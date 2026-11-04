@@ -143,7 +143,11 @@ class GitHubEvidencePolicyTest {
             val id = "call-$index"
             book.observe(ProviderEvent.ToolCall(id, "github_ci", json("""{"action":"status"}""")), AgentToolResult(id, ToolResultContent.Json(json("""{"count":3}""")), false, dispatched = true))
         }
-        assertEquals(4096, book.snapshot().first.size)
+        val retained = book.snapshot().first.values.toList()
+        assertEquals(4096, retained.size)
+        assertEquals(JsonPrimitive("call-0"), retained.first()["call_id"])
+        assertEquals(JsonPrimitive(4095), retained.last()["previous_attempt_count"])
+        assertEquals(kotlinx.serialization.json.JsonArray(listOf(retained[4094].getValue("receipt_id"))), retained.last()["previous_attempt_ids"])
         assertFalse(book.complete())
     }
 

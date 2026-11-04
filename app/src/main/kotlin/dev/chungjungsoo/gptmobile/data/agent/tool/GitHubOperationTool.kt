@@ -783,7 +783,7 @@ internal class GitHubOperationTool(
             if (operation in setOf("github_context", "github_ci", "github_pr", "github_read")) properties["response_detail"] = choice("compact", "full")
             val description = when (operation) {
                 "github_context" -> "Inspect repo, commits and checks; changes needs base_sha. full adds metadata."
-                "github_search" -> "Search pinned code/paths. paths and patterns accept * wildcards; literal matches exact text. Use file_extension=kt and path_prefix separately, not extension: or path: in query. Continue with the exact continuation_call until coverage.complete=true; a zero-hit partial page is not an empty repository. Fuzzy accepts one identifier."
+                "github_search" -> "Search pinned code/paths. literal=text; paths/patterns=* glob. Check coverage."
                 "github_read" -> "Read pinned ranges (1-based, <=2000 lines) or evidence_id. Find paths first; replay saved pages with view_cursor only."
                 "github_stage_patch" -> "Stage an exact replacement with target_file, search_snippet and replacement_snippet, or SHA-checked edits. Reads the pinned blob and rejects ambiguous anchors. Returns immutable version/stage_id and preserves publication receipts. Supply restore_stage_id alone to select a saved local patch at the same branch/base. Commit on a permitted working branch using its current expected_head_sha."
                 "github_commit" -> "Create a working branch, commit a validated stage_id, or delete_branch with expected_head_sha after dependency inspection. Deletion blocks selected/default/protected branches, unmerged commits, open PRs and active runs. GitHub deletion is not an atomic SHA lease."

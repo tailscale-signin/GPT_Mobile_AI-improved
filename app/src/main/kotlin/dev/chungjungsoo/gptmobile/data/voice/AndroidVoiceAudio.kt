@@ -403,12 +403,12 @@ class AndroidVoiceAudio internal constructor(
                     val pending = pendingSpeech
                     pendingSpeech = null
                     if (speechReady) {
-                        prepareVoices()
                         if (pending != null) {
                             watchdog?.let(main::removeCallbacks)
                             watchdog = null
                             pending.invoke()
                         }
+                        prepareVoices()
                     } else {
                         val failed = playbackError
                         playbackError = null

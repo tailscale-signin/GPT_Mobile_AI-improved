@@ -152,7 +152,11 @@ internal class GitHubEvidenceBook(
                         "EXPLICIT_RETRY_REQUIRES_REVIEW"
                     }
                 )
-                put("previous_attempt_ids", kotlinx.serialization.json.JsonArray(priorAttempts.mapNotNull { it["receipt_id"] }))
+                // Link to the predecessor; its receipt links to earlier attempts. Copying
+                // every prior ID into every receipt grows the journal quadratically.
+                put("previous_attempt_ids", kotlinx.serialization.json.JsonArray(priorAttempts.takeLast(1).mapNotNull { it["receipt_id"] }))
+                put("previous_attempt_count", priorAttempts.size)
+                put("previous_attempt_reference_mode", "LINKED_PREDECESSOR")
             }
             val sourceTime = (result.executionReceipt?.get("source_observed_at_ms") as? JsonPrimitive)?.longOrNull
             put("observed_at_ms", sourceTime ?: if (result.sharedResult || !result.dispatched) 0 else now())

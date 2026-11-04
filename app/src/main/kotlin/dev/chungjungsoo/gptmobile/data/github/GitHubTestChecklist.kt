@@ -298,7 +298,7 @@ internal object GitHubTestChecklist {
     fun progressDigest(task: String, receipts: Map<String, JsonObject>, tools: List<AgentToolDefinition>): String = GitHubEvidenceBook.digest(
         buildJsonObject {
             put("request_digest", GitHubEvidenceBook.digest(task))
-            put("capabilities", JsonArray(rows(receipts, tools, task).map { raw -> JsonObject((raw as JsonObject).filterKeys { !it.endsWith("_ids") }) }))
+            put("capabilities", JsonArray(rows(receipts, tools, task).map { raw -> JsonObject((raw as JsonObject).filterKeys { !it.endsWith("_ids") && it !in setOf("attempted", "dispatched", "rejected_before_dispatch", "completed") }) }))
             put("pending_pages", JsonArray(pendingPages(receipts)))
             put(
                 "distinct_observations",

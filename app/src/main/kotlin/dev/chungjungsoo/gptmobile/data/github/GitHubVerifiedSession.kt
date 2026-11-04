@@ -9,6 +9,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
@@ -39,6 +40,25 @@ internal class GitHubVerifiedSession(
     private val gatewayDiagnostic: (suspend () -> String)? = null
 ) : AgentProviderSession by delegate {
     private var lastChecklist: JsonObject? = null
+    private class ProgressCheckpointFailure(cause: Exception, val originalFailure: ProviderEvent.Failed?) : Exception(cause)
+
+    private suspend fun retainProgress(tools: List<AgentToolDefinition>, failure: ProviderEvent.Failed? = null) {
+        try {
+            withContext(computationDispatcher) {
+                evidence.retainProgress(task, authorizedTools.ifEmpty { tools }, failure?.let { it.errorCode ?: "MODEL_GENERATION_FAILED" })
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            val accessFailure = generateSequence<Throwable>(error) { it.cause }.firstOrNull {
+                it is dev.chungjungsoo.gptmobile.data.context.DispatchPolicyChangedException ||
+                    it is dev.chungjungsoo.gptmobile.data.context.ProviderWaitAuthorityChanged ||
+                    it is dev.chungjungsoo.gptmobile.data.agent.SavedEvidenceAccessDenied
+            }
+            if (accessFailure != null) throw accessFailure
+            throw ProgressCheckpointFailure(error, failure)
+        }
+    }
 
     override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> = flow {
         val intent = dev.chungjungsoo.gptmobile.data.agent.CurrentRequestContract.from(GitHubTaskContinuity.request(task))
@@ -67,6 +87,7 @@ internal class GitHubVerifiedSession(
             emit(ProviderEvent.Completed)
             return@flow
         }
+        retainProgress(tools)
         resumeCommitSha?.let { sha ->
             GitHubCommitContinuation.next(sha, resumeRequestKey, tools, evidence.snapshot().first)?.let { call ->
                 progress("Reconciling the approved commit and its checks; completed writes are retained")
@@ -154,12 +175,16 @@ internal class GitHubVerifiedSession(
                 }
                 is ProviderEvent.ToolResult -> {
                     evidence.observe(event.call, event.result)
+                    retainProgress(tools)
                     emit(event)
                 }
                 is ProviderEvent.Completed -> completed = true
                 is ProviderEvent.Failed -> {
                     failed = true
-                    if (providerFailure == null) providerFailure = event
+                    if (providerFailure == null) {
+                        providerFailure = event
+                        retainProgress(tools, event)
+                    }
                 }
                 is ProviderEvent.CombinedAnswer -> failed = true
                 else -> emit(event)
@@ -188,6 +213,23 @@ internal class GitHubVerifiedSession(
             return@flow
         }
         emitAll(publish(draft.toString()))
+    }.catch { error ->
+        // Flow.catch preserves collector failures and cancellation. A failed
+        // progress checkpoint stops work before any further provider/tool action.
+        if (error !is ProgressCheckpointFailure) throw error
+        val original = error.originalFailure
+        if (original != null) {
+            emit(original.copy(failureDetails = JsonObject(original.failureDetails.orEmpty() + ("acceptance_checkpoint" to kotlinx.serialization.json.JsonPrimitive("UNAVAILABLE")))))
+        } else {
+            val dispatched = evidence.snapshot().first.values.any { it["dispatched"] == kotlinx.serialization.json.JsonPrimitive(true) }
+            emit(
+                ProviderEvent.Failed(
+                    "The GitHub acceptance checkpoint could not be retained. No completion is claimed. Restore local storage and reconcile recorded operations before resuming.",
+                    errorCode = "GITHUB_EVIDENCE_RETENTION_INCOMPLETE",
+                    taskOutcome = if (dispatched) "PARTIAL" else "BLOCKED"
+                )
+            )
+        }
     }
 
     override fun retainedFailureResponse(failure: ProviderEvent.Failed): Flow<ProviderEvent> = flow {
@@ -245,7 +287,9 @@ internal class GitHubVerifiedSession(
                 val checklist = if (coverage != null) GitHubTestChecklist.checkpoint(task, receipts, authorizedTools) else null
                 checklist to checklist?.let { GitHubTestChecklist.progressDigest(task, receipts, authorizedTools) }
             }
-            val stalled = progressDigest != null && evidence.diagnostic()?.get("checklist_progress_digest") == kotlinx.serialization.json.JsonPrimitive(progressDigest)
+            val previous = evidence.diagnostic()
+            val previousProgressDigest = GitHubEvidenceBook.publishedChecklistDigest(previous)
+            val stalled = progressDigest != null && previousProgressDigest == kotlinx.serialization.json.JsonPrimitive(progressDigest)
             val text = if (stalled) {
                 val blockers = (checklist?.get("capabilities") as? JsonArray).orEmpty().filterIsInstance<JsonObject>().filter { it["blocker"] != null }
                 "No new test evidence or changed blockers since the saved checkpoint. ${receipts.size} receipts retained. " +
@@ -254,7 +298,8 @@ internal class GitHubVerifiedSession(
                 renderedText
             }
             validatePublication()
-            val retentionComplete = evidence.complete()
+            val retention = evidence.retentionStatus()
+            val retentionComplete = retention["evidence_retention_complete"] == kotlinx.serialization.json.JsonPrimitive(true)
             val partial = !retentionComplete || originalFailure != null || failureCode != null || report["task_outcome"] != kotlinx.serialization.json.JsonPrimitive("COMPLETED") || report["completion_verified"] != kotlinx.serialization.json.JsonPrimitive(true)
             val oversizedWithoutEvidence = draft != null && status == null && coverage == null && request == null && receipts.isEmpty()
             check(!oversizedWithoutEvidence) { "No retained GitHub evidence is available for publication" }
@@ -262,7 +307,7 @@ internal class GitHubVerifiedSession(
                 report + buildJsonObject {
                     progressDigest?.let { put("checklist_progress_digest", it) }
                     put("progress_state", if (stalled) "BLOCKED_UNCHANGED" else "ADVANCED_OR_FIRST_REPORT")
-                    put("evidence_retention_complete", retentionComplete)
+                    retention.forEach { (key, value) -> put(key, value) }
                     put("partial", partial)
                     put("resume_required", partial)
                     if (partial) {
@@ -283,13 +328,29 @@ internal class GitHubVerifiedSession(
                             }
                         )
                     }
-                    if (partial && "verification_failure" !in report) put("verification_failure", failureCode ?: if (coverage != null || report["claims_verified"] == kotlinx.serialization.json.JsonPrimitive(true)) "GITHUB_TASK_INCOMPLETE" else "GITHUB_EVIDENCE_REQUIRED")
+                    if (partial && "verification_failure" !in report) {
+                        put(
+                            "verification_failure",
+                            failureCode ?: if (!retentionComplete) {
+                                "GITHUB_EVIDENCE_RETENTION_INCOMPLETE"
+                            } else if (coverage != null || report["claims_verified"] == kotlinx.serialization.json.JsonPrimitive(true)) {
+                                "GITHUB_TASK_INCOMPLETE"
+                            } else {
+                                "GITHUB_EVIDENCE_REQUIRED"
+                            }
+                        )
+                    }
                 }
             )
             evidence.retainVerdict(retained)
             val cause = originalFailure?.let { "**Task interrupted:** ${it.message}\n\n" }.orEmpty()
             val failures = if (GitHubTaskCoverage.boundedDiagnostic(task)) withContext(computationDispatcher) { GitHubFailureSummary.render(receipts) } else ""
-            Publication(cause + text + failures, partial, retained)
+            val retentionNotice = if (retention["saved_view_retention_complete"] == kotlinx.serialization.json.JsonPrimitive(false)) {
+                "\n\n**Evidence retention incomplete:** Some saved result pages could not be durably retained. Accepted operation receipts remain recorded. Recover and persist the same captured result; do not repeat a mutation to regenerate its output."
+            } else {
+                ""
+            }
+            Publication(cause + text + failures + retentionNotice, partial, retained)
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: Exception) {

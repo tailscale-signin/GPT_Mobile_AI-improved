@@ -83,6 +83,10 @@ data class ChatCompletionRequest(
     @EncodeDefault(EncodeDefault.Mode.NEVER)
     val toolChoice: String? = null,
 
+    @SerialName("parallel_tool_calls")
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val parallelToolCalls: Boolean? = null,
+
     @SerialName("models")
     @EncodeDefault(EncodeDefault.Mode.NEVER)
     val models: List<String>? = null,

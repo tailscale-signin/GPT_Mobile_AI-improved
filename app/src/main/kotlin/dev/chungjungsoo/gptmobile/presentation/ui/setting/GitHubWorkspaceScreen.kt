@@ -109,7 +109,7 @@ fun GitHubWorkspaceScreen(
             (state.selection == null || state.selection == it.repository)
     }
     val commandContext = programmerState.context?.takeIf { it.connectionUid == connection.connectionUid && it.owner == state.selection?.owner && it.repo == state.selection?.repo && it.ref == state.selection?.ref } ?: savedContext
-    val visibleProgrammer = if (commandContext != null) programmerState.copy(context = commandContext, chatId = programmerState.chatId ?: initialChatId.takeIf { savedContext != null }) else programmerState.copy(context = null, chatId = null, messages = emptyList(), runs = emptyList(), events = emptyList(), approvals = emptyList(), pending = emptyList(), draftLoaded = false)
+    val visibleProgrammer = if (commandContext != null) programmerState.copy(context = commandContext, chatId = programmerState.chatId ?: initialChatId.takeIf { savedContext != null }) else programmerState.copy(context = null, chatId = null, messages = emptyList(), runs = emptyList(), events = emptyList(), eventCount = 0, eventCountsByRun = emptyMap(), approvals = emptyList(), pending = emptyList(), draftLoaded = false)
     val engineeringModel: dev.chungjungsoo.gptmobile.presentation.ui.chat.GatewayEngineeringViewModel = hiltViewModel()
     val engineering by engineeringModel.state.collectAsStateWithLifecycle()
     LaunchedEffect(visibleProgrammer.chatId) { visibleProgrammer.chatId?.let(engineeringModel::bind) }
@@ -139,6 +139,7 @@ fun GitHubWorkspaceScreen(
     val setupScroll = rememberScrollState()
     var tab by rememberSaveable { mutableIntStateOf(3) }
     var exportChatId by rememberSaveable { mutableStateOf<Int?>(null) }
+    var recoveryRequest by remember(visibleProgrammer.chatId) { mutableStateOf<dev.chungjungsoo.gptmobile.presentation.ui.workspace.GitHubRecoveryRequest?>(null) }
     LaunchedEffect(tab, state.commitDetail) { workspaceScroll.scrollTo(0) }
     LaunchedEffect(tab, state.selection, state.headSha, state.busy, state.error) { viewModel.onSectionVisible(tab) }
     var repositoryMenu by remember { mutableStateOf(false) }
@@ -367,6 +368,8 @@ fun GitHubWorkspaceScreen(
                                             onReviewEvidenceAccess = onReviewEvidenceAccess,
                                             onNavigateToLocalModels = onNavigateToLocalModels,
                                             registerExit = { leaveChat = it },
+                                            recoveryRequest = recoveryRequest,
+                                            onRecoveryHandled = { recoveryRequest = null },
                                             exportRequested = exportChatId == chatId,
                                             onExportHandled = { exportChatId = null }
                                         )
@@ -522,6 +525,17 @@ fun GitHubWorkspaceScreen(
                                 }
                             }
                             2 -> {
+                                dev.chungjungsoo.gptmobile.presentation.ui.workspace.GitHubWorkflowExecutionPanel(
+                                    state = visibleProgrammer,
+                                    onRecovery = { request ->
+                                        recoveryRequest = request
+                                        tab = 3
+                                    },
+                                    onExport = {
+                                        exportChatId = visibleProgrammer.chatId
+                                        tab = 3
+                                    }
+                                )
                                 visibleProgrammer.chatId?.let { GitHubChatChecks(it, expanded = true) }
                                 GitHubRepositoryStatusPanel(connection, requireNotNull(state.selection), state.pullRequests, viewModel::loadPullRequests, chatId = visibleProgrammer.chatId)
                                 Row(verticalAlignment = Alignment.CenterVertically) {

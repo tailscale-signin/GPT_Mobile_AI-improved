@@ -111,6 +111,7 @@ class OpenAIAPIImpl @Inject constructor(
         val workerBudget = kotlinx.coroutines.currentCoroutineContext()[WorkerRequestBudget]
         var receivedAssistantPayload = false
         var receivedGatewayToolActivity = false
+        val dispatchRetryGuard = ProviderDispatchRetryGuard(config)
         var receivedTerminal = false
         var resolvedFreeModel: String? = null
         var contextCorrected = false
@@ -164,11 +165,10 @@ class OpenAIAPIImpl @Inject constructor(
                 return@flow
             }
             config = gatewayControls.prepare(config)
-            LocalServiceHealth.probe(config.apiUrl)
             val endpoint = config.buildEndpoint("chat/completions")
 
             val executeRequest: suspend () -> Unit = {
-                LocalServiceHealth.requireLocalAvailable(config.apiUrl)
+                LocalConnectionPreflight.requireReady(config.apiUrl)
                 config.freeDiagnostics?.permitAcquiredAt = ProviderElapsedClock.now()
                 if (transportRetries > 0) emit(ChatCompletionChunk(retryDurationMs = (System.nanoTime() - transportStartedNs) / 1_000_000, retryAttempts = transportRetries))
                 ProviderCooldown.await(config)
@@ -192,6 +192,7 @@ class OpenAIAPIImpl @Inject constructor(
                     config.freeDiagnostics?.stage = "dispatch"
                     config.freeDiagnostics?.attempted()
                     dispatchStarted = true
+                    dispatchRetryGuard.dispatched()
                     networkClient().preparePost(endpoint) {
                         applyPlatformStreamingTimeout(timeoutSeconds, workerBudget)
                         contentType(ContentType.Application.Json)
@@ -233,6 +234,7 @@ class OpenAIAPIImpl @Inject constructor(
                                 }
                                 if (sanitized != preparedRequest) {
                                     preparedRequest = sanitized
+                                    dispatchRetryGuard.rejectedBeforeExecution()
                                     throw java.io.IOException("Retrying without unsupported sampling parameter: $parameter")
                                 }
                             }
@@ -484,7 +486,7 @@ class OpenAIAPIImpl @Inject constructor(
             } else {
                 ResilientStreamingClient.executeWithRetry(
                     config = ResilientStreamingClient.RetryConfig(maxAttempts = 3, initialDelayMs = 250, maxDelayMs = 1000),
-                    shouldRetry = { !receivedAssistantPayload && !receivedGatewayToolActivity },
+                    shouldRetry = { dispatchRetryGuard.mayRetry(receivedAssistantPayload || receivedGatewayToolActivity) },
                     onRetry = { attempt, delay, failure ->
                         LocalServiceHealth.recordLocalFailure(config.apiUrl, failure)
                         transportRetries = attempt
@@ -500,7 +502,10 @@ class OpenAIAPIImpl @Inject constructor(
         } catch (e: Exception) {
             if (e is CancellationException || e is dev.chungjungsoo.gptmobile.data.agent.ToolDefinitionsRejectedException) throw e
             LocalServiceHealth.recordLocalFailure(config.apiUrl, e)
-            val errorMessage = if (e.message.orEmpty().startsWith("LOCAL_SERVICE_UNREACHABLE:")) {
+            val gatewayOutcomeUnknown = dispatchRetryGuard.remoteOutcomeUnknown
+            val errorMessage = if (gatewayOutcomeUnknown) {
+                "GATEWAY_OUTCOME_UNKNOWN: The connection ended after a request that allows server tools was dispatched. Check the saved gateway job before resuming; the request was not replayed."
+            } else if (e.message.orEmpty().startsWith("LOCAL_SERVICE_UNREACHABLE:")) {
                 e.message.orEmpty() + ". Local server offline or unreachable; check the server listen address, port and firewall, then use Test connection to retry immediately."
             } else {
                 when (e) {
@@ -541,6 +546,23 @@ class OpenAIAPIImpl @Inject constructor(
                     error = ErrorDetail(
                         message = errorMessage,
                         type = if (config.freeProvider != null) (config.freeDiagnostics?.category ?: freeFailureCategory(e)).name else "network_error",
+                        code = if (gatewayOutcomeUnknown) {
+                            "GATEWAY_OUTCOME_UNKNOWN"
+                        } else if (e is LocalServiceUnavailableException) {
+                            "LOCAL_SERVICE_UNREACHABLE"
+                        } else {
+                            null
+                        },
+                        retryable = false.takeIf { gatewayOutcomeUnknown || e is LocalServiceUnavailableException },
+                        failureDetails = when {
+                            gatewayOutcomeUnknown -> kotlinx.serialization.json.buildJsonObject {
+                                put("failed_stage", kotlinx.serialization.json.JsonPrimitive("gateway_dispatch"))
+                                put("outcome", kotlinx.serialization.json.JsonPrimitive("unknown"))
+                                put("replay_safe", kotlinx.serialization.json.JsonPrimitive(false))
+                            }
+                            e is LocalServiceUnavailableException -> e.failureDetails()
+                            else -> null
+                        },
                         providerLimit = providerLimitDecision(config, request.model, receivedAssistantPayload || receivedGatewayToolActivity, e)
                     )
                 )
@@ -557,18 +579,18 @@ class OpenAIAPIImpl @Inject constructor(
     ): Flow<ResponsesStreamEvent> = flow {
         val workerBudget = kotlinx.coroutines.currentCoroutineContext()[WorkerRequestBudget]
         var receivedResponsePayload = false
+        val dispatchRetryGuard = ProviderDispatchRetryGuard(config)
         var receivedTerminal = false
         var resolvedFreeModel: String? = null
         var preparedRequest = request.withModelSamplingPolicy()
         var effectiveConfig = config
         try {
             effectiveConfig = gatewayControls.prepare(config)
-            LocalServiceHealth.probe(effectiveConfig.apiUrl)
             val endpoint = effectiveConfig.buildEndpoint("responses")
 
             ResilientStreamingClient.executeWithRetry(
                 config = ResilientStreamingClient.RetryConfig(maxAttempts = 3, initialDelayMs = 250, maxDelayMs = 1000),
-                shouldRetry = { !receivedResponsePayload },
+                shouldRetry = { dispatchRetryGuard.mayRetry(receivedResponsePayload) },
                 onRetry = { attempt, delay, failure ->
                     LocalServiceHealth.recordLocalFailure(effectiveConfig.apiUrl, failure)
                     dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
@@ -578,13 +600,14 @@ class OpenAIAPIImpl @Inject constructor(
                     )
                 }
             ) {
-                LocalServiceHealth.requireLocalAvailable(effectiveConfig.apiUrl)
+                LocalConnectionPreflight.requireReady(effectiveConfig.apiUrl)
                 ProviderCooldown.await(effectiveConfig)
                 effectiveConfig.freeDiagnostics?.stage = "preparation"
                 var admittedOutputTokens: Int? = null
                 val admittedPayload = requestPreparation.prepare(NetworkClient.openAIJson.encodeToString(preparedRequest), effectiveConfig.copy(onSerializedOutputTokens = { admittedOutputTokens = it }), preparedRequest.model, null)
                 effectiveConfig.freeDiagnostics?.stage = "dispatch"
                 effectiveConfig.freeDiagnostics?.attempted()
+                dispatchRetryGuard.dispatched()
                 networkClient().preparePost(endpoint) {
                     applyPlatformStreamingTimeout(timeoutSeconds, workerBudget)
                     contentType(ContentType.Application.Json)
@@ -605,6 +628,7 @@ class OpenAIAPIImpl @Inject constructor(
                             }
                             if (sanitized != preparedRequest) {
                                 preparedRequest = sanitized
+                                dispatchRetryGuard.rejectedBeforeExecution()
                                 throw java.io.IOException("Retrying without unsupported sampling parameter: $parameter")
                             }
                         }
@@ -665,7 +689,10 @@ class OpenAIAPIImpl @Inject constructor(
         } catch (e: Exception) {
             if (e is CancellationException || e is dev.chungjungsoo.gptmobile.data.agent.ToolDefinitionsRejectedException) throw e
             LocalServiceHealth.recordLocalFailure(effectiveConfig.apiUrl, e)
-            val errorMessage = if (e.message.orEmpty().startsWith("LOCAL_SERVICE_UNREACHABLE:")) {
+            val gatewayOutcomeUnknown = dispatchRetryGuard.remoteOutcomeUnknown
+            val errorMessage = if (gatewayOutcomeUnknown) {
+                "GATEWAY_OUTCOME_UNKNOWN: The connection ended after a request that allows server tools was dispatched. Check the saved gateway job before resuming; the request was not replayed."
+            } else if (e.message.orEmpty().startsWith("LOCAL_SERVICE_UNREACHABLE:")) {
                 e.message.orEmpty() + ". Local server offline or unreachable; check the server listen address, port and firewall, then use Test connection to retry immediately."
             } else {
                 when (e) {
@@ -685,7 +712,13 @@ class OpenAIAPIImpl @Inject constructor(
             emit(
                 ResponseErrorEvent(
                     message = errorMessage,
-                    code = "network_error"
+                    code = if (gatewayOutcomeUnknown) {
+                        "GATEWAY_OUTCOME_UNKNOWN"
+                    } else if (e is LocalServiceUnavailableException) {
+                        "LOCAL_SERVICE_UNREACHABLE"
+                    } else {
+                        "network_error"
+                    }
                 )
             )
         }

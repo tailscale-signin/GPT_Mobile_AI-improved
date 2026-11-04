@@ -41,7 +41,7 @@ class GitHubRetryTrancheTest {
         assertTrue(events.any { it is AgentRunEvent.Provider && it.event is ProviderEvent.TextDelta })
     }
 
-    @Test fun explicitRetryCanExecuteNewWorkAfterHistoricalBudgetWasExhausted() = runBlocking {
+    @Test fun ordinaryRetryRetainsExhaustedAllowanceAndHistoricalReceipts() = runBlocking {
         val checkpoint = ToolBatchCheckpoint(null, "same-authorized-task")
         val previous = ProviderEvent.ToolCall("old", "github_read", buildJsonObject { put("path", "Old.kt") })
         checkpoint.enqueue(listOf(previous))
@@ -57,21 +57,20 @@ class GitHubRetryTrancheTest {
         var round = 0
         val session = object : AgentProviderSession {
             override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
-                if (round++ == 0) {
-                    assertTrue(tools.isNotEmpty())
-                    emit(ProviderEvent.ToolCall("new", "github_read", buildJsonObject { put("path", "New.kt") }))
-                } else {
-                    emit(ProviderEvent.TextDelta("Historical and new findings retained."))
-                }
+                round++
+                assertTrue(tools.isEmpty())
+                assertTrue(exchanges.flatMap { it.results }.any { it.callId == "old" })
+                emit(ProviderEvent.TextDelta("Historical findings retained; the accepted tool allowance is exhausted."))
                 emit(ProviderEvent.Completed)
             }
         }
         AgentRunner(AgentRunLimits(githubTask = true, maxToolCalls = 1), checkpoint, retryUndispatchedBudgetFailures = true).run(session, listOf(tool)).collect()
-        assertEquals(1, dispatched)
-        assertEquals(2, checkpoint.dispatchedCount())
+        assertEquals(0, dispatched)
+        assertEquals(1, round)
+        assertEquals(1, checkpoint.dispatchedCount())
     }
 
-    @Test fun explicitContinueGetsBudgetButRetainsHistoricalReceipts() = runBlocking {
+    @Test fun explicitAdditionalAllowancePermitsNewWorkButRetainsHistoricalReceipts() = runBlocking {
         val checkpoint = ToolBatchCheckpoint(null, "same-authorized-task")
         val previous = ProviderEvent.ToolCall("old", "github_read", buildJsonObject { put("path", "Old.kt") })
         checkpoint.enqueue(listOf(previous))

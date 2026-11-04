@@ -101,10 +101,24 @@ class GitHubTool(
         }
     }
 
+    private val savedViewScope by lazy {
+        GitHubResultViews.scope(durableIdentity, connectionUid, conversationId, taskId, (repositoryScope?.repository ?: repositoryContext)?.fullName.orEmpty())
+    }
+    private val savedViews by lazy { dev.chungjungsoo.gptmobile.data.github.GitHubSavedViewStore(operationBlocks, "$operationBlockScope:saved:$savedViewScope") }
+
+    private suspend fun validateSavedViewAccess() {
+        check(!credentialAdmissionFailed) { "GitHub authorization could not be verified." }
+        kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestAuthorizationGuard]?.validate?.invoke()
+        // Local restoration must use the same live-account check as a new request.
+        // A verified refresh may keep the account identity; replacing the account may not.
+        refreshCredential()
+    }
+
     internal fun operations(): List<GitHubOperationTool> {
         val suffix = modelToolName.removePrefix("github").takeIf { it.startsWith("__") }.orEmpty()
-        val scope = GitHubResultViews.scope(apiToken, connectionUid, conversationId, taskId)
-        return GitHubOperationTool.names.map { GitHubOperationTool(it, this, scope, it + suffix) }
+        return GitHubOperationTool.names.map {
+            GitHubOperationTool(it, this, savedViewScope, it + suffix, loadSavedView = savedViews::load, saveSavedView = savedViews::save, validateSavedViewAccess = ::validateSavedViewAccess)
+        }
     }
 
     internal fun graphTool(): AgentTool? = graphQuery?.let { query ->

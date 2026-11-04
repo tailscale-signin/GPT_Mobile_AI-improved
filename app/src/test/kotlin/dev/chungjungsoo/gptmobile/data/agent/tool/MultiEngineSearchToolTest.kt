@@ -786,17 +786,19 @@ class MultiEngineSearchToolTest {
     }
 
     @Test fun `child permissions and shared call budget cannot be bypassed by fanout`() = runBlocking {
-        var dispatched = 0
+        val dispatched = java.util.concurrent.CopyOnWriteArrayList<Int>()
         val budget = ToolExecutionBudget(AgentRunLimits(maxToolCalls = 2))
         val engines = (1..4).map { index ->
             val resolved = engine("engine$index") { id, _ ->
-                dispatched++
+                dispatched += index
                 AgentToolResult(id, ToolResultContent.Text("source"), false)
             }
             resolved.copy(tool = budget.bind(resolved.tool, authorize = { _, _ -> index != 1 }))
         }
         val result = MultiEngineSearchTool(engines).execute("parent", buildJsonObject { put("query", "news") })
-        assertEquals(1, dispatched)
+        // The denied engine spends no allowance; two authorized children fill the shared cap.
+        assertEquals(listOf(2, 3), dispatched.sorted())
+        assertEquals(2, budget.usedCalls())
         assertTrue(result.toolCallBudgetExhausted)
         assertFalse(result.outputBudgetExhausted)
         assertEquals(2, result.toolCallBudgetUsed)

@@ -6,6 +6,18 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ProfileFailureRecordTest {
+    @Test fun gatewayOutcomeUnknownRemainsNonRetryableAfterDurableClassification() {
+        for (code in listOf("GATEWAY_OUTCOME_UNKNOWN", "REMOTE_OUTCOME_UNKNOWN")) {
+            val failure = ProfileFailureRecord.classify("$code: connection timed out; HTTP 502; retryAfterMs=2000")
+            val restored = kotlinx.serialization.json.Json.decodeFromString<ProfileFailureRecord>(kotlinx.serialization.json.Json.encodeToString(ProfileFailureRecord.serializer(), failure))
+            assertEquals("GATEWAY_OUTCOME_UNKNOWN", restored.category)
+            assertFalse(restored.retryAllowed)
+            assertEquals(true, restored.dispatched)
+            assertEquals(RemoteRequestAcceptance.UNKNOWN, restored.remoteAcceptance)
+            assertEquals("gateway_dispatch", restored.phase)
+        }
+    }
+
     @Test fun reviewRetryAdmissionAllowsRealRecoveryAndExplainsExhaustion() {
         assertEquals(null, ProfileFailureRecord.reviewRetryBlock(null))
         assertEquals(null, ProfileFailureRecord.reviewRetryBlock("Connection reset by peer"))

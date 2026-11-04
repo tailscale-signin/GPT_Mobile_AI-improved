@@ -64,7 +64,8 @@ class AgentRunner(
     private val healthCatalog: ProgressiveToolCatalog? = null,
     private val retryUndispatchedBudgetFailures: Boolean = false,
     private val onToolResult: (suspend (ProviderEvent.ToolCall, AgentToolResult) -> Unit)? = null,
-    private val resumeToolBudget: Boolean = false
+    private val resumeToolBudget: Boolean = false,
+    private val initialToolCallCountOverride: Int? = null
 ) {
     private val replayRenderCache = ToolExchangeCompactor.RenderCache()
 
@@ -88,9 +89,9 @@ class AgentRunner(
         var rounds = 0
         if (retryUndispatchedBudgetFailures) checkpoint?.prepareExplicitBudgetRetry()
         val recovery = checkpoint?.recoverySnapshot(limits.checkpointRestoreObjective)
-        // An explicit retry grants a new bounded tranche. Historical receipts
-        // still reconcile effects; they must not exhaust the new attempt's budget.
-        var toolCallCount = if (retryUndispatchedBudgetFailures || resumeToolBudget) 0 else recovery?.dispatchedCount ?: 0
+        // Reopening an undispatched refusal does not renew the accepted allowance.
+        // Only a separate explicit grant may start a new bounded tranche.
+        var toolCallCount = initialToolCallCountOverride?.coerceAtLeast(0) ?: if (resumeToolBudget) 0 else recovery?.dispatchedCount ?: 0
         var toolMayHaveExecuted = (recovery?.dispatchedCount ?: 0) > 0
         var retriedWithoutTools = false
 
@@ -110,7 +111,8 @@ class AgentRunner(
                 emit(failed("Agent run timed out after ${limits.runTimeoutMillis} ms."))
             }
         }
-    }.flowOn(limits.combined?.let(::CombinedRunScope) ?: kotlin.coroutines.EmptyCoroutineContext)
+    }.withGitHubTerminalDelivery(limits.githubTask && limits.combined == null)
+        .flowOn(limits.combined?.let(::CombinedRunScope) ?: kotlin.coroutines.EmptyCoroutineContext)
 
     private suspend fun kotlinx.coroutines.flow.FlowCollector<AgentRunEvent>.executeLoop(
         session: AgentProviderSession,
@@ -292,7 +294,7 @@ class AgentRunner(
             val remainingCalls = if (executionToolCallLimit == Int.MAX_VALUE) {
                 calls.size
             } else {
-                (executionToolCallLimit - toolCallCount).coerceAtLeast(0)
+                ToolBudgetPolicy.remainingAllowance(executionToolCallLimit, toolCallCount)
             }
             val completed = processToolCalls(
                 calls, toolByName, executableToolByName, exposedDefinitions, exchanges, dynamicTools, selectDefinitions,
@@ -394,6 +396,12 @@ class AgentRunner(
         state: RoundRecoveryState
     ): RoundRecovery? {
         val roundFailure = requireNotNull(round.failure)
+        if (GatewayOutcomeRecovery.requiresReconciliation(roundFailure, round.errorCode)) {
+            // Even a tool-free repair can reach a gateway with server tools enabled.
+            // Leave the terminal delivery boundary to report the retained failure without another model request.
+            emit(AgentRunEvent.Provider(ProviderEvent.Failed(roundFailure, round.progressDeadline, GatewayOutcomeRecovery.ERROR_CODE, round.failureTransportComplete, round.providerLimit, round.taskOutcome, round.failureDetails)))
+            return null
+        }
         var exposedDefinitions = definitions
         var finalize = false
         if (round.providerLimit != null || round.taskOutcome == "PARTIAL") {
@@ -552,9 +560,11 @@ class AgentRunner(
             executableToolByName = update.tools
             exposedDefinitions = update.definitions
         }
-        toolCallCount += executableCalls.zip(executedResults).count { (call, result) ->
+        val dispatched = executableCalls.zip(executedResults).count { (call, result) ->
             result.dispatched && call.callId !in restoredDispatched
         }
+        toolCallCount = (toolCallCount.toLong() + dispatched).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+        if (limits.githubTask) toolCallCount = maxOf(toolCallCount, executedResults.mapNotNull { it.toolCallBudgetUsed }.maxOrNull() ?: 0)
 
         val newlyBlockedTools = updateFailureCircuits(executableCalls, executedResults, consecutiveToolFailures, blockedReadScopes, ::failureScope)
         if (newlyBlockedTools.isNotEmpty()) {
@@ -1058,11 +1068,16 @@ class AgentRunner(
                 failure = if (toolDefinitionsRejected) {
                     error.message ?: "Tools are unavailable for this model."
                 } else {
-                    ErrorClassification.classify(error).userMessage
+                    val classified = ErrorClassification.classify(error)
+                    failureCode = classified.errorCode
+                    classified.userMessage
                 }
             }
         }.transformWhile { event ->
-            if (event is ProviderEvent.ToolCall && !admission.admit(event)) {
+            if (event is ProviderEvent.Failed && GatewayOutcomeRecovery.requiresReconciliation(event.message, event.errorCode)) {
+                emit(event)
+                false
+            } else if (event is ProviderEvent.ToolCall && !admission.admit(event)) {
                 batchRejection = admission.rejection?.message
                 batchRejected = true
                 false
@@ -1075,6 +1090,16 @@ class AgentRunner(
                 true
             }
         }.collect { event ->
+            if (event is ProviderEvent.Failed && GatewayOutcomeRecovery.requiresReconciliation(event.message, event.errorCode)) {
+                failure = event.message
+                failureCode = GatewayOutcomeRecovery.ERROR_CODE
+                progressDeadline = event.progressDeadline
+                failureTransportComplete = event.transportComplete
+                providerLimit = event.providerLimit
+                taskOutcome = event.taskOutcome
+                failureDetails = event.failureDetails
+                return@collect
+            }
             if (failure != null && event !is ProviderEvent.Usage) {
                 if (event is ProviderEvent.Failed && event.transportComplete && dev.chungjungsoo.gptmobile.data.agent.tool.isProviderOutputLimitFailure(event.message)) failureTransportComplete = true
                 if (event == ProviderEvent.Completed && dev.chungjungsoo.gptmobile.data.agent.tool.isProviderOutputLimitFailure(failure.orEmpty())) failureTransportComplete = true

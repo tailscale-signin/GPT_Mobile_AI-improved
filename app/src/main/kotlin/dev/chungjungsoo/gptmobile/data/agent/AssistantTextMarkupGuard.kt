@@ -28,6 +28,12 @@ internal fun Flow<ProviderEvent>.withAssistantTextMarkupGuard(
     }
 
     collect { event ->
+        if (event is ProviderEvent.Failed && GatewayOutcomeRecovery.requiresReconciliation(event.message, event.errorCode)) {
+            finishText()
+            emit(event.copy(errorCode = GatewayOutcomeRecovery.ERROR_CODE))
+            blocked = true
+            return@collect
+        }
         if (event is ProviderEvent.ToolResult &&
             !event.result.isError &&
             event.result.dispatched &&

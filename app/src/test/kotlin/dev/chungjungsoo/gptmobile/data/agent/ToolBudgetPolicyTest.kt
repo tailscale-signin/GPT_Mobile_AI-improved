@@ -64,6 +64,17 @@ class ToolBudgetPolicyTest {
     }
 
     @Test
+    fun `remaining allowance is never negative or overflowed`() {
+        assertEquals(0, ToolBudgetPolicy.remainingAllowance(10, 11))
+        assertEquals(0, ToolBudgetPolicy.remainingAllowance(0, Int.MAX_VALUE))
+        assertEquals(Int.MAX_VALUE, ToolBudgetPolicy.remainingAllowance(Int.MAX_VALUE, Int.MAX_VALUE))
+        assertEquals(3, ToolBudgetPolicy.remainingAllowance(10, 7))
+        assertEquals(1, ToolBudgetPolicy.remainingAllowance(1, Int.MIN_VALUE))
+        assertEquals(0, ToolBudgetPolicy.remainingAllowance(Int.MIN_VALUE, 0))
+        assertEquals(0, ToolBudgetPolicy.executionLimit(AgentRunLimits(maxToolCalls = Int.MIN_VALUE, finalResponseToolCallReserve = Int.MAX_VALUE)))
+    }
+
+    @Test
     fun `buildWrapUpPrompt includes remaining allowance`() {
         val prompt = ToolBudgetPolicy.buildWrapUpPrompt(3)
         assertTrue(prompt.contains("3 tool call(s) remaining"))

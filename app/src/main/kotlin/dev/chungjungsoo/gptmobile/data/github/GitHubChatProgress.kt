@@ -22,7 +22,8 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
     private var initial = true
     private var summary = GitHubProgressPresentation.introduction(task)
     private val previews = mutableSetOf<String>()
-    private val terminalCalls = mutableSetOf<String>()
+    private val terminalCalls = mutableSetOf<Pair<String, String>>()
+    private val observedProgress = linkedSetOf<Triple<String, Int, String>>()
 
     fun updates(): Flow<ApiState> = flow {
         while (kotlinx.coroutines.currentCoroutineContext().isActive) {
@@ -61,6 +62,11 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
         when (event) {
             is ApiState.GatewayProgressChanged -> {
                 val progress = event.progress
+                val scope = progress.jobId.orEmpty()
+                val replayKey = progress.sequence?.let { Triple(scope, it, progress.event.orEmpty()) }
+                if (replayKey != null && !observedProgress.add(replayKey)) return
+                if (observedProgress.size > 4_096) observedProgress.remove(observedProgress.first())
+                val terminalKey = progress.toolCallId?.takeIf(String::isNotBlank)?.let { scope to it }
                 val name = progress.toolName.orEmpty()
                 when (progress.event) {
                     "tool_started" -> {
@@ -68,13 +74,13 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
                         nextStep = "continue the current operation and inspect its result"
                     }
                     "tool_failed" -> {
-                        if (progress.toolCallId != null && !terminalCalls.add(progress.toolCallId)) return
+                        if (terminalKey != null && !terminalCalls.add(terminalKey)) return
                         failures++
                         activity = "Checking how to continue after the problem."
                         nextStep = "inspect the recorded failure and choose a bounded recovery action"
                     }
                     "tool_completed", "tool_finished" -> {
-                        if (progress.toolCallId != null && !terminalCalls.add(progress.toolCallId)) return
+                        if (terminalKey != null && !terminalCalls.add(terminalKey)) return
                         completed++
                         activity = milestone(name, false, false, progress.toolArgs)
                         lastCompleted = activity

@@ -15,6 +15,17 @@ class ReasoningRequestPolicyTest {
         assertEquals(ReasoningMode.AUTO, ReasoningPolicy.forRequest(ReasoningMode.AUTO, false, false, false, null).effective)
     }
 
+    @Test fun autoSavedPreferenceIsRetainedWhenTheRequestUsesAVerifiedOverride() {
+        val helper = ReasoningPolicy.forRequest(ReasoningMode.AUTO, true, false, true, ReasoningTemplateControl.ENABLE_THINKING)
+        assertEquals(ReasoningMode.AUTO, helper.requested)
+        assertEquals(ReasoningMode.OFF, helper.effective)
+        assertEquals("enable_thinking", helper.transmittedControl)
+        val primary = ReasoningPolicy.forRequest(ReasoningMode.AUTO, true, true, false, ReasoningTemplateControl.THINKING)
+        assertEquals(ReasoningMode.AUTO, primary.requested)
+        assertEquals(ReasoningMode.ON, primary.effective)
+        assertEquals("thinking", primary.transmittedControl)
+    }
+
     @Test fun explicitOffCannotBeOverriddenByEngineeringEffortOrHelperPreferences() {
         val explicit = ReasoningPolicy.forRequest(ReasoningMode.OFF, true, true, false, ReasoningTemplateControl.ENABLE_THINKING)
         assertEquals(ReasoningMode.OFF, explicit.effective)

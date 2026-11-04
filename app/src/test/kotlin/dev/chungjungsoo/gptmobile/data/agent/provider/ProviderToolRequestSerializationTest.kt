@@ -4,6 +4,7 @@ import dev.chungjungsoo.gptmobile.data.dto.anthropic.common.MessageRole
 import dev.chungjungsoo.gptmobile.data.dto.anthropic.common.ToolResultContent
 import dev.chungjungsoo.gptmobile.data.dto.anthropic.common.ToolUseContent
 import dev.chungjungsoo.gptmobile.data.dto.anthropic.request.AnthropicTool
+import dev.chungjungsoo.gptmobile.data.dto.anthropic.request.AnthropicToolChoice
 import dev.chungjungsoo.gptmobile.data.dto.anthropic.request.InputMessage
 import dev.chungjungsoo.gptmobile.data.dto.anthropic.request.MessageRequest
 import dev.chungjungsoo.gptmobile.data.dto.google.common.Content
@@ -32,6 +33,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Test
 
 class ProviderToolRequestSerializationTest {
@@ -45,6 +47,18 @@ class ProviderToolRequestSerializationTest {
         )
     }
     private val args = buildJsonObject { put("city", "Tokyo") }
+
+    @Test fun toolLimitsAreSerializedExplicitlyAndOmittedForToolFreeRequests() {
+        val chat = ChatCompletionRequest(model = "model", messages = emptyList(), parallelToolCalls = false)
+        val responses = ResponsesRequest(model = "model", input = emptyList(), parallelToolCalls = false)
+        val anthropic = MessageRequest(model = "model", messages = emptyList(), maxTokens = 512, toolChoice = AnthropicToolChoice())
+        assertEquals("false", encoded(chat).string("parallel_tool_calls"))
+        assertEquals("false", encoded(responses).string("parallel_tool_calls"))
+        assertEquals("true", encoded(anthropic)["tool_choice"]!!.jsonObject.string("disable_parallel_tool_use"))
+        assertFalse(encoded(chat.copy(parallelToolCalls = null)).containsKey("parallel_tool_calls"))
+        assertFalse(encoded(responses.copy(parallelToolCalls = null)).containsKey("parallel_tool_calls"))
+        assertFalse(encoded(anthropic.copy(toolChoice = null)).containsKey("tool_choice"))
+    }
 
     @Test
     fun `responses request sends function output with exact call id`() {

@@ -296,10 +296,39 @@ class GitHubEvidencePolicyTest {
     }
 
     @Test fun verdictStorageFailurePreventsEvenReceiptOnlyPublication() = runBlocking {
-        val book = GitHubEvidenceBook("b", "o/r", "main", emptySet(), save = { _, _ -> error("disk unavailable") })
+        val book = GitHubEvidenceBook("b", "o/r", "main", emptySet(), save = { id, _ -> if (id.startsWith("verification_") && !id.startsWith("verification_progress_")) error("disk unavailable") })
         val gate = GitHubVerifiedSession(session("private"), book, "fix", { 8192 }, { session("broken JSON") }, {}, {})
         val events = gate.streamRound(emptyList(), emptyList()).toList()
         assertTrue(events.any { it is ProviderEvent.Failed })
         assertTrue(events.none { it is ProviderEvent.TextDelta })
+    }
+
+    @Test fun progressStorageFailureStopsBeforeProviderWorkAndEmitsATypedFailure() = runBlocking {
+        var providerCalls = 0
+        val provider = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> {
+                providerCalls++
+                return flowOf(ProviderEvent.TextDelta("private"), ProviderEvent.Completed)
+            }
+        }
+        val book = GitHubEvidenceBook("b", "o/r", "main", emptySet(), save = { _, _ -> error("disk unavailable") })
+        val gate = GitHubVerifiedSession(provider, book, "fix", { 8192 }, { error("No verifier without a durable checkpoint") }, {}, {})
+        val failure = gate.streamRound(emptyList(), emptyList()).toList().single() as ProviderEvent.Failed
+        assertEquals("GITHUB_EVIDENCE_RETENTION_INCOMPLETE", failure.errorCode)
+        assertEquals("BLOCKED", failure.taskOutcome)
+        assertEquals(0, providerCalls)
+    }
+
+    @Test fun failedInterruptionCheckpointPreservesTheOriginalProviderFailure() = runBlocking {
+        val original = ProviderEvent.Failed("Provider rejected the request", errorCode = "PAYMENT_REQUIRED")
+        val provider = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flowOf(original)
+        }
+        val book = GitHubEvidenceBook("b", "o/r", "main", emptySet(), save = { _, row -> if (row["phase"] == JsonPrimitive("INTERRUPTED")) error("disk unavailable") })
+        val gate = GitHubVerifiedSession(provider, book, "fix", { 8192 }, { error("No verifier after denial") }, {}, {})
+        val failure = gate.streamRound(emptyList(), emptyList()).toList().single() as ProviderEvent.Failed
+        assertEquals(original.message, failure.message)
+        assertEquals(original.errorCode, failure.errorCode)
+        assertEquals(JsonPrimitive("UNAVAILABLE"), failure.failureDetails?.get("acceptance_checkpoint"))
     }
 }

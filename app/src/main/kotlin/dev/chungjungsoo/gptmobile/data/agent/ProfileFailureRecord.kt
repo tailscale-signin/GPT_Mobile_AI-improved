@@ -26,6 +26,9 @@ data class ProfileFailureRecord(
         private val httpStatus = Regex("""(?i)\b(?:HTTP(?:/\d(?:\.\d)?)?(?:\s+(?:error|status)(?:\s+code)?)?|status(?:\s+code)?|statusCode|responseCode)["']?(?:\s*[:=]\s*|\s+)(\d{3})\b""")
 
         fun classify(details: String, demoExcluded: Boolean = false, nowMillis: Long = System.currentTimeMillis()): ProfileFailureRecord {
+            if (GatewayOutcomeRecovery.requiresReconciliation(details)) {
+                return ProfileFailureRecord(GatewayOutcomeRecovery.ERROR_CODE, retryAllowed = false, dispatched = true, remoteAcceptance = RemoteRequestAcceptance.UNKNOWN, phase = "gateway_dispatch")
+            }
             val epoch = Regex("(?i)rate limited until ([0-9]{10,16})").find(details)?.groupValues?.get(1)?.toLongOrNull()
                 ?.let { if (it < 100_000_000_000L) it * 1000 else it }
             val iso = Regex("(?i)next eligible retry:\\s*([^\\s]+)").find(details)?.groupValues?.get(1)

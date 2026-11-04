@@ -24,6 +24,8 @@ timeout 180s adb shell am instrument -w -r -e class dev.chungjungsoo.gptmobile.d
 performance_status=${PIPESTATUS[0]}
 timeout 180s adb shell am instrument -w -r -e class dev.chungjungsoo.gptmobile.data.memory.MemoryDurabilityInstrumentedTest dev.melo.gptmobile.improved.test/androidx.test.runner.AndroidJUnitRunner | tee "$acceptance_output/memory-durability-instrumentation.txt"
 memory_status=${PIPESTATUS[0]}
+timeout 180s adb shell am instrument -w -r -e class dev.chungjungsoo.gptmobile.data.agent.ToolCallBudgetFenceInstrumentedTest dev.melo.gptmobile.improved.test/androidx.test.runner.AndroidJUnitRunner | tee "$acceptance_output/tool-budget-fence-instrumentation.txt"
+tool_budget_fence_status=${PIPESTATUS[0]}
 timeout 240s adb shell am instrument -w -r -e class dev.chungjungsoo.gptmobile.presentation.ui.home.PlatformPickerInstrumentedTest dev.melo.gptmobile.improved.test/androidx.test.runner.AndroidJUnitRunner | tee "$acceptance_output/picker-instrumentation.txt"
 picker_status=${PIPESTATUS[0]}
 timeout 180s adb shell am instrument -w -r -e class dev.chungjungsoo.gptmobile.presentation.ui.chat.BubbleActionMenuInstrumentedTest dev.melo.gptmobile.improved.test/androidx.test.runner.AndroidJUnitRunner | tee "$acceptance_output/bubble-actions-instrumentation.txt"
@@ -38,6 +40,8 @@ timeout 180s adb shell am instrument -w -r -e class dev.chungjungsoo.gptmobile.p
 combined_settings_status=${PIPESTATUS[0]}
 timeout 180s adb shell am instrument -w -r -e class dev.chungjungsoo.gptmobile.presentation.ui.chat.CombinedFinalizationLifecycleInstrumentedTest dev.melo.gptmobile.improved.test/androidx.test.runner.AndroidJUnitRunner | tee "$acceptance_output/combined-finalization-instrumentation.txt"
 combined_finalization_status=${PIPESTATUS[0]}
+timeout 180s adb shell am instrument -w -r -e class dev.chungjungsoo.gptmobile.presentation.ui.workspace.GitHubWorkflowExecutionInstrumentedTest dev.melo.gptmobile.improved.test/androidx.test.runner.AndroidJUnitRunner | tee "$acceptance_output/github-workflow-execution-instrumentation.txt"
+github_workflow_execution_status=${PIPESTATUS[0]}
 # The suite requests both 320 dp and 600 dp layouts; the device must accommodate the wider one.
 timeout 30s adb shell wm size 1200x2560
 settings_home_display_status=$?
@@ -121,6 +125,7 @@ if [ "$navigation_setup_status" -ne 0 ]; then exit "$navigation_setup_status"; f
 if [ "$navigation_restore_status" -ne 0 ]; then exit "$navigation_restore_status"; fi
 if [ "$combined_settings_status" -ne 0 ]; then exit "$combined_settings_status"; fi
 if [ "$combined_finalization_status" -ne 0 ]; then exit "$combined_finalization_status"; fi
+if [ "$github_workflow_execution_status" -ne 0 ]; then exit "$github_workflow_execution_status"; fi
 if [ "$settings_home_status" -ne 0 ]; then exit "$settings_home_status"; fi
 if [ "$navigation_motion_status" -ne 0 ]; then exit "$navigation_motion_status"; fi
 if [ "$github_prompt_motion_status" -ne 0 ]; then exit "$github_prompt_motion_status"; fi
@@ -134,6 +139,7 @@ if [ "$picker_status" -ne 0 ]; then exit "$picker_status"; fi
 if [ "$editor_status" -ne 0 ]; then exit "$editor_status"; fi
 if [ "$performance_status" -ne 0 ]; then exit "$performance_status"; fi
 if [ "$memory_status" -ne 0 ]; then exit "$memory_status"; fi
+if [ "$tool_budget_fence_status" -ne 0 ]; then exit "$tool_budget_fence_status"; fi
 python3 - <<'CHECK'
 import json
 import sys
@@ -154,6 +160,7 @@ check_instrumentation(folder / 'editor-instrumentation.txt', 'dev.chungjungsoo.g
 check_instrumentation(folder / 'performance-instrumentation.txt', 'dev.chungjungsoo.gptmobile.data.telemetry.tool.StatisticsPerformanceInstrumentedTest', 'catalogParseAndStatisticsOverheadProduceMeasuredEvidence')
 for test in ('encryptedCutoverPreservesIdentityAndRejectsStaleWrites', 'portableRestoreUsesNewKeyAndCannotResurrectDeletedFacts'):
     check_instrumentation(folder / 'memory-durability-instrumentation.txt', 'dev.chungjungsoo.gptmobile.data.memory.MemoryDurabilityInstrumentedTest', test)
+check_instrumentation(folder / 'tool-budget-fence-instrumentation.txt', 'dev.chungjungsoo.gptmobile.data.agent.ToolCallBudgetFenceInstrumentedTest', 'privateFilesystemFenceSurvivesPayloadLossAndRejectsDeletedChatWrites')
 for test in ('compactLightSelectionAndAccessibleFavorite', 'compactDarkRtlSelectionAndAccessibleFavorite'):
     check_instrumentation(folder / 'picker-instrumentation.txt', 'dev.chungjungsoo.gptmobile.presentation.ui.home.PlatformPickerInstrumentedTest', test)
 for test in ('dialogBlurSwitchActuallyFiltersTheBackground', 'stackedDialogSamplesItsVisibleParentInsteadOfOnlyTheActivity', 'settingsBackdropAndTypographyChangesKeepNavigationContentComposed', 'openingSettingsWhileHomeBlurStillDrawsDoesNotReplayLiveHomeLayers'):
@@ -165,6 +172,8 @@ for test in ('conversationGlassKeepsRequestedOpacityOverFadedMessages', 'convers
 for test in ('combinedTabStagesBothAxesAndRemovesDelegationCard', 'cancelKeepsCommittedMembershipAndPreventsEmptySave', 'membershipRowStagesChangesWithoutSavingImmediately', 'saveableDraftRestoresTheTwoAxesTogether', 'unsupportedFutureControlsStayVisibleButCannotBeEdited'):
     check_instrumentation(folder / 'combined-settings-instrumentation.txt', 'dev.chungjungsoo.gptmobile.presentation.ui.chat.CombinedSettingsInstrumentedTest', test)
 check_instrumentation(folder / 'combined-finalization-instrumentation.txt', 'dev.chungjungsoo.gptmobile.presentation.ui.chat.CombinedFinalizationLifecycleInstrumentedTest', 'finalizationWhilePointerIsDownAndScrollingDisposesThePreviousRenderer')
+for test in ('savedAcceptanceStatesRemainDistinctFromSuccessfulOperations', 'recoverableReadRoutesResumeAndRetryToSavedRun', 'unknownMutationOffersReconciliationAndIncidentDetailsWithoutRetry', 'unknownGatewayOutcomeKeepsDetailsWithoutResumeOrRetry', 'authorizationBlockKeepsDetailsWithoutRecovery', 'submittingRequestDisablesRecoveryButPreservesDetails'):
+    check_instrumentation(folder / 'github-workflow-execution-instrumentation.txt', 'dev.chungjungsoo.gptmobile.presentation.ui.workspace.GitHubWorkflowExecutionInstrumentedTest', test)
 for test in ('oneToFiveItemsAtCompactWidth', 'oneToFiveItemsAtWideWidth', 'oneToFiveItemsAtLargeFontAndRtl', 'homeScreenNamesItsDestinationEnforcesFiveAndAllowsZero'):
     check_instrumentation(folder / 'settings-home-instrumentation.txt', 'dev.chungjungsoo.gptmobile.presentation.ui.setting.SettingsHomeInstrumentedTest', test)
 check_instrumentation(folder / 'navigation-motion-instrumentation.txt', 'dev.chungjungsoo.gptmobile.presentation.navigation.NavigationMotionInstrumentedTest', 'backUsesFadeWithoutScalingAndCompletesOnThePreviousScreen')

@@ -8,7 +8,9 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.put
 
@@ -21,7 +23,7 @@ internal class GitHubResultViews(
     init {
         require(pageBytes >= 2048)
     }
-    private data class Entry(val scope: String, val operation: String, val modelName: String, val fragments: List<JsonObject>, val metadata: JsonObject, val continuations: List<JsonObject>, val expires: Long, val bytes: Int, val originalError: Boolean, val originalErrorCode: String?, val pageBytes: Int, val context: JsonObject, val sourceRecovery: JsonObject?, val issuedCursors: MutableSet<String> = mutableSetOf())
+    private data class Entry(val scope: String, val operation: String, val modelName: String, val fragments: List<JsonObject>, val metadata: JsonObject, val continuations: List<JsonObject>, val expires: Long, val bytes: Int, val originalError: Boolean, val originalErrorCode: String?, val pageBytes: Int, val context: JsonObject, val sourceRecovery: JsonObject?, val issuedCursors: MutableSet<String> = mutableSetOf(), val failedPersistenceCursors: MutableSet<String> = mutableSetOf())
     private data class EvictedView(val scope: String, val operation: String, val reason: String, val recovery: JsonObject?, val cursors: Set<String>, val expires: Long)
     private val entries = LinkedHashMap<String, Entry>()
     private val evicted = LinkedHashMap<String, EvictedView>()
@@ -216,6 +218,73 @@ internal class GitHubResultViews(
             return AgentToolResult(callId, ToolResultContent.Json(page), true, errorCode = "SAVED_VIEW_PAGE_CAPACITY", sharedResult = true, dispatched = false)
         }
         return AgentToolResult(callId, ToolResultContent.Json(page), entry.originalError, errorCode = entry.originalErrorCode, sharedResult = true, dispatched = false)
+    }
+
+    /** Durable bodies and issued handles are stored separately to avoid rewriting source on every page. */
+    @Synchronized
+    fun checkpoint(scope: String, result: AgentToolResult): Pair<String, JsonObject>? {
+        val content = (result.content as? ToolResultContent.Json)?.value as? JsonObject ?: return null
+        val recipe = content["recovery_call"] as? JsonObject ?: return null
+        val args = recipe["arguments"] as? JsonObject ?: return null
+        val cursor = (args["view_cursor"] as? JsonPrimitive)?.contentOrNull ?: return null
+        val id = cursor.substringBefore(':')
+        val entry = entries[id]?.takeIf { it.scope == scope && cursor in it.issuedCursors } ?: return null
+        return id to buildJsonObject {
+            put("schema", "github.saved-view.v1")
+            put("scope", entry.scope)
+            put("operation", entry.operation)
+            put("model_name", entry.modelName)
+            put("fragments", JsonArray(entry.fragments))
+            put("metadata", entry.metadata)
+            put("continuations", JsonArray(entry.continuations))
+            put("original_error", entry.originalError)
+            entry.originalErrorCode?.let { put("original_error_code", it) }
+            put("page_bytes", entry.pageBytes)
+            put("context", entry.context)
+            entry.sourceRecovery?.let { put("source_recovery", it) }
+            put("issued_cursors", JsonArray(entry.issuedCursors.map(::JsonPrimitive)))
+            put("failed_persistence_cursors", JsonArray(entry.failedPersistenceCursors.map(::JsonPrimitive)))
+        }
+    }
+
+    @Synchronized
+    fun markPersistenceUnavailable(scope: String, id: String, cursors: List<JsonPrimitive>) {
+        val entry = entries[id]?.takeIf { it.scope == scope } ?: return
+        entry.failedPersistenceCursors += cursors.map { it.content }.filter { it in entry.issuedCursors }
+    }
+
+    /** Rehydrate only exact issued handles from the authorized durable store; this never calls a backend. */
+    @Synchronized
+    fun restore(scope: String, operation: String, modelName: String, cursor: String, snapshot: JsonObject): Boolean {
+        fun text(key: String) = (snapshot[key] as? JsonPrimitive)?.contentOrNull
+        if (text("schema") != "github.saved-view.v1" || text("scope") != scope || text("operation") != operation || text("model_name") != modelName) return false
+        val id = cursor.substringBefore(':')
+        if (runCatching { UUID.fromString(id) }.isFailure) return false
+        val issued = (snapshot["issued_cursors"] as? JsonArray)?.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }?.toSet() ?: return false
+        if (cursor !in issued || issued.size > 16_384 || issued.any { it.substringBefore(':') != id }) return false
+        val failed = (snapshot["failed_persistence_cursors"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.contentOrNull }.toSet()
+        if (failed.any { it !in issued }) return false
+        val fragments = (snapshot["fragments"] as? JsonArray)?.filterIsInstance<JsonObject>() ?: return false
+        if (fragments.isEmpty() || fragments.size != (snapshot["fragments"] as JsonArray).size) return false
+        val pageSize = (snapshot["page_bytes"] as? JsonPrimitive)?.intOrNull?.takeIf { it in 2048..pageBytes } ?: return false
+        val metadata = snapshot["metadata"] as? JsonObject ?: return false
+        val continuations = (snapshot["continuations"] as? JsonArray)?.filterIsInstance<JsonObject>() ?: return false
+        val context = snapshot["context"] as? JsonObject ?: return false
+        val recovery = snapshot["source_recovery"] as? JsonObject
+        val originalError = (snapshot["original_error"] as? JsonPrimitive)?.booleanOrNull ?: return false
+        val size = fragments.sumOf { it.toString().encodeToByteArray().size * 2L + 256 } + metadata.toString().encodeToByteArray().size * 2L +
+            continuations.sumOf { it.toString().encodeToByteArray().size * 2L + 256 } + context.toString().encodeToByteArray().size * 2L + recovery.toString().encodeToByteArray().size * 2L + 1024
+        if (size > capacityBytes || fragments.any { it.toString().encodeToByteArray().size > pageSize / 3 }) return false
+        entries.remove(id)?.let { retainedBytes -= it.bytes }
+        while (entries.isNotEmpty() && (entries.size >= 32 || retainedBytes + size > capacityBytes)) evict(entries.keys.first())
+        val entry = Entry(
+            scope, operation, modelName, fragments, metadata, continuations, now() + 10 * 60_000, size.toInt(),
+            originalError, text("original_error_code"), pageSize, context, recovery, issued.toMutableSet(), failed.toMutableSet()
+        )
+        entries[id] = entry
+        retainedBytes += entry.bytes
+        evicted.remove(id)
+        return true
     }
 
     private fun authorize(entry: Entry, page: JsonObject) {
@@ -510,8 +579,8 @@ internal class GitHubResultViews(
         )
 
         /** Saved pages only deliver captured bytes; backend mutations keep their task-specific receipts. */
-        fun scope(credential: String, connectionUid: String, conversationId: String, taskId: String): String =
-            dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore.digest(listOf(credential, connectionUid, conversationId, taskId.takeIf { conversationId.isBlank() }.orEmpty()).joinToString("|"))
+        fun scope(authorizationIdentity: String, connectionUid: String, conversationId: String, taskId: String, repository: String = ""): String =
+            dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore.digest(listOf(authorizationIdentity, connectionUid, conversationId, taskId.takeIf { conversationId.isBlank() }.orEmpty(), repository.lowercase(java.util.Locale.ROOT)).joinToString("\u0000"))
 
         const val SCHEMA = "github.operation.v1"
         private const val MAX_SOURCE_BYTES = 1024 * 1024

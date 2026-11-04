@@ -23,8 +23,8 @@ data class ReasoningDecision(
 object ReasoningPolicy {
     fun forRequest(requested: ReasoningMode, allowed: Boolean, maximize: Boolean, helper: Boolean, control: ReasoningTemplateControl?): ReasoningDecision = when {
         requested != ReasoningMode.AUTO -> resolve(requested, true, control)
-        helper || !allowed -> boundedHelper(control)
-        maximize && allowed -> strongestSupported(true, control)
+        helper || !allowed -> boundedHelper(control).copy(requested = requested)
+        maximize && allowed -> strongestSupported(true, control).copy(requested = requested)
         else -> resolve(requested, allowed, control)
     }
 

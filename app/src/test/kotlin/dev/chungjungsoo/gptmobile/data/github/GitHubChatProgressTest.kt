@@ -112,4 +112,26 @@ class GitHubChatProgressTest {
             GitHubChatPresence.hide("second")
         }
     }
+
+    @Test fun replayedGatewayTerminalEventsAreCountedOnceWithoutCallIds() {
+        var clock = 0L
+        val progress = GitHubChatProgress { clock }
+        progress.tick()
+        val completed = ApiState.GatewayProgressChanged(GatewayProgress(event = "tool_completed", jobId = "job", sequence = 7, toolName = "github_read"))
+        repeat(3) { progress.observe(completed) }
+        clock = 15_000
+        assertTrue(progress.tick().filterIsInstance<ApiState.ActivitySummary>().single().text.contains("completed 1 repository operations"))
+    }
+
+    @Test fun sameCallIdInDifferentJobsIsCountedSeparately() {
+        var clock = 0L
+        val progress = GitHubChatProgress { clock }
+        progress.tick()
+        listOf("first", "second").forEach { job ->
+            progress.observe(ApiState.GatewayProgressChanged(GatewayProgress(event = "tool_completed", jobId = job, sequence = 1, toolCallId = "call", toolName = "github_read")))
+            progress.observe(ApiState.GatewayProgressChanged(GatewayProgress(event = "tool_finished", jobId = job, sequence = 2, toolCallId = "call", toolName = "github_read")))
+        }
+        clock = 15_000
+        assertTrue(progress.tick().filterIsInstance<ApiState.ActivitySummary>().single().text.contains("completed 2 repository operations"))
+    }
 }

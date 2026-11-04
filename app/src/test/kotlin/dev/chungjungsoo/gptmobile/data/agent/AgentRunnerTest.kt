@@ -829,7 +829,7 @@ class AgentRunnerTest {
 
         assertEquals(1, providerCalls.get())
         assertEquals(
-            listOf(AgentRunEvent.Provider(ProviderEvent.Failed("Service temporarily unavailable due to high error rates. Please wait a moment before trying again."))),
+            listOf(AgentRunEvent.Provider(ProviderEvent.Failed("Service temporarily unavailable due to high error rates. Please wait a moment before trying again.", errorCode = "CIRCUIT_BREAKER_OPEN"))),
             events
         )
     }

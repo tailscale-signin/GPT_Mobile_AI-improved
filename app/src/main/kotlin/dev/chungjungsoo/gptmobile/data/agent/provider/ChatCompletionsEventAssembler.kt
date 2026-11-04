@@ -8,7 +8,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 
 class ChatCompletionsEventAssembler {
-    private val toolGuard = ToolStreamGuard()
+    private val toolGuard = ToolStreamGuard(ProviderToolBatchPolicy.PREFERRED_MAX_CALLS)
     private data class PendingCall(
         var callId: String? = null,
         var name: String? = null,
@@ -17,6 +17,7 @@ class ChatCompletionsEventAssembler {
 
     private val pending = sortedMapOf<Pair<Int, Int>, PendingCall>(compareBy({ it.first }, { it.second }))
     private val shape = ArrayDeque<String>()
+    private var rejected: ToolBatchOversizeException? = null
 
     fun accept(
         content: String?,
@@ -25,6 +26,7 @@ class ChatCompletionsEventAssembler {
         finishReason: String?,
         choiceIndex: Int = 0
     ): List<ProviderEvent> {
+        rejected?.let { throw it }
         val events = mutableListOf<ProviderEvent>()
         reasoning?.takeIf { it.isNotEmpty() }?.let { events += ProviderEvent.ThinkingDelta(it) }
         content?.takeIf { it.isNotEmpty() }?.let { events += ProviderEvent.TextDelta(it) }
@@ -39,7 +41,10 @@ class ChatCompletionsEventAssembler {
                 toolGuard.identifier(delta.function?.name)
                 toolGuard.append(delta.function?.arguments.orEmpty())
             } catch (failure: dev.chungjungsoo.gptmobile.data.agent.ToolBatchOversizeException) {
-                throw dev.chungjungsoo.gptmobile.data.agent.ToolBatchOversizeException(failure.threshold, failure.observedValue, failure.allowedValue, pending.values.count { !it.callId.isNullOrBlank() }, shape.joinToString(";"))
+                val incident = ToolBatchOversizeException(failure.threshold, failure.observedValue, failure.allowedValue, pending.values.count { !it.callId.isNullOrBlank() }, shape.joinToString(";"))
+                rejected = incident
+                pending.clear()
+                throw incident
             }
             val call = pending.getOrPut(key) { PendingCall() }
             delta.id?.takeIf(String::isNotBlank)?.let { id ->
@@ -74,6 +79,7 @@ class ChatCompletionsEventAssembler {
 
     /** Called only for a completed choice or an explicit SSE [DONE]. */
     fun finish(choiceIndex: Int? = null): List<ProviderEvent> {
+        if (rejected != null) return emptyList()
         val completed = pending.filterKeys { choiceIndex == null || it.first == choiceIndex }
         val events = completed.values.map { call ->
             val name = call.name

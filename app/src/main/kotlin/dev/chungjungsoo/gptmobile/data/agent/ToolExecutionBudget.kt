@@ -21,11 +21,13 @@ class ToolExecutionBudget(
     private val statisticsRoot: String = "",
     private val combined: CombinedExecutionContext? = null,
     private val combinedBudgets: CombinedTurnBudgetStore? = null,
-    private val failureMessage: (Exception) -> String = { "Tool execution failed. Check the connection diagnostics before repeating an action." }
+    private val failureMessage: (Exception) -> String = { "Tool execution failed. Check the connection diagnostics before repeating an action." },
+    initialCalls: Int = 0,
+    private val durableCalls: ToolCallBudgetCheckpoint? = null
 ) {
     private val terminalToolFailures = java.util.concurrent.ConcurrentHashMap<String, String>()
     private val unknownOutcomes = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
-    private val calls = AtomicInteger()
+    private val calls = AtomicInteger(initialCalls.coerceAtLeast(0))
     private val attempts = AtomicInteger()
     private val invocationIds = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     private val failures = java.util.concurrent.ConcurrentHashMap<String, AtomicInteger>()
@@ -39,6 +41,8 @@ class ToolExecutionBudget(
     // must not stop traversal after three 8 KiB pages. The call ceiling,
     // per-result bound and provider replay/context admission still apply.
     private val separateResultAllowance = limits.researchAcquisition || combinedMode || limits.githubTask && limits.maxToolOutputBytes > 0
+
+    fun usedCalls(): Int = calls.get()
 
     fun canExecute(): Boolean = (separateResultAllowance || remainingBytes.get() > 0) && !callBudgetIsExhausted()
     fun remainingOutputBytes(): Int = if (separateResultAllowance) limits.maxToolOutputBytes.coerceAtLeast(0) else remainingBytes.get().coerceAtLeast(0)
@@ -94,22 +98,6 @@ class ToolExecutionBudget(
                 val message = ToolArgumentValidator.repairMessage(tool.definition.name, invalid, tool.definition.inputSchema)
                 return { withBudgetState(ToolResultEnvelope.error(callId, "INVALID_ARGUMENTS", message)) }
             }
-            if (!alreadyBudgeted && !tryAcquireCall(enforceResearchLimit = executionContext != null)) {
-                val message = toolCallBudgetMessage()
-                AppLogRecorder.record(
-                    "ToolBudget",
-                    "Tool-call limit blocked execution · tool=${tool.definition.name} · call=$callId · used=${calls.get()} · executableLimit=$executionLimit · configured=${limits.maxToolCalls} · reserved=${limits.finalResponseToolCallReserve}",
-                    "W"
-                )
-                return {
-                    withBudgetState(
-                        failure(message).copy(
-                            traceContent = ToolResultContent.Text(message),
-                            toolCallBudgetExhausted = true
-                        )
-                    )
-                }
-            }
             if (!separateResultAllowance && remainingBytes.get() <= 0) {
                 val message = outputBudgetMessage()
                 AppLogRecorder.record(
@@ -126,6 +114,9 @@ class ToolExecutionBudget(
                     )
                 }
             }
+            if (!alreadyBudgeted && callBudgetIsExhausted()) {
+                return { withBudgetState(failure(toolCallBudgetMessage()).copy(toolCallBudgetExhausted = true)) }
+            }
             val authorized = try {
                 authorize(callId, arguments)
             } catch (rejected: dev.chungjungsoo.gptmobile.data.permissions.ToolAuthorizationRejected) {
@@ -135,6 +126,31 @@ class ToolExecutionBudget(
             if (!authorized) {
                 terminalToolFailures[tool.definition.name] = "AUTH_REQUIRED"
                 return { bounded(ToolResultEnvelope.error(callId, "AUTH_REQUIRED", "Tool permission was denied or revoked. Review this tool's grants before retrying.")) }
+            }
+            val acquired = try {
+                alreadyBudgeted || tryAcquireCall(enforceResearchLimit = executionContext != null)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (changed: dev.chungjungsoo.gptmobile.data.context.DispatchPolicyChangedException) {
+                throw changed
+            } catch (_: Exception) {
+                return { withBudgetState(ToolResultEnvelope.error(callId, "BUDGET_CHECKPOINT_UNAVAILABLE", "The durable tool allowance could not be saved. No action was dispatched; restore its checkpoint before resuming.")) }
+            }
+            if (!acquired) {
+                val message = toolCallBudgetMessage()
+                AppLogRecorder.record(
+                    "ToolBudget",
+                    "Tool-call limit blocked execution · tool=${tool.definition.name} · call=$callId · used=${calls.get()} · executableLimit=$executionLimit · configured=${limits.maxToolCalls} · reserved=${limits.finalResponseToolCallReserve}",
+                    "W"
+                )
+                return {
+                    withBudgetState(
+                        failure(message).copy(
+                            traceContent = ToolResultContent.Text(message),
+                            toolCallBudgetExhausted = true
+                        )
+                    )
+                }
             }
             val dispatched = java.util.concurrent.atomic.AtomicBoolean()
             return execution@{
@@ -186,7 +202,7 @@ class ToolExecutionBudget(
                     val recorder = statistics
                     val recordedId = statisticsId
                     val sharedContext = physicalContext?.let { CombinedToolDispatchScope(it, physicalIdentity) } ?: kotlin.coroutines.EmptyCoroutineContext
-                    val observed = withContext(sharedContext) {
+                    val observed = withContext(sharedContext + ToolBudgetScope(this@ToolExecutionBudget)) {
                         currentCoroutineContext().ensureActive()
                         physicalToolStarted = true
                         if (recorder != null && recordedId != null) withContext(dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsContext(recorder, recordedId, statisticsIdentity.key, attributedProfile, statisticsRoot)) { tool.execute(callId, arguments) } else tool.execute(callId, arguments)
@@ -365,9 +381,14 @@ class ToolExecutionBudget(
         }
     }
 
-    private fun tryAcquireCall(enforceResearchLimit: Boolean = false): Boolean {
+    private suspend fun tryAcquireCall(enforceResearchLimit: Boolean = false): Boolean {
+        durableCalls?.let { checkpoint ->
+            val used = checkpoint.acquire(executionLimit) ?: return false
+            calls.getAndUpdate { maxOf(it, used) }
+            return true
+        }
         if (limits.researchAcquisition && !enforceResearchLimit || executionLimit == Int.MAX_VALUE) {
-            calls.incrementAndGet()
+            calls.getAndUpdate { if (it == Int.MAX_VALUE) it else it + 1 }
             return true
         }
         while (true) {

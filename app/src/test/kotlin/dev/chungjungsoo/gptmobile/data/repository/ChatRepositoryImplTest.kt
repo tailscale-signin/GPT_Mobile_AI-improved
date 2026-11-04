@@ -1806,6 +1806,88 @@ class ChatRepositoryImplTest {
     }
 
     @Test
+    fun persistedUnknownGatewayOutcomeBlocksFreshDispatchAndContinueOutsideTheVisibleWindow() = runBlocking {
+        val platform = customPlatform().copy(enabled = true, disableAllTools = true)
+        val original = MessageV2(id = 1, chatId = 7, content = "Complete the accepted remote task", platformType = null)
+        val error = "GATEWAY_OUTCOME_UNKNOWN: connection lost after gateway dispatch"
+        val failed = MessageV2(
+            id = 2,
+            chatId = 7,
+            content = "",
+            linkedMessageId = original.id,
+            platformType = platform.uid,
+            currentRunId = "original-run",
+            timeline = listOf(
+                dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem(
+                    dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType.NOTICE,
+                    runError = error,
+                    profileFailure = dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.classify(error)
+                )
+            )
+        )
+        val failedRun = dev.chungjungsoo.gptmobile.data.database.entity.AgentRun(
+            "original-run", 7, original.id, failed.id, platform.uid, "CUSTOM", platform.model,
+            status = dev.chungjungsoo.gptmobile.data.database.entity.AgentRunStatus.FAILED,
+            terminalError = error
+        )
+        for (mode in listOf("run", "message", "isolated")) {
+            val storedMessage = mode != "run"
+            for (continued in listOf(false, true)) {
+                val latest = if (continued) original.copy(id = 3, content = "Continue") else original
+                val savedUsers = if (continued) listOf(original, latest) else listOf(original)
+                val persistence = mockk<dev.chungjungsoo.gptmobile.data.database.dao.AgentPersistenceDao>(relaxed = true)
+                coEvery { persistence.getMessages(7) } returns savedUsers + if (storedMessage) listOf(failed) else emptyList()
+                val runs = mockk<dev.chungjungsoo.gptmobile.data.database.dao.AgentRunDao>(relaxed = true)
+                coEvery { runs.getByChatId(7) } returns if (storedMessage) emptyList() else listOf(failedRun)
+                val api = RecordingOpenAIAPI()
+                val currentWindow = when (mode) {
+                    "isolated" -> listOf(
+                        listOf(
+                            failed.copy(
+                                content = "PRIVATE_CONTEXT_MUST_NOT_BE_SENT",
+                                timeline = listOf(
+                                    dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem(
+                                        dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType.NOTICE,
+                                        personalData = listOf(
+                                            dev.chungjungsoo.gptmobile.data.permissions.PersonalDataProvenance(
+                                                sourceToolId = "memory",
+                                                sourceProfileUid = platform.uid,
+                                                sourceRef = "private-fixture",
+                                                categories = setOf(dev.chungjungsoo.gptmobile.data.permissions.PersonalDataCategory.PRIVATE_CONTENT),
+                                                localOnly = true
+                                            )
+                                        )
+                                    )
+                                )
+                            )
+                        )
+                    )
+                    "message" -> listOf(listOf(failed.copy(timeline = emptyList())))
+                    else -> emptyList()
+                }
+                val states = createRepository(openAIAPI = api, persistenceOverride = persistence, runsOverride = runs).completeChat(
+                    listOf(latest),
+                    currentWindow,
+                    platform,
+                    "replacement-$mode-$continued",
+                    chatToolConfig = if (mode == "isolated") {
+                        dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig(
+                            github = dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext("connection", "owner", "repo", "main", "a".repeat(40), platform.uid)
+                        )
+                    } else {
+                        null
+                    }
+                ).toList()
+
+                assertEquals(states.toString(), 0, api.streamChatCompletionCalls)
+                assertEquals(states.toString(), "GATEWAY_OUTCOME_UNKNOWN", states.filterIsInstance<ApiState.Error>().single().errorCode)
+                assertFalse(states.filterIsInstance<ApiState.Success>().any { it.textChunk.contains("PRIVATE_CONTEXT_MUST_NOT_BE_SENT") })
+                if (mode == "isolated") assertTrue(states.any { it is ApiState.Notice && it.message.contains("without saved personal context") })
+            }
+        }
+    }
+
+    @Test
     fun freshMessageCannotAutomaticallyRecoverUnrelatedPreviousTurn() = runBlocking {
         val persisted = mockk<dev.chungjungsoo.gptmobile.data.database.dao.AgentPersistenceDao>(relaxed = true)
         val inspectedUserIds = mutableListOf<List<Int>>()
@@ -2060,7 +2142,7 @@ class ChatRepositoryImplTest {
     private inline fun <reified T> proxy(): T {
         val handler = InvocationHandler { _, method, _ ->
             when {
-                method.name in setOf("fetchPlatformV2s", "getIncompleteRuns") -> emptyList<PlatformV2>()
+                method.name in setOf("fetchPlatformV2s", "getIncompleteRuns", "getMessages", "getByChatId") -> emptyList<Any>()
                 method.name == "getFeatureSettings" -> dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings()
                 else -> when (method.returnType) {
                     Boolean::class.javaPrimitiveType -> false

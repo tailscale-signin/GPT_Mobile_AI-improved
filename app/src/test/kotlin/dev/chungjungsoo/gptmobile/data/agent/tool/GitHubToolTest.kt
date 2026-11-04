@@ -22,6 +22,52 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubToolTest {
+    @Test fun savedPagesRevalidateTheLiveAccountAndSurviveVerifiedCredentialRotation() = runTest {
+        var requests = 0
+        var credentialChecks = 0
+        var account = "account-a"
+        var credential = "token-before-rotation"
+        val state = dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore()
+        val http = HttpClient(
+            MockEngine { request ->
+                requests++
+                assertEquals("/repos/owner/repo/actions/workflows", request.url.encodedPath)
+                respond("""{"total_count":1,"workflows":[{"id":7,"name":"Private workflow","path":".github/workflows/test.yml","state":"active"}]}""", headers = headersOf(HttpHeaders.ContentType, "application/json"))
+            }
+        )
+        try {
+            fun operation(principal: String = "account-a", repository: String = "repo") = GitHubTool(
+                apiToken = credential, httpClient = http,
+                repositoryContext = GitHubRepositoryContext("owner", repository, "work"),
+                connectionUid = "saved-view-auth", conversationId = "saved-view-auth-chat", taskId = "task", stateStore = state,
+                durableIdentity = dev.chungjungsoo.gptmobile.data.github.GitHubAuthorizationIdentity.scope(principal, "saved-view-auth"),
+                credentialProvider = {
+                    credentialChecks++
+                    check(account == principal) { "GitHub account changed" }
+                    credential
+                }
+            ).operations().single { it.operation == "github_ci" }
+            val original = operation()
+            val first = original.execute("workflows", buildJsonObject { put("action", "workflows") })
+            assertFalse(first.isError)
+            val cursor = (first.content as ToolResultContent.Json).value.jsonObject.getValue("recovery_call").jsonObject.getValue("arguments").jsonObject
+            val beforeRecovery = credentialChecks
+            credential = "token-after-rotation"
+            assertFalse(operation().execute("after-verified-rotation", cursor).isError)
+            assertTrue(credentialChecks > beforeRecovery)
+            assertEquals("SAVED_VIEW_UNAVAILABLE", operation(repository = "another-repo").execute("other-repository", cursor).errorCode)
+            account = "account-b"
+            assertEquals("SAVED_VIEW_UNAVAILABLE", operation(principal = "account-b").execute("other-account-same-connection", cursor).errorCode)
+            val revoked = original.execute("stale-instance", cursor)
+            assertEquals("SAVED_VIEW_AUTHORIZATION_CHANGED", revoked.errorCode)
+            assertFalse(revoked.dispatched)
+            assertFalse(revoked.content.toString().contains("Private workflow"))
+            assertEquals(1, requests)
+        } finally {
+            http.close()
+        }
+    }
+
     @Test fun expiredEvidenceHandleIsTypedAndDoesNotDispatchAnyHttpRequest() = runTest {
         val http = HttpClient(MockEngine { error("No request may execute for an unknown evidence handle") })
         try {

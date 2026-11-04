@@ -88,12 +88,13 @@ internal class ToolBatchOversizeException(
 ) : IllegalStateException("TOOL_BATCH_OVERSIZE: threshold=$threshold observed=${observedValue ?: "unknown"} allowed=${allowedValue ?: "unknown"} completeCallIds=${completeCallIds ?: "unknown"}; no calls in this round were dispatched. streamShape=${sanitizedStreamShape ?: "unavailable"}")
 
 /** Shared streaming-parser limits, enforced before builders/maps grow. */
-internal class ToolStreamGuard {
+internal class ToolStreamGuard(maxSlots: Int = MAX_BUFFERED_TOOL_CALLS) {
+    private val limit = maxSlots.coerceIn(1, MAX_BUFFERED_TOOL_CALLS)
     private val slots = HashSet<String>()
     private var bytes = 0
     fun slot(key: String) {
         if (key.length > 256) throw ToolBatchOversizeException("SLOT_ID_CHARACTERS", key.length, 256)
-        if (key !in slots && slots.size >= MAX_BUFFERED_TOOL_CALLS) throw ToolBatchOversizeException("STREAM_TOOL_SLOTS", slots.size + 1, MAX_BUFFERED_TOOL_CALLS)
+        if (key !in slots && slots.size >= limit) throw ToolBatchOversizeException("STREAM_TOOL_SLOTS", slots.size + 1, limit)
         slots += key
     }
     fun identifier(value: String?) {

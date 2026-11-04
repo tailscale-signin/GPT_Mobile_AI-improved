@@ -36,6 +36,8 @@ internal fun GitHubChatConversation(
     onReviewEvidenceAccess: () -> Unit,
     onNavigateToLocalModels: () -> Unit,
     registerExit: (((() -> Unit) -> Unit)?) -> Unit,
+    recoveryRequest: dev.chungjungsoo.gptmobile.presentation.ui.workspace.GitHubRecoveryRequest? = null,
+    onRecoveryHandled: () -> Unit = {},
     exportRequested: Boolean = false,
     onExportHandled: () -> Unit = {}
 ) {
@@ -52,6 +54,16 @@ internal fun GitHubChatConversation(
             ) {
                 val model: dev.chungjungsoo.gptmobile.presentation.ui.chat.ChatViewModel = androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel()
                 val room by model.chatRoom.collectAsStateWithLifecycle()
+                val grouped by model.groupedMessages.collectAsStateWithLifecycle()
+                val savedRuns by model.agentRunsById.collectAsStateWithLifecycle()
+                androidx.compose.runtime.LaunchedEffect(model, room.id, recoveryRequest, grouped, savedRuns) {
+                    val request = recoveryRequest?.takeIf { it.chatId == chatId && it.chatId == room.id } ?: return@LaunchedEffect
+                    val run = savedRuns[request.runId] ?: return@LaunchedEffect
+                    if (grouped.userMessages.none { it.id == run.userMessageId }) return@LaunchedEffect
+                    model.bindGitHubContext(context)
+                    model.recoverGitHubRun(request.runId, request.action)
+                    onRecoveryHandled()
+                }
                 androidx.compose.runtime.LaunchedEffect(model, room.id, context) {
                     if (room.id == chatId) model.bindGitHubContext(context)
                 }

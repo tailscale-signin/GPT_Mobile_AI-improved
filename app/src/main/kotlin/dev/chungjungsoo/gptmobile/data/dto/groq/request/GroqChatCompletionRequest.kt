@@ -50,5 +50,9 @@ data class GroqChatCompletionRequest(
 
     @SerialName("tools")
     @EncodeDefault(EncodeDefault.Mode.NEVER)
-    val tools: List<ChatFunctionTool>? = null
+    val tools: List<ChatFunctionTool>? = null,
+
+    @SerialName("parallel_tool_calls")
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val parallelToolCalls: Boolean? = null
 )

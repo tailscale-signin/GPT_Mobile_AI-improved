@@ -1621,6 +1621,32 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    /** A workspace recovery action targets one saved run, never an unrelated latest message. */
+    fun recoverGitHubRun(runId: String, action: dev.chungjungsoo.gptmobile.data.agent.TaskRecoveryAction) {
+        val run = _agentRunsById.value[runId] ?: return
+        if (_chatToolConfig.value.github == null || run.chatId != _chatRoom.value.id || isGenerationBusy()) {
+            _attachmentNotice.value = "Wait for the current request to finish before resuming this workflow."
+            return
+        }
+        val allowed = dev.chungjungsoo.gptmobile.presentation.ui.workspace.GitHubWorkflowPresentation.snapshot(
+            run,
+            _toolEventsByRun.value[runId].orEmpty(),
+            eventWindowComplete = true
+        ).recovery
+        if (action !in allowed) {
+            _attachmentNotice.value = "This recovery action is no longer available. Open Status to review the saved workflow."
+            return
+        }
+        val turnIndex = _groupedMessages.value.userMessages.indexOfFirst { it.id == run.userMessageId }
+        val row = _groupedMessages.value.assistantMessages.getOrNull(turnIndex).orEmpty()
+        val platformIndex = row.indexOfFirst { it.currentRunId == runId && it.platformType == run.profileUid }
+        if (platformIndex < 0) {
+            _attachmentNotice.value = "The saved response has changed. Open Status to select its current recovery action."
+            return
+        }
+        retryChat(turnIndex, platformIndex, action)
+    }
+
     /** Recovery controls are bound to the card's persisted original turn, never latest chat text. */
     fun recoverResearch(sourceMessageId: Int, command: String) {
         val action = dev.chungjungsoo.gptmobile.data.agent.TaskRecoveryAction.fromText(command) ?: return

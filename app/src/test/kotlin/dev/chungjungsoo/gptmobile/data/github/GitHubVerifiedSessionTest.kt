@@ -144,10 +144,10 @@ class GitHubVerifiedSessionTest {
         assertTrue(report.toString().contains("original_failure"))
     }
 
-    @Test fun providerDenialBeforeToolExecutionIsNotPartialVerification() = runTest {
+    @Test fun providerDenialRetainsPendingAcceptanceWithoutClaimingPartialVerification() = runTest {
         for (task in listOf("Test GitHub tools and report.", "Inspect the repository")) {
             var rounds = 0
-            var savedReports = 0
+            val savedCheckpoints = mutableListOf<JsonObject>()
             val failure = ProviderEvent.Failed(
                 "HTTP 402: provider budget restriction",
                 errorCode = "PAYMENT_REQUIRED",
@@ -161,7 +161,7 @@ class GitHubVerifiedSessionTest {
             }
             val gate = GitHubVerifiedSession(
                 provider,
-                GitHubEvidenceBook("b", "o/r", "main", emptySet(), save = { _, _ -> savedReports++ }),
+                GitHubEvidenceBook("b", "o/r", "main", emptySet(), save = { _, checkpoint -> savedCheckpoints += checkpoint }),
                 task,
                 { 8192 },
                 { error("A provider denial must not open a verifier") },
@@ -172,8 +172,15 @@ class GitHubVerifiedSessionTest {
             val terminal = events.filterIsInstance<AgentRunEvent.Provider>().map { it.event }.filterIsInstance<ProviderEvent.Failed>().single()
             assertEquals(failure, terminal)
             assertEquals(1, rounds)
-            assertEquals(0, savedReports)
-            assertFalse(events.any { it is AgentRunEvent.Provider && (it.event is ProviderEvent.TextDelta || it.event is ProviderEvent.Completed) })
+            assertTrue(savedCheckpoints.isNotEmpty())
+            assertTrue(savedCheckpoints.all { it["completion_verified"] == JsonPrimitive(false) && it["response_delivered"] == JsonPrimitive(false) })
+            assertEquals(JsonPrimitive("INTERRUPTED"), savedCheckpoints.last()["phase"])
+            val visible = events.filterIsInstance<AgentRunEvent.Provider>().map { it.event }
+            val status = visible.filterIsInstance<ProviderEvent.TextDelta>().single().text
+            assertTrue(status.contains("Status: BLOCKED"))
+            assertTrue(status.contains("PAYMENT_REQUIRED"))
+            assertTrue(status.contains("No tool result was delivered"))
+            assertFalse(visible.any { it is ProviderEvent.Completed })
         }
     }
 
@@ -375,14 +382,17 @@ class GitHubVerifiedSessionTest {
         assertTrue(events.last() is ProviderEvent.Failed)
     }
 
-    @Test fun terminalFallbackRechecksPermissionAndCannotPublishAfterRevocation() = runTest {
+    @Test fun terminalFallbackCannotDisclosePrivateDraftAfterRevocation() = runTest {
         val source = object : AgentProviderSession {
-            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flowOf(ProviderEvent.Failed("403 forbidden"))
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flowOf(ProviderEvent.TextDelta("PRIVATE_DRAFT_FROM_REVOKED_SOURCE"), ProviderEvent.Failed("403 forbidden"))
         }
         val gate = GitHubVerifiedSession(source, GitHubEvidenceBook("b", "o/r", "main", emptySet()), "fix", { 8192 }, { error("no formatter after failure") }, { error("access revoked") }, {})
         val events = AgentRunner(AgentRunLimits(githubTask = true)).run(gate, emptyList()).toList().filterIsInstance<AgentRunEvent.Provider>().map { it.event }
         assertTrue(events.last() is ProviderEvent.Failed)
-        assertFalse(events.any { it is ProviderEvent.TextDelta || it is ProviderEvent.Completed })
+        val status = events.filterIsInstance<ProviderEvent.TextDelta>().single().text
+        assertTrue(status.contains("Status: BLOCKED"))
+        assertFalse(status.contains("PRIVATE_DRAFT_FROM_REVOKED_SOURCE"))
+        assertFalse(events.any { it is ProviderEvent.Completed })
     }
 
     @Test fun unfinishedToolCallCannotBecomePartialCompletionOrDispatch() = runTest {
@@ -404,7 +414,10 @@ class GitHubVerifiedSessionTest {
         val events = AgentRunner(AgentRunLimits(githubTask = true)).run(gate, listOf(write)).toList().filterIsInstance<AgentRunEvent.Provider>().map { it.event }
         assertEquals(0, dispatches)
         assertTrue(events.last() is ProviderEvent.Failed)
-        assertFalse(events.any { it is ProviderEvent.TextDelta || it is ProviderEvent.Completed })
+        val status = events.filterIsInstance<ProviderEvent.TextDelta>().single().text
+        assertTrue(status.contains("Status: BLOCKED"))
+        assertTrue(status.contains("No tool result was delivered"))
+        assertFalse(events.any { it is ProviderEvent.Completed })
     }
 
     @Test fun oversizedTaskOrDraftUsesRetainedEvidenceWithoutOpeningFormatter() = runBlocking {
@@ -457,6 +470,48 @@ class GitHubVerifiedSessionTest {
         assertTrue(first != second)
         assertTrue(second.contains("No new test evidence"))
         assertTrue(second.contains("completed job"))
+        assertEquals(JsonPrimitive("BLOCKED_UNCHANGED"), verdict?.get("progress_state"))
+    }
+
+    @Test fun undeliveredChecklistSurvivesRestartAndIsPublishedBeforeStallSuppression() = runTest {
+        val saved = linkedMapOf<String, JsonObject>()
+        var verdict: JsonObject? = null
+        fun book() = GitHubEvidenceBook(
+            "task", "o/r", "main", setOf("github_context", "github_ci"), now = { 1000L },
+            load = { saved[it] },
+            save = { id, row ->
+                saved[id] = row
+                if (id.startsWith("verification_")) verdict = row
+            },
+            retainedIds = { saved.keys.filter { it.startsWith("ev_") } }, latestVerdict = { verdict }
+        )
+        val tools = listOf(AgentToolDefinition("github_ci", "logs", Json.parseToJsonElement("""{"properties":{"action":{"const":"logs"}}}""").jsonObject))
+        val delegate = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): kotlinx.coroutines.flow.Flow<ProviderEvent> = error("A saved checklist does not need another model draft")
+        }
+        fun session(evidence: GitHubEvidenceBook) = GitHubVerifiedSession(delegate, evidence, "test all tools", { 8192 }, { error("No rewrite") }, {}, {}, now = { 1000L }, authorizedTools = tools)
+        val original = book()
+        original.observe(ProviderEvent.ToolCall("status", "github_context", Json.parseToJsonElement("""{"action":"status"}""").jsonObject), AgentToolResult("status", ToolResultContent.Json(Json.parseToJsonElement("""{"commit_sha":"${"a".repeat(40)}"}""")), false))
+        val interrupted = IllegalStateException("Delivery interrupted before acceptance")
+        var preparedText: String? = null
+        val failed = runCatching {
+            session(original).streamRound(tools, emptyList()).collect { event ->
+                if (event is ProviderEvent.TextDelta) {
+                    preparedText = event.text
+                    throw interrupted
+                }
+            }
+        }
+        assertSame(interrupted, failed.exceptionOrNull())
+        assertEquals(JsonPrimitive(false), verdict?.get("response_delivered"))
+        val restored = book()
+        restored.restore()
+        val resumed = session(restored).streamRound(tools, emptyList()).toList().filterIsInstance<ProviderEvent.TextDelta>().single().text
+        assertEquals(preparedText, resumed)
+        assertFalse(resumed.contains("No new test evidence"))
+        assertEquals(JsonPrimitive(true), verdict?.get("response_delivered"))
+        val deliveredAgain = session(restored).streamRound(tools, emptyList()).toList().filterIsInstance<ProviderEvent.TextDelta>().single().text
+        assertTrue(deliveredAgain.contains("No new test evidence"))
         assertEquals(JsonPrimitive("BLOCKED_UNCHANGED"), verdict?.get("progress_state"))
     }
 }

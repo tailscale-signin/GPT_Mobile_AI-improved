@@ -139,6 +139,7 @@ internal suspend fun writeChatDebugExport(
             buildJsonObject {
                 put("conversation", DebugExportSchema.CONVERSATION_VERSION)
                 put("combinedAnalysis", 1)
+                put("githubIncidents", 1)
                 put("appLogSnapshot", 1)
                 put("runEvents", dev.chungjungsoo.gptmobile.data.diagnostics.RUN_EVENT_SCHEMA)
                 put("legacyEvents", 4)
@@ -238,6 +239,7 @@ internal suspend fun writeChatDebugExport(
         put("chatTools", json.encodeToJsonElement(tools))
         put("featureSettings", json.encodeToJsonElement(features))
         put("composerDraft", draft)
+        if (tools.github != null) put("githubIncidents", githubIncidentExport(records))
         records.forEach { (key, value) ->
             if (key == "invocations" && value is JsonArray) {
                 array(key, value.asSequence()) { row ->

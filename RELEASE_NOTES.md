@@ -72,3 +72,10 @@ Publication requires successful validation of this exact commit, current main ch
 - Permit the one available saved review-format retry and explicitly block exhausted retries. Retain private candidates/evidence and surface the failure stage without publishing unverified claims.
 - Add incomplete-task classification and reconcile catalog omission summaries. See `docs/repairs/build138-diagnostic-followup.md` for all 28 findings, existing safeguards and remaining device/provider acceptance checks.
 - Physical-device frame/StrictMode improvements, live privacy-route availability and database contention remain unqualified until measured on the updated build.
+
+### November 4 GitHub workspace reliability follow-up
+
+- Repair GitHub workspace tool admission, durable allowances and evidence recovery, acceptance verification, bounded final review, local service diagnostics, terminal delivery and workflow recovery presentation.
+- The November 4 GitHub workspace repairs do not qualify physical-device process death, UI frame pacing or private Llama/server reachability; those outcomes require live device and service receipts. Saved evidence remains quota bounded, and an unavailable mutation result must be reconciled rather than replayed.
+- Temporary conversations do not persist recovery evidence; interrupted work with missing receipts or counters remains blocked, and changing storage mode does not grant more tool calls.
+- See `docs/repairs/github-workspace-reliability-2026-11-04.md` for implementation coverage and exact validation status.

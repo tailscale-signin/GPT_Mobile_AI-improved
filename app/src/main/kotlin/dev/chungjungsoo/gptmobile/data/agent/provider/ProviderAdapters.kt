@@ -136,12 +136,14 @@ class OpenAIResponsesAdapter @Inject constructor(
                     previousResponseId = previousResponseId,
                     tools = tools.takeIf { it.isNotEmpty() }?.map { definition ->
                         ResponseFunctionTool(definition.name, definition.description, definition.inputSchema)
-                    }
+                    },
+                    parallelToolCalls = false.takeIf { tools.isNotEmpty() }
                 )
 
                 val attempts = candidateKeys.size
                 val startIndex = keyIndexCounter.get()
                 var lastFailedMessage: String? = null
+                var lastFailedCode: String? = null
 
                 for (attempt in 0 until attempts) {
                     val keyIndex = ((startIndex + attempt) % candidateKeys.size + candidateKeys.size) % candidateKeys.size
@@ -155,13 +157,18 @@ class OpenAIResponsesAdapter @Inject constructor(
                     var failedTransportComplete = false
 
                     api.streamResponses(request, platform.timeout, config)
+                        .transformWhile { event ->
+                            emit(event)
+                            event !is dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseErrorEvent || !dev.chungjungsoo.gptmobile.data.agent.GatewayOutcomeRecovery.requiresReconciliation(event.message, event.code)
+                        }
                         .catch { error ->
                             if (error is CancellationException || error is ToolDefinitionsRejectedException) throw error
                             roundFailed = true
                             terminalReceived = false
                             failedTransportComplete = false
                             lastFailedMessage = providerFailureMessage(error, "OpenAI stream request failed")
-                            canRotate = previousResponseId == null && ApiCredentialRotator.isRotatableError(error)
+                            lastFailedCode = dev.chungjungsoo.gptmobile.data.network.error.ErrorClassification.classify(error).errorCode
+                            canRotate = !dev.chungjungsoo.gptmobile.data.agent.GatewayOutcomeRecovery.requiresReconciliation(lastFailedMessage.orEmpty(), lastFailedCode) && previousResponseId == null && ApiCredentialRotator.isRotatableError(error)
                         }
                         .collect { event ->
                             when (event) {
@@ -180,8 +187,11 @@ class OpenAIResponsesAdapter @Inject constructor(
                                         roundFailed = true
                                         failedTransportComplete = mapped.transportComplete
                                         if (mapped.transportComplete) terminalReceived = true
-                                        lastFailedMessage = mapped.message
-                                        canRotate = previousResponseId == null && ApiCredentialRotator.containsQuotaOrRateLimitMessage(mapped.message)
+                                        if (!dev.chungjungsoo.gptmobile.data.agent.GatewayOutcomeRecovery.requiresReconciliation(lastFailedMessage.orEmpty(), lastFailedCode)) {
+                                            lastFailedMessage = mapped.message
+                                            lastFailedCode = mapped.errorCode
+                                        }
+                                        canRotate = !dev.chungjungsoo.gptmobile.data.agent.GatewayOutcomeRecovery.requiresReconciliation(lastFailedMessage.orEmpty(), lastFailedCode) && previousResponseId == null && ApiCredentialRotator.containsQuotaOrRateLimitMessage(mapped.message)
                                     }
 
                                     else -> emit(mapped)
@@ -199,7 +209,7 @@ class OpenAIResponsesAdapter @Inject constructor(
                     } else if (canRotate && attempt < attempts - 1) {
                         continue
                     } else if (roundFailed) {
-                        emit(ProviderEvent.Failed(lastFailedMessage ?: "OpenAI stream request failed", transportComplete = terminalReceived && failedTransportComplete))
+                        emit(ProviderEvent.Failed(lastFailedMessage ?: "OpenAI stream request failed", errorCode = lastFailedCode, transportComplete = terminalReceived && failedTransportComplete))
                         return@flow
                     }
                 }
@@ -546,7 +556,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                     exchanges.isEmpty()
                 val toolImages = if (platform.compatibleType == ClientType.GROQ || platform.compatibleType == ClientType.NVIDIA && NvidiaModelCapabilities.forModel(platform.model).supportsImages != true) emptyList() else attachmentEncoder.toolMedia(exchanges)
                 val roundSystemPrompt = toolRoundSystemPrompt(platform.systemPrompt, tools.isNotEmpty(), constraints)
-                val roundMessages = if (tools.isEmpty() && !promptToolBridge && !gatewayToolsAllowed && roundSystemPrompt != platform.systemPrompt) {
+                val roundMessages = if (roundSystemPrompt != platform.systemPrompt && (tools.isNotEmpty() || !promptToolBridge && !gatewayToolsAllowed)) {
                     listOf(ChatMessage(OpenAIRole.SYSTEM, listOf(OpenAITextContent(requireNotNull(roundSystemPrompt))))) +
                         initialMessages.filterNot { it.role == OpenAIRole.SYSTEM }
                 } else {
@@ -656,7 +666,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                             )
                         }
                         val request = createGroqChatCompletionRequest(baseMessages, platform.copy(reasoning = (platform.reasoning || constraints.maximizeReasoning) && constraints.allowReasoning)).let { request ->
-                            request.copy(tools = requestTools, maxCompletionTokens = effectiveOutputTokens, reasoningEffort = if (constraints.maximizeReasoning && constraints.allowReasoning && platform.model.contains("gpt-oss", true)) "high" else request.reasoningEffort)
+                            request.copy(tools = requestTools, parallelToolCalls = false.takeIf { !requestTools.isNullOrEmpty() }, maxCompletionTokens = effectiveOutputTokens, reasoningEffort = if (constraints.maximizeReasoning && constraints.allowReasoning && platform.model.contains("gpt-oss", true)) "high" else request.reasoningEffort)
                         }
                         val assembler = ChatCompletionsEventAssembler()
                         val reasoningParser = GroqReasoningParser()
@@ -701,7 +711,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                                     lastFailedMessage = error.message
                                     protocolErrorCode = error.type?.uppercase()?.takeIf { category -> dev.chungjungsoo.gptmobile.data.network.FreeFailureCategory.entries.any { it.name == category } }
                                         ?: error.code ?: error.type ?: protocolErrorCode
-                                    canRotate = ApiCredentialRotator.containsQuotaOrRateLimitMessage(error.message)
+                                    canRotate = !dev.chungjungsoo.gptmobile.data.agent.GatewayOutcomeRecovery.requiresReconciliation(error.message, error.code) && ApiCredentialRotator.containsQuotaOrRateLimitMessage(error.message)
                                 } ?: chunk.choices.orEmpty().forEach { choice ->
                                     reasoningParser.append(
                                         contentChunk = choice.delta?.content ?: choice.message?.content,
@@ -784,6 +794,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                             stop = effectiveStop,
                             tools = requestTools,
                             toolChoice = if (platform.disableAllTools || requestTools.isNullOrEmpty() && !gatewayToolsAllowed) "none" else null,
+                            parallelToolCalls = ProviderToolBatchPolicy.parallelToolCalls(platform.compatibleType, !requestTools.isNullOrEmpty()),
                             provider = parsedRouting,
                             reasoning = if (isOpenRouter || config.freeProvider == dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.KILO) {
                                 if ((platform.reasoning || constraints.maximizeReasoning) && constraints.allowReasoning) OpenRouterReasoning(effort = if (constraints.maximizeReasoning) "high" else "medium") else OpenRouterReasoning(enabled = false)
@@ -861,13 +872,24 @@ class OpenAICompatibleAdapter @Inject constructor(
                         }
 
                         openAIAPI.streamChatCompletion(request, platform.timeout, requestConfig)
+                            .transformWhile { chunk ->
+                                emit(chunk)
+                                chunk.error?.let { dev.chungjungsoo.gptmobile.data.agent.GatewayOutcomeRecovery.requiresReconciliation(it.message, it.code) } != true
+                            }
                             .catch { error ->
                                 if (error is CancellationException || error is ToolDefinitionsRejectedException) throw error
                                 roundFailed = true
                                 streamInterrupted = true
+                                val classified = dev.chungjungsoo.gptmobile.data.network.error.ErrorClassification.classify(error)
                                 lastFailedMessage = providerFailureMessage(error, "OpenAI-compatible stream request failed")
-                                protocolErrorCode = if (error is java.io.IOException || error is io.ktor.client.plugins.HttpRequestTimeoutException) "NETWORK_ERROR" else protocolErrorCode
-                                canRotate = ApiCredentialRotator.isRotatableError(error)
+                                protocolErrorCode = if (dev.chungjungsoo.gptmobile.data.agent.GatewayOutcomeRecovery.requiresReconciliation(lastFailedMessage.orEmpty(), classified.errorCode)) {
+                                    dev.chungjungsoo.gptmobile.data.agent.GatewayOutcomeRecovery.ERROR_CODE
+                                } else if (error is java.io.IOException || error is io.ktor.client.plugins.HttpRequestTimeoutException) {
+                                    "NETWORK_ERROR"
+                                } else {
+                                    protocolErrorCode
+                                }
+                                canRotate = !dev.chungjungsoo.gptmobile.data.agent.GatewayOutcomeRecovery.requiresReconciliation(lastFailedMessage.orEmpty(), protocolErrorCode) && ApiCredentialRotator.isRotatableError(error)
                             }
                             .collect { chunk ->
                                 chunk.serializedOutputTokens?.let { cap ->
@@ -945,7 +967,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                                     protocolErrorCode = error.type?.uppercase()?.takeIf { category -> dev.chungjungsoo.gptmobile.data.network.FreeFailureCategory.entries.any { it.name == category } }
                                         ?: error.code ?: error.type ?: protocolErrorCode
                                     if (error.failureDetails?.containsKey("failed_stage") == true) protocolErrorCode = error.code ?: protocolErrorCode
-                                    canRotate = ApiCredentialRotator.containsQuotaOrRateLimitMessage(error.message)
+                                    canRotate = !dev.chungjungsoo.gptmobile.data.agent.GatewayOutcomeRecovery.requiresReconciliation(error.message, error.code) && ApiCredentialRotator.containsQuotaOrRateLimitMessage(error.message)
                                 } ?: chunk.choices.orEmpty().forEach { choice ->
                                     if (choice.finishReason != null) {
                                         terminalReceived = true
@@ -984,6 +1006,10 @@ class OpenAICompatibleAdapter @Inject constructor(
                                     }
                                 }
                             }
+                        if (dev.chungjungsoo.gptmobile.data.agent.GatewayOutcomeRecovery.requiresReconciliation(lastFailedMessage.orEmpty(), protocolErrorCode)) {
+                            emit(ProviderEvent.Failed(lastFailedMessage.orEmpty(), errorCode = dev.chungjungsoo.gptmobile.data.agent.GatewayOutcomeRecovery.ERROR_CODE, providerLimit = providerLimitDecision, failureDetails = failureDetails))
+                            return@flow
+                        }
                         if (roundFailed && parsedRouting != null) {
                             privacyPreflight?.recordRejection(platform.apiUrl.orEmpty(), activeKey, platform.model, parsedRouting, lastFailedMessage.orEmpty())
                         }
@@ -1175,7 +1201,8 @@ class AnthropicMessagesAdapter @Inject constructor(
                     },
                     tools = tools.takeIf { it.isNotEmpty() }?.map { definition ->
                         AnthropicTool(definition.name, definition.description, definition.inputSchema)
-                    }
+                    },
+                    toolChoice = dev.chungjungsoo.gptmobile.data.dto.anthropic.request.AnthropicToolChoice().takeIf { tools.isNotEmpty() }
                 )
 
                 val attempts = candidateKeys.size

@@ -18,7 +18,10 @@ internal class GitHubOperationTool(
     private val backend: AgentTool,
     private val scope: String,
     modelName: String = operation,
-    private val views: GitHubResultViews = GitHubResultViews.shared
+    private val views: GitHubResultViews = GitHubResultViews.shared,
+    private val loadSavedView: suspend (String) -> JsonObject? = { null },
+    private val saveSavedView: (suspend (String, JsonObject) -> Unit)? = null,
+    private val validateSavedViewAccess: suspend () -> Unit = {}
 ) : AgentTool {
     override val managesExecutionBudget get() = backend.managesExecutionBudget
     override val definition = definition(operation, modelName)
@@ -33,7 +36,7 @@ internal class GitHubOperationTool(
         // behalf: saved-view selectors are an authorization boundary, and only
         // the caller can submit the exact cursor-only correction.
         val result = previous?.copy(callId = callId, sharedResult = true) ?: executeOperation(callId, arguments)
-        if (result.isError && !result.dispatched && result.errorCode in setOf("INVALID_ARGUMENTS", "SAVED_VIEW_UNAVAILABLE", "SAVED_VIEW_WRONG_OPERATION", "SAVED_VIEW_CURSOR_ALTERED")) {
+        if (result.isError && !result.dispatched && result.errorCode in setOf("INVALID_ARGUMENTS", "SAVED_VIEW_WRONG_OPERATION", "SAVED_VIEW_CURSOR_ALTERED")) {
             synchronized(rejectedCalls) {
                 rejectedCalls[arguments] = result
                 if (rejectedCalls.size > 128) rejectedCalls.remove(rejectedCalls.keys.first())
@@ -79,6 +82,7 @@ internal class GitHubOperationTool(
             return AgentToolResult(callId, ToolResultContent.Text("${wrongHandles.sorted().joinToString()} cannot paginate this operation. Use the exact continuation_call returned by this tool. evidence_id only reopens source through github_read; it is never a pagination cursor. Nothing was dispatched."), true, errorCode = "INVALID_ARGUMENTS", dispatched = false)
         }
         if ("view_cursor" in arguments) {
+            savedViewAuthorizationFailure(callId)?.let { return it }
             // Providers often carry repository/action defaults into a saved-page call.
             // Validate those against the retained read instead of forcing a model repair loop.
             if (arguments.keys.any { it != "view_cursor" && it !in GitHubResultViews.SAVED_CONTEXT_KEYS }) {
@@ -118,7 +122,23 @@ internal class GitHubOperationTool(
             if (!cursor.contains(':')) {
                 return AgentToolResult(callId, ToolResultContent.Text("Invalid saved-view cursor. Use the exact continuation_call arguments returned by the previous result. To read an evidence_id, omit view_cursor and provide evidence_id alone with the repository context."), true, errorCode = "INVALID_ARGUMENTS", dispatched = false)
             }
-            return views.read(scope, operation, definition.name, cursor, callId, JsonObject(arguments - "view_cursor"))
+            val context = JsonObject(arguments - "view_cursor")
+            var saved = views.read(scope, operation, definition.name, cursor, callId, context)
+            if (saved.errorCode == "SAVED_VIEW_UNAVAILABLE") {
+                val snapshot = try {
+                    loadSavedView(cursor.substringBefore(':'))
+                } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    null
+                }
+                if (snapshot != null && views.restore(scope, operation, definition.name, cursor, snapshot)) {
+                    saved = views.read(scope, operation, definition.name, cursor, callId, context)
+                }
+            }
+            val retained = retainSavedView(saved, cursor)
+            savedViewAuthorizationFailure(callId)?.let { return it }
+            return retained
         }
         // Explicit repository overrides must be complete; both absent uses the pinned task context.
         val explicitOwner = (arguments["owner"] as? JsonPrimitive)?.content?.trim()
@@ -340,7 +360,65 @@ internal class GitHubOperationTool(
         } else {
             paged
         }
-        return views.present(scope, operation, definition.name, presented, arguments, maxPageBytes = outputAllowance)
+        return retainSavedView(views.present(scope, operation, definition.name, presented, arguments, maxPageBytes = outputAllowance))
+    }
+
+    private suspend fun retainSavedView(result: AgentToolResult, requestedCursor: String? = null): AgentToolResult {
+        val (id, checkpoint) = views.checkpoint(scope, result) ?: return result
+        val body = (result.content as? ToolResultContent.Json)?.value as? JsonObject
+        fun cursor(key: String): JsonPrimitive? = (((body?.get(key) as? JsonObject)?.get("arguments") as? JsonObject)?.get("view_cursor") as? JsonPrimitive)
+        val issued = (checkpoint["issued_cursors"] as? JsonArray).orEmpty().toSet()
+        // Every newly emitted handle is included, along with the handle consumed
+        // by this call. Recovery proves exact handles without quadratic copies of
+        // the entire grant set in every primary evidence receipt.
+        val proofs = listOfNotNull(requestedCursor?.let(::JsonPrimitive), cursor("recovery_call"), cursor("continuation_call")).distinct().filter { it in issued }
+        val status = try {
+            if (saveSavedView == null) {
+                "SESSION_ONLY"
+            } else {
+                saveSavedView.invoke(id, checkpoint)
+                "RETAINED"
+            }
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            // Returning an accepted write is essential even if optional page retention fails.
+            // Its mutation journal and primary evidence receipt remain authoritative.
+            "UNAVAILABLE"
+        }
+        if (status == "UNAVAILABLE") views.markPersistenceUnavailable(scope, id, proofs)
+        // Failed handles remain in the captured snapshot even if the process
+        // stops after saving it but before the primary receipt is recorded.
+        val retainedProofs = if (status == "RETAINED") {
+            (proofs + (checkpoint["failed_persistence_cursors"] as? JsonArray).orEmpty()).distinct().filter { it in issued }
+        } else {
+            proofs
+        }
+        return result.copy(
+            executionReceipt = JsonObject(
+                result.executionReceipt.orEmpty() + mapOf(
+                    "saved_view_id" to JsonPrimitive(id),
+                    "saved_view_issued_cursors" to JsonPrimitive((checkpoint["issued_cursors"] as? JsonArray).orEmpty().size),
+                    "saved_view_cursor_ids" to JsonArray(retainedProofs),
+                    "saved_view_persistence" to JsonPrimitive(status)
+                )
+            )
+        )
+    }
+
+    private suspend fun savedViewAuthorizationFailure(callId: String): AgentToolResult? = try {
+        validateSavedViewAccess()
+        null
+    } catch (cancelled: kotlinx.coroutines.CancellationException) {
+        throw cancelled
+    } catch (_: Exception) {
+        AgentToolResult(
+            callId,
+            ToolResultContent.Text("The current GitHub account or repository authorization could not be verified for this saved result. Reconnect or restore the original authorized workspace. No saved content was disclosed and no operation was repeated."),
+            true,
+            errorCode = "SAVED_VIEW_AUTHORIZATION_CHANGED",
+            dispatched = false
+        )
     }
 
     companion object {

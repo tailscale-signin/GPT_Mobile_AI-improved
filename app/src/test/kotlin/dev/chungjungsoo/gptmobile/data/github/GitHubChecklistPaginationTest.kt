@@ -68,6 +68,18 @@ class GitHubChecklistPaginationTest {
         assertEquals(listOf(remote), GitHubTestChecklist.pendingPages(records))
     }
 
+    @Test fun missingIssueDependencyDoesNotForceUnboundedRemotePagination() {
+        val issueTools = listOf(AgentToolDefinition("github_issue", "Issue inventory", json("""{"properties":{"action":{"const":"list"},"page":{"type":"integer"}}}""")))
+        val remote = json("""{"tool":"github_issue","arguments":{"action":"list","page":2}}""")
+        val records = linkedMapOf<String, JsonObject>()
+        records["source"] = json("""{"trusted":true,"success":true,"tool":"github_issue","arguments":{"action":"list","page":1},"result":{"continuation_call":$remote}}""")
+        for (i in 3..10) {
+            records["sample$i"] = json("""{"trusted":true,"success":true,"tool":"github_issue","arguments":{"action":"list","page":$i},"result":{}}""")
+        }
+        assertEquals(null, GitHubTestChecklist.nextCall("test all tools", issueTools, records))
+        assertEquals(remote["arguments"], GitHubTestChecklist.nextCall("test all tools and all issue history", issueTools, records)?.arguments)
+    }
+
     @Test fun successfulPageClosesPendingContinuation() {
         val success = JsonObject(failed() + ("success" to JsonPrimitive(true)))
         assertTrue(GitHubTestChecklist.pendingPages(mapOf("source" to source(), "read" to success)).isEmpty())

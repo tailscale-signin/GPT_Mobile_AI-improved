@@ -31,4 +31,14 @@ class PreparationReplayFenceTest {
         assertFalse(fence.canRebuild(IllegalStateException("PERMISSION_DENIED"), 0))
         assertFalse(fence.canRebuild(IllegalStateException("MEMORY_STALE: wrong error type"), 0))
     }
+
+    @Test fun gatewayOutcomeUnknownNeverStartsConfigurationRebuildOrChecklistResume() {
+        val fence = PreparationReplayFence()
+        val failure = java.io.IOException("GATEWAY_OUTCOME_UNKNOWN: connection reset")
+        for (dispatched in listOf(false, true)) {
+            if (dispatched) fence.dispatched()
+            assertFalse(fence.canRebuild(failure, 0))
+            assertFalse(fence.canResumeGitHubChecklist(failure, 0, durableChecklist = true))
+        }
+    }
 }

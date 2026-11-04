@@ -70,7 +70,7 @@ internal class CombinedRecordRecoverySession(
             var reasoningObserved = false
             var textObserved = false
             try {
-                active.streamRound(emptyList(), emptyList()).withSummedRequestUsage().collect { event ->
+                active.streamRound(emptyList(), emptyList()).stopAtUnknownGatewayOutcome().withSummedRequestUsage().collect { event ->
                     when (event) {
                         is ProviderEvent.TextDelta -> {
                             textObserved = textObserved || event.text.isNotBlank()
@@ -124,6 +124,12 @@ internal class CombinedRecordRecoverySession(
                 // persistence and authorization failures must propagate without further emission.
                 if (error !== rejectedRecord) throw error
                 failure = ProviderEvent.Failed("OUTPUT_PROTOCOL_INVALID: ${error.message.orEmpty()}", errorCode = "OUTPUT_PROTOCOL_INVALID")
+            }
+            failure?.takeIf { GatewayOutcomeRecovery.requiresReconciliation(it.message, it.errorCode) }?.let { unresolved ->
+                if (acceptedAppend) protocol.markAttemptFinished("UNKNOWN")
+                save(protocol.checkpoint())
+                emit(unresolved.copy(errorCode = GatewayOutcomeRecovery.ERROR_CODE))
+                return@flow
             }
             if (complete || failure?.transportComplete == true || finishReason in setOf("length", "max_tokens", "MAX_TOKENS", "output_limit")) protocol.finishPacket()
             if (rejectedRecord != null && failure == null) {

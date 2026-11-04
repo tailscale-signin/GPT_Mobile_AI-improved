@@ -46,6 +46,10 @@ internal object GitHubTaskContinuity {
     fun explain(verdict: kotlinx.serialization.json.JsonObject?, receipts: Map<String, kotlinx.serialization.json.JsonObject>): String {
         fun kotlinx.serialization.json.JsonObject.text(key: String) = (get(key) as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { it.isString }?.content.orEmpty()
         if (verdict == null) return "The previous run's terminal verification record is unavailable. Its cause cannot be established from the retained operation receipts. ${receipts.size} prior receipts are available; successful tool calls alone do not establish task completion."
+        if (verdict.text("phase") == "IN_PROGRESS") {
+            val remaining = (verdict["remaining_requirements"] as? kotlinx.serialization.json.JsonArray).orEmpty().size
+            return "The saved workflow checkpoint precedes final acceptance verification. $remaining requirements remain unverified, and ${receipts.size} operation receipts are retained. The cause of the interruption is not recorded. Resume can reconcile the retained evidence without repeating completed writes."
+        }
         val reason = verdict.text("verification_failure").ifBlank { verdict.text("failure_code") }.ifBlank { "No failure code was recorded" }
         val last = receipts.values.lastOrNull { it["success"] == kotlinx.serialization.json.JsonPrimitive(true) }
         val unfinished = ((verdict["test_checklist"] as? kotlinx.serialization.json.JsonObject)?.get("capabilities") as? kotlinx.serialization.json.JsonArray).orEmpty().mapNotNull { it as? kotlinx.serialization.json.JsonObject }.filter { it.text("status") !in setOf("PASSED", "RECOVERED", "OUT_OF_SCOPE", "NOT_REQUESTED") }

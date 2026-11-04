@@ -30,6 +30,15 @@ data class CapacitySnapshot(
     init {
         require(listOfNotNull(contextTokens, inputTokens, outputTokens).all { it > 0 })
     }
+
+    /** A verified route is still subject to the smaller profile, catalog, and transport ceilings. */
+    fun withCeilings(contextCeiling: Long?, outputCeiling: Long?): CapacitySnapshot {
+        require(listOfNotNull(contextCeiling, outputCeiling).all { it > 0 })
+        return copy(
+            contextTokens = listOfNotNull(contextTokens, contextCeiling).minOrNull(),
+            outputTokens = listOfNotNull(outputTokens, outputCeiling).minOrNull()
+        )
+    }
 }
 
 @Serializable

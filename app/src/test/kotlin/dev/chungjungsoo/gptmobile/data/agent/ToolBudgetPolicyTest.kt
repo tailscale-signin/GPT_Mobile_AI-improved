@@ -69,6 +69,9 @@ class ToolBudgetPolicyTest {
         assertEquals(0, ToolBudgetPolicy.remainingAllowance(0, Int.MAX_VALUE))
         assertEquals(Int.MAX_VALUE, ToolBudgetPolicy.remainingAllowance(Int.MAX_VALUE, Int.MAX_VALUE))
         assertEquals(3, ToolBudgetPolicy.remainingAllowance(10, 7))
+        assertEquals(1, ToolBudgetPolicy.remainingAllowance(1, Int.MIN_VALUE))
+        assertEquals(0, ToolBudgetPolicy.remainingAllowance(Int.MIN_VALUE, 0))
+        assertEquals(0, ToolBudgetPolicy.executionLimit(AgentRunLimits(maxToolCalls = Int.MIN_VALUE, finalResponseToolCallReserve = Int.MAX_VALUE)))
     }
 
     @Test

@@ -32,6 +32,7 @@ internal object CombinedResponseBudget {
 }
 
 internal fun isRecoverableStreamFailure(message: String): Boolean {
+    if (GatewayOutcomeRecovery.requiresReconciliation(message)) return false
     val text = message.lowercase()
     if (ProfileFailureRecord.classify(message).category in setOf("ENDPOINT_RETIRED", "BILLING_UNAVAILABLE")) return false
     if (listOf("queue_", "free allowance", "rate limit", "429", "401", "403", "max_tokens", "context", "certificate", "handshake", "connection refused").any { it in text }) return false

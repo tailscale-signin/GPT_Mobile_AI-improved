@@ -78,6 +78,16 @@ class GitHubChecklistPaginationTest {
         }
         assertEquals(null, GitHubTestChecklist.nextCall("test all tools", issueTools, records))
         assertEquals(remote["arguments"], GitHubTestChecklist.nextCall("test all tools and all history", issueTools, records)?.arguments)
+        assertEquals(remote["arguments"], GitHubTestChecklist.nextCall("test all tools and all issues", issueTools, records)?.arguments)
+    }
+
+    @Test fun consumedLocalFragmentsDoNotSpendTheRemoteSamplingAllowance() {
+        val remote = json("""{"tool":"github_context","arguments":{"action":"branches","page":2}}""")
+        val records = linkedMapOf("source" to json("""{"trusted":true,"success":true,"tool":"github_context","arguments":{"action":"branches"},"result":{"local_page_complete":true,"continuation_call":$remote}}"""))
+        repeat(20) { index ->
+            records["fragment$index"] = json("""{"trusted":true,"success":true,"tool":"github_context","arguments":{"view_cursor":"previous:$index"},"result":{}}""")
+        }
+        assertEquals(remote["arguments"], GitHubTestChecklist.nextCall("test all tools", tools, records)?.arguments)
     }
 
     @Test fun successfulPageClosesPendingContinuation() {

@@ -11,14 +11,17 @@ internal data class RunTokenUsage(val inputTokens: Int?, val outputTokens: Int?,
     companion object {
         fun from(records: List<ModelInvocation>): RunTokenUsage {
             val unique = records.associateBy { it.id }.values.filter { it.status != "NOT_DISPATCHED" }
+            fun measured(value: Long?, source: String): Long? = value?.takeIf { it >= 0 && measuredUsageSource(source) }
             fun sum(select: (ModelInvocation) -> Long?): Int? {
-                val measured = unique.mapNotNull(select)
-                return measured.takeIf { it.isNotEmpty() }?.sum()?.coerceIn(0, Int.MAX_VALUE.toLong())?.toInt()
+                val measurements = unique.mapNotNull(select)
+                if (measurements.isEmpty()) return null
+                val limit = Int.MAX_VALUE.toLong()
+                return measurements.fold(0L) { total, value -> (total + value.coerceAtMost(limit)).coerceAtMost(limit) }.toInt()
             }
             return RunTokenUsage(
-                sum { it.observedInputTokens?.takeIf { _ -> measuredUsageSource(it.inputTokenSource) } },
-                sum { it.observedOutputTokens?.takeIf { _ -> measuredUsageSource(it.outputTokenSource) } },
-                unique.count { it.observedInputTokens == null || it.observedOutputTokens == null || !measuredUsageSource(it.inputTokenSource) || !measuredUsageSource(it.outputTokenSource) }
+                sum { measured(it.observedInputTokens, it.inputTokenSource) },
+                sum { measured(it.observedOutputTokens, it.outputTokenSource) },
+                unique.count { measured(it.observedInputTokens, it.inputTokenSource) == null || measured(it.observedOutputTokens, it.outputTokenSource) == null }
             )
         }
     }

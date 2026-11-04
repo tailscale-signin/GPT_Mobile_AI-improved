@@ -78,6 +78,73 @@ import org.junit.Assert.fail
 import org.junit.Test
 
 class ProviderAdaptersTest {
+    @Test fun unknownGatewayOutcomeDoesNotRotateCredentialsOrRetryAReportedCeiling() = runBlocking {
+        val message = "Rate limit exceeded; maximum completion tokens is 128."
+        val responses = FakeOpenAIAPI(
+            responseRounds = ArrayDeque(
+                listOf(
+                    flowOf(
+                        dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseErrorEvent(code = "GATEWAY_OUTCOME_UNKNOWN", message = message),
+                        dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseErrorEvent(code = "429", message = "Rate limit exceeded")
+                    )
+                )
+            )
+        )
+        val responseEvents = OpenAIResponsesAdapter(responses, attachmentEncoder()).openSession(turns(), platform(ClientType.OPENAI).copy(token = "one,two"))
+            .streamRound(emptyList(), emptyList()).toList()
+        assertEquals(1, responses.responseRequests.size)
+        assertEquals("GATEWAY_OUTCOME_UNKNOWN", responseEvents.filterIsInstance<ProviderEvent.Failed>().single().errorCode)
+
+        val compatible = FakeOpenAIAPI(
+            chatRounds = ArrayDeque(
+                listOf(
+                    flowOf(
+                        ChatCompletionChunk(error = dev.chungjungsoo.gptmobile.data.dto.openai.response.ErrorDetail(message, code = "GATEWAY_OUTCOME_UNKNOWN")),
+                        ChatCompletionChunk(error = dev.chungjungsoo.gptmobile.data.dto.openai.response.ErrorDetail("Rate limit exceeded", code = "429"))
+                    )
+                )
+            )
+        )
+        val chatEvents = OpenAICompatibleAdapter(compatible, FakeGroqAPI(), attachmentEncoder()).openSession(turns(), platform(ClientType.LLAMA).copy(token = "one,two"))
+            .streamRound(emptyList(), emptyList()).toList()
+        assertEquals(1, compatible.chatRequests.size)
+        assertEquals("GATEWAY_OUTCOME_UNKNOWN", chatEvents.filterIsInstance<ProviderEvent.Failed>().single().errorCode)
+    }
+
+    @Test fun activeToolRequestsUseNativeBatchControlsAndBoundUnqualifiedRoutesByInstructions() = runBlocking {
+        val responses = FakeOpenAIAPI(responseRounds = ArrayDeque(listOf(emptyFlow())))
+        OpenAIResponsesAdapter(responses, attachmentEncoder()).openSession(turns(), platform(ClientType.OPENAI))
+            .streamRound(listOf(definition), emptyList()).toList()
+        val responseRequest = responses.responseRequests.single()
+        assertEquals("false", requestJson(responseRequest)["parallel_tool_calls"]?.jsonPrimitive?.content)
+        assertTrue(responseRequest.instructions.orEmpty().contains("at most 8 tool calls"))
+        assertEquals(1, responseRequest.tools?.size)
+
+        for (type in listOf(ClientType.OPENROUTER, ClientType.LLAMA, ClientType.CUSTOM)) {
+            val compatible = FakeOpenAIAPI(chatRounds = ArrayDeque(listOf(emptyFlow())))
+            OpenAICompatibleAdapter(compatible, FakeGroqAPI(), attachmentEncoder()).openSession(turns(), platform(type))
+                .streamRound(listOf(definition), emptyList()).toList()
+            val request = requestJson(compatible.chatRequests.single())
+            assertEquals(if (type == ClientType.CUSTOM) null else "false", request["parallel_tool_calls"]?.jsonPrimitive?.content)
+            assertTrue(request.toString().contains("at most 8 tool calls"))
+            assertEquals(1, compatible.chatRequests.single().tools?.size)
+        }
+
+        val groq = FakeGroqAPI(ArrayDeque(listOf(emptyFlow())))
+        OpenAICompatibleAdapter(FakeOpenAIAPI(), groq, attachmentEncoder()).openSession(turns(), platform(ClientType.GROQ))
+            .streamRound(listOf(definition), emptyList()).toList()
+        assertEquals("false", requestJson(groq.requests.single())["parallel_tool_calls"]?.jsonPrimitive?.content)
+        assertEquals(1, groq.requests.single().tools?.size)
+
+        val anthropic = FakeAnthropicAPI(ArrayDeque(listOf(emptyFlow())))
+        AnthropicMessagesAdapter(anthropic, attachmentEncoder()).openSession(turns(), platform(ClientType.ANTHROPIC))
+            .streamRound(listOf(definition), emptyList()).toList()
+        val choice = requestJson(anthropic.requests.single())["tool_choice"]!!.jsonObject
+        assertEquals("auto", choice["type"]?.jsonPrimitive?.content)
+        assertEquals("true", choice["disable_parallel_tool_use"]?.jsonPrimitive?.content)
+        assertEquals(1, anthropic.requests.single().tools?.size)
+    }
+
     @Test fun frozenCombinedWriterPromptReachesEveryRemoteAdapterUnchanged() = runBlocking {
         val prompt = "Frozen editorial instructions.\nReturn only the requested record format."
         for (role in dev.chungjungsoo.gptmobile.data.agent.CombinedRunRole.entries.filter { it.finalization }) {
@@ -95,6 +162,7 @@ class ProviderAdaptersTest {
                 .streamRound(emptyList(), emptyList()).toList()
             assertEquals(prompt, responses.responseRequests.single().instructions)
             assertTrue(responses.responseRequests.single().tools.isNullOrEmpty())
+            assertNull(responses.responseRequests.single().parallelToolCalls)
 
             for (type in listOf(ClientType.CUSTOM, ClientType.LLAMA)) {
                 val compatible = FakeOpenAIAPI(chatRounds = ArrayDeque(listOf(emptyFlow())))
@@ -115,6 +183,7 @@ class ProviderAdaptersTest {
                 .streamRound(emptyList(), emptyList()).toList()
             assertEquals(prompt, anthropic.requests.single().systemPrompt)
             assertTrue(anthropic.requests.single().tools.isNullOrEmpty())
+            assertNull(anthropic.requests.single().toolChoice)
 
             val google = FakeGoogleAPI(ArrayDeque(listOf(emptyFlow())))
             GeminiAdapter(google, attachmentEncoder())

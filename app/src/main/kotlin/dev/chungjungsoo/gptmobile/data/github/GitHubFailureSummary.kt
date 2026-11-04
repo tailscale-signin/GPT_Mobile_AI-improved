@@ -5,10 +5,16 @@ import kotlinx.serialization.json.JsonPrimitive
 
 /** Deterministic task observations survive claim extraction and replay compaction. */
 internal object GitHubFailureSummary {
+    private fun JsonObject.text(key: String): String? =
+        (this[key] as? JsonPrimitive)?.content?.takeUnless { it == "null" || it.isBlank() }
+
     fun render(receipts: Map<String, JsonObject>): String {
-        val failures = receipts.values.filter { it["trusted"] == JsonPrimitive(true) && it["success"] == JsonPrimitive(false) }
-            .distinctBy { it["call_id"] ?: it["receipt_id"] }
-            .groupingBy { (it["error_code"] as? JsonPrimitive)?.content?.takeUnless { code -> code == "null" || code.isBlank() } ?: "UNCLASSIFIED" }.eachCount()
+        val failures = receipts.entries.filter { (_, receipt) ->
+            receipt["success"] == JsonPrimitive(false) &&
+                (receipt["trusted"] == JsonPrimitive(true) || receipt["dispatched"] == JsonPrimitive(false))
+        }.distinctBy { (key, receipt) ->
+            receipt.text("call_id")?.let { "call:$it" } ?: receipt.text("receipt_id")?.let { "receipt:$it" } ?: "entry:$key"
+        }.groupingBy { (_, receipt) -> receipt.text("error_code") ?: "UNCLASSIFIED" }.eachCount()
         if (failures.isEmpty()) return ""
         return buildString {
             append("\n\n## Recorded operation failures\n\nThese are observed failures during this task; they do not establish the cause of an earlier interruption. Recovery actions below are recommendations.\n\n| Failure | Observations | Recommended action |\n| --- | ---: | --- |\n")

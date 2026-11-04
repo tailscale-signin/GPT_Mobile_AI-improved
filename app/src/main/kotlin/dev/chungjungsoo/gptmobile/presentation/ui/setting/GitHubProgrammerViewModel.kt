@@ -41,6 +41,8 @@ data class GitHubProgrammerState(
     val messages: List<MessageV2> = emptyList(),
     val runs: List<AgentRun> = emptyList(),
     val events: List<ToolEvent> = emptyList(),
+    val eventCount: Int = 0,
+    val eventCountsByRun: Map<String, Int> = emptyMap(),
     val pending: List<PendingPrompt> = emptyList(),
     val approvals: List<ToolApproval> = emptyList(),
     val submitting: Boolean = false,
@@ -309,14 +311,14 @@ class GitHubProgrammerViewModel @Inject constructor(
         if (observedChat != chatId) historyTurns = 10
         observedChat = chatId
         conversationJob?.cancel()
-        if (!reload) mutable.update { it.copy(chatId = chatId, messages = emptyList(), runs = emptyList(), events = emptyList(), pending = emptyList(), approvals = emptyList()) }
+        if (!reload) mutable.update { it.copy(chatId = chatId, messages = emptyList(), runs = emptyList(), events = emptyList(), eventCount = 0, eventCountsByRun = emptyMap(), pending = emptyList(), approvals = emptyList()) }
         if (chatId == null) return
         conversationJob = viewModelScope.launch(Dispatchers.IO) {
             combine(chats.observeMessageWindow(chatId, historyTurns), chats.observeAgentRuns(chatId), chats.observeToolEvents(chatId), queue.observe(chatId), approvals.pending) { messages, runs, events, pending, prompts ->
                 val ids = runs.mapTo(HashSet()) { it.runId }
-                GitHubProgrammerState(messages = messages, canLoadEarlier = messages.count { it.platformType == null } >= historyTurns, runs = runs, events = events.takeLast(100), pending = pending, approvals = prompts.filter { it.runId in ids })
+                GitHubProgrammerState(messages = messages, canLoadEarlier = messages.count { it.platformType == null } >= historyTurns, runs = runs, events = events.takeLast(100), eventCount = events.size, eventCountsByRun = events.groupingBy { it.runId }.eachCount(), pending = pending, approvals = prompts.filter { it.runId in ids })
             }.collect { value ->
-                if (observedChat == chatId) mutable.update { it.copy(messages = value.messages, canLoadEarlier = value.canLoadEarlier, runs = value.runs, events = value.events, pending = value.pending, approvals = value.approvals) }
+                if (observedChat == chatId) mutable.update { it.copy(messages = value.messages, canLoadEarlier = value.canLoadEarlier, runs = value.runs, events = value.events, eventCount = value.eventCount, eventCountsByRun = value.eventCountsByRun, pending = value.pending, approvals = value.approvals) }
             }
         }
     }

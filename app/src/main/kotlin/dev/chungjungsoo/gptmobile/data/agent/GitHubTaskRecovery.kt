@@ -18,6 +18,7 @@ internal object GitHubTaskRecovery {
     private val blockedStatus = Regex("(?<!\\d)(?:401|403|429)(?!\\d)")
 
     fun delayMillis(message: String, recoveries: Int, errorCode: String? = null): Long? {
+        if (GatewayOutcomeRecovery.requiresReconciliation(message, errorCode)) return null
         val code = errorCode.orEmpty().lowercase()
         if (ProfileFailureRecord.classify(message).category in setOf("ENDPOINT_RETIRED", "BILLING_UNAVAILABLE") || code in setOf("payment_required", "billing_unavailable", "insufficient_credits", "insufficient_quota", "budget_exceeded", "credit_limit_exceeded")) return null
         if (code.startsWith("client_tool_") || code.startsWith("terminal_job_") || code.startsWith("invalid_") || code.startsWith("completion_repair_") || code in setOf("context_capacity_unverified", "reasoning_off_unsupported", "reasoning_on_unsupported", "tool_batch_oversize", "tool_stream_invalid")) return null

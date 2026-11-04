@@ -12,6 +12,36 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class OutputLimitRecoverySessionTest {
+    @Test fun unknownGatewayOutcomeStopsEvenWhenLengthAndStallRecoveryWouldOtherwiseApply() = runTest {
+        for (finishReason in listOf<String?>(null, "length")) {
+            var requests = 0
+            var continuations = 0
+            val saved = mutableListOf<String>()
+            val wrapper = OutputLimitRecoverySession(
+                session {
+                    requests++
+                    emit(ProviderEvent.TextDelta("Saved answer fragment."))
+                    emit(ProviderEvent.Usage(finishReason = finishReason))
+                    emit(ProviderEvent.Failed("Connection reset before completion", progressDeadline = ProgressDeadlineOutcome("GENERATION_STALLED", ObservedProgressStage.ANSWER, 180_000, 90_000, true, 0), errorCode = "GATEWAY_OUTCOME_UNKNOWN"))
+                    error("No later stream failure may replace the unknown gateway outcome")
+                },
+                maxContinuations = 6,
+                targetWords = 1000,
+                recoverTransientFailures = true,
+                saveProgress = { text, _, _, _ -> saved += text }
+            ) { _, _ ->
+                continuations++
+                session { emit(ProviderEvent.Completed) }
+            }
+            val events = wrapper.streamRound(emptyList(), emptyList()).toList()
+            assertEquals(1, requests)
+            assertEquals(0, continuations)
+            assertEquals("GATEWAY_OUTCOME_UNKNOWN", events.filterIsInstance<ProviderEvent.Failed>().single().errorCode)
+            assertEquals("Saved answer fragment.", saved.last())
+            assertFalse(events.any { it is ProviderEvent.Completed || it is ProviderEvent.ToolCall })
+        }
+    }
+
     @Test fun restoredDraftStopsAfterFirstEmptyContinuationWithoutSpendingAnotherRequest() = runTest {
         var continued = 0
         val saved = mutableListOf<String>()

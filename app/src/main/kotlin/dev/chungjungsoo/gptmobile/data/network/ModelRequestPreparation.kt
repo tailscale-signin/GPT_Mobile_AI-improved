@@ -15,6 +15,7 @@ import kotlinx.serialization.json.longOrNull
 /** Called inside the retry closure immediately before physical HTTP dispatch, after provider transforms. */
 internal class ModelRequestPreparation(client: NetworkClient) {
     private val llama = LlamaCapacityRepository(client)
+    private val llamaHealth = dev.chungjungsoo.gptmobile.data.llama.LlamaHealthDiagnostics(client)
 
     suspend fun prepareQueued(payload: String, config: ProviderRequestConfig, model: String, outputTokens: Int?): String {
         val context = kotlinx.coroutines.currentCoroutineContext()
@@ -41,19 +42,25 @@ internal class ModelRequestPreparation(client: NetworkClient) {
         kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestAuthorizationGuard]?.validate?.invoke()
         dev.chungjungsoo.gptmobile.data.context.ProviderMessageValidator.validate(payload, config.intentionalAssistantPrefill)
         val discovered = if (config.providerType == "LLAMA") llama.discover(config, model) else null
+        if (config.providerType == "LLAMA" && discovered == null) {
+            val diagnostics = llamaHealth.inspect(config, model)
+            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("LocalConnection", "LLAMA_READINESS · ${diagnostics.summary()}", "W")
+        }
         val catalog = OpenRouterCatalogLimits.forRequest(config.providerType.orEmpty(), config.apiUrl, model)
         val freeModel = config.freeModelSnapshot?.takeIf { it.id == model }
             ?: config.freeProvider?.let { dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.model(it, model) }
         val declared = config.contextCeiling?.takeIf { it > 0 && it < Int.MAX_VALUE }?.toLong()
-        val context = listOfNotNull(discovered?.contextTokens, catalog?.context?.toLong(), freeModel?.contextTokens?.toLong(), declared).minOrNull()
+        val context = listOfNotNull(catalog?.context?.toLong(), freeModel?.contextTokens?.toLong(), declared).minOrNull()
+        val output = listOfNotNull(catalog?.output?.toLong(), freeModel?.outputTokens?.toLong(), config.freeProvider?.enforcedOutputCeiling?.toLong()).minOrNull()
         val snapshot = RequestAdmission.auxiliaryCapacity(
             config.requestRole,
-            discovered?.copy(contextTokens = context) ?: CapacitySnapshot(
-                RuntimeFingerprint(config.profileUid ?: "unbound", "sha256:${researchHash(config.apiUrl)}", researchHash(config.token.orEmpty()), model, model, "unverified", "unverified", "unverified"),
-                context,
-                outputTokens = listOfNotNull(catalog?.output?.toLong(), freeModel?.outputTokens?.toLong(), config.freeProvider?.enforcedOutputCeiling?.toLong()).minOrNull(),
-                provenance = if (context != null) CapacityProvenance.DECLARED else CapacityProvenance.UNKNOWN
-            )
+            (
+                discovered ?: CapacitySnapshot(
+                    RuntimeFingerprint(config.profileUid ?: "unbound", "sha256:${researchHash(config.apiUrl)}", researchHash(config.token.orEmpty()), model, model, "unverified", "unverified", "unverified"),
+                    context,
+                    provenance = if (context != null) CapacityProvenance.DECLARED else CapacityProvenance.UNKNOWN
+                )
+                ).withCeilings(context, output)
         )
         // Read the actual serialized value as the final authority, not a profile DTO's default.
         var original = Json.parseToJsonElement(payload) as JsonObject

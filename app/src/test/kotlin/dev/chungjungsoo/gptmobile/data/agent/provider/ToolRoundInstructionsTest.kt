@@ -13,12 +13,15 @@ class ToolRoundInstructionsTest {
         assertTrue(final.contains(userRules))
         assertTrue(final.contains("Project rule: include the tested revision."))
         assertTrue(!final.contains("Call github_ci"))
-        assertEquals(prompt, toolRoundSystemPrompt(prompt, true))
+        assertTrue(requireNotNull(toolRoundSystemPrompt(prompt, true)).startsWith(prompt))
     }
 
-    @Test fun activeToolsPreserveTheOriginalPrompt() {
-        assertEquals("Original prompt", toolRoundSystemPrompt("Original prompt", true))
-        assertNull(toolRoundSystemPrompt(null, true))
+    @Test fun activeToolsPreserveTheOriginalPromptAndBoundTheRequestedBatch() {
+        val original = requireNotNull(toolRoundSystemPrompt("Original prompt", true))
+        assertTrue(original.startsWith("Original prompt\n\n"))
+        assertTrue(original.contains("at most 8 tool calls"))
+        assertTrue(original.contains("remaining total tool budget"))
+        assertEquals(ProviderToolBatchPolicy.INSTRUCTIONS, toolRoundSystemPrompt(null, true))
     }
 
     @Test fun synthesisPreservesFrozenPromptIncludingAbsentInstructions() {

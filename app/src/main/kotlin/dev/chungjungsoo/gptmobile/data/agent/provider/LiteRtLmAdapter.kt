@@ -106,7 +106,7 @@ class LiteRtLmAdapter(
         val singlePrimary = singlePass && constraints.combined?.role == dev.chungjungsoo.gptmobile.data.agent.CombinedRunRole.SYNTHESIS
         val task = turns.lastOrNull()?.userMessage?.effectiveContent().orEmpty()
         val directory = dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog.create(tools.map { it.definition }, task)
-        val boundTools = if (directory == null) tools else tools + directory
+        val boundTools = dev.chungjungsoo.gptmobile.data.agent.appendBudgetedCatalog(tools, directory)
         // The caller may already have admitted a precise schema inventory. Without
         // that inventory, let the context planner below select from the bound tools:
         // a second catalog rank here loses prior-turn intent and capability queries.

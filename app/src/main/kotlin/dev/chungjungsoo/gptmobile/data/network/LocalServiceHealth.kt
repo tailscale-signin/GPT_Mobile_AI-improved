@@ -68,9 +68,9 @@ internal object LocalServiceHealth {
         if (endpointLocality(url) == EndpointLocality.EXTERNAL && !dev.chungjungsoo.gptmobile.data.research.academic.ResearchConnectivityGate.shared.available(endpoint(url)?.host)) throw IOException("DNS_RECOVERY: correlated public DNS failures; retry after network recovery")
         val uri = endpoint(url) ?: return
         val time = now()
-        val cooling = listOf(key(uri), dnsKey(uri)).mapNotNull(states::get).firstOrNull { it.until > time }
+        val cooling = listOf(key(uri), dnsKey(uri)).mapNotNull(states::get).filter { it.until > time }.maxByOrNull { it.until }
         if (cooling != null) {
-            throw IOException("LOCAL_SERVICE_UNREACHABLE: ${cooling.health}; endpoint=${uri.host}:${port(uri)}; retryAfterMs=${cooling.until - time}. Check this connection; no alternate endpoint was used.")
+            throw LocalServiceUnavailableException(cooling.health, "${uri.host}:${port(uri)}", cooling.until - time)
         }
     }
 
@@ -99,7 +99,9 @@ internal object LocalServiceHealth {
     }
 
     fun classify(failure: Throwable): ConnectionHealth {
+        if (failure is LocalServiceUnavailableException) return failure.health
         val causes = generateSequence(failure) { it.cause?.takeUnless { cause -> cause === it } }.take(8).toList()
+        causes.filterIsInstance<LocalServiceUnavailableException>().firstOrNull()?.let { return it.health }
         val message = causes.joinToString { it.message.orEmpty().take(512) }.lowercase()
         return when {
             causes.any { it is java.net.UnknownHostException } -> ConnectionHealth.DNS_FAILED
@@ -139,10 +141,10 @@ internal object LocalServiceHealth {
         val uri = endpoint(url) ?: return@withContext
         requireAvailable(url)
         try {
-            Socket().use { it.connect(InetSocketAddress(uri.host, port(uri)), 1_000) }
+            Socket().use { it.connect(InetSocketAddress(uri.host, port(uri)), 3_000) }
         } catch (failure: IOException) {
             recordFailure(url, failure)
-            throw IOException("LOCAL_SERVICE_UNREACHABLE: ${classify(failure)}; endpoint=${uri.host}:${port(uri)}; retryAfterMs=${retryAfterMillis(url)}; TCP probe failed; configured endpoint was preserved", failure)
+            throw LocalServiceUnavailableException(classify(failure), "${uri.host}:${port(uri)}", retryAfterMillis(url), cause = failure)
         }
     }
 }

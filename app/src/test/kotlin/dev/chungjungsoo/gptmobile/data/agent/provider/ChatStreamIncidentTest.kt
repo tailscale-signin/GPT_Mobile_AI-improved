@@ -41,13 +41,17 @@ class ChatStreamIncidentTest {
 
     @Test fun overflowRetainsOnlyBoundedSanitizedShapeAndDispatchesNothing() {
         val assembler = ChatCompletionsEventAssembler()
+        val published = mutableListOf<ProviderEvent>()
         try {
-            repeat(129) { assembler.accept(null, null, listOf(ChatToolCallDelta(it, "private-id-$it", function = ChatFunctionDelta("private-tool", "{}"))), null) }
+            repeat(129) { published += assembler.accept(null, null, listOf(ChatToolCallDelta(it, "private-id-$it", function = ChatFunctionDelta("private-tool", "{}"))), null) }
             throw AssertionError("Expected bounded stream rejection")
         } catch (failure: ToolBatchOversizeException) {
+            assertFalse(published.any { it is ProviderEvent.ToolCall })
+            assertTrue(assembler.finish().isEmpty())
             assertEquals("STREAM_TOOL_SLOTS", failure.threshold)
-            assertEquals(129, failure.observedValue)
-            assertEquals(128, failure.completeCallIds)
+            assertEquals(9, failure.observedValue)
+            assertEquals(8, failure.completeCallIds)
+            assertEquals(8, failure.allowedValue)
             assertTrue(failure.sanitizedStreamShape.orEmpty().length < 1500)
             assertFalse(failure.message.orEmpty().contains("private-id"))
             assertFalse(failure.message.orEmpty().contains("private-tool"))

@@ -65,6 +65,19 @@ class GitHubRepositoryStateStore private constructor(private val directory: File
         }
     }
 
+    /** A memory hit does not prove that a cache body survived persistent-store pruning. */
+    internal suspend fun containsRetainedBody(scope: String, key: String): Boolean = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            val identity = "$scope:$key"
+            val dir = directory
+            if (dir == null) {
+                values.containsKey(identity)
+            } else {
+                File(dir, digest(identity) + ".record").let { it.isFile && it.length() in 1..MAX_RECORD_BYTES.toLong() }
+            }
+        }
+    }
+
     suspend fun read(scope: String, key: String): JsonObject? = withContext(Dispatchers.IO) {
         mutex.withLock { readLocked(scope, key) }
     }

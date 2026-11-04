@@ -12,6 +12,32 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CombinedRecordRecoverySessionTest {
+    @Test fun unknownGatewayOutcomeRetainsPendingRecordWithoutStartingLengthRecovery() = runTest {
+        for (acceptedAppend in listOf(false, true)) {
+            var continuations = 0
+            var saved: CombinedRecordCheckpoint? = null
+            val partial = first.take(45)
+            val recovery = CombinedRecordRecoverySession(
+                session(ProviderEvent.TextDelta(partial), ProviderEvent.Usage(finishReason = "length"), ProviderEvent.Failed("Connection timed out", errorCode = "GATEWAY_OUTCOME_UNKNOWN")),
+                protocol(),
+                3,
+                acceptedAppend = acceptedAppend,
+                validateAccess = {},
+                save = { saved = it }
+            ) { _, _ ->
+                continuations++
+                session(ProviderEvent.Completed)
+            }
+            val events = recovery.streamRound(emptyList(), emptyList()).toList()
+            assertEquals(0, continuations)
+            assertEquals("GATEWAY_OUTCOME_UNKNOWN", events.filterIsInstance<ProviderEvent.Failed>().single().errorCode)
+            assertEquals(partial, saved!!.pending)
+            if (acceptedAppend) assertEquals("UNKNOWN", saved!!.lastAttemptOutcome)
+            assertFalse(saved!!.ended)
+            assertFalse(events.any { it is ProviderEvent.Completed })
+        }
+    }
+
     @Test fun fencedPacketsCommitAndContinueWithoutSpendingMalformedRecovery() = runTest {
         val parser = protocol()
         var requests = 0

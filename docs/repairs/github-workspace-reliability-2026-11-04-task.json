@@ -1,0 +1,54 @@
+{
+  "schema": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "d97a1e54b9357d592bc9a77363c31b0f860a943f",
+  "working_branch": "fix/github-workspace-reliability-2026-11-04",
+  "starting_head": "2585da69c5f07ee7be24e4085f8658764614c08f",
+  "pull_request": 800,
+  "intent": "Complete the November 4 GitHub workspace execution, recovery, review, evidence, diagnostic and UI repairs while preserving authorization, user budgets and mutation reconciliation.",
+  "state": "IMPLEMENTED_VALIDATING",
+  "acceptance": {
+    "execution": "All execution paths respect the same requested call cap; bounded streamed tool frames cannot dispatch partial mutations.",
+    "recovery": "Completed receipts and unknown outcomes survive restart; replay requires read-only or reconciled identity.",
+    "delivery": "A failed run delivers a nonempty truthful response once; acceptance evidence controls completion.",
+    "review": "Review input/output are admitted together, retain every evidence fragment, and recover without repeating writes.",
+    "presentation": "Expose acceptance states and recovery actions, retain progress cadence and diagnostic completeness.",
+    "validation": "Behavior regression tests, canonical host checks, exact revision Android/CI checks. Device/server claims require actual evidence."
+  },
+  "validation": {
+    "host": {
+      "state": "PASS",
+      "canonical_command": "bash scripts/validate-local.sh fast",
+      "python_tests": 301,
+      "regex_errors": 0,
+      "resource_xml_files": 30
+    },
+    "android": {
+      "state": "IN_PROGRESS",
+      "unit_compile": "JDK 21 / SDK 37; existing bounded 4 GiB JVM settings; unit test compilation running.",
+      "initial_cold_build": "Stopped after a 3 GiB JVM heap-pressure warning before test execution."
+    },
+    "physical_device_and_user_llama": "NOT_TESTED",
+    "starting_head_ci": {
+      "sha": "2585da69c5f07ee7be24e4085f8658764614c08f",
+      "unit_tests": 6237,
+      "failed": 2,
+      "skipped": 4,
+      "failures": [
+        "GitHubChecklistPaginationTest.missingIssueDependencyDoesNotForceUnboundedRemotePagination",
+        "GitHubChecklistPaginationTest.sampleBudgetIsBoundedAndExplicitInventoryCanContinue"
+      ],
+      "run": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/41836988322"
+    },
+    "durable_focused_harness": {
+      "state": "PASS",
+      "tests": 33,
+      "qualification": "Actual changed production sources and file-backed state store with Android/contract boundary stubs; does not replace Android Gradle validation."
+    },
+    "formatting": {
+      "state": "PASS",
+      "version": "ktlint 1.3.1"
+    }
+  }
+}

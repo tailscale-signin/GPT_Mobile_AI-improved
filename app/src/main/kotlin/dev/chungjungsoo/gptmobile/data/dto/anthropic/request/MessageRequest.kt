@@ -56,7 +56,11 @@ data class MessageRequest(
 
     @SerialName("tools")
     @EncodeDefault(EncodeDefault.Mode.NEVER)
-    val tools: List<AnthropicTool>? = null
+    val tools: List<AnthropicTool>? = null,
+
+    @SerialName("tool_choice")
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val toolChoice: AnthropicToolChoice? = null
 )
 
 @Serializable
@@ -85,4 +89,14 @@ data class ThinkingConfig(
     @SerialName("display")
     @EncodeDefault(EncodeDefault.Mode.NEVER)
     val display: String? = null
+)
+
+@OptIn(ExperimentalSerializationApi::class)
+@Serializable
+data class AnthropicToolChoice(
+    @EncodeDefault(EncodeDefault.Mode.ALWAYS)
+    val type: String = "auto",
+    @SerialName("disable_parallel_tool_use")
+    @EncodeDefault(EncodeDefault.Mode.ALWAYS)
+    val disableParallelToolUse: Boolean = true
 )

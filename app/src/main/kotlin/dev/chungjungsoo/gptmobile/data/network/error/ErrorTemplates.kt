@@ -74,6 +74,12 @@ object ErrorTemplates {
             actionButtonLabel = "Review Settings",
             autoRetry = false
         )
+        ErrorCategory.REMOTE_OUTCOME_UNKNOWN -> UiErrorTemplate(
+            title = "Check remote job status",
+            description = error.userMessage,
+            actionButtonLabel = "View details",
+            autoRetry = false
+        )
         ErrorCategory.OUTPUT_PROTOCOL_INVALID -> UiErrorTemplate(
             title = "Answer Format Incomplete",
             description = error.userMessage,

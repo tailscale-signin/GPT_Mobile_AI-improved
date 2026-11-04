@@ -31,6 +31,8 @@ class TaskRecoveryActionTest {
         val messages = listOf(user(1, "Inspect the repository"))
         val automatic = TaskResumeDescriptor("1:1", 1, "provider-resume:fixture", TaskRecoveryAction.RETRY_FAILED_STAGE)
         assertFalse(resolveTaskRecovery(messages, automatic)!!.retryUndispatchedBudgetFailures)
+        assertFalse(resolveTaskRecovery(messages, automatic)!!.renewsToolBudget)
+        assertTrue(resolveTaskRecovery(messages, automatic.copy(allowNewToolBudget = true))!!.renewsToolBudget)
         val explicit = automatic.copy(generationId = "user-retry", allowUndispatchedBudgetRetry = true)
         val encoded = kotlinx.serialization.json.Json.encodeToString(TaskResumeDescriptor.serializer(), explicit)
         val restored = kotlinx.serialization.json.Json.decodeFromString(TaskResumeDescriptor.serializer(), encoded)

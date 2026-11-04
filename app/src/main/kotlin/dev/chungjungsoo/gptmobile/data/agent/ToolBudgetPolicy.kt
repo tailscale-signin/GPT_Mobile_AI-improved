@@ -9,15 +9,18 @@ object ToolBudgetPolicy {
         if (limits.maxToolCalls == Int.MAX_VALUE) {
             Int.MAX_VALUE
         } else {
-            (limits.maxToolCalls - limits.finalResponseToolCallReserve.coerceAtLeast(0)).coerceAtLeast(0)
+            (limits.maxToolCalls.toLong() - limits.finalResponseToolCallReserve.coerceAtLeast(0).toLong()).coerceIn(0L, Int.MAX_VALUE.toLong()).toInt()
         }
 
     fun wrapUpThreshold(limits: AgentRunLimits): Int =
         (limits.maxToolCalls / 5).coerceAtLeast(1)
 
     fun remainingAllowance(executionLimit: Int, toolCallCount: Int): Int =
-        if (executionLimit == Int.MAX_VALUE) Int.MAX_VALUE else
-            (executionLimit.toLong() - toolCallCount.toLong()).coerceIn(0L, Int.MAX_VALUE.toLong()).toInt()
+        if (executionLimit == Int.MAX_VALUE) {
+            Int.MAX_VALUE
+        } else {
+            (executionLimit.coerceAtLeast(0).toLong() - toolCallCount.coerceAtLeast(0).toLong()).coerceIn(0L, Int.MAX_VALUE.toLong()).toInt()
+        }
 
     fun shouldEmitWrapUpNotice(
         executionLimit: Int,

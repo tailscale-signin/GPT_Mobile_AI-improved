@@ -26,6 +26,7 @@ enum class ErrorCategory {
     NO_VISIBLE_ANSWER,
     TOOL_CHOICE_MISMATCH,
     PROVIDER_PAYLOAD_ERROR,
+    REMOTE_OUTCOME_UNKNOWN,
     OUTPUT_PROTOCOL_INVALID,
     NETWORK_TIMEOUT,
     NETWORK_DISCONNECTED,
@@ -50,7 +51,10 @@ data class ClassifiedError(
     val isRetryable: Boolean,
     val suggestedBackoffMs: Long,
     val userMessage: String,
-    val originalThrowable: Throwable? = null
+    val originalThrowable: Throwable? = null,
+    val connectionHealth: dev.chungjungsoo.gptmobile.data.network.ConnectionHealth? = null,
+    val probeAttempts: Int? = null,
+    val errorCode: String = category.name
 )
 
 /**
@@ -71,6 +75,22 @@ object ErrorClassification {
 
         return when {
             throwable is kotlinx.coroutines.CancellationException -> ClassifiedError(ErrorCategory.CLIENT_CANCELLED, ErrorSeverity.LOW, false, 0, "Request was cancelled.", throwable)
+            "gateway_outcome_unknown" in msg -> ClassifiedError(ErrorCategory.REMOTE_OUTCOME_UNKNOWN, ErrorSeverity.HIGH, false, 0, "The gateway may already have performed actions. Reconcile the saved job and remote results before resuming; do not repeat this request.", throwable, errorCode = "GATEWAY_OUTCOME_UNKNOWN")
+            causes.any { it is dev.chungjungsoo.gptmobile.data.network.LocalServiceUnavailableException } -> {
+                val failure = causes.filterIsInstance<dev.chungjungsoo.gptmobile.data.network.LocalServiceUnavailableException>().first()
+                ClassifiedError(
+                    category = ErrorCategory.NETWORK_DISCONNECTED,
+                    severity = ErrorSeverity.MEDIUM,
+                    isRetryable = false,
+                    suggestedBackoffMs = failure.retryAfterMillis,
+                    userMessage = "LOCAL_SERVICE_UNREACHABLE: ${failure.health}; connection recovery stopped after ${failure.probeAttempts} checks. Verify the configured server and resume after connectivity recovers. HTTP/model readiness is unverified.",
+                    originalThrowable = throwable,
+                    connectionHealth = failure.health,
+                    probeAttempts = failure.probeAttempts,
+                    errorCode = "LOCAL_SERVICE_UNREACHABLE"
+                )
+            }
+            "local_service_unreachable" in msg -> ClassifiedError(ErrorCategory.NETWORK_DISCONNECTED, ErrorSeverity.MEDIUM, false, 0, "Local connection recovery stopped. Verify the configured server and resume after connectivity recovers. HTTP/model readiness is unverified.", throwable, errorCode = "LOCAL_SERVICE_UNREACHABLE")
             "memory_stale" in msg || "memory changed before sending" in msg -> ClassifiedError(ErrorCategory.MEMORY_STALE, ErrorSeverity.MEDIUM, false, 0, "Memory changed before sending. Retry to prepare with current authorized memory, or disable recall for this profile and retry.", throwable)
             "policy_snapshot_" in msg -> ClassifiedError(ErrorCategory.SAVED_POLICY_UNAVAILABLE, ErrorSeverity.HIGH, false, 0, "The saved request policy is unavailable or could not be validated. Restore the original backup or start a new request. The app cannot safely resume using a replacement policy.", throwable)
             "research_attempt_superseded" in msg -> ClassifiedError(ErrorCategory.POLICY_STALE, ErrorSeverity.LOW, false, 0, "This queued request belongs to an earlier Research attempt. Continue from the current attempt; this request was not sent.", throwable)
@@ -111,7 +131,7 @@ object ErrorClassification {
                 originalThrowable = throwable
             )
 
-            dnsFailure || msg.contains("network is unreachable") || msg.contains("local_service_unreachable") || causes.any { it is java.net.ConnectException } -> ClassifiedError(
+            dnsFailure || msg.contains("network is unreachable") || causes.any { it is java.net.ConnectException } -> ClassifiedError(
                 category = ErrorCategory.NETWORK_DISCONNECTED,
                 severity = ErrorSeverity.MEDIUM,
                 isRetryable = true,

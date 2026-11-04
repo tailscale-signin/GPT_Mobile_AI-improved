@@ -60,7 +60,11 @@ data class ResponsesRequest(
 
     @SerialName("tools")
     @EncodeDefault(EncodeDefault.Mode.NEVER)
-    val tools: List<ResponseFunctionTool>? = null
+    val tools: List<ResponseFunctionTool>? = null,
+
+    @SerialName("parallel_tool_calls")
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val parallelToolCalls: Boolean? = null
 )
 
 @Serializable

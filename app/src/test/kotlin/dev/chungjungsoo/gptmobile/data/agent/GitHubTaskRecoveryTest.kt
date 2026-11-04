@@ -85,6 +85,17 @@ class GitHubTaskRecoveryTest {
         }
     }
 
+    @Test fun unknownGatewayOutcomeNeverEntersTransientRecovery() {
+        val retryableMessage = "connection reset; HTTP 502; retryAfterMs=2000"
+        for (code in listOf("GATEWAY_OUTCOME_UNKNOWN", "REMOTE_OUTCOME_UNKNOWN", "gateway_outcome_unknown")) {
+            assertNull(GitHubTaskRecovery.delayMillis(retryableMessage, 0, code))
+            assertNull(GitHubTaskRecovery.delayMillis("$code: $retryableMessage", 0))
+            assertFalse(isRecoverableStreamFailure("$code: $retryableMessage"))
+        }
+        assertTrue(isRecoverableStreamFailure(retryableMessage))
+        assertEquals(2000L, GitHubTaskRecovery.delayMillis(retryableMessage, 0))
+    }
+
     @Test fun legacyUnsentValidationResultsCannotPoisonALaterCorrectedCall() = runTest {
         var rounds = 0
         var actions = 0

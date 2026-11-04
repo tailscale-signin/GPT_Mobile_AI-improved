@@ -88,7 +88,7 @@ internal class OutputLimitRecoverySession(
             var savedCharacters = 0
             try {
                 active.streamRound(if (continuing) emptyList() else tools, if (continuing) emptyList() else exchanges)
-                    .withAssistantTextMarkupGuard(validateSearchClaims = false).withSummedRequestUsage().collect { event ->
+                    .stopAtUnknownGatewayOutcome().withAssistantTextMarkupGuard(validateSearchClaims = false).withSummedRequestUsage().collect { event ->
                         when (event) {
                             is ProviderEvent.ToolCall -> {
                                 if (!admission.admit(event)) throw ToolBatchOversizeException()
@@ -142,6 +142,11 @@ internal class OutputLimitRecoverySession(
             if (continuing && novel.isNotEmpty()) emit(ProviderEvent.TextDelta(novel))
             answer.append(novel)
             saveProgress(answer.toString(), continuations, effectiveOutputCap, "SEGMENT_COMMITTED")
+            failure?.takeIf { GatewayOutcomeRecovery.requiresReconciliation(it.message, it.errorCode) }?.let { unresolved ->
+                saveProgress(answer.toString(), continuations, effectiveOutputCap, if (answer.isNotEmpty()) "PARTIAL" else "FAILED")
+                emit(unresolved.copy(errorCode = GatewayOutcomeRecovery.ERROR_CODE))
+                return@flow
+            }
             val limitFailure = failure?.let { dev.chungjungsoo.gptmobile.data.agent.tool.isProviderOutputLimitFailure(it.message) } == true ||
                 reportedFinishReason?.lowercase() in setOf("length", "max_tokens", "output_limit") ||
                 (pendingCalls.isEmpty() && LongResponsePolicy.unfinishedQueuedPacket(segment.toString(), reportedFinishReason, effectiveOutputCap))

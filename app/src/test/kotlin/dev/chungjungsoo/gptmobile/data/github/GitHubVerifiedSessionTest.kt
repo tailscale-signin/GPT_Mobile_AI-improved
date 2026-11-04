@@ -144,10 +144,10 @@ class GitHubVerifiedSessionTest {
         assertTrue(report.toString().contains("original_failure"))
     }
 
-    @Test fun providerDenialBeforeToolExecutionIsNotPartialVerification() = runTest {
+    @Test fun providerDenialRetainsPendingAcceptanceWithoutClaimingPartialVerification() = runTest {
         for (task in listOf("Test GitHub tools and report.", "Inspect the repository")) {
             var rounds = 0
-            var savedReports = 0
+            val savedCheckpoints = mutableListOf<JsonObject>()
             val failure = ProviderEvent.Failed(
                 "HTTP 402: provider budget restriction",
                 errorCode = "PAYMENT_REQUIRED",
@@ -161,7 +161,7 @@ class GitHubVerifiedSessionTest {
             }
             val gate = GitHubVerifiedSession(
                 provider,
-                GitHubEvidenceBook("b", "o/r", "main", emptySet(), save = { _, _ -> savedReports++ }),
+                GitHubEvidenceBook("b", "o/r", "main", emptySet(), save = { _, checkpoint -> savedCheckpoints += checkpoint }),
                 task,
                 { 8192 },
                 { error("A provider denial must not open a verifier") },
@@ -172,7 +172,9 @@ class GitHubVerifiedSessionTest {
             val terminal = events.filterIsInstance<AgentRunEvent.Provider>().map { it.event }.filterIsInstance<ProviderEvent.Failed>().single()
             assertEquals(failure, terminal)
             assertEquals(1, rounds)
-            assertEquals(0, savedReports)
+            assertTrue(savedCheckpoints.isNotEmpty())
+            assertTrue(savedCheckpoints.all { it["completion_verified"] == JsonPrimitive(false) && it["response_delivered"] == JsonPrimitive(false) })
+            assertEquals(JsonPrimitive("INTERRUPTED"), savedCheckpoints.last()["phase"])
             assertFalse(events.any { it is AgentRunEvent.Provider && (it.event is ProviderEvent.TextDelta || it.event is ProviderEvent.Completed) })
         }
     }

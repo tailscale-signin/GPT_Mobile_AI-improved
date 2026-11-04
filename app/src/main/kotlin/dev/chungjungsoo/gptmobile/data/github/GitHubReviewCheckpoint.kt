@@ -16,7 +16,7 @@ internal class GitHubReviewCheckpoint(
     private val read: suspend (String) -> JsonObject?,
     private val write: suspend (String, JsonObject) -> Unit
 ) {
-    data class Saved(val draft: String, val receipts: List<String>, val blockedReason: String? = null)
+    data class Saved(val draft: String, val receipts: List<String>, val blockedReason: String? = null, val inputLimit: Int? = null)
     private val taskHash = researchHash(task)
     private suspend fun text(value: String): String {
         require(value.toByteArray().size <= 16 * 1024 * 1024)
@@ -52,7 +52,7 @@ internal class GitHubReviewCheckpoint(
             }
         }.also { require(it.toByteArray().size <= 16 * 1024 * 1024 && researchHash(it) == digest) { "Review checkpoint content changed." } }
     }
-    suspend fun save(draft: String, receipts: List<String>) {
+    suspend fun save(draft: String, receipts: List<String>, inputLimit: Int? = null) {
         require(receipts.size <= 4096 && receipts.sumOf { it.toByteArray().size.toLong() } <= 16 * 1024 * 1024)
         val draftRef = text(draft)
         val refs = receipts.map { text(it) }
@@ -65,6 +65,7 @@ internal class GitHubReviewCheckpoint(
                 put("draft", draftRef)
                 put("receipts", JsonArray(refs.map(::JsonPrimitive)))
                 put("state", "PENDING")
+                inputLimit?.let { put("input_limit", it.coerceAtLeast(0)) }
                 put("format_retries", if (sameCandidate) (previous.get("format_retries") as? JsonPrimitive)?.intOrNull ?: 0 else 0)
             }
         )
@@ -98,7 +99,7 @@ internal class GitHubReviewCheckpoint(
                 require(bytes <= 16 * 1024 * 1024)
             }
         }
-        return Saved(restore(row["draft"]!!.jsonPrimitive.content), receipts, row["failure_code"]?.jsonPrimitive?.content.takeIf { row["state"] == JsonPrimitive("BLOCKED") })
+        return Saved(restore(row["draft"]!!.jsonPrimitive.content), receipts, row["failure_code"]?.jsonPrimitive?.content.takeIf { row["state"] == JsonPrimitive("BLOCKED") }, (row["input_limit"] as? JsonPrimitive)?.intOrNull)
     }
 
     /** Failure metadata is retained with the protected checkpoint even when verbose logging is disabled. */
@@ -120,6 +121,15 @@ internal class GitHubReviewCheckpoint(
     suspend fun verdict(prompt: String, result: String) {
         require(result.toByteArray().size <= 128 * 1024)
         write("verdict:${researchHash(prompt)}", buildJsonObject { put("text", result) })
+    }
+    suspend fun repair(prompt: String): String? {
+        val row = read("repair:${researchHash(prompt)}") ?: return null
+        return restore(row["text"]!!.jsonPrimitive.content)
+    }
+    suspend fun repair(prompt: String, result: String) {
+        require(result.isNotBlank() && result.length <= 1_048_576)
+        val digest = text(result)
+        write("repair:${researchHash(prompt)}", buildJsonObject { put("text", digest) })
     }
     suspend fun completed() {
         val current = read("active") ?: return

@@ -31,6 +31,97 @@ class AgentRunnerFailureTest {
         assertEquals(0L, testScheduler.currentTime)
     }
 
+    @Test
+    fun unknownGatewayOutcomeStopsBeforeAnotherModelRoundOrPendingToolDispatch() = runTest {
+        val cases = listOf(
+            ProviderEvent.Failed("Connection reset before the response", errorCode = "GATEWAY_OUTCOME_UNKNOWN"),
+            ProviderEvent.Failed("The response reached its output limit", errorCode = "REMOTE_OUTCOME_UNKNOWN"),
+            ProviderEvent.Failed("GATEWAY_OUTCOME_UNKNOWN: incomplete function call; connection reset")
+        )
+        for (githubTask in listOf(false, true)) {
+            for (failure in cases) {
+                var requests = 0
+                var toolDispatches = 0
+                var retainedRequests = 0
+                val arguments = kotlinx.serialization.json.JsonObject(emptyMap())
+                val tool = object : AgentTool {
+                    override val definition = AgentToolDefinition("github_write", "Write an authorized change", arguments)
+                    override suspend fun execute(callId: String, arguments: kotlinx.serialization.json.JsonObject): AgentToolResult {
+                        toolDispatches++
+                        return AgentToolResult(callId, ToolResultContent.Text("write receipt"), false)
+                    }
+                }
+                val session = object : AgentProviderSession {
+                    override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> = flow {
+                        requests++
+                        emit(ProviderEvent.ToolCall("pending", tool.definition.name, arguments))
+                        emit(failure)
+                    }
+
+                    override fun retainedFailureResponse(failure: ProviderEvent.Failed): Flow<ProviderEvent> = flow {
+                        retainedRequests++
+                        emit(ProviderEvent.TextDelta("This fallback would issue another request."))
+                        emit(failure)
+                    }
+                }
+                val events = AgentRunner(AgentRunLimits(githubTask = githubTask)).run(session, listOf(tool)).toList()
+                assertEquals(1, requests)
+                assertEquals(0, toolDispatches)
+                assertEquals(0, retainedRequests)
+                assertFalse(events.any { it is AgentRunEvent.ToolStarted || it is AgentRunEvent.ToolFinished })
+                val published = events.filterIsInstance<AgentRunEvent.Provider>().map { it.event }
+                assertEquals("GATEWAY_OUTCOME_UNKNOWN", published.filterIsInstance<ProviderEvent.Failed>().single().errorCode)
+                assertFalse(published.any { it is ProviderEvent.Completed || it is ProviderEvent.ToolCall })
+            }
+        }
+        assertEquals(0L, testScheduler.currentTime)
+    }
+
+    @Test
+    fun thrownGatewayOutcomeUnknownKeepsItsIdentityAndNeverStartsARecoveryRequest() = runTest {
+        for (githubTask in listOf(false, true)) {
+            var requests = 0
+            var retainedRequests = 0
+            val session = object : AgentProviderSession {
+                override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> = flow {
+                    requests++
+                    throw IOException("wrapped transport failure", IOException("GATEWAY_OUTCOME_UNKNOWN: connection reset"))
+                }
+
+                override fun retainedFailureResponse(failure: ProviderEvent.Failed): Flow<ProviderEvent> = flow {
+                    retainedRequests++
+                    emit(failure)
+                }
+            }
+            val events = AgentRunner(AgentRunLimits(githubTask = githubTask)).run(session, emptyList()).toList()
+            assertEquals(1, requests)
+            assertEquals(0, retainedRequests)
+            val failures = events.filterIsInstance<AgentRunEvent.Provider>().map { it.event }.filterIsInstance<ProviderEvent.Failed>()
+            assertEquals("GATEWAY_OUTCOME_UNKNOWN", failures.single().errorCode)
+        }
+        assertEquals(0L, testScheduler.currentTime)
+    }
+
+    @Test
+    fun unknownGatewayOutcomeDominatesEarlierProtocolErrorsAndStopsTrailingEvents() = runTest {
+        for (preamble in listOf(ProviderEvent.TextDelta("<tool_call name=github_write>{}</tool_call>"), ProviderEvent.Failed("Connection reset"))) {
+            var requests = 0
+            var trailingEvents = 0
+            val session = provider {
+                requests++
+                emit(preamble)
+                emit(ProviderEvent.Failed("Gateway result is unknown", errorCode = "GATEWAY_OUTCOME_UNKNOWN"))
+                trailingEvents++
+                emit(ProviderEvent.Failed("Connection reset again"))
+            }
+            val events = AgentRunner(AgentRunLimits(githubTask = true)).run(session, emptyList()).toList()
+            assertEquals(1, requests)
+            assertEquals(0, trailingEvents)
+            val failures = events.filterIsInstance<AgentRunEvent.Provider>().map { it.event }.filterIsInstance<ProviderEvent.Failed>()
+            assertEquals("GATEWAY_OUTCOME_UNKNOWN", failures.single().errorCode)
+        }
+    }
+
     private fun provider(block: suspend FlowCollector<ProviderEvent>.() -> Unit) = object : AgentProviderSession {
         override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> = flow(block)
     }

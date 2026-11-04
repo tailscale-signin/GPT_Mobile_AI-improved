@@ -297,6 +297,99 @@ class GitHubReviewedSessionTest {
         assertEquals(ProviderEvent.Completed, output.last())
     }
 
+    @Test fun longCandidateIsReviewedInCompleteBoundedSectionsWithoutRegeneration() = runBlocking {
+        val draft = (1..60).joinToString("\n") { "Finding $it: retained evidence supports this bounded observation." }
+        val sections = mutableListOf<String>()
+        val evidence = GitHubReviewEvidence().also { receipt(it, text = "retained source") }
+        val output = GitHubReviewedSession(answer(draft), evidence, "task", 2400, { prompt, kind ->
+            assertTrue(prompt.length <= 2400)
+            if (kind == "github-review") {
+                val root = Json.parseToJsonElement(prompt).jsonObject
+                assertEquals(JsonPrimitive("section"), root["candidate_scope"])
+                sections += (root.getValue("candidate_answer") as JsonPrimitive).content
+            }
+            answer(verdict(prompt))
+        }, {}, measureInput = { it.length }).streamRound(emptyList(), emptyList()).toList()
+        assertTrue(sections.size > 1)
+        assertEquals(draft, sections.joinToString(""))
+        assertEquals(draft, output.filterIsInstance<ProviderEvent.TextDelta>().single().text)
+        assertEquals(ProviderEvent.Completed, output.last())
+    }
+
+    @Test fun longRejectedCandidateRepairsInBoundedSectionsAndResumesCompletedRepairs() = runBlocking {
+        val draft = (1..60).joinToString("\n") { index ->
+            "Finding $index: " + (if (index == 31) "status passed" else "evidence retained") + " in the corresponding retained observation."
+        }
+        val rows = mutableMapOf<String, JsonObject>()
+        fun checkpoint() = GitHubReviewCheckpoint("task", { rows[it] }, { key, value -> rows[key] = value })
+        var generated = 0
+        var interrupted = false
+        var correctedReviews = 0
+        val completeRepairs = mutableListOf<String>()
+        val original = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> = kotlinx.coroutines.flow.flow {
+                generated++
+                emit(ProviderEvent.TextDelta(draft))
+                emit(ProviderEvent.Completed)
+            }
+        }
+        fun gate() = GitHubReviewedSession(
+            original,
+            GitHubReviewEvidence().also { receipt(it) },
+            "task",
+            2400,
+            { prompt, kind ->
+                assertTrue("Every review and correction must fit the actual input limit", prompt.length <= 2400)
+                val root = Json.parseToJsonElement(prompt).jsonObject
+                val candidate = (root.getValue("candidate_answer") as JsonPrimitive).content
+                if (kind == "github-review-repair") {
+                    assertEquals(JsonPrimitive("section"), root["candidate_scope"])
+                    if (completeRepairs.size == 1 && !interrupted) {
+                        interrupted = true
+                        session(ProviderEvent.Failed("Reviewer unavailable", errorCode = "LOCAL_SERVICE_UNREACHABLE"))
+                    } else {
+                        completeRepairs += prompt
+                        answer(candidate.replace("status passed", "status failed"))
+                    }
+                } else {
+                    if (candidate.contains("status failed")) correctedReviews++
+                    answer(verdict(prompt, approved = !candidate.contains("status passed")))
+                }
+            },
+            {},
+            measureInput = { it.length },
+            checkpoint = checkpoint()
+        )
+        val interruptedOutput = gate().streamRound(emptyList(), emptyList()).toList()
+        assertTrue(interruptedOutput.none { it is ProviderEvent.TextDelta })
+        assertEquals("GITHUB_REVIEW_UNAVAILABLE", interruptedOutput.filterIsInstance<ProviderEvent.Failed>().single().errorCode)
+        val resumed = gate().streamRound(emptyList(), emptyList()).toList()
+        assertEquals(ProviderEvent.Completed, resumed.last())
+        val published = resumed.filterIsInstance<ProviderEvent.TextDelta>().single().text
+        assertEquals(draft.replace("status passed", "status failed").lines(), published.lines().filter(String::isNotBlank))
+        assertEquals(1, generated)
+        assertTrue(correctedReviews > 0)
+        assertTrue(completeRepairs.size > 1)
+        assertEquals(completeRepairs.distinct(), completeRepairs)
+    }
+
+    @Test fun capacityRecoveryRequiresChangedCapacityAndRetainsTheOriginalCandidate() = runBlocking {
+        val rows = mutableMapOf<String, JsonObject>()
+        fun checkpoint() = GitHubReviewCheckpoint("task", { rows[it] }, { key, value -> rows[key] = value })
+        checkpoint().save("Retained answer", emptyList(), inputLimit = 4)
+        checkpoint().failed("GITHUB_REVIEW_CAPACITY")
+        val blocked = GitHubReviewedSession(answer(), GitHubReviewEvidence(), "task", 4, { _, _ -> error("Unchanged capacity cannot retry") }, {}, checkpoint = checkpoint())
+            .streamRound(emptyList(), emptyList()).toList()
+        assertEquals("GITHUB_REVIEW_BLOCKED", blocked.filterIsInstance<ProviderEvent.Failed>().single().errorCode)
+        val noRegeneration = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> = error("Saved candidate must be reused")
+        }
+        val resumed = GitHubReviewedSession(noRegeneration, GitHubReviewEvidence(), "task", 8192, { prompt, _ -> answer(verdict(prompt)) }, {}, checkpoint = checkpoint())
+            .streamRound(emptyList(), emptyList()).toList()
+        assertEquals("Retained answer", resumed.filterIsInstance<ProviderEvent.TextDelta>().single().text)
+        assertEquals(ProviderEvent.Completed, resumed.last())
+    }
+
     @Test fun fullReceiptWinsOverLaterReplayExcerpt() {
         val evidence = GitHubReviewEvidence()
         receipt(evidence, text = "complete receipt")

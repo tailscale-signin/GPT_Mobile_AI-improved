@@ -41,41 +41,60 @@ internal object GitHubRequestCompletion {
         }
     }
 
-    private fun engineeringAcceptance(acceptance: JsonObject, receipts: Map<String, JsonObject>): Boolean {
+    private data class Assessment(val state: GitHubAcceptanceLedger.State, val reason: String)
+
+    private fun engineeringAcceptance(acceptance: JsonObject, receipts: Map<String, JsonObject>): Assessment {
         fun JsonObject.text(key: String) = (get(key) as? JsonPrimitive)?.contentOrNull.orEmpty()
         fun selected(key: String) = (acceptance[key] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.contentOrNull?.let(receipts::get) }
         fun root(receipt: JsonObject): JsonObject? = (receipt["result"] as? JsonObject)?.let { (it["data"] as? JsonObject) ?: it }
+        fun eligible(receipt: JsonObject) = receipt["trusted"] == JsonPrimitive(true) && receipt["verification_eligible"] != JsonPrimitive(false) && receipt["success"] == JsonPrimitive(true)
         val implementations = selected("implementation_receipts").filter { receipt ->
-            receipt["trusted"] == JsonPrimitive(true) &&
-                receipt["verification_eligible"] != JsonPrimitive(false) &&
-                receipt["success"] == JsonPrimitive(true) &&
+            eligible(receipt) &&
                 (receipt["arguments"] as? JsonObject)?.text("action") in setOf("commit", "commit_staged_patch") &&
                 receipt.text("source_head_sha").matches(Regex("[a-fA-F0-9]{40}"))
         }
-        if (implementations.isEmpty()) return false
+        if (implementations.isEmpty()) return Assessment(GitHubAcceptanceLedger.State.NOT_TESTED, "No authorized published implementation receipt is linked to this requirement")
         val attempts = latestAttempts(receipts)
-        val latestHead = receipts.values.lastOrNull { it["trusted"] == JsonPrimitive(true) && it["success"] == JsonPrimitive(true) && it["head_observation"] == JsonPrimitive(true) && it.text("source_head_sha").matches(Regex("[a-fA-F0-9]{40}")) }?.get("source_head_sha")
-        return implementations.all { implementation ->
-            if (latestHead != null && latestHead != implementation["source_head_sha"]) return@all false
-            val pages = selected("test_receipts").filter { test ->
-                val data = root(test)
-                test["trusted"] == JsonPrimitive(true) &&
-                    test["verification_eligible"] != JsonPrimitive(false) &&
-                    test["success"] == JsonPrimitive(true) &&
-                    test.text("tool").substringBefore("__") == "github_ci" &&
-                    (test["arguments"] as? JsonObject)?.text("action") == "jobs" &&
-                    data?.get("head_sha") == implementation["source_head_sha"] &&
-                    (data?.get("run_attempt") as? JsonPrimitive)?.intOrNull?.let { it > 0 } == true
-            }.mapNotNull(::root).groupBy { it["run_id"] to it["run_attempt"] }
-            pages.any { (identity, observations) ->
-                val run = (identity.first as? JsonPrimitive)?.contentOrNull ?: return@any false
-                val attempt = (identity.second as? JsonPrimitive)?.intOrNull ?: return@any false
-                if (attempt != attempts[run]) return@any false
-                val allJobs = GitHubWorkflowJobEvidence.completeJobs(observations)
-                val tests = allJobs.orEmpty().filter { Regex("(?i)\\b(?:tests?|unit|instrumentation)\\b").containsMatchIn(it.text("name")) }
-                allJobs != null && tests.isNotEmpty() && tests.all { it.text("status") == "completed" && it.text("conclusion") == "success" }
-            }
+        val latestHead = receipts.values.lastOrNull { eligible(it) && it["head_observation"] == JsonPrimitive(true) && it.text("source_head_sha").matches(Regex("[a-fA-F0-9]{40}")) }?.get("source_head_sha")
+        if (implementations.any { latestHead != null && latestHead != it["source_head_sha"] }) {
+            return Assessment(GitHubAcceptanceLedger.State.BLOCKED, "Implementation or test evidence belongs to a superseded repository revision")
         }
+        val assessments = implementations.map implementation@{ implementation ->
+            fun matching(test: JsonObject): Boolean = eligible(test) &&
+                test.text("tool").substringBefore("__") == "github_ci" &&
+                (test["arguments"] as? JsonObject)?.text("action") == "jobs" &&
+                root(test)?.get("head_sha") == implementation["source_head_sha"]
+            val selectedPages = selected("test_receipts").filter(::matching).mapNotNull(::root)
+            val runs = selectedPages.groupBy { it["run_id"] to it["run_attempt"] }
+            if (runs.isEmpty()) return@implementation Assessment(GitHubAcceptanceLedger.State.NOT_TESTED, "No test jobs are linked to the published implementation revision")
+            val runStates = runs.map run@{ (identity, _) ->
+                val run = (identity.first as? JsonPrimitive)?.contentOrNull
+                val attempt = (identity.second as? JsonPrimitive)?.intOrNull
+                if (run == null || attempt == null || attempt <= 0 || attempt != attempts[run]) {
+                    return@run Assessment(GitHubAcceptanceLedger.State.BLOCKED, "A newer workflow attempt exists or the selected attempt is not identified")
+                }
+                // A selected old page cannot hide a subsequently observed failure in
+                // the same run/attempt. The latest observation of every page wins.
+                val pages = receipts.values.filter(::matching).mapNotNull(::root).filter { it["run_id"] == identity.first && it["run_attempt"] == identity.second }
+                val jobs = GitHubWorkflowJobEvidence.completeJobs(pages)
+                    ?: return@run Assessment(GitHubAcceptanceLedger.State.BLOCKED, "Workflow job inventory is incomplete; every page is required")
+                if (jobs.any { it.text("conclusion") in setOf("failure", "cancelled", "timed_out", "action_required", "startup_failure", "stale") }) {
+                    return@run Assessment(GitHubAcceptanceLedger.State.FAIL, "The selected workflow has a failed, cancelled or otherwise unsuccessful job at this revision and attempt")
+                }
+                val tests = jobs.filter { Regex("(?i)\\b(?:tests?|unit|instrumentation)\\b").containsMatchIn(it.text("name")) }
+                if (tests.isEmpty()) return@run Assessment(GitHubAcceptanceLedger.State.NOT_TESTED, "No executed test job was identified in the workflow")
+                if (jobs.any { it.text("status") != "completed" } || tests.any { it.text("conclusion") != "success" }) {
+                    return@run Assessment(GitHubAcceptanceLedger.State.BLOCKED, "Test execution or another workflow job remains incomplete; skipped tests are not passing tests")
+                }
+                Assessment(GitHubAcceptanceLedger.State.PASS, "Published implementation and successful test jobs at the exact revision and latest attempt")
+            }
+            runStates.firstOrNull { it.state == GitHubAcceptanceLedger.State.FAIL }
+                ?: runStates.firstOrNull { it.state != GitHubAcceptanceLedger.State.PASS }
+                ?: runStates.first()
+        }
+        return assessments.firstOrNull { it.state == GitHubAcceptanceLedger.State.FAIL }
+            ?: assessments.firstOrNull { it.state != GitHubAcceptanceLedger.State.PASS }
+            ?: assessments.first()
     }
 
     fun evaluate(task: String, claims: List<JsonObject>, answer: JsonObject, receipts: Map<String, JsonObject>): JsonObject {
@@ -87,24 +106,43 @@ internal object GitHubRequestCompletion {
             val selected = (coverage[id(requirement)] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.intOrNull }
             val covered = if (requirements.size == 1) verified else selected.isNotEmpty() && selected.all { claims.getOrNull(it)?.get("status") in setOf(JsonPrimitive("VERIFIED"), JsonPrimitive("INFERRED")) }
             val acceptance = (answer["acceptance"] as? JsonObject)?.get(id(requirement)) as? JsonObject
-            val implementedAndTested = acceptance != null && engineeringAcceptance(acceptance, receipts)
+            val assessment = acceptance?.let { engineeringAcceptance(it, receipts) }
+            val implementedAndTested = assessment?.state == GitHubAcceptanceLedger.State.PASS
             val passed = covered && !unanswered && (informational(task) || implementedAndTested)
+            val state = when {
+                passed -> GitHubAcceptanceLedger.State.PASS
+                unanswered -> GitHubAcceptanceLedger.State.BLOCKED
+                informational(task) -> if (receipts.isEmpty()) GitHubAcceptanceLedger.State.NOT_TESTED else GitHubAcceptanceLedger.State.BLOCKED
+                assessment?.state == GitHubAcceptanceLedger.State.PASS -> GitHubAcceptanceLedger.State.BLOCKED
+                else -> assessment?.state ?: GitHubAcceptanceLedger.State.NOT_TESTED
+            }
             buildJsonObject {
                 put("id", id(requirement))
                 put("requirement", requirement)
                 put(
                     "status",
-                    if (passed) {
-                        "PASSED"
-                    } else if (receipts.isEmpty()) {
-                        "PENDING"
-                    } else if (informational(task)) {
-                        "BLOCKED"
-                    } else {
-                        "UNTESTED"
+                    when (state) {
+                        GitHubAcceptanceLedger.State.PASS -> "PASSED"
+                        GitHubAcceptanceLedger.State.FAIL -> "FAILED"
+                        GitHubAcceptanceLedger.State.BLOCKED -> "BLOCKED"
+                        GitHubAcceptanceLedger.State.NOT_TESTED -> if (receipts.isEmpty()) "PENDING" else "UNTESTED"
                     }
                 )
-                put("acceptance", if (passed) if (informational(task)) "Receipt-supported answer; no implementation or test execution inferred" else "Published implementation and successful test jobs at the exact revision and attempt" else "Requires explicit acceptance evidence for this requirement")
+                put("acceptance_state", state.name)
+                put(
+                    "acceptance",
+                    if (unanswered) {
+                        "A user decision remains unresolved"
+                    } else if (informational(task) && passed) {
+                        "Receipt-supported answer; no implementation or test execution inferred"
+                    } else if (!covered && implementedAndTested) {
+                        "Matching test evidence is present, but answer coverage for this requirement remains unverified"
+                    } else {
+                        assessment?.reason ?: "Requires explicit acceptance evidence for this requirement"
+                    }
+                )
+                acceptance?.get("implementation_receipts")?.let { put("implementation_receipts", it) }
+                acceptance?.get("test_receipts")?.let { put("test_receipts", it) }
             }
         }
         val complete = rows.all { it["status"] == JsonPrimitive("PASSED") }

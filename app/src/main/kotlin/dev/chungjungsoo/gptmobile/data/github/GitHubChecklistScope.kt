@@ -13,5 +13,5 @@ internal object GitHubChecklistScope {
             !negatedRequest.containsMatchIn(task.substring(0, request.range.first))
         }
 
-    fun exhaustive(task: String): Boolean = Regex("(?i)\\b(?:all|entire|complete|full)\\s+(?:(?:workflow|ci|run)\\s+)?(?:branches|workflows|pull requests|commits|runs|inventor(?:y|ies)|history)\\b").containsMatchIn(task)
+    fun exhaustive(task: String): Boolean = Regex("(?i)\\b(?:all|entire|complete|full)\\s+(?:(?:workflow|ci|run|issue)\\s+)?(?:branches|workflows|pull requests|issues|commits|runs|tags|releases|inventor(?:y|ies)|history)\\b").containsMatchIn(task)
 }

@@ -35,7 +35,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.intOrNull
 
 class OpenAIResponsesEventAssembler {
-    private val toolGuard = ToolStreamGuard()
+    private val toolGuard = ToolStreamGuard(ProviderToolBatchPolicy.PREFERRED_MAX_CALLS)
     private data class PendingCall(
         val callId: String,
         val name: String,
@@ -98,7 +98,7 @@ class OpenAIResponsesEventAssembler {
 
         is ResponseFailedEvent -> listOf(ProviderEvent.Failed(event.response.error?.message ?: "Response failed"))
 
-        is ResponseErrorEvent -> listOf(ProviderEvent.Failed(event.message))
+        is ResponseErrorEvent -> listOf(ProviderEvent.Failed(event.message, errorCode = event.code))
 
         is ResponseCompletedEvent -> buildList {
             event.response.usage?.let { add(ProviderEvent.Usage(it.inputTokens, it.outputTokens, it.totalTokens, reasoningTokens = (it.outputTokensDetails?.get("reasoning_tokens") as? JsonPrimitive)?.intOrNull?.takeIf { count -> count >= 0 })) }
@@ -110,7 +110,7 @@ class OpenAIResponsesEventAssembler {
 }
 
 class AnthropicEventAssembler {
-    private val toolGuard = ToolStreamGuard()
+    private val toolGuard = ToolStreamGuard(ProviderToolBatchPolicy.PREFERRED_MAX_CALLS)
     private data class PendingCall(
         val callId: String,
         val name: String,

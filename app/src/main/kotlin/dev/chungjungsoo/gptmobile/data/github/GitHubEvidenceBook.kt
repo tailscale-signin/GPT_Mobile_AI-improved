@@ -8,6 +8,7 @@ import java.security.MessageDigest
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -27,8 +28,17 @@ internal class GitHubEvidenceBook(
     private val save: suspend (String, JsonObject) -> Unit = { _, _ -> },
     private val retainedIds: suspend () -> List<String> = { emptyList() },
     private val latestVerdict: suspend () -> JsonObject? = { null },
-    private val currentToolContracts: Map<String, JsonObject> = emptyMap()
+    private val currentToolContracts: Map<String, JsonObject> = emptyMap(),
+    private val retentionLimitRecords: Int = 4096,
+    private val retentionLimitBytes: Int = 16 * 1024 * 1024
 ) {
+    init {
+        require(retentionLimitRecords in 1..4096)
+        require(retentionLimitBytes in 1..16 * 1024 * 1024)
+    }
+    private data class AttemptKey(val tool: String, val arguments: JsonObject)
+    private data class AttemptHistory(val count: Int, val latest: kotlinx.serialization.json.JsonElement?, val allExcluded: Boolean)
+    private val attempts = mutableMapOf<AttemptKey, AttemptHistory>()
     private val mutex = Mutex()
     private val records = linkedMapOf<String, JsonObject>()
     private var bytes = 0L
@@ -39,8 +49,8 @@ internal class GitHubEvidenceBook(
     /** Explicit restoration never refreshes historical observations or borrows another task's proof. */
     suspend fun restore() = mutex.withLock {
         val ids = retainedIds().distinct()
-        if (ids.size > 4096) overflow = true
-        for (id in ids.take(4096)) {
+        if (ids.size > retentionLimitRecords) overflow = true
+        for (id in ids.take(retentionLimitRecords)) {
             if (id in records) continue
             val saved = requireNotNull(load(id)) { "Retained task evidence is unavailable" }
             val callId = (saved["call_id"] as? JsonPrimitive)?.contentOrNull
@@ -140,11 +150,11 @@ internal class GitHubEvidenceBook(
             resourceBranch?.let { put("resource_branch", it) }
             head?.let { put("resource_sha", it) }
             put("arguments", effectiveArguments)
-            val priorAttempts = records.values.filter { it["tool"] == JsonPrimitive(call.name) && it["arguments"] == effectiveArguments }
-            if (priorAttempts.isNotEmpty()) {
+            val priorAttempts = attempts[AttemptKey(call.name, effectiveArguments)]
+            if (priorAttempts != null) {
                 put(
                     "repeat_reason",
-                    if (priorAttempts.all { it["verification_eligible"] == JsonPrimitive(false) }) {
+                    if (priorAttempts.allExcluded) {
                         "CATALOG_REVALIDATION"
                     } else if (!immutable) {
                         "MUTABLE_OBSERVATION_REFRESH"
@@ -154,8 +164,8 @@ internal class GitHubEvidenceBook(
                 )
                 // Link to the predecessor; its receipt links to earlier attempts. Copying
                 // every prior ID into every receipt grows the journal quadratically.
-                put("previous_attempt_ids", kotlinx.serialization.json.JsonArray(priorAttempts.takeLast(1).mapNotNull { it["receipt_id"] }))
-                put("previous_attempt_count", priorAttempts.size)
+                put("previous_attempt_ids", kotlinx.serialization.json.JsonArray(listOfNotNull(priorAttempts.latest)))
+                put("previous_attempt_count", priorAttempts.count)
                 put("previous_attempt_reference_mode", "LINKED_PREDECESSOR")
             }
             val sourceTime = (result.executionReceipt?.get("source_observed_at_ms") as? JsonPrimitive)?.longOrNull
@@ -179,10 +189,8 @@ internal class GitHubEvidenceBook(
             if (visible is JsonObject && visible != content) put("view", visible)
             put("result_sha256", digest(content.toString()))
         }
-        if (records.size >= 4096 || bytes + receipt.toString().encodeToByteArray().size > 16 * 1024 * 1024) {
-            overflow = true
-            return@withLock
-        }
+        // The bounded review projection must not discard the durable receipt of an
+        // already executed mutation. Persist first; capacity only blocks verification.
         try {
             save(id, receipt)
         } catch (failure: Exception) {
@@ -193,8 +201,20 @@ internal class GitHubEvidenceBook(
     }
 
     private fun retain(id: String, value: JsonObject) {
-        bytes += value.toString().encodeToByteArray().size
-        if (bytes > 16 * 1024 * 1024 || records.size >= 4096) overflow = true else records[id] = value
+        val size = value.toString().encodeToByteArray().size
+        if (bytes + size > retentionLimitBytes || records.size >= retentionLimitRecords) {
+            overflow = true
+            return
+        }
+        records[id] = value
+        bytes += size
+        val tool = (value["tool"] as? JsonPrimitive)?.contentOrNull
+        val arguments = value["arguments"] as? JsonObject
+        if (tool != null && arguments != null) {
+            val key = AttemptKey(tool, arguments)
+            val previous = attempts[key]
+            attempts[key] = AttemptHistory((previous?.count ?: 0) + 1, value["receipt_id"], (previous?.allExcluded != false) && value["verification_eligible"] == JsonPrimitive(false))
+        }
     }
 
     suspend fun snapshot(): Pair<Map<String, JsonObject>, Long> = mutex.withLock {
@@ -202,6 +222,53 @@ internal class GitHubEvidenceBook(
     }
 
     suspend fun complete(): Boolean = mutex.withLock { !overflow }
+
+    /** Page persistence can recover independently without invalidating an accepted mutation. */
+    suspend fun retentionStatus(): JsonObject = mutex.withLock {
+        val views = records.values.mapNotNull { receipt ->
+            val execution = receipt["execution"] as? JsonObject ?: return@mapNotNull null
+            val status = (execution["saved_view_persistence"] as? JsonPrimitive)?.contentOrNull
+            if (status !in setOf("RETAINED", "UNAVAILABLE")) return@mapNotNull null
+            val id = (execution["saved_view_id"] as? JsonPrimitive)?.contentOrNull ?: receipt["receipt_id"].toString()
+            Triple(id, receipt, execution)
+        }.groupBy { it.first }
+        val unavailable = views.filterValues { observations ->
+            val retained = observations.filter { it.third["saved_view_persistence"] == JsonPrimitive("RETAINED") }
+                .flatMap { (it.third["saved_view_cursor_ids"] as? JsonArray).orEmpty() }.toSet()
+            observations.filter { it.third["saved_view_persistence"] == JsonPrimitive("UNAVAILABLE") }.any {
+                val failed = (it.third["saved_view_cursor_ids"] as? JsonArray).orEmpty()
+                // The same number of handles can describe a different pagination
+                // branch after restart. Only exact persisted handles repair proof.
+                failed.isEmpty() || failed.any { cursor -> cursor !in retained }
+            }
+        }
+        val limitations = buildList {
+            if (overflow) {
+                add(
+                    buildJsonObject {
+                        put("code", "PRIMARY_EVIDENCE_INCOMPLETE")
+                        put("reason", "The complete primary evidence set could not be retained or reviewed within its storage allowance.")
+                    }
+                )
+            }
+            unavailable.forEach { (id, observations) ->
+                add(
+                    buildJsonObject {
+                        put("code", "SAVED_VIEW_PERSISTENCE_UNAVAILABLE")
+                        put("saved_view_id", id)
+                        put("receipt_ids", JsonArray(observations.mapNotNull { it.second["receipt_id"] }.distinct()))
+                        put("reason", "A captured result has saved pages that were not durably retained. The operation receipt remains recorded; restore and persist the same saved result without repeating its mutation.")
+                    }
+                )
+            }
+        }
+        buildJsonObject {
+            put("primary_evidence_complete", !overflow)
+            put("saved_view_retention_complete", unavailable.isEmpty())
+            put("evidence_retention_complete", !overflow && unavailable.isEmpty())
+            put("evidence_retention_limitations", JsonArray(limitations))
+        }
+    }
 
     suspend fun diagnostic(): JsonObject? = latestVerdict()?.takeIf { it["binding"] == JsonPrimitive(binding) }
 
@@ -226,12 +293,62 @@ internal class GitHubEvidenceBook(
         save("policy_" + digest(policy.toString()).take(24), policy)
     }
 
+    suspend fun retainProgress(task: String, tools: List<dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition>, failureCode: String? = null) {
+        val (receipts, _) = snapshot()
+        val checkpoint = GitHubTestChecklist.checkpoint(task, receipts, tools)
+        val retention = retentionStatus()
+        val requirements = GitHubRequestCompletion.requirements(task).map { requirement ->
+            buildJsonObject {
+                put("id", GitHubRequestCompletion.id(requirement))
+                put("requirement", requirement)
+                put("status", if (failureCode == null) "UNTESTED" else "BLOCKED")
+                put("acceptance_state", if (failureCode == null) "NOT_TESTED" else "BLOCKED")
+                put("acceptance", if (failureCode == null) "Acceptance verification remains pending; completed API calls do not establish this requirement" else "Workflow interrupted by $failureCode before acceptance verification")
+            }
+        }
+        val progress = GitHubAcceptanceLedger.attach(
+            buildJsonObject {
+                put("schema", "github.verification.v1")
+                put("binding", binding)
+                put("phase", if (failureCode == null) "IN_PROGRESS" else "INTERRUPTED")
+                put("request_digest", digest(task))
+                put("observed_at_ms", now())
+                put("completion_verified", false)
+                retention.forEach { (key, value) -> put(key, value) }
+                put("response_prepared", false)
+                put("response_delivered", false)
+                put("task_outcome", "PARTIAL")
+                failureCode?.let { put("failure_code", it) }
+                put("requirements", kotlinx.serialization.json.JsonArray(requirements))
+                put("remaining_requirements", kotlinx.serialization.json.JsonArray(requirements))
+                put("test_checklist", checkpoint)
+                put("evidence_count", receipts.size)
+            }
+        )
+        // The existing latest-verification query can recover this status even if
+        // the process dies before a final response or a final verifier exists.
+        save("verification_progress_" + digest("$binding|$progress").take(24), progress)
+    }
+
     suspend fun retainChecklist(value: JsonObject) {
-        save("checklist_" + digest("$binding|$value").take(24), JsonObject(value + ("binding" to JsonPrimitive(binding))))
+        val checkpoint = GitHubAcceptanceLedger.attach(JsonObject(value + retentionStatus()))
+        save("checklist_" + digest("$binding|$checkpoint").take(24), JsonObject(checkpoint + ("binding" to JsonPrimitive(binding))))
     }
 
     suspend fun retainVerdict(value: JsonObject) {
-        save("verification_" + digest("$binding|$value").take(24), JsonObject(value + ("binding" to JsonPrimitive(binding))))
+        val retention = retentionStatus()
+        val limitation = if (retention["evidence_retention_complete"] == JsonPrimitive(false)) {
+            buildJsonObject {
+                put("completion_verified", false)
+                put("partial", true)
+                put("resume_required", true)
+                put("task_outcome", "PARTIAL")
+            }
+        } else {
+            JsonObject(emptyMap())
+        }
+        val checkpoint = GitHubAcceptanceLedger.attach(JsonObject(value + retention + limitation))
+        save("verification_" + digest("$binding|$checkpoint").take(24), JsonObject(checkpoint + ("binding" to JsonPrimitive(binding))))
     }
 
     companion object {

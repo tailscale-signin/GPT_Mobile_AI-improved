@@ -122,6 +122,36 @@ class OpenAIRecoveryTransportTest {
         }
     }
 
+    @Test fun gatewayToolRequestIsNotReplayedWhenConnectionClosesBeforeAnyProgress() = runTest {
+        for (responses in listOf(false, true)) {
+            var dispatches = 0
+            withApi(
+                MockEngine { incoming ->
+                    if (incoming.url.encodedPath.endsWith("gateway/capabilities")) {
+                        respond("""{"gateway_version":"15.0.0","accepted_request_headers":["X-Gateway-Allow-Local-Tools"]}""", headers = headersOf(HttpHeaders.ContentType, "application/json"))
+                    } else {
+                        dispatches++
+                        throw java.io.EOFException("Connection closed before its first stream frame")
+                    }
+                }
+            ) { api ->
+                val gatewayConfig = config.copy(extraHeaders = mapOf("X-Gateway-Allow-Local-Tools" to "true"))
+                if (responses) {
+                    val input = listOf(dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponseInputMessage("user", dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponseInputContent.text("Check the repository.")))
+                    val events = api.streamResponses(ResponsesRequest(model = "fixture", input = input), 5, gatewayConfig).toList()
+                    assertEquals("GATEWAY_OUTCOME_UNKNOWN", events.filterIsInstance<dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseErrorEvent>().single().code)
+                } else {
+                    val chunks = api.streamChatCompletion(request, 5, gatewayConfig).toList()
+                    val error = requireNotNull(chunks.last().error)
+                    assertEquals("GATEWAY_OUTCOME_UNKNOWN", error.code)
+                    assertEquals(false, error.retryable)
+                    assertEquals("unknown", error.failureDetails?.get("outcome")?.let { (it as kotlinx.serialization.json.JsonPrimitive).content })
+                }
+                assertEquals(1, dispatches)
+            }
+        }
+    }
+
     private suspend fun withApi(engine: MockEngine, block: suspend (OpenAIAPI) -> Unit) {
         val client = HttpClient(engine) { install(HttpTimeout) }
         val wrapper = mockk<NetworkClient>()

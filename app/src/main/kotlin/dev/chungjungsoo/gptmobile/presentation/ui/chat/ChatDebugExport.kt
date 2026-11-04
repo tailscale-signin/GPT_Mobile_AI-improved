@@ -262,7 +262,7 @@ internal suspend fun writeChatDebugExport(
                         }
                     )
                 }
-            } else if (value is JsonArray && key in setOf("runs", "combinedBudgets")) {
+            } else if (value is JsonArray && key in setOf("runs", "combinedBudgets", "workspace")) {
                 array(key, value.asSequence()) { policySnapshots.normalize(it) }
             } else if (key == "researchLifecycle") {
                 put(key, policySnapshots.normalize(value))

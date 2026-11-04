@@ -51,10 +51,11 @@ class GatewayEngineeringRepository @Inject constructor(
         val profile = settings.fetchPlatformV2s().single { it.uid == context.mainProfileUid && it.enabled }
         require(GitHubAutonomousEngineeringPolicy.supportsSavedJobs(profile)) { "Autonomous jobs require a local Llama or Ollama engineering profile. Remote profiles cannot start them." }
         val preferences = settings.getFeatureSettings().githubProfileOverrides[profile.uid] ?: GitHubChatProfileOverride()
-        val principal = client.principal(ProviderRequestConfig(profile.apiUrl, profile.token, profileUid = profile.uid))
+        val gateway = settings.engineeringGateway(profile.uid)
+        val principal = client.principal(gateway.engineeringConfig())
         val binding = GatewayEngineeringBinding(
-            profile.uid,
-            profile.apiUrl.trimEnd('/'),
+            gateway.uid,
+            gateway.apiUrl.trimEnd('/'),
             GatewayEngineeringRequest(
                 "${context.owner}/${context.repo}", branch, base, objective, profile.model, options.durationHours, options.repairAttempts, chatId, UUID.randomUUID().toString(), options.acceptance, profile.uid, preferences.engineeringMemory
             ),

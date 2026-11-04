@@ -34,7 +34,7 @@ class GatewayEngineeringClientTest {
                 MockEngine { request ->
                     assertEquals("http://$host:8090/v1/gateway/engineering/capabilities", request.url.toString())
                     assertNull(request.headers["Authorization"])
-                    respond("""{"enabled":true,"principal_id":"network:shared"}""", HttpStatusCode.OK)
+                    respond("""{"service":"engineering-gateway","protocol_version":1,"enabled":true,"principal_id":"network:shared"}""", HttpStatusCode.OK)
                 }
             ).use { http ->
                 assertEquals("network:shared", GatewayEngineeringClient(http).principal(direct))
@@ -59,7 +59,7 @@ class GatewayEngineeringClientTest {
     }
 
     @Test fun disabledEngineeringCapabilityNeverEstablishesReadiness() = runTest {
-        http(MockEngine { respond("""{"enabled":false,"principal_id":"owner"}""", HttpStatusCode.OK) }).use { http ->
+        http(MockEngine { respond("""{"service":"engineering-gateway","protocol_version":1,"enabled":false,"principal_id":"owner"}""", HttpStatusCode.OK) }).use { http ->
             assertTrue(runCatching { GatewayEngineeringClient(http).principal(config) }.isFailure)
         }
     }

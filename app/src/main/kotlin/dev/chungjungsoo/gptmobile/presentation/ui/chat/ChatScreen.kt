@@ -396,7 +396,7 @@ private fun ChatScreenContent(
     val attachmentNotice by chatViewModel.attachmentNotice.collectAsStateWithLifecycle()
     val queuedJobInspection by chatViewModel.queuedJobInspection.collectAsStateWithLifecycle()
     queuedJobInspection?.let { result ->
-        androidx.compose.material3.AlertDialog(onDismissRequest = chatViewModel::dismissQueuedJobInspection, title = { Text("Saved queued job") }, text = { androidx.compose.foundation.text.selection.SelectionContainer { Text(result) } }, confirmButton = { TextButton(onClick = chatViewModel::dismissQueuedJobInspection) { Text("Close") } })
+        dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog(onDismissRequest = chatViewModel::dismissQueuedJobInspection, title = { Text("Saved queued job") }, text = { androidx.compose.foundation.text.selection.SelectionContainer { Text(result) } }, confirmButton = { TextButton(onClick = chatViewModel::dismissQueuedJobInspection) { Text("Close") } })
     }
     val needsLocalNetworkAccess by chatViewModel.needsLocalNetworkAccess.collectAsStateWithLifecycle()
     val appEnabledPlatforms by chatViewModel.enabledPlatformsInApp.collectAsStateWithLifecycle()
@@ -803,7 +803,7 @@ private fun ChatScreenContent(
         val composerHeight = with(density) { composerHeightPx.toDp() }
 
         GlassBackdropBox(
-            blurEnabled = isIdle,
+            blurEnabled = true,
             modifier = Modifier
                 .fillMaxSize()
                 .padding(bottom = innerPadding.calculateBottomPadding())
@@ -856,12 +856,6 @@ private fun ChatScreenContent(
                 ) { visibleIndex, message ->
                     val index = firstVisibleTurn + visibleIndex
                     ChatMessagePair(
-                        githubProgress = {
-                            if (chatToolConfig.github != null) {
-                                val active = groupedMessages.assistantMessages.getOrNull(index)?.lastOrNull { it.currentRunId in activeAgentRuns }
-                                if (active != null) GitHubLiveProgressCard(active.effectiveTimeline(), message.content, active.currentRunId?.let(toolEventsByRun::get).orEmpty())
-                            }
-                        },
                         reservedTurnHeight = if (githubPromptMode && index == lastMessageIndex) (with(density) { listState.layoutInfo.viewportSize.height.toDp() } - composerHeight - 16.dp - innerPadding.calculateTopPadding()).coerceAtLeast(0.dp) else 0.dp,
                         replyRevision = pendingReplies.hashCode().toLong(),
                         replyVisible = listState.layoutInfo.visibleItemsInfo.any { it.key == chatMessagePairKey(message, index) },
@@ -1083,6 +1077,10 @@ private fun ChatScreenContent(
                     ChatInputBox(
                         modifier = Modifier.fillMaxWidth(),
                         inputState = chatViewModel.question,
+                        workflows = chatToolConfig.github?.let { github ->
+                            featureSettings.githubProfileOverrides[github.mainProfileUid]?.quickWorkflows
+                                ?: dev.chungjungsoo.gptmobile.data.github.GitHubQuickWorkflow.defaults
+                        }.orEmpty(),
                         chatEnabled = canUseChat,
                         sendButtonEnabled = selectedAttachments.none { it.status != ChatAttachmentDraft.Status.Ready },
                         isRunning = !isIdle,
@@ -1374,7 +1372,6 @@ private fun ChatScreenContent(
 
 @Composable
 internal fun ChatMessagePair(
-    githubProgress: @Composable () -> Unit = {},
     reservedTurnHeight: Dp = 0.dp,
     replyRevision: Long,
     replyVisible: Boolean,
@@ -1608,7 +1605,6 @@ internal fun ChatMessagePair(
             }
         }
 
-        githubProgress()
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -1739,6 +1735,7 @@ internal fun ChatMessagePair(
                     isFavorite = selectedAssistantMessage?.isFavorite ?: false,
                     debugMode = debugMode,
                     showExecutionTrace = !isCombinedConversation,
+                    githubTask = message.content.takeIf { LocalChatProgressInHeader.current && !hasCombinedTabs },
                     responseIcon = if (LocalChatProgressInHeader.current && !hasCombinedTabs) {
                         { GPTMobileIcon(loading = isCurrentPlatformLoading, github = LocalChatProgressInHeader.current) }
                     } else {
@@ -2200,6 +2197,7 @@ fun ChatInputBox(
     onComposerFocusChanged: (Boolean) -> Unit = {},
     placeholder: String? = null,
     attachmentsEnabled: Boolean = true,
+    workflows: List<dev.chungjungsoo.gptmobile.data.github.GitHubQuickWorkflow> = emptyList(),
     onSendButtonClick: () -> Unit = {}
 ) {
     val localStyle = LocalTextStyle.current
@@ -2208,7 +2206,7 @@ fun ChatInputBox(
     val mergedStyle = localStyle.merge(TextStyle(color = inputTokens.foreground))
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val chatInputLineLimits = TextFieldLineLimits.MultiLine(maxHeightInLines = 5)
+    val chatInputLineLimits = TextFieldLineLimits.MultiLine(maxHeightInLines = 20)
     val hasQuestionText = inputState.text.isNotEmpty()
     val inputFocus = remember(inputState) { androidx.compose.ui.focus.FocusRequester() }
     val haptic = dev.chungjungsoo.gptmobile.presentation.common.rememberAppHaptic()
@@ -2325,16 +2323,23 @@ fun ChatInputBox(
                                         Icon(Icons.Rounded.Stop, contentDescription = stringResource(R.string.cancel_active_runs))
                                     }
                                 }
-                                FilledIconButton(
-                                    colors = IconButtonDefaults.filledIconButtonColors(containerColor = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary),
-                                    enabled = chatEnabled && sendButtonEnabled && (hasQuestionText || selectedAttachments.isNotEmpty()),
-                                    onClick = sendAction,
-                                    modifier = Modifier.testTag("chat_send")
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Rounded.ArrowUpward,
-                                        contentDescription = stringResource(if (isRunning) R.string.send_follow_up else R.string.send)
-                                    )
+                                if (!hasQuestionText && selectedAttachments.isEmpty() && workflows.isNotEmpty()) {
+                                    GitHubWorkflowButton(workflows, enabled = chatEnabled && sendButtonEnabled) { workflow ->
+                                        inputState.edit { replace(0, length, workflow.prompt) }
+                                        sendAction()
+                                    }
+                                } else {
+                                    FilledIconButton(
+                                        colors = IconButtonDefaults.filledIconButtonColors(containerColor = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary),
+                                        enabled = chatEnabled && sendButtonEnabled && (hasQuestionText || selectedAttachments.isNotEmpty()),
+                                        onClick = sendAction,
+                                        modifier = Modifier.testTag("chat_send")
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Rounded.ArrowUpward,
+                                            contentDescription = stringResource(if (isRunning) R.string.send_follow_up else R.string.send)
+                                        )
+                                    }
                                 }
                             }
                         }

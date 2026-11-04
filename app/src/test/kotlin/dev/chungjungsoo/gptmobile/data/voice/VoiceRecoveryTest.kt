@@ -69,19 +69,19 @@ class VoiceRecoveryTest {
         var now = 0L
         val gate = RecognitionStartGate { now }
         gate.failed(true)
-        assertEquals(10_000L, gate.remainingMillis())
-        now += 10_000
+        assertEquals(1_000L, gate.remainingMillis())
+        now += 1_000
         assertTrue(gate.acquire())
         gate.failed(true)
-        assertEquals(30_000L, gate.remainingMillis())
-        now += 30_000
+        assertEquals(2_500L, gate.remainingMillis())
+        now += 2_500
         gate.failed(true)
-        assertEquals(60_000L, gate.remainingMillis())
+        assertEquals(5_000L, gate.remainingMillis())
         assertFalse(gate.acquire())
-        now += 60_000
+        now += 5_000
         gate.succeeded()
         gate.failed(true)
-        assertEquals(10_000L, gate.remainingMillis())
+        assertEquals(1_000L, gate.remainingMillis())
     }
 
     @Test fun editBeforeSendRequiresOneExplicitSubmissionAndKeepsDraftOnError() {

@@ -15,6 +15,7 @@ internal object GitHubTestChecklist {
     private data class Capability(val tool: String, val action: String, val scope: String, val automatic: Boolean = false)
     private val capabilities = listOf(
         Capability("github_context", "status", "Repository status", true),
+        Capability("repository_graph", "status", "Engineering gateway graph status", true),
         Capability("github_context", "checks", "Checks for selected SHA", true),
         Capability("github_context", "branches", "Branch inventory", true),
         Capability("github_context", "commits", "Recent commits", true),
@@ -34,7 +35,7 @@ internal object GitHubTestChecklist {
         Capability("github_commit", "delete_branch", "Fixture cleanup")
     )
 
-    fun integration(task: String): Boolean = GitHubTaskCoverage.matches(task) && (Regex("(?i)\\b(?:tools?|integration|functionality)\\b").containsMatchIn(task) || task.trim().matches(Regex("(?i)(?:please\\s+)?test\\s+all[.!]?")))
+    fun integration(task: String): Boolean = !isGatewayIntegrationTask(task) && GitHubTaskCoverage.matches(task) && (Regex("(?i)\\b(?:tools?|integration|functionality)\\b").containsMatchIn(task) || task.trim().matches(Regex("(?i)(?:please\\s+)?test\\s+all[.!]?")))
     private fun trusted(receipts: Map<String, JsonObject>) = receipts.values.filter { it["trusted"] == JsonPrimitive(true) && it["verification_eligible"] != JsonPrimitive(false) }
     private fun matches(receipt: JsonObject, capability: Capability): Boolean = receipt.text("tool").substringBefore("__") == capability.tool &&
         (receipt["arguments"] as? JsonObject)?.containsKey("view_cursor") != true &&
@@ -95,7 +96,21 @@ internal object GitHubTestChecklist {
                 if (observations.drop(firstFailure + 1).any { same(it, recovery) }) continue
                 return call(recovery.text("tool"), recovery["arguments"] as JsonObject)
             }
-            if (!exhaustive && sampled >= 2) continue
+            // Required local fragments and issue dependencies are never stopped by
+            // an unrelated inventory's sampling allowance.
+            val issueDependency = page.text("tool").substringBefore("__") == "github_issue" &&
+                args.text("action") == "list" &&
+                observations.none { receipt ->
+                    receipt.text("tool").substringBefore("__") == "github_issue" &&
+                        receipt["success"] == JsonPrimitive(true) &&
+                        data(receipt)?.let { root ->
+                            listOf("issues", "items").any { field ->
+                                (root[field] as? JsonArray).orEmpty().filterIsInstance<JsonObject>().any { "pull_request" !in it }
+                            }
+                        } == true
+                }
+            val required = "view_cursor" in args || issueDependency
+            if (!exhaustive && !required && sampled >= 2) continue
             if ("view_cursor" in args || args.text("action") in setOf("branches", "workflows", "list", "commits", "runs") || Regex("(?i)\\b(?:all|entire|complete|full)\\s+(?:workflow |ci |run )?history\\b").containsMatchIn(task)) {
                 return call(page.text("tool"), args)
             }
@@ -152,7 +167,7 @@ internal object GitHubTestChecklist {
 
     private fun catalog(tools: List<AgentToolDefinition>): List<Capability> {
         if (tools.isEmpty()) return capabilities
-        return tools.filter { it.name.substringBefore("__").startsWith("github_") }.flatMap { tool ->
+        return tools.filter { it.modelVisible && (it.name.substringBefore("__").startsWith("github_") || it.name.substringBefore("__") == "repository_graph") }.flatMap { tool ->
             val name = tool.name.substringBefore("__")
             val properties = tool.inputSchema["properties"] as? JsonObject
             val actions = ((properties?.get("action") as? JsonObject)?.get("enum") as? JsonArray)?.map { (it as JsonPrimitive).content }.orEmpty().ifEmpty { listOf(((properties?.get("action") as? JsonObject)?.get("const") as? JsonPrimitive)?.content.orEmpty()) }
@@ -163,10 +178,10 @@ internal object GitHubTestChecklist {
     private fun readOnly(capability: Capability): Boolean = dev.chungjungsoo.gptmobile.data.permissions.GitHubAuthorizationBoundary.isReplayableRead(capability.tool, buildJsonObject { if (capability.action.isNotBlank()) put("action", capability.action) })
 
     fun rows(receipts: Map<String, JsonObject>, tools: List<AgentToolDefinition> = emptyList(), task: String = ""): JsonArray {
-        val historical = receipts.values.filter { it["trusted"] == JsonPrimitive(true) }
+        val historical = receipts.values.filter { it["trusted"] == JsonPrimitive(true) || it["success"] == JsonPrimitive(false) && it["dispatched"] == JsonPrimitive(false) }
         val active = catalog(tools)
         val union = (
-            active + historical.filter { it.text("tool").startsWith("github_") && (it["arguments"] as? JsonObject)?.containsKey("view_cursor") != true }.map {
+            active + historical.filter { (it.text("tool").startsWith("github_") || it.text("tool").substringBefore("__") == "repository_graph") && (it["arguments"] as? JsonObject)?.containsKey("view_cursor") != true }.map {
                 val name = it.text("tool").substringBefore("__")
                 val action = (it["arguments"] as? JsonObject)?.text("action").orEmpty()
                 Capability(name, action, "$name / ${action.ifBlank { "default" }}")
@@ -188,6 +203,8 @@ internal object GitHubTestChecklist {
                     eligible.isEmpty() && observed.isNotEmpty() -> "Current catalog excludes the historical receipts; reauthorize this operation before using them as proof."
                     incomplete -> "The endpoint responded but traversal or log availability remains incomplete; follow the saved continuation or wait for the recorded state change."
                     failures.isNotEmpty() && (successes.isEmpty() || latest?.get("success") == JsonPrimitive(false)) -> "Resolve recorded errors: " + failures.map { it.text("error_code") }.distinct().joinToString(", ") + ". " + recoveryAdvice(failures.map { it.text("error_code") }.toSet())
+                    capability.tool == "github_decide" -> "Requires a genuine user decision; an integration test must not manufacture a blocking question."
+                    capability.tool == "github_watch_checks" -> "Requires an observed pull request or workflow run and the active chat subscription."
                     !readOnly(capability) -> "Requires an owned isolated fixture and operation-specific authorization; fixture cleanup must be verified before completion."
                     capability.tool == "github_issue" -> "No issue identifier observed from the issue inventory; a pull request number cannot satisfy this dependency."
                     capability.tool == "github_pr" -> "No pull request identifier observed from the pull request inventory."
@@ -215,6 +232,10 @@ internal object GitHubTestChecklist {
                     put("evidence_scope", "Exact API action only; complete search, application behavior and device health require separate evidence")
                     put("receipt_ids", JsonArray(observed.mapNotNull { it["receipt_id"] }))
                     put("successful_receipt_ids", JsonArray(successes.mapNotNull { it["receipt_id"] }))
+                    put("attempted", observed.size)
+                    put("dispatched", observed.count { it["dispatched"] == JsonPrimitive(true) })
+                    put("rejected_before_dispatch", failures.count { it["dispatched"] == JsonPrimitive(false) })
+                    put("completed", successes.size)
                     put("historical_failure_ids", JsonArray(failures.mapNotNull { it["receipt_id"] }))
                     put("excluded_receipt_ids", JsonArray(observed.filter { it["verification_eligible"] == JsonPrimitive(false) }.mapNotNull { it["receipt_id"] }))
                     put("next_action", if (status in setOf("PASSED", "RECOVERED")) "Reuse matching receipts; inspect pending inventory pages independently." else blocker)
@@ -277,7 +298,7 @@ internal object GitHubTestChecklist {
     fun progressDigest(task: String, receipts: Map<String, JsonObject>, tools: List<AgentToolDefinition>): String = GitHubEvidenceBook.digest(
         buildJsonObject {
             put("request_digest", GitHubEvidenceBook.digest(task))
-            put("capabilities", JsonArray(rows(receipts, tools, task).map { raw -> JsonObject((raw as JsonObject).filterKeys { !it.endsWith("_ids") }) }))
+            put("capabilities", JsonArray(rows(receipts, tools, task).map { raw -> JsonObject((raw as JsonObject).filterKeys { !it.endsWith("_ids") && it !in setOf("attempted", "dispatched", "rejected_before_dispatch", "completed") }) }))
             put("pending_pages", JsonArray(pendingPages(receipts)))
             put(
                 "distinct_observations",

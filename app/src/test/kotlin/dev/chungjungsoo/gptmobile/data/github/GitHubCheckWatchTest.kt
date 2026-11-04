@@ -140,7 +140,8 @@ class GitHubCheckWatchTest {
     @Test fun preloadedContextIsBoundedAndIncludesThePinnedHeadAndDirtyState() {
         val context = GitHubConversationContext("connection", "owner", "repo", "feature", head, "profile", stagedFileCount = 2, recentCommits = List(100) { "b".repeat(500) + "\nuntrusted continuation" }, observedAtMillis = 123)
         val prompt = context.promptContext()
-        assertTrue(prompt.contains("Pinned head: $head"))
+        assertTrue(prompt.contains("Captured head at chat binding: $head"))
+        assertTrue(prompt.contains("newer explicit tool receipts supersede this snapshot"))
         assertTrue(prompt.contains("2 changed file(s)"))
         assertTrue(prompt.contains("one descriptive Markdown # title"))
         assertFalse(prompt.contains("untrusted continuation"))

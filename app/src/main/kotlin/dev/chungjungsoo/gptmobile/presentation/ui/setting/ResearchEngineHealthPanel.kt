@@ -142,7 +142,7 @@ internal fun ResearchEngineHealthPanel(disabledEngineIds: Set<String> = emptySet
         }
     }
     if (confirmClear) {
-        androidx.compose.material3.AlertDialog(onDismissRequest = { confirmClear = false }, title = { Text("Clear research statistics?") }, text = { Text("Starts a new measurement epoch. Article evidence is retained; older restored receipts will not reappear in totals.") }, confirmButton = {
+        dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog(onDismissRequest = { confirmClear = false }, title = { Text("Clear research statistics?") }, text = { Text("Starts a new measurement epoch. Article evidence is retained; older restored receipts will not reappear in totals.") }, confirmButton = {
             OutlinedButton(onClick = {
                 confirmClear = false
                 scope.launch {
@@ -157,7 +157,7 @@ internal fun ResearchEngineHealthPanel(disabledEngineIds: Set<String> = emptySet
         }, dismissButton = { OutlinedButton(onClick = { confirmClear = false }) { Text("Cancel") } })
     }
     selectedEngine?.let { engine ->
-        androidx.compose.material3.AlertDialog(onDismissRequest = { selectedEngine = null }, title = { Text("$engine · Recent receipts") }, text = {
+        dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog(onDismissRequest = { selectedEngine = null }, title = { Text("$engine · Recent receipts") }, text = {
             androidx.compose.foundation.lazy.LazyColumn {
                 items(attempts.size) { index ->
                     val attempt = attempts[index]

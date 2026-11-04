@@ -50,6 +50,7 @@ object AppLogRecorder {
     @Volatile private var process: java.lang.Process? = null
     private val fileLock = Any()
     private val recent = ArrayDeque<AppLogEntry>()
+    private val coalescer = DiagnosticCoalescer()
     private val privateSessions = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
 
     @Synchronized fun setPrivateSession(owner: String, active: Boolean) {
@@ -100,6 +101,14 @@ object AppLogRecorder {
                 synchronized(fileLock) {
                     if (!mutableEnabled.value || privateSessions.isNotEmpty()) return@synchronized
                     val (batch, formatted) = batches[captureEpoch.get()] ?: return@synchronized
+                    if (batch.any { it.level in setOf("E", "F") }) {
+                        // An independent incident window survives verbose ring-buffer churn.
+                        val context = recent.takeLast(8) + batch
+                        val retained = context.filterIndexed { index, _ ->
+                            context.subList(index, minOf(context.size, index + 9)).any { it.level in setOf("E", "F") }
+                        }
+                        runCatching { appendCritical(retained.joinToString("\n") { it.line() }) }
+                    }
                     batch.forEach(recent::addLast)
                     while (recent.size > RECENT_ENTRY_LIMIT) recent.removeFirst()
                     if (publication?.isActive != true) {
@@ -188,7 +197,9 @@ object AppLogRecorder {
     fun record(tag: String, message: String, level: String = "I") {
         if (!mutableEnabled.value || privateSessions.isNotEmpty()) return
         val epoch = captureEpoch.get()
-        queue.trySend(epoch to AppLogEntry(System.currentTimeMillis(), level, tag.take(64), diagnosticMessageForStorage(message)))
+        coalescer.accept(tag.take(64), diagnosticMessageForStorage(message), level).forEach { (eventTag, eventMessage, eventLevel) ->
+            queue.trySend(epoch to AppLogEntry(System.currentTimeMillis(), eventLevel, eventTag, eventMessage))
+        }
     }
 
     /** IO-thread startup markers survive an abort before the async log queue drains. */
@@ -217,6 +228,7 @@ object AppLogRecorder {
                 captureEpoch.incrementAndGet()
                 while (queue.tryReceive().isSuccess) Unit
                 recent.clear()
+                coalescer.clear()
                 droppedRecords.set(0)
                 mutableEntries.value = emptyList()
                 runCatching {
@@ -230,6 +242,10 @@ object AppLogRecorder {
     /** Snapshot bytes under the writer lock; JSON parsing and export IO never hold it. */
     fun export(structured: Boolean = false): File? {
         val context = app ?: return null
+        if (mutableEnabled.value && privateSessions.isEmpty()) {
+            val epoch = captureEpoch.get()
+            coalescer.drain().forEach { (tag, message, level) -> queue.trySend(epoch to AppLogEntry(System.currentTimeMillis(), level, tag, message)) }
+        }
         val snapshot = synchronized(fileLock) {
             val folder = directory() ?: return null
             val pending = buildList {

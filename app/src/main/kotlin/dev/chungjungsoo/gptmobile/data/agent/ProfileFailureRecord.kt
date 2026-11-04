@@ -25,12 +25,14 @@ data class ProfileFailureRecord(
 
         private val httpStatus = Regex("""(?i)\b(?:HTTP(?:/\d(?:\.\d)?)?(?:\s+(?:error|status)(?:\s+code)?)?|status(?:\s+code)?|statusCode|responseCode)["']?(?:\s*[:=]\s*|\s+)(\d{3})\b""")
 
-        fun classify(details: String, demoExcluded: Boolean = false): ProfileFailureRecord {
+        fun classify(details: String, demoExcluded: Boolean = false, nowMillis: Long = System.currentTimeMillis()): ProfileFailureRecord {
             val epoch = Regex("(?i)rate limited until ([0-9]{10,16})").find(details)?.groupValues?.get(1)?.toLongOrNull()
                 ?.let { if (it < 100_000_000_000L) it * 1000 else it }
             val iso = Regex("(?i)next eligible retry:\\s*([^\\s]+)").find(details)?.groupValues?.get(1)
                 ?.let { runCatching { Instant.parse(it.trimEnd('.', ',', ';')).toEpochMilli() }.getOrNull() }
-            val retryAt = iso ?: epoch
+            val circuit = details.contains("CIRCUIT_BREAKER_OPEN", true) || details.contains("GITHUB_CIRCUIT_OPEN", true) || details.contains("Circuit breaker", true)
+            val cooldown = Regex("(?i)(?:retryAfterMs\\s*[=:]\\s*|cooldown remaining:\\s*)([0-9]+)").find(details)?.groupValues?.get(1)?.toLongOrNull()
+            val retryAt = iso ?: epoch ?: cooldown?.let { nowMillis + it.coerceIn(0, 86_400_000) }
             val unavailablePolicy = details.contains("POLICY_SNAPSHOT_", true)
             val incompatible = demoExcluded || listOf("Serializer for subclass", "Serializer for class", "enforceable", "unsupported", "budget-blocked", "demo exclusion", "demo endpoint", "demo model", "demo provider", "TOOL_CHOICE_MISMATCH", "RESEARCH_CONFIGURATION_CHANGED", "COMBINED_OUTPUT_ALLOWANCE_CHANGED", "Profile is disabled", "PROFILE_DISABLED", "PROFILE_REMOVED", "PROFILE_CONFIGURATION_CHANGED", "PROFILE_IDENTITY_AMBIGUOUS", "DISPATCH_POLICY_CHANGED", "Unknown Free route").any { details.contains(it, true) }
             val statuses = httpStatus.findAll(details).map { it.groupValues[1] }.toSet()
@@ -39,6 +41,7 @@ data class ProfileFailureRecord(
             val reviewBlocked = details.contains("Saved review requires new evidence", true) || details.contains("GITHUB_REVIEW_BLOCKED", true) || details.contains("unchanged draft will not be reviewed again", true)
             val privacyBlocked = details.contains("POLICY_RESTRICTED", true) || details.contains("PERSONAL_DATA_LOCAL_ONLY", true)
             val category = when {
+                circuit -> "CIRCUIT_BREAKER_OPEN"
                 reviewBlocked -> "REVIEW_INPUT_REQUIRED"
                 details.contains("GITHUB_REVIEW_", true) -> "ANSWER_REVIEW"
                 privacyBlocked -> "PRIVACY_CONFIGURATION"
@@ -64,7 +67,20 @@ data class ProfileFailureRecord(
                 details.contains("connection", true) -> "CONNECTION"
                 else -> "INCOMPLETE"
             }
-            return ProfileFailureRecord(category, !incompatible && !unavailablePolicy && category !in setOf("REVIEW_INPUT_REQUIRED", "PRIVACY_CONFIGURATION", "QUEUED_JOB", "CACHED_UNUSABLE_RESPONSE", "ENDPOINT_RETIRED", "BILLING_UNAVAILABLE"), retryAt)
+            return ProfileFailureRecord(
+                category,
+                !incompatible && !unavailablePolicy && category !in setOf("REVIEW_INPUT_REQUIRED", "PRIVACY_CONFIGURATION", "QUEUED_JOB", "CACHED_UNUSABLE_RESPONSE", "ENDPOINT_RETIRED", "BILLING_UNAVAILABLE"),
+                retryAt,
+                dispatched = false.takeIf { circuit || details.contains("dispatched=false", true) || details.contains("No request was dispatched", true) },
+                remoteAcceptance = if (circuit) RemoteRequestAcceptance.NO else RemoteRequestAcceptance.UNKNOWN,
+                phase = when {
+                    circuit -> "provider_admission"
+                    category == "DNS_RESOLUTION_FAILED" -> "dns_resolution"
+                    category == "CONNECTION" -> "transport"
+                    category == "ANSWER_REVIEW" -> "answer_review"
+                    else -> ""
+                }
+            )
         }
     }
 }

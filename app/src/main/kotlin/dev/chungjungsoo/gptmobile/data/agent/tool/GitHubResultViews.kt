@@ -79,7 +79,7 @@ internal class GitHubResultViews(
         // They are appended only after every data fragment; no remote record is discarded.
         val lastContinuations = if (continuations.toString().toByteArray().size <= pageBytes / 4) continuations else emptyList()
         try {
-            fragment("", body, buffer, pageBytes)
+            fragment("", body, buffer, minOf(pageBytes, RECOVERY_PAGE_BYTES))
             if (lastContinuations.isEmpty()) {
                 continuations.forEach { continuation ->
                     buffer += buildJsonObject {

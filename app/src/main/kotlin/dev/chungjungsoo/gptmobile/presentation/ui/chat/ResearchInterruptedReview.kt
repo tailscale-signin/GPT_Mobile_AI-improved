@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.MaterialTheme
@@ -31,6 +30,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.effectiveContent
 import dev.chungjungsoo.gptmobile.data.database.entity.effectiveTimeline
 import dev.chungjungsoo.gptmobile.data.research.ResearchExecutionRecord
 import dev.chungjungsoo.gptmobile.data.research.ResearchNextAction
+import dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog as AlertDialog
 
 /** An immutable view of the attempt the user actually reviewed, never a remote receipt. */
 internal data class ResearchInterruptedReview(

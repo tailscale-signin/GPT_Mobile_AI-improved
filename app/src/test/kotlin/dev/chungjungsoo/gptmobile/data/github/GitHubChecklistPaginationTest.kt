@@ -51,12 +51,21 @@ class GitHubChecklistPaginationTest {
         assertEquals(listOf(page), GitHubTestChecklist.pendingPages(records))
     }
 
-    @Test fun sampleBudgetIsBoundedAndExplicitInventoryCanContinue() {
+    @Test fun requiredLocalFragmentsContinueAfterUnrelatedSamplingBudget() {
         val records = linkedMapOf("source" to source())
         for (i in 1..2) records["page$i"] = json("""{"trusted":true,"success":true,"tool":"github_context","arguments":{"view_cursor":"previous:$i"},"result":{}}""")
-        assertEquals(null, GitHubTestChecklist.nextCall("test all tools", tools, records))
+        assertEquals(page["arguments"], GitHubTestChecklist.nextCall("test all tools", tools, records)?.arguments)
         assertEquals(page["arguments"], GitHubTestChecklist.nextCall("test all tools and all branches", tools, records)?.arguments)
         assertTrue(GitHubTestChecklist.pendingPages(records).isNotEmpty())
+    }
+
+    @Test fun sampleBudgetIsBoundedAndExplicitInventoryCanContinue() {
+        val remote = json("""{"tool":"github_context","arguments":{"action":"branches","page":2}}""")
+        val records = linkedMapOf("source" to json("""{"trusted":true,"success":true,"tool":"github_context","arguments":{"action":"branches"},"result":{"local_page_complete":true,"continuation_call":$remote}}"""))
+        for (i in 3..4) records["page$i"] = json("""{"trusted":true,"success":true,"tool":"github_context","arguments":{"action":"branches","page":$i},"result":{}}""")
+        assertEquals(null, GitHubTestChecklist.nextCall("test all tools", tools, records))
+        assertEquals(remote["arguments"], GitHubTestChecklist.nextCall("test all tools and all branches", tools, records)?.arguments)
+        assertEquals(listOf(remote), GitHubTestChecklist.pendingPages(records))
     }
 
     @Test fun successfulPageClosesPendingContinuation() {

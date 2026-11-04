@@ -57,7 +57,33 @@ internal fun GitHubProgrammerSettings(workspace: GitHubWorkspaceState, state: Gi
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         GitHubProfilePicker(state.profiles, state.profileOverrideUid, onProfile)
         OutlinedButton(onClick = { showConnectionDoctor = true }, enabled = state.profileUid != null, modifier = Modifier.testTag("github_test_connection")) { Text("Test connection") }
+        var gatewayMenu by remember { mutableStateOf(false) }
+        OutlinedCard(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Engineering gateway", style = MaterialTheme.typography.titleMedium)
+                Text("Select the private connection for saved jobs and repository graphs. Its address and credentials are independent of chat inference.", style = MaterialTheme.typography.bodySmall)
+                OutlinedButton(onClick = { gatewayMenu = true }, enabled = state.profileUid != null) {
+                    Text(state.profiles.firstOrNull { it.uid == state.profileSettings.engineeringGatewayProfileUid }?.name ?: "Select gateway connection")
+                }
+                DropdownMenu(gatewayMenu, { gatewayMenu = false }) {
+                    DropdownMenuItem(text = { Text("Unavailable / not configured") }, onClick = {
+                        gatewayMenu = false
+                        onSettings(state.profileSettings.copy(engineeringGatewayProfileUid = null))
+                    })
+                    state.profiles.filter { dev.chungjungsoo.gptmobile.data.github.GitHubAutonomousEngineeringPolicy.supportsSavedJobs(it) }.forEach { gateway ->
+                        DropdownMenuItem(text = { Text(gateway.name) }, onClick = {
+                            gatewayMenu = false
+                            onSettings(state.profileSettings.copy(engineeringGatewayProfileUid = gateway.uid))
+                        })
+                    }
+                }
+                Text("Add a separate Llama or Ollama connection in Platforms using the desktop gateway address, then select it here.", style = MaterialTheme.typography.bodySmall)
+            }
+        }
         GitHubProfileOverrides(state.profileSettings, state.profileUid != null, onSettings)
+        GitHubWorkflowSettings(state.profileSettings.quickWorkflows, state.profileUid != null) {
+            onSettings(state.profileSettings.copy(quickWorkflows = it))
+        }
         OutlinedButton(onClick = onExport, enabled = state.chatId?.let { it > 0 } == true, modifier = Modifier.fillMaxWidth().testTag("github_export_conversation")) {
             Text("Export conversation")
         }

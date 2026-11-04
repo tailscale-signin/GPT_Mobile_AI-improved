@@ -17,7 +17,9 @@ data class GitHubChatProfileOverride(
     val maximumContext: Boolean = true,
     val engineeringMemory: GitHubEngineeringMemoryMode = GitHubEngineeringMemoryMode.HYBRID,
     val allowCloudEngineeringMemory: Boolean = false,
-    val workflowPreset: String = "heavy_work"
+    val workflowPreset: String = "heavy_work",
+    val quickWorkflows: List<GitHubQuickWorkflow> = GitHubQuickWorkflow.defaults,
+    val engineeringGatewayProfileUid: String? = null
 )
 
 /** Request-local copies: GitHub preferences never rewrite ordinary chat profiles or provider grants. */
@@ -31,7 +33,7 @@ internal object GitHubChatPolicy {
             disableAllTools = false,
             disableRemoteTools = false,
             disableLocalTools = false,
-            maxToolCalls = callLimit(config.engineeringMode)
+            maxToolCalls = minOf(profile.maxToolCalls, callLimit(config.engineeringMode))
         )
     }
 
@@ -78,6 +80,6 @@ internal object GitHubChatPolicy {
             if (config.webSearch) addAll(setOf("web_search", "read_url"))
         }
         val controlled = setOf(connection, "github_decide", "web_search", "read_url", "memory", "memory_recall", "memory_capture", "memory_search", "memory_read_document")
-        return request.copy(allowAllByDefault = false, enabledToolIds = (request.enabledToolIds - controlled) + enabled, disabledToolIds = (request.disabledToolIds - controlled) + (controlled - enabled), maxTools = maxOf(request.maxTools ?: 0, 64), maxToolCalls = callLimit(config.engineeringMode), reasoning = true)
+        return request.copy(allowAllByDefault = false, enabledToolIds = (request.enabledToolIds - controlled) + enabled, disabledToolIds = (request.disabledToolIds - controlled) + (controlled - enabled), maxTools = maxOf(request.maxTools ?: 0, 64), maxToolCalls = minOf(request.maxToolCalls ?: Int.MAX_VALUE, callLimit(config.engineeringMode)), reasoning = true)
     }
 }

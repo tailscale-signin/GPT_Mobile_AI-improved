@@ -37,6 +37,29 @@ class EngineeringHTTPTests(unittest.TestCase):
             self.assertEqual(403, self.client.get(path, headers={'Tailscale-User-Login': 'reader@example.test'}).status_code)
         self.assertEqual(409, self.client.get(url + '?after=-2', headers=self.headers).status_code)
 
+    def test_diagnostic_job_resumes_without_duplicate_execution_or_repository_writes(self):
+        url = '/gateway/engineering/diagnostics/jobs'
+        request = {'kind': 'transport_probe', 'request_id': 'a' * 64}
+        created = self.client.post(url, json=request, headers=self.headers)
+        self.assertEqual(200, created.status_code, created.text)
+        job = created.json()
+        first = self.client.get(url + '/' + job['id'] + '?after=0&limit=1', headers=self.headers).json()
+        self.assertEqual([1], [event['sequence'] for event in first['events']])
+        resumed = self.client.get(url + '/' + job['id'] + '?after=1', headers=self.headers).json()
+        self.assertEqual([2, 3], [event['sequence'] for event in resumed['events']])
+        self.assertEqual('COMPLETED', resumed['status'])
+        self.assertEqual(job['id'], self.client.post(url, json=request, headers=self.headers).json()['id'])
+        self.assertEqual([], self.client.get(url + '/' + job['id'] + '?after=3', headers=self.headers).json()['events'])
+        stream = self.client.get(url + '/' + job['id'] + '/events?after=1', headers=self.headers)
+        events = [json.loads(line[6:]) for line in stream.text.splitlines() if line.startswith('data: {')]
+        self.assertEqual([2, 3], [event['sequence'] for event in events])
+        self.assertTrue(all(event['job_id'] == job['id'] for event in events))
+        self.assertIn('data: [DONE]', stream.text)
+        self.assertEqual([], self.backend.calls)
+        self.assertEqual(404, self.client.get(url + '/' + job['id'], headers={'Tailscale-User-Login': 'other@example.test'}).status_code)
+        self.assertEqual(403, self.client.post(url, json=request, headers={'Tailscale-User-Login': 'reader@example.test'}).status_code)
+        self.assertEqual(409, self.client.get(url + '/' + job['id'] + '?after=4', headers=self.headers).status_code)
+
     def setUp(self):
         fixtures.DurableEngineeringTests.setUp(self)
         self.backend.available = lambda: True

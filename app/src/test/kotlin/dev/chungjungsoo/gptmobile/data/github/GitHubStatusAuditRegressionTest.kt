@@ -151,6 +151,9 @@ class GitHubStatusAuditRegressionTest {
         val second = JsonObject(first + mapOf("receipt_id" to JsonPrimitive("two"), "call_id" to JsonPrimitive("two")))
         val tools = listOf(GitHubOperationTool.definition("github_context"))
         assertEquals(GitHubTestChecklist.progressDigest("test all tools", mapOf("one" to first), tools), GitHubTestChecklist.progressDigest("test all tools", mapOf("one" to first, "two" to second), tools))
+        val history = GitHubTestChecklist.rows(mapOf("one" to first, "two" to second), tools).map { it.jsonObject }.single { it["id"] == JsonPrimitive("github_context:status") }
+        assertEquals(JsonPrimitive(2), history["attempted"])
+        assertEquals(JsonPrimitive(2), history["completed"])
     }
 
     @Test fun compactProgressCountsEvaluatedChecksAndSurvivesPresentationFiltering() {

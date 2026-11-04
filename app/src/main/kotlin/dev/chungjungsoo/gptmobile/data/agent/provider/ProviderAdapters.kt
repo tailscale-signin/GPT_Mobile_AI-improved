@@ -410,6 +410,10 @@ class OpenAICompatibleAdapter @Inject constructor(
                             }
                             .collect { chunk ->
                                 chunk.applicationNotice?.let { emit(ProviderEvent.Notice(it, persistent = true)) }
+                                chunk.observedFinishReason?.let { reason ->
+                                    lastFinishReason = reason
+                                    emit(ProviderEvent.Usage(finishReason = reason))
+                                }
                                 chunk.retryDurationMs?.let { emit(ProviderEvent.Usage(retryDurationMs = it, retryAttempts = chunk.retryAttempts)) }
                                 if (chunk.streamFinished) assembler.finish().forEach { publishOllama(it) }
                                 chunk.usage?.let { usage ->
@@ -454,7 +458,8 @@ class OpenAICompatibleAdapter @Inject constructor(
                                         content = choice.effectiveDelta.content,
                                         reasoning = if (chunk.gatewayProgress == null) choice.effectiveDelta.effectiveReasoning else null,
                                         toolCalls = choice.effectiveDelta.toolCalls,
-                                        finishReason = choice.finishReason
+                                        finishReason = choice.finishReason,
+                                        choiceIndex = choice.index
                                     ).forEach { publishOllama(it) }
                                 }
                             }
@@ -717,7 +722,8 @@ class OpenAICompatibleAdapter @Inject constructor(
                                             content = null,
                                             reasoning = null,
                                             toolCalls = choice.delta?.toolCalls ?: choice.message?.toolCalls,
-                                            finishReason = choice.finishReason
+                                            finishReason = choice.finishReason,
+                                            choiceIndex = choice.index
                                         ).forEach { publish(it) }
                                     }
                                 }
@@ -766,10 +772,11 @@ class OpenAICompatibleAdapter @Inject constructor(
                             model = platform.model,
                             messages = currentRequestMessages,
                             stream = effectiveStream,
+                            streamOptions = if (effectiveStream && isLlama) dev.chungjungsoo.gptmobile.data.dto.openai.request.ChatStreamOptions() else null,
                             temperature = effectiveTemperature,
                             topP = effectiveTopP,
                             topK = effectiveTopK,
-                            maxTokens = effectiveOutputTokens,
+                            maxTokens = if (!requestTools.isNullOrEmpty() && isLlama) minOf(effectiveOutputTokens ?: 4096, 4096) else effectiveOutputTokens,
                             frequencyPenalty = effectiveFrequencyPenalty,
                             presencePenalty = effectivePresencePenalty,
                             repetitionPenalty = effectiveRepetitionPenalty,
@@ -888,6 +895,10 @@ class OpenAICompatibleAdapter @Inject constructor(
                                     boundControl = reasoningControl
                                 }
                                 chunk.applicationNotice?.let { emit(ProviderEvent.Notice(it, persistent = true)) }
+                                chunk.observedFinishReason?.let { reason ->
+                                    lastFinishReason = reason
+                                    emit(ProviderEvent.Usage(finishReason = reason))
+                                }
                                 chunk.retryDurationMs?.let { emit(ProviderEvent.Usage(retryDurationMs = it, retryAttempts = chunk.retryAttempts, writerObservationKey = writerObservationKey)) }
                                 if (chunk.streamFinished) {
                                     terminalReceived = true
@@ -901,7 +912,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                                             totalTokens = usage.totalTokens,
                                             decodeTokensPerSecond = chunk.timings?.decodeTokensPerSecond,
                                             reasoningTokens = (usage.completionTokensDetails?.get("reasoning_tokens") as? JsonPrimitive)?.intOrNull?.takeIf { it >= 0 },
-                                            phase = if (terminalReceived || chunk.choices.orEmpty().any { it.finishReason != null }) ProviderUsagePhase.FINAL else ProviderUsagePhase.INTERIM,
+                                            phase = if (terminalReceived || lastFinishReason != null || chunk.choices.orEmpty().any { it.finishReason != null }) ProviderUsagePhase.FINAL else ProviderUsagePhase.INTERIM,
                                             writerObservationKey = writerObservationKey
                                         )
                                     )
@@ -959,14 +970,16 @@ class OpenAICompatibleAdapter @Inject constructor(
                                             content = null,
                                             reasoning = null,
                                             toolCalls = choice.effectiveDelta.toolCalls,
-                                            finishReason = choice.finishReason
+                                            finishReason = choice.finishReason,
+                                            choiceIndex = choice.index
                                         ).forEach { publishAssembly(it) }
                                     } else {
                                         assembler.accept(
                                             content = choice.effectiveDelta.content,
                                             reasoning = effectiveReasoning,
                                             toolCalls = choice.effectiveDelta.toolCalls,
-                                            finishReason = choice.finishReason
+                                            finishReason = choice.finishReason,
+                                            choiceIndex = choice.index
                                         ).forEach { publishAssembly(it) }
                                     }
                                 }
@@ -1643,7 +1656,7 @@ private const val GROQ_OUTPUT_LIMIT_MESSAGE =
 
 private fun providerFailureMessage(error: Throwable, fallback: String): String =
     if (error is dev.chungjungsoo.gptmobile.data.network.error.CircuitBreakerOpenException) {
-        dev.chungjungsoo.gptmobile.data.network.error.ErrorClassification.classify(error).userMessage
+        dev.chungjungsoo.gptmobile.data.network.error.ErrorClassification.classify(error).userMessage + " CIRCUIT_BREAKER_OPEN: retryAfterMs=${error.cooldownRemainingMs}; dispatched=false"
     } else {
         error.message ?: fallback
     }

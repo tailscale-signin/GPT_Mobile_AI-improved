@@ -67,7 +67,7 @@ fun DelegateModelDropdown(
                 Icon(Icons.Rounded.ArrowDropDown, stringResource(R.string.v0950_picker_choose, roleLabel))
             }
             if (expanded && enabled) {
-                androidx.compose.material3.AlertDialog(
+                dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog(
                     onDismissRequest = { expanded = false },
                     title = { Text(stringResource(R.string.v0950_picker_choose, roleLabel)) },
                     text = {

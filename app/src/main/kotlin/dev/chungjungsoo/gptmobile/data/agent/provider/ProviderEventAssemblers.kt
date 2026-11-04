@@ -20,7 +20,6 @@ import dev.chungjungsoo.gptmobile.data.dto.anthropic.response.MessageResponseChu
 import dev.chungjungsoo.gptmobile.data.dto.anthropic.response.MessageStartResponseChunk
 import dev.chungjungsoo.gptmobile.data.dto.anthropic.response.MessageStopResponseChunk
 import dev.chungjungsoo.gptmobile.data.dto.google.response.GenerateContentResponse
-import dev.chungjungsoo.gptmobile.data.dto.openai.response.ChatToolCallDelta
 import dev.chungjungsoo.gptmobile.data.dto.openai.response.FunctionCallArgumentsDeltaEvent
 import dev.chungjungsoo.gptmobile.data.dto.openai.response.FunctionCallArgumentsDoneEvent
 import dev.chungjungsoo.gptmobile.data.dto.openai.response.OutputItemAddedEvent
@@ -107,67 +106,6 @@ class OpenAIResponsesEventAssembler {
         }
 
         else -> emptyList()
-    }
-}
-
-class ChatCompletionsEventAssembler {
-    private val toolGuard = ToolStreamGuard()
-    private data class PendingCall(
-        var callId: String? = null,
-        var name: String? = null,
-        val arguments: StringBuilder = StringBuilder()
-    )
-
-    private val pending = sortedMapOf<Int, PendingCall>()
-
-    fun accept(
-        content: String?,
-        reasoning: String?,
-        toolCalls: List<ChatToolCallDelta>?,
-        finishReason: String?
-    ): List<ProviderEvent> {
-        val events = mutableListOf<ProviderEvent>()
-        reasoning?.takeIf { it.isNotEmpty() }?.let { events += ProviderEvent.ThinkingDelta(it) }
-        content?.takeIf { it.isNotEmpty() }?.let { events += ProviderEvent.TextDelta(it) }
-        toolCalls.orEmpty().forEach { delta ->
-            toolGuard.slot(delta.index.toString())
-            toolGuard.identifier(delta.id)
-            toolGuard.identifier(delta.function?.name)
-            toolGuard.append(delta.function?.arguments.orEmpty())
-            val call = pending.getOrPut(delta.index) { PendingCall() }
-            delta.id?.let { call.callId = it }
-            delta.function?.name?.let { call.name = it }
-            delta.function?.arguments?.let { call.arguments.append(it) }
-        }
-        finishReason?.let { events += ProviderEvent.Usage(finishReason = it) }
-        when (finishReason) {
-            "tool_calls", "stop" -> events += finish()
-            null -> Unit
-            else -> events += discardIncomplete()
-        }
-        return events
-    }
-
-    /** Called only for a completed choice or an explicit SSE [DONE]. */
-    fun finish(): List<ProviderEvent> {
-        val events = pending.values.map { call ->
-            val name = call.name
-            if (name.isNullOrBlank()) {
-                ProviderEvent.Failed("Provider returned an incomplete function call.")
-            } else {
-                // Some compatible servers omit IDs; preserve supplied IDs and replay generated ones.
-                val callId = call.callId?.takeIf(String::isNotBlank) ?: "call_${java.util.UUID.randomUUID()}"
-                toolCall(callId, name, call.arguments.toString()).single()
-            }
-        }
-        pending.clear()
-        return events
-    }
-
-    fun discardIncomplete(): List<ProviderEvent> {
-        if (pending.isEmpty()) return emptyList()
-        pending.clear()
-        return listOf(ProviderEvent.Failed("Provider stopped before completing the tool call. No incomplete tool was run."))
     }
 }
 
@@ -328,21 +266,5 @@ object GeminiEventMapper {
             events += ProviderEvent.Failed("The response reached its output limit. Saved output and tool results will be used to continue on the next request.", transportComplete = true)
         }
         return events
-    }
-}
-
-private fun toolCall(callId: String, name: String, arguments: String): List<ProviderEvent> {
-    if (callId.length > 256) throw ToolBatchOversizeException("CALL_ID_CHARACTERS", callId.length, 256)
-    if (name.length > 256) throw ToolBatchOversizeException("TOOL_NAME_CHARACTERS", name.length, 256)
-    if (arguments.length > 16 * 1024) throw ToolBatchOversizeException("ARGUMENT_CHARACTERS", arguments.length, 16 * 1024)
-    return try {
-        val parsed = Json.parseToJsonElement(arguments.ifBlank { "{}" })
-        if (parsed is JsonObject) {
-            listOf(ProviderEvent.ToolCall(callId, name, parsed))
-        } else {
-            listOf(ProviderEvent.Failed("Tool arguments must be a JSON object.", errorCode = "TOOL_PROTOCOL_INVALID_FRAME"))
-        }
-    } catch (_: Exception) {
-        listOf(ProviderEvent.Failed("Tool arguments were not valid JSON.", errorCode = "TOOL_PROTOCOL_INVALID_FRAME"))
     }
 }

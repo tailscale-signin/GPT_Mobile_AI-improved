@@ -28,6 +28,7 @@ internal class ModelRequestPreparation(client: NetworkClient) {
         val budget = dev.chungjungsoo.gptmobile.data.context.PromptBudgets.capture(payload, measurement, outputTokens?.toLong(), capacity.contextTokens, runtime.templateRevision)
         val prepared = RequestAdmission.prepare(payload, config.requestRole, capacity, measurement, outputTokens?.toLong(), revision, config.requireKnownCapacity, "queued-native-v1", promptBudget = budget, requestDeadline = context[WorkerRequestBudget]?.preflight())
         config.freeDiagnostics?.admission = prepared.receipt
+        prepared.receipt.outputTokens?.takeIf { it in 1..Int.MAX_VALUE.toLong() }?.toInt()?.let { config.onSerializedOutputTokens?.invoke(it) }
         val wire = prepared.dispatchPayload(runtime, revision)
         val attempt = dev.chungjungsoo.gptmobile.data.context.PhysicalAttemptBoundary.dispatch(prepared.receipt)
         context[dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext]?.serialized(wire, prepared.receipt.copy(physicalAttemptId = attempt))
@@ -101,12 +102,14 @@ internal class ModelRequestPreparation(client: NetworkClient) {
             "WIRE_SCHEMA · role=${config.requestRole} · serializedTools=${toolNames.size} · names=${toolNames.joinToString()} · serializedBytes=${toolSchema.toByteArray(Charsets.UTF_8).size} · schemaTokens=${if (toolSchema.isEmpty()) 0 else RequestAdmission.estimate(toolSchema).promptTokens} · measurement=UTF8_ESTIMATE"
         )
         val budget = dev.chungjungsoo.gptmobile.data.context.PromptBudgets.capture(finalPayload, measured, finalAllowance.tokens, snapshot.contextTokens, snapshot.fingerprint.templateRevision)
+        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Admission", "RUNTIME_IDENTITY · ${snapshot.fingerprint} · reasoningAllowed=${config.allowReasoning} · requestedMode=${config.reasoningMode} · toolReserveState=serialized_results_replace_planning_estimate · usage=Not measured until server receipt")
         val prepared = RequestAdmission.prepare(finalPayload, config.requestRole, snapshot, measured, finalAllowance.tokens, permissionRevision, requireKnownCapacity = config.requireKnownCapacity, serializerRevision = if (config.freeProvider == dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.POLLINATIONS) PollinationsClassic.SERIALIZER_REVISION else "provider-json-v1", reasoning = reasoning, messageValidatorRevision = dev.chungjungsoo.gptmobile.data.context.ProviderMessageValidator.VERSION, promptBudget = budget, requestDeadline = kotlinx.coroutines.currentCoroutineContext()[WorkerRequestBudget]?.preflight())
         dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
             "Admission",
             "FINAL_REQUEST · role=${config.requestRole} · promptTokens=${prepared.receipt.promptTokens} · outputTokens=${prepared.receipt.outputTokens ?: "unknown"} · safety=${prepared.receipt.safetyTokens} · contextTokens=${prepared.receipt.contextTokens ?: "unknown"} · measurement=${prepared.receipt.measurement} · capacity=${prepared.receipt.capacityProvenance} · checked=${prepared.receipt.capacityChecked} · reasoningRequested=${reasoning?.requested} · reasoningEffective=${reasoning?.effective} · reasoningControl=${reasoning?.transmittedControl} · reasoningObserved=unknown"
         )
         config.freeDiagnostics?.admission = prepared.receipt
+        prepared.receipt.outputTokens?.takeIf { it in 1..Int.MAX_VALUE.toLong() }?.toInt()?.let { config.onSerializedOutputTokens?.invoke(it) }
         val wire = prepared.dispatchPayload(snapshot.fingerprint, permissionRevision)
         val attemptId = dev.chungjungsoo.gptmobile.data.context.PhysicalAttemptBoundary.dispatch(prepared.receipt)
         kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext]?.serialized(wire, prepared.receipt.copy(physicalAttemptId = attemptId))

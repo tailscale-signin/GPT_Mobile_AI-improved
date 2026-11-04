@@ -912,6 +912,38 @@ class ChatViewModel @Inject constructor(
         checkpointComposer()
     }
 
+    fun selectVoiceProfile(uid: String, complete: (Boolean) -> Unit = {}) {
+        if (!_isLoaded.value || _loadingStates.value.any { it != LoadingState.Idle } || pendingRunDispatches > 0 || _chatToolConfig.value.github != null) {
+            _attachmentNotice.value = "Finish the current reply before changing the voice profile."
+            complete(false)
+            return
+        }
+        val profile = _platformsInApp.value.firstOrNull { it.uid == uid && it.enabled } ?: return complete(false)
+        if (rejectUnavailableFreeProfile(profile)) return complete(false)
+        pendingRunDispatches++
+        viewModelScope.launch {
+            try {
+                platformMembershipMutex.withLock {
+                    val updated = agentRunCoordinator.withChatGate(_chatRoom.value.id) {
+                        chatRepository.updateChatPlatforms(_chatRoom.value, listOf(uid))
+                    }
+                    _chatRoom.value = updated
+                    applyChatPlatformState(updated)
+                    settingRepository.mutateFeatureSettings { it.copy(voiceProfileUid = uid) }
+                    savedStateHandle["nextMessageProfileUid"] = null
+                }
+                complete(true)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                _attachmentNotice.value = "Could not change the voice profile. Try again."
+                complete(false)
+            } finally {
+                pendingRunDispatches--
+            }
+        }
+    }
+
     /** Voice uses the normal durable chat dispatcher and never bypasses tool approvals. */
     fun submitVoiceTranscript(text: String): Boolean {
         if (!_isLoaded.value || text.isBlank() || !featureSettings.value.isToolPluginEnabled(dev.chungjungsoo.gptmobile.data.model.ToolPluginId.VOICE_CHAT) || _loadingStates.value.any { it != LoadingState.Idle }) return false

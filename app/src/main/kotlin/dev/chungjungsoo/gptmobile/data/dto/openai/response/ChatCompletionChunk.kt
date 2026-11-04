@@ -47,6 +47,7 @@ data class ChatCompletionChunk(
     @Transient val retryAttempts: Int? = null,
     @Transient val applicationNotice: String? = null,
     @Transient val serializedOutputTokens: Int? = null,
+    @Transient val observedFinishReason: String? = null,
     @Transient val reasoningControlReceipt: dev.chungjungsoo.gptmobile.data.network.ReasoningControlReceipt? = null
 )
 
@@ -279,7 +280,13 @@ data class ChatCompletionTimings(
     @SerialName("predicted_n")
     val predictedTokens: Int? = null,
     @SerialName("predicted_ms")
-    val predictedMs: Double? = null
+    val predictedMs: Double? = null,
+    @SerialName("prompt_n")
+    val promptTokens: Int? = null,
+    @SerialName("prompt_ms")
+    val promptMs: Double? = null,
+    @SerialName("queue_ms")
+    val queueMs: Double? = null
 ) {
     val decodeTokensPerSecond: Double?
         get() = predictedPerSecond?.takeIf { it.isFinite() && it > 0 }

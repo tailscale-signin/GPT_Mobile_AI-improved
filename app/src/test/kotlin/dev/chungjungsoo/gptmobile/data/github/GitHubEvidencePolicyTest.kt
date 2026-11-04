@@ -24,6 +24,15 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubEvidencePolicyTest {
+    @Test fun authorizedPolicyCatalogDoesNotAdvertiseInternalAliases() = runBlocking {
+        var saved: JsonObject? = null
+        val book = GitHubEvidenceBook("binding", "owner/repo", "main", emptySet(), save = { _, value -> saved = value })
+        val visible = dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition("github_context", "Context", json("""{"type":"object"}"""))
+        book.retainPolicy("revision-1", listOf(visible, visible.copy(name = "github__github_api", modelVisible = false)))
+        val catalog = saved?.get("catalog") as kotlinx.serialization.json.JsonArray
+        assertEquals(listOf(JsonPrimitive("github_context")), catalog.map { (it as JsonObject)["name"] })
+    }
+
     @Test fun explicitContinuationRestoresOriginalReceiptsWithoutRefreshingTheirTime() = runBlocking {
         val stored = linkedMapOf<String, JsonObject>()
         val book = GitHubEvidenceBook("binding", "owner/repo", "main", setOf("github_ci"), { 1000 }, save = { id, value -> stored[id] = value })
@@ -128,11 +137,26 @@ class GitHubEvidencePolicyTest {
         assertEquals(JsonPrimitive(1000L), restarted.snapshot().first.getValue(id)["observed_at_ms"])
     }
 
+    @Test fun capacityFailureRetainsEarlierReceiptsAndPreventsCompletion() = runBlocking {
+        val book = GitHubEvidenceBook("binding", "owner/repo", "main", setOf("github_ci"))
+        repeat(4097) { index ->
+            val id = "call-$index"
+            book.observe(ProviderEvent.ToolCall(id, "github_ci", json("""{"action":"status"}""")), AgentToolResult(id, ToolResultContent.Json(json("""{"count":3}""")), false, dispatched = true))
+        }
+        val retained = book.snapshot().first.values.toList()
+        assertEquals(4096, retained.size)
+        assertEquals(JsonPrimitive("call-0"), retained.first()["call_id"])
+        assertEquals(JsonPrimitive(4095), retained.last()["previous_attempt_count"])
+        assertEquals(kotlinx.serialization.json.JsonArray(listOf(retained[4094].getValue("receipt_id"))), retained.last()["previous_attempt_ids"])
+        assertFalse(book.complete())
+    }
+
     @Test fun storageFailureCannotBeRetriedIntoAValidUnpersistedReceipt() = runBlocking {
         val book = GitHubEvidenceBook("binding", "owner/repo", "main", setOf("github_ci"), { 1000 }, save = { _, _ -> error("disk full") })
         val call = ProviderEvent.ToolCall("one", "github_ci", json("""{"action":"status"}"""))
         assertTrue(runCatching { book.observe(call, AgentToolResult("one", ToolResultContent.Json(json("""{"count":3}""")), false, dispatched = true)) }.isFailure)
-        assertTrue(runCatching { book.snapshot() }.isFailure)
+        assertTrue(book.snapshot().first.isEmpty())
+        assertFalse(book.complete())
     }
 
     @Test fun unknownCacheProvenanceAndForeignRepositoryCannotVerify() = runBlocking {

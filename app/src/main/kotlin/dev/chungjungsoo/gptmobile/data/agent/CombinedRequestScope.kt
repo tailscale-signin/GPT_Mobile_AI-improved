@@ -11,7 +11,7 @@ object CombinedRequestScope {
         !broad.containsMatchIn(request) &&
         !length.containsMatchIn(request)
 
-    fun defaultMaximumWords(request: String): Int? = if (isStraightforward(request)) 350 else null
+    fun defaultMaximumWords(@Suppress("UNUSED_PARAMETER") request: String): Int? = null
 
     fun participants(request: String, selected: List<String>, primary: String?, adaptive: Boolean, research: Boolean): List<String> {
         if (!adaptive || research || !isStraightforward(request) || selected.size <= 3) return selected

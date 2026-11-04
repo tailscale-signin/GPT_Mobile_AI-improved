@@ -665,8 +665,8 @@ class AgentRunner(
             rounds < limits.maxRounds &&
             round.batchRejection?.contains("threshold=STREAM_TOOL_SLOTS") == true
         ) {
-            val batchSize = minOf(4, limits.maxToolCallsPerRound, observedLimit - observedToolCalls).coerceAtLeast(1)
-            val repaired = exposedDefinitions.map { definition ->
+            val batchSize = 1
+            val repaired = exposedDefinitions.take(4).map { definition ->
                 definition.copy(description = definition.description + " Batch repair: the previous response exceeded the tool-call limit and NONE of its calls ran. Make at most $batchSize total calls in this response, then wait for results before requesting more.")
             }
             emit(AgentRunEvent.Notice("The provider requested too many tools at once. Retrying once with a smaller batch; completed evidence is retained.", persistent = false))

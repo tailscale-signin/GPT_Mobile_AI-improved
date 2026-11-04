@@ -70,6 +70,24 @@ class ChatCompletionTransportTest {
         assertEquals(42.5, chunk.timings!!.decodeTokensPerSecond!!, .01)
     }
 
+    @Test fun `non free generation reports actual serialized allowance`() = withResponse(
+        "application/json",
+        """{"choices":[{"message":{"content":"ok"},"finish_reason":"stop"}]}"""
+    ) { api, config, _ ->
+        val chunks = runBlocking { api.streamChatCompletion(request(false).copy(maxTokens = 512), 5, config.copy(captureGenerationReceipt = true)).toList() }
+        assertEquals(listOf(512), chunks.mapNotNull { it.serializedOutputTokens })
+    }
+
+    @Test fun `observed tool finish reason survives dispatch barrier`() = withResponse(
+        "text/event-stream",
+        "data: {\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"one\",\"function\":{\"name\":\"read\",\"arguments\":\"{}\"}}]},\"finish_reason\":\"tool_calls\"}]}\n\ndata: [DONE]\n\n"
+    ) { api, config, _ ->
+        val chunks = runBlocking { api.streamChatCompletion(request(), 5, config).toList() }
+        assertEquals(listOf("tool_calls"), chunks.mapNotNull { it.observedFinishReason })
+        assertTrue(chunks.flatMap { it.choices.orEmpty() }.all { it.finishReason == null })
+        assertTrue(chunks.last().streamFinished)
+    }
+
     private fun request(stream: Boolean = true) = ChatCompletionRequest(model = "llama", messages = listOf(dev.chungjungsoo.gptmobile.data.dto.openai.request.ChatMessage(role = dev.chungjungsoo.gptmobile.data.dto.openai.common.Role.USER, content = listOf(dev.chungjungsoo.gptmobile.data.dto.openai.common.TextContent("Transport fixture request.")))), stream = stream)
 
     private fun withResponse(contentType: String, body: String, block: (OpenAIAPI, ProviderRequestConfig, () -> String?) -> Unit) {

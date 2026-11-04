@@ -9,7 +9,7 @@ import org.junit.Test
 class CombinedFeedbackPolicyTest {
     @Test fun straightforwardComparisonUsesBoundedScopeAndKeepsPrimary() {
         val request = "What is the difference between panzerotti and calzone?"
-        assertEquals(350, CombinedRequestScope.defaultMaximumWords(request))
+        assertNull(CombinedRequestScope.defaultMaximumWords(request))
         assertEquals(listOf("a", "b", "i"), CombinedRequestScope.participants(request, ('a'..'i').map { it.toString() }, "i", true, false))
     }
 

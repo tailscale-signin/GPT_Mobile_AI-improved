@@ -11,11 +11,11 @@ class RecognitionStartGateTest {
         assertTrue(gate.acquire())
         assertFalse(gate.acquire())
         gate.failed(true)
-        repeat(7) {
-            time += 500
+        repeat(9) {
+            time += 100
             assertFalse(gate.acquire())
         }
-        time = 10_000
+        time = 1_000
         assertTrue(gate.acquire())
     }
 
@@ -24,9 +24,9 @@ class RecognitionStartGateTest {
         val gate = RecognitionStartGate { time }
         gate.acquire()
         gate.failed(false)
-        time = 1999
+        time = 499
         assertFalse(gate.acquire())
-        time = 2000
+        time = 500
         assertTrue(gate.acquire())
     }
 
@@ -42,7 +42,7 @@ class RecognitionStartGateTest {
         assertTrue(gate.acquire("second"))
         gate.failed(true, "second")
         assertFalse(gate.acquire("third"))
-        time += 10_000
+        time += 1_000
         assertTrue(gate.acquire("third"))
     }
 }

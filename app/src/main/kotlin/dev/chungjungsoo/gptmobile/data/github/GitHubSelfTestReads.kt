@@ -26,11 +26,13 @@ internal object GitHubSelfTestReads {
         val status = roots("github_context", "status").firstOrNull()
         val sha = (status?.get("commit_sha") as? JsonPrimitive)?.takeIf { it.content.matches(Regex("[a-fA-F0-9]{40}")) }
         val branch = status?.get("branch")
-        val run = records("github_ci", "runs", "workflow_runs").firstOrNull { it.text("status") == "completed" && it.text("conclusion") !in setOf("skipped", "neutral") }
-            ?: records("github_ci", "runs", "workflow_runs").firstOrNull()
+        val run = records("github_ci", "runs", "workflow_runs").filter { it["head_sha"] == sha && sha != null }.firstOrNull { it.text("status") == "completed" && it.text("conclusion") !in setOf("skipped", "neutral") }
+            ?: records("github_ci", "runs", "workflow_runs").firstOrNull { it["head_sha"] == sha && sha != null }
+        val runId = run?.get("id")
         val logAttempts = observations.filter { it.text("tool").substringBefore("__") == "github_ci" && (it["arguments"] as? JsonObject)?.text("action") == "logs" }
         val job = records("github_ci", "jobs", "jobs").firstOrNull { candidate ->
-            candidate.text("status") == "completed" &&
+            (runId == null || candidate["run_id"] == runId) &&
+                candidate.text("status") == "completed" &&
                 candidate.text("conclusion") !in setOf("skipped", "neutral", "cancelled") &&
                 logAttempts.none { (it["arguments"] as? JsonObject)?.get("job_id") == candidate["id"] }
         }

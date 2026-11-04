@@ -149,6 +149,11 @@ class ToolApprovalManager @Inject constructor(private val database: ChatDatabase
     }
 
     suspend fun authorize(connectionId: String, runId: String, callId: String, tool: String, arguments: JsonObject, schema: JsonObject? = null): Boolean {
+        if (tool.substringBefore("__") == "repository_graph" && connections.getConnection(connectionId)?.type == "GITHUB") {
+            val graphAction = arguments["action"] ?: return false
+            val native = JsonObject(arguments + mapOf("action" to kotlinx.serialization.json.JsonPrimitive("repository_graph"), "graph_action" to graphAction))
+            return authorize(connectionId, runId, callId, "github", native, schema)
+        }
         if (dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(tool) != null && connections.getConnection(connectionId)?.type == "GITHUB") {
             val native = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.nativeArguments(tool, arguments) ?: return false
             return authorize(connectionId, runId, callId, "github", native, schema)

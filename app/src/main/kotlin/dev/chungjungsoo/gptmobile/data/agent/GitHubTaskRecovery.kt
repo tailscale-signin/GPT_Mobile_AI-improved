@@ -7,14 +7,20 @@ internal object GitHubTaskRecovery {
 
     fun isConnectionUnavailable(message: String): Boolean = message.contains("LOCAL_SERVICE_UNREACHABLE", true)
 
-    fun recoveryLimit(message: String): Int = if (isConnectionUnavailable(message)) MAX_CONNECTION_RECOVERIES else MAX_RECOVERIES
+    fun recoveryLimit(message: String): Int = if (isConnectionUnavailable(message) ||
+        listOf("unable to resolve", "unknownhost", "dns_recovery", "circuit_breaker_open").any { message.contains(it, true) }
+    ) {
+        MAX_CONNECTION_RECOVERIES
+    } else {
+        MAX_RECOVERIES
+    }
     private val retryAfter = Regex("(?i)retryAfterMs\\s*[=:]\\s*(\\d+)")
     private val blockedStatus = Regex("(?<!\\d)(?:401|403|429)(?!\\d)")
 
     fun delayMillis(message: String, recoveries: Int, errorCode: String? = null): Long? {
         val code = errorCode.orEmpty().lowercase()
         if (ProfileFailureRecord.classify(message).category in setOf("ENDPOINT_RETIRED", "BILLING_UNAVAILABLE") || code in setOf("payment_required", "billing_unavailable", "insufficient_credits", "insufficient_quota", "budget_exceeded", "credit_limit_exceeded")) return null
-        if (code.startsWith("client_tool_") || code.startsWith("terminal_job_") || code.startsWith("invalid_") || code.startsWith("completion_repair_") || code in setOf("context_capacity_unverified", "reasoning_off_unsupported", "reasoning_on_unsupported")) return null
+        if (code.startsWith("client_tool_") || code.startsWith("terminal_job_") || code.startsWith("invalid_") || code.startsWith("completion_repair_") || code in setOf("context_capacity_unverified", "reasoning_off_unsupported", "reasoning_on_unsupported", "tool_batch_oversize", "tool_stream_invalid")) return null
         if (Regex("REASONING_(?:ON|OFF)_UNSUPPORTED", RegexOption.IGNORE_CASE).containsMatchIn(message)) return null
         if (recoveries >= recoveryLimit(message)) return null
         val text = message.lowercase()

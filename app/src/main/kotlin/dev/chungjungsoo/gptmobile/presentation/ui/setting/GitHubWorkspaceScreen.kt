@@ -216,7 +216,6 @@ fun GitHubWorkspaceScreen(
                         navigationIcon = { IconButton(onClick = { close() }, enabled = !state.busy) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Close workspace") } },
                         actions = {}
                     )
-                    Column(Modifier.padding(start = 56.dp, end = 16.dp)) { GitHubChatProgress(state, visibleProgrammer, engineeringJob) }
                 }
             },
             bottomBar = {}
@@ -339,6 +338,7 @@ fun GitHubWorkspaceScreen(
                         ) { Text(label, style = MaterialTheme.typography.labelLarge) }
                     }
                 }
+                Column(Modifier.padding(horizontal = 16.dp)) { GitHubChatProgress(state, visibleProgrammer, engineeringJob) }
                 Column(Modifier.weight(1f).then(if (tab in setOf(3, 4)) Modifier else Modifier.verticalScroll(workspaceScroll)).padding(if (tab in setOf(3, 4)) 0.dp else 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     if (state.selection == null && tab !in setOf(3, 5)) {
                         WorkspaceEmpty(Icons.Rounded.FolderOpen, "Your code, within reach", "Choose a repository above to browse files, prepare changes and review pull requests.")

@@ -82,9 +82,30 @@ class AndroidVoiceAudio internal constructor(
         operation?.let { (kind, ticket) -> event("${kind}_terminal · outcome=$reason", ticket) }
         operation = null
     }
-    fun voices(): List<Pair<String, String>> = installedVoices
-        .filter { (allowOnlineSpeech || !it.isNetworkConnectionRequired) && it.locale.language == Locale.forLanguageTag(languageTag).language }
-        .sortedBy { it.name }.take(12).map { it.name to "${it.name} · ${it.locale.displayName}" }
+    private val mutableVoices = kotlinx.coroutines.flow.MutableStateFlow<List<Pair<String, String>>>(emptyList())
+    val voiceChoices: kotlinx.coroutines.flow.StateFlow<List<Pair<String, String>>> = mutableVoices
+    private fun eligibleVoices(voices: Collection<android.speech.tts.Voice>, language: String = languageTag, online: Boolean = allowOnlineSpeech) = voices
+        .filter { (online || !it.isNetworkConnectionRequired) && it.locale.language == Locale.forLanguageTag(language).language && "notInstalled" !in it.features.orEmpty() }
+        .sortedWith(compareByDescending<android.speech.tts.Voice> { it.quality }.thenByDescending { it.locale.toLanguageTag() == language }.thenBy { it.latency }.thenBy { it.name })
+    fun voices(): List<Pair<String, String>> = eligibleVoices(installedVoices).take(12).mapIndexed { index, voice ->
+        voice.name to "Voice ${index + 1} · ${voice.locale.displayName} · ${if (voice.quality >= android.speech.tts.Voice.QUALITY_HIGH) "High quality" else "Standard quality"}${if (voice.isNetworkConnectionRequired) " · Online" else " · On device"}"
+    }
+
+    fun prepareVoices() {
+        if (closed) return
+        if (tts == null) initializeSpeech()
+        val engine = tts?.takeIf { speechReady } ?: return
+        val version = speechGeneration
+        speechWork.execute {
+            val catalog = runCatching { engine.voices.orEmpty().toSet() }.getOrDefault(emptySet())
+            main.post {
+                if (!closed && version == speechGeneration) {
+                    installedVoices = catalog
+                    mutableVoices.value = voices()
+                }
+            }
+        }
+    }
     private fun event(name: String, ticket: Long = generation) = dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("VoiceTiming", "$name · session=$sessionId · attempt=$ticket · elapsedMs=${android.os.SystemClock.elapsedRealtime()}")
     private var watchdog: Runnable? = null
     var languageTag: String = Locale.getDefault().toLanguageTag()
@@ -189,7 +210,12 @@ class AndroidVoiceAudio internal constructor(
                     recognitionGate.failed(error == SpeechRecognizer.ERROR_TOO_MANY_REQUESTS, sessionId)
                     stop()
                     dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("VoiceRecognition", "recognition_error=$error · locale=$languageTag · onDevice=$onDevice", "W")
-                    listener.failure(
+                    if (error == SpeechRecognizer.ERROR_NO_MATCH || error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT) {
+                        listener.final("")
+                        return
+                    }
+                    val failure: (String, Long) -> Unit = if (error in setOf(SpeechRecognizer.ERROR_TOO_MANY_REQUESTS, SpeechRecognizer.ERROR_RECOGNIZER_BUSY, SpeechRecognizer.ERROR_NETWORK, SpeechRecognizer.ERROR_NETWORK_TIMEOUT)) listener::retryableFailure else listener::failure
+                    failure(
                         when (error) {
                             SpeechRecognizer.ERROR_TOO_MANY_REQUESTS -> "Speech service is busy. Your chat is still available."
                             SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "The speech service is busy. Wait a moment before trying again."
@@ -283,8 +309,8 @@ class AndroidVoiceAudio internal constructor(
                         }
                         val voices = engine.voices.orEmpty()
                         installedVoices = voices.toSet()
-                        val voice = voices.firstOrNull { it.name == config.voice && (config.online || !it.isNetworkConnectionRequired) }
-                            ?: voices.firstOrNull { it.locale.language == locale.language && (config.online || !it.isNetworkConnectionRequired) }
+                        val eligible = eligibleVoices(voices, config.language, config.online)
+                        val voice = eligible.firstOrNull { it.name == config.voice } ?: eligible.firstOrNull()
                         if (!config.online && voice == null) {
                             fail("No offline voice is installed for this language. Your answer remains in chat.")
                             return@work
@@ -363,37 +389,44 @@ class AndroidVoiceAudio internal constructor(
                 error("The speech engine did not initialize. Your answer remains in chat.")
             }
         }
-        if (tts == null) {
-            val initialization = ++speechGeneration
-            try {
-                tts = speechFactory(context) { status ->
-                    main.post {
-                        if (closed || initialization != speechGeneration) return@post
-                        speechReady = status == TextToSpeech.SUCCESS
-                        val pending = pendingSpeech
-                        pendingSpeech = null
-                        if (speechReady) {
+        initializeSpeech()
+    }
+
+    private fun initializeSpeech() {
+        if (tts != null || closed) return
+        val initialization = ++speechGeneration
+        try {
+            tts = speechFactory(context) { status ->
+                main.post {
+                    if (closed || initialization != speechGeneration) return@post
+                    speechReady = status == TextToSpeech.SUCCESS
+                    val pending = pendingSpeech
+                    pendingSpeech = null
+                    if (speechReady) {
+                        if (pending != null) {
                             watchdog?.let(main::removeCallbacks)
                             watchdog = null
-                            pending?.invoke()
-                        } else {
-                            val failed = playbackError
-                            playbackError = null
+                            pending.invoke()
+                        }
+                        prepareVoices()
+                    } else {
+                        val failed = playbackError
+                        playbackError = null
+                        releaseSpeech()
+                        if (pending != null) {
                             terminal("initialization_failed")
                             stop()
-                            releaseSpeech()
-                            failed?.invoke("Text-to-speech is unavailable. Turn off the speaker to continue with captions, or tap to try again.")
+                            failed?.invoke("Text-to-speech is unavailable. Install a voice or continue with captions.")
                         }
                     }
                 }
-            } catch (_: Exception) {
-                pendingSpeech = null
-                playbackError = null
-                terminal("construction_failed")
-                stop()
-                releaseSpeech()
-                error("Could not start text-to-speech. Turn off the speaker to continue with captions, or tap to try again.")
             }
+        } catch (_: Exception) {
+            val failed = playbackError
+            pendingSpeech = null
+            playbackError = null
+            releaseSpeech()
+            failed?.invoke("Could not start text-to-speech. Install a voice or continue with captions.")
         }
     }
 
@@ -403,6 +436,7 @@ class AndroidVoiceAudio internal constructor(
         val previous = tts
         tts = null
         installedVoices = emptySet()
+        mutableVoices.value = emptyList()
         if (previous != null) {
             speechWork.execute {
                 if (configuredEngine === previous) {

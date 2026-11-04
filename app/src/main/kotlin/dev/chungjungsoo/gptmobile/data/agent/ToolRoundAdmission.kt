@@ -83,8 +83,9 @@ internal class ToolBatchOversizeException(
     val threshold: String = "UNSPECIFIED_ADMISSION_LIMIT",
     val observedValue: Int? = null,
     val allowedValue: Int? = null,
-    val completeCallIds: Int? = null
-) : IllegalStateException("TOOL_BATCH_OVERSIZE: threshold=$threshold observed=${observedValue ?: "unknown"} allowed=${allowedValue ?: "unknown"} completeCallIds=${completeCallIds ?: "unknown"}; no calls in this round were dispatched.")
+    val completeCallIds: Int? = null,
+    val sanitizedStreamShape: String? = null
+) : IllegalStateException("TOOL_BATCH_OVERSIZE: threshold=$threshold observed=${observedValue ?: "unknown"} allowed=${allowedValue ?: "unknown"} completeCallIds=${completeCallIds ?: "unknown"}; no calls in this round were dispatched. streamShape=${sanitizedStreamShape ?: "unavailable"}")
 
 /** Shared streaming-parser limits, enforced before builders/maps grow. */
 internal class ToolStreamGuard {

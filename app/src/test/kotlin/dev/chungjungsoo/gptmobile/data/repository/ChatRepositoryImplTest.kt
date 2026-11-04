@@ -1568,7 +1568,7 @@ class ChatRepositoryImplTest {
         assertEquals(
             listOf(
                 ApiState.Loading,
-                ApiState.Error("Service temporarily unavailable due to high error rates. Please wait a moment before trying again."),
+                ApiState.Error("Service temporarily unavailable due to high error rates. Please wait a moment before trying again. CIRCUIT_BREAKER_OPEN: retryAfterMs=5000; dispatched=false"),
                 ApiState.Done
             ),
             states

@@ -1,7 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.github
 
 import dev.chungjungsoo.gptmobile.data.model.ToolPluginId
-import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import dev.chungjungsoo.gptmobile.data.repository.ToolConnectionRepository
 import javax.inject.Inject
@@ -32,7 +31,8 @@ class GatewayGraphRepository @Inject constructor(
         ) { "The GitHub plugin is disabled for this profile." }
         check(override.githubTools && override.engineeringMemory != GitHubEngineeringMemoryMode.SESSION_ONLY) { "Enable persistent engineering memory and GitHub tools to use a repository graph." }
         check(connection.type == "GITHUB") { "The selected connection is not GitHub." }
-        val config = ProviderRequestConfig(selected.apiUrl, selected.token, profileUid = selected.uid)
+        val gateway = settings.engineeringGateway(selected.uid)
+        val config = gateway.engineeringConfig()
         val principal = client.principal(config)
         val payload = boundRequest(context, arguments)
         val result = client.graph(config, payload)
@@ -44,6 +44,7 @@ class GatewayGraphRepository @Inject constructor(
                         live.isToolPluginEnabledForProfile(selected.uid, ToolPluginId.GITHUB) &&
                         live.isToolPluginEnabledForProfile(selected.uid, ToolPluginId.connection(context.connectionUid))
                 } &&
+                settings.engineeringGateway(selected.uid) == gateway &&
                 client.principal(config) == principal
         ) { "The graph connection or permissions changed. Reopen the repository map." }
         return result

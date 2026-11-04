@@ -9,16 +9,20 @@ import io.ktor.client.request.bearerAuth
 import io.ktor.client.request.header
 import io.ktor.client.request.prepareRequest
 import io.ktor.client.request.setBody
+import io.ktor.client.statement.bodyAsChannel
 import io.ktor.http.ContentType
 import io.ktor.http.HttpMethod
 import io.ktor.http.contentType
 import io.ktor.http.isSuccess
+import io.ktor.utils.io.readLine
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 
@@ -69,9 +73,44 @@ class GatewayEngineeringClient internal constructor(private val http: HttpClient
             throw failure
         }
         val capability = requireNotNull(json.parseToJsonElement(payload) as? kotlinx.serialization.json.JsonObject) { "Engineering capability response is invalid." }
+        check(capability["service"] == kotlinx.serialization.json.JsonPrimitive("engineering-gateway") && capability["protocol_version"] == kotlinx.serialization.json.JsonPrimitive(1)) { "Engineering endpoint identity or protocol is unsupported. Update the desktop gateway and check its address; inference connectivity is independent." }
+        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Gateway", "ENGINEERING_HANDSHAKE · route=${capabilityKey(config)} · gatewayVersion=${capability["gateway_version"] ?: "Not measured"} · serverBuild=${capability["server_build"] ?: "Not measured"} · protocol=${capability["protocol_version"]}")
         check(capability["enabled"] == kotlinx.serialization.json.JsonPrimitive(true)) { "The gateway engineering service is disabled or its host connection is unavailable. Chat inference readiness does not establish job readiness." }
         return requireNotNull(capability["principal_id"]?.jsonPrimitive?.contentOrNull) { "Gateway engineering identity is unavailable." }
     }
+
+    internal fun diagnosticEvents(config: ProviderRequestConfig, jobId: String, after: Int): kotlinx.coroutines.flow.Flow<JsonObject> = kotlinx.coroutines.flow.flow {
+        require(jobId.matches(Regex("diag_[a-f0-9]{32}")) && after in 0..3)
+        http.prepareRequest(config.buildEndpoint("gateway/engineering/diagnostics/jobs/$jobId/events?after=$after")) {
+            method = HttpMethod.Get
+            config.token?.takeIf(String::isNotBlank)?.let { bearerAuth(it) }
+            header("Accept", "text/event-stream")
+            timeout {
+                connectTimeoutMillis = 10_000
+                requestTimeoutMillis = 30_000
+                socketTimeoutMillis = 30_000
+            }
+        }.execute { response ->
+            check(response.status.isSuccess()) { "Gateway diagnostic stream failed (HTTP ${response.status.value})." }
+            val channel = response.bodyAsChannel()
+            var seen = after
+            while (!channel.isClosedForRead) {
+                val line = channel.readLine() ?: break
+                if (line.length > 4096) error("Gateway diagnostic event exceeds its limit.")
+                val data = dev.chungjungsoo.gptmobile.data.network.SseUtils.extractSseData(line) ?: continue
+                if (data == "[DONE]") break
+                val event = json.parseToJsonElement(data) as? JsonObject ?: error("Invalid gateway diagnostic event.")
+                val sequence = event["sequence"]?.jsonPrimitive?.intOrNull ?: error("Missing diagnostic sequence.")
+                check(event["job_id"] == kotlinx.serialization.json.JsonPrimitive(jobId) && sequence == seen + 1 && sequence <= 3) { "Gateway event identity or cursor changed." }
+                seen = sequence
+                emit(event)
+            }
+        }
+    }
+
+    internal suspend fun diagnostic(config: ProviderRequestConfig, path: String, body: JsonObject? = null): JsonObject =
+        json.parseToJsonElement(request(config, "diagnostics/$path", body?.toString())) as? JsonObject
+            ?: error("Invalid gateway diagnostic response.")
 
     suspend fun create(config: ProviderRequestConfig, payload: GatewayEngineeringRequest): GatewayEngineeringJob =
         json.decodeFromString(request(config, "jobs", json.encodeToString(payload)))

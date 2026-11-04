@@ -60,6 +60,7 @@ internal fun AssistantChronologicalContent(
     debugMode: Boolean,
     showExecutionTrace: Boolean = true,
     responseIcon: (@Composable () -> Unit)? = null,
+    beforeAnswer: @Composable () -> Unit = {},
     debugMemorySources: Map<String, DebugMemorySource> = emptyMap(),
     debugSettings: AppFeatureSettings = AppFeatureSettings(),
     showReasoning: Boolean,
@@ -131,6 +132,7 @@ internal fun AssistantChronologicalContent(
                 }
             }
         }
+        beforeAnswer()
         key(answerIdentity) {
             if (originalSource != null) {
                 BoundedOriginalAssistantDocument(answerIdentity, originalSource, proseColor, outputTrace, articleCards)

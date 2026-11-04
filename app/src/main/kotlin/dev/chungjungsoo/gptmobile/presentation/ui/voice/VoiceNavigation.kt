@@ -14,7 +14,6 @@ import androidx.navigation.NavType
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
 import dev.chungjungsoo.gptmobile.presentation.common.Route
-import kotlinx.coroutines.delay
 
 internal fun NavGraphBuilder.voiceNavigation(navController: NavHostController, origin: () -> Offset) {
     composable(Route.VOICE_ENTRY, enterTransition = { fadeIn(tween(150)) }, exitTransition = { fadeOut(tween(150)) }) {
@@ -23,11 +22,8 @@ internal fun NavGraphBuilder.voiceNavigation(navController: NavHostController, o
         LaunchedEffect(state.route) {
             state.route?.let { route -> navController.navigate(route) { popUpTo(Route.VOICE_ENTRY) { inclusive = true } } }
         }
-        LaunchedEffect(state.loaded, state.enabled) {
-            if (state.loaded && state.enabled && state.error == null) {
-                delay(1000)
-                model.start()
-            }
+        LaunchedEffect(state.loaded, state.selected) {
+            if (state.loaded && state.selected.isNotBlank() && state.error == null) model.start(enable = true)
         }
         VoiceEntryScreen(
             state,

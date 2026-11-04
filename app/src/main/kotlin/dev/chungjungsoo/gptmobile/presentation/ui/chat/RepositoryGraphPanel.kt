@@ -36,13 +36,14 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.github.GitHubAutonomousEngineeringPolicy
 import dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext
+import dev.chungjungsoo.gptmobile.presentation.common.FadingDialog as Dialog
+import dev.chungjungsoo.gptmobile.presentation.common.glassBackdrop
 import kotlin.math.cos
 import kotlin.math.sin
 import kotlinx.serialization.json.JsonArray
@@ -76,6 +77,8 @@ fun RepositoryGraphPanel(context: GitHubConversationContext, profile: PlatformV2
         open = false
     }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Scaffold(
+            modifier = Modifier.glassBackdrop(androidx.compose.foundation.shape.RoundedCornerShape(0.dp), captureAsPopup = true),
+            containerColor = androidx.compose.ui.graphics.Color.Transparent,
             topBar = {
                 Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {

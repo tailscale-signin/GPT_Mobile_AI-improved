@@ -1,13 +1,13 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.setting
 
 import androidx.compose.foundation.layout.Column
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.platform.LocalUriHandler
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.permissions.ProviderPrivacyPolicy
+import dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog as AlertDialog
 
 @Composable
 internal fun ProviderActivationDialog(profile: PlatformV2, onAccept: () -> Unit, onDismiss: () -> Unit) {

@@ -26,7 +26,18 @@ internal object GitHubTaskContinuity {
         setOf("test again", "retest", "continue", "continue run", "continue response", "resume", "proceed", "retry", "retry failed stage", "try again") ||
         publishedCommit(text) != null
 
-    fun reuse(current: String, previous: String): Boolean = diagnostic(current) ||
+    fun followUp(text: String): Boolean = request(text).lowercase(java.util.Locale.ROOT).trimEnd('.', '!', '?') in
+        setOf("yes", "yes please", "do it", "fix", "fix it", "fix them", "apply the fixes", "implement the fixes")
+
+    fun resolved(current: String, previous: String): String {
+        if (!followUp(current) || previous.isBlank()) return request(current)
+        val action = if (Regex("(?i)fix|implement|apply").containsMatchIn(current)) "Implement and validate the fixes identified for the following saved request" else "Continue the following saved request using its retained findings and the user's accepted next step"
+        return "$action:\n\n${request(previous)}"
+    }
+
+    fun reuse(current: String, previous: String): Boolean = previous.isNotBlank() &&
+        followUp(current) ||
+        diagnostic(current) ||
         control(current) ||
         GitHubTestChecklist.integration(request(current)) &&
         GitHubTestChecklist.integration(request(previous)) &&

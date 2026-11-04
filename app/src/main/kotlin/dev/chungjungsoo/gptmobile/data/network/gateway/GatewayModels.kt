@@ -38,7 +38,10 @@ data class GatewayCapabilities(
     val desktop: GatewayDesktopCapabilities? = null,
     val memory: GatewayMemoryCapabilities? = null,
     val contracts: Map<String, List<String>> = emptyMap(),
-    val features: Map<String, Boolean> = emptyMap()
+    val features: Map<String, Boolean> = emptyMap(),
+    @SerialName("accepted_request_headers")
+    val acceptedRequestHeaders: List<String> = emptyList(),
+    val build: kotlinx.serialization.json.JsonObject? = null
 ) {
     val supportsKeyFreeConnection: Boolean
         get() = contractVersion == 1 &&

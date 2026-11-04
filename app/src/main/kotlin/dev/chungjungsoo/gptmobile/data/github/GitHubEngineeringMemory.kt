@@ -21,18 +21,20 @@ class GitHubEngineeringMemory @Inject constructor(
     private val decisions: GitHubChatDecisions,
     private val authentication: GitHubPublicAuthCoordinator
 ) {
-    private suspend fun scope(context: GitHubConversationContext): String {
+    private suspend fun scope(context: GitHubConversationContext, refreshAuthorization: Boolean = true): String {
         val connection = requireNotNull(connections.getConnection(context.connectionUid)) { "Engineering memory connection was removed" }
         require(connection.type == "GITHUB")
-        val token = if (connection.secretRef != null) authentication.accessToken(connection) else ""
-        // Authorization reads are always fresh, including anonymous access after disconnect.
-        GitHubWorkspaceClient(token, conditionalReads = false).execute(
-            "get_repository",
-            buildJsonObject {
-                put("owner", context.owner)
-                put("repo", context.repo)
-            }
-        )
+        if (refreshAuthorization) {
+            val token = if (connection.secretRef != null) authentication.accessToken(connection) else ""
+            // Authorization reads are always fresh, including anonymous access after disconnect.
+            GitHubWorkspaceClient(token, conditionalReads = false).execute(
+                "get_repository",
+                buildJsonObject {
+                    put("owner", context.owner)
+                    put("repo", context.repo)
+                }
+            )
+        }
         val identity = if (connection.secretRef == null) "anonymous:${connection.connectionUid}" else authentication.durableIdentity(connection.connectionUid)
         return GitHubEngineeringMemoryPolicy.scope(identity, 0, context.mainProfileUid, "${context.owner}/${context.repo}", context.ref)
     }
@@ -146,7 +148,7 @@ class GitHubEngineeringMemory @Inject constructor(
     suspend fun observe(context: GitHubConversationContext, chatId: Int, receipt: JsonObject, settings: GitHubChatProfileOverride) {
         if (!settings.githubTools || settings.engineeringMemory == GitHubEngineeringMemoryMode.SESSION_ONLY) return
         GitHubEngineeringMemoryPolicy.checkpoint(receipt)?.let { checkpoint ->
-            val scope = scope(context)
+            val scope = scope(context, refreshAuthorization = false)
             val id = GitHubEvidenceBook.digest(receipt.toString())
             workspace.saveProtectedSynthesisCheckpoint(
                 "engineering:$scope:coverage:$id",
@@ -170,7 +172,7 @@ class GitHubEngineeringMemory @Inject constructor(
             return
         }
         if (receipt["schema"] != JsonPrimitive("github.evidence.v1") || receipt["trusted"] != JsonPrimitive(true)) return
-        val scope = scope(context)
+        val scope = scope(context, refreshAuthorization = false)
         val id = (receipt["receipt_id"] as? JsonPrimitive)?.contentOrNull ?: return
         val key = "engineering:$scope:$id"
         if (workspace.dao.get(key) != null) return

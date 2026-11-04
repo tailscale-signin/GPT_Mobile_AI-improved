@@ -32,7 +32,7 @@ internal object GitHubSelfTestReads {
         val logAttempts = observations.filter { it.text("tool").substringBefore("__") == "github_ci" && (it["arguments"] as? JsonObject)?.text("action") == "logs" }
         val job = records("github_ci", "jobs", "jobs").firstOrNull { candidate ->
             (runId == null || candidate["run_id"] == runId) &&
-            candidate.text("status") == "completed" &&
+                candidate.text("status") == "completed" &&
                 candidate.text("conclusion") !in setOf("skipped", "neutral", "cancelled") &&
                 logAttempts.none { (it["arguments"] as? JsonObject)?.get("job_id") == candidate["id"] }
         }

@@ -62,7 +62,7 @@ Diagnostic jobs are owner-scoped, retain seven days, have a global 10,000-row li
 
 ## Validation record
 
-- Focused host Kotlin suite: **81 tests passed**, using production portable sources with minimal Android/domain DTO adapters. This is not an Android APK build.
+- Focused host Kotlin suite: **83 tests passed**, using production portable sources with minimal Android/domain DTO adapters, including bounded silence recovery and exact-run CI log selection. This is not an Android APK build.
 - Gateway suite: **392 tests, 391 passed and 1 skipped** on Python 3.12, including HTTP/SSE, durable job, account isolation and reconnect tests. Fixtures do not connect to the user's desktop or GitHub account.
 - Repository fast suite: **301 Python tests passed**; regex, resources, icon and dependency/policy checks run. Final formatting and diff checks are repeated before publication.
 - Kotlin formatting: ktlint 1.3.1 on changed Kotlin files.

@@ -81,6 +81,14 @@ class ProviderEventAssemblerTest {
     }
 
     @Test
+    fun `cumulative streamed tool names replace earlier snapshots`() {
+        val assembler = ChatCompletionsEventAssembler()
+        assertTrue(assembler.accept(null, null, listOf(ChatToolCallDelta(0, "call_1", function = ChatFunctionDelta("read_", ""))), null).isEmpty())
+        val events = assembler.accept(null, null, listOf(ChatToolCallDelta(0, "call_1", function = ChatFunctionDelta("read_file", "{}"))), "tool_calls")
+        assertEquals("read_file", events.filterIsInstance<ProviderEvent.ToolCall>().single().name)
+    }
+
+    @Test
     fun `truncated blocked malformed or unnamed calls never execute`() {
         listOf(
             Triple("device_location", "{}", "length"),

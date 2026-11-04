@@ -201,11 +201,11 @@ class VoiceSession(
                 stopAudio()
                 val prompt = text.trim().take(8000)
                 if (prompt.isEmpty()) {
-                    if (autoContinue && !state.muted) {
+                    if (autoContinue && !state.muted && ++recognitionFailures <= 3) {
                         automaticRetry = true
                         update(state.copy(phase = VoicePhase.PAUSED, retryAtMillis = now() + maxOf(500, audio.retryAfterMillis())))
                     } else {
-                        pause()
+                        if (autoContinue && !state.muted) fail("No speech was detected after several attempts. Tap to try again.") else pause()
                     }
                     return
                 }

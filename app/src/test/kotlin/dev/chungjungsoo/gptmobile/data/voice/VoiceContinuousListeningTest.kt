@@ -59,6 +59,21 @@ class VoiceContinuousListeningTest {
         assertEquals(5, audio.listeners.size)
     }
 
+    @Test fun repeatedSilenceHasBoundedAutomaticRetries() {
+        var time = 0L
+        val audio = Audio()
+        val session = VoiceSession(audio, { error("Silence must not send a message") }, {}, { time }).apply { autoContinue = true }
+        session.access(true, true, true)
+        session.resume()
+        repeat(4) {
+            audio.listeners.last().final("")
+            time += 500
+            session.tick()
+        }
+        assertEquals(4, audio.listeners.size)
+        assertEquals(VoicePhase.ERROR, session.state.phase)
+    }
+
     @Test fun captionsOnlyReplyReturnsToListeningWithoutSpeakerPlayback() {
         val audio = Audio()
         val session = VoiceSession(audio, { true }, {}).apply { autoContinue = true }

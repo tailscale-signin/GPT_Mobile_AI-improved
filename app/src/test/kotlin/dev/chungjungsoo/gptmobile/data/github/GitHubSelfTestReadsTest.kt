@@ -32,6 +32,14 @@ class GitHubSelfTestReadsTest {
         }
     }
 
+    @Test fun logReadsStayWithinTheExactRevisionRun() {
+        val sha = "a".repeat(40)
+        val status = json("""{"trusted":true,"success":true,"tool":"github_context","arguments":{"action":"status"},"result":{"commit_sha":"$sha"}}""")
+        val runs = json("""{"trusted":true,"success":true,"tool":"github_ci","arguments":{"action":"runs"},"result":{"workflow_runs":[{"id":2,"head_sha":"$sha","status":"completed","conclusion":"failure"}]}}""")
+        val jobs = json("""{"trusted":true,"success":true,"tool":"github_ci","arguments":{"action":"jobs"},"result":{"jobs":[{"id":10,"run_id":1,"status":"completed","conclusion":"failure"},{"id":20,"run_id":2,"status":"completed","conclusion":"failure"}]}}""")
+        assertEquals(JsonPrimitive(20), GitHubSelfTestReads.next(listOf(tool("github_ci", "logs")), listOf(status, runs, jobs))?.arguments?.get("job_id"))
+    }
+
     @Test fun scopedTestsDoNotAttemptAccountWideRepositoryEnumeration() {
         val receipt = json("""{"trusted":true,"success":true,"tool":"github_context","arguments":{"action":"status"},"result":{"repository":{"full_name":"owner/repo"}}}""")
         assertEquals(null, GitHubSelfTestReads.next(listOf(tool("github_context", "repositories")), listOf(receipt)))

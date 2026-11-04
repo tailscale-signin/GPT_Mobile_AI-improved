@@ -48,8 +48,17 @@ class ChatCompletionsEventAssembler {
                 call.callId = id
             }
             delta.function?.name?.takeIf(String::isNotBlank)?.let { name ->
-                // Repeated names are metadata, not new calls. Split names are bounded fragments.
-                if (call.name != name) call.name = call.name.orEmpty() + name
+                // Compatible servers send names as fragments, repeated metadata, or
+                // cumulative snapshots. Append only genuinely disjoint fragments.
+                call.name = when (val current = call.name.orEmpty()) {
+                    "" -> name
+                    name -> current
+                    else -> when {
+                        name.startsWith(current) -> name
+                        current.startsWith(name) -> current
+                        else -> current + name
+                    }
+                }
                 toolGuard.identifier(call.name)
             }
             delta.function?.arguments?.let { call.arguments.append(it) }

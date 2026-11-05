@@ -116,6 +116,13 @@
           "api_36_required_methods_passed": 54
         },
         "qualification": "Verified implementation revision before release preparation; release candidate and merged main checks are tracked separately."
+      },
+      "release_candidate_compile_correction": {
+        "sha": "cd90631da754fae2bdd8f8f30196ce1361ae7f35",
+        "workflow": "GitHub build downloads",
+        "run": 42094633128,
+        "job": 127481336995,
+        "result": "Production compilation found a missing buildJsonObject import in the new MCP local-precheck receipt builder; import corrected without changing behavior or validation gates. Full checks must pass on the corrected head."
       }
     },
     "environment_acceptance": {

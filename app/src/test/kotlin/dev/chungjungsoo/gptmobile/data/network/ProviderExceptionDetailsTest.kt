@@ -7,6 +7,34 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 class ProviderExceptionDetailsTest {
+    @Test fun actualCircuitRejectionRemainsTypedBeforeTransportFallback() {
+        val failure = requireNotNull(providerExceptionDetails(dev.chungjungsoo.gptmobile.data.network.error.CircuitBreakerOpenException(5000L), partialOutput = false))
+        assertEquals("CIRCUIT_BREAKER_OPEN", failure.code)
+        assertEquals(false, failure.retryable)
+        assertEquals(JsonPrimitive("provider_admission"), failure.failureDetails?.get("failed_stage"))
+        assertEquals(JsonPrimitive(false), failure.failureDetails?.get("dispatched"))
+        assertEquals(JsonPrimitive(5000L), failure.failureDetails?.get("retry_after_ms"))
+    }
+
+    @Test fun circuitRejectionCannotEraseAlreadyObservedPartialOutput() {
+        val failure = requireNotNull(providerExceptionDetails(dev.chungjungsoo.gptmobile.data.network.error.CircuitBreakerOpenException(5000L), partialOutput = true))
+        assertEquals("CIRCUIT_BREAKER_OPEN", failure.code)
+        assertEquals(false, failure.retryable)
+        assertEquals(JsonPrimitive(true), failure.failureDetails?.get("dispatched"))
+        assertEquals(JsonPrimitive(true), failure.failureDetails?.get("partial_output_preserved"))
+    }
+
+    @Test fun gatewayUncertaintyHasPriorityOverCircuitAdmissionDetails() {
+        for (code in listOf("GATEWAY_OUTCOME_UNKNOWN", "REMOTE_OUTCOME_UNKNOWN")) {
+            val error = dev.chungjungsoo.gptmobile.data.network.error.CircuitBreakerOpenException(5000L, "provider", "$code: reconcile the prior request")
+            val failure = requireNotNull(providerExceptionDetails(error, partialOutput = false))
+            assertEquals("GATEWAY_OUTCOME_UNKNOWN", failure.code)
+            assertEquals(false, failure.retryable)
+            assertEquals(JsonPrimitive("gateway_dispatch"), failure.failureDetails?.get("failed_stage"))
+            assertNull(failure.failureDetails?.get("dispatched"))
+        }
+    }
+
     @Test fun transientHttpResponsesRetainStatusCooldownAndDispatchEvidence() {
         listOf(429, 502, 503, 504).forEach { status ->
             val failure = requireNotNull(providerExceptionDetails(ProviderHttpFailure(status, 1_500), partialOutput = false))

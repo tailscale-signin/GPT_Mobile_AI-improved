@@ -53,7 +53,7 @@
     },
     "focused_jvm": {
       "network_recovery": 39,
-      "agent_completion": 38,
+      "agent_completion": 41,
       "android_voice_diagnostics": 89,
       "pdf_writer_and_policy": 9,
       "search_receipt": 5,
@@ -73,7 +73,23 @@
         "test_compilation": "Missing assertFalse import identified and corrected in follow-up",
         "unit_tests": "NOT_RUN_DUE_TO_COMPILATION"
       },
-      "acceptance": "Complete unit, heap, lint, packaged APK and required aggregate jobs must pass for the current branch head."
+      "acceptance": "Complete unit, heap, lint, packaged APK and required aggregate jobs must pass for the current branch head.",
+      "second_pass": {
+        "sha": "cdba337cc7c8d6dddf7bc2e99ca5f31d9a8fc0fa",
+        "production_and_test_compilation": "PASSED",
+        "unit_tests": {
+          "total": 6748,
+          "failed": 3,
+          "skipped": 4,
+          "result": "Two stale behavior assertions and one asynchronous test fixture race identified and corrected in follow-up"
+        },
+        "android_lint": "PASSED",
+        "android_acceptance_api_34": "PASSED",
+        "android_acceptance_api_36": "PASSED",
+        "codeql": "PASSED",
+        "heap_check": "SKIPPED_AFTER_UNIT_FAILURES; must pass at current head",
+        "qualification": "These are historical results for this SHA; use the current PR head checks for acceptance."
+      }
     },
     "environment_acceptance": {
       "result": "NOT_RUN",
@@ -87,8 +103,9 @@
     },
     "follow_up_regressions": {
       "llama_empty_tool_list": 6,
-      "provider_failure_classification": 4,
-      "qualification": "Exact production-source JVM tests; full transport and document integrations are evaluated by Android CI."
+      "provider_failure_classification": 7,
+      "qualification": "Exact production-source JVM tests; full transport and document integrations are evaluated by Android CI.",
+      "circuit_receipts": "Typed local admission, preserved partial-output dispatch evidence, provider conversion and durable classification; gateway uncertainty retains reconciliation priority."
     }
   },
   "coverage_ledger": "docs/repairs/diagnostic-reliability-completion-2026-11-05.md",

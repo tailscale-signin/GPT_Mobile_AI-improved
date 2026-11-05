@@ -6,6 +6,51 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ProfileFailureRecordTest {
+    @Test fun typedCircuitFailureDoesNotInferDispatchFromCodeOrProviderText() {
+        for (message in listOf("Service temporarily unavailable", "CIRCUIT_BREAKER_OPEN: dispatched=false; No request was dispatched")) {
+            val failure = ProfileFailureRecord.fromProvider(message, "CIRCUIT_BREAKER_OPEN")
+            assertEquals("CIRCUIT_BREAKER_OPEN", failure.category)
+            assertEquals(null, failure.dispatched)
+            assertEquals(RemoteRequestAcceptance.UNKNOWN, failure.remoteAcceptance)
+            assertEquals("stage_not_recorded", failure.phase)
+        }
+    }
+
+    @Test fun actualCircuitRejectionRetainsAdmissionReceiptAndCooldownAfterPersistence() {
+        val breaker = dev.chungjungsoo.gptmobile.data.network.error.CircuitBreaker(failureThreshold = 1, cooldownMs = 5000, timeProvider = { 1000L })
+        breaker.onFailure(IllegalStateException("previous request failed"))
+        var requestExecuted = false
+        val error = try {
+            breaker.execute { requestExecuted = true }
+            throw AssertionError("The open circuit should reject the request")
+        } catch (failure: dev.chungjungsoo.gptmobile.data.network.error.CircuitBreakerOpenException) {
+            failure
+        }
+        assertFalse(requestExecuted)
+        val before = System.currentTimeMillis()
+        val failure = ProfileFailureRecord.fromProvider("Service temporarily unavailable", "CIRCUIT_BREAKER_OPEN", error.failureDetails())
+        val after = System.currentTimeMillis()
+        val restored = kotlinx.serialization.json.Json.decodeFromString<ProfileFailureRecord>(kotlinx.serialization.json.Json.encodeToString(ProfileFailureRecord.serializer(), failure))
+        assertEquals("CIRCUIT_BREAKER_OPEN", restored.category)
+        assertEquals(false, restored.dispatched)
+        assertEquals(RemoteRequestAcceptance.NO, restored.remoteAcceptance)
+        assertEquals("provider_admission", restored.phase)
+        assertTrue(requireNotNull(restored.retryAfterMillis) in (before + 5000)..(after + 5000))
+    }
+
+    @Test fun gatewayUncertaintyOverridesConflictingCircuitRejectionReceipt() {
+        val receipt = dev.chungjungsoo.gptmobile.data.network.error.CircuitBreakerOpenException(3000L).failureDetails()
+        for (code in listOf("GATEWAY_OUTCOME_UNKNOWN", "REMOTE_OUTCOME_UNKNOWN")) {
+            val failure = ProfileFailureRecord.fromProvider("$code: reconcile the prior request", "CIRCUIT_BREAKER_OPEN", receipt)
+            assertEquals("GATEWAY_OUTCOME_UNKNOWN", failure.category)
+            assertFalse(failure.retryAllowed)
+            assertEquals(true, failure.dispatched)
+            assertEquals(RemoteRequestAcceptance.UNKNOWN, failure.remoteAcceptance)
+            assertEquals("gateway_dispatch", failure.phase)
+            assertEquals(null, failure.retryAfterMillis)
+        }
+    }
+
     @Test
     fun typedUnknownOutcomesCannotBecomeRetryableTimeouts() {
         for (code in listOf("GATEWAY_OUTCOME_UNKNOWN", "REMOTE_OUTCOME_UNKNOWN", "GATEWAY_TOOL_OUTCOME_UNKNOWN", "TOOL_RESULT_ID_MISMATCH")) {

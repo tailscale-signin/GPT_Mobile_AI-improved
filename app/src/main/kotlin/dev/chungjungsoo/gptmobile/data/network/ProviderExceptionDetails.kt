@@ -7,6 +7,23 @@ import kotlinx.serialization.json.put
 
 /** Retain known response/admission evidence before considering an exception a transport failure. */
 internal fun providerExceptionDetails(error: Exception, partialOutput: Boolean, nowMillis: Long = System.currentTimeMillis()): ErrorDetail? {
+    if (error is dev.chungjungsoo.gptmobile.data.network.error.CircuitBreakerOpenException) {
+        val classified = dev.chungjungsoo.gptmobile.data.network.error.ErrorClassification.classify(error)
+        val gatewayUnknown = dev.chungjungsoo.gptmobile.data.agent.GatewayOutcomeRecovery.requiresReconciliation(error.message.orEmpty(), classified.errorCode)
+        return ErrorDetail(
+            message = if (gatewayUnknown) error.message ?: classified.userMessage else classified.userMessage,
+            code = if (gatewayUnknown) "GATEWAY_OUTCOME_UNKNOWN" else "CIRCUIT_BREAKER_OPEN",
+            retryable = false,
+            failureDetails = when {
+                gatewayUnknown -> buildJsonObject {
+                    put("failed_stage", "gateway_dispatch")
+                    put("outcome", "unknown")
+                    put("replay_safe", false)
+                }
+                else -> error.failureDetails(partialOutput)
+            }
+        )
+    }
     val http = (error as? ProviderHttpFailure)?.let { ProviderFailure.parse(it.status, retryAfterMillis = it.retryAfterMs) }
     val rateLimit = error as? FreeAiRateLimitException
     val free = error as? FreeProviderException

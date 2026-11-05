@@ -2,6 +2,7 @@ package dev.chungjungsoo.gptmobile.presentation.ui.setting
 
 import androidx.lifecycle.viewModelScope
 import dev.chungjungsoo.gptmobile.data.database.ChatDatabaseV2
+import dev.chungjungsoo.gptmobile.data.database.dao.AgentPersistenceDao
 import dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection
@@ -18,10 +19,12 @@ import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
+import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.cancel
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
@@ -42,6 +45,7 @@ class GitHubProgrammerViewModelTest {
     private val settings = mockk<SettingRepository>()
     private val chats = mockk<ChatRepository>(relaxed = true)
     private val database = mockk<ChatDatabaseV2>(relaxed = true)
+    private val persistence = mockk<AgentPersistenceDao>()
     private val queue = mockk<DurablePromptQueue>(relaxed = true)
     private val approvals = mockk<ToolApprovalManager>()
     private val connections = mockk<ToolConnectionRepository>()
@@ -50,6 +54,7 @@ class GitHubProgrammerViewModelTest {
     private val profile = PlatformV2(uid = "coder", name = "Local programmer", model = "selected-model")
     private val profiles = MutableStateFlow(listOf(profile))
     private val room = ChatRoomV2(id = 42, title = "owner/repo", enabledPlatform = listOf("coder"))
+    private val rooms = ConcurrentHashMap<Int, ChatRoomV2>()
     private lateinit var model: GitHubProgrammerViewModel
 
     @Before fun setup() {
@@ -67,7 +72,9 @@ class GitHubProgrammerViewModelTest {
         coEvery { connections.getConnection("github") } returns ToolConnection("github", "GitHub", "github", "GITHUB", null, "OAUTH", "credential-reference", null)
         coEvery { drafts.read(any()) } returns null
         coEvery { chats.createDraftChat(any(), any(), any(), any()) } returns room
-        coEvery { database.agentPersistenceDao().getChatRoom(42) } returns room
+        rooms[room.id] = room
+        every { database.agentPersistenceDao() } returns persistence
+        coEvery { persistence.getChatRoom(any()) } answers { rooms[firstArg<Int>()] }
         every { chats.observeMessageWindow(42, 10) } returns flowOf(emptyList())
         every { chats.observeAgentRuns(42) } returns flowOf(emptyList())
         every { chats.observeToolEvents(42) } returns flowOf(emptyList())
@@ -77,9 +84,20 @@ class GitHubProgrammerViewModelTest {
         model.bind(GitHubWorkspaceState(connection = ToolConnection("github", "GitHub", "github", "GITHUB", null, "OAUTH", "credential-reference", null), selection = GitHubRepositoryContext("owner", "repo", "feature"), headSha = "a".repeat(40)))
     }
 
-    @After fun cleanup() {
-        model.viewModelScope.cancel()
-        Dispatchers.resetMain()
+    @After fun cleanup() = runBlocking {
+        try {
+            close(model)
+        } finally {
+            Dispatchers.resetMain()
+        }
+    }
+
+    private suspend fun close(viewModel: GitHubProgrammerViewModel) {
+        withTimeout(5000) {
+            // The collector runs on Dispatchers.IO; cancellation must finish before
+            // resetting Main or starting the next test.
+            viewModel.viewModelScope.coroutineContext[Job]!!.cancelAndJoin()
+        }
     }
 
     @Test fun savedProfileSelectionWinsOverTheOriginalRouteAfterRecreation() = runBlocking {
@@ -97,14 +115,14 @@ class GitHubProgrammerViewModelTest {
             assertEquals("coder", value.profileOverrideUid)
             coVerify(exactly = 0) { chats.createDraftChat(any(), any(), any(), any()) }
         } finally {
-            restored.viewModelScope.cancel()
+            close(restored)
         }
     }
 
     @Test fun reopeningALegacyMergedGitHubRoomRepairsItWithoutCreatingANewConversation() = runBlocking {
         val context = dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext("github", "owner", "repo", "feature", "a".repeat(40), "coder")
         val merged = room.copy(enabledPlatform = listOf("coder", "remote"), activePlatform = listOf("coder", "remote"))
-        coEvery { database.agentPersistenceDao().getChatRoom(42) } returns merged
+        rooms[42] = merged
         coEvery { chats.updateChatPlatforms(any(), listOf("coder")) } answers { firstArg() }
         features.value = features.value.copy(conversationGitHub = mapOf(42 to context))
         withTimeout(5000) { model.state.first { it.chatId == 42 && it.draftLoaded } }
@@ -118,10 +136,10 @@ class GitHubProgrammerViewModelTest {
         withTimeout(5000) { model.state.first { it.draftLoaded } }
         model.ensureConversation().join()
         withTimeout(5000) { model.state.first { it.chatId == 42 } }
-        coEvery { database.agentPersistenceDao().getChatRoom(42) } returns null
+        rooms.remove(42)
         val replacement = room.copy(id = 43)
         coEvery { chats.createDraftChat(any(), any(), any(), any()) } returns replacement
-        coEvery { database.agentPersistenceDao().getChatRoom(43) } returns replacement
+        rooms[43] = replacement
         every { chats.observeMessageWindow(43, 10) } returns flowOf(emptyList())
         every { chats.observeAgentRuns(43) } returns flowOf(emptyList())
         every { chats.observeToolEvents(43) } returns flowOf(emptyList())
@@ -236,7 +254,7 @@ class GitHubProgrammerViewModelTest {
     }
 
     @Test fun anUnconfiguredSessionNeverChoosesTheFirstEnabledProfile() = runBlocking {
-        model.viewModelScope.cancel()
+        close(model)
         features.value = features.value.copy(githubMainProfiles = emptyMap(), githubDefaultProfileUid = null)
         model = GitHubProgrammerViewModel(settings, chats, database, queue, mockk(relaxed = true), approvals, connections, drafts)
         model.configureSession(null, newConversation = true)

@@ -999,6 +999,7 @@ class AgentRunner(
         var failureDetails: JsonObject? = null
         var providerLimit: dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision? = null
         var textEmitted = false
+        var providerPayloadObserved = false
         val answerCandidate = StringBuilder()
         var toolDefinitionsRejected = false
         val roundInput = ProviderUsageCounter()
@@ -1109,10 +1110,15 @@ class AgentRunner(
             if (failure == null) {
                 toolDefinitionsRejected = error is ToolDefinitionsRejectedException
                 val network = dev.chungjungsoo.gptmobile.data.network.networkFailureKind(error)
-                failureDetails = kotlinx.serialization.json.buildJsonObject {
+                val classified = ErrorClassification.classify(error)
+                val gatewayOutcomeUnknown = GatewayOutcomeRecovery.requiresReconciliation(error.message.orEmpty(), classified.errorCode)
+                val localCircuitRejection = (error as? dev.chungjungsoo.gptmobile.data.network.error.CircuitBreakerOpenException)
+                    ?.takeUnless { gatewayOutcomeUnknown }
+                failureDetails = localCircuitRejection?.failureDetails(providerPayloadObserved) ?: kotlinx.serialization.json.buildJsonObject {
                     put(
                         "failed_stage",
                         when {
+                            gatewayOutcomeUnknown -> "gateway_dispatch"
                             toolDefinitionsRejected -> "provider_admission"
                             network != dev.chungjungsoo.gptmobile.data.network.NetworkFailureKind.UNKNOWN -> network.failedStage
                             else -> invocationStage
@@ -1123,8 +1129,7 @@ class AgentRunner(
                 failure = if (toolDefinitionsRejected) {
                     error.message ?: "Tools are unavailable for this model."
                 } else {
-                    val classified = ErrorClassification.classify(error)
-                    failureCode = ToolFailureMetadata.classify(error)
+                    failureCode = if (gatewayOutcomeUnknown) GatewayOutcomeRecovery.ERROR_CODE else ToolFailureMetadata.classify(error)
                     classified.userMessage
                 }
             }
@@ -1145,6 +1150,7 @@ class AgentRunner(
                 true
             }
         }.collect { event ->
+            if (event is ProviderEvent.TextDelta || event is ProviderEvent.ThinkingDelta || event is ProviderEvent.ToolCall || event is ProviderEvent.ToolResult || event is ProviderEvent.CombinedAnswer) providerPayloadObserved = true
             if (event is ProviderEvent.Failed && GatewayOutcomeRecovery.requiresReconciliation(event.message, event.errorCode)) {
                 failure = event.message
                 failureCode = GatewayOutcomeRecovery.ERROR_CODE

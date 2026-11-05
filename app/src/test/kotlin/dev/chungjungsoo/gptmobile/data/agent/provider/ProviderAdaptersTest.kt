@@ -862,6 +862,33 @@ class ProviderAdaptersTest {
     )
 
     @Test
+    fun `responses preserve typed local circuit admission through the adapter`() = runBlocking {
+        val failure = requireNotNull(
+            dev.chungjungsoo.gptmobile.data.network.providerExceptionDetails(
+                dev.chungjungsoo.gptmobile.data.network.error.CircuitBreakerOpenException(5000L),
+                partialOutput = false
+            )
+        )
+        val api = FakeOpenAIAPI(
+            responseRounds = ArrayDeque(
+                listOf(
+                    flowOf<ResponsesStreamEvent>(
+                        dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseErrorEvent(
+                            message = failure.message,
+                            code = failure.code,
+                            failureDetails = failure.failureDetails
+                        )
+                    )
+                )
+            )
+        )
+        val events = OpenAIResponsesAdapter(api, attachmentEncoder()).openSession(turns(), platform(ClientType.OPENAI))
+            .streamRound(emptyList(), emptyList()).toList()
+        assertEquals(listOf(ProviderEvent.Failed(failure.message, errorCode = "CIRCUIT_BREAKER_OPEN", failureDetails = failure.failureDetails)), events)
+        assertEquals(1, api.responseRequests.size)
+    }
+
+    @Test
     fun `responses keep account affinity for tool rounds and rotate new requests`() = runBlocking {
         val api = FakeOpenAIAPI(
             responseRounds = ArrayDeque(

@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
@@ -877,9 +878,58 @@ class AgentRunnerTest {
 
         assertEquals(1, providerCalls.get())
         assertEquals(
-            listOf(AgentRunEvent.Provider(ProviderEvent.Failed("Service temporarily unavailable due to high error rates. Please wait a moment before trying again.", errorCode = "CIRCUIT_BREAKER_OPEN"))),
+            listOf(
+                AgentRunEvent.Provider(
+                    ProviderEvent.Failed(
+                        "Service temporarily unavailable due to high error rates. Please wait a moment before trying again.",
+                        errorCode = "CIRCUIT_BREAKER_OPEN",
+                        failureDetails = buildJsonObject {
+                            put("failed_stage", "provider_admission")
+                            put("dispatched", false)
+                            put("retry_after_ms", 3000L)
+                        }
+                    )
+                )
+            ),
             events
         )
+    }
+
+    @Test fun `gateway uncertainty cannot become a no dispatch circuit rejection`() = runBlocking {
+        for (code in listOf("GATEWAY_OUTCOME_UNKNOWN", "REMOTE_OUTCOME_UNKNOWN")) {
+            val providerCalls = AtomicInteger()
+            val session = session { _, _ ->
+                providerCalls.incrementAndGet()
+                flow { throw CircuitBreakerOpenException(3000L, "test-provider", "$code: prior gateway request needs reconciliation") }
+            }
+            val failure = AgentRunner().run(session, emptyList()).toList()
+                .filterIsInstance<AgentRunEvent.Provider>().map { it.event }.filterIsInstance<ProviderEvent.Failed>().single()
+            assertEquals(1, providerCalls.get())
+            assertEquals("GATEWAY_OUTCOME_UNKNOWN", failure.errorCode)
+            assertEquals(JsonPrimitive("gateway_dispatch"), failure.failureDetails?.get("failed_stage"))
+            assertFalse(failure.failureDetails.orEmpty().containsKey("dispatched"))
+            assertFalse(ProfileFailureRecord.fromProvider(failure.message, failure.errorCode, failure.failureDetails).retryAllowed)
+        }
+    }
+
+    @Test fun `circuit exception after provider output retains dispatch evidence and partial text`() = runBlocking {
+        val providerCalls = AtomicInteger()
+        val session = session { _, _ ->
+            providerCalls.incrementAndGet()
+            flow {
+                emit(ProviderEvent.TextDelta("Saved partial answer"))
+                throw CircuitBreakerOpenException(3000L, "test-provider")
+            }
+        }
+        val events = AgentRunner().run(session, emptyList()).toList().filterIsInstance<AgentRunEvent.Provider>().map { it.event }
+        assertEquals(1, providerCalls.get())
+        assertTrue(events.contains(ProviderEvent.TextDelta("Saved partial answer")))
+        val failure = events.filterIsInstance<ProviderEvent.Failed>().single()
+        assertEquals("CIRCUIT_BREAKER_OPEN", failure.errorCode)
+        assertEquals(JsonPrimitive("model_invocation"), failure.failureDetails?.get("failed_stage"))
+        assertEquals(JsonPrimitive(true), failure.failureDetails?.get("dispatched"))
+        assertEquals(JsonPrimitive(true), failure.failureDetails?.get("partial_output_preserved"))
+        assertEquals(RemoteRequestAcceptance.UNKNOWN, ProfileFailureRecord.fromProvider(failure.message, failure.errorCode, failure.failureDetails).remoteAcceptance)
     }
 
     @Test

@@ -12,13 +12,13 @@ class GitHubIncidentIntentTest {
         assertFalse(CurrentRequestContract.from("Test all repository workflows").conversational)
     }
 
-    @Test fun circuitPreservesDeadlineAndNoDispatchWhileDnsDoesNotInventDispatch() {
+    @Test fun legacyCircuitPreservesDeadlineWithoutInventingDispatch() {
         val failure = ProfileFailureRecord.classify("CIRCUIT_BREAKER_OPEN: retryAfterMs=23703; dispatched=false", nowMillis = 1000)
         assertEquals("CIRCUIT_BREAKER_OPEN", failure.category)
         assertEquals(24703L, failure.retryAfterMillis)
-        assertEquals(false, failure.dispatched)
-        assertEquals(RemoteRequestAcceptance.NO, failure.remoteAcceptance)
-        assertEquals("provider_admission", failure.phase)
+        assertEquals(null, failure.dispatched)
+        assertEquals(RemoteRequestAcceptance.UNKNOWN, failure.remoteAcceptance)
+        assertEquals("stage_not_recorded", failure.phase)
         val dns = ProfileFailureRecord.classify("DNS resolution failed")
         assertEquals("DNS_RESOLUTION_FAILED", dns.category)
         assertEquals(null, dns.dispatched)

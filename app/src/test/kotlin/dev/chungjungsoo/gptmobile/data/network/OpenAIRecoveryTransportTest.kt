@@ -23,8 +23,42 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class OpenAIRecoveryTransportTest {
+    @org.junit.Before fun resetConnectivity() = LocalServiceHealth.networkChanged()
+
+    @org.junit.After fun clearConnectivity() = LocalServiceHealth.networkChanged()
+
     private val config = ProviderRequestConfig("https://fixture.invalid/v1/", null)
     private val request = ChatCompletionRequest(model = "fixture", messages = listOf(dev.chungjungsoo.gptmobile.data.dto.openai.request.ChatMessage(role = dev.chungjungsoo.gptmobile.data.dto.openai.common.Role.USER, content = listOf(dev.chungjungsoo.gptmobile.data.dto.openai.common.TextContent("Transport fixture request.")))))
+
+    @Test fun knownDeviceOutageRetainsTypedPrecheckEvidenceWithoutProviderDispatch() = runTest {
+        DeviceNetworkDiagnostics.episodes.networkChanged("test-disconnected", "DISCONNECTED")
+        var calls = 0
+        try {
+            withApi(
+                MockEngine {
+                    calls++
+                    error("No request should be sent")
+                }
+            ) { api ->
+                val error = requireNotNull(api.streamChatCompletion(request, 5, config).toList().last().error)
+                assertEquals(0, calls)
+                assertEquals("NETWORK_DISCONNECTED", error.code)
+                val failure = dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.fromProvider(error.message, error.code, error.failureDetails)
+                assertEquals(false, failure.dispatched)
+                assertEquals("provider_admission", failure.phase)
+                val input = listOf(dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponseInputMessage("user", dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponseInputContent.text("Saved prompt")))
+                val responseError = api.streamResponses(ResponsesRequest(model = "fixture", input = input), 5, config).toList()
+                    .filterIsInstance<dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseErrorEvent>().single()
+                val providerFailure = dev.chungjungsoo.gptmobile.data.agent.provider.OpenAIResponsesEventAssembler().accept(responseError).single() as dev.chungjungsoo.gptmobile.data.agent.ProviderEvent.Failed
+                val responseFailure = dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.fromProvider(providerFailure.message, providerFailure.errorCode, providerFailure.failureDetails)
+                assertEquals(0, calls)
+                assertEquals(false, responseFailure.dispatched)
+                assertEquals("provider_admission", responseFailure.phase)
+            }
+        } finally {
+            DeviceNetworkDiagnostics.episodes.networkChanged(null, "UNKNOWN")
+        }
+    }
 
     @Test
     fun `transient DNS failure gets bounded retries before primary handoff fails`() = runTest {
@@ -53,7 +87,8 @@ class OpenAIRecoveryTransportTest {
             }
         ) { api ->
             val chunks = api.streamChatCompletion(request, 5, config).toList()
-            assertTrue(chunks.last().error != null)
+            assertEquals("DNS_RESOLUTION_FAILED", chunks.last().error?.code)
+            assertEquals("dns", chunks.last().error?.failureDetails?.get("failed_stage")?.let { (it as kotlinx.serialization.json.JsonPrimitive).content })
             assertEquals(1, chunks.count { it.error != null })
             assertEquals(listOf(1, 2), chunks.mapNotNull { it.retryAttempts })
             assertTrue(chunks.none { it.choices != null })
@@ -72,7 +107,10 @@ class OpenAIRecoveryTransportTest {
         ) { api ->
             val chunks = api.streamChatCompletion(request, 5, config).toList()
             assertEquals(1, attempts)
-            assertTrue(chunks.last().error?.message.orEmpty().contains("STREAM_INTERRUPTED"))
+            assertEquals("CONNECTION_ABORTED", chunks.last().error?.code)
+            assertTrue(chunks.last().error?.message.orEmpty().contains("partial response has been retained"))
+            assertEquals("partial", chunks.flatMap { it.choices.orEmpty() }.mapNotNull { it.effectiveDelta.content }.joinToString(""))
+            assertEquals(false, chunks.last().error?.retryable)
             assertFalse(chunks.any { it.streamFinished })
         }
     }

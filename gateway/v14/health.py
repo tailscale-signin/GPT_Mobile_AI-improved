@@ -49,7 +49,8 @@ class BackendReadiness:
     def _probe(self, runtime, model):
         result = {'networkReachable': False, 'modelAvailable': None, 'generationReady': None,
                   'metadataAccess': 'unknown', 'healthHttpStatus': None, 'modelsHttpStatus': None,
-                  'backend': 'unreachable'}
+                  'backend': 'unreachable', 'inferenceVerified': None,
+                  'readinessEvidence': 'health_and_model_catalog'}
         params = {'autoload': 'false'}
         if model:
             params['model'] = model
@@ -108,6 +109,10 @@ def readiness(runtime, state, model=''):
         except (sqlite3.Error, ValueError):
             journal = 'unavailable'
     backend = _backend_readiness.inspect(runtime, model)
+    catalogue = getattr(runtime, 'gateway_catalogue', None)
+    backend.update(catalogue.readiness() if catalogue and hasattr(catalogue, 'readiness') else {
+        'toolsReady': None, 'toolsState': 'NOT_MEASURED', 'toolCount': None,
+        'toolConnectionCount': None})
     ready = (not service['draining'] and journal in {'ready', 'disabled'} and backend['generationReady'] is True
              and (not model or backend['modelAvailable'] is True))
     return {'schemaVersion': 1, 'ready': ready, 'version': runtime.GATEWAY_VERSION,

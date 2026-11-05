@@ -6,6 +6,8 @@ import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
 import io.ktor.http.content.TextContent
 import io.ktor.http.headersOf
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -71,4 +73,67 @@ class McpCatalogueExecutionSafetyTest {
             }
         }
     }
+
+    @Test fun connectedMetadataDoesNotAdvertiseToolsReadyUntilCatalogueValidationFinishes() = runBlocking {
+        val listing = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val client = catalogueClient {
+            listing.complete(Unit)
+            release.await()
+            """{"tools":[{"name":"read","inputSchema":{"type":"object"}}]}"""
+        }
+        client.use {
+            val manager = McpClientManager(it, modern = ModernMcpTransport(it))
+            val config = McpConnectionConfig("readiness-gate", "https://readiness.example/mcp", false)
+            try {
+                val pending = async { manager.listTools(config, awaitCompletion = true) }
+                listing.await()
+                assertFalse(manager.healthSnapshot(config.connectionUid).toolsReady)
+                assertFalse(manager.catalogueAvailability(config).executionAvailable)
+                release.complete(Unit)
+                pending.await()
+                assertTrue(manager.healthSnapshot(config.connectionUid).toolsReady)
+                manager.close(config.connectionUid)
+                assertFalse(manager.healthSnapshot(config.connectionUid).toolsReady)
+            } finally {
+                release.complete(Unit)
+                manager.closeAll()
+            }
+        }
+    }
+
+    @Test fun duplicateToolNamesCannotPublishSuccessfulReadiness() = runBlocking {
+        catalogueClient { """{"tools":[{"name":"write","inputSchema":{"type":"object"}},{"name":"write","inputSchema":{"type":"object"}}]}""" }.use { client ->
+            val manager = McpClientManager(client, modern = ModernMcpTransport(client))
+            val config = McpConnectionConfig("duplicate-catalog", "https://duplicate.example/mcp", false)
+            try {
+                val failure = runCatching { manager.listTools(config, awaitCompletion = true) }.exceptionOrNull()
+                assertTrue(failure?.message.orEmpty().contains("Duplicate MCP tool names"))
+                assertFalse(manager.healthSnapshot(config.connectionUid).toolsReady)
+                assertFalse(manager.catalogueAvailability(config).executionAvailable)
+                assertTrue(manager.healthSnapshot(config.connectionUid).availableToolCount == null)
+            } finally {
+                manager.closeAll()
+            }
+        }
+    }
+
+    private fun catalogueClient(listing: suspend () -> String): HttpClient = HttpClient(
+        MockEngine { request ->
+            val body = Json.parseToJsonElement((request.body as TextContent).text).jsonObject
+            val result = when (body.getValue("method").jsonPrimitive.content) {
+                "server/discover" -> """{"supportedVersions":["2026-07-28"],"capabilities":{"tools":{}}}"""
+                "tools/list" -> listing()
+                else -> error("Unexpected request")
+            }
+            respond(
+                buildJsonObject {
+                    put("jsonrpc", "2.0")
+                    put("id", body.getValue("id"))
+                    put("result", Json.parseToJsonElement(result))
+                }.toString(),
+                headers = headersOf("Content-Type", "application/json")
+            )
+        }
+    )
 }

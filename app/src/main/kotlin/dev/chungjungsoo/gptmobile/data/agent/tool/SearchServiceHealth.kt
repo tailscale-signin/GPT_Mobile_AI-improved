@@ -21,7 +21,14 @@ object SearchServiceHealth {
     private val mutable = MutableStateFlow<Map<String, SearchServiceObservation>>(emptyMap())
     val observations = mutable.asStateFlow()
     fun record(id: String, observation: SearchServiceObservation) {
-        mutable.update { it + (id to observation) }
+        val safeRoute = runCatching {
+            val uri = java.net.URI(observation.route)
+            if (uri.host == null) "Unspecified endpoint" else java.net.URI(uri.scheme, null, uri.host, uri.port, null, null, null).toASCIIString()
+        }.getOrDefault("Unavailable")
+        mutable.update { previous ->
+            val bounded = previous.entries.filterNot { it.key == id }.sortedByDescending { it.value.observedAt }.take(127).associate { it.toPair() }
+            bounded + (id to observation.copy(route = safeRoute))
+        }
     }
 }
 

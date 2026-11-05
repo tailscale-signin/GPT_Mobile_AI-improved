@@ -6,7 +6,6 @@ import android.content.Context
 import android.os.Bundle
 import android.os.Process
 import dev.chungjungsoo.gptmobile.BuildConfig
-import dev.chungjungsoo.gptmobile.data.security.DiagnosticRedactor
 import java.io.File
 import java.io.FileOutputStream
 import java.time.Instant
@@ -140,7 +139,10 @@ object AppLogRecorder {
                 event(activity, "paused")
             }
             override fun onActivityStopped(activity: Activity) = event(activity, "stopped")
-            override fun onActivityDestroyed(activity: Activity) = event(activity, "destroyed")
+            override fun onActivityDestroyed(activity: Activity) {
+                FrameTimingRecorder.stop(activity)
+                event(activity, "destroyed")
+            }
             override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) = Unit
             private fun event(activity: Activity, state: String) = record("Lifecycle", "${activity.javaClass.simpleName} $state")
         })
@@ -429,29 +431,3 @@ private val KNOWN_ANDROID_NOISE = listOf(
     "unsupported profile",
     "codec2client query -- param skipped"
 )
-
-internal fun redactLogMessage(message: String): String {
-    var text = DiagnosticRedactor.redact(redactDiagnosticPayload(message))
-    text = text.replace(Regex("""(?:/data/|/storage/|/sdcard/|/home/)[^\s,;]+"""), "[private-path]")
-    text = text.replace(Regex("""\b(?:10\.(?:\d{1,3}\.){2}\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|172\.(?:1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}|100\.(?:6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.\d{1,3}\.\d{1,3})\b"""), "[private-address]")
-    if (
-        "ChatRoomV2(" in text &&
-        Regex("""(?i)(?:^|\s)D/chats\b|\bchats\s*[:=]""").containsMatchIn(text)
-    ) {
-        return "D/chats: [redacted chat collection]"
-    }
-    // Android Log.d calls from legacy/UI code may stringify entire Room/domain objects.
-    // Keep diagnostics useful without exporting conversation titles, profile UUIDs,
-    // message text or timestamps embedded in those data-class dumps.
-    listOf("ChatRoomV2", "MessageV2", "PlatformV2").forEach { type ->
-        text = text.replace(Regex("""\b$type\([^\r\n)]*\)"""), "$type([redacted])")
-    }
-    // Match complete quoted keys as well as raw headers; keep JSON siblings and
-    // escaping valid so safe provider records remain structurally exportable.
-    text = text.replace(Regex("""(?i)("(?:authorization|proxy-authorization|cookie|set-cookie|x-api-key|x-goog-api-key|x-subscription-token|mcp-session-id|anthropic-organization-id|anthropic-workspace-id|openai-organization|openai-project|x-organization-id|x-workspace-id|api_?key|access_?token|refresh_?token|password|client_?secret)"\s*:\s*)"(?:\\.|[^"\\])*"""")) { match -> "${match.groupValues[1]}\"[redacted]\"" }
-    text = text.replace(Regex("(?i)(?<![A-Za-z0-9_-])(authorization|proxy-authorization|cookie|set-cookie|x-api-key|x-goog-api-key|x-subscription-token|mcp-session-id|anthropic-organization-id|anthropic-workspace-id|openai-organization|openai-project|x-organization-id|x-workspace-id)\\s*[:=]\\s*[^\\r\\n]+"), "$1: [redacted]")
-    text = text.replace(Regex("(?i)(bearer|basic)\\s+[a-z0-9._~+/=-]+"), "$1 [redacted]")
-    text = text.replace(Regex("(?i)([\\\"]?(?:api_?key|access_?token|refresh_?token|password|client_?secret)[\\\"]?\\s*[:=]\\s*[\\\"]?)[^\\\"\\s,}]+"), "$1[redacted]")
-    text = text.replace(Regex("\\b(?:sk-|hf_|ghp_|github_pat_)[A-Za-z0-9_-]{8,}"), "[redacted]")
-    return text
-}

@@ -206,6 +206,22 @@ class ApiStateFlowExtensionsTest {
         assertEquals(1, changed.attemptCount)
     }
 
+    @Test fun typedFailurePhaseAndDispatchSurvivePartialAnswerPersistence() = runBlocking {
+        var saved = emptyList<AssistantTimelineItem>()
+        val details = kotlinx.serialization.json.buildJsonObject {
+            put("failed_stage", kotlinx.serialization.json.JsonPrimitive("tool_dispatch"))
+            put("dispatched", kotlinx.serialization.json.JsonPrimitive(true))
+        }
+        val result = flowOf(ApiState.Success("Retained answer"), ApiState.Error("Request timed out", errorCode = "DISPATCH_OUTCOME_UNKNOWN", failureDetails = details))
+            .collectApiStateUpdates(onUpdate = { _, _, timeline -> saved = timeline })
+        assertTrue(result is ApiStateFlowOutcome.Failed)
+        val failure = saved.single { it.profileFailure != null }.profileFailure!!
+        assertEquals("TOOL_OUTCOME_UNKNOWN", failure.category)
+        assertEquals("tool_dispatch", failure.phase)
+        assertEquals(true, failure.dispatched)
+        assertFalse(failure.retryAllowed)
+    }
+
     @Test fun structuredFailurePublishesAfterTheLastTextCheckpoint() = runBlocking {
         var saved = emptyList<AssistantTimelineItem>()
         val result = flowOf(ApiState.Success("Partial answer"), ApiState.Error("Rate limited. Next eligible retry: 2026-10-24T00:00:00Z"))

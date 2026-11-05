@@ -86,22 +86,45 @@ class ToolEventRecorder @Inject constructor(
             error
         }
         val isDelegationEvent = startedEvent?.modelToolName == "delegate_to_model" || startedEvent?.toolName == "delegate_to_model"
-        val normalizedResult = if (healthEvent) {
-            // traceContent alone is not enough: retainedContent otherwise becomes a recoverable checkpoint.
-            result.copy(
-                content = ToolResultContent.Text(HealthConnectTools.REDACTED),
-                retainedContent = null,
-                traceContent = ToolResultContent.Text(HealthConnectTools.REDACTED)
-            )
-        } else if (isDelegationEvent && result.isError && result.hasSuccessfulDelegationMarker()) {
-            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
-                "Delegation",
-                "Corrected contradictory outer tool error after successful delegated handoff · call=${result.callId}",
-                "W"
-            )
-            result.copy(isError = false)
-        } else {
-            result
+        val normalizedResult = (
+            if (healthEvent) {
+                // traceContent alone is not enough: retainedContent otherwise becomes a recoverable checkpoint.
+                result.copy(
+                    content = ToolResultContent.Text(HealthConnectTools.REDACTED),
+                    retainedContent = null,
+                    traceContent = ToolResultContent.Text(HealthConnectTools.REDACTED)
+                )
+            } else if (isDelegationEvent && result.isError && result.hasSuccessfulDelegationMarker()) {
+                dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
+                    "Delegation",
+                    "Corrected contradictory outer tool error after successful delegated handoff · call=${result.callId}",
+                    "W"
+                )
+                result.copy(isError = false)
+            } else {
+                result
+            }
+            ).let { normalized ->
+            if (healthEvent) {
+                dev.chungjungsoo.gptmobile.data.agent.ToolFailureMetadata.normalize(normalized)
+            } else {
+                dev.chungjungsoo.gptmobile.data.agent.ToolFailureMetadata.receipt(normalized, startedEvent?.modelToolName.orEmpty()).let { receipt ->
+                    if (receipt.executionReceipt == null) {
+                        receipt
+                    } else {
+                        receipt.copy(
+                            executionReceipt = JsonObject(
+                                receipt.executionReceipt + buildJsonObject {
+                                    put("run_id", startedEvent?.runId.orEmpty())
+                                    put("event_id", eventId)
+                                    startedEvent?.startedAt?.let { put("started_at", it) }
+                                    put("completed_at", completedAt)
+                                }
+                            )
+                        )
+                    }
+                }
+            }
         }
         val content = (normalizedResult.retainedContent ?: normalizedResult.content).serialized()
         val retail = runCatching { Json.parseToJsonElement(content.value) as? JsonObject }.getOrNull()
@@ -140,7 +163,7 @@ class ToolEventRecorder @Inject constructor(
             "Tool",
             "Finished · callId=${normalizedResult.callId} · tool=${startedEvent?.toolName.orEmpty()} · error=${normalizedResult.isError} · dispatched=${normalizedResult.dispatched}" +
                 " · errorCode=${normalizedResult.errorCode ?: "none"}" +
-                " · executionState=${dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.executionState(normalizedResult)} · retryable=${normalizedResult.errorCode in setOf("READ_DEADLINE", "READ_FAILED", "PROVIDER_UNAVAILABLE") && normalizedResult.dispatched}" +
+                " · executionState=${dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.executionState(normalizedResult)} · retryable=${dev.chungjungsoo.gptmobile.data.agent.ToolFailureMetadata.retryable(normalizedResult)}" +
                 (normalizedResult.executionReceipt?.let { " · executionReceipt=$it · causalIncidentId=${(it["incident_id"] as? JsonPrimitive)?.content.orEmpty()}" }.orEmpty()) +
                 if (normalizedResult.isError) " · diagnosticPayloadRef=toolEvent:$eventId · displayPreviewTruncated=${safeError.orEmpty().length > 240} · reasonPreview=${dev.chungjungsoo.gptmobile.data.security.DiagnosticRedactor.redact(safeError.orEmpty()).take(240)}" else "",
             if (normalizedResult.isError) "E" else "I"

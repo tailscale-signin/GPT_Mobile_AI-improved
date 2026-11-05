@@ -18,7 +18,20 @@ data class ResearchDocumentResult(
     val tablesInspected: Boolean? = null,
     val figuresInspected: Boolean? = null,
     val supplementsInspected: Boolean? = null,
-    val citationMetadata: Map<String, String> = emptyMap()
+    val citationMetadata: Map<String, String> = emptyMap(),
+    val sourceBytesRead: Long? = null,
+    val sourceBytesExpected: Long? = null,
+    val sourceComplete: Boolean? = null,
+    val sourceSha256: String? = null,
+    val textStartOffset: Int? = null,
+    val textEndOffset: Int? = null,
+    val extractedTextCharacters: Int? = null,
+    val truncationReasons: List<String> = emptyList(),
+    val firstPage: Int? = null,
+    val lastPage: Int? = null,
+    val totalPages: Int? = null,
+    val nextReadArguments: JsonObject? = null,
+    val extractionWarnings: List<String> = emptyList()
 ) {
     fun toJson(): JsonObject = codec.encodeToJsonElement(serializer(), this) as JsonObject
 

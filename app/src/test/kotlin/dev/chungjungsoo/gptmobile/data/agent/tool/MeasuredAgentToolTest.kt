@@ -56,6 +56,63 @@ class MeasuredAgentToolTest {
     }
 
     @Test
+    fun `legacy failed results receive a code while retaining provider receipts`() = runBlocking {
+        val provider = buildJsonObject {
+            put("requestId", "request-17")
+            put("schema", "gptmobile.search-operation.v1")
+        }
+        val result = MeasuredAgentTool(
+            tool {
+                AgentToolResult("call", ToolResultContent.Text("unable to resolve host search.example"), true, errorCode = "none", executionReceipt = provider)
+            }
+        ).execute("call", JsonObject(emptyMap()))
+        assertEquals("DNS_RESOLUTION_FAILED", result.errorCode)
+        assertEquals(kotlinx.serialization.json.JsonPrimitive("request-17"), result.executionReceipt?.get("requestId"))
+        assertEquals(kotlinx.serialization.json.JsonPrimitive("gptmobile.search-operation.v1"), result.executionReceipt?.get("schema"))
+    }
+
+    @Test
+    fun `a transport exception after mutation dispatch remains unknown and cannot be replayed`() = runBlocking {
+        val delegate = object : AgentTool {
+            override val definition = AgentToolDefinition("github_write", "Write to repository", JsonObject(emptyMap()))
+            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult = throw java.net.SocketTimeoutException("response timed out")
+        }
+        val result = MeasuredAgentTool(delegate).execute("write", buildJsonObject { put("action", "create_issue") })
+        assertEquals("DISPATCH_OUTCOME_UNKNOWN", result.errorCode)
+        assertEquals(kotlinx.serialization.json.JsonPrimitive("NETWORK_TIMEOUT"), result.executionReceipt?.get("cause_code"))
+        assertEquals(kotlinx.serialization.json.JsonPrimitive("UNKNOWN_OUTCOME"), result.executionReceipt?.get("execution_state"))
+        assertEquals(kotlinx.serialization.json.JsonPrimitive(true), result.executionReceipt?.get("requires_reconciliation"))
+        assertEquals(kotlinx.serialization.json.JsonPrimitive(false), result.executionReceipt?.get("retryable"))
+        assertTrue(result.dispatched)
+    }
+
+    @Test
+    fun `remote reader capability alone cannot authorize replay after transport failure`() = runBlocking {
+        val delegate = object : AgentTool {
+            override val definition = AgentToolDefinition("mcp__server__read_url", "Reader", JsonObject(emptyMap()), capabilities = setOf(dev.chungjungsoo.gptmobile.data.agent.AgentToolCapability.PAGE_READER))
+            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult = throw java.net.SocketTimeoutException("response timed out")
+        }
+        val measured = MeasuredAgentTool(delegate)
+        val result = measured.execute("read", JsonObject(emptyMap()))
+        assertFalse(dev.chungjungsoo.gptmobile.data.agent.ToolReplaySafety.isReplayableRead(measured.definition.name, JsonObject(emptyMap()), measured))
+        assertEquals("DISPATCH_OUTCOME_UNKNOWN", result.errorCode)
+        assertEquals(kotlinx.serialization.json.JsonPrimitive(false), result.executionReceipt?.get("retryable"))
+        assertEquals(kotlinx.serialization.json.JsonPrimitive(true), result.executionReceipt?.get("requires_reconciliation"))
+    }
+
+    @Test
+    fun `safe read exceptions preserve DNS cause and bounded recovery eligibility`() = runBlocking {
+        val delegate = object : AgentTool {
+            override val definition = AgentToolDefinition("read_url", "Read a source", JsonObject(emptyMap()), capabilities = setOf(dev.chungjungsoo.gptmobile.data.agent.AgentToolCapability.PAGE_READER))
+            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult = throw java.io.IOException("request failed", java.net.UnknownHostException("source.example"))
+        }
+        val result = MeasuredAgentTool(delegate, approvedReadOnly = true).execute("read", JsonObject(emptyMap()))
+        assertEquals("DNS_RESOLUTION_FAILED", result.errorCode)
+        assertEquals(kotlinx.serialization.json.JsonPrimitive(true), result.executionReceipt?.get("retryable"))
+        assertEquals(kotlinx.serialization.json.JsonPrimitive(false), result.executionReceipt?.get("requires_reconciliation"))
+    }
+
+    @Test
     fun `cancellation propagates without reporting success`() = runBlocking {
         var reported = false
         val wrapper = MeasuredAgentTool(tool { throw CancellationException("stop") }, onMeasured = { reported = true })

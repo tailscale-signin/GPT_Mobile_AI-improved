@@ -13,6 +13,7 @@ class McpInterruptedReadTest {
         assertTrue(IllegalStateException("Error while sending message", IOException("unexpected end of stream")).isMcpInterruptedRead())
         assertTrue(IOException("Broken pipe").isMcpInterruptedRead())
         assertTrue(IOException("Connection reset").isMcpInterruptedRead())
+        assertTrue(IllegalStateException("wrapped", java.net.SocketException("Software caused connection abort")).isMcpInterruptedRead())
     }
 
     @Test

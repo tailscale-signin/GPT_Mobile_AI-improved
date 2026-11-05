@@ -115,9 +115,18 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
     @Synchronized
     internal fun selectionOmissions(allowed: List<AgentToolDefinition>): Map<String, String> {
         val allowedNames = allowed.mapTo(HashSet()) { it.name }
-        return allowed.filterNot { it.name in active || it.name == NAME }.associate { tool ->
-            tool.name to if (!tool.modelVisible) "HIDDEN_COMPATIBILITY_SCHEMA" else omissions[tool.name] ?: "DEFERRED_NOT_REQUESTED"
-        } + active.filterNot { it in allowedNames }.associateWith { "NOT_ADMITTED_TO_ROUND" }
+        // `allowed` may already be the context-planner window. Include deferred catalog
+        // candidates as well, so the trace never reports an empty omission summary merely
+        // because filtering happened in an earlier admission stage.
+        return (candidates.values + allowed).distinctBy { it.name }
+            .filterNot { it.name == NAME || it.name in active && it.name in allowedNames }
+            .associate { tool ->
+                tool.name to when {
+                    !tool.modelVisible -> "HIDDEN_COMPATIBILITY_SCHEMA"
+                    tool.name in active && tool.name !in allowedNames -> "NOT_ADMITTED_TO_ROUND"
+                    else -> omissions[tool.name] ?: "DEFERRED_NOT_REQUESTED"
+                }
+            }
     }
 
     @Synchronized
@@ -131,7 +140,7 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
         }
         lastSelection = identity
         unchangedSelections = 0
-        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("ToolCatalog", "SELECTED_SCHEMA · authorized=${allowed.size} · advertised=${selected.size} · names=${selected.joinToString { it.name }} · omitted=${omitted.size} · omissionReasons=${omitted.values.groupingBy { it }.eachCount().toSortedMap()} · estimatedTokens=${selected.sumOf { schemaTokens(it).toLong() }} · measurement=UTF8_ESTIMATE")
+        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("ToolCatalog", "SELECTED_SCHEMA · authorized=${(candidates.keys + allowed.map { it.name }).size} · admittedToRound=${allowed.size} · advertised=${selected.size} · names=${selected.joinToString { it.name }} · omitted=${omitted.size} · omissionReasons=${omitted.values.groupingBy { it }.eachCount().toSortedMap()} · estimatedTokens=${selected.sumOf { schemaTokens(it).toLong() }} · measurement=UTF8_ESTIMATE")
         omitted.forEach { (name, reason) ->
             dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("ToolCatalog", "TOOL_OMITTED · stage=catalog · name=$name · reason=$reason · schemaAllowance=$schemaAllowance")
         }

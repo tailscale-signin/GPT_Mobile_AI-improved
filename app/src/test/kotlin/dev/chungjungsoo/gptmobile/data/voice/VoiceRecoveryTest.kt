@@ -65,6 +65,56 @@ class VoiceRecoveryTest {
         assertEquals(VoicePhase.CLOSED, session.state.phase)
     }
 
+    @Test fun failedRecognitionPreservesPartialDraftAndAllowsReviewDuringCooldown() {
+        var now = 0L
+        val audio = Audio()
+        val sent = mutableListOf<String>()
+        val session = VoiceSession(audio, {
+            sent += it
+            true
+        }, {}, { now }).apply { autoContinue = true }
+        session.access(true, true, true)
+        session.resume()
+        val capture = audio.attempts.single()
+        capture.ready()
+        capture.partial("Keep these spoken words")
+        capture.retryableFailure("Network interrupted", 30_000)
+        assertEquals(VoicePhase.ERROR, session.state.phase)
+        assertTrue(session.state.hasDraft)
+        session.resume()
+        assertEquals(VoicePhase.REVIEWING, session.state.phase)
+        assertEquals("Keep these spoken words", session.state.transcript)
+        assertEquals(1, audio.attempts.size)
+        now = 30_000
+        session.tick()
+        assertEquals(1, audio.attempts.size)
+        assertTrue(sent.isEmpty())
+        session.editDraft("Corrected spoken words")
+        session.sendDraft()
+        assertEquals(listOf("Corrected spoken words"), sent)
+        capture.final("Late discarded result")
+        assertEquals(listOf("Corrected spoken words"), sent)
+    }
+
+    @Test fun partialSpeechAfterTerminalErrorSurvivesSessionRecreationWithoutAutomaticSend() {
+        val audio = Audio()
+        val session = VoiceSession(audio, { error("Must not send partial speech") }, {})
+        session.access(true, true, true)
+        session.resume()
+        audio.attempts.single().partial("Interrupted draft")
+        audio.attempts.single().error("Speech service disconnected")
+        val saved = session.state
+        session.close()
+        val replacement = Audio()
+        val restored = VoiceSession(replacement, { error("Must review restored draft") }, {})
+        restored.restore(saved.transcript, saved.reply, saved.hasDraft, saved.awaitingReply)
+        restored.access(true, true, true)
+        restored.resume()
+        assertEquals(VoicePhase.REVIEWING, restored.state.phase)
+        assertEquals("Interrupted draft", restored.state.transcript)
+        assertTrue(replacement.attempts.isEmpty())
+    }
+
     @Test fun throttleEscalatesAndResetsOnlyAfterSuccess() {
         var now = 0L
         val gate = RecognitionStartGate { now }
@@ -202,5 +252,27 @@ class VoiceRecoveryTest {
         session.pause()
         assertFalse(session.state.hasDraft)
         assertEquals("", session.state.transcript)
+    }
+
+    @Test fun emptyFinalResultDoesNotDiscardCapturedSpeechOrSendItAutomatically() {
+        val audio = Audio()
+        val sent = mutableListOf<String>()
+        val session = VoiceSession(audio, {
+            sent += it
+            true
+        }, {})
+        session.access(true, true, true)
+        session.autoContinue = true
+        session.editBeforeSend = false
+        session.resume()
+        audio.attempts.last().ready()
+        audio.attempts.last().partial("Please keep this unfinished request")
+        audio.attempts.last().final("")
+        assertEquals(VoicePhase.ERROR, session.state.phase)
+        assertTrue(session.state.hasDraft)
+        assertEquals("Please keep this unfinished request", session.state.transcript)
+        assertTrue(sent.isEmpty())
+        session.resume()
+        assertEquals(VoicePhase.REVIEWING, session.state.phase)
     }
 }

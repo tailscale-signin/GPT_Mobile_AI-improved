@@ -39,4 +39,18 @@ class DiagnosticPrivacyTest {
         assertTrue(row.contains("\"parentEventId\":\"root-1\""))
         assertTrue(row.contains("\"countAsIssue\":false"))
     }
+
+    @Test fun fullRedactionPreservesReceiptsWhileRemovingCredentialsAcrossLines() {
+        val redacted = redactLogMessage(
+            "errorCode=NETWORK_TIMEOUT · failedStage=service_start · dispatched=true\n" +
+                "Authorization: Bearer private-canary\n" +
+                "profile=PlatformV2(apiKey=private-canary)\n" +
+                "path=/data/user/0/private-canary/file.txt address=192.168.1.2\n" +
+                "endpoint=https://user:private-canary@example.org/search?q=private-canary"
+        )
+        assertTrue(redacted.contains("errorCode=NETWORK_TIMEOUT · failedStage=service_start · dispatched=true"))
+        assertFalse(redacted.contains("private-canary"))
+        assertFalse(redacted.contains("192.168.1.2"))
+        assertTrue(redacted.contains("PlatformV2([redacted])"))
+    }
 }

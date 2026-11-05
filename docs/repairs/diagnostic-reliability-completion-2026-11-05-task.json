@@ -1,0 +1,82 @@
+{
+  "schema": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "9715e5c5992fcadf7df34c70fde324077d192986",
+  "working_branch": "fix/diagnostic-reliability-completion-2026-11-05",
+  "intent": "Inspect and remedy all 92 findings in the supplied November 5 diagnostic review, preserving existing GitHub/gateway recovery, selected-profile identity, safe mutations, privacy and bounded resource use.",
+  "state": "IMPLEMENTED_AWAITING_ANDROID_CI",
+  "input": {
+    "diagnostic": "app-diagnostics-3996514748589439279.jsonl",
+    "review_supplied_in_request": true,
+    "raw_log_committed": false,
+    "findings": 92
+  },
+  "work_packages": [
+    {
+      "id": "network_gateway",
+      "scope": "DNS/transport classification, bounded recovery, MCP discovery/session lifecycle and measured gateway/model readiness",
+      "state": "IMPLEMENTED"
+    },
+    {
+      "id": "agent_completion",
+      "scope": "Operation receipts, exact failure phases, durable objective recovery, verified completion, tool admission and result classification",
+      "state": "IMPLEMENTED"
+    },
+    {
+      "id": "android_diagnostics",
+      "scope": "Voice/input lifecycle, performance, vendor attribution and diagnostic incident reconstruction",
+      "state": "IMPLEMENTED"
+    },
+    {
+      "id": "research",
+      "scope": "Authorized search fallback, access failures, bounded document segmentation, complete-source evidence and PDF text/font handling",
+      "state": "IMPLEMENTED"
+    },
+    {
+      "id": "validation",
+      "scope": "Behavior regressions, canonical host checks, Android CI and per-finding implementation evidence",
+      "state": "AWAITING_CI"
+    }
+  ],
+  "acceptance": {
+    "truthful_completion": "Provider and tool completion must not be reported as verified task completion without objective evidence.",
+    "recovery": "Keep confirmed output and receipts; do not blindly repeat ambiguous repository mutations or switch the selected AI profile.",
+    "external_limits": "Phone/vendor, LAN, DNS/provider availability and rendering must be labeled unverified unless exercised on the corresponding environment.",
+    "coverage": "Every finding has source evidence and an implementation/existing-coverage/external-validation disposition."
+  },
+  "validation": {
+    "canonical_host": {
+      "command": "bash scripts/validate-local.sh fast",
+      "result": "PASSED",
+      "tests": 311
+    },
+    "focused_jvm": {
+      "network_recovery": 39,
+      "agent_completion": 38,
+      "android_voice_diagnostics": 89,
+      "pdf_writer_and_policy": 9,
+      "search_receipt": 5,
+      "qualification": "Targeted production-source JVM harnesses use explicit Android/HTTP boundary adapters; not a full Android build."
+    },
+    "pdf_api_compile": {
+      "pdfbox_android": "2.0.27.0",
+      "result": "PASSED"
+    },
+    "android_application": {
+      "result": "PENDING_CI",
+      "reason": "Full JDK 21 / SDK 37 build, unit suite, heap checks, lint and packaged APK checks must pass on this branch head."
+    },
+    "environment_acceptance": {
+      "result": "NOT_RUN",
+      "scope": [
+        "Affected ASUS vendor finalizer",
+        "Physical-device Perfetto and frame/allocation evidence",
+        "Ports 8101 and 8102 listener/firewall/process validation",
+        "Live provider DNS and service availability",
+        "Actual recognizer/IME and Android job/process recreation"
+      ]
+    }
+  },
+  "coverage_ledger": "docs/repairs/diagnostic-reliability-completion-2026-11-05.md"
+}

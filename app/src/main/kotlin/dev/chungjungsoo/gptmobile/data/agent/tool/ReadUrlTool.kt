@@ -8,7 +8,7 @@ import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.okhttp.OkHttp
-import io.ktor.client.request.get
+import io.ktor.client.request.prepareGet
 import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.bodyAsChannel
 import io.ktor.http.ContentType
@@ -38,6 +38,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.put
 import okhttp3.Dns
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
@@ -82,6 +83,39 @@ class ReadUrlTool(
                         }
                     )
                     put(
+                        "documentPageStart",
+                        buildJsonObject {
+                            put("type", "integer")
+                            put("minimum", 1)
+                            put("description", "First PDF page to extract; use the nextReadArguments from a previous result.")
+                        }
+                    )
+                    put(
+                        "documentPageLimit",
+                        buildJsonObject {
+                            put("type", "integer")
+                            put("minimum", 1)
+                            put("maximum", 100)
+                        }
+                    )
+                    put(
+                        "documentTextOffset",
+                        buildJsonObject {
+                            put("type", "integer")
+                            put("minimum", 0)
+                            put("maximum", 80000)
+                            put("description", "Continue a truncated text excerpt within the same PDF page range; copy nextReadArguments unchanged.")
+                        }
+                    )
+                    put(
+                        "expectedDocumentSha256",
+                        buildJsonObject {
+                            put("type", "string")
+                            put("pattern", "^[a-f0-9]{64}$")
+                            put("description", "Pin continuation to the document bytes from the previous result.")
+                        }
+                    )
+                    put(
                         "includeLinks",
                         buildJsonObject {
                             put("type", "boolean")
@@ -122,10 +156,14 @@ class ReadUrlTool(
                         (arguments["includeLinks"] as? JsonPrimitive)?.booleanOrNull == true,
                         (arguments["includeDomains"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.content?.lowercase() },
                         (arguments["excludeDomains"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.content?.lowercase() },
-                        (arguments["extractDocument"] as? JsonPrimitive)?.booleanOrNull == true
+                        (arguments["extractDocument"] as? JsonPrimitive)?.booleanOrNull == true,
+                        (arguments["documentPageStart"] as? JsonPrimitive)?.intOrNull ?: 1,
+                        (arguments["documentPageLimit"] as? JsonPrimitive)?.intOrNull ?: 100,
+                        (arguments["documentTextOffset"] as? JsonPrimitive)?.intOrNull ?: 0,
+                        (arguments["expectedDocumentSha256"] as? JsonPrimitive)?.contentOrNull
                     )
                 }
-            } ?: error(callId, "Read URL failed: page deadline reached. Choose another source.")
+            } ?: error(callId, "Read URL failed: page deadline reached. Choose another source.", true, requestSent = null)
         } catch (exception: CancellationException) {
             throw exception
         } catch (exception: dev.chungjungsoo.gptmobile.data.diagnostics.JavaHeapWorkDeferred) {
@@ -138,21 +176,23 @@ class ReadUrlTool(
                 if (missingUntil.size < 256) missingUntil[start.toASCIIString()] = now + 300_000
             }
             recordFailure(start, "protocol", exception.javaClass.simpleName, exception.message)
-            error(callId, "Read URL failed: ${exception.message}.")
+            error(callId, "Read URL failed: ${exception.message}.", exception.dispatched)
         } catch (exception: UnknownHostException) {
             recordFailure(start, "dns", exception.javaClass.simpleName, null)
             error(callId, "Read URL failed: DNS lookup could not resolve the hostname. Check the URL and network connection.")
         } catch (exception: java.net.SocketTimeoutException) {
             recordFailure(start, "timeout", exception.javaClass.simpleName, null)
-            error(callId, "Read URL failed: the website timed out. Try another source.")
+            error(callId, "Read URL failed: the website timed out. Try another source.", true, requestSent = null)
         } catch (exception: Exception) {
-            recordFailure(start, "transport", exception.javaClass.simpleName, null)
-            error(callId, "Read URL failed: request failed (${exception.javaClass.simpleName}).")
+            val failure = SearchTransportFailure.from(exception)
+            recordFailure(start, failure.phase, exception.javaClass.simpleName, failure.code)
+            error(callId, "Read URL failed: ${failure.message}", failure.requestSent != false, requestSent = failure.requestSent, code = failure.code)
         }
     }
 
-    private suspend fun read(callId: String, start: URI, includeLinks: Boolean, includeDomains: List<String>, excludeDomains: List<String>, extractDocument: Boolean): AgentToolResult {
-        val outputCap = minOf(outputLimitBytes, kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.agent.ToolOutputAllowance]?.bytes ?: outputLimitBytes)
+    private suspend fun read(callId: String, start: URI, includeLinks: Boolean, includeDomains: List<String>, excludeDomains: List<String>, extractDocument: Boolean, documentPageStart: Int, documentPageLimit: Int, documentTextOffset: Int, expectedDocumentSha256: String?): AgentToolResult {
+        val outputAllowance = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.agent.ToolOutputAllowance]?.bytes
+        val outputCap = minOf(outputLimitBytes, outputAllowance ?: outputLimitBytes).coerceAtLeast(0)
         var current = start
         var redirects = 0
         val seen = mutableSetOf(current.toASCIIString())
@@ -167,19 +207,17 @@ class ReadUrlTool(
             }
             val research = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.agent.ResearchAcquisitionContext]
             check(research?.budget?.tryChargeRequests(1) != false) { "User request limit reached" }
-            val request = request(current)
-            try {
-                val response = request.response
+            val result = request(current) { response ->
                 val status = response.status.value
                 if (status in REDIRECT_STATUSES) {
-                    if (redirects >= MAX_REDIRECTS) throw ReadUrlException("too many redirects")
+                    if (redirects >= MAX_REDIRECTS) throw ReadUrlException("too many redirects", dispatched = true)
                     val location = response.headers[HttpHeaders.Location]?.trim().orEmpty()
-                    if (location.isBlank()) throw ReadUrlException("missing Location header")
+                    if (location.isBlank()) throw ReadUrlException("missing Location header", dispatched = true)
                     val next = parseResolvedRedirect(current, location)
-                    if (!seen.add(next.toASCIIString())) throw ReadUrlException("redirect loop")
+                    if (!seen.add(next.toASCIIString())) throw ReadUrlException("redirect loop", dispatched = true)
                     current = next
                     redirects += 1
-                    continue
+                    return@request null
                 }
                 if (status == 401 || status == 403) deniedHosts += authority
                 if (status == 429) {
@@ -189,7 +227,7 @@ class ReadUrlTool(
                     if (rateLimitUntil.size >= 128) rateLimitUntil.entries.removeAll { it.value <= now }
                     if (rateLimitUntil.size < 128) rateLimitUntil[authority] = date?.coerceIn(now + 1000, now + 86_400_000) ?: (now + (seconds ?: 60) * 1000)
                 }
-                if (!response.status.isSuccess()) throw ReadUrlException("HTTP $status")
+                if (!response.status.isSuccess()) throw ReadUrlException("HTTP $status", dispatched = true)
                 val contentType = response.headers[HttpHeaders.ContentType].orEmpty()
                 val documentExtension = when (contentType.substringBefore(';').trim().lowercase()) {
                     "application/pdf" -> "pdf"
@@ -198,14 +236,19 @@ class ReadUrlTool(
                     "application/vnd.openxmlformats-officedocument.presentationml.presentation" -> "pptx"
                     else -> null
                 }
-                if (!isTextContent(contentType) && (documentExtension == null || documentContext == null)) throw ReadUrlException("unsupported binary content ($contentType); use an enabled document reader or attach the document")
+                if (!isTextContent(contentType) && (documentExtension == null || documentContext == null)) throw ReadUrlException("unsupported binary content ($contentType); use an enabled document reader or attach the document", dispatched = true)
+                if (documentExtension == null && (documentTextOffset > 0 || expectedDocumentSha256 != null)) throw ReadUrlException("document continuation requires a document source", dispatched = true)
+                if (documentExtension != "pdf" && (documentPageStart != 1 || documentPageLimit != 100)) throw ReadUrlException("page ranges require a PDF source", dispatched = true)
                 val boundedBody = if (extractDocument && documentExtension != null && documentContext != null) BoundedBody(byteArrayOf(), false) else readBounded(response, current.host.orEmpty(), MAX_BODY_BYTES)
+                var sourceBytesRead = boundedBody.consumedBytes
+                var documentSha256: String? = null
                 val rawText = if (documentExtension == null) boundedBody.bytes.toString(contentType.charsetOrUtf8()) else ""
                 val document = if (documentExtension != null && documentContext != null) {
-                    if (boundedBody.truncated) return documentExtractionHandoff(callId, current, includeDomains, excludeDomains)
+                    if (boundedBody.truncated) return@request documentExtractionHandoff(callId, current, includeDomains, excludeDomains)
                     kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                         val file = java.io.File.createTempFile("research-", ".$documentExtension", documentContext.cacheDir)
                         try {
+                            val digest = java.security.MessageDigest.getInstance("SHA-256")
                             if (extractDocument) {
                                 val channel = response.bodyAsChannel()
                                 file.outputStream().use { output ->
@@ -214,14 +257,19 @@ class ReadUrlTool(
                                         write = { buffer, size ->
                                             check(research?.budget?.tryChargeDownloadedBytes(size) != false) { "User download limit reached" }
                                             output.write(buffer, 0, size)
+                                            digest.update(buffer, 0, size)
+                                            sourceBytesRead += size
                                         }
                                     )
                                 }
                             } else {
                                 file.writeBytes(boundedBody.bytes)
+                                digest.update(boundedBody.bytes)
                             }
+                            documentSha256 = digest.digest().joinToString("") { "%02x".format(it) }
+                            if (expectedDocumentSha256 != null && expectedDocumentSha256 != documentSha256) throw ReadUrlException("SOURCE_CHANGED: the document changed since the previous excerpt; restart reading instead of combining different versions", dispatched = true)
                             kotlinx.coroutines.runInterruptible {
-                                dev.chungjungsoo.gptmobile.util.DocumentTextExtractor.extract(documentContext, file, contentType.substringBefore(';'))
+                                dev.chungjungsoo.gptmobile.util.DocumentTextExtractor.extract(documentContext, file, contentType.substringBefore(';'), documentPageStart, documentPageLimit)
                             }
                         } finally {
                             file.delete()
@@ -232,38 +280,108 @@ class ReadUrlTool(
                 }
                 val text = document?.text ?: if (isHtmlContent(contentType)) htmlToText(rawText) else rawText
                 val normalizedText = if (preserveLineBreaks) text.replace("\r\n", "\n").trim() else normalizeWhitespace(text)
+                if (documentTextOffset > normalizedText.length || documentTextOffset > 0 && documentTextOffset == normalizedText.length) throw ReadUrlException("document text offset is outside the captured page range", dispatched = true)
+                if (documentTextOffset > 0 && normalizedText[documentTextOffset - 1].isHighSurrogate() && normalizedText.getOrNull(documentTextOffset)?.isLowSurrogate() == true) throw ReadUrlException("document text offset splits a Unicode character", dispatched = true)
                 val chunks = research?.retainBody?.invoke(normalizedText).orEmpty()
-                val plainText = truncateUtf8(normalizedText, outputCap)
-                val documentResult = dev.chungjungsoo.gptmobile.data.research.ResearchDocumentResult(
-                    url = current.toString(),
-                    content = plainText,
-                    truncated = document?.note != null || boundedBody.truncated || plainText != normalizedText,
-                    bodyChunks = chunks,
-                    links = if (includeLinks) researchLinks(rawText, current.toString()).filter { it.length <= 2048 }.take(32) else emptyList(),
-                    status = if (document?.note != null || boundedBody.truncated || plainText != normalizedText) "partially_read" else "read",
-                    citationMetadata = if (isHtmlContent(contentType)) capturedCitationMetadata(rawText) else emptyMap()
-                )
-                val content = if (includeLinks || extractDocument) {
+                val remainingText = normalizedText.substring(documentTextOffset)
+                val extractionIncomplete = boundedBody.truncated || document?.note != null || document?.warnings.orEmpty().isNotEmpty()
+                fun resultForText(plainText: String): dev.chungjungsoo.gptmobile.data.research.ResearchDocumentResult {
+                    val displayTruncated = plainText != remainingText
+                    val partial = extractionIncomplete || displayTruncated || documentTextOffset > 0
+                    val nextArguments = if (document != null && (displayTruncated && plainText.isNotEmpty() || !displayTruncated && document.nextPage != null)) {
+                        buildJsonObject {
+                            put("url", current.toString())
+                            put("extractDocument", true)
+                            put("documentPageStart", if (displayTruncated) documentPageStart else requireNotNull(document.nextPage))
+                            put("documentPageLimit", documentPageLimit)
+                            if (displayTruncated) put("documentTextOffset", documentTextOffset + plainText.length)
+                            documentSha256?.let { put("expectedDocumentSha256", it) }
+                            put("includeDomains", JsonArray(includeDomains.map(::JsonPrimitive)))
+                            put("excludeDomains", JsonArray(excludeDomains.map(::JsonPrimitive)))
+                        }
+                    } else {
+                        null
+                    }
+                    return dev.chungjungsoo.gptmobile.data.research.ResearchDocumentResult(
+                        url = current.toString(),
+                        content = plainText,
+                        truncated = partial,
+                        bodyChunks = chunks,
+                        links = if (includeLinks) researchLinks(rawText, current.toString()).filter { it.length <= 2048 }.take(32) else emptyList(),
+                        status = if (partial) "partially_read" else "read",
+                        citationMetadata = if (isHtmlContent(contentType)) capturedCitationMetadata(rawText) else emptyMap(),
+                        sourceBytesRead = sourceBytesRead,
+                        sourceBytesExpected = response.headers[HttpHeaders.ContentLength]?.toLongOrNull()?.takeIf { it >= 0 },
+                        sourceComplete = !extractionIncomplete,
+                        sourceSha256 = documentSha256,
+                        textStartOffset = documentTextOffset,
+                        textEndOffset = documentTextOffset + plainText.length,
+                        extractedTextCharacters = normalizedText.length,
+                        truncationReasons = buildList {
+                            if (boundedBody.truncated) add("SOURCE_BYTE_LIMIT: bytes after ${boundedBody.bytes.size} were not read.")
+                            document?.note?.let { add("DOCUMENT_RANGE: $it") }
+                            if (displayTruncated) {
+                                add(
+                                    "OUTPUT_LIMIT: characters $documentTextOffset–${documentTextOffset + plainText.length} of ${normalizedText.length} were delivered; ${if (nextArguments != null) {
+                                        "follow nextReadArguments for remaining text before later pages"
+                                    } else if (chunks.isEmpty()) {
+                                        "the omitted text is not available in this result"
+                                    } else {
+                                        "retained chunks must be examined separately"
+                                    }}."
+                                )
+                            }
+                            if (documentTextOffset > 0) add("TEXT_RANGE: preceding characters belong to the earlier excerpt.")
+                        },
+                        firstPage = document?.firstPage,
+                        lastPage = document?.lastPage,
+                        totalPages = document?.totalPages,
+                        nextReadArguments = nextArguments,
+                        extractionWarnings = document?.warnings.orEmpty()
+                    )
+                }
+                var plainText = truncateUtf8(remainingText, outputCap)
+                var documentResult = resultForText(plainText)
+                if (outputAllowance != null && (includeLinks || extractDocument || document != null)) {
+                    // Leave space for the exact cursor, source identity and evidence qualifications.
+                    // Otherwise the outer tool budget would discard the whole JSON record.
+                    while (plainText.isNotEmpty()) {
+                        val excess = documentResult.toJson().toString().toByteArray().size - outputAllowance
+                        if (excess <= 0) break
+                        plainText = truncateUtf8(plainText, (plainText.toByteArray().size - excess - 64).coerceAtLeast(0))
+                        documentResult = resultForText(plainText)
+                    }
+                    if (documentResult.toJson().toString().toByteArray().size > outputAllowance || plainText.isEmpty() && remainingText.isNotEmpty()) {
+                        return@request error(
+                            callId,
+                            "The document excerpt and its continuation details do not fit in the available response space. No additional text was delivered; continue when more response space is available.",
+                            dispatched = true,
+                            code = "BUDGET_EXHAUSTED"
+                        ).copy(
+                            outputBudgetExhausted = true,
+                            executionReceipt = searchOperationReceipt(callId, "read_url", "OUTPUT_ADMISSION", true, true, "BUDGET_EXHAUSTED"),
+                            retainedContent = ToolResultContent.Json(resultForText(remainingText).toJson())
+                        )
+                    }
+                }
+                val content = if (includeLinks || extractDocument || document != null) {
                     ToolResultContent.Json(documentResult.toJson())
                 } else {
-                    val partial = boundedBody.truncated || document?.note != null || plainText != normalizedText
                     val note = "\n[Source excerpt truncated; the full document was not examined.]"
-                    ToolResultContent.Text(if (partial) truncateUtf8(plainText, (outputCap - note.toByteArray().size).coerceAtLeast(0)) + note.takeIf { outputCap >= it.toByteArray().size }.orEmpty() else plainText)
+                    ToolResultContent.Text(if (documentResult.truncated) truncateUtf8(plainText, (outputCap - note.toByteArray().size).coerceAtLeast(0)) + note.takeIf { outputCap >= it.toByteArray().size }.orEmpty() else plainText)
                 }
-                return AgentToolResult(
+                AgentToolResult(
                     callId = callId,
                     content = content,
                     isError = false,
                     retainedContent = ToolResultContent.Json(documentResult.toJson()).takeUnless { content is ToolResultContent.Json }
                 )
-            } finally {
-                request.response.bodyAsChannel().cancel(null)
-                request.client.close()
             }
+            if (result != null) return result
         }
     }
 
-    private suspend fun request(uri: URI): ReadUrlRequest {
+    private suspend fun <T> request(uri: URI, consume: suspend (HttpResponse) -> T): T {
         val gate = dev.chungjungsoo.gptmobile.data.research.academic.ResearchConnectivityGate.shared
         val lease = gate.acquire(uri.host) ?: throw ReadUrlException("DNS_RECOVERY: waiting for network recovery")
         try {
@@ -292,10 +410,12 @@ class ReadUrlTool(
                 }
             }
             return try {
-                ReadUrlRequest(client, client.get(uri.toASCIIString()).also { gate.success(uri.host) })
-            } catch (exception: Exception) {
+                client.prepareGet(uri.toASCIIString()).execute { response ->
+                    gate.success(uri.host)
+                    consume(response)
+                }
+            } finally {
                 client.close()
-                throw exception
             }
         } catch (failure: Exception) {
             gate.failed(uri.host, failure)
@@ -319,36 +439,56 @@ class ReadUrlTool(
     }
 
     private suspend fun readBounded(response: HttpResponse, host: String, bodyLimit: Int = MAX_BODY_BYTES): BoundedBody {
-        val contentLength = response.headers[HttpHeaders.ContentLength]?.toLongOrNull()
-        var truncated = contentLength != null && contentLength > bodyLimit
+        val contentLength = response.headers[HttpHeaders.ContentLength]?.toLongOrNull()?.takeIf { it >= 0 }
         val channel = response.bodyAsChannel()
-        val output = ByteArrayOutputStream()
+        val output = ByteArrayOutputStream(minOf(8192, bodyLimit))
         val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-        while (output.size() < bodyLimit) {
-            val read = channel.readAvailable(buffer, 0, minOf(buffer.size, bodyLimit - output.size()))
-            if (read == -1) break
+        var consumed = 0L
+        var overflow = false
+        while (true) {
+            kotlinx.coroutines.currentCoroutineContext().ensureActive()
+            // Read one extra byte to distinguish an exact-sized response from a truncated prefix.
+            val read = channel.readAvailable(buffer, 0, minOf(buffer.size, bodyLimit - output.size() + 1))
+            if (read < 0) break
             if (read == 0) {
                 yield()
                 continue
             }
             check(kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.agent.ResearchAcquisitionContext]?.budget?.tryChargeDownloadedBytes(read) != false) { "User download limit reached" }
-            output.write(buffer, 0, read)
+            consumed += read
+            val retained = minOf(read, bodyLimit - output.size())
+            output.write(buffer, 0, retained)
+            if (retained < read) {
+                overflow = true
+                break
+            }
         }
-        if (output.size() >= bodyLimit) truncated = true
+        val truncated = overflow || (contentLength != null && consumed < contentLength)
         if (truncated) {
             AppLogRecorder.record(
                 "ReadUrl",
-                "Read bounded oversized source · host=${host.take(160)} · retainedBytes=${output.size()} · maxBytes=$bodyLimit",
+                "Read bounded oversized source · host=${host.take(160)} · retainedBytes=${output.size()} · consumedBytes=$consumed · expectedBytes=${contentLength ?: "unknown"} · maxBytes=$bodyLimit",
                 "W"
             )
         }
-        return BoundedBody(output.toByteArray(), truncated)
+        return BoundedBody(output.toByteArray(), truncated, consumed, contentLength)
     }
 
     private fun parseUrl(arguments: JsonObject): URI? {
-        if (arguments.keys.any { it !in setOf("url", "includeLinks", "includeDomains", "excludeDomains", "extractDocument") }) return null
+        if (arguments.keys.any { it !in setOf("url", "includeLinks", "includeDomains", "excludeDomains", "extractDocument", "documentPageStart", "documentPageLimit", "documentTextOffset", "expectedDocumentSha256") }) return null
         if ("extractDocument" in arguments && (arguments["extractDocument"] as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull == null) return null
         if ("includeLinks" in arguments && (arguments["includeLinks"] as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull == null) return null
+        if ("expectedDocumentSha256" in arguments && (arguments["expectedDocumentSha256"] as? JsonPrimitive)?.takeIf { it.isString }?.content?.matches(Regex("[a-f0-9]{64}")) != true) return null
+        if ("documentTextOffset" in arguments) {
+            val offset = (arguments["documentTextOffset"] as? JsonPrimitive)?.takeUnless { it.isString }?.intOrNull ?: return null
+            if (offset !in 0..80000) return null
+            if (offset > 0 && "expectedDocumentSha256" !in arguments) return null
+        }
+        for (name in listOf("documentPageStart", "documentPageLimit")) {
+            if (name !in arguments) continue
+            val number = (arguments[name] as? JsonPrimitive)?.takeUnless { it.isString }?.intOrNull ?: return null
+            if (number < 1 || name == "documentPageLimit" && number > 100) return null
+        }
         for (name in listOf("includeDomains", "excludeDomains")) {
             if (name !in arguments) continue
             val domains = arguments[name] as? JsonArray ?: return null
@@ -365,8 +505,8 @@ class ReadUrlTool(
 
     private fun parseResolvedRedirect(base: URI, location: String): URI {
         val next = base.toString().toHttpUrlOrNull()?.resolve(location)?.newBuilder()?.fragment(null)?.build()?.toUri()
-            ?: throw ReadUrlException("malformed redirect URL")
-        if (!next.isAllowedUrl()) throw ReadUrlException("malformed redirect URL")
+            ?: throw ReadUrlException("malformed redirect URL", dispatched = true)
+        if (!next.isAllowedUrl()) throw ReadUrlException("malformed redirect URL", dispatched = true)
         return next
     }
 
@@ -392,22 +532,27 @@ class ReadUrlTool(
         )
     }
 
-    private fun error(callId: String, message: String): AgentToolResult = AgentToolResult(
+    private fun error(callId: String, message: String, dispatched: Boolean = false, requestSent: Boolean? = dispatched, code: String = readerFailureCode(message)): AgentToolResult = AgentToolResult(
         callId = callId,
         content = ToolResultContent.Text(message.take(ERROR_BYTES)),
         isError = true,
-        errorCode = readerFailureCode(message),
+        errorCode = code,
+        dispatched = dispatched,
+        executionReceipt = searchOperationReceipt(callId, "read_url", if (dispatched) "RETRIEVAL" else "PRECHECK", requestSent, false, code),
         retainedContent = ToolResultContent.Json(
             dev.chungjungsoo.gptmobile.data.research.ResearchDocumentResult(
                 url = "",
                 status = readerFailureStatus(message),
-                failureCode = readerFailureCode(message),
+                failureCode = code,
                 failureReason = message.take(ERROR_BYTES)
             ).toJson()
         )
     )
 
     private fun readerFailureCode(message: String): String = when {
+        "SOURCE_CHANGED" in message -> "SOURCE_CHANGED"
+        "document text offset" in message -> "INVALID_ARGUMENTS"
+        "url must be a valid" in message -> "INVALID_ARGUMENTS"
         "JAVA_HEAP_PRESSURE" in message -> "JAVA_HEAP_PRESSURE"
         "DNS_RECOVERY" in message -> "DNS_RECOVERY"
         "DNS" in message -> "DNS_FAILED"
@@ -424,6 +569,7 @@ class ReadUrlTool(
         "SOURCE_ACCESS_BLOCKED" -> "blocked"
         "RATE_LIMITED" -> "rate_limited"
         "REDIRECT_FAILED" -> "redirect_failed"
+        "SOURCE_CHANGED" -> "source_changed"
         "TIMEOUT" -> "timeout"
         else -> "unavailable"
     }
@@ -522,16 +668,13 @@ internal object SpecialUseAddress {
     }
 }
 
-private class ReadUrlException(message: String) : Exception(message)
-
-private data class ReadUrlRequest(
-    val client: HttpClient,
-    val response: HttpResponse
-)
+private class ReadUrlException(message: String, val dispatched: Boolean = false) : Exception(message)
 
 private data class BoundedBody(
     val bytes: ByteArray,
-    val truncated: Boolean
+    val truncated: Boolean,
+    val consumedBytes: Long = bytes.size.toLong(),
+    val expectedBytes: Long? = null
 )
 
 /** Head metadata belongs to this permitted response, never a separately fetched provider. */
@@ -662,5 +805,6 @@ private fun documentExtractionHandoff(callId: String, url: URI, includeDomains: 
             )
         }
     ),
-    isError = true
+    isError = true,
+    errorCode = "DOCUMENT_EXTRACTION_REQUIRED"
 )

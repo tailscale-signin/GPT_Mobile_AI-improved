@@ -35,6 +35,29 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ToolEventRecorderTest {
+    @Test fun normalizedPrecheckIsRecoverableButUncertainPriorWriteRemainsBlocked() = runBlocking {
+        val precheck = recorder.startTool("run", 0, "precheck", "github_write", "github_write", buildJsonObject {}, startedAt = 10L)
+        recorder.finishTool(precheck.eventId, AgentToolResult("precheck", ToolResultContent.Text("Invalid arguments"), true, errorCode = "INVALID_ARGUMENTS", dispatched = false), 20L)
+        assertTrue(dev.chungjungsoo.gptmobile.data.agent.ToolResultCheckpoint.confirmsNoEffect(dao.rows.single()))
+        val unknown = recorder.startTool("run", 1, "unknown", "github_write", "github_write", buildJsonObject {}, startedAt = 30L)
+        recorder.finishTool(unknown.eventId, AgentToolResult("unknown", ToolResultContent.Text("Previous write is unreconciled"), true, errorCode = "TOOL_OUTCOME_UNKNOWN", dispatched = false), 40L)
+        assertEquals(false, dev.chungjungsoo.gptmobile.data.agent.ToolResultCheckpoint.confirmsNoEffect(dao.rows.last()))
+    }
+
+    @Test fun failedLegacyResultsRetainACorrelatedRecoveryReceiptAndCompletePayload() = runBlocking {
+        val event = recorder.startTool("run-dns", 0, "dns-call", "web_search", "web_search", buildJsonObject {}, startedAt = 100L)
+        recorder.finishTool(event.eventId, AgentToolResult("dns-call", ToolResultContent.Text("UnknownHostException: search.example"), true), completedAt = 125L)
+        val stored = dao.rows.single()
+        val receipt = requireNotNull(dev.chungjungsoo.gptmobile.data.agent.ToolResultCheckpoint.execution(stored))
+        assertEquals(ToolEventStatus.FAILED, stored.status)
+        assertEquals("DNS_RESOLUTION_FAILED", receipt.getValue("error_code").jsonPrimitive.content)
+        assertEquals("run-dns", receipt.getValue("run_id").jsonPrimitive.content)
+        assertEquals(event.eventId, receipt.getValue("event_id").jsonPrimitive.content)
+        assertEquals("100", receipt.getValue("started_at").jsonPrimitive.content)
+        assertEquals("125", receipt.getValue("completed_at").jsonPrimitive.content)
+        assertEquals("UnknownHostException: search.example", stored.recoveryResult())
+    }
+
     @Test fun healthMeasurementsNeverEnterPersistedTracesOrRecoveryCheckpoints() = runBlocking {
         val event = recorder.startTool("health-run", 0, "health-call", "health_connect_summary", "health_connect_summary", buildJsonObject { put("sensitive_argument", "private-987654") }, startedAt = 1L)
         val live = AgentToolResult(

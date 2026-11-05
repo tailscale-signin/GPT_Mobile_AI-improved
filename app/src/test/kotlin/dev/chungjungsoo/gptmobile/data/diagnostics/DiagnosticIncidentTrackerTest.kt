@@ -19,6 +19,34 @@ class DiagnosticIncidentTrackerTest {
         assertTrue(classifyDiagnostic("E", "Android", "java.lang.SecurityException: asus_leak_detect_proj").actionable)
     }
 
+    @Test fun interleavedAndroidTagsAndProcessesKeepIndependentStacks() {
+        val tracker = DiagnosticIncidentTracker()
+        fun row(second: Int, tag: String, pid: Int, text: String, id: String) =
+            tracker.accept("2026-11-05T00:00:0${second}Z E/Android: eventId=$id · processId=42 · E/$tag ($pid): $text", id, null)
+        val finalizer = row(0, "System", 42, "Uncaught exception thrown by finalizer", "finalizer")
+        val other = row(0, "Worker", 42, "java.io.IOException: connection aborted", "network")
+        val replacement = row(1, "System", 43, "java.lang.IllegalStateException: another process", "replacement")
+        val cause = row(1, "System", 42, "java.lang.SecurityException: asus_leak_detect_proj", "cause")
+        val networkFrame = row(2, "Worker", 42, "at network.read()", "network-frame")
+        val finalizerFrame = row(2, "System", 42, "at framework.finalize()", "finalizer-frame")
+        assertEquals(finalizer.id, cause.id)
+        assertEquals(finalizer.id, finalizerFrame.id)
+        assertEquals(other.id, networkFrame.id)
+        assertEquals(3, listOf(finalizer, other, replacement, cause, networkFrame, finalizerFrame).count { it.first })
+    }
+
+    @Test fun longStackUsesLastFrameTimeButNewExceptionAndExpiredFramesStayDistinct() {
+        val tracker = DiagnosticIncidentTracker()
+        fun row(second: String, message: String, id: String) = tracker.accept("2026-11-05T00:00:${second}Z E/Worker: $message", id, null)
+        val first = row("00", "java.io.IOException: first", "first")
+        assertEquals(first.id, row("02", "at first.frame()", "frame1").id)
+        assertEquals(first.id, row("04", "at second.frame()", "frame2").id)
+        val next = row("05", "java.io.IOException: another occurrence", "next")
+        assertTrue(next.first)
+        assertEquals(next.id, row("06", "at another.frame()", "frame3").id)
+        assertTrue(row("10", "at orphan.frame()", "orphan").first)
+    }
+
     @Test fun traceRowsKeepOneOccurrenceButANewCrashRemainsDistinct() {
         val tracker = DiagnosticIncidentTracker()
         val rows = (0 until 142).map { i -> tracker.accept("2026-10-14T02:05:45.758Z F/DEBUG: ${if (i == 0) "Fatal signal 6" else "native frame $i"}", "e$i", null) }
@@ -77,5 +105,17 @@ class DiagnosticIncidentTrackerTest {
         val replacement = tracker.accept("2026-10-24T10:00:03Z I/Runtime: LOAD_FAILED · nativeOperationId=42 · workerGenerationId=worker-b", "replacement", null)
         assertTrue(replacement.first)
         org.junit.Assert.assertNotEquals(native.id, replacement.id)
+    }
+
+    @Test fun fatalHeaderDoesNotAbsorbAnotherExceptionAfterItsOwnStack() {
+        val tracker = DiagnosticIncidentTracker()
+        val header = tracker.accept("2026-11-05T00:00:00Z E/Android: E/System(42): Uncaught exception thrown by finalizer", "header", null)
+        val first = tracker.accept("2026-11-05T00:00:01Z E/Android: E/System(42): java.lang.SecurityException: first failure", "first", null)
+        val frame = tracker.accept("2026-11-05T00:00:02Z E/Android: E/System(42): at vendor.first()", "frame", null)
+        val second = tracker.accept("2026-11-05T00:00:03Z E/Android: E/System(42): java.lang.SecurityException: second failure", "second", null)
+        assertEquals(header.id, first.id)
+        assertEquals(header.id, frame.id)
+        assertTrue(second.first)
+        org.junit.Assert.assertNotEquals(header.id, second.id)
     }
 }

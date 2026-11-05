@@ -233,7 +233,7 @@ internal suspend fun Flow<ApiState>.collectApiStateUpdates(
                     if (chunk.errorCode == "QUEUE_JOB_PENDING") {
                         buffer.appendNotice(chunk.message)
                     } else {
-                        buffer.appendProfileFailure(chunk.message, chunk.progressDeadline != null || chunk.recoveryBlock != null || chunk.combinedFailure != null)
+                        buffer.appendProfileFailure(chunk.message, chunk.progressDeadline != null || chunk.recoveryBlock != null || chunk.combinedFailure != null, chunk.errorCode, chunk.failureDetails)
                     }
                     terminalError = chunk.message.ifBlank { "The provider could not complete this response." }
                 }
@@ -499,9 +499,9 @@ private class StreamingMessageBuffer(
         timelineVersion += 1
     }
 
-    fun appendProfileFailure(message: String, attachToTypedFailure: Boolean) {
+    fun appendProfileFailure(message: String, attachToTypedFailure: Boolean, errorCode: String? = null, details: kotlinx.serialization.json.JsonObject? = null) {
         flushTimelineText()
-        val failure = dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.classify(message)
+        val failure = dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.fromProvider(message, errorCode, details)
         val index = if (attachToTypedFailure) timeline.indexOfLast { it.progressDeadline != null || it.recoveryBlock != null || it.combinedFailure != null } else -1
         if (index >= 0) {
             timeline[index] = timeline[index].copy(profileFailure = failure)

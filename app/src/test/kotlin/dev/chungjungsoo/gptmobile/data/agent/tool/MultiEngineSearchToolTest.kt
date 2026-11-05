@@ -30,6 +30,36 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class MultiEngineSearchToolTest {
+    @Test fun `all failed engines retain explicit codes and child dispatch receipts`() = runBlocking {
+        val tool = MultiEngineSearchTool(
+            listOf(
+                engine("dns") { id, _ -> AgentToolResult(id, ToolResultContent.Text("Hostname unavailable"), true, errorCode = "DNS_FAILED", dispatched = false) },
+                engine("auth") { id, _ -> AgentToolResult(id, ToolResultContent.Text("Permission denied"), true, errorCode = "AUTH_REQUIRED", dispatched = false) }
+            )
+        )
+        val result = tool.execute("typed-failure", buildJsonObject { put("query", "evidence") })
+        assertTrue(result.isError)
+        assertEquals("SEARCH_PROVIDERS_UNAVAILABLE", result.errorCode)
+        assertFalse(result.dispatched)
+        assertEquals("PRECHECK_REJECTED", result.executionReceipt?.get("state")?.jsonPrimitive?.content)
+        val engines = (result.content as ToolResultContent.Json).value.jsonObject["engines"] as JsonArray
+        assertEquals(setOf("DNS_FAILED", "AUTH_REQUIRED"), engines.map { it.jsonObject.getValue("errorCode").jsonPrimitive.content }.toSet())
+        assertEquals(setOf("typed-failure:engine:0", "typed-failure:engine:1"), engines.map { it.jsonObject.getValue("callId").jsonPrimitive.content }.toSet())
+    }
+
+    @Test fun `same failure code survives aggregation and an authorized sibling can still succeed`() = runBlocking {
+        val failing = engine("dns") { id, _ -> AgentToolResult(id, ToolResultContent.Text("Hostname unavailable"), true, errorCode = "DNS_FAILED", dispatched = false) }
+        val failed = MultiEngineSearchTool(listOf(failing)).execute("single", buildJsonObject { put("query", "evidence") })
+        assertEquals("DNS_FAILED", failed.errorCode)
+        val healthy = engine("healthy") { id, _ -> AgentToolResult(id, ToolResultContent.Text("Title: Evidence\nURL: https://example.org/verified\nDescription: Retained source"), false) }
+        val partial = MultiEngineSearchTool(listOf(failing, healthy)).execute("fallback", buildJsonObject { put("query", "evidence") })
+        assertFalse(partial.isError)
+        assertTrue(partial.dispatched)
+        val payload = (partial.content as ToolResultContent.Json).value.jsonObject
+        assertEquals(1, (payload["results"] as JsonArray).size)
+        assertEquals(JsonPrimitive(true), payload["merge"]?.jsonObject?.get("partial"))
+    }
+
     @Test fun `all enabled engines run within phone concurrency and crawler receives unique pages`() = runBlocking {
         val started = java.util.concurrent.atomic.AtomicInteger()
         val active = java.util.concurrent.atomic.AtomicInteger()
@@ -406,6 +436,15 @@ class MultiEngineSearchToolTest {
         val value = (result.content as ToolResultContent.Json).value.jsonObject
         assertEquals(1, (value["results"] as JsonArray).size)
         assertTrue((value["engines"] as JsonArray).all { it.jsonObject["refill"]!!.jsonObject["outcome"] == JsonPrimitive("timeout") })
+        val children = result.executionReceipt?.get("childCallIds") as JsonArray
+        assertEquals(4, children.size)
+        for (engine in value["engines"] as JsonArray) {
+            val refill = engine.jsonObject.getValue("refill").jsonObject
+            assertTrue(refill.getValue("callId") in children)
+            assertEquals(JsonPrimitive("TIMEOUT"), refill["errorCode"])
+            assertEquals(JsonPrimitive(true), refill["dispatched"])
+            assertEquals(JsonPrimitive("UNKNOWN_OUTCOME"), refill.getValue("receipt").jsonObject["state"])
+        }
     }
 
     @Test fun `refill preserves original and additional shared budget snapshots`() = runBlocking {
@@ -480,6 +519,8 @@ class MultiEngineSearchToolTest {
     @Test fun `no engines and invalid total counts produce outcomes without network work`() = runBlocking {
         val result = MultiEngineSearchTool(emptyList()).execute("none", buildJsonObject { put("query", "test") })
         assertTrue(result.isError)
+        assertEquals("NO_SEARCH_ENGINES", result.errorCode)
+        assertFalse(result.dispatched)
         assertEquals(JsonPrimitive("no_engines"), (result.content as ToolResultContent.Json).value.jsonObject["outcome"])
         for (count in listOf(JsonPrimitive(0), JsonPrimitive(51), JsonPrimitive("20"))) {
             assertTrue(

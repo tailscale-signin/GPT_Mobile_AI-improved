@@ -50,6 +50,8 @@ enum class McpConnectionHealthState {
     RECOVERING
 }
 
+enum class McpToolReadiness { NOT_DISCOVERED, DISCOVERING, READY, STALE }
+
 data class McpConnectionHealth(
     val state: McpConnectionHealthState = McpConnectionHealthState.RECOVERING,
     val lastSuccessAtMs: Long? = null,
@@ -60,8 +62,11 @@ data class McpConnectionHealth(
     val lastError: String? = null,
     val availableToolCount: Int? = null,
     val connectionHealth: dev.chungjungsoo.gptmobile.data.network.ConnectionHealth = dev.chungjungsoo.gptmobile.data.network.ConnectionHealth.UNKNOWN,
-    val failedStage: String? = null
-)
+    val failedStage: String? = null,
+    val toolReadiness: McpToolReadiness = McpToolReadiness.NOT_DISCOVERED
+) {
+    val toolsReady: Boolean get() = state == McpConnectionHealthState.CONNECTED && toolReadiness == McpToolReadiness.READY
+}
 
 class McpBackoffException(
     val connectionUid: String,
@@ -185,6 +190,9 @@ class McpClientManager internal constructor(
     fun clearReadinessCache(cancelProducers: Boolean = true) {
         catalogueIdentities.clear()
         validatedCatalogues.clear()
+        _health.update { current ->
+            current.mapValues { (_, value) -> value.copy(toolReadiness = if (value.availableToolCount == null) McpToolReadiness.NOT_DISCOVERED else McpToolReadiness.STALE) }
+        }
         restoredCatalogues.clear()
         catalogue.invalidate()
         if (cancelProducers) {
@@ -241,11 +249,9 @@ class McpClientManager internal constructor(
                     val epoch = catalogue.epoch
                     val tools = fetchCatalogue(config, forceRefresh).toList()
                     kotlinx.coroutines.currentCoroutineContext().ensureActive()
-                    val bytes = tools.sumOf { it.toString().toByteArray(Charsets.UTF_8).size.toLong() }
-                    require(tools.size <= 2048 && bytes <= 4 * 1024 * 1024) { "MCP catalogue exceeds metadata bounds." }
-                    require(tools.map { it.name }.distinct().size == tools.size) { "Duplicate MCP tool names." }
+                    val bytes = validateMcpCatalogue(tools)
                     check(policyEpoch == dev.chungjungsoo.gptmobile.data.readiness.ReadinessInvalidation.epoch) { "MCP readiness invalidated during acquisition." }
-                    if (catalogue.publish(key, tools, bytes.toInt(), epoch)) {
+                    if (catalogue.publish(key, tools, bytes, epoch)) {
                         if (catalogueIdentities.size >= 16) catalogueIdentities.keys.firstOrNull()?.let(catalogueIdentities::remove)
                         catalogueIdentities[config.connectionUid] = policyEpoch to key
                         try {
@@ -283,6 +289,12 @@ class McpClientManager internal constructor(
 
     private suspend fun fetchCatalogue(config: McpConnectionConfig, forceRefresh: Boolean): List<Tool> {
         val observation = healthOrder.begin(config.connectionUid, config.validatedKey())
+        healthOrder.publish(observation) {
+            _health.update { current ->
+                val previous = current[config.connectionUid] ?: McpConnectionHealth()
+                current + (config.connectionUid to previous.copy(toolReadiness = if (previous.toolsReady) McpToolReadiness.READY else McpToolReadiness.DISCOVERING))
+            }
+        }
         return try {
             listToolsUnchecked(config, forceRefresh, observation)
         } catch (cancelled: CancellationException) {
@@ -295,12 +307,24 @@ class McpClientManager internal constructor(
             if (error.isMcpUnauthorized()) providerCooldowns[config.connectionUid] = config.validatedKey() to Long.MAX_VALUE
             recordFailure(config.connectionUid, error, observation = observation, stage = "discovery")
             throw error
+        } finally {
+            healthOrder.publish(observation) {
+                _health.update { current ->
+                    val previous = current[config.connectionUid]
+                    if (previous?.toolReadiness != McpToolReadiness.DISCOVERING) {
+                        current
+                    } else {
+                        current + (config.connectionUid to previous.copy(toolReadiness = if (previous.availableToolCount == null) McpToolReadiness.NOT_DISCOVERED else McpToolReadiness.STALE))
+                    }
+                }
+            }
         }
     }
 
     private suspend fun listToolsUnchecked(config: McpConnectionConfig, forceRefresh: Boolean, observation: McpHealthObservationOrder.Token): List<Tool> {
         modernTransport(config, forceRefresh)?.let { transport ->
             return transport.listTools(config).also {
+                validateMcpCatalogue(it)
                 dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.recordHandshakeSuccess(config.endpointUrl)
                 recordSuccess(config.connectionUid, availableToolCount = it.size, observation = observation, discoveredTools = it)
                 recordCatalog(config, it)
@@ -327,6 +351,7 @@ class McpClientManager internal constructor(
                         check(cursor == null || seenCursors.add(cursor)) { "MCP server returned a repeated tools cursor." }
                     } while (cursor != null)
                     tools.toList().also {
+                        validateMcpCatalogue(it)
                         observedNetwork = true
                         session.toolCatalog = ToolCatalog(it, nowMs())
                     }
@@ -545,14 +570,19 @@ class McpClientManager internal constructor(
                     connectionHealth = dev.chungjungsoo.gptmobile.data.network.ConnectionHealth.HEALTHY,
                     lastError = null,
                     failedStage = null,
-                    availableToolCount = availableToolCount ?: previous.availableToolCount
+                    availableToolCount = availableToolCount ?: previous.availableToolCount,
+                    toolReadiness = when {
+                        discoveredTools != null -> McpToolReadiness.READY
+                        validatedCatalogues[connectionUid]?.first == observation.key + ":" + dev.chungjungsoo.gptmobile.data.readiness.ReadinessInvalidation.epoch -> McpToolReadiness.READY
+                        else -> previous.toolReadiness
+                    }
                 )
             )
         }
         if (previousState != McpConnectionHealthState.CONNECTED || catalogChanged) {
             AppLogRecorder.record(
                 "MCP",
-                "Health · connection=$connectionUid · state=CONNECTED · latencyMs=${healthSnapshot(connectionUid).latencyMs ?: "unknown"} · tools=${healthSnapshot(connectionUid).availableToolCount ?: "unknown"}"
+                "Health · connection=$connectionUid · state=CONNECTED · latencyMs=${healthSnapshot(connectionUid).latencyMs ?: "unknown"} · tools=${healthSnapshot(connectionUid).availableToolCount ?: "Not discovered"} · toolReadiness=${healthSnapshot(connectionUid).toolReadiness}"
             )
         }
     }
@@ -592,7 +622,8 @@ class McpClientManager internal constructor(
                     nextRetryAtMs = if (error is McpEndpointConfigurationException || authenticationRequired) Long.MAX_VALUE else retryAtMs ?: (now + delay),
                     lastError = "[$failedStage] " + dev.chungjungsoo.gptmobile.data.diagnostics.redactLogMessage(error.message.orEmpty().take(1024)),
                     failedStage = failedStage,
-                    connectionHealth = failureClass
+                    connectionHealth = failureClass,
+                    toolReadiness = if (previous.availableToolCount == null) McpToolReadiness.NOT_DISCOVERED else McpToolReadiness.STALE
                 )
                 current + (connectionUid to updated)
             }
@@ -876,10 +907,10 @@ private fun Throwable.isMcpUnauthorized(): Boolean = generateSequence(this) { it
 internal fun Throwable.isMcpInterruptedRead(): Boolean = generateSequence(this) { it.cause?.takeUnless { cause -> cause === it } }.take(8)
     .any { error ->
         error is java.io.EOFException ||
-            listOf("unexpected end of stream", "broken pipe", "connection reset").any { error.message.orEmpty().contains(it, ignoreCase = true) }
+            listOf("unexpected end of stream", "broken pipe", "connection reset", "software caused connection abort", "socket closed").any { error.message.orEmpty().contains(it, ignoreCase = true) }
     }
 
-private fun Throwable.isMcpStaleSession(): Boolean = generateSequence(this) { it.cause }
+private fun Throwable.isMcpStaleSession(): Boolean = generateSequence(this) { it.cause?.takeUnless { cause -> cause === it } }.take(16)
     .any { error ->
         val message = error.message.orEmpty().lowercase()
         (error is StreamableHttpError && error.code == 404) ||

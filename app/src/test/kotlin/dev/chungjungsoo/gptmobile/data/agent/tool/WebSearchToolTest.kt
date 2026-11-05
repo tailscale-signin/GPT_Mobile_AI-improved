@@ -28,6 +28,32 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class WebSearchToolTest {
+    @Test fun `configured provider records response identity and known failure phase`() = runBlocking {
+        val endpoint = server("/receipt", "{malformed", 200)
+        val result = tool(WebSearchProvider.BRAVE, endpoint.url("/receipt")).execute("receipt-call", arguments())
+        assertTrue(result.isError)
+        assertEquals("PARSE_FAILED", result.errorCode)
+        assertEquals(JsonPrimitive("PARSING"), result.executionReceipt?.get("phase"))
+        assertEquals(JsonPrimitive("receipt-call"), result.executionReceipt?.get("callId"))
+        assertEquals(JsonPrimitive(true), result.executionReceipt?.get("requestSent"))
+        assertEquals(JsonPrimitive(true), result.executionReceipt?.get("bodyReceived"))
+        assertEquals(JsonPrimitive(200), result.executionReceipt?.get("httpStatus"))
+        assertEquals(JsonPrimitive("FAILED"), result.executionReceipt?.get("state"))
+    }
+
+    @Test fun `invalid requests and missing credentials have no dispatched side effect`() = runBlocking {
+        val endpoint = server("/preflight", "{}")
+        val client = NetworkClient(CIO).also { networkClients += it }
+        val missing = WebSearchTool(WebSearchProviderConfig(WebSearchProvider.BRAVE, "", endpoint.url("/preflight")), client, clock).execute("missing", arguments())
+        assertTrue(missing.isError)
+        assertEquals("AUTH_REQUIRED", missing.errorCode)
+        assertEquals(false, missing.dispatched)
+        val invalid = tool(WebSearchProvider.BRAVE, endpoint.url("/preflight")).execute("invalid", buildJsonObject { put("query", "") })
+        assertEquals("INVALID_ARGUMENTS", invalid.errorCode)
+        assertEquals(false, invalid.dispatched)
+        assertEquals(0, endpoint.requestCount)
+    }
+
     @Test
     fun `automatic outcomes distinguish unusable 202 challenge parser failure rate limit and cached failure`() = runBlocking {
         for ((status, body, expected) in listOf(
@@ -53,6 +79,8 @@ class WebSearchToolTest {
             val cached = (second.content as ToolResultContent.Json).value.jsonObject
             assertEquals("true", cached.getValue("cachedFailure").jsonPrimitive.content)
             assertEquals("false", cached.getValue("requestSent").jsonPrimitive.content)
+            assertEquals(false, second.dispatched)
+            assertEquals(JsonPrimitive("PRECHECK_REJECTED"), second.executionReceipt?.get("state"))
             assertEquals(1, endpoint.requestCount)
         }
     }

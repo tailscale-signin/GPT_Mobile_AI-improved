@@ -1,9 +1,9 @@
 package dev.chungjungsoo.gptmobile.util
 
 import android.content.Context
-import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
 import com.tom_roush.pdfbox.io.MemoryUsageSetting
 import com.tom_roush.pdfbox.pdmodel.PDDocument
+import com.tom_roush.pdfbox.pdmodel.PDPage
 import com.tom_roush.pdfbox.text.PDFTextStripper
 import java.io.File
 import java.io.InputStream
@@ -23,26 +23,28 @@ object DocumentTextExtractor {
     private const val MAX_XML_BYTES = 8 * 1024 * 1024
     private const val MAX_LEGACY_BYTES = 8 * 1024 * 1024
 
-    data class Result(val text: String, val note: String? = null)
+    data class Result(
+        val text: String,
+        val note: String? = null,
+        val firstPage: Int? = null,
+        val lastPage: Int? = null,
+        val totalPages: Int? = null,
+        val nextPage: Int? = null,
+        val warnings: List<String> = emptyList()
+    )
 
-    fun extract(context: Context?, file: File, mimeType: String): Result {
+    fun extract(context: Context?, file: File, mimeType: String, pageStart: Int = 1, pageLimit: Int = 100): Result {
         require(file.isFile) { "The document is no longer available. Attach it again." }
         require(file.length() <= FileUtils.MAX_UPLOAD_SIZE_BYTES) { "Documents cannot exceed 50 MB." }
         val extension = file.extension.lowercase()
         val raw = when {
             mimeType == "application/pdf" || extension == "pdf" -> {
                 requireNotNull(context) { "PDF extraction needs the Android document reader." }
-                PDFBoxResourceLoader.init(context.applicationContext)
-                val output = LimitedWriter()
-                PDDocument.load(file, MemoryUsageSetting.setupMixed(8L * 1024 * 1024)).use { pdf ->
-                    require(pdf.currentAccessPermission.canExtractContent()) { "This PDF does not allow text extraction." }
-                    val stripper = PDFTextStripper().apply { endPage = minOf(pdf.numberOfPages, 100) }
-                    try {
-                        stripper.writeText(pdf, output)
-                    } catch (_: TextLimitReached) { }
-                    if (pdf.numberOfPages > 100) output.truncated = true
+                require(pageStart >= 1 && pageLimit in 1..100) { "PDF page ranges must start at page 1 or later and contain at most 100 pages." }
+                AndroidPdfFonts.initialize(context.applicationContext)
+                return PDDocument.load(file, MemoryUsageSetting.setupMixed(8L * 1024 * 1024)).use { pdf ->
+                    extractPdf(pdf, pageStart, pageLimit)
                 }
-                return finish(output.toString(), output.truncated)
             }
             extension in setOf("docx", "xlsx", "pptx") -> return readOpenXml(file, extension)
             extension in setOf("doc", "xls", "ppt") -> {
@@ -77,6 +79,58 @@ object DocumentTextExtractor {
         }
         return finish(raw, raw.length > MAX_TEXT_CHARS)
     }
+
+    internal fun extractPdf(pdf: PDDocument, pageStart: Int, pageLimit: Int): Result {
+        require(pageStart >= 1 && pageLimit in 1..100) { "PDF page ranges must start at page 1 or later and contain at most 100 pages." }
+        require(pdf.currentAccessPermission.canExtractContent()) { "This PDF does not allow text extraction." }
+        require(pageStart <= pdf.numberOfPages) { "The requested PDF page is beyond the document's ${pdf.numberOfPages} pages." }
+        val lastRequested = minOf(pdf.numberOfPages.toLong(), pageStart.toLong() + pageLimit - 1).toInt()
+        val pageTextWriter = PdfPageTextWriter(pageStart, lastRequested, MAX_TEXT_CHARS)
+        val stripper = object : PDFTextStripper() {
+            override fun processPage(page: PDPage) {
+                if (Thread.currentThread().isInterrupted) throw java.io.InterruptedIOException("PDF extraction interrupted")
+                if (currentPageNo > lastRequested) throw PdfRangeComplete()
+                super.processPage(page)
+            }
+
+            override fun startPage(page: PDPage) {
+                pageTextWriter.beginPage(currentPageNo)
+            }
+
+            override fun endPage(page: PDPage) {
+                pageTextWriter.endPage(currentPageNo)
+                if (currentPageNo == lastRequested) throw PdfRangeComplete()
+            }
+        }.apply {
+            startPage = pageStart
+            endPage = lastRequested
+        }
+        // writeText walks the page tree. One pass avoids scanning every page in
+        // the document again for each page in this bounded range.
+        try {
+            stripper.writeText(pdf, pageTextWriter)
+            pageTextWriter.completeRange()
+        } catch (_: PdfRangeComplete) {
+            pageTextWriter.completeRange()
+        } catch (_: PdfPageTextWriter.LimitReached) { }
+        val text = pageTextWriter.toString()
+        val nextPage = pageTextWriter.nextPage ?: pageTextWriter.lastPage.takeIf { !pageTextWriter.partialPage && it < pdf.numberOfPages }?.plus(1)
+        val incomplete = pageStart > 1 || pageTextWriter.lastPage < pdf.numberOfPages || pageTextWriter.partialPage
+        val warnings = buildList {
+            if (pageTextWriter.partialPage) add("Page ${pageTextWriter.lastPage} exceeds the text limit; the remainder of that page was not examined.")
+            if ('\uFFFD' in text) add("Unmapped Unicode characters were detected; verify affected passages against the PDF.")
+        }
+        return finish(text, incomplete).copy(
+            note = if (incomplete) "Read PDF pages $pageStart–${pageTextWriter.lastPage} of ${pdf.numberOfPages}${if (pageTextWriter.partialPage) "; the last page is partial" else ""}." else null,
+            firstPage = pageStart,
+            lastPage = pageTextWriter.lastPage,
+            totalPages = pdf.numberOfPages,
+            nextPage = nextPage,
+            warnings = warnings
+        )
+    }
+
+    private class PdfRangeComplete : RuntimeException()
 
     private fun finish(text: String, truncated: Boolean): Result {
         val value = text.take(MAX_TEXT_CHARS).trim()

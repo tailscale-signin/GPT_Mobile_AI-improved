@@ -102,10 +102,11 @@ internal object LocalServiceHealth {
     fun classify(failure: Throwable): ConnectionHealth {
         if (failure is LocalServiceUnavailableException) return failure.health
         val causes = generateSequence(failure) { it.cause?.takeUnless { cause -> cause === it } }.take(8).toList()
+        if (causes.any { it is kotlinx.coroutines.CancellationException }) return ConnectionHealth.UNKNOWN
         causes.filterIsInstance<LocalServiceUnavailableException>().firstOrNull()?.let { return it.health }
         val message = causes.joinToString { it.message.orEmpty().take(512) }.lowercase()
         return when {
-            causes.any { it is java.net.UnknownHostException } -> ConnectionHealth.DNS_FAILED
+            causes.any { it is java.net.UnknownHostException || it is java.nio.channels.UnresolvedAddressException } -> ConnectionHealth.DNS_FAILED
             "dns_recovery" in message -> ConnectionHealth.DNS_RECOVERY
             "mcp_stream_idle_timeout" in message -> ConnectionHealth.STREAM_IDLE_TIMEOUT
             "mcp_request_timeout" in message || causes.any { it.javaClass.simpleName == "HttpRequestTimeoutException" } -> ConnectionHealth.REQUEST_TIMEOUT
@@ -117,14 +118,15 @@ internal object LocalServiceHealth {
             causes.any { it is ConnectException } -> ConnectionHealth.ROUTE_UNAVAILABLE
             Regex("\\b(?:401|403)\\b").containsMatchIn(message) && ("http" in message || "unauthoriz" in message || "forbidden" in message) -> ConnectionHealth.AUTHENTICATION_FAILED
             "mcp version" in message || "initializ" in message || "handshake" in message -> ConnectionHealth.MCP_HANDSHAKE_FAILED
+            causes.any { it is java.io.EOFException } || listOf("connection abort", "connection reset", "broken pipe", "unexpected end", "socket closed").any { it in message } -> ConnectionHealth.STREAM_INTERRUPTED
             "http" in message || causes.any { it.javaClass.simpleName in setOf("ModernMcpError", "StreamableHttpError") } -> ConnectionHealth.HTTP_ERROR
-            listOf("stream", "unexpected end", "connection reset", "socket closed").any { it in message } -> ConnectionHealth.STREAM_INTERRUPTED
+            listOf("stream", "unexpected end", "connection reset", "connection abort", "broken pipe", "socket closed").any { it in message } -> ConnectionHealth.STREAM_INTERRUPTED
             else -> ConnectionHealth.UNKNOWN
         }
     }
 
     fun recordFailure(url: String, failure: Throwable) {
-        if (failure is kotlinx.coroutines.CancellationException || failure.message.orEmpty().startsWith("LOCAL_SERVICE_UNREACHABLE:")) return
+        if (generateSequence(failure) { it.cause?.takeUnless { cause -> cause === it } }.take(8).any { it is kotlinx.coroutines.CancellationException } || failure.message.orEmpty().startsWith("LOCAL_SERVICE_UNREACHABLE:")) return
         val uri = endpoint(url) ?: return
         val health = classify(failure)
         if (endpointLocality(url) == EndpointLocality.EXTERNAL) dev.chungjungsoo.gptmobile.data.research.academic.ResearchConnectivityGate.shared.failed(uri.host, failure)

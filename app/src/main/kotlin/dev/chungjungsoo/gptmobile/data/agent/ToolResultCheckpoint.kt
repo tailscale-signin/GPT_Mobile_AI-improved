@@ -26,6 +26,20 @@ object ToolResultCheckpoint {
         }.getOrNull()
     }
 
+    /** Native rejection or a normalized precheck can prove no effect; uncertainty never can. */
+    fun confirmsNoEffect(event: ToolEvent): Boolean {
+        if (!event.isError) return false
+        val receipt = execution(event) ?: return false
+        if (receipt["requires_reconciliation"] != JsonPrimitive(false) ||
+            (receipt["error_code"] as? JsonPrimitive)?.content in ToolResultEnvelope.unknownOutcomeCodes
+        ) {
+            return false
+        }
+        return receipt["phase"] in setOf(JsonPrimitive("PREFLIGHT_REJECTED"), JsonPrimitive("REJECTED")) ||
+            receipt["execution_state"] == JsonPrimitive("PRECHECK_REJECTED") &&
+            receipt["dispatched"] == JsonPrimitive(false)
+    }
+
     fun personalData(event: ToolEvent): List<dev.chungjungsoo.gptmobile.data.permissions.PersonalDataProvenance> {
         if (event.resultType != ToolEventResultType.CHECKPOINT) return emptyList()
         val saved = Json.parseToJsonElement(event.result.orEmpty()) as? JsonObject ?: return emptyList()

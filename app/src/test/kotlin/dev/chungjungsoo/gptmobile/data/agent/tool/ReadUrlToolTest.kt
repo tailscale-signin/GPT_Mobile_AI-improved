@@ -80,6 +80,8 @@ class ReadUrlToolTest {
         val result = reader.execute("dns", args("https://missing.test/"))
         assertTrue(result.isError)
         assertTrue(result.text().contains("DNS", ignoreCase = true))
+        assertFalse(result.dispatched)
+        assertEquals("DNS_FAILED", result.errorCode)
     }
 
     private val servers = mutableListOf<HttpServer>()
@@ -100,7 +102,7 @@ class ReadUrlToolTest {
         assertEquals(setOf("url"), schema["required"]!!.jsonArray.map { it.jsonPrimitive.content }.toSet())
         assertEquals("string", properties["url"]!!.jsonObject["type"]!!.jsonPrimitive.content)
         assertEquals(false, schema["additionalProperties"]!!.jsonPrimitive.content.toBoolean())
-        assertEquals(setOf("url", "includeLinks", "includeDomains", "excludeDomains", "extractDocument"), properties.keys)
+        assertEquals(setOf("url", "includeLinks", "includeDomains", "excludeDomains", "extractDocument", "documentPageStart", "documentPageLimit", "documentTextOffset", "expectedDocumentSha256"), properties.keys)
         assertEquals("boolean", properties["includeLinks"]!!.jsonObject["type"]!!.jsonPrimitive.content)
     }
 
@@ -354,6 +356,80 @@ class ReadUrlToolTest {
         assertEquals("true", payload.getValue("truncated").jsonPrimitive.content)
         assertTrue(payload.getValue("content").jsonPrimitive.content.isNotBlank())
         assertTrue(payload.getValue("content").jsonPrimitive.content.toByteArray().size <= 64 * 1024)
+        assertEquals("1048577", payload.getValue("sourceBytesRead").jsonPrimitive.content)
+        assertEquals("false", payload.getValue("sourceComplete").jsonPrimitive.content)
+        assertTrue(payload.getValue("truncationReasons").jsonArray.any { it.jsonPrimitive.content.startsWith("SOURCE_BYTE_LIMIT") })
+    }
+
+    @Test fun `reader returns a bounded prefix before an oversized chunked response completes`() = runBlocking {
+        val release = java.util.concurrent.CountDownLatch(1)
+        val response = server { exchange ->
+            exchange.responseHeaders.add("Content-Type", "text/plain")
+            exchange.sendResponseHeaders(200, 0)
+            try {
+                exchange.responseBody.write(ByteArray(1024 * 1024 + 1) { 'a'.code.toByte() })
+                exchange.responseBody.flush()
+                release.await(10, java.util.concurrent.TimeUnit.SECONDS)
+            } finally {
+                exchange.close()
+            }
+        }
+        try {
+            val result = kotlinx.coroutines.withTimeout(5_000) {
+                tool(allowTestLoopback = true).execute(
+                    "streaming-limit",
+                    buildJsonObject {
+                        put("url", response.url("fixture.test", "/large-stream"))
+                        put("includeLinks", true)
+                    }
+                )
+            }
+            assertFalse(result.isError)
+            val payload = (result.content as ToolResultContent.Json).value.jsonObject
+            assertEquals("1048577", payload.getValue("sourceBytesRead").jsonPrimitive.content)
+            assertEquals("false", payload.getValue("sourceComplete").jsonPrimitive.content)
+        } finally {
+            release.countDown()
+        }
+    }
+
+    @Test fun `an exact size source is complete even when display output is shortened`() = runBlocking {
+        val page = server { it.respond(200, "text/plain", "a".repeat(1024 * 1024)) }
+        val result = tool(allowTestLoopback = true).execute(
+            "exact",
+            buildJsonObject {
+                put("url", page.url("fixture.test", "/exact"))
+                put("includeLinks", true)
+            }
+        )
+        val payload = (result.content as ToolResultContent.Json).value.jsonObject
+        assertEquals("true", payload.getValue("sourceComplete").jsonPrimitive.content)
+        assertEquals("true", payload.getValue("truncated").jsonPrimitive.content)
+        assertFalse(payload.getValue("truncationReasons").jsonArray.any { it.jsonPrimitive.content.startsWith("SOURCE_BYTE_LIMIT") })
+    }
+
+    @Test fun `invalid PDF continuation arguments are rejected without dispatch`() = runBlocking {
+        for ((name, value) in listOf("documentPageStart" to 0, "documentPageLimit" to 101, "documentTextOffset" to -1, "documentTextOffset" to 80001, "documentTextOffset" to 1)) {
+            val result = tool().execute(
+                "invalid-range",
+                buildJsonObject {
+                    put("url", "https://example.org/file.pdf")
+                    put(name, value)
+                }
+            )
+            assertTrue(result.isError)
+            assertFalse(result.dispatched)
+            assertEquals("INVALID_ARGUMENTS", result.errorCode)
+        }
+        val invalidHash = tool().execute(
+            "invalid-hash",
+            buildJsonObject {
+                put("url", "https://example.org/file.pdf")
+                put("expectedDocumentSha256", "not-a-source-digest")
+            }
+        )
+        assertEquals("INVALID_ARGUMENTS", invalidHash.errorCode)
+        assertFalse(invalidHash.dispatched)
     }
 
     @Test

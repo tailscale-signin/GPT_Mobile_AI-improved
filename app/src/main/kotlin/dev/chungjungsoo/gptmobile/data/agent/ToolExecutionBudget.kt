@@ -60,8 +60,9 @@ class ToolExecutionBudget(
         onFinished: suspend (String, Boolean) -> Unit = { _, _ -> },
         statisticsIdentity: dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolIdentity = dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolIdentity.of(tool.definition.name),
         authorize: suspend (String, JsonObject) -> Boolean = { _, _ -> true }
-    ): AgentTool = object : PreparableAgentTool, OwnedAgentTool {
+    ): AgentTool = object : PreparableAgentTool, OwnedAgentTool, ApprovedReadOnlyAgentTool {
         override val definition = tool.definition
+        override val approvedReadOnly = (tool as? ApprovedReadOnlyAgentTool)?.approvedReadOnly == true
         override val managesExecutionBudget = true
         override val coordinatesChildWork = tool.coordinatesChildWork
         override val executionOwner = (tool as? OwnedAgentTool)?.executionOwner ?: AgentToolExecutionOwner.CLIENT
@@ -85,10 +86,8 @@ class ToolExecutionBudget(
             val invocation = "$executionOwner:${tool.definition.name}:$callId"
             if (!invocationIds.add(invocation)) return { withBudgetState(ToolResultEnvelope.error(callId, "DUPLICATE_INVOCATION", "This invocation ID was already admitted. No action repeated.")) }
             val signature = "$executionOwner:${tool.definition.name}:" + dev.chungjungsoo.gptmobile.data.permissions.ScopedToolGrant.canonicalHash(arguments)
-            val replayableRead = tool.definition.name == ProgressiveToolCatalog.NAME ||
-                AgentToolCapability.USER_DECISION in tool.definition.capabilities ||
-                dev.chungjungsoo.gptmobile.data.research.ResearchTimeouts.isAcademicRead(tool.definition.name) ||
-                dev.chungjungsoo.gptmobile.data.permissions.GitHubAuthorizationBoundary.isReplayableRead(tool.definition.name, arguments)
+            val replayableRead = ToolReplaySafety.isReplayableRead(tool.definition.name, arguments, tool) ||
+                AgentToolCapability.USER_DECISION in tool.definition.capabilities
             if (!replayableRead && signature in unknownOutcomes) return { withBudgetState(ToolResultEnvelope.error(callId, "RECONCILIATION_REQUIRED", "Previous dispatch outcome is unknown. Reconcile it before repeating this action.")) }
             if ((failures[signature]?.get() ?: 0) >= 2) return { withBudgetState(ToolResultEnvelope.error(callId, "REPEATED_FAILURE", "An unchanged call failed twice. Stop repeating it; use retained evidence or correct the request.")) }
             terminalToolFailures[tool.definition.name]?.let { code ->

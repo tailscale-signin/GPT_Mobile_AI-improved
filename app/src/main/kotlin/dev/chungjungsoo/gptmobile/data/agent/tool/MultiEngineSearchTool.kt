@@ -142,7 +142,7 @@ class MultiEngineSearchTool(
     private suspend fun search(callId: String, arguments: JsonObject): AgentToolResult = supervisorScope {
         val revision = configurationRevision()
         fun emptyKey(index: Int) = "$revision|${selected[index].selectionId()}"
-        fun invalid(message: String) = AgentToolResult(callId, ToolResultContent.Text(message), true)
+        fun invalid(message: String) = AgentToolResult(callId, ToolResultContent.Text(message), true, errorCode = "INVALID_ARGUMENTS", dispatched = false)
         val query = (arguments["query"] as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull.orEmpty().trim()
         if (query.isEmpty()) return@supervisorScope invalid("A search query is required.")
         fun integer(name: String) = (arguments[name] as? JsonPrimitive)?.takeUnless { it.isString }?.intOrNull
@@ -169,7 +169,37 @@ class MultiEngineSearchTool(
         }
         val target = totalResults ?: (selected.size * maxResults)
         val fetchRequest = JsonObject(arguments - "totalResults" + ("maxResults" to JsonPrimitive(policy.fetchLimitPerEngine)))
-        fun failure(id: String, outcome: String, message: String, outputBudget: Boolean = false, callBudget: Boolean = false) = Response(AgentToolResult(id, ToolResultContent.Text(message), true, outputBudgetExhausted = outputBudget, toolCallBudgetExhausted = callBudget), outcome, 0)
+        fun failure(
+            id: String,
+            outcome: String,
+            message: String,
+            outputBudget: Boolean = false,
+            callBudget: Boolean = false,
+            dispatched: Boolean = false,
+            code: String = when (outcome) {
+                "invalid_request" -> "INVALID_ARGUMENTS"
+                "budget_exhausted" -> "BUDGET_EXHAUSTED"
+                "timeout" -> "TIMEOUT"
+                "dns_failed" -> "DNS_FAILED"
+                "authentication_failed" -> "AUTH_REQUIRED"
+                "cooldown" -> "PROVIDER_COOLDOWN"
+                "empty_budget" -> "EMPTY_SEARCH_BUDGET"
+                else -> "UNAVAILABLE"
+            }
+        ) = Response(
+            AgentToolResult(
+                id,
+                ToolResultContent.Text(message),
+                true,
+                outputBudgetExhausted = outputBudget,
+                toolCallBudgetExhausted = callBudget,
+                errorCode = code,
+                dispatched = dispatched,
+                executionReceipt = searchOperationReceipt(id, "selected_search_engine", if (dispatched) "SEARCH_DISPATCH" else "SEARCH_PRECHECK", if (dispatched) null else false, false, code)
+            ),
+            outcome,
+            0
+        )
         suspend fun prepare(index: Int, request: JsonObject, refill: Boolean): Prepared {
             val engine = selected[index]
             val id = "$callId:engine:$index${if (refill) ":unique" else ""}"
@@ -207,10 +237,10 @@ class MultiEngineSearchTool(
             val allowance = minOf(engineTimeoutMillis, remainingMillis())
             if (allowance <= 0) return failure(id, "timeout", "Search phase deadline reached; other sources remain available.")
             val result = try {
-                withTimeoutOrNull(allowance) { ready.invoke() } ?: return failure(id, "timeout", "Engine timed out; sibling results remain available.")
+                withTimeoutOrNull(allowance) { ready.invoke() } ?: return failure(id, "timeout", "Engine timed out; sibling results remain available.", dispatched = ready.effectiveCount > 0)
             } catch (_: TimeoutCancellationException) {
                 currentCoroutineContext().ensureActive()
-                return failure(id, "timeout", "Engine timed out; sibling results remain available.")
+                return failure(id, "timeout", "Engine timed out; sibling results remain available.", dispatched = ready.effectiveCount > 0)
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
@@ -221,7 +251,8 @@ class MultiEngineSearchTool(
                     dev.chungjungsoo.gptmobile.data.network.ConnectionHealth.CONNECT_TIMEOUT -> "timeout"
                     else -> "failed"
                 }
-                return failure(id, outcome, "Engine unavailable ($health); sibling results and retained evidence remain available.")
+                val transport = SearchTransportFailure.from(error)
+                return failure(id, outcome, "Engine unavailable ($health); sibling results and retained evidence remain available.", dispatched = transport.requestSent != false, code = if (outcome == "authentication_failed") "AUTH_REQUIRED" else transport.code)
             }
             val text = resultText(result)
             val outcome = when {
@@ -232,7 +263,8 @@ class MultiEngineSearchTool(
                 result.isError && (result.errorCode == SearchEvidenceOutcome.CHALLENGE.name || Regex("(?i)captcha|challenge|http[ \t]*202").containsMatchIn(text)) -> "challenge"
                 result.isError && result.errorCode == SearchEvidenceOutcome.TIMEOUT.name -> "timeout"
                 result.isError && result.errorCode == SearchEvidenceOutcome.PARSE_FAILED.name -> "malformed_response"
-                result.isError && result.errorCode == SearchEvidenceOutcome.UNAVAILABLE.name -> "unavailable"
+                result.isError && result.errorCode in setOf("DNS_FAILED", "DNS_RECOVERY") -> "dns_failed"
+                result.isError && result.errorCode in setOf("UNAVAILABLE", "CONNECTION_FAILED", "STREAM_INTERRUPTED") -> "unavailable"
                 result.isError && text.startsWith("Repeated valid empty searches") -> "empty_budget"
                 result.isError && Regex("(?i)cooling down|cooldown").containsMatchIn(text) -> "cooldown"
                 result.isError && Regex("(?i)invalid|exceeds.*limit").containsMatchIn(text) -> "invalid_request"
@@ -258,7 +290,7 @@ class MultiEngineSearchTool(
                     emptyPausedUntil.remove(key)
                 }
             }
-            return Response(if (outcome == "malformed_response") result.copy(isError = true) else result, outcome, ready.effectiveCount)
+            return Response(if (outcome == "malformed_response") result.copy(isError = true, errorCode = result.errorCode ?: "PARSE_FAILED") else result, outcome, ready.effectiveCount)
         }
         val initial = selected.indices.map { index -> async { enginePermits.withPermit { attempt(index, prepared[index], false) } } }.awaitAll()
         val allAttempts = initial.toMutableList()
@@ -305,11 +337,15 @@ class MultiEngineSearchTool(
                 put("engine", selected[index].connectionName ?: "Built-in search")
                 providerPayload(response.result)?.get("engines")?.let { put("engines", it) }
                 providerPayload(response.result)?.let { payload ->
-                    val metadata = listOf("cached", "retrieved_at", "cache_age_seconds", "errors", "benched_engines", "rescued_via", "dated_results", "filter_diagnostics", "httpStatus", "requestSent", "bodyReceived", "observedAt", "cachedFailure", "cooldownUntil", "route")
+                    val metadata = listOf("cached", "retrieved_at", "cache_age_seconds", "errors", "benched_engines", "rescued_via", "dated_results", "filter_diagnostics", "httpStatus", "requestSent", "bodyReceived", "observedAt", "cachedFailure", "cooldownUntil", "route", "errorCode", "failurePhase", "retryable", "receipt")
                         .mapNotNull { key -> payload[key]?.let { key to it } }.toMap()
                     if (metadata.isNotEmpty()) put("providerMetadata", JsonObject(metadata))
                 }
                 put("tool", selected[index].realToolName)
+                put("callId", response.result.callId)
+                put("dispatched", response.result.dispatched)
+                response.result.errorCode?.let { put("errorCode", it) }
+                response.result.executionReceipt?.let { put("receipt", it) }
                 put("status", if (response.result.isError) "unavailable" else "completed")
                 put("outcome", response.outcome)
                 val partial = response.result.outputBudgetExhausted || evidenceHasTruncation(resultPayload(response.result))
@@ -332,6 +368,10 @@ class MultiEngineSearchTool(
                     put(
                         "refill",
                         buildJsonObject {
+                            put("callId", extra.result.callId)
+                            put("dispatched", extra.result.dispatched)
+                            extra.result.errorCode?.let { put("errorCode", it) }
+                            extra.result.executionReceipt?.let { put("receipt", it) }
                             put("outcome", extra.outcome)
                             put("outputBudgetExhausted", extra.result.outputBudgetExhausted)
                             put("toolCallBudgetExhausted", extra.result.toolCallBudgetExhausted)
@@ -390,9 +430,40 @@ class MultiEngineSearchTool(
         }
         val content = ToolResultContent.Json(envelope(merged.sources))
         val retained = ToolResultContent.Json(envelope(merged.retainedSources))
+        val failed = initial.all { it.result.isError }
+        val failureCodes = initial.mapNotNull { it.result.errorCode }.distinct()
+        val errorCode = when {
+            !failed -> null
+            initial.isEmpty() -> "NO_SEARCH_ENGINES"
+            failureCodes.size == 1 && initial.all { it.result.errorCode != null } -> failureCodes.single()
+            else -> "SEARCH_PROVIDERS_UNAVAILABLE"
+        }
         AgentToolResult(
             callId, content,
-            isError = initial.all { it.result.isError },
+            isError = failed,
+            errorCode = errorCode,
+            dispatched = allAttempts.any { it.result.dispatched },
+            executionReceipt = buildJsonObject {
+                put("schema", "gptmobile.search-operation.v1")
+                put("callId", callId)
+                put("provider", "selected_search_engines")
+                put("phase", "SEARCH_AGGREGATION")
+                put(
+                    "state",
+                    if (!failed) {
+                        "COMPLETED"
+                    } else if (allAttempts.none { it.result.dispatched }) {
+                        "PRECHECK_REJECTED"
+                    } else {
+                        "FAILED"
+                    }
+                )
+                put("providerCount", selected.size)
+                put("completedProviders", initial.count { !it.result.isError })
+                put("returnedSources", merged.sources.size)
+                put("retryable", errorCode != null && searchFailureRetryable(errorCode))
+                put("childCallIds", JsonArray(allAttempts.map { JsonPrimitive(it.result.callId) }))
+            },
             retainedContent = retained.takeUnless { it == content },
             outputBudgetExhausted = allAttempts.any { it.result.outputBudgetExhausted },
             toolCallBudgetExhausted = allAttempts.any { it.result.toolCallBudgetExhausted },

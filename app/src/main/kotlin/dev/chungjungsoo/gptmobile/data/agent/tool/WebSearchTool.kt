@@ -112,23 +112,32 @@ class WebSearchTool(
         val outcome: SearchEvidenceOutcome,
         val status: Int? = null,
         val cached: Boolean = false,
-        val cooldownUntil: Long = 0
+        val cooldownUntil: Long = 0,
+        val code: String = outcome.name,
+        val requestSent: Boolean? = status?.let { true },
+        val phase: String = "PROVIDER_RESPONSE"
     ) : IllegalStateException("Search outcome ${outcome.name}; HTTP ${status ?: "unknown"}; cached=$cached; cooldownUntil=$cooldownUntil")
     private data class AutoAttempt(val results: List<JsonObject>? = null, val failure: RouteFailure? = null)
     private val lastAutoFailure = autoFailureRecords.computeIfAbsent(autoSearchBlockedUntilMs) { java.util.concurrent.atomic.AtomicReference<RouteFailure?>() }
     fun resetAccessFailureAfterRepair() {
         authenticationBlockedUntilMs.set(0)
         accessFailureRecords.remove(authenticationBlockKey())
+        dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.checkAgain(config.endpointUrl)
     }
 
-    private fun structuredFailure(callId: String, outcome: SearchEvidenceOutcome, message: String, status: Int? = null, requestSent: Boolean? = false, bodyReceived: Boolean = false, retryAt: Long = 0, cached: Boolean = false): AgentToolResult {
-        val observation = SearchServiceObservation(config.provider.name, config.endpointUrl, outcome.name, status, requestSent, bodyReceived, clock.millis(), retryAt, message.take(240))
-        if (!cached) SearchServiceHealth.record(config.connectionUid ?: "builtin-duckduckgo", observation)
+    private fun structuredFailure(callId: String, outcome: SearchEvidenceOutcome, message: String, status: Int? = null, requestSent: Boolean? = false, bodyReceived: Boolean = false, retryAt: Long = 0, cached: Boolean = false, failureCode: String = outcome.name, phase: String = "PROVIDER_RESPONSE", requestId: String? = null): AgentToolResult {
+        val receipt = searchOperationReceipt(callId, config.provider.name, phase, requestSent, bodyReceived, failureCode, status, requestId)
+        val observation = SearchServiceObservation(config.provider.name, config.endpointUrl, failureCode, status, requestSent, bodyReceived, clock.millis(), retryAt, message.take(240))
+        if (!cached) SearchServiceHealth.record(config.connectionUid ?: config.provider.name, observation)
         return AgentToolResult(
             callId,
             ToolResultContent.Json(
                 buildJsonObject {
                     put("evidenceOutcome", outcome.name)
+                    put("errorCode", failureCode)
+                    put("failurePhase", phase)
+                    put("retryable", searchFailureRetryable(failureCode))
+                    put("receipt", receipt)
                     put("error", message.take(240))
                     put("engine", config.provider.name)
                     status?.let { put("httpStatus", it) }
@@ -140,8 +149,9 @@ class WebSearchTool(
                 }
             ),
             true,
-            errorCode = outcome.name,
-            dispatched = requestSent != false
+            errorCode = failureCode,
+            dispatched = requestSent != false,
+            executionReceipt = receipt
         )
     }
 
@@ -168,6 +178,7 @@ class WebSearchTool(
         var requestSent: Boolean? = false
         var bodyReceived = false
         var httpStatus: Int? = null
+        var requestId: String? = null
         return try {
             if (config.bearerToken.isBlank()) {
                 val provider = when (config.provider) {
@@ -183,31 +194,35 @@ class WebSearchTool(
                 val previous = accessFailureRecords[authenticationBlockKey()]
                 return structuredFailure(callId, SearchEvidenceOutcome.AUTH_REQUIRED, previous?.message ?: "Search access is blocked. Use Test connection / Retry after repair.", previous?.httpStatus, retryAt = authenticationBlockedUntilMs.get(), cached = true)
             }
-            chargeResearchRequest()
-            requestSent = null // Dispatch started; transmission is unknown until an HTTP response arrives.
-            val response = if (config.provider == WebSearchProvider.BRAVE) {
-                networkClient().get(config.endpointUrl) {
-                    timeout { requestTimeoutMillis = 30_000 }
-                    header("X-Subscription-Token", config.bearerToken.trim())
-                    header("Accept", "application/json")
-                    parameter("q", braveSearchQuery(request.query, request.includeDomains, request.excludeDomains))
-                    parameter("count", request.maxResults)
-                    parameter("result_filter", "web")
-                    parameter("text_decorations", false)
-                    request.recencyDays?.let { parameter("freshness", braveSearchFreshness(it, clock)) }
-                }
-            } else {
-                networkClient().post(config.endpointUrl) {
-                    when (config.provider) {
-                        WebSearchProvider.EXA -> header("x-api-key", config.bearerToken.trim())
-                        WebSearchProvider.FIRECRAWL, WebSearchProvider.PERPLEXITY -> bearerAuth(config.bearerToken.trim())
-                        WebSearchProvider.AUTO, WebSearchProvider.BRAVE -> Unit
+            val response = withSearchConnection(config.endpointUrl) {
+                chargeResearchRequest()
+                requestSent = null // Dispatch started; transmission is unknown until an HTTP response arrives.
+                if (config.provider == WebSearchProvider.BRAVE) {
+                    networkClient().get(config.endpointUrl) {
+                        timeout { requestTimeoutMillis = 30_000 }
+                        header("X-Subscription-Token", config.bearerToken.trim())
+                        header("Accept", "application/json")
+                        parameter("q", braveSearchQuery(request.query, request.includeDomains, request.excludeDomains))
+                        parameter("count", request.maxResults)
+                        parameter("result_filter", "web")
+                        parameter("text_decorations", false)
+                        request.recencyDays?.let { parameter("freshness", braveSearchFreshness(it, clock)) }
                     }
-                    setBody(payload(request))
+                } else {
+                    networkClient().post(config.endpointUrl) {
+                        timeout { requestTimeoutMillis = 30_000 }
+                        when (config.provider) {
+                            WebSearchProvider.EXA -> header("x-api-key", config.bearerToken.trim())
+                            WebSearchProvider.FIRECRAWL, WebSearchProvider.PERPLEXITY -> bearerAuth(config.bearerToken.trim())
+                            WebSearchProvider.AUTO, WebSearchProvider.BRAVE -> Unit
+                        }
+                        setBody(payload(request))
+                    }
                 }
             }
             requestSent = true
             httpStatus = response.status.value
+            requestId = response.headers["x-request-id"] ?: response.headers["request-id"] ?: response.headers["x-correlation-id"]
             if (response.status.value !in 200..299) {
                 if (response.status.value in setOf(401, 402, 403)) {
                     authenticationBlockedUntilMs.set(if (response.status.value == 402) clock.millis() + 5 * 60_000L else Long.MAX_VALUE)
@@ -226,7 +241,8 @@ class WebSearchTool(
                     response.status.value,
                     true,
                     false,
-                    authenticationBlockedUntilMs.get()
+                    authenticationBlockedUntilMs.get(),
+                    requestId = requestId
                 )
             }
             val body = researchBody(response.bodyAsText())
@@ -234,33 +250,59 @@ class WebSearchTool(
             val content = runCatching { normalized(config.provider, body, request) }.getOrElse { exception ->
                 if (exception is CancellationException) throw exception
                 return if (exception is MissingRequiredResultFieldException) {
-                    structuredFailure(callId, SearchEvidenceOutcome.PARSE_FAILED, "Provider response is missing required source fields.", httpStatus, true, true)
+                    structuredFailure(callId, SearchEvidenceOutcome.PARSE_FAILED, "Provider response is missing required source fields.", httpStatus, true, true, phase = "PARSING", requestId = requestId)
                 } else {
-                    structuredFailure(callId, SearchEvidenceOutcome.PARSE_FAILED, "Provider response could not be decoded or normalized.", httpStatus, true, true)
+                    structuredFailure(callId, SearchEvidenceOutcome.PARSE_FAILED, "Provider response could not be decoded or normalized.", httpStatus, true, true, phase = "PARSING", requestId = requestId)
                 }
             }
             SearchServiceHealth.record(config.connectionUid ?: config.provider.name, SearchServiceObservation(config.provider.name, config.endpointUrl, "SUCCESS", response.status.value, true, true, clock.millis(), message = "Search connection responded"))
             AgentToolResult(
                 callId = callId,
                 content = ToolResultContent.Json(content),
-                isError = false
+                isError = false,
+                executionReceipt = searchOperationReceipt(callId, config.provider.name, "NORMALIZATION", true, true, status = httpStatus, requestId = requestId)
             )
         } catch (exception: CancellationException) {
             throw exception
         } catch (failure: Exception) {
-            if (generateSequence(failure as Throwable?) { it.cause }.any { it is java.net.UnknownHostException || it is java.net.ConnectException }) requestSent = false
+            val transport = SearchTransportFailure.from(failure)
+            if (requestSent == null) requestSent = transport.requestSent
             structuredFailure(
                 callId,
-                if (failure is java.net.SocketTimeoutException || failure is io.ktor.client.plugins.HttpRequestTimeoutException) SearchEvidenceOutcome.TIMEOUT else SearchEvidenceOutcome.UNAVAILABLE,
-                when {
-                    generateSequence(failure as Throwable?) { it.cause }.any { it is java.net.UnknownHostException } -> "DNS_FAILURE: search host could not be resolved."
-                    failure is java.net.SocketTimeoutException || failure is io.ktor.client.plugins.HttpRequestTimeoutException -> "TRANSPORT_TIMEOUT: search request timed out."
-                    else -> "TRANSPORT_FAILURE: no usable response was received."
-                },
+                if (transport.code == "TIMEOUT") SearchEvidenceOutcome.TIMEOUT else SearchEvidenceOutcome.UNAVAILABLE,
+                transport.message,
                 httpStatus,
                 requestSent,
-                bodyReceived
+                bodyReceived,
+                retryAt = dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.retryAfterMillis(config.endpointUrl).takeIf { it > 0 }?.let { clock.millis() + it } ?: 0,
+                failureCode = transport.code,
+                phase = transport.phase,
+                requestId = requestId
             )
+        }
+    }
+
+    private suspend fun <T> withSearchConnection(endpoint: String, request: suspend () -> T): T {
+        val health = dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth
+        health.requireAvailable(endpoint)
+        return try {
+            request().also { health.recordHandshakeSuccess(endpoint) }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            if (health.classify(failure) in setOf(
+                    dev.chungjungsoo.gptmobile.data.network.ConnectionHealth.DNS_FAILED,
+                    dev.chungjungsoo.gptmobile.data.network.ConnectionHealth.ROUTE_UNAVAILABLE,
+                    dev.chungjungsoo.gptmobile.data.network.ConnectionHealth.CONNECTION_REFUSED,
+                    dev.chungjungsoo.gptmobile.data.network.ConnectionHealth.CONNECT_TIMEOUT,
+                    dev.chungjungsoo.gptmobile.data.network.ConnectionHealth.REQUEST_TIMEOUT,
+                    dev.chungjungsoo.gptmobile.data.network.ConnectionHealth.STREAM_INTERRUPTED,
+                    dev.chungjungsoo.gptmobile.data.network.ConnectionHealth.STREAM_IDLE_TIMEOUT
+                )
+            ) {
+                health.recordFailure(endpoint, failure)
+            }
+            throw failure
         }
     }
 
@@ -307,7 +349,8 @@ class WebSearchTool(
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: Exception) {
-                AutoAttempt(failure = failure as? RouteFailure ?: RouteFailure(SearchEvidenceOutcome.UNAVAILABLE))
+                val transport = SearchTransportFailure.from(failure)
+                AutoAttempt(failure = failure as? RouteFailure ?: RouteFailure(if (transport.code == "TIMEOUT") SearchEvidenceOutcome.TIMEOUT else SearchEvidenceOutcome.UNAVAILABLE, code = transport.code, requestSent = transport.requestSent, phase = transport.phase))
             }
         }
         val localResults = local.await()
@@ -315,18 +358,30 @@ class WebSearchTool(
         val webResults = webAttempt.results
         if (localResults.isEmpty() && webResults == null) {
             val failure = requireNotNull(webAttempt.failure)
-            if (!failure.cached) SearchServiceHealth.record("builtin-duckduckgo", SearchServiceObservation("DuckDuckGo", "DuckDuckGo public frontends", failure.outcome.name, failure.status, true, failure.status != null, clock.millis(), failure.cooldownUntil, failure.message.orEmpty()))
+            val sent = if (config.allowLocalSearch && config.endpointUrl.isNotBlank()) {
+                null
+            } else if (failure.cached) {
+                false
+            } else {
+                failure.requestSent
+            }
+            val receipt = searchOperationReceipt(callId, "DuckDuckGo", if (failure.cached) "COOLDOWN" else failure.phase, sent, !failure.cached && failure.status != null, failure.code, failure.status)
+            if (!failure.cached) SearchServiceHealth.record("builtin-duckduckgo", SearchServiceObservation("DuckDuckGo", "DuckDuckGo public frontends", failure.code, failure.status, sent, failure.status != null, clock.millis(), failure.cooldownUntil, failure.message.orEmpty()))
             return@coroutineScope AgentToolResult(
                 callId,
                 ToolResultContent.Json(
                     buildJsonObject {
                         put("evidenceOutcome", failure.outcome.name)
+                        put("errorCode", failure.code)
+                        put("failurePhase", if (failure.cached) "COOLDOWN" else failure.phase)
+                        put("retryable", searchFailureRetryable(failure.code))
+                        put("receipt", receipt)
                         put("engine", "DuckDuckGo")
                         put("error", failure.message)
                         failure.status?.let { put("httpStatus", it) }
                         put("cachedFailure", failure.cached)
                         put("cooldownUntil", failure.cooldownUntil)
-                        put("requestSent", !failure.cached)
+                        put("requestSent", sent)
                         put("bodyReceived", !failure.cached && failure.status != null)
                         SearchServiceHealth.observations.value["builtin-duckduckgo"]?.let {
                             put("observedAt", it.observedAt)
@@ -336,7 +391,9 @@ class WebSearchTool(
                     }
                 ),
                 true,
-                errorCode = failure.outcome.name
+                errorCode = failure.code,
+                dispatched = sent != false,
+                executionReceipt = receipt
             )
         }
         val localEngine = "Local search"
@@ -374,10 +431,12 @@ class WebSearchTool(
 
     private suspend fun tryTermuxMcpSearch(request: WebSearchRequest): List<JsonObject>? {
         val endpoint = config.endpointUrl.takeIf { it.isNotBlank() } ?: return null
-        chargeResearchRequest()
-        val response = networkClient().get(endpoint) {
-            parameter("query", request.query)
-            parameter("limit", request.maxResults)
+        val response = withSearchConnection(endpoint) {
+            chargeResearchRequest()
+            networkClient().get(endpoint) {
+                parameter("query", request.query)
+                parameter("limit", request.maxResults)
+            }
         }
         if (response.status.value !in 200..299) return null
         val bodyText = researchBody(response.bodyAsText())
@@ -400,7 +459,7 @@ class WebSearchTool(
     private suspend fun queryDuckDuckGo(request: WebSearchRequest): List<JsonObject> {
         if (clock.millis() < autoSearchBlockedUntilMs.get()) {
             val previous = lastAutoFailure.get()
-            throw RouteFailure(previous?.outcome ?: SearchEvidenceOutcome.UNAVAILABLE, previous?.status, cached = true, cooldownUntil = autoSearchBlockedUntilMs.get())
+            throw RouteFailure(previous?.outcome ?: SearchEvidenceOutcome.UNAVAILABLE, previous?.status, cached = true, cooldownUntil = autoSearchBlockedUntilMs.get(), code = previous?.code ?: "UNAVAILABLE", requestSent = false, phase = "COOLDOWN")
         }
         var lastFailure = RouteFailure(SearchEvidenceOutcome.UNAVAILABLE)
         val encodedQuery = URLEncoder.encode(request.query, StandardCharsets.UTF_8.name())
@@ -408,11 +467,13 @@ class WebSearchTool(
 
         for (url in endpoints) {
             try {
-                chargeResearchRequest()
-                val response = networkClient().get(url) {
-                    header("User-Agent", USER_AGENT)
-                    header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
-                    header("Accept-Language", "en-US,en;q=0.9")
+                val response = withSearchConnection(url) {
+                    chargeResearchRequest()
+                    networkClient().get(url) {
+                        header("User-Agent", USER_AGENT)
+                        header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                        header("Accept-Language", "en-US,en;q=0.9")
+                    }
                 }
                 if (response.status.value in AUTO_SEARCH_BACKOFF_STATUSES) {
                     val body = researchBody(response.bodyAsText())
@@ -452,12 +513,14 @@ class WebSearchTool(
             } catch (e: CancellationException) {
                 throw e
             } catch (failure: Exception) {
-                lastFailure = failure as? RouteFailure ?: RouteFailure(if (failure is java.net.SocketTimeoutException || failure is io.ktor.client.plugins.HttpRequestTimeoutException) SearchEvidenceOutcome.TIMEOUT else SearchEvidenceOutcome.UNAVAILABLE)
+                val transport = SearchTransportFailure.from(failure)
+                lastFailure = failure as? RouteFailure ?: RouteFailure(if (transport.code == "TIMEOUT") SearchEvidenceOutcome.TIMEOUT else SearchEvidenceOutcome.UNAVAILABLE, code = transport.code, requestSent = transport.requestSent, phase = transport.phase)
+                if (lastFailure.code in setOf("DNS_FAILED", "DNS_RECOVERY", "CONNECTION_FAILED")) break
                 if (lastFailure.outcome in setOf(SearchEvidenceOutcome.CHALLENGE, SearchEvidenceOutcome.RATE_LIMITED)) break
             }
         }
         autoSearchBlockedUntilMs.set(clock.millis() + AUTO_SEARCH_BACKOFF_MS)
-        val saved = RouteFailure(lastFailure.outcome, lastFailure.status, cooldownUntil = autoSearchBlockedUntilMs.get())
+        val saved = RouteFailure(lastFailure.outcome, lastFailure.status, cooldownUntil = autoSearchBlockedUntilMs.get(), code = lastFailure.code, requestSent = lastFailure.requestSent, phase = lastFailure.phase)
         lastAutoFailure.set(saved)
         throw saved
     }
@@ -730,8 +793,10 @@ class WebSearchTool(
             "HTTP 401" in message || "HTTP 403" in message || "API key" in message -> SearchEvidenceOutcome.AUTH_REQUIRED.name
             "TIMEOUT" in message -> SearchEvidenceOutcome.TIMEOUT.name
             message.startsWith("PARSE_FAILED:") -> SearchEvidenceOutcome.PARSE_FAILED.name
+            message.startsWith("Invalid web search request") -> "INVALID_ARGUMENTS"
             else -> SearchEvidenceOutcome.UNAVAILABLE.name
-        }
+        },
+        dispatched = false
     )
 
     private fun intArgument(arguments: JsonObject, name: String): Int? = runCatching {

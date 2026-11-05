@@ -148,16 +148,20 @@ class VoiceSession(
 
     fun resume() {
         if (!accessAllowed() || state.phase in setOf(VoicePhase.STARTING, VoicePhase.LISTENING, VoicePhase.FINALIZING, VoicePhase.REVIEWING)) return
+        // Reviewing preserved text never touches the recognizer and must stay usable
+        // during its cooldown, including after an error or session recreation.
+        if (draftPending) {
+            engaged = true
+            automaticRetry = false
+            update(state.copy(phase = VoicePhase.REVIEWING))
+            return
+        }
         val remaining = maxOf(audio.retryAfterMillis(), (state.retryAtMillis - now()).coerceAtLeast(0))
         if (remaining > 0) {
             update(state.copy(phase = VoicePhase.ERROR, retryAtMillis = now() + remaining, notice = "Speech service is busy. Your chat is still available."))
             return
         }
         engaged = true
-        if (draftPending) {
-            update(state.copy(phase = VoicePhase.REVIEWING))
-            return
-        }
         stopAudio()
         if (waiting) {
             update(state.copy(phase = VoicePhase.THINKING, level = 0f))
@@ -187,7 +191,9 @@ class VoiceSession(
                 if (!valid()) return
                 val retry = autoContinue && !state.muted && ++recognitionFailures <= 3
                 fail(message)
-                automaticRetry = retry
+                // Partial speech is user input, not a disposable failed attempt.
+                // Keep it for explicit review instead of opening a fresh microphone.
+                automaticRetry = retry && !draftPending
                 update(state.copy(retryAtMillis = now() + maxOf(500, retryMillis)))
             }
             override fun level(value: Float) {
@@ -201,6 +207,10 @@ class VoiceSession(
                 stopAudio()
                 val prompt = text.trim().take(8000)
                 if (prompt.isEmpty()) {
+                    if (state.transcript.isNotBlank()) {
+                        fail("Speech recognition ended without a final transcript. Review the captured text before sending.")
+                        return
+                    }
                     if (autoContinue && !state.muted && ++recognitionFailures <= 3) {
                         automaticRetry = true
                         update(state.copy(phase = VoicePhase.PAUSED, retryAtMillis = now() + maxOf(500, audio.retryAfterMillis())))
@@ -337,6 +347,7 @@ class VoiceSession(
     }
     fun fail(message: String) {
         if (state.phase == VoicePhase.CLOSED) return
+        if (state.phase in setOf(VoicePhase.STARTING, VoicePhase.LISTENING, VoicePhase.FINALIZING) && state.transcript.isNotBlank()) draftPending = true
         engaged = false
         automaticRetry = false
         stopAudio()

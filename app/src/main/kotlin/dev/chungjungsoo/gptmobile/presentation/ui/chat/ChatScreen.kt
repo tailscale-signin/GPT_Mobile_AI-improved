@@ -2233,6 +2233,24 @@ fun ChatInputBox(
     val chatInputLineLimits = TextFieldLineLimits.MultiLine(maxHeightInLines = 20)
     val hasQuestionText = inputState.text.isNotEmpty()
     val inputFocus = remember(inputState) { androidx.compose.ui.focus.FocusRequester() }
+    val composerFocusManager = LocalFocusManager.current
+    val composerKeyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+    val reportComposerFocus by androidx.compose.runtime.rememberUpdatedState(onComposerFocusChanged)
+    var composerFocused by remember(inputState) { mutableStateOf(false) }
+    val releaseComposerInput = {
+        // A tab can remove only the composer while the parent chat stays mounted.
+        // Release this editor's input session without dismissing another field's focus.
+        if (composerFocused) {
+            composerKeyboard?.hide()
+            composerFocusManager.clearFocus(force = true)
+            composerFocused = false
+        }
+        reportComposerFocus(false)
+    }
+    DisposableEffect(inputState, composerFocusManager, composerKeyboard) {
+        onDispose { releaseComposerInput() }
+    }
+    LifecycleEventEffect(Lifecycle.Event.ON_STOP) { releaseComposerInput() }
     val haptic = dev.chungjungsoo.gptmobile.presentation.common.rememberAppHaptic()
     var composerNotice by remember { mutableStateOf("") }
     val sendAction = {
@@ -2297,7 +2315,10 @@ fun ChatInputBox(
                             } else {
                                 false
                             }
-                        }.onFocusChanged { onComposerFocusChanged(it.isFocused) },
+                        }.onFocusChanged {
+                            composerFocused = it.isFocused
+                            reportComposerFocus(it.isFocused)
+                        },
                         enabled = chatEnabled,
                         textStyle = mergedStyle,
                         cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),

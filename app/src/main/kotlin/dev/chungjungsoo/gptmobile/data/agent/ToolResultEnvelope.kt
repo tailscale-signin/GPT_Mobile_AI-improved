@@ -3,6 +3,7 @@ package dev.chungjungsoo.gptmobile.data.agent
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -10,25 +11,40 @@ import kotlinx.serialization.json.put
 
 /** Model-facing control metadata is never inferred from the provider's prose. */
 internal object ToolResultEnvelope {
-    val unknownOutcomeCodes = setOf("TIMEOUT_OUTCOME_UNKNOWN", "DISPATCH_OUTCOME_UNKNOWN", "TOOL_OUTCOME_UNKNOWN", "TOOL_RESULT_ID_MISMATCH", "RECONCILIATION_REQUIRED")
+    val unknownOutcomeCodes = setOf("TIMEOUT_OUTCOME_UNKNOWN", "DISPATCH_OUTCOME_UNKNOWN", "TOOL_OUTCOME_UNKNOWN", "TOOL_RESULT_ID_MISMATCH", "RECONCILIATION_REQUIRED", "GATEWAY_OUTCOME_UNKNOWN", "GATEWAY_TOOL_OUTCOME_UNKNOWN", "REMOTE_OUTCOME_UNKNOWN")
 
-    fun isAuthorizationRejection(code: String?): Boolean = code?.startsWith("PERSONAL_DATA_") == true || code in setOf("AUTH_REQUIRED", "AUTH_FAILED", "UNAUTHORIZED", "FORBIDDEN", "PERMISSION_DENIED", "PERMISSION_REVOKED", "GITHUB_ENDPOINT_PERMISSION_REQUIRED", "GITHUB_SSO_REQUIRED", "GITHUB_FORBIDDEN_UNKNOWN")
+    fun isAuthorizationRejection(code: String?): Boolean = code?.startsWith("PERSONAL_DATA_") == true || code in setOf("AUTH_REQUIRED", "AUTH_FAILED", "UNAUTHORIZED", "FORBIDDEN", "PERMISSION_DENIED", "PERMISSION_REVOKED", "AUTHENTICATION_FAILED", "ACCESS_FORBIDDEN", "GITHUB_ENDPOINT_PERMISSION_REQUIRED", "GITHUB_SSO_REQUIRED", "GITHUB_FORBIDDEN_UNKNOWN")
 
     fun isPrecheckRejection(code: String?): Boolean = isAuthorizationRejection(code) || code in setOf("INVALID_ARGUMENTS", "UNSUPPORTED_TOOL_CONTRACT", "UNSUPPORTED_OPERATION", "UNKNOWN_TOOL", "DUPLICATE_ACTION", "NOT_DISPATCHED")
 
     fun executionState(result: AgentToolResult): String = when {
         result.errorCode in unknownOutcomeCodes -> "UNKNOWN_OUTCOME"
+        searchReceiptState(result) != null -> requireNotNull(searchReceiptState(result))
         result.isError && !result.dispatched -> "PRECHECK_REJECTED"
         result.isError -> "FAILED"
         else -> "COMPLETED"
     }
 
+    /** Only our structured search adapter supplies this receipt; arbitrary payload prose is ignored. */
+    private fun searchReceiptState(result: AgentToolResult): String? {
+        val receipt = result.executionReceipt ?: return null
+        if (receipt["schema"] != JsonPrimitive("gptmobile.search-operation.v1") || receipt["callId"] != JsonPrimitive(result.callId)) return null
+        return when {
+            !result.isError && receipt["state"] == JsonPrimitive("COMPLETED") -> "COMPLETED"
+            result.isError && receipt["state"] == JsonPrimitive("PRECHECK_REJECTED") && receipt["requestSent"] == JsonPrimitive(false) -> "PRECHECK_REJECTED"
+            result.isError && receipt["state"] == JsonPrimitive("UNKNOWN_OUTCOME") && receipt["requestSent"] == JsonNull && receipt["bodyReceived"] == JsonPrimitive(false) -> "UNKNOWN_OUTCOME"
+            else -> null
+        }
+    }
+
     private fun category(code: String): String = when {
         code in unknownOutcomeCodes -> "OUTCOME_UNKNOWN"
         code in setOf("INVALID_ARGUMENTS", "TOOL_BATCH_OVERSIZE", "UNSUPPORTED_TOOL_CONTRACT", "TOOL_EXCHANGE_INVALID") -> "CONTRACT"
-        code.startsWith("PERSONAL_DATA_") || code in setOf("PERMISSION_DENIED", "PERMISSION_REVOKED", "AUTH_REQUIRED", "AUTH_FAILED", "UNAUTHORIZED", "FORBIDDEN") -> "AUTHORIZATION"
+        code.startsWith("PERSONAL_DATA_") || code in setOf("PERMISSION_DENIED", "PERMISSION_REVOKED", "AUTH_REQUIRED", "AUTH_FAILED", "UNAUTHORIZED", "FORBIDDEN", "AUTHENTICATION_FAILED", "ACCESS_FORBIDDEN") -> "AUTHORIZATION"
         code == "BUDGET_EXHAUSTED" -> "BUDGET"
-        code in setOf("READ_DEADLINE", "READ_FAILED", "PROVIDER_UNAVAILABLE") -> "AVAILABILITY"
+        code in setOf("PARSING_ERROR", "SERIALIZATION_ERROR") -> "PARSING"
+        code in setOf("DNS_RESOLUTION_FAILED", "NETWORK_TIMEOUT", "NETWORK_DISCONNECTED", "CONNECTION_ABORTED", "TRANSPORT_EOF", "TLS_FAILURE", "DNS_FAILED", "DNS_RECOVERY", "CONNECTION_FAILED", "STREAM_INTERRUPTED", "TIMEOUT") -> "TRANSPORT"
+        code in setOf("READ_DEADLINE", "READ_FAILED", "PROVIDER_UNAVAILABLE", "SERVICE_UNAVAILABLE", "UNAVAILABLE", "SEARCH_PROVIDERS_UNAVAILABLE", "RATE_LIMITED") -> "AVAILABILITY"
         else -> "TOOL_FAILURE"
     }
 
@@ -45,12 +61,12 @@ internal object ToolResultEnvelope {
             buildJsonObject {
                 put("dispatched", result.dispatched)
                 put("state", executionState(result))
-                put("retryable", !isPrecheckRejection(result.errorCode) && result.errorCode in setOf("READ_DEADLINE", "READ_FAILED", "PROVIDER_UNAVAILABLE"))
+                put("retryable", ToolFailureMetadata.retryable(ToolFailureMetadata.normalize(result)))
                 result.executionReceipt?.let { put("receipt", it) }
                 put(
                     "outcome",
                     when {
-                        result.errorCode in unknownOutcomeCodes -> "unknown"
+                        executionState(result) == "UNKNOWN_OUTCOME" -> "unknown"
                         !result.dispatched -> "not_executed"
                         result.isError -> "failed"
                         else -> "completed"
@@ -62,10 +78,7 @@ internal object ToolResultEnvelope {
             put(
                 "error",
                 buildJsonObject {
-                    val code = result.errorCode ?: when {
-                        result.outputBudgetExhausted || result.toolCallBudgetExhausted -> "BUDGET_EXHAUSTED"
-                        else -> "TOOL_FAILURE"
-                    }
+                    val code = requireNotNull(ToolFailureMetadata.normalize(result).errorCode)
                     put(
                         "code",
                         code

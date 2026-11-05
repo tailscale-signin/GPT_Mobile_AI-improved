@@ -73,6 +73,8 @@ internal object FrameTimingRecorder {
         var lastReportMs = SystemClock.elapsedRealtime()
         val effects = FrameEffectsObservation(FrameEffectPressure.guard, lastReportMs)
         val frameBudgetNs = (1_000_000_000.0 / (activity.display?.refreshRate ?: 60f)).toLong()
+        // A WeakHashMap value must not capture its Activity key through the callback.
+        val activityName = activity.javaClass.simpleName
         val listener = Window.OnFrameMetricsAvailableListener { _, metrics, lost ->
             val duration = metrics.getMetric(FrameMetrics.TOTAL_DURATION).coerceAtLeast(0)
             val deadline = metrics.getMetric(FrameMetrics.DEADLINE).takeIf { it > 0 } ?: frameBudgetNs
@@ -91,7 +93,7 @@ internal object FrameTimingRecorder {
             maximumNs = maxOf(maximumNs, duration)
             if (frames >= 120 && nowMs - lastReportMs >= 5000) {
                 lastReportMs = nowMs
-                if (AppLogRecorder.enabled.value) AppLogRecorder.record("Rendering", "FRAME_TIMING · frames=$frames · jankFrames=$slow · droppedSamples=$dropped · averageMs=${totalNs / frames / 1_000_000.0} · maxMs=${maximumNs / 1_000_000.0} · p95UpperMs=${histogram.percentileUpperMs(95)} · p99UpperMs=${histogram.percentileUpperMs(99)} · stallsOver100Ms=${histogram.stallsOver100Ms} · percentileOverflow=${histogram.overflow} · frameBudgetMs=${frameBudgetNs / 1_000_000.0} · screen=${screens.maxByOrNull { it.key }?.value ?: activity.javaClass.simpleName} · graphicsEffects=${RenderingEffectDiagnostics.snapshot()} · operation=${JavaHeapWorkGate.activeOperations} · javaHeapUsedBytes=${Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory()} · javaHeapMaxBytes=${Runtime.getRuntime().maxMemory()} · activeRuns=${runPhases.entries.joinToString { "${it.key}:${it.value}" }}")
+                if (AppLogRecorder.enabled.value) AppLogRecorder.record("Rendering", "FRAME_TIMING · frames=$frames · jankFrames=$slow · droppedSamples=$dropped · averageMs=${totalNs / frames / 1_000_000.0} · maxMs=${maximumNs / 1_000_000.0} · p95UpperMs=${histogram.percentileUpperMs(95)} · p99UpperMs=${histogram.percentileUpperMs(99)} · stallsOver100Ms=${histogram.stallsOver100Ms} · percentileOverflow=${histogram.overflow} · frameBudgetMs=${frameBudgetNs / 1_000_000.0} · screen=${screens.maxByOrNull { it.key }?.value ?: activityName} · graphicsEffects=${RenderingEffectDiagnostics.snapshot()} · operation=${JavaHeapWorkGate.activeOperations} · javaHeapUsedBytes=${Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory()} · javaHeapMaxBytes=${Runtime.getRuntime().maxMemory()} · activeRuns=${runPhases.entries.joinToString { "${it.key}:${it.value}" }}")
                 histogram.clear()
                 frames = 0
                 slow = 0

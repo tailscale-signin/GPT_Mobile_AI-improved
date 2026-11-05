@@ -117,7 +117,14 @@ class AndroidVoiceAudio internal constructor(
             }
         }
     }
-    private fun event(name: String, ticket: Long = generation) = dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("VoiceTiming", "$name · session=$sessionId · attempt=$ticket · elapsedMs=${android.os.SystemClock.elapsedRealtime()}")
+    private fun event(name: String, ticket: Long = generation) = dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("VoiceTiming", "$name · incidentId=voice:$sessionId:$ticket · session=$sessionId · attempt=$ticket · elapsedMs=${android.os.SystemClock.elapsedRealtime()}")
+    private fun recognitionFailure(code: String, stage: String, dispatched: Boolean, ticket: Long = generation, error: Int? = null) {
+        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
+            "VoiceRecognition",
+            "recognition_error=${error ?: "not_reported"} · errorCode=$code · failedStage=$stage · dispatched=$dispatched · incidentId=voice:$sessionId:$ticket · retryAfterMs=${recognitionGate.remainingMillis()} · locale=$languageTag · onDevice=${!allowOnlineSpeech}",
+            "W"
+        )
+    }
     private var watchdog: Runnable? = null
     var languageTag: String = Locale.getDefault().toLanguageTag()
     var allowOnlineSpeech: Boolean = false
@@ -153,14 +160,18 @@ class AndroidVoiceAudio internal constructor(
         }
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             recognitionGate.release(sessionId)
+            recognitionFailure("SPEECH_PERMISSION_REQUIRED", "permission_precheck", false, error = SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS)
             listener.error("Microphone permission is needed for voice chat.")
             return
         }
         val ticket = generation
+        var failedStage = "service_availability"
+        var dispatched = false
         try {
             val onDevice = !allowOnlineSpeech
             if (!recognitionService.available(onDevice)) {
                 recognitionGate.bindingFailed(sessionId)
+                recognitionFailure("SPEECH_SERVICE_UNAVAILABLE", failedStage, false, ticket)
                 listener.failure(
                     if (onDevice) {
                         "On device speech is unavailable. Choose a compatible speech service, or explicitly allow online speech in Voice settings. You can continue typing in chat."
@@ -171,8 +182,10 @@ class AndroidVoiceAudio internal constructor(
                 )
                 return
             }
+            failedStage = "service_creation"
             val engine = recognitionService.create(onDevice)
             recognizer = engine
+            failedStage = "listener_configuration"
             var becameReady = false
             fun active() = !closed && ticket == generation
             engine.setRecognitionListener(object : RecognitionListener {
@@ -195,6 +208,7 @@ class AndroidVoiceAudio internal constructor(
                         armWatchdog(8000) {
                             if (active()) {
                                 terminal("timeout_final")
+                                recognitionFailure("SPEECH_FINALIZATION_TIMEOUT", "finalization", true, ticket)
                                 stop()
                                 listener.error("Speech did not finish. Retry microphone or continue in chat.")
                             }
@@ -227,7 +241,18 @@ class AndroidVoiceAudio internal constructor(
                         recognitionGate.failed(error == SpeechRecognizer.ERROR_TOO_MANY_REQUESTS, sessionId)
                     }
                     stop()
-                    dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("VoiceRecognition", "recognition_error=$error · locale=$languageTag · onDevice=$onDevice", "W")
+                    val code = when {
+                        bindingFailure -> "SPEECH_SERVICE_START_FAILED"
+                        error == SpeechRecognizer.ERROR_TOO_MANY_REQUESTS -> "SPEECH_RATE_LIMITED"
+                        error == SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "SPEECH_PERMISSION_REQUIRED"
+                        error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "SPEECH_SERVICE_BUSY"
+                        error == SpeechRecognizer.ERROR_NETWORK -> "SPEECH_NETWORK_FAILED"
+                        error == SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "SPEECH_NETWORK_TIMEOUT"
+                        error == SpeechRecognizer.ERROR_NO_MATCH || error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "SPEECH_NO_RESULT"
+                        error == SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED || error == SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE -> "SPEECH_LANGUAGE_UNAVAILABLE"
+                        else -> "SPEECH_RECOGNITION_FAILED"
+                    }
+                    recognitionFailure(code, if (becameReady) "recognition" else "service_start", true, ticket, error)
                     if (error == SpeechRecognizer.ERROR_NO_MATCH || error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT) {
                         listener.final("")
                         return
@@ -255,11 +280,14 @@ class AndroidVoiceAudio internal constructor(
                 if (active()) {
                     terminal("timeout_ready")
                     recognitionGate.bindingFailed(sessionId)
+                    recognitionFailure("SPEECH_SERVICE_START_TIMEOUT", "service_start", true, ticket)
                     stop()
                     listener.failure("Microphone did not become ready. Check the Android speech service, or continue typing in chat.", recognitionGate.remainingMillis())
                 }
             }
             started("recognition", ticket)
+            failedStage = "service_start"
+            dispatched = true
             engine.startListening(
                 Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                     putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
@@ -272,6 +300,7 @@ class AndroidVoiceAudio internal constructor(
             event("recognition_start_failed_${failure.javaClass.simpleName}", ticket)
             terminal("start_failed")
             recognitionGate.bindingFailed(sessionId)
+            recognitionFailure("SPEECH_SERVICE_START_FAILED", failedStage, dispatched, ticket)
             stop()
             listener.failure("Could not open the microphone. Check Android permissions and your speech service, or continue typing in chat.", recognitionGate.remainingMillis())
         }

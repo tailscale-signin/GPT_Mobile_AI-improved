@@ -1,15 +1,15 @@
 package dev.chungjungsoo.gptmobile.data.network
 
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
-import org.junit.Test
 import java.io.IOException
 import java.net.ConnectException
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Test
 
 class NetworkRetryUtilsTest {
 
@@ -68,5 +68,12 @@ class NetworkRetryUtilsTest {
             attempts++
             throw SocketTimeoutException("continuous timeout")
         }
+    }
+
+    @Test fun wrappedTransportFailuresUseTheRootCauseWithoutRetryingCancellation() {
+        assertTrue(NetworkRetryUtils.isTransientNetworkError(IllegalStateException("provider failed", java.net.UnknownHostException("dns"))))
+        assertTrue(NetworkRetryUtils.isTransientNetworkError(java.io.IOException("read failed", java.net.SocketException("Software caused connection abort"))))
+        assertFalse(NetworkRetryUtils.isTransientNetworkError(java.io.IOException("connection reset", kotlinx.coroutines.CancellationException("cancel"))))
+        assertFalse(NetworkRetryUtils.isTransientNetworkError(java.io.IOException("timed out", javax.net.ssl.SSLHandshakeException("certificate"))))
     }
 }

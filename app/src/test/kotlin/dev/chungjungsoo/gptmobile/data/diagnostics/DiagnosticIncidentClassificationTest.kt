@@ -90,13 +90,25 @@ class DiagnosticIncidentClassificationTest {
     }
 
     @Test fun recognitionRateLimitIsNotReportedAsAPermissionFailure() {
-        val limited = classifyDiagnostic("W", "VoiceRecognition", "recognition_error=10 · locale=en-US · onDevice=true")
+        val limited = classifyDiagnostic("W", "VoiceRecognition", "recognition_error=10 · failedStage=recognition · locale=en-US · onDevice=true")
         val permission = classifyDiagnostic("W", "VoiceRecognition", "recognition_error=9 · locale=en-US · onDevice=true")
         assertEquals("speech_rate_limit", limited.category)
         assertEquals("speech_permission", permission.category)
         assertTrue(limited.actionable)
         assertTrue(permission.actionable)
         assertEquals("warning", classifyDiagnostic("W", "VoiceRecognition", "recognition_error=100 · locale=en-US").category)
+    }
+
+    @Test fun speechStartAndLegacyErrorTenDoNotInventAConfirmedRateLimit() {
+        assertEquals("speech_service_start", classifyDiagnostic("W", "VoiceRecognition", "recognition_error=10 · errorCode=SPEECH_SERVICE_START_FAILED · failedStage=service_start · dispatched=true").category)
+        assertEquals("speech_service_start", classifyDiagnostic("W", "VoiceRecognition", "recognition_error=not_reported · errorCode=SPEECH_SERVICE_UNAVAILABLE · dispatched=false").category)
+        assertEquals("speech_service_or_rate_limit", classifyDiagnostic("W", "VoiceRecognition", "recognition_error=10 · locale=en-US").category)
+    }
+
+    @Test fun gcSamplingAndJobServiceCompatibilityAreNotClaimedAsMemoryLeaksOrSuccessfulJobs() {
+        assertEquals("gc_sampling_window", classifyDiagnostic("W", "Android", "W/app: Reducing the number of considered missed Gc histogram windows from 400 to 100").category)
+        assertFalse(classifyDiagnostic("W", "Android", "W/app: Reducing the number of considered missed Gc histogram windows from 400 to 100").actionable)
+        assertEquals("work_scheduler_compatibility", classifyDiagnostic("W", "Android", "W/SystemJobService: SystemJobService.onNetworkChanged() is not implemented").category)
     }
 
     @Test fun vendorSettingErrorsRequireAttributionAndNeverHideACrash() {

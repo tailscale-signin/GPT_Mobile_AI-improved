@@ -22,22 +22,26 @@ object NetworkRetryUtils {
     fun isTransientNetworkError(throwable: Throwable): Boolean {
         val causes = generateSequence(throwable) { it.cause?.takeUnless { cause -> cause === it } }.take(8).toList()
         if (causes.any { it is CancellationException || it is javax.net.ssl.SSLHandshakeException || it is javax.net.ssl.SSLPeerUnverifiedException || it is java.security.cert.CertificateException }) return false
-        return when (throwable) {
-            is CancellationException -> false
-            is SocketTimeoutException,
-            is HttpRequestTimeoutException,
-            is ConnectException,
-            is UnknownHostException,
-            is UnresolvedAddressException,
-            is SSLException -> true
-            is IOException -> {
-                val message = throwable.message?.lowercase() ?: ""
-                message.contains("connection reset") ||
-                    message.contains("software caused connection abort") ||
-                    message.contains("broken pipe") ||
-                    message.contains("timeout")
+        return causes.any { cause ->
+            when (cause) {
+                is CancellationException -> false
+                is SocketTimeoutException,
+                is HttpRequestTimeoutException,
+                is ConnectException,
+                is UnknownHostException,
+                is UnresolvedAddressException,
+                is SSLException -> true
+                is IOException -> {
+                    val message = cause.message?.lowercase() ?: ""
+                    message.contains("connection reset") ||
+                        message.contains("software caused connection abort") ||
+                        message.contains("broken pipe") ||
+                        message.contains("unexpected end of stream") ||
+                        message.contains("unexpected eof") ||
+                        message.contains("timeout")
+                }
+                else -> false
             }
-            else -> false
         }
     }
 

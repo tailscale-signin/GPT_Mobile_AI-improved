@@ -43,6 +43,18 @@ class PlatformTimeoutTest {
     }
 
     @Test
+    fun `profile connection override reaches HTTP and respects worker deadline`() {
+        val direct = HttpRequestBuilder().apply {
+            url.takeFrom("http://192.168.1.2:8080/v1/chat/completions")
+            applyPlatformStreamingTimeout(30, connectionTimeoutMillis = 12_000)
+        }
+        assertEquals(12_000L, checkNotNull(direct.getCapabilityOrNull(HttpTimeoutCapability)).connectTimeoutMillis)
+        val worker = dev.chungjungsoo.gptmobile.data.network.WorkerRequestBudget(6_000, java.util.concurrent.atomic.AtomicInteger(), clock = { 0L })
+        val bounded = HttpRequestBuilder().apply { applyPlatformStreamingTimeout(30, worker, 12_000) }
+        assertEquals(6_000L, checkNotNull(bounded.getCapabilityOrNull(HttpTimeoutCapability)).connectTimeoutMillis)
+    }
+
+    @Test
     fun `zero platform timeout disables socket timeout`() {
         assertNull(platformTimeoutSecondsToSocketTimeoutMillis(0))
     }

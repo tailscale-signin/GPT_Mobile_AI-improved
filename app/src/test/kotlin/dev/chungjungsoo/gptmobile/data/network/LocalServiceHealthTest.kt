@@ -10,6 +10,13 @@ import org.junit.Before
 import org.junit.Test
 
 class LocalServiceHealthTest {
+    @org.junit.Test fun phaseTimeoutsAreDistinguishedFromSocketConnectionTimeouts() {
+        assertEquals(ConnectionHealth.MCP_HANDSHAKE_FAILED, LocalServiceHealth.classify(IllegalStateException("MCP_INITIALIZATION_TIMEOUT: initialization timed out")))
+        assertEquals(ConnectionHealth.STREAM_IDLE_TIMEOUT, LocalServiceHealth.classify(SocketTimeoutException("Read timed out")))
+        assertEquals(ConnectionHealth.CONNECT_TIMEOUT, LocalServiceHealth.classify(SocketTimeoutException("Connect timed out")))
+        assertEquals(ConnectionHealth.REQUEST_TIMEOUT, LocalServiceHealth.classify(dev.chungjungsoo.gptmobile.data.agent.tool.McpRequestTimeoutException("tools/list", 100)))
+    }
+
     @Test fun recoveryCoordinationAndIntentionalCancellationDoNotCreateEndpointFailures() {
         val url = "https://recovery.example/mcp"
         LocalServiceHealth.recordFailure(url, IllegalStateException("DNS_RECOVERY: probe already owned"))

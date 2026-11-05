@@ -407,9 +407,10 @@ internal class GitHubRepositorySession(
         val all: List<JsonObject>,
         val cursor: Int,
         val treeComplete: Boolean,
-        val priorCoverage: JsonObject?
+        val priorCoverage: JsonObject?,
+        val recovery: JsonObject? = null
     ) {
-        val cacheKey get() = "search-page-v4:$searchId:$cursor:$batchSize:$maxNewBlobs"
+        val cacheKey get() = "search-page-v5:$searchId:$cursor:$batchSize:$maxNewBlobs"
         val fromStart get() = priorCoverage?.get("from_start")?.jsonPrimitive?.booleanOrNull == true
     }
 
@@ -433,14 +434,17 @@ internal class GitHubRepositorySession(
         require(args.s("mode").ifBlank { "literal" } in setOf("literal", "definitions", "references", "paths", "tests", "patterns"))
         val request = prepareSearch(context, args, tree(context))
         store.read(scope, request.cacheKey)?.let { cached ->
-            return JsonObject(cached + mapOf("cache_hit" to JsonPrimitive(true), "new_blobs" to JsonPrimitive(0)))
+            return withSearchRecovery(JsonObject(cached + mapOf("cache_hit" to JsonPrimitive(true), "new_blobs" to JsonPrimitive(0))), request.recovery)
         }
         val progress = SearchProgress(request)
         scanSearch(context, request, progress)
         val result = searchResult(context, request, progress)
         retainSearchPage(request, progress, result)
-        return result
+        return withSearchRecovery(result, request.recovery)
     }
+
+    private fun withSearchRecovery(result: JsonObject, recovery: JsonObject?): JsonObject =
+        if (recovery == null) result else JsonObject(result + ("recovery" to recovery))
 
     private suspend fun prepareSearch(context: GitHubTaskSnapshot, args: JsonObject, data: JsonObject): SearchRequest {
         val query = args.s("query")
@@ -454,25 +458,101 @@ internal class GitHubRepositorySession(
         val batchSize = args.s("batch_size").ifBlank { "1000" }.toInt().also { require(it in 1..1000) }
         val maxNewBlobs = args.s("max_new_blobs").ifBlank { "4" }.toInt().also { require(it in 1..100) }
         val pathPrefix = args.s("path_prefix")
-        val searchId = GitHubRepositoryStateStore.digest(listOf(context.commitSha, query, mode, pathPrefix, extension, options.json().toString()).joinToString("\u0000"))
-        require(args.s("search_id").isBlank() || args.s("search_id") == searchId) { "Search parameters changed. Start at index_cursor=0 without search_id, or use the exact continuation." }
-        val all = data["tree"]!!.jsonArray.map { it.jsonObject }.filter { item ->
-            item.s("type") == "blob" &&
-                (mode != "tests" || item.s("path").contains("test", true)) &&
-                (pathPrefix.isBlank() || item.s("path").startsWith(pathPrefix)) &&
-                (options.suffix.isEmpty() || item.s("path").endsWith(options.suffix)) &&
-                (extension.isEmpty() || item.s("path").substringAfterLast('.', "").equals(extension, true))
-        }.distinctBy { it.s("path") }.sortedBy { it.s("path") }
-        val cursor = args.s("index_cursor").ifBlank { "0" }.toInt().also { require(it in 0..all.size) }
+        val definition = buildJsonObject {
+            put("owner", context.owner.lowercase(java.util.Locale.ROOT))
+            put("repo", context.repo.lowercase(java.util.Locale.ROOT))
+            put("commit_sha", context.commitSha.lowercase(java.util.Locale.ROOT))
+            put("tree_sha", context.treeSha.lowercase(java.util.Locale.ROOT))
+            put("query", query)
+            put("mode", mode)
+            put("path_prefix", pathPrefix)
+            put("file_extension", extension)
+            put("batch_size", batchSize)
+            put("max_new_blobs", maxNewBlobs)
+            options.json().forEach { (key, value) -> put(key, value) }
+        }
+        val searchId = GitHubRepositoryStateStore.digest(definition.toString())
+        val requestedSearchId = args.s("search_id")
+        val cursorText = args.s("index_cursor").ifBlank { "0" }
+        val requestedCursor = cursorText.toIntOrNull()?.takeIf { it >= 0 }
+            ?: throw searchValidation("GITHUB_SEARCH_CURSOR_INVALID", context, definition, "index_cursor must be a nonnegative integer. Start a new read-only search with index_cursor=0 and no search_id.")
+        val changed = requestedSearchId.isNotBlank() && requestedSearchId != searchId
+        val previous = if (changed) store.read(scope, "search-definition:$requestedSearchId") else null
+        if (changed && previous == null) {
+            throw searchValidation("GITHUB_SEARCH_CURSOR_UNAVAILABLE", context, definition, "The search_id was not issued for a retained search in this task. Start with index_cursor=0 without search_id; no candidate files were scanned.")
+        }
+        if (requestedCursor > 0 && requestedSearchId.isBlank()) {
+            throw searchValidation("GITHUB_SEARCH_CURSOR_UNBOUND", context, definition, "A nonzero index_cursor requires the search_id from the exact continuation. Reset index_cursor=0 to begin a new read-only search.")
+        }
+        val recovery = if (changed) {
+            buildJsonObject {
+                put("code", "SEARCH_PARAMETERS_CHANGED")
+                put("continuation_status", "PRECHECK_REJECTED")
+                put("action", "RESTARTED_READ_ONLY_SEARCH")
+                put("restarted_at_index_cursor", 0)
+                put("previous_search_id", requestedSearchId)
+                put("previous_results_policy", "Previously returned pages and evidence are retained under their original search identity, subject to normal bounded retention. They are not mixed into the new query.")
+                put("previous_search", JsonObject(requireNotNull(previous).filterKeys { it !in setOf("tree_sha", "pattern_match") } + mapOf("index_cursor" to JsonPrimitive(0), "search_id" to JsonPrimitive(requestedSearchId))))
+            }
+        } else {
+            null
+        }
+        val all = withContext(Dispatchers.Default) {
+            data["tree"]!!.jsonArray.map { it.jsonObject }.filter { item ->
+                item.s("type") == "blob" &&
+                    (mode != "tests" || item.s("path").contains("test", true)) &&
+                    (pathPrefix.isBlank() || item.s("path").startsWith(pathPrefix)) &&
+                    (options.suffix.isEmpty() || item.s("path").endsWith(options.suffix)) &&
+                    (extension.isEmpty() || item.s("path").substringAfterLast('.', "").equals(extension, true))
+            }.distinctBy { it.s("path") }.sortedBy { it.s("path") }
+        }
+        val cursor = if (changed) 0 else requestedCursor
+        if (cursor > all.size) throw searchValidation("GITHUB_SEARCH_CURSOR_INVALID", context, definition, "index_cursor exceeds the pinned candidate count. Use an issued continuation or restart from index_cursor=0 without search_id.")
         val priorCoverage = if (cursor == 0) buildJsonObject { put("from_start", true) } else store.read(scope, "search-coverage:$searchId:$cursor")
-        return SearchRequest(query, mode, options, extension, pathPrefix, batchSize, maxNewBlobs, searchId, all, cursor, data["truncated"]?.jsonPrimitive?.booleanOrNull != true, priorCoverage)
+        if (cursor > 0 && priorCoverage == null) {
+            throw searchValidation("GITHUB_SEARCH_CURSOR_UNAVAILABLE", context, definition, "This cursor is not an observed page boundary in the retained search. Restart from index_cursor=0 without search_id; existing evidence remains retained.")
+        }
+        store.write(scope, "search-definition:$searchId", definition)
+        val evicted = mutableListOf<String>()
+        store.update(scope, "search-definition-keys") { old ->
+            val ids = old?.get("keys")?.jsonArray.orEmpty().map { it.jsonPrimitive.content }.filter { it != searchId } + searchId
+            evicted += ids.dropLast(64)
+            buildJsonObject { put("keys", JsonArray(ids.takeLast(64).map(::JsonPrimitive))) }
+        }
+        evicted.forEach { store.remove(scope, "search-definition:$it") }
+        return SearchRequest(query, mode, options, extension, pathPrefix, batchSize, maxNewBlobs, searchId, all, cursor, data["truncated"]?.jsonPrimitive?.booleanOrNull != true, priorCoverage, recovery)
     }
+
+    private fun searchValidation(code: String, context: GitHubTaskSnapshot, definition: JsonObject, message: String) = GitHubReadValidation(
+        code,
+        buildJsonObject {
+            put("schema", "github.read_validation.v1")
+            put("error_code", code)
+            put("status", "PRECHECK_REJECTED")
+            put("failed_stage", "search_continuation")
+            put("read_dispatched", false)
+            put("retry_unchanged", false)
+            put("commit_sha", context.commitSha)
+            put("message", message)
+            put(
+                "corrective_actions",
+                JsonArray(
+                    listOf(
+                        buildJsonObject {
+                            put("tool", "github_search")
+                            put("arguments", JsonObject(definition.filterKeys { it !in setOf("tree_sha", "pattern_match") } + ("index_cursor" to JsonPrimitive(0))))
+                        }
+                    )
+                )
+            )
+        }
+    )
 
     private suspend fun scanSearch(context: GitHubTaskSnapshot, request: SearchRequest, progress: SearchProgress) {
         val all = request.all
         // Related-file discovery reuses one path list for the entire page.
         val paths = all.map { it.s("path") }
-        while (progress.next < all.size && (request.mode == "paths" || progress.next - request.cursor < request.batchSize) && progress.hits.size < progress.hitLimit) {
+        while (progress.next < all.size && progress.next - request.cursor < request.batchSize && progress.hits.size < progress.hitLimit) {
             kotlinx.coroutines.currentCoroutineContext().ensureActive()
             if (progress.timedOut()) break
             val item = all[progress.next]
@@ -752,17 +832,14 @@ internal class GitHubRepositorySession(
     private suspend fun read(context: GitHubTaskSnapshot, args: JsonObject): JsonObject {
         val ranges = args["ranges"] as? JsonArray ?: JsonArray(listOf(args))
         require(ranges.size in 1..8) { "Read between one and eight ranges." }
-        val entries = tree(context)["tree"]!!.jsonArray.map { it.jsonObject }.associateBy { it.s("path") }
-        fun selectedEntry(path: String): JsonObject {
-            GitHubWorkspaceClient.filePath(path)
-            val entry = entries[path] ?: run {
-                val available = GitHubSearchContext.missingPathCandidates(path, entries.values.filter { it.s("type") == "blob" }.map { it.s("path") })
-                throw IllegalArgumentException("Path is not in the pinned tree: $path. Use github_search mode=paths to discover exact paths." + if (available.isEmpty()) "" else " Candidate files in the pinned tree (verify before reading): ${available.joinToString()}")
+        val pinnedTree = tree(context)
+        val entries = pinnedTree["tree"]!!.jsonArray.map { it.jsonObject }.associateBy { it.s("path") }
+        val treeComplete = pinnedTree["truncated"]?.jsonPrimitive?.booleanOrNull != true
+        val selected = withContext(Dispatchers.Default) {
+            ranges.map { it.jsonObject.s("path") }.distinct().associateWith { path ->
+                GitHubPinnedPathResolver.resolve(path, entries, context.commitSha, treeComplete)
             }
-            require(entry.s("mode") in setOf("", "100644", "100755") && entry.s("type") == "blob") { "Only regular text files can be read." }
-            return entry
         }
-        val selected = ranges.map { it.jsonObject.s("path") }.distinct().associateWith(::selectedEntry)
         val permits = Semaphore(2)
         val sources = coroutineScope {
             selected.map { (path, entry) -> async { permits.withPermit { path to blob(context, entry).s("content") } } }.awaitAll().toMap()

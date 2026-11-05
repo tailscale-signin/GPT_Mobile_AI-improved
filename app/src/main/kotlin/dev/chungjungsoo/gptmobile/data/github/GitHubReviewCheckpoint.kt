@@ -16,7 +16,7 @@ internal class GitHubReviewCheckpoint(
     private val read: suspend (String) -> JsonObject?,
     private val write: suspend (String, JsonObject) -> Unit
 ) {
-    data class Saved(val draft: String, val receipts: List<String>, val blockedReason: String? = null, val inputLimit: Int? = null)
+    data class Saved(val draft: String, val receipts: List<String>, val blockedReason: String? = null, val inputLimit: Int? = null, val reviewerRevision: String = "")
     private val taskHash = researchHash(task)
     private suspend fun text(value: String): String {
         require(value.toByteArray().size <= 16 * 1024 * 1024)
@@ -52,12 +52,12 @@ internal class GitHubReviewCheckpoint(
             }
         }.also { require(it.toByteArray().size <= 16 * 1024 * 1024 && researchHash(it) == digest) { "Review checkpoint content changed." } }
     }
-    suspend fun save(draft: String, receipts: List<String>, inputLimit: Int? = null) {
+    suspend fun save(draft: String, receipts: List<String>, inputLimit: Int? = null, reviewerRevision: String = "") {
         require(receipts.size <= 4096 && receipts.sumOf { it.toByteArray().size.toLong() } <= 16 * 1024 * 1024)
         val draftRef = text(draft)
         val refs = receipts.map { text(it) }
         val previous = read("active")
-        val sameCandidate = previous?.get("task") == JsonPrimitive(taskHash) && previous["draft"] == JsonPrimitive(draftRef) && previous["receipts"] == JsonArray(refs.map(::JsonPrimitive))
+        val sameCandidate = previous?.get("task") == JsonPrimitive(taskHash) && previous["draft"] == JsonPrimitive(draftRef) && previous["receipts"] == JsonArray(refs.map(::JsonPrimitive)) && (previous["reviewer_revision"]?.jsonPrimitive?.content.orEmpty() == reviewerRevision)
         write(
             "active",
             buildJsonObject {
@@ -65,6 +65,8 @@ internal class GitHubReviewCheckpoint(
                 put("draft", draftRef)
                 put("receipts", JsonArray(refs.map(::JsonPrimitive)))
                 put("state", "PENDING")
+                put("reviewer_revision", reviewerRevision)
+                put("review_requirements", JsonArray((listOf("ORIGINAL_TASK", "NONEMPTY_DRAFT", "REVIEW_INPUT_CAPACITY") + if (GitHubRequestCompletion.requiresRepositoryEvidence(task)) listOf("REPOSITORY_EVIDENCE") else emptyList()).map(::JsonPrimitive)))
                 inputLimit?.let { put("input_limit", it.coerceAtLeast(0)) }
                 put("format_retries", if (sameCandidate) (previous.get("format_retries") as? JsonPrimitive)?.intOrNull ?: 0 else 0)
             }
@@ -99,16 +101,16 @@ internal class GitHubReviewCheckpoint(
                 require(bytes <= 16 * 1024 * 1024)
             }
         }
-        return Saved(restore(row["draft"]!!.jsonPrimitive.content), receipts, row["failure_code"]?.jsonPrimitive?.content.takeIf { row["state"] == JsonPrimitive("BLOCKED") }, (row["input_limit"] as? JsonPrimitive)?.intOrNull)
+        return Saved(restore(row["draft"]!!.jsonPrimitive.content), receipts, row["failure_code"]?.jsonPrimitive?.content.takeIf { row["state"] == JsonPrimitive("BLOCKED") }, (row["input_limit"] as? JsonPrimitive)?.intOrNull, row["reviewer_revision"]?.jsonPrimitive?.content.orEmpty())
     }
 
     /** Failure metadata is retained with the protected checkpoint even when verbose logging is disabled. */
-    suspend fun failed(code: String, blocked: Boolean = true) {
+    suspend fun failed(code: String, blocked: Boolean = true, details: JsonObject = JsonObject(emptyMap())) {
         val current = read("active") ?: return
         write(
             "active",
             JsonObject(
-                current + mapOf(
+                current + details + mapOf(
                     "state" to JsonPrimitive(if (blocked) "BLOCKED" else "PENDING"),
                     "failure_code" to JsonPrimitive(code),
                     "failed_stage" to JsonPrimitive("answer_review"),
@@ -117,19 +119,31 @@ internal class GitHubReviewCheckpoint(
             )
         )
     }
-    suspend fun verdict(prompt: String): String? = read("verdict:${researchHash(prompt)}")?.get("text")?.jsonPrimitive?.content
-    suspend fun verdict(prompt: String, result: String) {
-        require(result.toByteArray().size <= 128 * 1024)
-        write("verdict:${researchHash(prompt)}", buildJsonObject { put("text", result) })
+
+    // Legacy prompt-only entries cannot establish which reviewer produced them.
+    // Keep the saved draft, but require a new review when its configuration changes.
+    private fun passKey(kind: String, prompt: String, reviewerRevision: String): String {
+        val identity = buildJsonObject {
+            put("task", taskHash)
+            put("reviewer_revision", reviewerRevision)
+            put("prompt", prompt)
+        }
+        return "$kind:v2:${researchHash(identity.toString())}"
     }
-    suspend fun repair(prompt: String): String? {
-        val row = read("repair:${researchHash(prompt)}") ?: return null
+
+    suspend fun verdict(prompt: String, reviewerRevision: String): String? = read(passKey("verdict", prompt, reviewerRevision))?.get("text")?.jsonPrimitive?.content
+    suspend fun verdict(prompt: String, result: String, reviewerRevision: String) {
+        require(result.toByteArray().size <= 128 * 1024)
+        write(passKey("verdict", prompt, reviewerRevision), buildJsonObject { put("text", result) })
+    }
+    suspend fun repair(prompt: String, reviewerRevision: String): String? {
+        val row = read(passKey("repair", prompt, reviewerRevision)) ?: return null
         return restore(row["text"]!!.jsonPrimitive.content)
     }
-    suspend fun repair(prompt: String, result: String) {
+    suspend fun repair(prompt: String, result: String, reviewerRevision: String) {
         require(result.isNotBlank() && result.length <= 1_048_576)
         val digest = text(result)
-        write("repair:${researchHash(prompt)}", buildJsonObject { put("text", digest) })
+        write(passKey("repair", prompt, reviewerRevision), buildJsonObject { put("text", digest) })
     }
     suspend fun completed() {
         val current = read("active") ?: return

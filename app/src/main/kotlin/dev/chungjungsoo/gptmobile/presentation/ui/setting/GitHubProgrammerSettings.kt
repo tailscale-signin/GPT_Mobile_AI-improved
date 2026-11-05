@@ -51,12 +51,15 @@ internal fun GitHubProfilePicker(profiles: List<PlatformV2>, selectedUid: String
 }
 
 @Composable
-internal fun GitHubProgrammerSettings(workspace: GitHubWorkspaceState, state: GitHubProgrammerState, onProfile: (String?) -> Unit, onIndex: (Boolean) -> Unit, onPrepare: () -> Unit, onSettings: (dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride) -> Unit = {}, onExport: () -> Unit = {}) {
+internal fun GitHubProgrammerSettings(workspace: GitHubWorkspaceState, state: GitHubProgrammerState, onProfile: (String?) -> Unit, onIndex: (Boolean) -> Unit, onPrepare: () -> Unit, onSettings: (dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride) -> Unit = {}, onExport: () -> Unit = {}, onOpenRepositoryMap: (() -> Unit)? = null) {
     var showConnectionDoctor by remember { mutableStateOf(false) }
     if (showConnectionDoctor) ConnectionDoctorDialog(onDismiss = { showConnectionDoctor = false }, initialProfileUid = state.profileUid)
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         GitHubProfilePicker(state.profiles, state.profileOverrideUid, onProfile)
         OutlinedButton(onClick = { showConnectionDoctor = true }, enabled = state.profileUid != null, modifier = Modifier.testTag("github_test_connection")) { Text("Test connection") }
+        onOpenRepositoryMap?.let { open ->
+            OutlinedButton(onClick = open, modifier = Modifier.fillMaxWidth().testTag("github_repository_map")) { Text("Repository map") }
+        }
         var gatewayMenu by remember { mutableStateOf(false) }
         OutlinedCard(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {

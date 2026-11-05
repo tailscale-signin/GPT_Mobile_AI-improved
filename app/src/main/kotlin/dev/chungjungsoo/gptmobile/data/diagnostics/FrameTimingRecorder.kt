@@ -53,6 +53,7 @@ internal object FrameTimingRecorder {
             totalNs += duration
             maximumNs = maxOf(maximumNs, duration)
             val nowMs = SystemClock.elapsedRealtime()
+            FrameEffectPressure.guard.observeCriticalStall(duration, nowMs)
             if (frames >= 120 && nowMs - lastReportMs >= 5000) {
                 lastReportMs = nowMs
                 FrameEffectPressure.guard.observe(frames, slow, histogram.stallsOver100Ms, nowMs)

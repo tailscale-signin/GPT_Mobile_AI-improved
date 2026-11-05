@@ -46,6 +46,10 @@ class ChatBenchmarkActivity : ComponentActivity() {
                     FiveProfileStreamingFixture()
                     return@MaterialTheme
                 }
+                if (intent.getStringExtra("screen") == "logs") {
+                    AppLogBenchmarkFixture()
+                    return@MaterialTheme
+                }
                 if (intent.getStringExtra("screen") == "settings") {
                     var search by remember { mutableStateOf("") }
                     LazyColumn(Modifier.fillMaxSize().semantics { testTagsAsResourceId = true }.testTag("benchmark_settings")) {

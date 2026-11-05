@@ -27,6 +27,32 @@ class CombinedDispatchSizeTest(unittest.TestCase):
         ):
             self.assertTrue(SIZE.is_dispatch_method(descriptor, method))
 
+    def test_compatible_streaming_and_extracted_request_stages_are_guarded(self):
+        for descriptor, method in (
+            (SIZE.COMPATIBLE_ADAPTER + '$openSession$4$streamRound$1;', 'invokeSuspend'),
+            (SIZE.COMPATIBLE_ADAPTER + ';', 'openSession$requestConfiguration'),
+            (SIZE.COMPATIBLE_ADAPTER + ';', 'openSession$completionRequest'),
+            (SIZE.COMPATIBLE_ADAPTER + ';', 'streamGroqAttempt'),
+            (SIZE.COMPATIBLE_ADAPTER + '$streamGroqAttempt$2$1;', 'invokeSuspend'),
+        ):
+            self.assertTrue(SIZE.is_dispatch_method(descriptor, method))
+
+    def test_packaged_gate_requires_the_actual_compatible_streaming_coroutine(self):
+        local = {'class': 'Ldev/chungjungsoo/gptmobile/data/agent/provider/LiteRtLmAdapter$openSession$3$streamPlannedRound$1;',
+                 'method': 'invokeSuspend'}
+        compatible = {'class': SIZE.COMPATIBLE_ADAPTER + '$openSession$4$streamRound$1;',
+                      'method': 'invokeSuspend'}
+        SIZE.require_provider_coroutines([local, compatible])
+        for wrapper in (
+            {'class': SIZE.COMPATIBLE_ADAPTER + '$streamGroqAttempt$1;', 'method': 'invokeSuspend'},
+            {'class': compatible['class'], 'method': 'invoke'},
+            {'class': SIZE.COMPATIBLE_ADAPTER + ';', 'method': 'streamRound'},
+        ):
+            with self.assertRaisesRegex(ValueError, 'OpenAI-compatible streaming'):
+                SIZE.require_provider_coroutines([local, wrapper])
+        with self.assertRaisesRegex(ValueError, 'local inference planning'):
+            SIZE.require_provider_coroutines([compatible])
+
     def test_guard_uses_art_code_units_and_does_not_match_unrelated_names(self):
         self.assertEqual(16383, SIZE.ART_CODE_UNIT_LIMIT)
         self.assertFalse(SIZE.is_dispatch_method(SIZE.COMBINED_PLANNER + ';', 'prepareFallback'))

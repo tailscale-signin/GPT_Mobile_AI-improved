@@ -88,4 +88,32 @@ class DiagnosticIncidentClassificationTest {
         assertEquals("platform_job_hint", classifyDiagnostic("W", "Android", prefix + "W/JobInfo(123): Requested important-while-foreground flag for job116 is ignored and takes no effect").category)
         assertEquals("Pipeline create failed", diagnosticEventMessage(prefix + "I/AdrenoVK-0(123): Pipeline create failed"))
     }
+
+    @Test fun recognitionRateLimitIsNotReportedAsAPermissionFailure() {
+        val limited = classifyDiagnostic("W", "VoiceRecognition", "recognition_error=10 · locale=en-US · onDevice=true")
+        val permission = classifyDiagnostic("W", "VoiceRecognition", "recognition_error=9 · locale=en-US · onDevice=true")
+        assertEquals("speech_rate_limit", limited.category)
+        assertEquals("speech_permission", permission.category)
+        assertTrue(limited.actionable)
+        assertTrue(permission.actionable)
+        assertEquals("warning", classifyDiagnostic("W", "VoiceRecognition", "recognition_error=100 · locale=en-US").category)
+    }
+
+    @Test fun vendorSettingErrorsRequireAttributionAndNeverHideACrash() {
+        val platform = classifyDiagnostic("E", "Android", "E/System: Settings key: <asus_leak_detect_proj> is not readable")
+        assertEquals("protected_settings_access", platform.category)
+        assertEquals("error", platform.severity)
+        assertTrue(platform.actionable)
+        val fatal = classifyDiagnostic("F", "Android", "F/AndroidRuntime: FATAL EXCEPTION in finalizer: asus_leak_detect_proj")
+        assertEquals("fatal", fatal.category)
+        assertEquals("critical", fatal.severity)
+        assertEquals("fatal", classifyDiagnostic("I", "AppCrash", "asus_leak_detect_proj").category)
+    }
+
+    @Test fun schedulerAndUnboundSpeechWarningsRemainActionableWithoutInventingFailures() {
+        assertEquals("work_scheduler_reconciliation", classifyDiagnostic("W", "Android", "W/WM: Didn't find WorkSpec for id abc").category)
+        assertEquals("network_callback_lifecycle", classifyDiagnostic("W", "Android", "W/ConnectivityManager: callback not found for CALLBACK_AVAILABLE message").category)
+        assertEquals("speech_engine_lifecycle", classifyDiagnostic("W", "Android", "W/TextToSpeech: stop failed: not bound to TTS engine").category)
+        assertEquals("fatal", classifyDiagnostic("F", "Android", "Feedback manager requires a model with a single signature").category)
+    }
 }

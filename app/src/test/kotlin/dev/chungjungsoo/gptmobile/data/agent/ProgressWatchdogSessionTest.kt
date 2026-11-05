@@ -12,6 +12,19 @@ import org.junit.Test
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class ProgressWatchdogSessionTest {
     @Test
+    fun profileConnectionTimeoutIsCarriedIntoThePhysicalTransportContext() = runTest {
+        var observed: Long? = null
+        val session = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow<ProviderEvent> {
+                observed = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.network.ProfileConnectionTimeout]?.millis
+                emit(ProviderEvent.Completed)
+            }
+        }
+        session.withProgressWatchdog(settings = ProgressDeadlineSettings(connectMillis = 12_000), nowMillis = { testScheduler.currentTime }).streamRound(emptyList(), emptyList()).toList()
+        assertEquals(12_000L, observed)
+    }
+
+    @Test
     fun latePrefillLabelDoesNotRestartTheFirstProgressDeadline() = runTest {
         val session = object : AgentProviderSession {
             override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow<ProviderEvent> {

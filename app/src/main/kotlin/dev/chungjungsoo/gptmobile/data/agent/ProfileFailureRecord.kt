@@ -41,7 +41,7 @@ data class ProfileFailureRecord(
             val statuses = httpStatus.findAll(details).map { it.groupValues[1] }.toSet()
             val permanentEndpoint = "410" in statuses || details.trim() == "410" || Regex("(?i)\\b410\\s+Gone\\b|endpoint.{0,40}(?:retired|removed|gone)|model.{0,30}(?:decommissioned|retired)").containsMatchIn(details)
             val billing = "402" in statuses || details.trim() == "402" || Regex("(?i)credit balance|insufficient (?:credits|funds|balance)|billing.{0,30}(?:required|disabled|exhausted)|payment required").containsMatchIn(details)
-            val reviewBlocked = details.contains("Saved review requires new evidence", true) || details.contains("GITHUB_REVIEW_BLOCKED", true) || details.contains("unchanged draft will not be reviewed again", true)
+            val reviewBlocked = details.contains("REVIEW_INPUT_REQUIRED", true) || details.contains("Saved review requires new evidence", true) || details.contains("GITHUB_REVIEW_BLOCKED", true) || details.contains("unchanged draft will not be reviewed again", true)
             val privacyBlocked = details.contains("POLICY_RESTRICTED", true) || details.contains("PERSONAL_DATA_LOCAL_ONLY", true)
             val category = when {
                 circuit -> "CIRCUIT_BREAKER_OPEN"
@@ -80,7 +80,7 @@ data class ProfileFailureRecord(
                     circuit -> "provider_admission"
                     category == "DNS_RESOLUTION_FAILED" -> "dns_resolution"
                     category == "CONNECTION" -> "transport"
-                    category == "ANSWER_REVIEW" -> "answer_review"
+                    category in setOf("ANSWER_REVIEW", "REVIEW_INPUT_REQUIRED") -> "answer_review"
                     else -> ""
                 }
             )

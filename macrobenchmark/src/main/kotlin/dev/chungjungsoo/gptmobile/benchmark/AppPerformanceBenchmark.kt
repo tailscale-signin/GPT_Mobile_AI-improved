@@ -60,6 +60,34 @@ class AppPerformanceBenchmark {
         }
     }
 
+    @Test fun liveLogFilteringAndScroll() = benchmark.measureRepeated(
+        PACKAGE,
+        listOf(FrameTimingMetric()),
+        CompilationMode.Partial(BaselineProfileMode.Disable, warmupIterations = 3),
+        iterations = 8,
+        setupBlock = {
+            startActivityAndWait(fixture().putExtra("screen", "logs"))
+            check(device.wait(Until.hasObject(By.res("benchmark_logs_ready")), 10000))
+        }
+    ) {
+        check(device.wait(Until.hasObject(By.res("app_log_filter")), 10000))
+        val field = device.findObject(By.res("app_log_filter"))
+        listOf("checkpoint", "continuation", "streaming").forEach { query ->
+            field.click()
+            field.text = query
+            device.pressBack()
+            device.waitForIdle()
+        }
+        device.findObject(By.res("benchmark_logs")).scroll(Direction.DOWN, 0.8f)
+        val rows = device.findObject(By.res("app_log_rows"))
+        checkNotNull(rows) { "Production log rows did not appear" }
+        rows.setGestureMargin(device.displayWidth / 5)
+        repeat(4) {
+            rows.fling(Direction.DOWN)
+            device.waitForIdle()
+        }
+    }
+
     @Test fun foregroundServiceStartupRace() = benchmark.measureRepeated(PACKAGE, listOf(FrameTimingMetric()), CompilationMode.None(), iterations = 5, setupBlock = { pressHome() }) {
         startActivityAndWait(fixture().putExtra("serviceRace", true))
         check(device.wait(Until.hasObject(By.res("benchmark_service_done")), 15000)) { "Service start/cancel/restart fixture did not finish; inspect process crash logs." }

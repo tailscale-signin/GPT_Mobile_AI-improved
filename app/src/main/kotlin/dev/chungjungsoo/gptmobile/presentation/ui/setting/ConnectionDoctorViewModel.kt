@@ -75,10 +75,26 @@ class ConnectionDoctorViewModel @Inject constructor(
                 }
         )
     }
+    fun testLlamaInference(profile: PlatformV2) = action {
+        check(profile.compatibleType == ClientType.LLAMA) { "Select a llama.cpp profile." }
+        val connectionKey = profile.providerConnectionUid?.let { settings.getProviderCredentials(it) }
+        val key = ApiCredentialRotator.parseKeys(profile.token?.takeIf(String::isNotBlank) ?: connectionKey).firstOrNull()
+        diagnosticReport.value = "Testing one generated token on the configured llama.cpp route. No conversation content or tools are sent."
+        val result = llamaHealth.testInference(ProviderRequestConfig(profile.apiUrl, key, profileUid = profile.uid, providerType = "LLAMA"), profile.model)
+        diagnosticReport.value = result.summary()
+        finish(
+            if (result.inferenceReady == true) {
+                "llama.cpp inference ready: the selected model generated output. ${result.summary()}"
+            } else {
+                "llama.cpp inference was not verified. ${result.summary()}"
+            }
+        )
+    }
+
     val deadlineProfile = MutableStateFlow<PlatformV2?>(null)
     val deadlineSettings = MutableStateFlow(dev.chungjungsoo.gptmobile.data.agent.ProgressDeadlineSettings())
 
-    fun saveProgressDeadlines(first: String, idle: String, queue: String, load: String, round: String, adaptive: Boolean) = action {
+    fun saveProgressDeadlines(first: String, idle: String, queue: String, load: String, round: String, adaptive: Boolean, connect: String = "") = action {
         val profile = deadlineProfile.value ?: return@action
         fun milliseconds(value: String): Long? {
             if (value.isBlank()) return null
@@ -86,7 +102,7 @@ class ConnectionDoctorViewModel @Inject constructor(
             require(seconds > 0) { "Deadlines must be positive; leave blank to inherit" }
             return Math.multiplyExact(seconds, 1000L)
         }
-        val updated = dev.chungjungsoo.gptmobile.data.agent.ProgressDeadlineSettings(milliseconds(first), milliseconds(idle), milliseconds(queue), milliseconds(load), milliseconds(round), adaptive)
+        val updated = dev.chungjungsoo.gptmobile.data.agent.ProgressDeadlineSettings(milliseconds(first), milliseconds(idle), milliseconds(queue), milliseconds(load), milliseconds(round), adaptive, milliseconds(connect))
         settings.mutateFeatureSettings { current -> current.copy(profileProgressDeadlines = current.profileProgressDeadlines + (profile.uid to updated)) }
         deadlineSettings.value = updated
         diagnosticReport.value = "Wait settings saved for ${profile.name}. They apply to new requests; the conversation's total generation limit still applies."
@@ -101,6 +117,7 @@ class ConnectionDoctorViewModel @Inject constructor(
     val report = MutableStateFlow("Choose a profile to check its connection. Benchmarks are in Debug and Statistics → Benchmarks.")
     val contextReport = MutableStateFlow("Inspect a profile to see verified and declared context limits.")
     val diagnosticReport = MutableStateFlow("Inspection does not generate an answer or reconfigure the server.")
+    private val llamaHealth = dev.chungjungsoo.gptmobile.data.llama.LlamaHealthDiagnostics(network)
     private val llamaCapacity = dev.chungjungsoo.gptmobile.data.context.LlamaCapacityRepository(network)
     init {
         // Older versions persisted arbitrary inspection text in plaintext preferences.
@@ -201,7 +218,10 @@ class ConnectionDoctorViewModel @Inject constructor(
                     }
                 }
                 llamaCapacity.invalidate()
-                val capacity = llamaCapacity.discover(ProviderRequestConfig(profile.apiUrl, profile.token, profileUid = profile.uid, providerType = "LLAMA"), profile.model)
+                val llamaConfig = ProviderRequestConfig(profile.apiUrl, catalogKey, profileUid = profile.uid, providerType = "LLAMA")
+                val capacity = llamaCapacity.discover(llamaConfig, profile.model)
+                val health = llamaHealth.inspect(llamaConfig, profile.model, capacity)
+                lines += health.summary()
                 val features = settings.getFeatureSettings()
                 val declared = features.tokenBudget.profileContextCeilings[profile.uid]?.takeIf { it > 0 }
                 val global = features.tokenBudget.normalized().contextTokens.takeIf { it != Int.MAX_VALUE }

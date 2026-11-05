@@ -59,7 +59,8 @@ data class McpConnectionHealth(
     val nextRetryAtMs: Long? = null,
     val lastError: String? = null,
     val availableToolCount: Int? = null,
-    val connectionHealth: dev.chungjungsoo.gptmobile.data.network.ConnectionHealth = dev.chungjungsoo.gptmobile.data.network.ConnectionHealth.UNKNOWN
+    val connectionHealth: dev.chungjungsoo.gptmobile.data.network.ConnectionHealth = dev.chungjungsoo.gptmobile.data.network.ConnectionHealth.UNKNOWN,
+    val failedStage: String? = null
 )
 
 class McpBackoffException(
@@ -133,6 +134,7 @@ class McpClientManager internal constructor(
 
     private val catalogue = dev.chungjungsoo.gptmobile.data.readiness.ReadinessSnapshotStore<String, List<Tool>>(clock = { System.nanoTime() / 1_000_000 })
     private val catalogueIdentities = ConcurrentHashMap<String, Pair<Long, String>>()
+    private val validatedCatalogues = ConcurrentHashMap<String, Pair<String, List<Tool>>>()
     private val restoredCatalogues = ConcurrentHashMap.newKeySet<String>()
     private val catalogueProducers = ConcurrentHashMap<String, kotlinx.coroutines.Deferred<List<Tool>>>()
 
@@ -172,12 +174,17 @@ class McpClientManager internal constructor(
             state.lastSuccessAtMs != null -> true
             else -> null
         }
-        val healthy = state.state == McpConnectionHealthState.CONNECTED
-        return McpCatalogueAvailability(snapshot != null, authorized, healthy, healthy && authorized == true, catalogueProducers.containsKey(key), snapshot?.observedAt)
+        val sameConfiguration = transportConfigurationKeys[config.connectionUid] == config.validatedKey()
+        val recentResponse = state.lastSuccessAtMs?.let { nowMs() - it in 0..60_000L } == true
+        val healthy = sameConfiguration && recentResponse && state.state == McpConnectionHealthState.CONNECTED
+        val validated = validatedCatalogues[config.connectionUid]
+        val discovered = validated != null && validated.first == key && snapshot?.value == validated.second
+        return McpCatalogueAvailability(snapshot != null, authorized.takeIf { sameConfiguration }, healthy, snapshot != null && healthy && authorized == true && discovered, catalogueProducers.containsKey(key), snapshot?.observedAt)
     }
 
     fun clearReadinessCache(cancelProducers: Boolean = true) {
         catalogueIdentities.clear()
+        validatedCatalogues.clear()
         restoredCatalogues.clear()
         catalogue.invalidate()
         if (cancelProducers) {
@@ -192,7 +199,7 @@ class McpClientManager internal constructor(
         val policyEpoch = dev.chungjungsoo.gptmobile.data.readiness.ReadinessInvalidation.epoch
         if (healthSnapshot(config.connectionUid).state == McpConnectionHealthState.AUTHENTICATION_REQUIRED && providerCooldowns[config.connectionUid]?.first == config.validatedKey()) throw McpAuthenticationRequiredException()
         val key = config.validatedKey() + ":" + policyEpoch
-        val ready = if (forceRefresh || awaitCompletion && healthSnapshot(config.connectionUid).state != McpConnectionHealthState.CONNECTED) null else catalogue.peek(key, 300_000)
+        val ready = if (forceRefresh || !catalogueAvailability(config).executionAvailable) null else catalogue.peek(key, 300_000)
         kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.readiness.ReadinessCacheObservation]?.read(ready != null)
         ready?.let {
             catalogueIdentities[config.connectionUid] = policyEpoch to key
@@ -280,13 +287,13 @@ class McpClientManager internal constructor(
             listToolsUnchecked(config, forceRefresh, observation)
         } catch (cancelled: CancellationException) {
             AppLogRecorder.record("MCP", "CATALOG_ACQUISITION_CANCELLED · connection=${config.connectionUid} · owner=APPLICATION_DISCOVERY · reason=${if (cancelled is kotlinx.coroutines.TimeoutCancellationException) "CATALOG_DEADLINE" else "OWNER_CANCELLED_OR_INVALIDATED"} · transportFailure=${cancelled is kotlinx.coroutines.TimeoutCancellationException}")
-            if (cancelled is kotlinx.coroutines.TimeoutCancellationException) recordFailure(config.connectionUid, McpCatalogueTimeoutException(catalogueTimeoutMs), observation = observation)
+            if (cancelled is kotlinx.coroutines.TimeoutCancellationException) recordFailure(config.connectionUid, McpCatalogueTimeoutException(catalogueTimeoutMs), observation = observation, stage = "discovery")
             throw cancelled
         } catch (error: Exception) {
             if (error is McpBackoffException) throw error
             dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.recordFailure(config.endpointUrl, error)
             if (error.isMcpUnauthorized()) providerCooldowns[config.connectionUid] = config.validatedKey() to Long.MAX_VALUE
-            recordFailure(config.connectionUid, error, observation = observation)
+            recordFailure(config.connectionUid, error, observation = observation, stage = "discovery")
             throw error
         }
     }
@@ -295,7 +302,7 @@ class McpClientManager internal constructor(
         modernTransport(config, forceRefresh)?.let { transport ->
             return transport.listTools(config).also {
                 dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.recordHandshakeSuccess(config.endpointUrl)
-                recordSuccess(config.connectionUid, availableToolCount = it.size, observation = observation)
+                recordSuccess(config.connectionUid, availableToolCount = it.size, observation = observation, discoveredTools = it)
                 recordCatalog(config, it)
             }
         }
@@ -303,7 +310,7 @@ class McpClientManager internal constructor(
         val result = withSession(config, bypassBackoff = forceRefresh, recordFailures = false, recordResponses = false, observation = observation) { session ->
             session.toolCatalogMutex.withLock {
                 val now = nowMs()
-                session.toolCatalog?.takeIf { !forceRefresh && now - it.loadedAtMs < TOOL_CATALOG_TTL_MS }?.tools ?: withMcpConnectivityLease(config) {
+                session.toolCatalog?.takeIf { !forceRefresh && catalogueAvailability(config).executionAvailable && now - it.loadedAtMs < TOOL_CATALOG_TTL_MS }?.tools ?: withMcpConnectivityLease(config) {
                     val tools = mutableListOf<Tool>()
                     val seenCursors = mutableSetOf<String>()
                     var pageCount = 0
@@ -327,7 +334,7 @@ class McpClientManager internal constructor(
             }
         }
         if (observedNetwork) dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.recordHandshakeSuccess(config.endpointUrl)
-        if (observedNetwork) recordSuccess(config.connectionUid, availableToolCount = result.size, observation = observation)
+        if (observedNetwork) recordSuccess(config.connectionUid, availableToolCount = result.size, observation = observation, discoveredTools = result)
         recordCatalog(config, result)
         return result
     }
@@ -346,13 +353,20 @@ class McpClientManager internal constructor(
         metadata: JsonObject? = null
     ): CallToolResult {
         val key = config.validatedKey()
-        val observation = healthOrder.begin(config.connectionUid, key)
         providerCooldowns[config.connectionUid]?.let { (blockedKey, until) ->
             if (blockedKey == key && until == Long.MAX_VALUE) throw McpAuthenticationRequiredException()
             if (blockedKey == key && until > nowMs()) throw McpBackoffException(config.connectionUid, until)
             providerCooldowns.remove(config.connectionUid)
             resetHealth(config.connectionUid)
         }
+        val executableTools = if (catalogueAvailability(config).executionAvailable) {
+            peekTools(config).orEmpty()
+        } else {
+            listTools(config, awaitCompletion = true)
+        }
+        check(catalogueAvailability(config).executionAvailable) { "MCP_DISCOVERY_REQUIRED: refresh the live tool catalogue before execution." }
+        check(executableTools.any { it.name == toolName }) { "MCP_TOOL_UNAVAILABLE: the live catalogue no longer advertises this tool." }
+        val observation = healthOrder.begin(config.connectionUid, key)
         fun recordQuota(message: String) {
             if (isMcpQuotaFailure(message)) {
                 providerCooldowns[config.connectionUid] = key to (nowMs() + 5 * 60_000L)
@@ -472,23 +486,24 @@ class McpClientManager internal constructor(
         _health.value[connectionUid] ?: McpConnectionHealth()
 
     fun resetHealth(connectionUid: String) {
+        validatedCatalogues.remove(connectionUid)
         _health.update { current -> current - connectionUid }
     }
 
     suspend fun probe(config: McpConnectionConfig): Boolean = try {
         dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.checkAgain(config.endpointUrl)
         dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.probe(config.endpointUrl)
-        listTools(config, forceRefresh = true)
-        val key = config.validatedKey() + ":" + dev.chungjungsoo.gptmobile.data.readiness.ReadinessInvalidation.epoch
-        val producer = synchronized(catalogueProducers) { catalogueProducers[key] }
-        if (producer != null) withTimeout(catalogueTimeoutMs) { producer.await() }
+        listTools(config, forceRefresh = true, awaitCompletion = true)
         catalogueAvailability(config).executionAvailable
     } catch (deadline: kotlinx.coroutines.TimeoutCancellationException) {
         kotlinx.coroutines.currentCoroutineContext().ensureActive()
         false
     } catch (cancelled: CancellationException) {
         throw cancelled
-    } catch (_: Exception) {
+    } catch (failure: Exception) {
+        if (failure is dev.chungjungsoo.gptmobile.data.network.LocalServiceUnavailableException) {
+            recordFailure(config.connectionUid, failure, observation = healthOrder.begin(config.connectionUid, config.validatedKey()), stage = "connection")
+        }
         false
     }
 
@@ -496,7 +511,8 @@ class McpClientManager internal constructor(
         connectionUid: String,
         latencyMs: Long? = null,
         availableToolCount: Int? = null,
-        observation: McpHealthObservationOrder.Token
+        observation: McpHealthObservationOrder.Token,
+        discoveredTools: List<Tool>? = null
     ) = healthOrder.publish(observation) {
         // Catalog/transport success cannot clear an authorization or quota block for this credential.
         val cooldown = providerCooldowns[connectionUid]
@@ -506,6 +522,9 @@ class McpClientManager internal constructor(
                 current + (connectionUid to previous.copy(latencyMs = latencyMs ?: previous.latencyMs, availableToolCount = availableToolCount ?: previous.availableToolCount))
             }
             return@publish
+        }
+        discoveredTools?.let { tools ->
+            validatedCatalogues[connectionUid] = (observation.key + ":" + dev.chungjungsoo.gptmobile.data.readiness.ReadinessInvalidation.epoch) to tools.toList()
         }
         val now = nowMs()
         statistics?.observeHealth(connectionUid, "CONNECTED", "SERVER_RESPONSE", now)
@@ -525,6 +544,7 @@ class McpClientManager internal constructor(
                     nextRetryAtMs = null,
                     connectionHealth = dev.chungjungsoo.gptmobile.data.network.ConnectionHealth.HEALTHY,
                     lastError = null,
+                    failedStage = null,
                     availableToolCount = availableToolCount ?: previous.availableToolCount
                 )
             )
@@ -537,9 +557,11 @@ class McpClientManager internal constructor(
         }
     }
 
-    private fun recordFailure(connectionUid: String, error: Throwable, retryAtMs: Long? = null, observation: McpHealthObservationOrder.Token) {
+    private fun recordFailure(connectionUid: String, error: Throwable, retryAtMs: Long? = null, observation: McpHealthObservationOrder.Token, stage: String = "execution") {
         if (dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.classify(error) == dev.chungjungsoo.gptmobile.data.network.ConnectionHealth.DNS_RECOVERY) return
         healthOrder.publish(observation) {
+            validatedCatalogues.remove(connectionUid)
+            modern?.close(connectionUid)
             // A shared DNS lease wait is recovery coordination, not another failed
             // connection attempt. Do not amplify it into an endpoint circuit breaker.
             val now = nowMs()
@@ -549,6 +571,15 @@ class McpClientManager internal constructor(
                 val failures = previous.consecutiveFailures + 1
                 val delay = retryDelayMs(failures) + retryJitterMs().coerceIn(0, 1000)
                 val authenticationRequired = error.isMcpUnauthorized()
+                val failureClass = dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.classify(error)
+                val failedStage = when (failureClass) {
+                    dev.chungjungsoo.gptmobile.data.network.ConnectionHealth.DNS_FAILED -> "dns"
+                    dev.chungjungsoo.gptmobile.data.network.ConnectionHealth.CONNECT_TIMEOUT,
+                    dev.chungjungsoo.gptmobile.data.network.ConnectionHealth.CONNECTION_REFUSED,
+                    dev.chungjungsoo.gptmobile.data.network.ConnectionHealth.ROUTE_UNAVAILABLE -> "connection"
+                    dev.chungjungsoo.gptmobile.data.network.ConnectionHealth.MCP_HANDSHAKE_FAILED -> "initialization"
+                    else -> stage
+                }
                 updated = previous.copy(
                     state = when {
                         authenticationRequired -> McpConnectionHealthState.AUTHENTICATION_REQUIRED
@@ -559,15 +590,16 @@ class McpClientManager internal constructor(
                     lastFailureAtMs = now,
                     consecutiveFailures = failures,
                     nextRetryAtMs = if (error is McpEndpointConfigurationException || authenticationRequired) Long.MAX_VALUE else retryAtMs ?: (now + delay),
-                    lastError = dev.chungjungsoo.gptmobile.data.diagnostics.redactLogMessage(error.message.orEmpty().take(1024)),
-                    connectionHealth = dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.classify(error)
+                    lastError = "[$failedStage] " + dev.chungjungsoo.gptmobile.data.diagnostics.redactLogMessage(error.message.orEmpty().take(1024)),
+                    failedStage = failedStage,
+                    connectionHealth = failureClass
                 )
                 current + (connectionUid to updated)
             }
             statistics?.observeHealth(connectionUid, updated.state.name, "PASSIVE_FAILURE", now)
             AppLogRecorder.record(
                 "MCP",
-                "Health · connection=$connectionUid · state=${updated.state} · failures=${updated.consecutiveFailures} · retryAtMs=${updated.nextRetryAtMs} · failureClass=${updated.connectionHealth} · error=${updated.lastError.orEmpty()}",
+                "Health · connection=$connectionUid · state=${updated.state} · failures=${updated.consecutiveFailures} · retryAtMs=${updated.nextRetryAtMs} · failureClass=${updated.connectionHealth} · failedStage=${updated.failedStage} · error=${updated.lastError.orEmpty()}",
                 "W"
             )
         }
@@ -726,7 +758,7 @@ class McpClientManager internal constructor(
                             true
                         }
                         if (connected == true) connectivity.success(endpointHost)
-                        check(connected == true) { "MCP connection timed out. Check the server address and VPN connection, then retry." }
+                        check(connected == true) { "MCP_INITIALIZATION_TIMEOUT: MCP initialization timed out. Check the server process and protocol endpoint, then retry." }
                         AppLogRecorder.record("MCP", "Connect completed · connection=${config.connectionUid} · host=$endpointHost · elapsedMs=${nowMs() - connectStartedAtMs}")
                         Session(key, client)
                     } catch (cancelled: CancellationException) {
@@ -761,7 +793,7 @@ class McpClientManager internal constructor(
             }
             result.fold(
                 onSuccess = { recordSuccess(config.connectionUid, latencyMs = nowMs() - connectStartedAtMs, observation = observation) },
-                onFailure = { error -> if (recordFailures && error !is CancellationException && !error.isMcpUnauthorized()) recordFailure(config.connectionUid, error, observation = observation) }
+                onFailure = { error -> if (recordFailures && error !is CancellationException && !error.isMcpUnauthorized()) recordFailure(config.connectionUid, error, observation = observation, stage = "initialization") }
             )
             return result.getOrThrow()
         }
@@ -841,7 +873,7 @@ private fun Throwable.isMcpUnauthorized(): Boolean = generateSequence(this) { it
     .any { error -> error is McpAuthenticationRequiredException || (error is StreamableHttpError && error.code in setOf(401, 403)) || (error is ModernMcpError && error.status in setOf(401, 403)) }
 
 /** Only replay discovery/resource reads after a dropped connection, never tools/call. */
-internal fun Throwable.isMcpInterruptedRead(): Boolean = generateSequence(this) { it.cause }
+internal fun Throwable.isMcpInterruptedRead(): Boolean = generateSequence(this) { it.cause?.takeUnless { cause -> cause === it } }.take(8)
     .any { error ->
         error is java.io.EOFException ||
             listOf("unexpected end of stream", "broken pipe", "connection reset").any { error.message.orEmpty().contains(it, ignoreCase = true) }

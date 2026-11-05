@@ -25,6 +25,34 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(manifest = Config.NONE, sdk = [34])
 class ToolBatchCheckpointTest {
+    @Test fun originalInvocationIdentitySurvivesQueuedAndCompletedCheckpointRestoration() = runBlocking {
+        val file = File.createTempFile("original-invocation", ".json").apply { delete() }
+        try {
+            val call = ProviderEvent.ToolCall("read", "github_read__fixture", buildJsonObject { put("path", "canonical.kt") }, originalInvocationFingerprint = "a".repeat(64))
+            ToolBatchCheckpoint(file, "same-grant").enqueue(listOf(call))
+            val restored = ToolBatchCheckpoint(file, "same-grant")
+            assertEquals(call, restored.recoverySnapshot().pending.single())
+            restored.execute(call) { AgentToolResult(call.callId, ToolResultContent.Text("Confirmed receipt"), false) }
+            val completed = ToolBatchCheckpoint(file, "same-grant")
+            assertEquals(call, completed.recoverySnapshot().completedExchanges.single().calls.single())
+            assertTrue(completed.execute(call) { error("Completed action must not replay") }.sharedResult)
+            assertTrue(runCatching { completed.execute(call.copy(originalInvocationFingerprint = "b".repeat(64))) { error("Changed invocation identity must not dispatch") } }.isFailure)
+        } finally {
+            file.delete()
+        }
+    }
+
+    @Test fun legacyCheckpointWithoutInvocationFingerprintStillRestores() = runBlocking {
+        val file = File.createTempFile("legacy-invocation", ".json")
+        try {
+            file.writeText("""{"binding":"legacy","pending":["read"],"entries":{"read":{"call":{"id":"read","name":"github_read","arguments":{}}}}}""")
+            val call = ToolBatchCheckpoint(file, "legacy").recoverySnapshot().pending.single()
+            assertEquals(ProviderEvent.ToolCall("read", "github_read", JsonObject(emptyMap())), call)
+        } finally {
+            file.delete()
+        }
+    }
+
     @Test fun resumeRestoresEverySettledBatchWithoutDispatchingAgain() = runBlocking {
         val journal = ToolBatchCheckpoint(null, "multi-batch")
         for (id in listOf("status", "checks", "prs", "commits")) {
@@ -357,7 +385,8 @@ class ToolBatchCheckpointTest {
         assertEquals("expected", result.callId)
         assertEquals("TOOL_RESULT_ID_MISMATCH", result.errorCode)
         assertTrue(result.isError)
-        assertEquals("TOOL_RESULT_ID_MISMATCH", checkpoint.execute(call) { error("must not repeat") }.errorCode)
+        val checkpointedCall = events.filterIsInstance<AgentRunEvent.ToolStarted>().single().call
+        assertEquals("TOOL_RESULT_ID_MISMATCH", checkpoint.execute(checkpointedCall) { error("must not repeat") }.errorCode)
         assertEquals(1, count)
     }
 

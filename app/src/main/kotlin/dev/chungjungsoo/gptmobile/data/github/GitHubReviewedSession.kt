@@ -36,6 +36,22 @@ internal class GitHubReviewEvidence(private val maxBytes: Int = 16 * 1024 * 1024
 
     @Synchronized fun privateCandidate(): String? = candidate
 
+    /** The evidence book has already revalidated authorization; preserve its original provenance. */
+    @Synchronized fun restoreValidated(binding: String, receipts: Map<String, JsonObject>) {
+        receipts.forEach { (id, receipt) ->
+            if (receipt["binding"] != JsonPrimitive(binding) || receipt["trusted"] != JsonPrimitive(true) || receipt["verification_eligible"] != JsonPrimitive(true)) return@forEach
+            val callId = (receipt["call_id"] as? JsonPrimitive)?.contentOrNull ?: return@forEach
+            if (receipt["receipt_id"] != JsonPrimitive(id) || id != "ev_" + GitHubEvidenceBook.digest("$binding|$callId").take(24)) return@forEach
+            retain(callId, receipt.toString())
+        }
+    }
+
+    private fun retain(callId: String, record: String) {
+        if (callId in records || overflow) return
+        bytes += record.toByteArray(Charsets.UTF_8).size
+        if (bytes > maxBytes || records.size >= 4096) overflow = true else records[callId] = record
+    }
+
     @Synchronized fun observe(call: ProviderEvent.ToolCall, result: AgentToolResult) {
         if (call.callId in records || overflow) return
         val content = when (val body = result.retainedContent ?: result.content) {
@@ -56,8 +72,7 @@ internal class GitHubReviewEvidence(private val maxBytes: Int = 16 * 1024 * 1024
             put("result", projected)
             put("original_result_sha256", GitHubEvidenceBook.digest(content))
         }.toString()
-        bytes += record.toByteArray(Charsets.UTF_8).size
-        if (bytes > maxBytes || records.size >= 4096) overflow = true else records[call.callId] = record
+        retain(call.callId, record)
     }
 
     @Synchronized fun snapshot(): List<String> {
@@ -79,7 +94,8 @@ internal class GitHubReviewedSession(
     private val guardDraft: (Flow<ProviderEvent>) -> Flow<ProviderEvent> = { it },
     private val currentInputLimit: () -> Int = { inputTokenLimit },
     private val measureInput: suspend (String) -> Int = { TextTokenEstimate.estimate(it) },
-    private val checkpoint: GitHubReviewCheckpoint? = null
+    private val checkpoint: GitHubReviewCheckpoint? = null,
+    private val reviewerRevision: String = ""
 ) : AgentProviderSession by delegate {
     override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> = flow {
         exchanges.forEach { exchange -> exchange.results.forEach { result -> exchange.calls.firstOrNull { it.callId == result.callId }?.let { evidence.observe(it, result) } } }
@@ -88,16 +104,16 @@ internal class GitHubReviewedSession(
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: Exception) {
-            emit(ProviderEvent.Failed("GitHub answer withheld: the saved review could not be validated. Restore access or inspect the checkpoint before starting new work.", errorCode = "GITHUB_REVIEW_REQUIRED"))
+            emit(ProviderEvent.Failed("GitHub answer withheld: the saved review could not be validated. Restore access or inspect the checkpoint before starting new work.", errorCode = "GITHUB_REVIEW_REQUIRED", taskOutcome = "BLOCKED", failureDetails = reviewFailureDetails(listOf("READABLE_REVIEW_CHECKPOINT"), undispatched = true)))
             return@flow
         }
         if (saved != null) {
             evidence.retainCandidate(saved.draft)
             val latest = evidence.snapshot()
-            if (saved.blockedReason != null && latest.all { it in saved.receipts } && !(saved.blockedReason == "GITHUB_REVIEW_CAPACITY" && (saved.inputLimit == null || minOf(inputTokenLimit, currentInputLimit()) > saved.inputLimit))) {
+            if (saved.blockedReason != null && saved.reviewerRevision == reviewerRevision && latest.all { it in saved.receipts } && !(saved.blockedReason == "GITHUB_REVIEW_CAPACITY" && (saved.inputLimit == null || minOf(inputTokenLimit, currentInputLimit()) > saved.inputLimit))) {
                 if (saved.blockedReason != "GITHUB_REVIEW_INVALID_VERDICT" || checkpoint?.claimFormatRetry() != true) {
                     progress("Answer review is blocked · saved draft and ${saved.receipts.size} evidence records retained · change the draft, evidence or reviewer configuration before retrying")
-                    emit(ProviderEvent.Failed("Saved review requires new evidence or a changed draft: ${saved.blockedReason}", errorCode = "GITHUB_REVIEW_BLOCKED", transportComplete = true))
+                    emit(ProviderEvent.Failed("Saved review requires new evidence, a changed draft or updated reviewer configuration: ${saved.blockedReason}", errorCode = "GITHUB_REVIEW_BLOCKED", transportComplete = true, taskOutcome = "BLOCKED", failureDetails = reviewFailureDetails(listOf("CHANGED_REVIEW_INPUT"), undispatched = true)))
                     return@flow
                 }
                 progress("Retrying the saved review format once; no GitHub operations will repeat")
@@ -167,9 +183,15 @@ internal class GitHubReviewedSession(
 
     private fun publishReviewed(draft: String, receipts: List<String>): Flow<ProviderEvent> = flow {
         try {
-            check(draft.isNotBlank()) { "The gateway returned no final answer to review." }
             evidence.retainCandidate(draft)
-            checkpoint?.save(draft, receipts, minOf(inputTokenLimit, currentInputLimit()))
+            checkpoint?.save(draft, receipts, minOf(inputTokenLimit, currentInputLimit()), reviewerRevision)
+            val missing = buildList {
+                if (task.isBlank()) add("ORIGINAL_TASK")
+                if (draft.isBlank()) add("NONEMPTY_DRAFT")
+                if (minOf(inputTokenLimit, currentInputLimit()) <= 0) add("REVIEW_INPUT_CAPACITY")
+                if (receipts.isEmpty() && GitHubRequestCompletion.requiresRepositoryEvidence(task)) add("REPOSITORY_EVIDENCE")
+            }
+            if (missing.isNotEmpty()) throw ReviewInputFailure(missing)
             var candidate = draft
             repeat(2) { attempt ->
                 progress(if (attempt == 0) "Reviewing the Llama answer against all retained tool results" else "Checking the corrected answer against the retained results")
@@ -186,18 +208,20 @@ internal class GitHubReviewedSession(
                 progress("Correcting claims identified by the review; no tool operations are repeated")
                 candidate = repairCandidate(candidate, outcome.issues)
                 check(candidate.isNotBlank()) { "The review correction returned an empty answer." }
-                checkpoint?.save(candidate, receipts, minOf(inputTokenLimit, currentInputLimit()))
+                checkpoint?.save(candidate, receipts, minOf(inputTokenLimit, currentInputLimit()), reviewerRevision)
             }
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: Exception) {
             val code = when (failure) {
+                is ReviewInputFailure -> if (failure.missing == listOf("REVIEW_INPUT_CAPACITY")) "GITHUB_REVIEW_CAPACITY" else "GITHUB_REVIEW_BLOCKED"
                 is ReviewVerdictFailure -> "GITHUB_REVIEW_INVALID_VERDICT"
                 is ReviewPassFailure -> if (failure.splittable) "GITHUB_REVIEW_CAPACITY" else "GITHUB_REVIEW_UNAVAILABLE"
                 else -> "GITHUB_REVIEW_REQUIRED"
             }
             val blocked = failure !is ReviewPassFailure || failure.splittable
-            checkpoint?.failed(code, blocked)
+            val details = reviewFailureDetails((failure as? ReviewInputFailure)?.missing.orEmpty(), undispatched = failure is ReviewInputFailure)
+            checkpoint?.failed(code, blocked, details)
             val formatRetry = failure is ReviewVerdictFailure && checkpoint?.formatRetryAvailable() == true
             val recovery = when {
                 formatRetry -> "The saved draft and evidence remain available. One explicit retry can resume answer review without repeating GitHub operations."
@@ -206,8 +230,18 @@ internal class GitHubReviewedSession(
                 else -> "Retry can resume saved verdicts after model availability recovers."
             }
             progress("Answer review blocked · $code · saved draft and ${receipts.size} evidence records retained. $recovery")
-            emit(ProviderEvent.Failed("$code: GitHub answer withheld: ${failure.message.orEmpty().take(1200)} $recovery", errorCode = code, transportComplete = true))
+            emit(ProviderEvent.Failed("$code: GitHub answer withheld: ${failure.message.orEmpty().take(1200)} $recovery", errorCode = code, transportComplete = true, taskOutcome = if (blocked && !formatRetry) "BLOCKED" else "PARTIAL", failureDetails = details))
         }
+    }
+
+    private class ReviewInputFailure(val missing: List<String>) : IllegalStateException("Review prerequisites missing: ${missing.joinToString()}. Supply the missing input and resume this task.")
+
+    private fun reviewFailureDetails(missing: List<String>, undispatched: Boolean): JsonObject = buildJsonObject {
+        put("failed_stage", "answer_review")
+        put("stage_owner", "github_review")
+        if (undispatched) put("dispatched", false)
+        put("missing_requirements", JsonArray(missing.map(::JsonPrimitive)))
+        put("corrective_actions", JsonArray(listOf("Supply the missing draft or evidence", "Change reviewer configuration or available context", "Resume the saved task; do not repeat completed repository operations").map(::JsonPrimitive)))
     }
 
     private data class Verdict(val approved: Boolean, val issues: List<String>, val claims: List<String>)
@@ -226,11 +260,11 @@ internal class GitHubReviewedSession(
      */
     private suspend fun repairCandidate(draft: String, issues: List<String>, depth: Int = 0): String {
         val prompt = payload(draft, emptyList(), emptyList(), issues, "repair", candidateSection = depth > 0)
-        checkpoint?.repair(prompt)?.let { return it }
+        checkpoint?.repair(prompt, reviewerRevision)?.let { return it }
         try {
             val repaired = collectPass(prompt, "github-review-repair", maxDraftCharacters)
             check(repaired.isNotBlank()) { "The review correction returned an empty answer." }
-            checkpoint?.repair(prompt, repaired)
+            checkpoint?.repair(prompt, repaired, reviewerRevision)
             return repaired
         } catch (cancelled: CancellationException) {
             throw cancelled
@@ -246,7 +280,7 @@ internal class GitHubReviewedSession(
                 }
                 corrected.append(part)
             }
-            return corrected.toString().also { checkpoint?.repair(prompt, it) }
+            return corrected.toString().also { checkpoint?.repair(prompt, it, reviewerRevision) }
         }
     }
 
@@ -335,7 +369,7 @@ internal class GitHubReviewedSession(
     private suspend fun reviewBatch(draft: String, records: List<Pair<String, String>>, depth: Int = 0, candidateSection: Boolean = false): Verdict {
         check(depth <= 8) { "Review splitting exhausted; saved evidence remains available." }
         val prompt = payload(draft, records, emptyList(), emptyList(), "review", candidateSection)
-        val response = checkpoint?.verdict(prompt)
+        val response = checkpoint?.verdict(prompt, reviewerRevision)
         try {
             return if (response != null) verdict(response, records.map { it.first }) else validatedPass(prompt, "github-review", records.map { it.first })
         } catch (cancelled: CancellationException) {
@@ -359,7 +393,7 @@ internal class GitHubReviewedSession(
     private suspend fun consistency(draft: String, claims: List<String>, depth: Int = 0, candidateSection: Boolean = false): Verdict {
         val prompt = payload(draft, emptyList(), claims, emptyList(), "consistency", candidateSection)
         try {
-            val cached = checkpoint?.verdict(prompt)
+            val cached = checkpoint?.verdict(prompt, reviewerRevision)
             return if (cached != null) verdict(cached, emptyList()) else validatedPass(prompt, "github-review-consistency", emptyList())
         } catch (cancelled: CancellationException) {
             throw cancelled
@@ -390,7 +424,7 @@ internal class GitHubReviewedSession(
             }
             if (parsed != null) {
                 // Storage and cancellation failures are not malformed model output.
-                checkpoint?.verdict(prompt, value)
+                checkpoint?.verdict(prompt, value, reviewerRevision)
                 return parsed
             }
             progress("Repairing the review format once; saved operations are unchanged")

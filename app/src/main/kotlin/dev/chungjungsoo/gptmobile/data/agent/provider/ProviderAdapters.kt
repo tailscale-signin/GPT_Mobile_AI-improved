@@ -370,6 +370,80 @@ class OpenAICompatibleAdapter @Inject constructor(
         val effectiveSeed = if (isOpenRouter) parsedOpenRouterOptions?.seed else null
         val effectiveStop = if (isOllama && parsedOllamaOptions != null) parsedOllamaOptions.stop else null
 
+        fun requestConfiguration(activeKey: String, requestTools: List<ChatFunctionTool>?, freshOnce: Boolean, llamaGatewayHeaders: Map<String, String>): ProviderRequestConfig = ProviderRequestConfig(
+            apiUrl = platform.apiUrl,
+            profileUid = platform.uid,
+            providerType = platform.compatibleType.name,
+            requestRole = constraints.requestRole ?: "primary",
+            contextCeiling = constraints.contextCeiling,
+            permissionRevision = constraints.permissionRevision,
+            requireKnownCapacity = constraints.requireKnownCapacity,
+            reasoningMode = llamaReasoning,
+            maximizeReasoning = constraints.maximizeReasoning,
+            allowReasoning = constraints.allowReasoning,
+            token = activeKey.takeIf { it.isNotBlank() && (platform.compatibleType != ClientType.FREE || dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.requireFor(platform).acceptsUserToken) },
+            queueScope = constraints.queueScope ?: constraints.combined?.rootBudgetId ?: constraints.attemptId,
+            queuePersistent = constraints.queuePersistent,
+            continuationPrefixDigest = constraints.continuationPrefixDigest,
+            freeProvider = if (platform.compatibleType == ClientType.FREE) dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.requireFor(platform) else null,
+            extraHeaders = (if (isOpenRouter) dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterPolicy.headers(routerSettings, constraints.freshResponse || freshOnce, !requestTools.isNullOrEmpty()) else emptyMap()) + llamaGatewayHeaders,
+            openRouterReceipt = if (isOpenRouter) {
+                dev.chungjungsoo.gptmobile.data.openrouter.account.OpenRouterReceiptContext(
+                    connectionUid = platform.providerConnectionUid ?: platform.uid,
+                    credentialRevision = dev.chungjungsoo.gptmobile.data.openrouter.account.OpenRouterIdentity.revision(platform.providerConnectionUid ?: platform.uid, platform.apiUrl, activeKey),
+                    endpoint = platform.apiUrl,
+                    profileUid = platform.uid,
+                    model = platform.model,
+                    role = constraints.requestRole ?: "primary",
+                    attemptId = constraints.attemptId,
+                    policy = json.encodeToString(parsedRouting)
+                )
+            } else {
+                null
+            }
+        )
+
+        fun completionRequest(
+            config: ProviderRequestConfig,
+            currentRequestMessages: List<ChatMessage>,
+            requestTools: List<ChatFunctionTool>?,
+            gatewayToolsAllowed: Boolean,
+            effectiveOutputTokens: Int?
+        ): ChatCompletionRequest = ChatCompletionRequest(
+            model = platform.model,
+            messages = currentRequestMessages,
+            stream = effectiveStream,
+            streamOptions = if (effectiveStream && isLlama) dev.chungjungsoo.gptmobile.data.dto.openai.request.ChatStreamOptions() else null,
+            temperature = effectiveTemperature,
+            topP = effectiveTopP,
+            topK = effectiveTopK,
+            maxTokens = effectiveOutputTokens,
+            frequencyPenalty = effectiveFrequencyPenalty,
+            presencePenalty = effectivePresencePenalty,
+            repetitionPenalty = effectiveRepetitionPenalty,
+            seed = effectiveSeed,
+            stop = effectiveStop,
+            tools = requestTools,
+            toolChoice = if (platform.disableAllTools || requestTools.isNullOrEmpty() && !gatewayToolsAllowed) "none" else null,
+            parallelToolCalls = ProviderToolBatchPolicy.parallelToolCalls(platform.compatibleType, !requestTools.isNullOrEmpty()),
+            provider = parsedRouting,
+            reasoning = if (isOpenRouter || config.freeProvider == dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.KILO) {
+                if ((platform.reasoning || constraints.maximizeReasoning) && constraints.allowReasoning) OpenRouterReasoning(effort = if (constraints.maximizeReasoning) "high" else "medium") else OpenRouterReasoning(enabled = false)
+            } else {
+                null
+            },
+            sessionId = openRouterSessionId,
+            options = parsedOllamaOptions
+        ).let { baseRequest ->
+            if (isNvidia) {
+                NvidiaRequestPolicy.prepare(baseRequest, platform.reasoning || constraints.maximizeReasoning, constraints.allowReasoning)
+            } else if (config.freeProvider == dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.BLOCKRUN && platform.model == "nvidia/nemotron-3.5-lightning") {
+                baseRequest.copy(chatTemplateKwargs = kotlinx.serialization.json.JsonObject(mapOf("enable_thinking" to JsonPrimitive((platform.reasoning || constraints.maximizeReasoning) && constraints.allowReasoning))))
+            } else {
+                baseRequest
+            }
+        }
+
         // Keep Ollama retry/continuation collection in its own state machine. Large
         // provider methods exceed ART's compiler instruction limit on the phone.
         suspend fun kotlinx.coroutines.flow.FlowCollector<ProviderEvent>.streamOllamaAttempt(
@@ -610,155 +684,18 @@ class OpenAICompatibleAdapter @Inject constructor(
                     val keyIndex = ((startIndex + attempt) % candidateKeys.size + candidateKeys.size) % candidateKeys.size
                     keyIndexCounter.set(keyIndex)
                     val activeKey = candidateKeys[keyIndex]
-                    val config = ProviderRequestConfig(
-                        apiUrl = platform.apiUrl,
-                        profileUid = platform.uid,
-                        providerType = platform.compatibleType.name,
-                        requestRole = constraints.requestRole ?: "primary",
-                        contextCeiling = constraints.contextCeiling,
-                        permissionRevision = constraints.permissionRevision,
-                        requireKnownCapacity = constraints.requireKnownCapacity,
-                        reasoningMode = llamaReasoning,
-                        maximizeReasoning = constraints.maximizeReasoning,
-                        allowReasoning = constraints.allowReasoning,
-                        token = activeKey.takeIf { it.isNotBlank() && (platform.compatibleType != ClientType.FREE || dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.requireFor(platform).acceptsUserToken) },
-                        queueScope = constraints.queueScope ?: constraints.combined?.rootBudgetId ?: constraints.attemptId,
-                        queuePersistent = constraints.queuePersistent,
-                        continuationPrefixDigest = constraints.continuationPrefixDigest,
-                        freeProvider = if (platform.compatibleType == ClientType.FREE) dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.requireFor(platform) else null,
-                        extraHeaders = (if (isOpenRouter) dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterPolicy.headers(routerSettings, constraints.freshResponse || freshOnce, !requestTools.isNullOrEmpty()) else emptyMap()) + llamaGatewayHeaders,
-                        openRouterReceipt = if (isOpenRouter) {
-                            dev.chungjungsoo.gptmobile.data.openrouter.account.OpenRouterReceiptContext(
-                                connectionUid = platform.providerConnectionUid ?: platform.uid,
-                                credentialRevision = dev.chungjungsoo.gptmobile.data.openrouter.account.OpenRouterIdentity.revision(platform.providerConnectionUid ?: platform.uid, platform.apiUrl, activeKey),
-                                endpoint = platform.apiUrl,
-                                profileUid = platform.uid,
-                                model = platform.model,
-                                role = constraints.requestRole ?: "primary",
-                                attemptId = constraints.attemptId,
-                                policy = json.encodeToString(parsedRouting)
-                            )
-                        } else {
-                            null
-                        }
-                    )
+                    val config = requestConfiguration(activeKey, requestTools, freshOnce, llamaGatewayHeaders)
                     var roundFailed = false
                     var canRotate = false
 
                     if (platform.compatibleType == ClientType.GROQ) {
-                        val effectiveOutputTokens = constraints.outputLimit(platform.maxTokens)
-                        if (constraints.maxOutputTokens != null) {
-                            emit(
-                                ProviderEvent.RequestConfigured(
-                                    configuredProfileOutputTokens = platform.maxTokens,
-                                    requestedOutputTokens = constraints.maxOutputTokens,
-                                    effectiveOutputTokens = effectiveOutputTokens,
-                                    reasoningEffort = if (platform.model.contains("gpt-oss", true)) {
-                                        if (constraints.allowReasoning && (platform.reasoning || constraints.maximizeReasoning)) {
-                                            if (constraints.maximizeReasoning) "high" else "medium"
-                                        } else {
-                                            "low"
-                                        }
-                                    } else {
-                                        null
-                                    }
-                                )
-                            )
-                        }
-                        val request = createGroqChatCompletionRequest(baseMessages, platform.copy(reasoning = (platform.reasoning || constraints.maximizeReasoning) && constraints.allowReasoning)).let { request ->
-                            request.copy(tools = requestTools, parallelToolCalls = false.takeIf { !requestTools.isNullOrEmpty() }, maxCompletionTokens = effectiveOutputTokens, reasoningEffort = if (constraints.maximizeReasoning && constraints.allowReasoning && platform.model.contains("gpt-oss", true)) "high" else request.reasoningEffort)
-                        }
-                        val assembler = ChatCompletionsEventAssembler()
-                        val reasoningParser = GroqReasoningParser()
-                        var terminalReceived = false
-                        var streamInterrupted = false
-                        var deliveredPayload = false
-                        var protocolErrorCode: String? = null
-                        suspend fun publish(event: ProviderEvent) {
-                            if (event is ProviderEvent.TextDelta || event is ProviderEvent.ThinkingDelta || event is ProviderEvent.ToolCall) deliveredPayload = true
-                            if (event is ProviderEvent.Failed) {
-                                roundFailed = true
-                                lastFailedMessage = event.message
-                                protocolErrorCode = protocolErrorCode ?: event.errorCode
-                            } else {
-                                emit(event)
-                            }
-                        }
-
-                        groqAPI.streamChatCompletion(request, platform.timeout, config)
-                            .transformWhile { chunk ->
-                                emit(chunk)
-                                !chunk.streamFinished && chunk.error == null
-                            }
-                            .catch { error ->
-                                if (error is CancellationException || error is ToolDefinitionsRejectedException) throw error
-                                roundFailed = true
-                                streamInterrupted = true
-                                lastFailedMessage = providerFailureMessage(error, "Groq stream request failed")
-                                protocolErrorCode = if (error is java.io.IOException || error is io.ktor.client.plugins.HttpRequestTimeoutException) "NETWORK_ERROR" else protocolErrorCode
-                                canRotate = ApiCredentialRotator.isRotatableError(error)
-                            }
-                            .collect { chunk ->
-                                if (chunk.streamFinished) {
-                                    terminalReceived = true
-                                    assembler.finish().forEach { publish(it) }
-                                }
-                                (chunk.usage ?: chunk.groqMetadata?.usage)?.let { usage ->
-                                    emit(ProviderEvent.Usage(usage.promptTokens, usage.completionTokens, usage.totalTokens, reasoningTokens = (usage.completionTokensDetails?.get("reasoning_tokens") as? JsonPrimitive)?.intOrNull?.takeIf { it >= 0 }, phase = if (terminalReceived || chunk.choices.orEmpty().any { it.finishReason != null }) ProviderUsagePhase.FINAL else ProviderUsagePhase.INTERIM))
-                                }
-                                chunk.error?.let { error ->
-                                    roundFailed = true
-                                    lastFailedMessage = error.message
-                                    protocolErrorCode = error.type?.uppercase()?.takeIf { category -> dev.chungjungsoo.gptmobile.data.network.FreeFailureCategory.entries.any { it.name == category } }
-                                        ?: error.code ?: error.type ?: protocolErrorCode
-                                    canRotate = !dev.chungjungsoo.gptmobile.data.agent.GatewayOutcomeRecovery.requiresReconciliation(error.message, error.code) && ApiCredentialRotator.containsQuotaOrRateLimitMessage(error.message)
-                                } ?: chunk.choices.orEmpty().forEach { choice ->
-                                    reasoningParser.append(
-                                        contentChunk = choice.delta?.content ?: choice.message?.content,
-                                        reasoningChunk = choice.delta?.reasoning ?: choice.message?.reasoning
-                                    ).forEach { state ->
-                                        state.toProviderEvent()?.let { publish(it) }
-                                    }
-                                    if (choice.finishReason != null) {
-                                        terminalReceived = true
-                                    }
-                                    if (choice.finishReason == "length") {
-                                        assembler.discardIncomplete()
-                                        emit(ProviderEvent.Usage(finishReason = choice.finishReason))
-                                        roundFailed = true
-                                        lastFailedMessage = GROQ_OUTPUT_LIMIT_MESSAGE
-                                    } else {
-                                        assembler.accept(
-                                            content = null,
-                                            reasoning = null,
-                                            toolCalls = choice.delta?.toolCalls ?: choice.message?.toolCalls,
-                                            finishReason = choice.finishReason,
-                                            choiceIndex = choice.index
-                                        ).forEach { publish(it) }
-                                    }
-                                }
-                            }
-                        assembler.discardIncomplete().forEach { publish(it) }
-                        reasoningParser.flush().forEach { state ->
-                            state.toProviderEvent()?.let { publish(it) }
-                        }
-
-                        if (!roundFailed && !terminalReceived) {
-                            roundFailed = true
-                            lastFailedMessage = "Groq response was interrupted before its terminal receipt. Partial output was retained."
-                        }
-                        if (!roundFailed) {
-                            emit(ProviderEvent.Completed)
-                            return@flow
-                        } else if (canRotate && !deliveredPayload && attempt < attempts - 1) {
-                            continue
-                        } else {
-                            emit(ProviderEvent.Failed(lastFailedMessage ?: "Provider request failed", errorCode = protocolErrorCode, transportComplete = terminalReceived && !streamInterrupted && protocolErrorCode == null && lastFailedMessage == GROQ_OUTPUT_LIMIT_MESSAGE))
-                            return@flow
-                        }
+                        if (streamGroqAttempt(platform, constraints, config, baseMessages, requestTools, attempt < attempts - 1)) continue
+                        return@flow
                     }
 
                     val outputLimitKey = "${platform.compatibleType}|${platform.apiUrl}|${platform.model}|${platform.openRouterRouting.orEmpty()}"
+                    // Use the admitted route budget for tools as well as text. Unknown limits
+                    // retain the shared 4096-token default; observed ceilings can only lower it.
                     var effectiveOutputTokens: Int? = ProviderRouteCapacity.output(platform, constraints.outputLimit(effectiveMaxTokens))
                     var ceilingRetryUsed = false
                     if (constraints.maxOutputTokens != null) {
@@ -778,40 +715,7 @@ class OpenAICompatibleAdapter @Inject constructor(
 
                     while (true) {
                         val requestConfig = delegatedLlamaRequestConfig(config, isLlama, effectiveOutputTokens, constraints.copy(allowGatewayLocalTools = gatewayToolsAllowed)).copy(captureGenerationReceipt = true)
-                        val request = ChatCompletionRequest(
-                            model = platform.model,
-                            messages = currentRequestMessages,
-                            stream = effectiveStream,
-                            streamOptions = if (effectiveStream && isLlama) dev.chungjungsoo.gptmobile.data.dto.openai.request.ChatStreamOptions() else null,
-                            temperature = effectiveTemperature,
-                            topP = effectiveTopP,
-                            topK = effectiveTopK,
-                            maxTokens = if (!requestTools.isNullOrEmpty() && isLlama) minOf(effectiveOutputTokens ?: 4096, 4096) else effectiveOutputTokens,
-                            frequencyPenalty = effectiveFrequencyPenalty,
-                            presencePenalty = effectivePresencePenalty,
-                            repetitionPenalty = effectiveRepetitionPenalty,
-                            seed = effectiveSeed,
-                            stop = effectiveStop,
-                            tools = requestTools,
-                            toolChoice = if (platform.disableAllTools || requestTools.isNullOrEmpty() && !gatewayToolsAllowed) "none" else null,
-                            parallelToolCalls = ProviderToolBatchPolicy.parallelToolCalls(platform.compatibleType, !requestTools.isNullOrEmpty()),
-                            provider = parsedRouting,
-                            reasoning = if (isOpenRouter || config.freeProvider == dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.KILO) {
-                                if ((platform.reasoning || constraints.maximizeReasoning) && constraints.allowReasoning) OpenRouterReasoning(effort = if (constraints.maximizeReasoning) "high" else "medium") else OpenRouterReasoning(enabled = false)
-                            } else {
-                                null
-                            },
-                            sessionId = openRouterSessionId,
-                            options = parsedOllamaOptions
-                        ).let { baseRequest ->
-                            if (isNvidia) {
-                                NvidiaRequestPolicy.prepare(baseRequest, platform.reasoning || constraints.maximizeReasoning, constraints.allowReasoning)
-                            } else if (config.freeProvider == dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.BLOCKRUN && platform.model == "nvidia/nemotron-3.5-lightning") {
-                                baseRequest.copy(chatTemplateKwargs = kotlinx.serialization.json.JsonObject(mapOf("enable_thinking" to JsonPrimitive((platform.reasoning || constraints.maximizeReasoning) && constraints.allowReasoning))))
-                            } else {
-                                baseRequest
-                            }
-                        }
+                        val request = completionRequest(config, currentRequestMessages, requestTools, gatewayToolsAllowed, effectiveOutputTokens)
                         val assembler = ChatCompletionsEventAssembler()
                         var lastFinishReason: String? = null
                         var terminalReceived = false
@@ -862,10 +766,8 @@ class OpenAICompatibleAdapter @Inject constructor(
                         suspend fun publishAssembly(event: ProviderEvent) {
                             if (event is ProviderEvent.Failed) {
                                 roundFailed = true
-                                if (lastFinishReason != "length") {
-                                    lastFailedMessage = event.message
-                                    protocolErrorCode = protocolErrorCode ?: event.errorCode
-                                }
+                                protocolErrorCode = protocolErrorCode ?: event.errorCode
+                                if (lastFinishReason != "length") lastFailedMessage = event.message
                             } else {
                                 emit(if (event is ProviderEvent.Usage && event.finishReason != null) event.copy(writerObservationKey = writerObservationKey) else event)
                             }
@@ -1045,12 +947,137 @@ class OpenAICompatibleAdapter @Inject constructor(
                         } else if (canRotate && !deliveredPayload && attempt < attempts - 1) {
                             break
                         } else {
-                            emit(ProviderEvent.Failed(lastFailedMessage ?: "Provider request failed", errorCode = protocolErrorCode, transportComplete = !streamInterrupted && terminalReceived && protocolErrorCode == null && lastFinishReason == "length", providerLimit = providerLimitDecision, failureDetails = failureDetails))
+                            val completeOutputLimit = !streamInterrupted && terminalReceived && protocolErrorCode == null && lastFinishReason == "length"
+                            emit(ProviderEvent.Failed(lastFailedMessage ?: "Provider request failed", errorCode = protocolErrorCode ?: "OUTPUT_LIMIT".takeIf { completeOutputLimit }, transportComplete = completeOutputLimit, providerLimit = providerLimitDecision, failureDetails = failureDetails))
                             return@flow
                         }
                     }
                 }
             }
+        }
+    }
+
+    /** Return true only when an untouched attempt may rotate to another credential. */
+    private suspend fun kotlinx.coroutines.flow.FlowCollector<ProviderEvent>.streamGroqAttempt(
+        platform: PlatformV2,
+        constraints: RequestConstraints,
+        config: ProviderRequestConfig,
+        baseMessages: List<ChatMessage>,
+        requestTools: List<ChatFunctionTool>?,
+        hasMoreCredentials: Boolean
+    ): Boolean {
+        var roundFailed = false
+        var canRotate = false
+        var lastFailedMessage: String? = null
+        val effectiveOutputTokens = constraints.outputLimit(platform.maxTokens)
+        if (constraints.maxOutputTokens != null) {
+            emit(
+                ProviderEvent.RequestConfigured(
+                    configuredProfileOutputTokens = platform.maxTokens,
+                    requestedOutputTokens = constraints.maxOutputTokens,
+                    effectiveOutputTokens = effectiveOutputTokens,
+                    reasoningEffort = if (platform.model.contains("gpt-oss", true)) {
+                        if (constraints.allowReasoning && (platform.reasoning || constraints.maximizeReasoning)) {
+                            if (constraints.maximizeReasoning) "high" else "medium"
+                        } else {
+                            "low"
+                        }
+                    } else {
+                        null
+                    }
+                )
+            )
+        }
+        val request = createGroqChatCompletionRequest(baseMessages, platform.copy(reasoning = (platform.reasoning || constraints.maximizeReasoning) && constraints.allowReasoning)).let { request ->
+            request.copy(tools = requestTools, parallelToolCalls = false.takeIf { !requestTools.isNullOrEmpty() }, maxCompletionTokens = effectiveOutputTokens, reasoningEffort = if (constraints.maximizeReasoning && constraints.allowReasoning && platform.model.contains("gpt-oss", true)) "high" else request.reasoningEffort)
+        }
+        val assembler = ChatCompletionsEventAssembler()
+        val reasoningParser = GroqReasoningParser()
+        var terminalReceived = false
+        var streamInterrupted = false
+        var deliveredPayload = false
+        var protocolErrorCode: String? = null
+        var outputLimited = false
+        suspend fun publish(event: ProviderEvent) {
+            if (event is ProviderEvent.TextDelta || event is ProviderEvent.ThinkingDelta || event is ProviderEvent.ToolCall) deliveredPayload = true
+            if (event is ProviderEvent.Failed) {
+                roundFailed = true
+                if (!outputLimited) lastFailedMessage = event.message
+                protocolErrorCode = protocolErrorCode ?: event.errorCode
+            } else {
+                emit(event)
+            }
+        }
+
+        groqAPI.streamChatCompletion(request, platform.timeout, config)
+            .transformWhile { chunk ->
+                emit(chunk)
+                !chunk.streamFinished && chunk.error == null
+            }
+            .catch { error ->
+                if (error is CancellationException || error is ToolDefinitionsRejectedException) throw error
+                roundFailed = true
+                streamInterrupted = true
+                lastFailedMessage = providerFailureMessage(error, "Groq stream request failed")
+                protocolErrorCode = if (error is java.io.IOException || error is io.ktor.client.plugins.HttpRequestTimeoutException) "NETWORK_ERROR" else protocolErrorCode
+                canRotate = ApiCredentialRotator.isRotatableError(error)
+            }
+            .collect { chunk ->
+                if (chunk.streamFinished) {
+                    terminalReceived = true
+                    assembler.finish().forEach { publish(it) }
+                }
+                (chunk.usage ?: chunk.groqMetadata?.usage)?.let { usage ->
+                    emit(ProviderEvent.Usage(usage.promptTokens, usage.completionTokens, usage.totalTokens, reasoningTokens = (usage.completionTokensDetails?.get("reasoning_tokens") as? JsonPrimitive)?.intOrNull?.takeIf { it >= 0 }, phase = if (terminalReceived || chunk.choices.orEmpty().any { it.finishReason != null }) ProviderUsagePhase.FINAL else ProviderUsagePhase.INTERIM))
+                }
+                chunk.error?.let { error ->
+                    roundFailed = true
+                    lastFailedMessage = error.message
+                    protocolErrorCode = error.type?.uppercase()?.takeIf { category -> dev.chungjungsoo.gptmobile.data.network.FreeFailureCategory.entries.any { it.name == category } }
+                        ?: error.code ?: error.type ?: protocolErrorCode
+                    canRotate = !dev.chungjungsoo.gptmobile.data.agent.GatewayOutcomeRecovery.requiresReconciliation(error.message, error.code) && ApiCredentialRotator.containsQuotaOrRateLimitMessage(error.message)
+                } ?: chunk.choices.orEmpty().forEach { choice ->
+                    reasoningParser.append(
+                        contentChunk = choice.delta?.content ?: choice.message?.content,
+                        reasoningChunk = choice.delta?.reasoning ?: choice.message?.reasoning
+                    ).forEach { state ->
+                        state.toProviderEvent()?.let { publish(it) }
+                    }
+                    if (choice.finishReason != null) {
+                        terminalReceived = true
+                    }
+                    if (choice.finishReason == "length") {
+                        outputLimited = true
+                        roundFailed = true
+                        lastFailedMessage = GROQ_OUTPUT_LIMIT_MESSAGE
+                    }
+                    assembler.accept(
+                        content = null,
+                        reasoning = null,
+                        toolCalls = choice.delta?.toolCalls ?: choice.message?.toolCalls,
+                        finishReason = choice.finishReason,
+                        choiceIndex = choice.index
+                    ).forEach { publish(it) }
+                }
+            }
+        assembler.discardIncomplete().forEach { publish(it) }
+        reasoningParser.flush().forEach { state ->
+            state.toProviderEvent()?.let { publish(it) }
+        }
+
+        if (!roundFailed && !terminalReceived) {
+            roundFailed = true
+            lastFailedMessage = "Groq response was interrupted before its terminal receipt. Partial output was retained."
+        }
+        if (!roundFailed) {
+            emit(ProviderEvent.Completed)
+            return false
+        } else if (canRotate && !deliveredPayload && hasMoreCredentials) {
+            return true
+        } else {
+            val completeOutputLimit = terminalReceived && !streamInterrupted && protocolErrorCode == null && lastFailedMessage == GROQ_OUTPUT_LIMIT_MESSAGE
+            emit(ProviderEvent.Failed(lastFailedMessage ?: "Provider request failed", errorCode = protocolErrorCode ?: "OUTPUT_LIMIT".takeIf { completeOutputLimit }, transportComplete = completeOutputLimit))
+            return false
         }
     }
 

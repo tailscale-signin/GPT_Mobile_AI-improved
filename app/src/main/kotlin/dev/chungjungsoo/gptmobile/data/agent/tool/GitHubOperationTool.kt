@@ -262,7 +262,20 @@ internal class GitHubOperationTool(
             )
         }
         val original = backend.execute(callId, native)
-        val result = if (operation == "github_read" && original.errorCode == "EVIDENCE_UNAVAILABLE") {
+        val validation = ((original.content as? ToolResultContent.Json)?.value as? JsonObject)
+            ?.takeIf { original.isError && it["schema"] == JsonPrimitive("github.read_validation.v1") }
+        val result = if (validation != null) {
+            val actions = (validation["corrective_actions"] as? JsonArray).orEmpty().map { raw ->
+                val correction = raw as? JsonObject ?: return@map raw
+                val name = (correction["tool"] as? JsonPrimitive)?.content.orEmpty()
+                if (name in setOf("github_search", "github_read", "github_context")) {
+                    JsonObject(correction + ("tool" to JsonPrimitive(name + definition.name.removePrefix(operation))))
+                } else {
+                    correction
+                }
+            }
+            original.copy(content = ToolResultContent.Json(JsonObject(validation + ("corrective_actions" to JsonArray(actions)))))
+        } else if (operation == "github_read" && original.errorCode == "EVIDENCE_UNAVAILABLE") {
             original.copy(
                 content = ToolResultContent.Json(
                     buildJsonObject {

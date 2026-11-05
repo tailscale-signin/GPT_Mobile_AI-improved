@@ -32,9 +32,15 @@ class AndroidVoiceAudio internal constructor(
 
     private val main = Handler(Looper.getMainLooper())
     private var recognizer: SpeechRecognizer? = null
-    private var tts: TextToSpeech? = null
-    private var speechReady = false
-    private var speechGeneration = 0L
+
+    @Volatile private var tts: TextToSpeech? = null
+
+    private val speechStateLock = Any()
+
+    @Volatile private var speechState = SpeechEngineState.UNINITIALIZED
+
+    @Volatile private var speechGeneration = 0L
+    private val speechReady: Boolean get() = speechState == SpeechEngineState.READY || speechState == SpeechEngineState.SPEAKING
 
     @Volatile private var closed = false
 
@@ -97,6 +103,7 @@ class AndroidVoiceAudio internal constructor(
         val engine = tts?.takeIf { speechReady } ?: return
         val version = speechGeneration
         speechWork.execute {
+            if (closed || version != speechGeneration || tts !== engine || !speechReady) return@execute
             val catalog = runCatching { engine.voices.orEmpty().toSet() }.getOrDefault(emptySet())
             main.post {
                 if (!closed && version == speechGeneration) {
@@ -273,10 +280,14 @@ class AndroidVoiceAudio internal constructor(
         }
         focus = request
         started("tts", ticket)
-        fun fail(message: String) {
+        fun fail(message: String, retireEngine: Boolean = false) {
             main.post {
                 if (!closed && ticket == generation) {
                     terminal("failed")
+                    // A rejected Binder operation means the old engine cannot be
+                    // assumed bound. Retire it before stop() so another reply can
+                    // initialize a fresh engine without repeated stop warnings.
+                    if (retireEngine) releaseSpeech()
                     stop()
                     error(message)
                 }
@@ -284,7 +295,8 @@ class AndroidVoiceAudio internal constructor(
         }
         val config = SpeechConfiguration(languageTag, selectedVoice, allowOnlineSpeech, speechRate.coerceIn(.5f, 2f), routeMode != null)
         val play: () -> Unit = play@{
-            val engine = tts ?: return@play
+            val engine = tts?.takeIf { speechReady } ?: return@play
+            val engineVersion = speechGeneration
             armWatchdog(15_000) {
                 if (!closed && ticket == generation) {
                     terminal("timeout_start")
@@ -294,14 +306,18 @@ class AndroidVoiceAudio internal constructor(
             }
             speechWork.execute work@{
                 try {
-                    if (closed || ticket != generation) return@work
+                    if (closed || ticket != generation || engineVersion != speechGeneration || tts !== engine || !speechReady) return@work
                     if (configuredEngine !== engine || configuredSpeech != config) {
                         configuredSpeech = null
-                        engine.setAudioAttributes(
-                            AudioAttributes.Builder()
-                                .setUsage(if (config.communication) AudioAttributes.USAGE_VOICE_COMMUNICATION else AudioAttributes.USAGE_ASSISTANT)
-                                .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build()
-                        )
+                        if (engine.setAudioAttributes(
+                                AudioAttributes.Builder()
+                                    .setUsage(if (config.communication) AudioAttributes.USAGE_VOICE_COMMUNICATION else AudioAttributes.USAGE_ASSISTANT)
+                                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build()
+                            ) == TextToSpeech.ERROR
+                        ) {
+                            fail("The speech engine is unavailable. Captions remain available.", retireEngine = true)
+                            return@work
+                        }
                         val locale = Locale.forLanguageTag(config.language)
                         if (engine.setLanguage(locale) < 0) {
                             fail("A voice for this language is not installed. Captions are still available.")
@@ -350,9 +366,20 @@ class AndroidVoiceAudio internal constructor(
                         }
                         override fun onDone(utteranceId: String?) {
                             main.post {
-                                if (!closed && ticket == generation) {
+                                if (!closed && ticket == generation && engineVersion == speechGeneration && tts === engine) {
                                     event("tts_utterance_completed · utterance=$utteranceId", ticket)
                                     if (utteranceId == finalId) {
+                                        val finished = synchronized(speechStateLock) {
+                                            if (closed || ticket != generation || engineVersion != speechGeneration || tts !== engine || speechState != SpeechEngineState.SPEAKING) {
+                                                false
+                                            } else {
+                                                // Natural completion has already drained this engine's
+                                                // queue. Cleanup must not issue an idle Binder stop.
+                                                speechState = SpeechEngineState.READY
+                                                true
+                                            }
+                                        }
+                                        if (!finished) return@post
                                         terminal("completed")
                                         stop()
                                         complete()
@@ -362,17 +389,25 @@ class AndroidVoiceAudio internal constructor(
                         }
 
                         @Deprecated("Platform compatibility callback")
-                        override fun onError(utteranceId: String?) = fail("Could not play this response. Turn off the speaker to continue with captions.")
+                        override fun onError(utteranceId: String?) = fail("Could not play this response. Turn off the speaker to continue with captions.", retireEngine = true)
                     })
                     for ((index, chunk) in chunks.withIndex()) {
-                        if (closed || ticket != generation) return@work
+                        val admitted = synchronized(speechStateLock) {
+                            if (closed || ticket != generation || engineVersion != speechGeneration || tts !== engine || !speechReady) {
+                                false
+                            } else {
+                                speechState = SpeechEngineState.SPEAKING
+                                true
+                            }
+                        }
+                        if (!admitted) return@work
                         if (engine.speak(chunk, TextToSpeech.QUEUE_ADD, null, "$ticket:$index") == TextToSpeech.ERROR) {
-                            fail("Could not play this response. Captions are still available.")
+                            fail("Could not play this response. Captions are still available.", retireEngine = true)
                             break
                         }
                     }
                 } catch (_: Exception) {
-                    fail("The speech engine stopped. Turn off the speaker or try again.")
+                    fail("The speech engine stopped. Turn off the speaker or try again.", retireEngine = true)
                 }
             }
         }
@@ -393,13 +428,14 @@ class AndroidVoiceAudio internal constructor(
     }
 
     private fun initializeSpeech() {
-        if (tts != null || closed) return
+        if (tts != null || closed || speechState == SpeechEngineState.INITIALIZING) return
+        speechState = SpeechEngineState.INITIALIZING
         val initialization = ++speechGeneration
         try {
             tts = speechFactory(context) { status ->
                 main.post {
                     if (closed || initialization != speechGeneration) return@post
-                    speechReady = status == TextToSpeech.SUCCESS
+                    speechState = if (status == TextToSpeech.SUCCESS) SpeechEngineState.READY else SpeechEngineState.UNINITIALIZED
                     val pending = pendingSpeech
                     pendingSpeech = null
                     if (speechReady) {
@@ -423,18 +459,26 @@ class AndroidVoiceAudio internal constructor(
             }
         } catch (_: Exception) {
             val failed = playbackError
+            val pending = pendingSpeech
             pendingSpeech = null
             playbackError = null
             releaseSpeech()
-            failed?.invoke("Could not start text-to-speech. Install a voice or continue with captions.")
+            if (pending != null) {
+                // Constructor failure must retire the same watchdog and audio
+                // focus as an asynchronous initialization failure before notifying.
+                terminal("initialization_failed")
+                stop()
+                failed?.invoke("Could not start text-to-speech. Install a voice or continue with captions.")
+            }
         }
     }
 
     private fun releaseSpeech() {
-        speechGeneration++
-        speechReady = false
-        val previous = tts
-        tts = null
+        val previous = synchronized(speechStateLock) {
+            speechGeneration++
+            speechState = if (closed) SpeechEngineState.CLOSED else SpeechEngineState.UNINITIALIZED
+            tts.also { tts = null }
+        }
         installedVoices = emptySet()
         mutableVoices.value = emptyList()
         if (previous != null) {
@@ -451,7 +495,10 @@ class AndroidVoiceAudio internal constructor(
     override fun stop() {
         if (closed) return
         terminal("interrupted")
-        generation++
+        val cancelledSpeech = synchronized(speechStateLock) {
+            generation++
+            tts?.takeIf { speechReady }?.let { it to speechGeneration }
+        }
         watchdog?.let(main::removeCallbacks)
         watchdog = null
         focus?.let { runCatching { audioManager?.abandonAudioFocusRequest(it) } }
@@ -463,8 +510,29 @@ class AndroidVoiceAudio internal constructor(
         runCatching { previous?.cancel() }
         runCatching { previous?.destroy() }
         recognitionGate.release(sessionId)
-        val speech = tts
-        if (speech != null) speechWork.execute { runCatching { speech.stop() } }
+        // Queue cancellation behind configuration/admission on the same worker.
+        // Inspect state there: a stop racing a final admission must still cancel
+        // its queued audio, while INITIALIZING/idle engines never receive stop().
+        cancelledSpeech?.let { (speech, engineVersion) ->
+            speechWork.execute {
+                val needsStop = synchronized(speechStateLock) {
+                    if (tts === speech && engineVersion == speechGeneration && speechState == SpeechEngineState.SPEAKING) {
+                        speechState = SpeechEngineState.READY
+                        true
+                    } else {
+                        false
+                    }
+                }
+                if (needsStop) {
+                    val stopped = runCatching { speech.stop() }.getOrDefault(TextToSpeech.ERROR)
+                    if (stopped == TextToSpeech.ERROR) {
+                        main.post {
+                            if (tts === speech && engineVersion == speechGeneration) releaseSpeech()
+                        }
+                    }
+                }
+            }
+        }
     }
 
     override fun close() {

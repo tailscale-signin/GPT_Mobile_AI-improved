@@ -12,6 +12,19 @@ internal fun classifyDiagnostic(level: String?, tag: String?, message: String): 
     val text = diagnosticEventMessage(message).lowercase()
     val capturedTag = capturedAndroidPrefix.find(diagnosticRecorderPayload(message))?.groupValues?.get(1)?.trim()?.lowercase()
     return when {
+        // An attributed fatal event must never be downgraded by a vendor setting,
+        // optional model feature, or benign platform phrase elsewhere in its stack.
+        tag == "AppCrash" || "fatal exception" in text || level == "F" -> DiagnosticClassification("fatal", "critical", true)
+        tag == "VoiceRecognition" && Regex("^recognition_error=10(?: · |$)").containsMatchIn(text) ->
+            DiagnosticClassification("speech_rate_limit", "warning", true, "respect_shared_recognition_cooldown")
+        tag == "VoiceRecognition" && Regex("^recognition_error=9(?: · |$)").containsMatchIn(text) ->
+            DiagnosticClassification("speech_permission", "warning", true, "restore_microphone_permission")
+        tag == "Android" && "stop failed: not bound to tts engine" in text ->
+            DiagnosticClassification("speech_engine_lifecycle", "warning", true, "retire_unbound_engine_before_retry")
+        tag == "Android" && "didn't find workspec for id" in text ->
+            DiagnosticClassification("work_scheduler_reconciliation", "warning", true, "reconcile_work_id_and_generation_with_durable_task")
+        tag == "Android" && "callback not found for callback_available message" in text ->
+            DiagnosticClassification("network_callback_lifecycle", "warning", true, "inspect_callback_registration_and_cleanup")
         "oom_recovery" in text || "out_of_memory_recovered" in text -> DiagnosticClassification("memory_recovery", "warning", true, "retained_state_after_oom")
         text.startsWith("run_terminal") && Regex("(?:^| · )status=(?:partial|blocked|evidence_missing)(?: · |$)").containsMatchIn(text) ->
             DiagnosticClassification("task_incomplete", "warning", true, "resume_pending_work_or_resolve_blocker")
@@ -56,7 +69,12 @@ internal fun classifyDiagnostic(level: String?, tag: String?, message: String): 
             DiagnosticClassification("platform_job_hint", "info", false)
         tag == "Android" && capturedTag == "libc" && text == "access denied finding property \"ro.hardware.chipname\"" ->
             DiagnosticClassification("platform_optional_property", "info", false)
-        "asus_leak_detect_proj" in text -> DiagnosticClassification("platform", "warning", false)
+        "asus_leak_detect_proj" in text -> DiagnosticClassification(
+            "protected_settings_access",
+            if (level == "E") "error" else "warning",
+            true,
+            "capture_complete_stack_and_android_build_before_attributing_origin"
+        )
         tag == "Android" && capturedTag == "imebackdispatcher" && text.startsWith("ime callback not found. ignoring unregisterreceivedcallback.") -> DiagnosticClassification("platform_input_cleanup", "info", false)
         tag == "Android" && capturedTag == "interactionjankmonitor" && text.startsWith("initializing without read_device_config permission. enabled=false") -> DiagnosticClassification("platform_optional_monitor", "info", false)
         "inactive inputconnection" in text -> DiagnosticClassification("input_lifecycle", "warning", true)
@@ -77,7 +95,6 @@ internal fun classifyDiagnostic(level: String?, tag: String?, message: String): 
             text.startsWith("enrichment_success") ||
             text.startsWith("connected") ->
             DiagnosticClassification("recovery", "info", false, "reported_success")
-        tag == "AppCrash" || "fatal exception" in text || level == "F" -> DiagnosticClassification("fatal", "critical", true)
         Regex("unexpected end of stream|broken pipe|unknownhostexception|unable to resolve host|connectexception|failed to connect|connect timeout", RegexOption.IGNORE_CASE).containsMatchIn(text) -> DiagnosticClassification("transport_availability", "warning", true, "bounded_route_recovery")
         level !in setOf("E", "W") && tag in setOf("Frame", "Rendering") && text.startsWith("frame_timing") ->
             if (significantFrameWindow(message)) DiagnosticClassification("performance", "warning", true, "profile_main_thread_and_rendering") else DiagnosticClassification("performance_sample", "info", false)

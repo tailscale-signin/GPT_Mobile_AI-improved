@@ -11,13 +11,39 @@ import kotlinx.serialization.json.put
 /** Answer truth, request coverage and engineering acceptance are independent dimensions. */
 internal object GitHubRequestCompletion {
     private val question = Regex("(?i)^(?:please\\s+)?(?:what|where|which|who|why|how|when|is|are|does|do|can|could|would|should|will|has|have|explain|describe|show|list|summarize|compare|review|diagnose|inspect|examine|analy[sz]e|find|read|look\\s+at|tell\\s+me)\\b")
-    private val mutation = Regex("(?im)^(?:\\s*[-*\\d.)]+\\s*)?(?:please\\s+)?(?:(?:can|could|would|will)\\s+you\\s+(?:please\\s+)?)?(?:add|implement|fix|repair|build|create|merge|publish|push|delete|remove|change|update|run|test|deploy|install|cancel|rerun|continue|resume)\\b")
+    private const val ACTION = "(?:add|implement|fix|repair|build|create|make|merge|publish|push|commit|delete|remove|change|update|run|test|deploy|install|cancel|rerun|continue|resume|apply)"
+    private const val POLITE = "(?:please\\s+)?(?:(?:can|could|would|will)\\s+you\\s+(?:please\\s+)?)?"
+    private val mutation = Regex("(?im)^(?:\\s*[-*\\d.)]+\\s*)?(?:(?:and|then|also|next)\\s+)?$POLITE$ACTION\\b")
+    private val inspection = Regex("(?i)^$POLITE(?:review|inspect|examine|analy[sz]e|find|read|check|look at|compare|investigate|explain|describe|summarize|list|show)\\b")
+    private val knowledge = Regex("(?i)^$POLITE(?:explain|describe|show(?: me)?)\\s+(?:how|why|what|whether)\\b")
+    private val compoundMutation = Regex("(?i)(?:\\band(?:\\s+then)?|\\bthen|\\balso|\\bafterwards|,)\\s+$POLITE$ACTION\\b")
+    private val quotedMaterial = Regex("(?s)```.*?(?:```|\\z)|~~~.*?(?:~~~|\\z)|`[^`\\r\\n]*`|\"(?:\\\\.|[^\"\\\\])*\"|“[^”]*”|‘[^’]*’|(?<![\\p{L}\\p{N}])'[^'\\r\\n]*'")
+    private val repositorySubject = Regex("(?i)\\b(?:repo(?:sitory)?|repositories|codebase|branches|branch|pull requests?|ci|workflows?|tests?|build|files?|features?|bugs?|fixes|patch(?:es)?|implementation|commits?)\\b|\\b[A-Za-z0-9_.-]+\\.(?:kt|java|md|py|js|ts|tsx|yml|yaml|json|xml)\\b")
+
+    private fun requestText(task: String): String = GitHubTaskContinuity.request(task)
+        .replace(quotedMaterial, " ")
+        .lineSequence().filterNot { it.trimStart().startsWith(">") }.joinToString("\n")
+        .replaceFirst(Regex("(?i)^(?:please[, ]+|i (?:want|need|would like) you to |can you |could you )+"), "").trim()
+
+    private fun requestsAction(request: String): Boolean = request.split(Regex("(?<=[.!?;])\\s+|\\r?\\n")).any { clause ->
+        val text = clause.trim()
+        mutation.containsMatchIn(text) || inspection.containsMatchIn(text) && !knowledge.containsMatchIn(text) && compoundMutation.containsMatchIn(text)
+    }
+
+    /** Only explicit work on repository subjects requires tool evidence before review. */
+    fun requiresRepositoryEvidence(task: String): Boolean {
+        val request = requestText(task)
+        return requestsAction(request) && repositorySubject.containsMatchIn(request)
+    }
+
     fun informational(task: String): Boolean {
-        val request = GitHubTaskContinuity.request(task).replaceFirst(Regex("(?i)^(?:please[, ]+|i (?:want|need|would like) you to |can you |could you )+"), "").trim()
-        return GitHubStatusRequest.matches(request) ||
-            !GitHubTaskCoverage.matches(request) &&
-            !mutation.containsMatchIn(request) &&
-            (question.containsMatchIn(request) || Regex("(?i)^(?:give|provide|offer|perform|conduct) (?:me |a |an |the )*(?:full |detailed |in-depth )*(?:analysis|review|explanation|solutions|recommendations|report)\\b").containsMatchIn(request))
+        val request = requestText(task)
+        return !requestsAction(request) &&
+            (
+                GitHubStatusRequest.matches(request) ||
+                    !GitHubTaskCoverage.matches(request) &&
+                    (question.containsMatchIn(request) || Regex("(?i)^(?:give|provide|offer|perform|conduct) (?:me |a |an |the )*(?:full |detailed |in-depth )*(?:analysis|review|explanation|solutions|recommendations|report)\\b").containsMatchIn(request))
+                )
     }
 
     fun requirements(task: String): List<String> = task.lineSequence().map(String::trim).filter { it.isNotBlank() && it !in setOf("Acceptance criteria:", "Request details:") && !it.startsWith("Budget:") && !it.startsWith("[github-workflow-preset:") }.map { it.removePrefix("- ") }.toList().ifEmpty { listOf("Requested answer") }

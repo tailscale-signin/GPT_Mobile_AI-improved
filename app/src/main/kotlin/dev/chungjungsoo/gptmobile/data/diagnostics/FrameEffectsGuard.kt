@@ -12,6 +12,15 @@ internal class FrameEffectsGuard {
     private val mutableReduced = MutableStateFlow(false)
     val reduced = mutableReduced.asStateFlow()
 
+    /** A quarter-second stall needs immediate relief even before 120 frames arrive. */
+    @Synchronized
+    fun observeCriticalStall(durationNs: Long, nowMs: Long) {
+        if (durationNs < 250_000_000L) return
+        reducedUntil = nowMs + 30_000L
+        goodWindows = 0
+        mutableReduced.value = true
+    }
+
     @Synchronized
     fun observe(frames: Int, slow: Int, stalls: Int, nowMs: Long) {
         if (frames < 120) return

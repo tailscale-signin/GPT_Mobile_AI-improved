@@ -58,8 +58,8 @@ data class ToolBatchRecoverySnapshot(
 
 /** Durable dispatch receipts. A crash after dispatch is unknown, never permission to repeat a side effect. */
 class ToolBatchCheckpoint(private val file: File?, private val binding: String, private val initialJob: ToolBatchJobContext? = null) {
-    @Serializable private data class Call(val id: String, val name: String, val arguments: JsonObject) {
-        fun event() = ProviderEvent.ToolCall(id, name, arguments)
+    @Serializable private data class Call(val id: String, val name: String, val arguments: JsonObject, val originalInvocationFingerprint: String? = null) {
+        fun event() = ProviderEvent.ToolCall(id, name, arguments, originalInvocationFingerprint)
     }
 
     @Serializable private data class Result(val body: String, val json: Boolean, val error: Boolean, val dispatched: Boolean, val code: String?, val callLimit: Boolean, val outputLimit: Boolean, val execution: JsonObject? = null) {
@@ -221,7 +221,7 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String, 
         ) { "An earlier batch still has queued calls; restore it before starting another batch." }
         val entries = state.entries.toMutableMap()
         calls.forEach { call ->
-            val row = Call(call.callId, call.name, call.arguments)
+            val row = Call(call.callId, call.name, call.arguments, call.originalInvocationFingerprint)
             require(entries[call.callId]?.call?.let { it == row } != false) { "Tool call ID changed its operation; dispatch rejected." }
             entries.putIfAbsent(call.callId, Entry(row))
         }

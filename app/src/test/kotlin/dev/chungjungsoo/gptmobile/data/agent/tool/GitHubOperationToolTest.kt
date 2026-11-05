@@ -60,6 +60,29 @@ class GitHubOperationToolTest {
         assertEquals(before, observed.size)
     }
 
+    @Test fun structuredReadValidationPreservesPinnedCandidatesAndUsesTheActiveToolRoute() = runBlocking {
+        val backend = object : AgentTool {
+            override val definition = AgentToolDefinition("github", "backend", buildJsonObject {})
+            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+                val entries = mapOf("README.md" to args("""{"path":"README.md","sha":"$sha","type":"blob","mode":"100644"}"""))
+                val failure = runCatching {
+                    dev.chungjungsoo.gptmobile.data.github.GitHubPinnedPathResolver.resolve("docs/README.md", entries, sha, true)
+                }.exceptionOrNull() as dev.chungjungsoo.gptmobile.data.github.GitHubReadValidation
+                return AgentToolResult(callId, ToolResultContent.Json(failure.details), true, errorCode = failure.code, dispatched = false)
+            }
+        }
+        val tool = GitHubOperationTool("github_read", backend, "pinned-recovery", modelName = "github_read__api")
+        val observed = tool.execute("read", args("""{"commit_sha":"$sha","ranges":[{"path":"docs/README.md","start_line":1,"end_line":20}]}"""))
+        assertTrue(observed.isError)
+        assertFalse(observed.dispatched)
+        assertEquals("GITHUB_PATH_NOT_FOUND", observed.errorCode)
+        val details = result(observed).getValue("data").jsonObject
+        assertEquals(JsonPrimitive("README.md"), details.getValue("candidates").jsonArray.single().jsonObject["path"])
+        val correction = details.getValue("corrective_actions").jsonArray.first().jsonObject
+        assertEquals(JsonPrimitive("github_search__api"), correction["tool"])
+        valid("github_search", correction.getValue("arguments").jsonObject)
+    }
+
     @Test fun missingPinnedPathProvidesDiscoveryInsteadOfAnotherGuessedRead() = runBlocking {
         val backend = object : AgentTool {
             override val definition = AgentToolDefinition("github", "backend", buildJsonObject {})

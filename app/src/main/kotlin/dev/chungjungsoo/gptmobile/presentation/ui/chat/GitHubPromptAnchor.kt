@@ -28,7 +28,7 @@ internal class GitHubPromptAnchor(private val releaseDistance: Float, private va
         lastHistoryAt = null
     }
 
-    /** A quick upward flick must not bypass the one-second history-release gesture. */
+    /** A quick upward flick must not bypass the sustained history-release gesture. */
     fun fling(velocity: Float, threshold: Float): Movement {
         if (!attached && velocity < -threshold) {
             attach()
@@ -59,7 +59,7 @@ internal class GitHubPromptAnchor(private val releaseDistance: Float, private va
             return Movement()
         }
         // Holding a finger still, reversing direction or separate swipes cannot accumulate time.
-        if (lastHistoryAt?.let { nowMillis - it !in 0..250 } == true) beginGesture()
+        if (lastHistoryAt?.let { nowMillis - it !in 0..MAX_DRAG_SAMPLE_GAP_MILLIS } == true) beginGesture()
         if (historyStartedAt == null) historyStartedAt = nowMillis
         lastHistoryAt = nowMillis
         towardHistory += excess
@@ -72,6 +72,7 @@ internal class GitHubPromptAnchor(private val releaseDistance: Float, private va
 
     companion object {
         const val PROMPT_ANIMATION_MILLIS = 1500
-        const val HISTORY_RELEASE_MILLIS = 1000L
+        const val HISTORY_RELEASE_MILLIS = 250L
+        private const val MAX_DRAG_SAMPLE_GAP_MILLIS = 125L
     }
 }

@@ -1,0 +1,247 @@
+package dev.chungjungsoo.gptmobile.data.agent
+
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class GitHubOutputContinuationSessionTest {
+    private val tool = AgentToolDefinition("github_read", "Read pinned files", JsonObject(emptyMap()))
+    private val limited = ProviderEvent.Failed("The response reached its output limit.", transportComplete = true)
+    private fun session(vararg events: ProviderEvent) = object : AgentProviderSession {
+        override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> = flowOf(*events)
+    }
+
+    @Test fun usageIsAdditiveAcrossRequestsAndKeepsMeasuredSourcesSeparate() = runBlocking {
+        val output = GitHubOutputContinuationSession(session(ProviderEvent.TextDelta("First"), ProviderEvent.Usage(outputTokens = 4096, cumulative = true, finishReason = "length"), limited)) { _, _, _ ->
+            session(ProviderEvent.TextDelta(" second"), ProviderEvent.Usage(outputTokens = 1024, cumulative = true), ProviderEvent.Completed)
+        }.streamRound(emptyList(), emptyList()).toList()
+        val usage = output.filterIsInstance<ProviderEvent.Usage>()
+        assertEquals(5120, usage.sumOf { it.outputTokens ?: 0 })
+        assertTrue(usage.all { !it.cumulative && it.outputSource == "provider_reported" })
+    }
+
+    @Test fun limitedDraftContinuesWithToolsAndCompleteReceipts() = runBlocking {
+        val receipt = AgentToolExchange(listOf(ProviderEvent.ToolCall("read", "github_read", JsonObject(emptyMap()))), listOf(AgentToolResult("read", ToolResultContent.Text("Verified file"), false)))
+        var checkpoint: JsonObject? = null
+        var requests = 0
+        val continuing = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> {
+                assertEquals(listOf(tool), tools)
+                assertTrue(exchanges.isEmpty())
+                return flowOf(ProviderEvent.TextDelta(" and the remaining work."), ProviderEvent.Completed)
+            }
+        }
+        val output = GitHubOutputContinuationSession(session(ProviderEvent.TextDelta("Saved findings"), limited), saveCheckpoint = { checkpoint = it }) { draft, evidence, definitions ->
+            requests++
+            assertEquals("Saved findings", draft)
+            assertEquals(listOf(receipt), evidence)
+            assertEquals(listOf(tool), definitions)
+            continuing
+        }.streamRound(listOf(tool), listOf(receipt)).toList()
+        assertEquals(1, requests)
+        assertEquals("Saved findings and the remaining work.", output.filterIsInstance<ProviderEvent.TextDelta>().single().text)
+        assertEquals(ProviderEvent.Completed, output.last())
+        assertEquals(JsonPrimitive("COMPLETED"), checkpoint?.get("state"))
+    }
+
+    @Test fun continuationCanRequestRemainingWorkWithoutDispatchingItInsideTheWrapper() = runBlocking {
+        val call = ProviderEvent.ToolCall("next", tool.name, JsonObject(emptyMap()))
+        val output = GitHubOutputContinuationSession(session(ProviderEvent.TextDelta("Plan"), limited)) { _, _, _ ->
+            session(call, ProviderEvent.Completed)
+        }.streamRound(listOf(tool), emptyList()).toList()
+        assertEquals(listOf(call), output.filterIsInstance<ProviderEvent.ToolCall>())
+        assertTrue(output.none { it is ProviderEvent.TextDelta || it is ProviderEvent.ToolResult })
+        assertEquals(ProviderEvent.Completed, output.last())
+    }
+
+    @Test fun toolHandoffResumesTheDraftWithConfirmedReceiptsWithoutReplenishingTheBudget() = runBlocking {
+        val call = ProviderEvent.ToolCall("remaining", tool.name, JsonObject(emptyMap()))
+        val receipt = AgentToolExchange(listOf(call), listOf(AgentToolResult(call.callId, ToolResultContent.Text("Confirmed remaining work"), false)))
+        var reopenCount = 0
+        val recovery = GitHubOutputContinuationSession(session(ProviderEvent.TextDelta("Verified first section."), limited), maxContinuations = 1) { draft, evidence, definitions ->
+            assertEquals("Verified first section.", draft)
+            assertEquals(listOf(tool), definitions)
+            if (++reopenCount == 1) {
+                assertTrue(evidence.isEmpty())
+                session(call, ProviderEvent.Completed)
+            } else {
+                assertEquals(listOf(receipt), evidence)
+                session(ProviderEvent.TextDelta("\nVerified final section."), ProviderEvent.Completed)
+            }
+        }
+        val handoff = recovery.streamRound(listOf(tool), emptyList()).toList()
+        assertEquals(listOf(call), handoff.filterIsInstance<ProviderEvent.ToolCall>())
+        val finished = recovery.streamRound(listOf(tool), listOf(receipt)).toList()
+        assertEquals(2, reopenCount)
+        assertTrue(finished.none { it is ProviderEvent.ToolCall || it is ProviderEvent.Failed })
+        assertEquals("Verified first section.\nVerified final section.", finished.filterIsInstance<ProviderEvent.TextDelta>().single().text)
+    }
+
+    @Test fun restoredHandoffCannotRegenerateUnconfirmedOrUnknownActions() = runBlocking {
+        val call = ProviderEvent.ToolCall("mutation", tool.name, JsonObject(emptyMap()))
+        var checkpoint: JsonObject? = null
+        GitHubOutputContinuationSession(session(ProviderEvent.TextDelta("Retained draft"), limited), saveCheckpoint = { checkpoint = it }) { _, _, _ -> session(call, ProviderEvent.Completed) }
+            .streamRound(listOf(tool), emptyList()).toList()
+        val unknown = AgentToolExchange(listOf(call), listOf(AgentToolResult(call.callId, ToolResultContent.Text("Mutation outcome unknown"), true, errorCode = "TOOL_OUTCOME_UNKNOWN")))
+        for (receipts in listOf(emptyList(), listOf(unknown))) {
+            val output = GitHubOutputContinuationSession(session(ProviderEvent.TextDelta("Must not regenerate")), readCheckpoint = { checkpoint }) { _, _, _ -> error("Unconfirmed actions need reconciliation") }
+                .streamRound(listOf(tool), receipts).toList()
+            val failure = output.single() as ProviderEvent.Failed
+            assertEquals("OUTPUT_CONTINUATION_PENDING_TOOLS", failure.errorCode)
+            assertEquals("BLOCKED", failure.taskOutcome)
+        }
+    }
+
+    @Test fun interruptedNormalRoundAfterToolHandoffDoesNotConsumeOutputContinuationBudget() = runBlocking {
+        val call = ProviderEvent.ToolCall("remaining", tool.name, JsonObject(emptyMap()))
+        val receipt = AgentToolExchange(listOf(call), listOf(AgentToolResult(call.callId, ToolResultContent.Text("Confirmed result"), false)))
+        var checkpoint: JsonObject? = null
+        var opened = 0
+        val first = GitHubOutputContinuationSession(session(ProviderEvent.TextDelta("Saved draft"), limited), maxContinuations = 1, readCheckpoint = { checkpoint }, saveCheckpoint = { checkpoint = it }) { _, _, _ ->
+            if (++opened == 1) session(call, ProviderEvent.Completed) else throw CancellationException("Interrupted normal round before dispatch")
+        }
+        first.streamRound(listOf(tool), emptyList()).toList()
+        try {
+            first.streamRound(listOf(tool), listOf(receipt)).toList()
+        } catch (_: CancellationException) {
+            // Restoring this normal post-tool round must not fabricate a length continuation.
+        }
+        val resumed = GitHubOutputContinuationSession(session(), maxContinuations = 1, readCheckpoint = { checkpoint }, saveCheckpoint = { checkpoint = it }) { draft, evidence, _ ->
+            assertEquals("Saved draft", draft)
+            assertEquals(listOf(receipt), evidence)
+            session(ProviderEvent.TextDelta(" completed."), ProviderEvent.Completed)
+        }.streamRound(listOf(tool), listOf(receipt)).toList()
+        assertEquals("Saved draft completed.", resumed.filterIsInstance<ProviderEvent.TextDelta>().single().text)
+        assertEquals(JsonPrimitive(1), checkpoint?.get("continuations"))
+    }
+
+    @Test fun incompleteToolFramesAndUnknownMutationsNeverAutoContinue() = runBlocking {
+        for (failure in listOf(limited.copy(errorCode = "TOOL_PROTOCOL_INCOMPLETE_FRAME"), limited.copy(errorCode = GatewayOutcomeRecovery.ERROR_CODE), limited.copy(transportComplete = false))) {
+            val output = GitHubOutputContinuationSession(session(ProviderEvent.TextDelta("Partial"), failure)) { _, _, _ ->
+                error("An unsafe response must not be replayed")
+            }.streamRound(listOf(tool), emptyList()).toList()
+            assertEquals(failure, output.last())
+            assertTrue(output.none { it is ProviderEvent.ToolCall || it is ProviderEvent.TextDelta })
+        }
+        val output = GitHubOutputContinuationSession(session(ProviderEvent.TextDelta("Partial"), ProviderEvent.ToolCall("uncommitted", tool.name, JsonObject(emptyMap())), limited)) { _, _, _ -> error("Buffered calls require runner repair") }
+            .streamRound(listOf(tool), emptyList()).toList()
+        assertEquals(limited, output.last())
+        assertTrue(output.none { it is ProviderEvent.ToolCall })
+    }
+
+    @Test fun processRestartRetainsDraftAndDoesNotReplenishClaimedBudget() = runBlocking {
+        var checkpoint: JsonObject? = null
+        var generations = 0
+        val original = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                generations++
+                emit(ProviderEvent.TextDelta("Saved before process death"))
+                emit(limited)
+            }
+        }
+        try {
+            GitHubOutputContinuationSession(original, maxContinuations = 1, saveCheckpoint = { checkpoint = it }) { _, _, _ ->
+                throw CancellationException("Process interrupted after persisted claim")
+            }.streamRound(emptyList(), emptyList()).toList()
+        } catch (_: CancellationException) {
+            // Simulates stopping between a durable claim and receiving the next response.
+        }
+        val restored = GitHubOutputContinuationSession(original, maxContinuations = 1, readCheckpoint = { checkpoint }, saveCheckpoint = { checkpoint = it }) { _, _, _ -> error("No budget may be fabricated after restart") }
+            .streamRound(emptyList(), emptyList()).toList()
+        assertEquals(1, generations)
+        assertEquals("OUTPUT_CONTINUATION_BUDGET_EXHAUSTED", (restored.last() as ProviderEvent.Failed).errorCode)
+        assertEquals(JsonPrimitive("Saved before process death"), checkpoint?.get("draft"))
+    }
+
+    @Test fun interruptedTextResumesFromItsDurablePrefixWithoutRestartingGeneration() = runBlocking {
+        var checkpoint: JsonObject? = null
+        val interrupted = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                emit(ProviderEvent.TextDelta("Confirmed prefix"))
+                throw CancellationException("Stopped")
+            }
+        }
+        try {
+            GitHubOutputContinuationSession(interrupted, saveCheckpoint = { checkpoint = it }) { _, _, _ -> error("No continuation before cancellation") }.streamRound(emptyList(), emptyList()).toList()
+        } catch (_: CancellationException) {
+            // A fresh session models a later explicit resume after process restoration.
+        }
+        val unexpectedRestart = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = error("The original generation must not restart")
+        }
+        val resumed = GitHubOutputContinuationSession(unexpectedRestart, readCheckpoint = { checkpoint }, saveCheckpoint = { checkpoint = it }) { draft, _, definitions ->
+            assertEquals("Confirmed prefix", draft)
+            assertTrue(definitions.isEmpty())
+            session(ProviderEvent.TextDelta(" and continued suffix"), ProviderEvent.Completed)
+        }.streamRound(emptyList(), emptyList()).toList()
+        assertEquals("Confirmed prefix and continued suffix", resumed.filterIsInstance<ProviderEvent.TextDelta>().single().text)
+    }
+
+    @Test fun repeatedOutputStopsWithoutPublishingDuplicatedText() = runBlocking {
+        var calls = 0
+        val draft = "A sufficiently long retained answer with exact prior findings."
+        val output = GitHubOutputContinuationSession(session(ProviderEvent.TextDelta(draft), limited)) { _, _, _ ->
+            calls++
+            session(ProviderEvent.TextDelta(draft), limited)
+        }.streamRound(emptyList(), emptyList()).toList()
+        assertEquals(1, calls)
+        assertEquals("OUTPUT_CONTINUATION_NO_PROGRESS", (output.last() as ProviderEvent.Failed).errorCode)
+        assertTrue(output.none { it is ProviderEvent.TextDelta })
+    }
+
+    @Test fun noProgressStaysBlockedUntilConfigurationChangesThenResumesTheSameDraft() = runBlocking {
+        var checkpoint: JsonObject? = null
+        val draft = "A saved draft with verified findings."
+        GitHubOutputContinuationSession(session(ProviderEvent.TextDelta(draft), limited), continuationRevision = "old", saveCheckpoint = { checkpoint = it }) { _, _, _ -> session(ProviderEvent.TextDelta(draft), limited) }
+            .streamRound(emptyList(), emptyList()).toList()
+        val neverRestart = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = error("The original generation must not repeat")
+        }
+        val blocked = GitHubOutputContinuationSession(neverRestart, continuationRevision = "old", readCheckpoint = { checkpoint }) { _, _, _ -> error("Unchanged input remains blocked") }
+            .streamRound(emptyList(), emptyList()).toList()
+        assertEquals("BLOCKED", (blocked.single() as ProviderEvent.Failed).taskOutcome)
+        val resumed = GitHubOutputContinuationSession(neverRestart, continuationRevision = "larger-capacity", readCheckpoint = { checkpoint }, saveCheckpoint = { checkpoint = it }) { saved, _, _ ->
+            assertEquals(draft, saved)
+            session(ProviderEvent.TextDelta(" More findings."), ProviderEvent.Completed)
+        }.streamRound(emptyList(), emptyList()).toList()
+        assertEquals(draft + " More findings.", resumed.filterIsInstance<ProviderEvent.TextDelta>().single().text)
+        assertEquals(JsonPrimitive(1), checkpoint?.get("continuations"))
+    }
+
+    @Test fun safeInterruptedFailureFrameRetainsPrefixForExplicitResume() = runBlocking {
+        var checkpoint: JsonObject? = null
+        val failure = ProviderEvent.Failed("Unexpected end of stream", errorCode = "STREAM_INTERRUPTED")
+        val interrupted = GitHubOutputContinuationSession(session(ProviderEvent.TextDelta("Confirmed prefix"), failure), saveCheckpoint = { checkpoint = it }) { _, _, _ -> error("An interrupted stream does not auto-retry") }
+            .streamRound(emptyList(), emptyList()).toList()
+        assertEquals(failure, interrupted.last())
+        val resumed = GitHubOutputContinuationSession(session(), readCheckpoint = { checkpoint }) { draft, _, _ ->
+            assertEquals("Confirmed prefix", draft)
+            session(ProviderEvent.TextDelta(" and suffix"), ProviderEvent.Completed)
+        }.streamRound(emptyList(), emptyList()).toList()
+        assertEquals("Confirmed prefix and suffix", resumed.filterIsInstance<ProviderEvent.TextDelta>().single().text)
+    }
+
+    @Test fun foreignEvidenceCannotResumeAnotherRoundsDraft() = runBlocking {
+        val stale = JsonObject(mapOf("evidence_digest" to JsonPrimitive("different"), "state" to JsonPrimitive("OUTPUT_LIMIT"), "draft" to JsonPrimitive("Foreign draft"), "continuations" to JsonPrimitive(0)))
+        val output = GitHubOutputContinuationSession(session(ProviderEvent.TextDelta("Current answer"), ProviderEvent.Completed), readCheckpoint = { stale }) { _, _, _ -> error("Unrelated draft must not be sent") }
+            .streamRound(emptyList(), emptyList()).toList()
+        assertEquals("Current answer", output.filterIsInstance<ProviderEvent.TextDelta>().single().text)
+    }
+
+    @Test fun serverOwnedToolSessionsKeepTheirReconciliationBoundary() = runBlocking {
+        val source = object : AgentProviderSession {
+            override val handlesToolsInternally = true
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flowOf(limited)
+        }
+        val output = GitHubOutputContinuationSession(source) { _, _, _ -> error("Server-owned work needs reconciliation") }.streamRound(emptyList(), emptyList()).toList()
+        assertEquals(listOf(limited), output)
+    }
+}

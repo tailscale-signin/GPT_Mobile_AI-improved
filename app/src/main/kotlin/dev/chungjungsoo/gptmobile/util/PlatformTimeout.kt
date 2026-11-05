@@ -22,17 +22,19 @@ internal fun platformTimeoutSecondsToSocketTimeoutMillis(timeoutSeconds: Int): L
  * long tool calls, and sparse SSE streams do not get mistaken for dead connections.
  * The total request deadline remains unlimited for streaming responses.
  */
-internal fun HttpRequestBuilder.applyPlatformStreamingTimeout(timeoutSeconds: Int, worker: dev.chungjungsoo.gptmobile.data.network.WorkerRequestBudget? = null) {
+internal fun HttpRequestBuilder.applyPlatformStreamingTimeout(timeoutSeconds: Int, worker: dev.chungjungsoo.gptmobile.data.network.WorkerRequestBudget? = null, connectionTimeoutMillis: Long? = null) {
     val requestedSocketTimeout =
         platformTimeoutSecondsToSocketTimeoutMillis(timeoutSeconds) ?: REMOTE_STREAM_MIN_SOCKET_TIMEOUT_MS
     val socketTimeout = requestedSocketTimeout.coerceAtLeast(REMOTE_STREAM_MIN_SOCKET_TIMEOUT_MS)
     worker?.acquireRequest()
     val local = dev.chungjungsoo.gptmobile.data.model.endpointLocality(url.toString()) != dev.chungjungsoo.gptmobile.data.model.EndpointLocality.EXTERNAL
     val remaining = worker?.remainingMillis()
+    require(connectionTimeoutMillis == null || connectionTimeoutMillis > 0)
+    val connectTimeout = (connectionTimeoutMillis ?: if (local) 5_000L else REMOTE_STREAM_CONNECT_TIMEOUT_MS).coerceAtMost(Int.MAX_VALUE.toLong())
     timeout {
         this.requestTimeoutMillis = remaining ?: HttpTimeoutConfig.INFINITE_TIMEOUT_MS
         this.socketTimeoutMillis = remaining?.let { minOf(socketTimeout, it) } ?: socketTimeout
-        this.connectTimeoutMillis = minOf(if (local) 5_000L else REMOTE_STREAM_CONNECT_TIMEOUT_MS, remaining ?: Long.MAX_VALUE)
+        this.connectTimeoutMillis = minOf(connectTimeout, remaining ?: Long.MAX_VALUE)
     }
 }
 

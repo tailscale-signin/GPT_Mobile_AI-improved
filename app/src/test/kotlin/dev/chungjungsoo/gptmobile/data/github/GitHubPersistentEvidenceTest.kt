@@ -228,7 +228,9 @@ class GitHubPersistentEvidenceTest {
             if (index < 2) {
                 val continuation = page.getValue("continuation").jsonObject
                 assertEquals(".kt", continuation.getValue("path_suffix").jsonPrimitive.content)
-                assertTrue(runCatching { client.execute("search_repository", "owner", "repo", JsonObject(continuation + ("case_sensitive" to JsonPrimitive(false)))) }.isFailure)
+                val restarted = client.execute("search_repository", "owner", "repo", JsonObject(continuation + ("case_sensitive" to JsonPrimitive(false)))).jsonObject
+                assertEquals(JsonPrimitive("SEARCH_PARAMETERS_CHANGED"), restarted.getValue("recovery").jsonObject["code"])
+                assertEquals(JsonPrimitive(0), restarted["interval_start"])
                 page = client.execute("search_repository", "owner", "repo", continuation).jsonObject
             }
         }
@@ -289,7 +291,7 @@ class GitHubPersistentEvidenceTest {
         assertEquals(5, blobReads)
     }
 
-    @Test fun filteredSearchCachesPagesAndRejectsChangedContinuationIdentity() = runTest {
+    @Test fun filteredSearchCachesPagesAndRestartsChangedContinuationIdentity() = runTest {
         var fetched = 0
         val entries = (0 until 7).map { item("src/File$it.kt", sha(it + 1), 30) } + item("src/Other.py", sha(99), 30)
         val client = session(GitHubRepositoryStateStore(), request = { path ->
@@ -311,7 +313,9 @@ class GitHubPersistentEvidenceTest {
         assertEquals(3, fetched)
         val continuation = first.getValue("continuation").jsonObject
         val changed = JsonObject(continuation + ("query" to JsonPrimitive("different")))
-        assertTrue(runCatching { client.execute("search_repository", "owner", "repo", changed) }.isFailure)
+        val restarted = client.execute("search_repository", "owner", "repo", changed).jsonObject
+        assertEquals(JsonPrimitive("SEARCH_PARAMETERS_CHANGED"), restarted.getValue("recovery").jsonObject["code"])
+        assertEquals(JsonPrimitive(0), restarted["interval_start"])
         var page = first
         val found = mutableSetOf<String>()
         while (true) {
@@ -349,10 +353,30 @@ class GitHubPersistentEvidenceTest {
                 else -> error("Path search must use tree metadata without fetching blobs")
             }
         })
-        val result = client.execute("search_repository", "owner", "repo", args("query" to JsonPrimitive(".py"), "mode" to JsonPrimitive("paths"))).jsonObject
-        assertEquals("z/scripts/target.py", result.getValue("items").jsonArray.single().jsonObject.getValue("path").jsonPrimitive.content)
-        assertTrue(result.getValue("complete").jsonPrimitive.booleanOrNull == true)
-        assertEquals(0, result.getValue("new_blobs").jsonPrimitive.intOrNull)
+        var request = args("query" to JsonPrimitive(".py"), "mode" to JsonPrimitive("paths"), "batch_size" to JsonPrimitive(1000))
+        val found = mutableListOf<String>()
+        var cursor = 0
+        var pages = 0
+        while (true) {
+            val result = client.execute("search_repository", "owner", "repo", request).jsonObject
+            assertEquals(cursor, result.getValue("interval_start").jsonPrimitive.intOrNull)
+            val next = result.getValue("interval_end").jsonPrimitive.intOrNull!!
+            assertTrue(next > cursor && next - cursor <= 1000)
+            assertEquals(0, result.getValue("new_blobs").jsonPrimitive.intOrNull)
+            found += result.getValue("items").jsonArray.map { it.jsonObject.getValue("path").jsonPrimitive.content }
+            cursor = next
+            pages++
+            if (result.getValue("has_more").jsonPrimitive.booleanOrNull != true) {
+                assertTrue(result.getValue("complete").jsonPrimitive.booleanOrNull == true)
+                assertTrue(result.getValue("matches_complete").jsonPrimitive.booleanOrNull == true)
+                break
+            }
+            assertFalse(result.getValue("complete").jsonPrimitive.booleanOrNull == true)
+            request = result.getValue("continuation").jsonObject
+        }
+        assertEquals(entries.size, cursor)
+        assertEquals(3, pages)
+        assertEquals(listOf("z/scripts/target.py"), found)
     }
 
     @Test fun wildcardPathListingUsesExactContinuationWithoutDuplicatingEntries() = runTest {
@@ -407,8 +431,17 @@ class GitHubPersistentEvidenceTest {
             }
         })
         val failure = runCatching { client.execute("read_ranges", "owner", "repo", args("path" to JsonPrimitive(".github/workflows/main.yml"))) }.exceptionOrNull()
-        assertTrue(failure?.message.orEmpty().contains(".github/workflows/build.yml"))
-        assertTrue(failure?.message.orEmpty().contains("mode=paths"))
+        assertTrue(failure is GitHubReadValidation)
+        val validation = failure as GitHubReadValidation
+        assertEquals("GITHUB_PATH_NOT_FOUND", validation.code)
+        assertEquals(JsonPrimitive(false), validation.details["read_dispatched"])
+        val candidate = validation.details.getValue("candidates").jsonArray.single().jsonObject
+        assertEquals(JsonPrimitive(".github/workflows/build.yml"), candidate["path"])
+        assertEquals(JsonPrimitive(sha(1)), candidate["sha"])
+        val correction = validation.details.getValue("corrective_actions").jsonArray.first().jsonObject
+        assertEquals(JsonPrimitive("github_search"), correction["tool"])
+        assertEquals(JsonPrimitive("paths"), correction.getValue("arguments").jsonObject["mode"])
+        assertEquals(JsonPrimitive(head), correction.getValue("arguments").jsonObject["commit_sha"])
     }
 
     @Test fun changesWithoutBaseReturnsAnActionableErrorBeforeAnyNetworkWork() = runTest {

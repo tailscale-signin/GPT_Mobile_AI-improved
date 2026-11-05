@@ -13,6 +13,23 @@ class GitHubRequestCompletionTest {
     private val sha = "a".repeat(40)
     private val task = "Implement the feature"
 
+    @Test fun compoundChangeRequestsCannotCompleteFromAnUnrelatedReadFact() {
+        for (request in listOf("Review the repository and implement feature X", "Can you inspect this repository and then fix the bug?", "Read README.md; update the repository docs", "What changed? Please fix the bug", "Explain the architecture and implement the feature")) {
+            assertFalse(request, GitHubRequestCompletion.informational(request))
+            assertTrue(request, GitHubRequestCompletion.requiresRepositoryEvidence(request))
+            val claims = listOf(buildJsonObject { put("status", "VERIFIED") })
+            val result = GitHubRequestCompletion.evaluate(request, claims, JsonObject(emptyMap()), mapOf("read" to receipt("status", JsonObject(emptyMap()))))
+            assertFalse(request, result["completion_verified"] == JsonPrimitive(true))
+        }
+    }
+
+    @Test fun knowledgeQuestionsAndQuotedCommandsDoNotRequestRepositoryWork() {
+        for (request in listOf("Explain how to create a branch and push commits", "Review this log: \"then deploy the branch\"", "Review this comment: 'fix the repository and run tests'", "Review this example:\n```text\nimplement the feature\n```", "Review this excerpt:\n> Update the repository and run tests")) {
+            assertTrue(request, GitHubRequestCompletion.informational(request))
+            assertFalse(request, GitHubRequestCompletion.requiresRepositoryEvidence(request))
+        }
+    }
+
     private fun receipt(action: String, data: JsonObject, trusted: Boolean = true) = buildJsonObject {
         put("trusted", trusted)
         put("success", true)

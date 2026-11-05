@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.material.icons.outlined.AccountTree
 import androidx.compose.material3.Card
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -24,6 +23,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -53,16 +53,12 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.put
 
-/** An optional, bounded repository explorer embedded in GitHub chat. */
+/** A bounded repository explorer opened from GitHub workspace settings. */
 @Composable
-fun RepositoryGraphPanel(context: GitHubConversationContext, profile: PlatformV2?, model: RepositoryGraphViewModel = hiltViewModel()) {
+fun RepositoryGraphPanel(context: GitHubConversationContext, profile: PlatformV2?, onDismiss: () -> Unit, model: RepositoryGraphViewModel = hiltViewModel()) {
     if (!GitHubAutonomousEngineeringPolicy.supportsSavedJobs(profile)) return
-    var open by remember(context) { mutableStateOf(false) }
-    androidx.compose.material3.IconButton(onClick = { open = true }) {
-        androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.Outlined.AccountTree, contentDescription = "Open repository map")
-    }
-    if (!open) return
     LaunchedEffect(context) { model.bind(context) }
+    DisposableEffect(context, model) { onDispose(model::stop) }
     val state by model.state.collectAsStateWithLifecycle()
     var query by remember(context) { mutableStateOf("") }
     var target by remember(context) { mutableStateOf("") }
@@ -74,7 +70,7 @@ fun RepositoryGraphPanel(context: GitHubConversationContext, profile: PlatformV2
     val clipboard = LocalClipboardManager.current
     Dialog(onDismissRequest = {
         model.stop()
-        open = false
+        onDismiss()
     }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Scaffold(
             modifier = Modifier.glassBackdrop(androidx.compose.foundation.shape.RoundedCornerShape(0.dp), captureAsPopup = true),
@@ -88,7 +84,7 @@ fun RepositoryGraphPanel(context: GitHubConversationContext, profile: PlatformV2
                         }
                         TextButton(onClick = {
                             model.stop()
-                            open = false
+                            onDismiss()
                         }) { Text("Close") }
                     }
                     if (state.busy) LinearProgressIndicator(Modifier.fillMaxWidth())

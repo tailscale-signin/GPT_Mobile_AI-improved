@@ -435,7 +435,8 @@ class ToolConnectionsViewModel @Inject constructor(
                             },
                             onFailure = { error ->
                                 if (error is kotlinx.coroutines.CancellationException) throw error
-                                val message = error.message ?: "Unable to reach the MCP server."
+                                val observedHealth = mcpClientManager.healthSnapshot(connection.connectionUid)
+                                val message = observedHealth.lastError ?: error.message ?: "Unable to reach the MCP server."
                                 val limited = message.contains("401") ||
                                     message.contains("403") ||
                                     message.contains("auth", ignoreCase = true) ||

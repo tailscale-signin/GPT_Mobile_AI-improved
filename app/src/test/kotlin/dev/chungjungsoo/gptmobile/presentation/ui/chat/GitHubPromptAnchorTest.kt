@@ -6,14 +6,15 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubPromptAnchorTest {
-    @Test fun intensiveDragNeedsOneSecondBeforeHistoryReleases() {
+    @Test fun continuousUpwardDragReleasesAtExactlyAQuarterSecond() {
         val anchor = GitHubPromptAnchor(64f, 32f)
-        for (time in 0L..900L step 100) {
+        for (time in listOf(0L, 50L, 100L, 150L, 200L, 249L)) {
             assertEquals(20f, anchor.move(20f, 0f, true, time).consumed)
             assertTrue(anchor.attached)
         }
-        assertEquals(0f, anchor.move(20f, 0f, true, 1000).consumed)
+        assertEquals(0f, anchor.move(20f, 0f, true, 250).consumed)
         assertFalse(anchor.attached)
+        assertEquals(0f, anchor.move(80f, 0f, true, 300).consumed)
     }
 
     @Test fun durationAloneOrSeparateSwipesCannotReleaseHistory() {
@@ -30,14 +31,43 @@ class GitHubPromptAnchorTest {
 
     @Test fun reverseDirectionResetsHistoryClockAndDownwardMotionReattaches() {
         val anchor = GitHubPromptAnchor(64f, 32f)
-        for (time in 0L..900L step 100) anchor.move(20f, 0f, true, time)
-        anchor.move(-1f, 0f, true, 950)
-        assertEquals(100f, anchor.move(100f, 0f, true, 1000).consumed)
+        for (time in 0L..200L step 50) anchor.move(20f, 0f, true, time)
+        anchor.move(-1f, 0f, true, 225)
+        assertEquals(100f, anchor.move(100f, 0f, true, 250).consumed)
         assertTrue(anchor.attached)
         anchor.detach()
         assertFalse(anchor.move(-10f, 0f, true, 1100).reattach)
         assertTrue(anchor.move(-24f, 0f, true, 1200).reattach)
         assertTrue(anchor.attached)
+    }
+
+    @Test fun holdingStillOrCancellingAGestureCannotAccumulateReleaseTime() {
+        val anchor = GitHubPromptAnchor(64f, 32f)
+        anchor.move(100f, 0f, true, 0)
+        // Two isolated movements a quarter second apart are not a continuous drag.
+        assertEquals(100f, anchor.move(100f, 0f, true, 250).consumed)
+        assertTrue(anchor.attached)
+        anchor.move(20f, 0f, true, 350)
+        anchor.beginGesture()
+        assertEquals(100f, anchor.move(100f, 0f, true, 500).consumed)
+        assertTrue(anchor.attached)
+        for (time in 550L..700L step 50) anchor.move(20f, 0f, true, time)
+        assertEquals(0f, anchor.move(20f, 0f, true, 750).consumed)
+        assertFalse(anchor.attached)
+    }
+
+    @Test fun explicitReattachmentStartsAFreshReleaseGestureAndIgnoresLayoutMotion() {
+        val anchor = GitHubPromptAnchor(64f, 32f)
+        for (time in 0L..250L step 50) anchor.move(20f, 0f, true, time)
+        assertFalse(anchor.attached)
+        anchor.attach()
+        anchor.move(100f, 0f, false, 500)
+        assertEquals(100f, anchor.move(100f, 0f, true, 750).consumed)
+        assertTrue(anchor.attached)
+        anchor.detach()
+        anchor.beginGesture()
+        assertEquals(0f, anchor.move(100f, 0f, false, 1000).consumed)
+        assertFalse(anchor.attached)
     }
 
     @Test fun readingResponseIsUnrestrictedAndInertiaCannotChangeIntent() {

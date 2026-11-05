@@ -23,6 +23,7 @@ enum class ConnectionHealth {
     MCP_HANDSHAKE_FAILED,
     STREAM_INTERRUPTED,
     STREAM_IDLE_TIMEOUT,
+    REQUEST_TIMEOUT,
     HEALTHY,
     UNKNOWN
 }
@@ -107,6 +108,9 @@ internal object LocalServiceHealth {
             causes.any { it is java.net.UnknownHostException } -> ConnectionHealth.DNS_FAILED
             "dns_recovery" in message -> ConnectionHealth.DNS_RECOVERY
             "mcp_stream_idle_timeout" in message -> ConnectionHealth.STREAM_IDLE_TIMEOUT
+            "mcp_request_timeout" in message || causes.any { it.javaClass.simpleName == "HttpRequestTimeoutException" } -> ConnectionHealth.REQUEST_TIMEOUT
+            "mcp_initialization_timeout" in message -> ConnectionHealth.MCP_HANDSHAKE_FAILED
+            "read timed out" in message || "socket timeout has expired" in message -> ConnectionHealth.STREAM_IDLE_TIMEOUT
             causes.any { it is java.net.NoRouteToHostException } -> ConnectionHealth.ROUTE_UNAVAILABLE
             causes.any { it is java.net.SocketTimeoutException || it.javaClass.simpleName == "ConnectTimeoutException" } || "timed out" in message -> ConnectionHealth.CONNECT_TIMEOUT
             causes.any { it is ConnectException } && ("refused" in message || "econnrefused" in message) -> ConnectionHealth.CONNECTION_REFUSED

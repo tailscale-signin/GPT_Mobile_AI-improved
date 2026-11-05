@@ -49,4 +49,18 @@ class CrashDiagnosticSummaryTest {
         assertTrue(safe.length < 7800)
         assertEquals(safe, diagnosticMessageForStorage(safe))
     }
+
+    @Test fun frameworkOriginIsEvidenceAndDoesNotClaimTheApplicationIsBlameless() {
+        val failure = SecurityException("protected vendor setting").apply {
+            stackTrace = arrayOf(
+                StackTraceElement("android.provider.Settings", "getString", "Settings.java", 81),
+                StackTraceElement("com.android.internal.os.BinderInternal\$GcWatcher", "finalize", "BinderInternal.java", 92)
+            )
+        }
+        val safe = crashDiagnosticSummary(failure, "FinalizerDaemon")
+        assertTrue(safe.contains("topFrameOrigin=android_framework"))
+        assertTrue(safe.contains("rootCauseAttribution=not_established"))
+        assertTrue(safe.contains("BinderInternal\$GcWatcher.finalize"))
+        assertFalse(safe.contains("protected vendor setting"))
+    }
 }

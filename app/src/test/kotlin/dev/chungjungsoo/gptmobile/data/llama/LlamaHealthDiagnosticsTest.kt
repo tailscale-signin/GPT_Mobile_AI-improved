@@ -30,6 +30,7 @@ class LlamaHealthDiagnosticsTest {
                     paths += request.url.encodedPath
                     val body = when (request.url.encodedPath) {
                         "/prefix/health" -> """{"status":"ok"}"""
+                        "/prefix/props" -> """{"default_generation_settings":{"n_ctx":8192},"server_generation":"server-generation-1"}"""
                         "/prefix/v1/models" -> """{"data":[{"id":"selected"}]}"""
                         else -> error("Unexpected endpoint")
                     }
@@ -44,11 +45,12 @@ class LlamaHealthDiagnosticsTest {
             assertEquals(200, report.healthHttpStatus)
             assertEquals("ok", report.serverStatus)
             assertEquals(true, report.selectedModelListed)
-            assertNull(report.contextTokens)
+            assertEquals(8192L, report.contextTokens)
+            assertEquals(LlamaConnectionPhase.MODEL_LOADED, report.phase)
             assertTrue(report.summary().contains("inferenceTested=false"))
             diagnostics.inspect(config, "selected")
-            assertEquals(setOf("/prefix/health", "/prefix/v1/models"), paths.toSet())
-            assertEquals(2, paths.size)
+            assertEquals(setOf("/prefix/health", "/prefix/v1/models", "/prefix/props"), paths.toSet())
+            assertEquals(3, paths.size)
             assertFalse(report.summary().contains("secret"))
         } finally {
             http.close()
@@ -101,6 +103,98 @@ class LlamaHealthDiagnosticsTest {
             assertEquals(200, report.modelsHttpStatus)
             assertEquals(true, report.selectedModelListed)
             assertTrue(report.summary().contains("inferenceTested=false"))
+        } finally {
+            http.close()
+        }
+    }
+
+    @Test fun explicitInferenceProbeVerifiesOneTokenAndNeverSendsToolsOrConversationData() = runTest {
+        var inferenceCalls = 0
+        val http = HttpClient(MockEngine) {
+            engine {
+                dispatcher = StandardTestDispatcher(testScheduler)
+                addHandler { request ->
+                    assertEquals("Bearer secret", request.headers[HttpHeaders.Authorization])
+                    val body = when (request.url.encodedPath) {
+                        "/health" -> """{"status":"ok"}"""
+                        "/v1/models" -> """{"data":[{"id":"selected"}]}"""
+                        "/props" -> """{"default_generation_settings":{"n_ctx":4096}}"""
+                        "/v1/chat/completions" -> {
+                            inferenceCalls++
+                            val payload = kotlinx.serialization.json.Json.parseToJsonElement((request.body as io.ktor.http.content.TextContent).text).let { it as kotlinx.serialization.json.JsonObject }
+                            assertEquals("1", payload["max_tokens"].toString())
+                            assertEquals("false", payload["stream"].toString())
+                            assertFalse(payload.containsKey("tools"))
+                            assertEquals("\"none\"", payload["tool_choice"].toString())
+                            assertEquals(listOf("false"), request.headers.getAll("X-Gateway-Allow-Local-Tools"))
+                            assertEquals("false", request.url.parameters["autoload"])
+                            assertTrue(payload["messages"].toString().contains("Reply OK."))
+                            """{"model":"selected","choices":[{"message":{"content":"OK"},"finish_reason":"length"}],"usage":{"completion_tokens":1}}"""
+                        }
+                        else -> error("Unexpected endpoint")
+                    }
+                    respond(body, headers = headersOf(HttpHeaders.ContentType, "application/json"))
+                }
+            }
+        }
+        try {
+            val report = LlamaHealthDiagnostics({ http }).testInference(ProviderRequestConfig("https://local.example/v1", "secret", extraHeaders = mapOf("x-gateway-allow-local-tools" to "true")), "selected")
+            assertEquals(1, inferenceCalls)
+            assertEquals(true, report.inferenceReady)
+            assertTrue(report.inferenceTested)
+            assertEquals(LlamaConnectionPhase.INFERENCE_READY, report.phase)
+        } finally {
+            http.close()
+        }
+    }
+
+    @Test fun modelsCatalogAloneNeverTriggersOrQualifiesInferenceProbe() = runTest {
+        var inferenceCalls = 0
+        val http = HttpClient(MockEngine) {
+            engine {
+                dispatcher = StandardTestDispatcher(testScheduler)
+                addHandler { request ->
+                    if (request.method.value == "POST") inferenceCalls++
+                    if (request.url.encodedPath == "/v1/models") {
+                        respond("""{"data":[{"id":"selected"}]}""")
+                    } else {
+                        respond("Unavailable", HttpStatusCode.ServiceUnavailable)
+                    }
+                }
+            }
+        }
+        try {
+            val report = LlamaHealthDiagnostics({ http }).testInference(ProviderRequestConfig("https://local.example/v1", null), "selected")
+            assertEquals(0, inferenceCalls)
+            assertFalse(report.inferenceTested)
+            assertNull(report.inferenceReady)
+            assertEquals(LlamaConnectionPhase.REACHABLE, report.phase)
+        } finally {
+            http.close()
+        }
+    }
+
+    @Test fun metadataDnsFailuresRetainTheirOwnStageWithoutDiscardingResponsivePeers() = runTest {
+        val http = HttpClient(MockEngine) {
+            engine {
+                dispatcher = StandardTestDispatcher(testScheduler)
+                addHandler { request ->
+                    if (request.url.encodedPath == "/props") throw java.net.UnknownHostException("not resolved")
+                    if (request.url.encodedPath == "/health") {
+                        respond("""{"status":"ok"}""")
+                    } else {
+                        respond("""{"data":[{"id":"selected"}]}""")
+                    }
+                }
+            }
+        }
+        try {
+            val report = LlamaHealthDiagnostics({ http }).inspect(ProviderRequestConfig("https://local.example/v1", null), "selected")
+            assertEquals("DNS_FAILED", report.propsFailure)
+            assertEquals(200, report.modelsHttpStatus)
+            assertEquals(200, report.healthHttpStatus)
+            assertNull(report.propsHttpStatus)
+            assertFalse(report.inferenceTested)
         } finally {
             http.close()
         }

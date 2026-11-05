@@ -441,6 +441,7 @@ private fun ChatScreenContent(
     var promptAnchorRevision by remember(chatRoom.id) { mutableIntStateOf(0) }
     var githubBottomFollow by rememberSaveable(chatRoom.id) { mutableStateOf(false) }
     var promptPositioning by remember(chatRoom.id) { mutableStateOf(false) }
+    val promptMotionGeneration = remember(chatRoom.id) { java.util.concurrent.atomic.AtomicInteger() }
     val promptDensity = LocalDensity.current
     val promptAnchor = remember(chatRoom.id, promptDensity.density) { GitHubPromptAnchor(with(promptDensity) { 64.dp.toPx() }, with(promptDensity) { 32.dp.toPx() }).apply { if (!promptAttached) detach() } }
     val githubPromptMode = chatToolConfig.github != null && anchoredPromptKey != null
@@ -560,6 +561,12 @@ private fun ChatScreenContent(
         val key = pendingJumpKey ?: return@LaunchedEffect
         val index = groupedMessages.userMessages.withIndex().firstOrNull { (turn, message) -> chatMessagePairKey(message, turn) == key }?.index ?: -1
         if (index >= firstVisibleTurn) {
+            if (githubPromptMode) {
+                promptAnchor.detach()
+                promptAttached = false
+                githubBottomFollow = false
+                isFollowingBottom = false
+            }
             snapshotFlow { listState.layoutInfo.totalItemsCount }.first { it >= visibleTurnCount + historyHeaderCount }
             listState.scrollToItem(index - firstVisibleTurn + historyHeaderCount)
         }
@@ -678,18 +685,21 @@ private fun ChatScreenContent(
         }
     }
 
-    LaunchedEffect(anchoredPromptKey, promptAnchorRevision, entryPositioned, latestTurnItem) {
-        if (githubPromptMode && entryPositioned && promptAttached && anchoredPromptKey == newestPromptKey) {
+    LaunchedEffect(anchoredPromptKey, promptAnchorRevision, entryPositioned, latestTurnItem, githubPromptMode) {
+        val motionGeneration = promptMotionGeneration.incrementAndGet()
+        if (githubPromptMode && entryPositioned && promptAttached && !githubBottomFollow && !isModelTabPositionLocked && anchoredPromptKey == newestPromptKey) {
             promptPositioning = true
             try {
                 listState.animateToGitHubPrompt(
                     latestTurnItem,
                     isUserDragging = { isUserDragging },
-                    shouldAnchor = { promptAttached && !githubBottomFollow && anchoredPromptKey == newestPromptKey }
+                    shouldAnchor = { promptAttached && !githubBottomFollow && !isModelTabPositionLocked && anchoredPromptKey == newestPromptKey }
                 )
             } finally {
-                promptPositioning = false
+                if (promptMotionGeneration.get() == motionGeneration) promptPositioning = false
             }
+        } else {
+            promptPositioning = false
         }
     }
     val promptModeState by androidx.compose.runtime.rememberUpdatedState(githubPromptMode)
@@ -717,7 +727,7 @@ private fun ChatScreenContent(
             }
 
             override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
-                if (promptModeState && movingTowardBottom && !promptPositioning && !listState.canScrollForward) {
+                if (promptModeState && movingTowardBottom && (consumed.y < 0f || available.y < 0f) && !promptPositioning && !listState.canScrollForward) {
                     githubBottomFollow = true
                     promptAnchor.attach()
                     promptAttached = true
@@ -742,6 +752,7 @@ private fun ChatScreenContent(
     ChatBottomAutoScroller(
         listState = listState,
         animate = chatToolConfig.github != null || !isIdle,
+        githubMotion = chatToolConfig.github != null,
         isEnabled = !promptPositioning &&
             (if (githubPromptMode) githubBottomFollow else featureSettings.smoothStreaming) &&
             entryPositioned &&
@@ -750,7 +761,8 @@ private fun ChatScreenContent(
                 isFollowing = if (githubPromptMode) githubBottomFollow else isFollowingBottom,
                 isUserDragging = isUserDragging,
                 isScrollInProgress = listState.isScrollInProgress,
-                isScrollingAway = listState.lastScrolledBackward
+                isScrollingAway = listState.lastScrolledBackward,
+                followIntentIsExplicit = githubPromptMode
             )
     )
 
@@ -1007,7 +1019,6 @@ private fun ChatScreenContent(
                 if (chatToolConfig.github != null) {
                     val activeMessage = groupedMessages.assistantMessages.flatten().lastOrNull { it.currentRunId in activeAgentRuns }
                     chatToolConfig.github?.let { github ->
-                        if (!chatRoom.isTemporary) item(key = "repository-graph") { RepositoryGraphPanel(github, appAllPlatforms.firstOrNull { it.uid == github.mainProfileUid }) }
                         item(key = "gateway-engineering-jobs") { GatewayEngineeringPanel(chatRoom.id, github, appAllPlatforms.firstOrNull { it.uid == github.mainProfileUid }, debugMode = debugMode) }
                     }
                     items(visibleGitHubDecisions.size, key = { "github-decision-${visibleGitHubDecisions[it].id}" }) { index ->
@@ -1037,13 +1048,12 @@ private fun ChatScreenContent(
                         navigatedFromTarget = true
                         isHoldingEntryCenter = false
                         isModelTabPositionLocked = false
-                        scope.launch {
-                            if (githubPromptMode) {
-                                promptAnchor.attach()
-                                promptAttached = true
-                                githubBottomFollow = true
-                                listState.animateScrollToLatestChatMessage()
-                            } else {
+                        if (githubPromptMode) {
+                            promptAnchor.attach()
+                            promptAttached = true
+                            githubBottomFollow = true
+                        } else {
+                            scope.launch {
                                 listState.scrollToItem((listState.layoutInfo.totalItemsCount - 1).coerceAtLeast(0))
                                 isFollowingBottom = true
                             }
@@ -1910,18 +1920,22 @@ internal fun shouldAutoScrollToBottom(
     isFollowing: Boolean,
     isUserDragging: Boolean,
     isScrollInProgress: Boolean,
-    isScrollingAway: Boolean
+    isScrollingAway: Boolean,
+    followIntentIsExplicit: Boolean = false
 ): Boolean = isFollowing &&
     !isUserDragging &&
-    !(isScrollInProgress && isScrollingAway)
+    // GitHub's nested-scroll owner clears explicit follow intent on upward input.
+    // The last direction may still describe that old gesture when our animation starts.
+    (followIntentIsExplicit || !(isScrollInProgress && isScrollingAway))
 
 @Composable
 internal fun ChatBottomAutoScroller(
     listState: LazyListState,
     isEnabled: Boolean,
-    animate: Boolean = true
+    animate: Boolean = true,
+    githubMotion: Boolean = false
 ) {
-    LaunchedEffect(listState, isEnabled, animate) {
+    LaunchedEffect(listState, isEnabled, animate, githubMotion) {
         if (!isEnabled) return@LaunchedEffect
 
         // Observe measured growth, not token count. User gestures cancel the animation.
@@ -1929,15 +1943,25 @@ internal fun ChatBottomAutoScroller(
             val info = listState.layoutInfo
             // The final item is a fixed-height bottom anchor. Follow growth in
             // measured message rows too, without reacting to their scroll offsets.
-            info.totalItemsCount to info.visibleItemsInfo.map { it.index to it.size }
-        }.distinctUntilChanged().conflate().collect { (totalItems, _) ->
+            Triple(
+                info.totalItemsCount,
+                info.visibleItemsInfo.map { it.index to it.size },
+                if (githubMotion) Triple(info.viewportSize.height, info.beforeContentPadding, info.afterContentPadding) else null
+            )
+        }.distinctUntilChanged().conflate().collect { (totalItems, _, _) ->
             // Coalesce on the UI frame clock so layout, animation and Compose
             // idling all observe the pending scroll. A wall-clock delay can leave
             // the initial/growing viewport idle before following has started.
             androidx.compose.runtime.withFrameNanos { }
             val latestItemIndex = totalItems - 1
             if (latestItemIndex >= 0 && listState.canScrollForward) {
-                if (animate) listState.animateScrollToItem(latestItemIndex) else listState.scrollToItem(latestItemIndex)
+                if (githubMotion && animate) {
+                    listState.animateToGitHubBottom()
+                } else if (animate) {
+                    listState.animateScrollToItem(latestItemIndex)
+                } else {
+                    listState.scrollToItem(latestItemIndex)
+                }
             }
         }
     }

@@ -45,7 +45,7 @@ internal class GitHubVerifiedSession(
     private suspend fun retainProgress(tools: List<AgentToolDefinition>, failure: ProviderEvent.Failed? = null) {
         try {
             withContext(computationDispatcher) {
-                evidence.retainProgress(task, authorizedTools.ifEmpty { tools }, failure?.let { it.errorCode ?: "MODEL_GENERATION_FAILED" })
+                evidence.retainProgress(task, authorizedTools.ifEmpty { tools }, failure?.let { it.errorCode ?: "MODEL_GENERATION_FAILED" }, failure)
             }
         } catch (cancelled: CancellationException) {
             throw cancelled
@@ -199,7 +199,7 @@ internal class GitHubVerifiedSession(
                 if (candidate != null && receipts.values.any { it["trusted"] == kotlinx.serialization.json.JsonPrimitive(true) }) {
                     // The failed review cannot publish prose. Independently extract
                     // receipt-backed claims from the private candidate instead.
-                    emitAll(publish(candidate, failureCode = providerFailure.errorCode))
+                    emitAll(publish(candidate, failureCode = providerFailure.errorCode, originalFailure = providerFailure))
                 } else {
                     emitAll(retainedFailureResponse(requireNotNull(providerFailure)))
                 }
@@ -312,12 +312,13 @@ internal class GitHubVerifiedSession(
                     put("resume_required", partial)
                     if (partial) {
                         put("completion_verified", false)
-                        put("task_outcome", "PARTIAL")
+                        put("task_outcome", if (originalFailure?.taskOutcome == "BLOCKED") "BLOCKED" else "PARTIAL")
                     }
                     put("model_round_finished", draft != null)
                     put("verification_elapsed_ms", ((System.nanoTime() - verificationStarted) / 1_000_000).coerceAtLeast(0))
                     put("verification_measurement", "Observed answer verification and rendering, including claim extraction when used")
                     originalFailure?.let { failure ->
+                        GitHubTaskLifecycle.failureMetadata(failure).forEach { (key, value) -> put(key, value) }
                         put(
                             "original_failure",
                             buildJsonObject {
@@ -388,7 +389,7 @@ internal class GitHubVerifiedSession(
                     originalFailure?.message ?: "Partial response delivered. The requested task remains incomplete; saved receipts and the task checkpoint are available for continuation.",
                     errorCode = failureCode ?: extractionCode ?: (report["verification_failure"] as? kotlinx.serialization.json.JsonPrimitive)?.content ?: "GITHUB_TASK_INCOMPLETE",
                     transportComplete = true,
-                    taskOutcome = "PARTIAL",
+                    taskOutcome = if (originalFailure?.taskOutcome == "BLOCKED") "BLOCKED" else "PARTIAL",
                     failureDetails = originalFailure?.failureDetails
                 )
             )

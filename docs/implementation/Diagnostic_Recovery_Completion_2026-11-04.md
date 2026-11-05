@@ -127,6 +127,21 @@ Other environment repairs used an isolated checkout and nonincremental Kotlin co
 
 The first benchmark execution lost its process session without a terminal result. A continuation reused the completed resource and annotation-processing stages and finished both requested compilation tasks successfully in 9 minutes 42 seconds. No compiler errors were reported. This does not establish device performance or physical benchmark results.
 
+## PR #801 hosted acceptance repair
+
+The first published tree, commit `e9247594b950f4b8a4ce0e7ab38a29b1c126e034`, passed PR Validation (including unit tests, constrained-heap checks, lint and APK verification), CodeQL, formatting, contracts and the review-APK workflow. Two independent hosted failures required follow-up:
+
+- [Android acceptance run 41938958249](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/41938958249) failed the same four glass assertions on API 34 and API 36. Blur-on and blur-off samples were identical, conversation transmission was zero, and restoring message visibility did not restore sampling. The new critical-stall hook fed first draws into the process-wide pressure guard. Its prior recovery rule required complete healthy frame windows, leaving quiet screens reduced indefinitely. The logs do not identify the exact frame that initially activated the guard.
+- [Diagnostic audit job 126954509358](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/41938958148/job/126954509358) exhausted the existing three Robolectric download attempts after waits of five and ten seconds, then failed with Maven Central HTTP 429. Its unit-test step was consequently skipped. The same revision's canonical PR Validation passed.
+
+`FrameEffectsObservation` now keeps first draws out of both adaptive-pressure paths while the recorder retains them in raw diagnostics. Genuine runtime stalls of at least 250 ms still reduce effects immediately, and sustained or renewed pressure extends the 30-second cooldown. A single callback on the metrics handler checks the latest deadline independently of frame production. It is cancelled when no window is resumed; resume checks elapsed time again. Stopped observations reject queued callbacks, and expiry clears the guard's old pressure-window history.
+
+Glass capture and consumers share a composition-local guard whose production default remains the real process-wide policy. Both pixel fixtures supply a fresh instance of that same policy to isolate rendering scenarios from unrelated emulator scheduling. All existing blur, opacity, restoration and navigation assertions remain unchanged. A new forced-chat pixel regression explicitly induces pressure, checks the unblurred fallback, advances the cooldown without a healthy frame window, and checks restored filtering and 0.15 / 0.50 backdrop transmission. The separate memory-pressure guard remains effective.
+
+Robolectric provisioning retains the exact versions, publisher-verified SHA-512 pins, atomic installation, artifact size bound, socket timeout and shared 480-second deadline. HTTP 429 permits up to six attempts with bounded backoff and jitter, respecting numeric or HTTP-date `Retry-After` headers. A retry that cannot fit the deadline fails immediately. Other transient failures retain three attempts, while checksum failures and permanent HTTP errors are not retried.
+
+Repair validation passed: all 16 provisioning regressions, all 10 pure Kotlin guard/observation tests, all 311 canonical host tests, eight changed/new Kotlin files under ktlint 1.3.1, and whitespace checks. The Android Gradle build passed all 12 focused tests (guard/observation, histogram and streaming-glass policy), compiled the app and instrumented tests, and finished in 6 minutes 16 seconds with no test failures, errors or skips. All ten changed/new implementation and test files matched the frozen validation checkout by SHA-256 after the build. Independent lifecycle/concurrency review found no further defect. Exact-revision hosted emulator acceptance remains pending publication; these local checks alone do not establish pixel acceptance.
+
 ## Environment-dependent acceptance
 
 These outcomes require the affected environments and are not established by host tests:

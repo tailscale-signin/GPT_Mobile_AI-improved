@@ -45,7 +45,7 @@ internal fun SettingsGlassBackdropHost(settings: Boolean, content: @Composable (
     val active = lifecycle.isAtLeast(Lifecycle.State.STARTED)
     val pressure = remember { dev.chungjungsoo.gptmobile.presentation.ui.chat.ChatRuntimeHealth.memory.map { it.level != "normal" }.distinctUntilChanged() }
     val underPressure by pressure.collectAsState(initial = false)
-    val reduceEffects by dev.chungjungsoo.gptmobile.data.diagnostics.FrameEffectPressure.guard.reduced.collectAsState()
+    val reduceEffects by LocalFrameEffectsGuard.current.reduced.collectAsState()
     val captureEnabled = active && !underPressure && !reduceEffects && LocalOverlayMaterial.current == "glass" && LocalOverlayBlur.current == "auto"
     LaunchedEffect(settings, active, captureEnabled) {
         if (!captureEnabled) {

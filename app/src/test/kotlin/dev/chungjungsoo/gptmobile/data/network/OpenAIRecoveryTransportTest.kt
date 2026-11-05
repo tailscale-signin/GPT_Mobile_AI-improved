@@ -128,7 +128,7 @@ class OpenAIRecoveryTransportTest {
             withApi(
                 MockEngine { incoming ->
                     if (incoming.url.encodedPath.endsWith("gateway/capabilities")) {
-                        respond("""{"gateway_version":"15.0.0","accepted_request_headers":["X-Gateway-Allow-Local-Tools"]}""", headers = headersOf(HttpHeaders.ContentType, "application/json"))
+                        respond("""{"gatewayVersion":"15.0.0","accepted_request_headers":["X-Gateway-Allow-Local-Tools"]}""", headers = headersOf(HttpHeaders.ContentType, "application/json"))
                     } else {
                         dispatches++
                         throw java.io.EOFException("Connection closed before its first stream frame")
@@ -148,6 +148,63 @@ class OpenAIRecoveryTransportTest {
                     assertEquals("unknown", error.failureDetails?.get("outcome")?.let { (it as kotlinx.serialization.json.JsonPrimitive).content })
                 }
                 assertEquals(1, dispatches)
+            }
+        }
+    }
+
+    @Test fun samplingRejectionAfterPossibleGatewayMutationDoesNotReplayEitherPhysicalTransport() = runTest {
+        for (responses in listOf(false, true)) {
+            for (serverTools in listOf(false, true)) {
+                val bodies = mutableListOf<String>()
+                withApi(
+                    MockEngine { incoming ->
+                        if (incoming.url.encodedPath.endsWith("gateway/capabilities")) {
+                            respond("""{"gatewayVersion":"15.0.0","accepted_request_headers":["X-Gateway-Allow-Local-Tools"]}""", headers = headersOf(HttpHeaders.ContentType, "application/json"))
+                        } else {
+                            assertEquals(serverTools.toString(), incoming.headers["X-Gateway-Allow-Local-Tools"])
+                            bodies += (incoming.body as TextContent).text
+                            if (bodies.size == 1) {
+                                respond("""{"error":{"message":"Unsupported parameter: 'temperature' is not supported with this model."}}""", HttpStatusCode.BadRequest)
+                            } else if (responses) {
+                                respond("data: {\"type\":\"response.completed\",\"response\":{\"id\":\"r\",\"status\":\"completed\"}}\n\n", headers = headersOf(HttpHeaders.ContentType, "text/event-stream"))
+                            } else {
+                                respond("""{"choices":[{"message":{"content":"recovered"},"finish_reason":"stop"}]}""", headers = headersOf(HttpHeaders.ContentType, "application/json"))
+                            }
+                        }
+                    }
+                ) { api ->
+                    val gatewayConfig = config.copy(extraHeaders = mapOf("X-Gateway-Allow-Local-Tools" to serverTools.toString()))
+                    if (responses) {
+                        val input = listOf(dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponseInputMessage("user", dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponseInputContent.text("Check repository state.")))
+                        val events = api.streamResponses(ResponsesRequest(model = "fixture", input = input, temperature = .4f, maxOutputTokens = 128), 5, gatewayConfig).toList()
+                        assertEquals(serverTools, events.any { it is dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseErrorEvent })
+                    } else {
+                        val chunks = api.streamChatCompletion(request.copy(temperature = .4f, maxTokens = 128), 5, gatewayConfig).toList()
+                        assertEquals(serverTools, chunks.any { it.error != null })
+                    }
+                    assertEquals(if (serverTools) 1 else 2, bodies.size)
+                    val first = NetworkClient.openAIJson.parseToJsonElement(bodies.first()).jsonObject
+                    assertTrue(first.containsKey("temperature"))
+                    if (!serverTools) assertFalse(NetworkClient.openAIJson.parseToJsonElement(bodies.last()).jsonObject.containsKey("temperature"))
+                    bodies.forEach { assertEquals("\"fixture\"", NetworkClient.openAIJson.parseToJsonElement(it).jsonObject["model"].toString()) }
+                }
+            }
+        }
+    }
+
+    @Test fun initialGatewayDiscoveryFailureNeverDispatchesAnUnisolatedModelRequest() = runTest {
+        for (status in listOf(HttpStatusCode.ServiceUnavailable, HttpStatusCode.Forbidden)) {
+            val paths = mutableListOf<String>()
+            withApi(
+                MockEngine { incoming ->
+                    paths += incoming.url.encodedPath
+                    respond("unavailable", status)
+                }
+            ) { api ->
+                val isolated = config.copy(extraHeaders = mapOf("X-Gateway-Delegated-Worker" to "true", "X-Gateway-Allow-Local-Tools" to "false"))
+                val chunks = api.streamChatCompletion(request, 5, isolated).toList()
+                assertTrue(chunks.last().error?.message.orEmpty().contains("GATEWAY_CAPABILITY_UNAVAILABLE"))
+                assertEquals(listOf("/v1/gateway/capabilities"), paths)
             }
         }
     }

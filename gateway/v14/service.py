@@ -14,6 +14,7 @@ from v14.state_lock import StateDirectoryLock
 class ServiceState:
     def __init__(self, max_workers=2):
         self.max_workers = max_workers
+        self.instance_id = uuid.uuid4().hex
         self.lock = threading.RLock()
         self.draining = False
         self.workers = {}

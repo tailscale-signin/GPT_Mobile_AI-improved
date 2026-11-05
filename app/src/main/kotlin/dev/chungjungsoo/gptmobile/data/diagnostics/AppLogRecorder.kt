@@ -54,6 +54,7 @@ object AppLogRecorder {
     private val recent = ArrayDeque<AppLogEntry>()
     private val coalescer = DiagnosticCoalescer()
     private val privateSessions = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    internal val privateSessionActive: Boolean get() = privateSessions.isNotEmpty()
 
     @Synchronized fun setPrivateSession(owner: String, active: Boolean) {
         if (active) {

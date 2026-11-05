@@ -81,7 +81,7 @@ class GitHubReviewedSessionTest {
         assertEquals(listOf("Retained answer"), resumed.filterIsInstance<ProviderEvent.TextDelta>().map { it.text })
         assertEquals(1, generated)
         assertEquals(3, reviews)
-        assertEquals(null, checkpoint().load())
+        assertTrue(checkpoint().load()?.reviewed == true)
     }
 
     @Test fun malformedReviewRetryBudgetSurvivesRestartAndCannotLoop() = runBlocking {
@@ -350,7 +350,9 @@ class GitHubReviewedSessionTest {
     }
     private fun answer(text: String = "Verified answer") = session(ProviderEvent.TextDelta(text), ProviderEvent.Completed)
     private fun verdict(prompt: String, approved: Boolean = true): String = buildJsonObject {
-        put("approved", approved)
+        put("schema_version", GitHubReviewSchema.VERSION)
+        put("verdict", if (approved) "PASS" else "FAIL")
+        put("reason", if (approved) "The evidence supports these claims." else "The test result contradicts the draft.")
         put("reviewed_ids", JsonArray(Json.parseToJsonElement(prompt).jsonObject.getValue("records").jsonArray.map { it.jsonObject.getValue("id") }))
         put("issues", JsonArray(if (approved) emptyList() else listOf(JsonPrimitive("The test failed; do not claim success."))))
         put("verified_claims", JsonArray(listOf(JsonPrimitive("Checked the reported result."))))
@@ -572,7 +574,7 @@ class GitHubReviewedSessionTest {
         assertEquals("Retained answer", resumed.filterIsInstance<ProviderEvent.TextDelta>().single().text)
         assertEquals(1, reviews)
         assertEquals(1, generations)
-        assertEquals(null, checkpoint().load())
+        assertTrue(checkpoint().load()?.reviewed == true)
     }
 
     @Test fun capacityRecoveryRequiresChangedCapacityAndRetainsTheOriginalCandidate() = runBlocking {

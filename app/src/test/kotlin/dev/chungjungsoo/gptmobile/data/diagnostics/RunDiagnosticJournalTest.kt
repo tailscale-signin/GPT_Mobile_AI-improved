@@ -10,6 +10,44 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class RunDiagnosticJournalTest {
+    @Test fun failureReceiptsSurviveDisabledVerboseCaptureWithoutRawIdentityOrErrorContent() = runTest {
+        val vault = MemoryVault()
+        val journal = RunDiagnosticJournal(vault, backgroundScope)
+        journal.setRunPrivacy("normal", false)
+        journal.setRunPrivacy("private", true)
+        val profile = dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2(uid = "private-profile-canary", name = "Private name", model = "private-model-canary", token = "private-token-canary", compatibleType = dev.chungjungsoo.gptmobile.data.model.ClientType.LLAMA)
+        val failure = dev.chungjungsoo.gptmobile.data.agent.ProviderEvent.Failed("private-prompt-canary", errorCode = "GITHUB_REVIEW_INVALID_VERDICT", transportComplete = true, failureDetails = kotlinx.serialization.json.buildJsonObject { put("http_status", kotlinx.serialization.json.JsonPrimitive(403)) })
+        val receipt = ProviderFailureReceipt.from(profile, "github-review", failure, dev.chungjungsoo.gptmobile.data.agent.ProviderEvent.Usage(outputTokens = 4096, reasoningTokens = 3072, finishReason = "length"))
+        journal.record("normal", RunDiagnosticKind.FAILURE_RECEIPT, providerFailure = receipt)
+        journal.record("private", RunDiagnosticKind.FAILURE_RECEIPT, providerFailure = receipt)
+        journal.record("normal", RunDiagnosticKind.FAILURE_RECEIPT, providerFailure = receipt.copy(errorCode = "private-token-canary"))
+        journal.record("normal", RunDiagnosticKind.FAILURE_RECEIPT, providerFailure = receipt.copy(errorCode = "PRIVATE_TOKEN_CANARY"))
+        runCurrent()
+        val snapshot = journal.snapshot(setOf("normal", "private"))
+        assertEquals(1, snapshot.events.size)
+        val retained = requireNotNull(snapshot.events.single().providerFailure)
+        assertEquals(ProviderFailureStage.ANSWER_REVIEW, retained.stage)
+        assertEquals(ProviderFinishCategory.LENGTH, retained.finishReason)
+        assertEquals(403, retained.httpStatus)
+        assertTrue(retained.outputLimitReached)
+        assertEquals(3072, retained.reasoningTokens)
+        assertFalse(snapshot.completeProviderWireCapture)
+        assertTrue(vault.rows.values.none { it.decodeToString().contains("canary") })
+    }
+
+    @Test fun untrustedProviderCodesCannotBecomeMandatoryDiagnosticText() {
+        val profile = dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2(name = "Selected", model = "selected")
+        val remote = dev.chungjungsoo.gptmobile.data.agent.ProviderEvent.Failed("untrusted message", errorCode = "PRIVATE_TOKEN_CANARY")
+        val receipt = ProviderFailureReceipt.from(profile, "primary", remote)
+        assertEquals("UNCLASSIFIED_PROVIDER_FAILURE", receipt.errorCode)
+        val http = ProviderFailureReceipt.from(profile, "primary", remote.copy(errorCode = "403"))
+        assertEquals("HTTP_ERROR", http.errorCode)
+        assertEquals(403, http.httpStatus)
+        val extraction = ProviderFailureReceipt.from(profile, "github-delivery", remote.copy(errorCode = "GITHUB_EXTRACTION_TIMEOUT"))
+        assertEquals(ProviderFailureStage.CLAIM_VERIFICATION, extraction.stage)
+        assertEquals(ProviderResponseFormat.CLAIM_JSON, extraction.responseFormat)
+    }
+
     @Test fun minimalLifecyclePersistsWithVerboseCaptureOffAndHonorsPrivacy() = runTest {
         val journal = RunDiagnosticJournal(MemoryVault(), backgroundScope)
         journal.setRunPrivacy("normal", false)

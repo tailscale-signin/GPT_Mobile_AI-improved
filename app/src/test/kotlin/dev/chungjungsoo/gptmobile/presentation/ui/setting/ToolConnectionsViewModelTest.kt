@@ -58,6 +58,59 @@ class ToolConnectionsViewModelTest {
         Dispatchers.resetMain()
     }
 
+    @Test fun firstRunGitHubSetupCreatesOneConnectionAndStartsSecureBrowserAuthorization() = runBlocking {
+        val dao = FakeToolConnectionDao()
+        val auth = mockk<dev.chungjungsoo.gptmobile.data.github.GitHubPublicAuthCoordinator>()
+        val features = kotlinx.coroutines.flow.MutableStateFlow(AppFeatureSettings())
+        val settings = fakeSettingRepository()
+        coEvery { settings.getFeatureSettings() } answers { features.value }
+        coEvery { settings.mutateFeatureSettings(any()) } coAnswers {
+            features.value = firstArg<(AppFeatureSettings) -> AppFeatureSettings>()(features.value)
+            features.value
+        }
+        every { auth.canAuthorize(any()) } returns true
+        coEvery { auth.pendingConnectionUid() } returns null
+        coEvery { auth.connectedAccount(any()) } returns null
+        coEvery { auth.begin(any()) } returns "https://github.com/login/oauth/authorize?client_id=public-project"
+        val model = ToolConnectionsViewModel(dao, FakeSecretVault(), mockk(relaxed = true), mockk(relaxed = true), settings, gitHubPublicAuth = auth)
+        try {
+            val launch = async(start = CoroutineStart.UNDISPATCHED) { model.oauthLaunches.first() }
+            model.connectGitHub("")
+            model.connectGitHub("")
+            assertTrue(withTimeout(5000) { launch.await() }.startsWith("https://github.com/login/oauth/authorize"))
+            val pending = withTimeout(5000) { model.uiState.first { it.gitHubPublicSignInUid != null } }
+            val connection = pending.connections.single()
+            assertEquals("GITHUB", connection.type)
+            assertEquals("OAUTH", connection.authType)
+            assertEquals("https://api.github.com", connection.endpointUrl)
+            assertNull(connection.secretRef)
+            assertEquals(connection.connectionUid, pending.gitHubPublicSignInUid)
+            model.connectGitHub("")
+            coVerify(exactly = 1) { auth.begin(connection.connectionUid) }
+            assertTrue(features.value.toolPluginStates[dev.chungjungsoo.gptmobile.data.model.ToolPluginId.GITHUB] != false)
+            assertNull(gitHubModeConnection(pending))
+        } finally {
+            model.viewModelScope.cancel()
+        }
+    }
+
+    @Test fun missingPublicOAuthConfigurationDoesNotLeaveAnOrphanConnection() = runBlocking {
+        val dao = FakeToolConnectionDao()
+        val auth = mockk<dev.chungjungsoo.gptmobile.data.github.GitHubPublicAuthCoordinator>(relaxed = true)
+        every { auth.canAuthorize(any()) } returns false
+        coEvery { auth.pendingConnectionUid() } returns null
+        val model = ToolConnectionsViewModel(dao, FakeSecretVault(), mockk(relaxed = true), mockk(relaxed = true), fakeSettingRepository(), gitHubPublicAuth = auth)
+        try {
+            model.connectGitHub("not a client id")
+            val failed = withTimeout(5000) { model.uiState.first { it.errorMessage != null && !it.isOAuthBusy } }
+            assertTrue(failed.errorMessage.orEmpty().contains("OAuth client ID"))
+            assertTrue(failed.connections.isEmpty())
+            coVerify(exactly = 0) { auth.begin(any()) }
+        } finally {
+            model.viewModelScope.cancel()
+        }
+    }
+
     @Test fun projectGitHubAuthorizationUsesBrowserAndRestoresConnectedAccount() = runBlocking {
         val dao = FakeToolConnectionDao()
         val vault = FakeSecretVault()

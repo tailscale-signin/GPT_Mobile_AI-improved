@@ -33,6 +33,7 @@ import kotlinx.coroutines.sync.withLock
 data class GitHubProgrammerState(
     val profiles: List<PlatformV2> = emptyList(),
     val profileUid: String? = null,
+    val selectedProfileUid: String? = null,
     val profileOverrideUid: String? = null,
     val profileSettings: dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride = dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride(),
     val canLoadEarlier: Boolean = false,
@@ -71,6 +72,8 @@ class GitHubProgrammerViewModel @Inject constructor(
     private data class SessionSelection(val profileUid: String? = null, val chatId: Int? = null)
     private val selection = MutableStateFlow(SessionSelection())
     private var sessionConfigured = false
+    private var pinnedConnectionUid: String? = savedStateHandle["github_pinned_connection"]
+    private var pinnedProfileUid: String? = savedStateHandle["github_pinned_profile"]
     private data class DestinationInput(
         val profiles: List<PlatformV2>,
         val features: dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings,
@@ -84,6 +87,7 @@ class GitHubProgrammerViewModel @Inject constructor(
         if (sessionConfigured) return
         sessionConfigured = true
         val restored = savedStateHandle.get<Boolean>("github_session_initialized") == true
+        if (!restored) clearProfilePin()
         val session = if (restored) {
             SessionSelection(savedStateHandle["github_session_profile"], savedStateHandle["github_session_chat"])
         } else {
@@ -162,12 +166,22 @@ class GitHubProgrammerViewModel @Inject constructor(
                 val selected = workspace?.selection
                 val storedUid = connection?.connectionUid?.let(features.githubMainProfiles::get)
                 val enabled = profiles.filter { it.enabled }
-                val uid = if (session.profileUid != null) {
-                    session.profileUid?.takeIf { candidate -> enabled.any { it.uid == candidate } }
-                } else {
-                    (storedUid ?: features.githubDefaultProfileUid)?.takeIf { candidate -> enabled.any { it.uid == candidate } }
-                        ?: enabled.sortedWith(compareByDescending<PlatformV2> { it.isFavorite }.thenBy { it.name }).firstOrNull()?.uid
+                // A missing or disabled selection is a setup error, never permission to
+                // switch inference to a favorite, default, or another provider.
+                val connectionUid = connection?.connectionUid
+                val configuredUid = session.profileUid ?: storedUid ?: features.githubDefaultProfileUid
+                val requestedUid = session.profileUid ?: if (connectionUid != null && pinnedConnectionUid == connectionUid && pinnedProfileUid != null) pinnedProfileUid else configuredUid
+                if (connectionUid != null && requestedUid != null && (pinnedConnectionUid != connectionUid || pinnedProfileUid == null)) {
+                    pinnedConnectionUid = connectionUid
+                    pinnedProfileUid = requestedUid
+                    withContextMain {
+                        if (session == selection.value && workspace == destination.value) {
+                            savedStateHandle["github_pinned_connection"] = connectionUid
+                            savedStateHandle["github_pinned_profile"] = requestedUid
+                        }
+                    }
                 }
+                val uid = requestedUid?.takeIf { candidate -> enabled.any { it.uid == candidate } }
                 val prepare = connection?.connectionUid?.let { it in features.githubPrepareIndex } == true
                 val context = if (connection != null && selected != null && workspace.headSha.isNotBlank() && uid != null) {
                     GitHubConversationContext(
@@ -186,7 +200,7 @@ class GitHubProgrammerViewModel @Inject constructor(
                 val previousKey = mutable.value.context?.let(::key)
                 val nextKey = context?.let(::key)
                 if (previousKey != nextKey) observeConversation(null)
-                mutable.update { it.copy(profiles = enabled, profileUid = uid, profileOverrideUid = session.profileUid ?: storedUid, profileSettings = features.githubProfileOverrides[uid] ?: dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride(), context = context, prepareIndex = prepare, draftLoaded = it.draftLoaded && previousKey == nextKey) }
+                mutable.update { it.copy(profiles = enabled, profileUid = uid, selectedProfileUid = requestedUid, profileOverrideUid = session.profileUid ?: storedUid, profileSettings = features.githubProfileOverrides[uid] ?: dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride(), context = context, prepareIndex = prepare, draftLoaded = it.draftLoaded && previousKey == nextKey) }
                 if (previousKey != nextKey || !mutable.value.draftLoaded) {
                     try {
                         val restored = nextKey?.let { latestDrafts[it]?.text ?: drafts.read(it) }.orEmpty()
@@ -269,9 +283,17 @@ class GitHubProgrammerViewModel @Inject constructor(
         if (current?.connection?.connectionUid != workspace.connection?.connectionUid || current?.selection != workspace.selection || current?.headSha != workspace.headSha || current?.commits != workspace.commits || current?.staged != workspace.staged || current?.editorDrafts != workspace.editorDrafts || current?.patchStage != workspace.patchStage) destination.value = workspace
     }
 
+    private fun clearProfilePin() {
+        pinnedConnectionUid = null
+        pinnedProfileUid = null
+        savedStateHandle.remove<String>("github_pinned_connection")
+        savedStateHandle.remove<String>("github_pinned_profile")
+    }
+
     fun selectProfile(uid: String?) {
         val connectionUid = destination.value?.connection?.connectionUid ?: return
         if (uid != null && mutable.value.profiles.none { it.uid == uid }) return
+        clearProfilePin()
         saveSession(SessionSelection(uid, null))
         viewModelScope.launch(Dispatchers.IO) {
             try {

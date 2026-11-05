@@ -78,6 +78,35 @@ import org.junit.Assert.fail
 import org.junit.Test
 
 class ProviderAdaptersTest {
+    @Test fun githubRouteLockDisablesRouterFallbackAndPreservesItsSelectedConnection() = runBlocking {
+        val api = FakeOpenAIAPI(chatRounds = ArrayDeque(listOf(emptyFlow())))
+        val profile = platform(ClientType.OPENROUTER).copy(model = "selected-model", openRouterRouting = """{"provider":{"allow_fallbacks":true}}""")
+        OpenAICompatibleAdapter(api, FakeGroqAPI(), attachmentEncoder())
+            .openSession(turns(), profile, RequestConstraints(lockSelectedRoute = true, requestRole = "github-review"))
+            .streamRound(emptyList(), emptyList()).toList()
+        assertEquals(false, api.chatRequests.single().provider?.allowFallbacks)
+        assertNull(api.chatRequests.single().models)
+        assertEquals(profile.model, api.configs.single().lockedModel)
+        assertEquals(profile.apiUrl, api.configs.single().lockedApiUrl)
+    }
+
+    @Test fun githubOllamaConnectionRecoveryCannotSwitchToTheEmulatorAddress() = kotlinx.coroutines.test.runTest {
+        val api = FakeOpenAIAPI(
+            chatRounds = ArrayDeque(
+                listOf(
+                    flow { throw java.net.ConnectException("Connection refused") },
+                    flowOf(ChatCompletionChunk(choices = listOf(Choice(delta = Delta(content = "Recovered"), finishReason = "stop"))))
+                )
+            )
+        )
+        val profile = platform(ClientType.OLLAMA).copy(apiUrl = "http://127.0.0.1:11434/v1")
+        OpenAICompatibleAdapter(api, FakeGroqAPI(), attachmentEncoder())
+            .openSession(turns(), profile, RequestConstraints(lockSelectedRoute = true))
+            .streamRound(emptyList(), emptyList()).toList()
+        assertEquals(2, api.configs.size)
+        assertTrue(api.configs.all { it.apiUrl == profile.apiUrl })
+    }
+
     @Test fun unknownGatewayOutcomeDoesNotRotateCredentialsOrRetryAReportedCeiling() = runBlocking {
         val message = "Rate limit exceeded; maximum completion tokens is 128."
         val responses = FakeOpenAIAPI(

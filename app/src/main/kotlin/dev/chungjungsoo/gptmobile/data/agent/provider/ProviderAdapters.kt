@@ -54,6 +54,7 @@ import dev.chungjungsoo.gptmobile.data.network.GoogleAPI
 import dev.chungjungsoo.gptmobile.data.network.GroqAPI
 import dev.chungjungsoo.gptmobile.data.network.OpenAIAPI
 import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
+import dev.chungjungsoo.gptmobile.data.network.requireSelectedRoute
 import dev.chungjungsoo.gptmobile.data.nvidia.NvidiaModelCapabilities
 import dev.chungjungsoo.gptmobile.data.nvidia.NvidiaRequestPolicy
 import dev.chungjungsoo.gptmobile.data.ollama.OllamaOptions
@@ -149,7 +150,7 @@ class OpenAIResponsesAdapter @Inject constructor(
                     val keyIndex = ((startIndex + attempt) % candidateKeys.size + candidateKeys.size) % candidateKeys.size
                     keyIndexCounter.set(keyIndex)
                     val activeKey = candidateKeys[keyIndex]
-                    val config = ProviderRequestConfig(platform.apiUrl, activeKey, profileUid = platform.uid, providerType = platform.compatibleType.name, requestRole = constraints.requestRole ?: "primary", contextCeiling = constraints.contextCeiling, permissionRevision = constraints.permissionRevision, requireKnownCapacity = constraints.requireKnownCapacity)
+                    val config = ProviderRequestConfig(platform.apiUrl, activeKey, profileUid = platform.uid, providerType = platform.compatibleType.name, requestRole = constraints.requestRole ?: "primary", lockedModel = platform.model.takeIf { constraints.lockSelectedRoute }, lockedApiUrl = platform.apiUrl.takeIf { constraints.lockSelectedRoute }, contextCeiling = constraints.contextCeiling, permissionRevision = constraints.permissionRevision, requireKnownCapacity = constraints.requireKnownCapacity)
                     val assembler = OpenAIResponsesEventAssembler()
                     var roundFailed = false
                     var canRotate = false
@@ -330,7 +331,7 @@ class OpenAICompatibleAdapter @Inject constructor(
         } else {
             null to null
         }
-        val parsedRouting = if (isOpenRouter) dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterPolicy.resolve(routerSettings.routing, profileRouting) else null
+        val parsedRouting = if (isOpenRouter) dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterPolicy.resolve(routerSettings.routing, profileRouting).let { if (constraints.lockSelectedRoute) it.copy(allowFallbacks = false) else it } else null
         if (parsedRouting != null) privacyPreflight?.check(platform.apiUrl.orEmpty(), candidateKeys.firstOrNull(), platform.model, parsedRouting)
         val parsedOllamaOptions = if (isOllama && !platform.ollamaOptions.isNullOrBlank()) {
             runCatching { json.decodeFromString<OllamaOptions>(platform.ollamaOptions) }.getOrNull()
@@ -375,6 +376,8 @@ class OpenAICompatibleAdapter @Inject constructor(
             profileUid = platform.uid,
             providerType = platform.compatibleType.name,
             requestRole = constraints.requestRole ?: "primary",
+            lockedModel = platform.model.takeIf { constraints.lockSelectedRoute },
+            lockedApiUrl = platform.apiUrl.takeIf { constraints.lockSelectedRoute },
             contextCeiling = constraints.contextCeiling,
             permissionRevision = constraints.permissionRevision,
             requireKnownCapacity = constraints.requireKnownCapacity,
@@ -401,7 +404,7 @@ class OpenAICompatibleAdapter @Inject constructor(
             } else {
                 null
             }
-        )
+        ).also { it.requireSelectedRoute(platform.model) }
 
         fun completionRequest(
             config: ProviderRequestConfig,
@@ -581,7 +584,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                     val connectionFailed = caughtThrowable is java.net.ConnectException ||
                         rawError.orEmpty().contains("connection refused", ignoreCase = true) ||
                         rawError.orEmpty().contains("failed to connect", ignoreCase = true)
-                    if (!emulatorFallbackTried && connectionFailed && isLocalLoopbackUrl(currentConfig.apiUrl)) {
+                    if (!constraints.lockSelectedRoute && !emulatorFallbackTried && connectionFailed && isLocalLoopbackUrl(currentConfig.apiUrl)) {
                         val fallbackUrl = rewriteLoopbackForEmulator(currentConfig.apiUrl)
                         if (fallbackUrl != currentConfig.apiUrl) {
                             emulatorFallbackTried = true
@@ -1245,6 +1248,8 @@ class AnthropicMessagesAdapter @Inject constructor(
                         profileUid = platform.uid,
                         providerType = platform.compatibleType.name,
                         requestRole = constraints.requestRole ?: "primary",
+                        lockedModel = platform.model.takeIf { constraints.lockSelectedRoute },
+                        lockedApiUrl = platform.apiUrl.takeIf { constraints.lockSelectedRoute },
                         contextCeiling = constraints.contextCeiling,
                         permissionRevision = constraints.permissionRevision,
                         requireKnownCapacity = constraints.requireKnownCapacity,
@@ -1488,7 +1493,7 @@ class GeminiAdapter @Inject constructor(
                     val keyIndex = ((startIndex + attempt) % candidateKeys.size + candidateKeys.size) % candidateKeys.size
                     keyIndexCounter.set(keyIndex)
                     val activeKey = candidateKeys[keyIndex]
-                    val config = ProviderRequestConfig(platform.apiUrl, activeKey, profileUid = platform.uid, providerType = platform.compatibleType.name, requestRole = constraints.requestRole ?: "primary", contextCeiling = constraints.contextCeiling, permissionRevision = constraints.permissionRevision, requireKnownCapacity = constraints.requireKnownCapacity)
+                    val config = ProviderRequestConfig(platform.apiUrl, activeKey, profileUid = platform.uid, providerType = platform.compatibleType.name, requestRole = constraints.requestRole ?: "primary", lockedModel = platform.model.takeIf { constraints.lockSelectedRoute }, lockedApiUrl = platform.apiUrl.takeIf { constraints.lockSelectedRoute }, contextCeiling = constraints.contextCeiling, permissionRevision = constraints.permissionRevision, requireKnownCapacity = constraints.requireKnownCapacity)
                     var roundFailed = false
                     var canRotate = false
                     var terminalReceived = false

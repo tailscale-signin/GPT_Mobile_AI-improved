@@ -535,6 +535,7 @@ class ChatRepositoryImpl(
     )
 
     private val assistPreparation by lazy { localAssistPreparation ?: dev.chungjungsoo.gptmobile.data.assist.LocalAssistPreparation(context, localRuntime, localModelRepository, settingRepository) }
+    private val githubReviewCompatibility = dev.chungjungsoo.gptmobile.data.github.GitHubReviewCompatibility()
     private suspend fun runtimeEligibleForAssist(target: PlatformV2, policy: dev.chungjungsoo.gptmobile.data.assist.LocalAssistPolicy): Boolean = assistPreparation.eligible(target, policy)
 
     override suspend fun testLocalAssist(): String {
@@ -1917,6 +1918,7 @@ class ChatRepositoryImpl(
                 allowTools: Boolean = true,
                 requestRole: String = "delegate"
             ): String {
+                check(chatToolConfig?.github == null) { "GITHUB_PROFILE_LOCKED: GitHub work uses only the selected AI profile; helper and fallback dispatch are disabled." }
                 activity.set(if (requestRole == "reviewer") "Reviewing helper result" else "Working with helper")
                 var invocation: String? = null
                 val traceProfile = when (requestRole) {
@@ -2112,7 +2114,7 @@ class ChatRepositoryImpl(
                         val boundedTools = dev.chungjungsoo.gptmobile.data.assist.LocalAssistToolBinder.bind(
                             tools = authorizedBoundedTools,
                             candidates = settingRepository.fetchPlatformV2s().filter { it.compatibleType == ClientType.LITERT_LM },
-                            enabled = runFeatures.assistEnabled(),
+                            enabled = chatToolConfig?.github == null && runFeatures.assistEnabled(),
                             supportsPrimaryRuntime = platform.compatibleType != ClientType.LITERT_LM,
                             allowPerTurnTool = chatToolConfig?.combined == null && supportsTools && !platform.disableAllTools && !platform.disableLocalTools && chatToolConfig?.allToolsDisabled != true && !synthesisRun && !resumeWriterOnly && taskRecovery?.primaryOnly != true && !localResearch && !reviewedPreparationUnavailable,
                             admitPerTurnTool = { planningTool -> toolBudget.bind(planningTool) },
@@ -3825,9 +3827,12 @@ class ChatRepositoryImpl(
         val admittedProfiles = settingRepository.fetchPlatformV2s()
         val admittedFeatures = settingRepository.getFeatureSettings()
         val scoped = dev.chungjungsoo.gptmobile.data.delegation.DelegationPolicyResolver.resolve(admittedFeatures, platform.uid, chatToolConfig?.delegation)
-        val admittedPolicy = dev.chungjungsoo.gptmobile.data.delegation.DelegationPolicyResolver.suppressForCombined(
-            chatToolConfig?.research?.applyTo(scoped) ?: scoped,
-            chatToolConfig?.combined
+        val admittedPolicy = dev.chungjungsoo.gptmobile.data.github.GitHubChatPolicy.delegation(
+            dev.chungjungsoo.gptmobile.data.delegation.DelegationPolicyResolver.suppressForCombined(
+                chatToolConfig?.research?.applyTo(scoped) ?: scoped,
+                chatToolConfig?.combined
+            ),
+            chatToolConfig?.github
         )
         val roleAdmission = dev.chungjungsoo.gptmobile.data.delegation.DelegationAdmissionResolver.resolve(admittedPolicy, admittedProfiles, platform)
         if (admittedPolicy.enabled && taskRecovery?.primaryOnly != true && !resumeWriterOnly && roleAdmission.blocked) {
@@ -4356,6 +4361,7 @@ class ChatRepositoryImpl(
             allowReasoning = !editorialPass && (chatToolConfig?.github == null || platform.reasoning || platform.compatibleType == ClientType.LLAMA),
             maximizeReasoning = chatToolConfig?.github != null && platform.reasoning,
             allowGatewayLocalTools = false,
+            lockSelectedRoute = chatToolConfig?.github != null,
             combined = chatToolConfig?.combined
         )
         if (editorialPass) AppLogRecorder.record("Combined", "OUTPUT_CAP_RESOLVED · runId=$runId · requested=${effectiveOutputCap ?: -1} · profile=${platform.maxTokens ?: -1} · provider=${dev.chungjungsoo.gptmobile.data.agent.provider.ProviderRouteCapacity.ceiling(platform) ?: -1} · effective=${resolvedOutputCap ?: -1}")
@@ -4375,6 +4381,11 @@ class ChatRepositoryImpl(
             extraInstruction: String = "",
             continuationPrefixDigest: String? = null
         ): AgentProviderSession {
+            chatToolConfig?.github?.let { github ->
+                check(github.mainProfileUid == platform.uid && requestPlatform.uid == platform.uid && requestPlatform.model == platform.model && requestPlatform.compatibleType == platform.compatibleType && requestPlatform.apiUrl == platform.apiUrl) {
+                    "GITHUB_PROFILE_LOCKED: The request no longer matches the selected AI profile. Saved work remains available; no substitute profile was dispatched."
+                }
+            }
             val invocationPlatform = if (textOnly && kind.startsWith("github-") && extraInstruction.isNotBlank()) {
                 requestPlatform.withSystemPrompt(extraInstruction)
             } else if (extraInstruction.isBlank()) {
@@ -4438,7 +4449,7 @@ class ChatRepositoryImpl(
                 } else {
                     session
                 }
-            }.withNormalizedAssistantText(latestUser?.content.orEmpty())
+            }.withNormalizedAssistantText(latestUser?.content.orEmpty()).let { dev.chungjungsoo.gptmobile.data.diagnostics.withProviderFailureReceipts(it, runId, platform, kind) }
             val preparedSearch = kotlinx.coroutines.currentCoroutineContext()[AppSearchContext]?.sourceCount?.let { it > 0 } == true
             val observed = object : AgentProviderSession by raw {
                 override val hasPreparedSearchEvidence: Boolean = preparedSearch
@@ -5000,8 +5011,9 @@ class ChatRepositoryImpl(
         } else {
             null
         }
-        fun reviewOutputTokens(): Int = minOf(8192, minOf(limits.contextTokens, observedRequestContext.get() ?: 32_768) / 4).coerceAtLeast(256)
-        fun reviewInputLimit(): Int = (minOf(limits.contextTokens, observedRequestContext.get() ?: 32_768).toLong() - reviewOutputTokens() - 1536).coerceIn(0, 1_048_576).toInt()
+        fun githubStageBudget(role: String) = dev.chungjungsoo.gptmobile.data.github.GitHubStageBudget.resolve(minOf(limits.contextTokens, observedRequestContext.get() ?: 32_768), resolvedOutputCap, role)
+        fun reviewOutputTokens(): Int = githubStageBudget("github-review").output
+        fun reviewInputLimit(): Int = githubStageBudget("github-review").input
         suspend fun measureReview(prompt: String): Int = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
             val system = dev.chungjungsoo.gptmobile.data.github.GitHubReviewedSession.INSTRUCTION
             dev.chungjungsoo.gptmobile.data.context.TextTokenEstimate.estimate(
@@ -5026,6 +5038,7 @@ class ChatRepositoryImpl(
                 }.toString()
             )
         }
+        var githubReviewCheckpoint: dev.chungjungsoo.gptmobile.data.github.GitHubReviewCheckpoint? = null
         val reviewedSession = if (reviewEvidence != null) {
             val reviewUser = requireNotNull(latestUser) { "GITHUB_REVIEW_REQUIRED: The original task is missing; no answer can be published." }
             dev.chungjungsoo.gptmobile.data.github.GitHubReviewedSession(
@@ -5034,8 +5047,10 @@ class ChatRepositoryImpl(
                 githubEffectiveTask,
                 inputTokenLimit = reviewInputLimit(),
                 currentInputLimit = ::reviewInputLimit,
+                inputLimitForPass = { githubStageBudget(it).input },
                 measureInput = ::measureReview,
-                reviewerRevision = dev.chungjungsoo.gptmobile.data.research.researchHash("${platform.uid}:${platform.model}:${platform.apiUrl}:${dispatchAuthority.revision}:${reviewOutputTokens()}:$resolvedOutputCap"),
+                reviewerRevision = dev.chungjungsoo.gptmobile.data.research.researchHash("${dev.chungjungsoo.gptmobile.data.github.GitHubReviewSchema.VERSION}:${platform.uid}:${platform.model}:${platform.apiUrl}:${dispatchAuthority.revision}:${dev.chungjungsoo.gptmobile.data.network.gateway.GatewayClientDiagnostics.profileCapabilityEpoch(platform.uid, platform.apiUrl)}:${reviewOutputTokens()}:$resolvedOutputCap"),
+                compatibility = githubReviewCompatibility,
                 checkpoint = workspace?.let { store ->
                     val github = requireNotNull(chatToolConfig?.github)
                     val legacyBinding = dev.chungjungsoo.gptmobile.data.research.researchHash("${reviewUser.chatId}:${reviewUser.id}:${platform.uid}:${github.connectionUid}:${github.owner}/${github.repo}:${github.ref}:${dispatchAuthority.revision}")
@@ -5052,14 +5067,14 @@ class ChatRepositoryImpl(
                             check(validateSavedEvidence())
                             store.saveProtectedSynthesisCheckpoint("github-review:$binding:$id", reviewUser.chatId, runId, value)
                         }
-                    )
+                    ).also { githubReviewCheckpoint = it }
                 },
                 openReview = { prompt, kind ->
                     openPrimarySession(
                         listOf(ConversationTurn(reviewUser.copy(content = prompt, attachments = emptyList()), null, true)),
                         kind = kind,
                         textOnly = true,
-                        passOutputTokens = minOf(reviewOutputTokens(), resolvedOutputCap ?: Int.MAX_VALUE),
+                        passOutputTokens = githubStageBudget(kind).output.takeIf { it > 0 } ?: error("GITHUB_REVIEW_CAPACITY: No output allowance remains for the selected profile."),
                         extraInstruction = dev.chungjungsoo.gptmobile.data.github.GitHubReviewedSession.INSTRUCTION
                     )
                 },
@@ -5081,13 +5096,13 @@ class ChatRepositoryImpl(
                 evidence = verifiedEvidence,
                 task = githubEffectiveTask,
                 authorizedTools = runnerTools.map { it.definition }.filter { it.modelVisible },
-                inputLimit = { (reviewInputLimit() - dev.chungjungsoo.gptmobile.data.context.TextTokenEstimate.estimate(dev.chungjungsoo.gptmobile.data.github.GitHubEvidencePolicy.INSTRUCTION)).coerceAtLeast(0) },
+                inputLimit = { (githubStageBudget("github-claim-extraction").input - dev.chungjungsoo.gptmobile.data.context.TextTokenEstimate.estimate(dev.chungjungsoo.gptmobile.data.github.GitHubEvidencePolicy.INSTRUCTION)).coerceAtLeast(0) },
                 openVerifier = { prompt ->
                     openPrimarySession(
                         listOf(ConversationTurn(user.copy(content = prompt, attachments = emptyList()), null, true)),
                         kind = "github-claim-extraction",
                         textOnly = true,
-                        passOutputTokens = minOf(reviewOutputTokens(), 4096),
+                        passOutputTokens = githubStageBudget("github-claim-extraction").output.takeIf { it > 0 } ?: error("GITHUB_EVIDENCE_CAPACITY: No claim-rendering allowance remains."),
                         extraInstruction = dev.chungjungsoo.gptmobile.data.github.GitHubEvidencePolicy.INSTRUCTION
                     )
                 },
@@ -5103,13 +5118,20 @@ class ChatRepositoryImpl(
                 resumeRequestKey = "${user.chatId}:${user.id}",
                 gatewayDiagnostic = gatewayDiagnostics?.let { diagnostics ->
                     { diagnostics.run(platform.uid, "${user.chatId}:${user.id}") { send(ApiState.ProgressCheckpoint(it)) } }
+                },
+                onPublication = { report ->
+                    if (report["completion_verified"] == kotlinx.serialization.json.JsonPrimitive(true) || report["verification_failure"] == kotlinx.serialization.json.JsonPrimitive("GITHUB_TASK_INCOMPLETE")) {
+                        // Delivered claims or identified execution gaps can advance the task. A failed
+                        // extraction keeps the reviewed draft so recovery repeats only verification.
+                        githubReviewCheckpoint?.completed()
+                    }
                 }
             )
         } else {
             reviewedSession
         }
         dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.record(runId, if (dev.chungjungsoo.gptmobile.data.agent.CurrentRequestContract.from(latestUser?.content.orEmpty()).conversational) dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.INTENT_CONVERSATIONAL else dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.INTENT_SUBSTANTIVE)
-        val advertisedSession = if (chatToolConfig?.github != null) dev.chungjungsoo.gptmobile.data.github.GitHubProgressSession(verifiedSession) { send(ApiState.GitHubRoundStarted) } else verifiedSession
+        val advertisedSession = if (chatToolConfig?.github != null) dev.chungjungsoo.gptmobile.data.github.GitHubProgressSession(dev.chungjungsoo.gptmobile.data.diagnostics.withProviderFailureReceipts(verifiedSession, runId, platform, "github-delivery")) { send(ApiState.GitHubRoundStarted) } else verifiedSession
         val executableTools = dev.chungjungsoo.gptmobile.data.agent.appendBudgetedCatalog(runnerTools, catalog)
         if (catalog != null) AppLogRecorder.record("ToolCatalog", "PROGRESSIVE_CATALOG · authorized=${runnerTools.size} · initiallyAdvertised=${catalog.selected(executableTools.map { it.definition }).size} · discovery=true · permissionExpansion=false")
 

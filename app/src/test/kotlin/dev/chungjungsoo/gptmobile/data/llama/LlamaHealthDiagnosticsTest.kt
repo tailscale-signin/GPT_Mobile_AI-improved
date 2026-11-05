@@ -1,6 +1,8 @@
 package dev.chungjungsoo.gptmobile.data.llama
 
 import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
+import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayClientDiagnostics
+import dev.chungjungsoo.gptmobile.data.research.researchHash
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
@@ -194,6 +196,68 @@ class LlamaHealthDiagnosticsTest {
             assertEquals(200, report.modelsHttpStatus)
             assertEquals(200, report.healthHttpStatus)
             assertNull(report.propsHttpStatus)
+            assertFalse(report.inferenceTested)
+        } finally {
+            http.close()
+        }
+    }
+
+    @Test fun restrictedAdminRoutesUseExplicitGatewayReadinessForTheSameModelWithoutInference() = runTest {
+        val paths = mutableListOf<String>()
+        val http = HttpClient(MockEngine) {
+            engine {
+                dispatcher = StandardTestDispatcher(testScheduler)
+                addHandler { request ->
+                    paths += request.url.encodedPath
+                    assertEquals("GET", request.method.value)
+                    assertEquals("Bearer secret", request.headers[HttpHeaders.Authorization])
+                    assertEquals("selected", request.url.parameters["model"])
+                    assertEquals("false", request.url.parameters["autoload"])
+                    when (request.url.encodedPath) {
+                        "/health", "/props" -> respond("restricted", HttpStatusCode.Forbidden)
+                        "/v1/models" -> respond("""{"data":[{"id":"selected"}]}""")
+                        "/v1/gateway/ready" -> respond("""{"schemaVersion":1,"instanceId":"${"e".repeat(32)}","ready":true,"capabilities":{"generationReady":true,"modelAvailable":true,"selectedModelDigest":"${researchHash("selected")}"}}""")
+                        else -> error("Unexpected endpoint")
+                    }
+                }
+            }
+        }
+        try {
+            val config = ProviderRequestConfig("https://restricted-ready.example/v1", "secret")
+            val report = LlamaHealthDiagnostics({ http }).inspect(config, "selected")
+            assertEquals(403, report.healthHttpStatus)
+            assertEquals(403, report.propsHttpStatus)
+            assertTrue(report.metadataRestricted)
+            assertEquals(true, report.gatewayReady)
+            assertEquals(LlamaConnectionPhase.MODEL_LOADED, report.phase)
+            assertFalse(report.inferenceTested)
+            assertNull(report.inferenceReady)
+            assertNull(report.contextTokens)
+            assertEquals("e".repeat(32), GatewayClientDiagnostics.runtimeEpoch(config))
+            assertEquals(4, paths.size)
+        } finally {
+            http.close()
+        }
+    }
+
+    @Test fun anotherModelOrUnknownGatewaySchemaCannotQualifyReadiness() = runTest {
+        val http = HttpClient(MockEngine) {
+            engine {
+                dispatcher = StandardTestDispatcher(testScheduler)
+                addHandler { request ->
+                    when (request.url.encodedPath) {
+                        "/health", "/props" -> respond("restricted", HttpStatusCode.Forbidden)
+                        "/v1/models" -> respond("""{"data":[{"id":"selected"}]}""")
+                        else -> respond("""{"schemaVersion":1,"instanceId":"${"f".repeat(32)}","ready":true,"capabilities":{"generationReady":true,"modelAvailable":true,"selectedModelDigest":"${researchHash("different")}"}}""")
+                    }
+                }
+            }
+        }
+        try {
+            val report = LlamaHealthDiagnostics({ http }).inspect(ProviderRequestConfig("https://restricted-different.example/v1", null), "selected")
+            assertTrue(report.metadataRestricted)
+            assertNull(report.gatewayReady)
+            assertEquals(LlamaConnectionPhase.REACHABLE, report.phase)
             assertFalse(report.inferenceTested)
         } finally {
             http.close()

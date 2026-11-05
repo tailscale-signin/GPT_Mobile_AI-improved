@@ -6,24 +6,109 @@ import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.put
 
 /** Host validation shared by native callbacks and ordinary tools. Never guesses identifiers. */
 internal object ToolArgumentValidator {
     fun errors(arguments: JsonObject, schema: JsonObject): List<String> = validate(arguments, schema, "$", 0).take(12)
 
-    /** Give the model a short, actionable repair before the potentially large schema. */
+    /** Give the model the failed constraint, never a second copy of the whole tool catalog. */
     fun repairMessage(toolName: String, errors: List<String>, schema: JsonObject): String {
-        val guidance = if (toolName.substringBefore("__") == "github_write") {
-            "Each files item must contain its own non-empty repository-relative path, not a filename inferred from the content. " +
-                "For a replacement supply path and complete content; for a deletion supply path, delete=true and the observed expected_blob_sha. " +
-                "Use the observed expected_head_sha and the observed blob SHA for existing files. Find missing paths and SHAs with GitHub read/search; do not guess them. "
-        } else {
-            ""
+        val guidance = when (toolName.substringBefore("__")) {
+            "github_write" ->
+                "Each files item must contain its own non-empty repository-relative path. " +
+                    "For a replacement supply path and complete content; for a deletion supply path, delete=true and the observed expected_blob_sha. " +
+                    "Use the observed expected_head_sha and the observed blob SHA for existing files. Find missing paths and SHAs with GitHub read/search; do not guess them. "
+            "github_pr" ->
+                "Use action=list to discover an existing pull_number before headers, context, comments or reviews. " +
+                    "Use the exact field name pull_number, not number or pr_number. Writes need the observed expected_head_sha. "
+            else -> ""
         }
-        return "Invalid arguments. No action was dispatched. " + guidance + errors.joinToString("; ") +
-            ". Correct the arguments, then use a new call ID. Tool schema: " + schema.toString().take(6000)
+        val declared = (schema["properties"] as? JsonObject).orEmpty().keys.sorted().joinToString(", ").take(1000)
+        return "Invalid arguments. No action was dispatched. " + guidance + errors.joinToString("; ").take(3000) +
+            ". Submit at most one corrected proposal with a new call ID; never repeat unchanged invalid arguments. " +
+            "Declared fields: " + declared
+    }
+
+    /** A safe read recipe is constructed from the actual registered schema; no ID is inferred. */
+    fun rejection(callId: String, toolName: String, arguments: JsonObject, schema: JsonObject, validationErrors: List<String> = errors(arguments, schema)): AgentToolResult {
+        val correction = discoveryCorrection(toolName, arguments, schema)
+        return AgentToolResult(
+            callId,
+            ToolResultContent.Json(
+                buildJsonObject {
+                    put("schema", "gptmobile.arguments.v2")
+                    put("operation", toolName)
+                    put("message", repairMessage(toolName, validationErrors, schema))
+                    put("validation_errors", JsonArray(validationErrors.map(::JsonPrimitive)))
+                    put("state", "PRECHECK_REJECTED")
+                    put("dispatched", false)
+                    put("retryable", false)
+                    put("corrected_proposal_limit", 1)
+                    if (correction != null) {
+                        put(
+                            "correction_call",
+                            buildJsonObject {
+                                put("tool", toolName)
+                                put("arguments", correction)
+                            }
+                        )
+                    }
+                }
+            ),
+            true,
+            errorCode = "INVALID_ARGUMENTS",
+            dispatched = false
+        )
+    }
+
+    private fun discoveryCorrection(toolName: String, arguments: JsonObject, schema: JsonObject): JsonObject? {
+        if (toolName.substringBefore("__") != "github_pr" || "view_cursor" in arguments) return null
+        val action = (arguments["action"] as? JsonPrimitive)?.content ?: "context"
+        if (action !in setOf("headers", "context", "comments", "reviews") || "pull_number" in arguments) return null
+        val aliases = listOf("pr_number", "number", "pull_request_number").filter { it in arguments }
+        if (aliases.size == 1) {
+            val alias = aliases.single()
+            val proposal = JsonObject(arguments - alias + ("pull_number" to arguments.getValue(alias)))
+            if (errors(proposal, schema).isEmpty()) return proposal
+        }
+        // Preserve an explicit complete repository. An incomplete selector must be repaired first.
+        val owner = arguments["owner"]
+        val repo = arguments["repo"]
+        if ((owner == null) != (repo == null)) return null
+        val proposal = buildJsonObject {
+            put("action", "list")
+            if (owner != null && repo != null) {
+                put("owner", owner)
+                put("repo", repo)
+            }
+        }
+        return proposal.takeIf { errors(it, schema).isEmpty() }
+    }
+
+    private fun discriminatorScore(value: JsonElement, option: JsonObject): Int {
+        if (value !is JsonObject) return 0
+        val properties = option["properties"] as? JsonObject ?: return 0
+        var score = 0
+        for ((key, raw) in properties) {
+            val constraint = raw as? JsonObject ?: continue
+            val actual = value[key] ?: continue
+            val expected = constraint["const"]
+            val choices = constraint["enum"] as? JsonArray
+            if (expected != null && actual != expected || choices != null && actual !in choices) return -1
+            if (expected != null || choices != null) score++
+        }
+        // With no action, prefer the advertised default branch over cursor-only discovery.
+        if ("action" !in value &&
+            "action" in properties &&
+            (option["required"] as? JsonArray)?.contains(JsonPrimitive("action")) != true
+        ) {
+            score++
+        }
+        return score
     }
 
     private fun validate(value: JsonElement, schema: JsonObject, path: String, depth: Int): List<String> {
@@ -53,8 +138,24 @@ internal object ToolArgumentValidator {
         schema["const"]?.let { if (value != it) errors += "$path: must equal the declared constant" }
         for (kind in listOf("allOf", "anyOf", "oneOf")) {
             (schema[kind] as? JsonArray)?.filterIsInstance<JsonObject>()?.let { options ->
-                val matching = options.count { validate(value, it, path, depth + 1).isEmpty() }
-                if ((kind == "allOf" && matching != options.size) || (kind == "anyOf" && matching == 0) || (kind == "oneOf" && matching != 1)) errors += "$path: $kind constraint failed"
+                val failures = options.map { validate(value, it, path, depth + 1) }
+                val matching = failures.count { it.isEmpty() }
+                when {
+                    kind == "allOf" -> failures.forEachIndexed { index, failure ->
+                        failure.take(4).forEach { errors += "$path: allOf[$index]: $it" }
+                    }
+                    matching == 0 -> {
+                        val scores = options.map { discriminatorScore(value, it) }
+                        val bestScore = scores.maxOrNull() ?: 0
+                        val nearest = options.indices.filter { scores[it] == bestScore }
+                            .sortedBy { failures[it].size }.take(2)
+                        if (nearest.isEmpty()) errors += "$path: $kind has no declared alternatives"
+                        nearest.forEach { index ->
+                            failures[index].take(4).forEach { errors += "$path: $kind[$index]: $it" }
+                        }
+                    }
+                    kind == "oneOf" && matching != 1 -> errors += "$path: oneOf matches $matching branches; supply exactly one allowed argument form"
+                }
             }
         }
         if (value is JsonObject) {

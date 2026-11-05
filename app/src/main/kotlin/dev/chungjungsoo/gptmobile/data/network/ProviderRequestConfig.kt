@@ -16,6 +16,8 @@ data class ProviderRequestConfig(
     val profileUid: String? = null,
     val providerType: String? = null,
     val requestRole: String = "primary",
+    val lockedModel: String? = null,
+    val lockedApiUrl: String? = null,
     val contextCeiling: Int? = null,
     val permissionRevision: String = "legacy-unverified",
     val requireKnownCapacity: Boolean = false,

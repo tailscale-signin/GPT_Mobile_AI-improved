@@ -44,6 +44,11 @@ internal object ConfiguredDispatchAuthority {
         }
         val capturedProfileRevision = registered?.let(::profileRevision)
         val capturedFeatures = settings.getFeatureSettings()
+        chatId?.let { capturedFeatures.conversationGitHub[it] }?.let { github ->
+            check(github.mainProfileUid == platform.uid && registered != null && registered.model == platform.model) {
+                "GITHUB_PROFILE_LOCKED: Use the AI profile and model selected in GitHub settings. No substitute profile was dispatched."
+            }
+        }
         val capturedFields = policyFields(capturedFeatures, platform.uid, chatId)
         val capturedPolicyRevision = policyRevision(capturedFeatures, platform.uid, chatId)
         val revision = researchHash("$capturedProfileRevision|$capturedPolicyRevision|${inherited?.revision}")
@@ -132,8 +137,11 @@ internal object ConfiguredDispatchAuthority {
             put("researchEnabled", features.researchFeature.enabled)
             put("researchReviewer", features.researchFeature.reviewerProfileUid)
             put("reasoning", Json.encodeToJsonElement(chatId?.let { features.conversationReasoning[it] }))
-            val github = chatId?.let { features.conversationGitHub[it] }?.takeIf { it.mainProfileUid == uid }
-            if (github != null) put("githubProfileOverride", Json.encodeToJsonElement(features.githubProfileOverrides[uid] ?: dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride()))
+            val github = chatId?.let { features.conversationGitHub[it] }
+            if (github != null) {
+                put("githubProfileSelection", github.mainProfileUid)
+                if (github.mainProfileUid == uid) put("githubProfileOverride", Json.encodeToJsonElement(features.githubProfileOverrides[uid] ?: dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride()))
+            }
             put("engineering", Json.encodeToJsonElement(features.engineeringProfiles[uid]))
             put("llamaReasoning", Json.encodeToJsonElement(features.llamaReasoningModes[uid]))
         }

@@ -33,13 +33,9 @@ internal fun GitHubProfilePicker(profiles: List<PlatformV2>, selectedUid: String
     Column {
         Text(if (global) "Default GitHub AI profile" else "Engineering AI profile", style = MaterialTheme.typography.titleSmall)
         OutlinedButton(onClick = { expanded = true }, modifier = Modifier.testTag("github_main_profile")) {
-            Text(profiles.firstOrNull { it.uid == selectedUid }?.name?.take(120) ?: if (selectedUid == null) if (global) "Use favorite AI profile" else "Use global default" else "Selected profile unavailable", maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text(profiles.firstOrNull { it.uid == selectedUid }?.name?.take(120) ?: if (selectedUid == null) "Choose an AI profile" else "Selected profile unavailable", maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            DropdownMenuItem(text = { Text(if (global) "Use favorite AI profile" else "Use global default") }, onClick = {
-                expanded = false
-                onSelect(null)
-            })
             profiles.filter { it.enabled }.forEach { profile ->
                 DropdownMenuItem(text = { Text(profile.name.take(120), maxLines = 2, overflow = TextOverflow.Ellipsis) }, onClick = {
                     expanded = false
@@ -55,7 +51,8 @@ internal fun GitHubProgrammerSettings(workspace: GitHubWorkspaceState, state: Gi
     var showConnectionDoctor by remember { mutableStateOf(false) }
     if (showConnectionDoctor) ConnectionDoctorDialog(onDismiss = { showConnectionDoctor = false }, initialProfileUid = state.profileUid)
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        GitHubProfilePicker(state.profiles, state.profileOverrideUid, onProfile)
+        GitHubProfilePicker(state.profiles, state.selectedProfileUid ?: state.profileUid ?: state.profileOverrideUid, onProfile)
+        Text("This profile handles GitHub work and review. If it is unavailable, your task pauses until you explicitly select a profile.", style = MaterialTheme.typography.bodySmall)
         OutlinedButton(onClick = { showConnectionDoctor = true }, enabled = state.profileUid != null, modifier = Modifier.testTag("github_test_connection")) { Text("Test connection") }
         onOpenRepositoryMap?.let { open ->
             OutlinedButton(onClick = open, modifier = Modifier.fillMaxWidth().testTag("github_repository_map")) { Text("Repository map") }

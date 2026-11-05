@@ -7,6 +7,7 @@ import dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth
 import dev.chungjungsoo.gptmobile.data.network.NetworkClient
 import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
 import dev.chungjungsoo.gptmobile.data.network.boundedMetadata
+import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayClientDiagnostics
 import dev.chungjungsoo.gptmobile.data.research.researchHash
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.timeout
@@ -28,6 +29,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.longOrNull
@@ -43,6 +45,9 @@ internal data class LlamaHealthReport(
     val contextTokens: Long? = null,
     val templateRevision: String? = null,
     val propsHttpStatus: Int? = null,
+    val gatewayHttpStatus: Int? = null,
+    val gatewayReady: Boolean? = null,
+    val metadataRestricted: Boolean = false,
     val serverGeneration: String? = null,
     val modelIdentity: String? = null,
     val healthFailure: String? = null,
@@ -59,8 +64,9 @@ internal data class LlamaHealthReport(
         activeGenerations > 0 -> LlamaConnectionPhase.GENERATING
         inferenceReady == true -> LlamaConnectionPhase.INFERENCE_READY
         inferenceTested && inferenceReady == false -> LlamaConnectionPhase.DEGRADED
+        selectedModelListed == true && gatewayReady == true -> LlamaConnectionPhase.MODEL_LOADED
         selectedModelListed == true && healthHttpStatus == 200 && serverStatus in setOf("ok", "ready") -> LlamaConnectionPhase.MODEL_LOADED
-        listOfNotNull(healthHttpStatus, modelsHttpStatus, propsHttpStatus).isEmpty() -> LlamaConnectionPhase.DISCONNECTED
+        listOfNotNull(healthHttpStatus, modelsHttpStatus, propsHttpStatus, gatewayHttpStatus).isEmpty() -> LlamaConnectionPhase.DISCONNECTED
         healthFailure != null || propsFailure != null || modelsFailure != null -> LlamaConnectionPhase.DEGRADED
         else -> LlamaConnectionPhase.REACHABLE
     }
@@ -68,6 +74,7 @@ internal data class LlamaHealthReport(
     fun summary(): String = "healthHttp=${healthHttpStatus ?: "unknown"}; serverStatus=${serverStatus ?: "unknown"}; " +
         "modelsHttp=${modelsHttpStatus ?: "unknown"}; selectedModelListed=${selectedModelListed ?: "unknown"}; " +
         "propsHttp=${propsHttpStatus ?: "unknown"}; servingContext=${contextTokens ?: "unknown"}; templateRevision=${templateRevision ?: "unknown"}; " +
+        "gatewayHttp=${gatewayHttpStatus ?: "unknown"}; gatewayReady=${gatewayReady ?: "Not measured"}; metadataRestricted=$metadataRestricted; " +
         "phase=$phase; serverGeneration=${serverGeneration ?: "Not reported"}; modelIdentity=${modelIdentity ?: "Not reported"}; " +
         "healthFailure=${healthFailure ?: "none"}; propsFailure=${propsFailure ?: "none"}; modelsFailure=${modelsFailure ?: "none"}; " +
         "activeGenerations=$activeGenerations; requestId=${activeRequestId ?: "Not reported"}; inferenceTested=$inferenceTested; inferenceReady=${inferenceReady ?: "Not measured"}; inferenceFailure=${inferenceFailure ?: "none"}"
@@ -85,7 +92,7 @@ internal class LlamaHealthDiagnostics(
         val route = config.apiUrl.trim().trimEnd('/')
         val uri = runCatching { URI(route) }.getOrNull()
         if (uri == null || uri.scheme !in setOf("http", "https") || uri.host == null || uri.rawQuery != null || uri.rawFragment != null || uri.userInfo != null) return LlamaHealthReport()
-        val key = researchHash("$route|${researchHash(config.token.orEmpty())}|$model|${LocalServiceHealth.networkEpoch}")
+        val key = researchHash("${GatewayClientDiagnostics.routeIdentity(config)}|$model|${LocalServiceHealth.networkEpoch}|${GatewayClientDiagnostics.capabilityEpoch(config)}")
         val report = cache.getOrLoad(key) {
             coroutineScope {
                 val health = async { read(route.removeSuffix("/v1") + "/health", config, model) }
@@ -94,6 +101,20 @@ internal class LlamaHealthDiagnostics(
                 val healthResult = health.await()
                 val modelResult = models.await()
                 val propsResult = props.await()
+                val restricted = healthResult.status in setOf(401, 403) || propsResult.status in setOf(401, 403)
+                val gateway = if (restricted) read(config.buildEndpoint("gateway/ready"), config, model, timeoutMillis = 3_500) else null
+                val gatewayBody = gateway?.body?.takeIf {
+                    (it["schemaVersion"] as? JsonPrimitive)?.longOrNull == 1L &&
+                        (it["instanceId"] as? JsonPrimitive)?.contentOrNull?.matches(Regex("[a-f0-9]{32}")) == true &&
+                        ((it["capabilities"] as? JsonObject)?.get("selectedModelDigest") as? JsonPrimitive)?.contentOrNull == researchHash(model)
+                }
+                val capability = gatewayBody?.get("capabilities") as? JsonObject
+                val gatewayModel = (capability?.get("modelAvailable") as? JsonPrimitive)?.booleanOrNull
+                val gatewayReady = (gatewayBody?.get("ready") as? JsonPrimitive)?.booleanOrNull?.let {
+                    it && gateway?.status == 200 && gatewayModel == true && (capability?.get("generationReady") as? JsonPrimitive)?.booleanOrNull == true
+                }
+                val instance = (gatewayBody?.get("instanceId") as? JsonPrimitive)?.contentOrNull
+                GatewayClientDiagnostics.observeInstance(config, instance)
                 val status = (healthResult.body?.get("status") as? JsonPrimitive)?.contentOrNull
                     ?.lowercase()?.takeIf { it in setOf("ok", "loading model", "no slot available", "error", "ready", "loading") }
                 val data = modelResult.body?.get("data") as? JsonArray
@@ -102,10 +123,13 @@ internal class LlamaHealthDiagnostics(
                     healthHttpStatus = healthResult.status,
                     serverStatus = status,
                     modelsHttpStatus = modelResult.status,
-                    selectedModelListed = ids?.takeIf { modelResult.status == 200 && it.size == data?.size }?.contains(model),
+                    selectedModelListed = ids?.takeIf { modelResult.status == 200 && it.size == data?.size }?.contains(model) ?: gatewayModel,
                     propsHttpStatus = propsResult.status,
+                    gatewayHttpStatus = gateway?.status,
+                    gatewayReady = gatewayReady,
+                    metadataRestricted = restricted,
                     contextTokens = ((propsResult.body?.get("default_generation_settings") as? JsonObject)?.get("n_ctx") as? JsonPrimitive)?.longOrNull?.takeIf { it > 0 },
-                    serverGeneration = listOf("server_generation", "process_start_time", "started_at").firstNotNullOfOrNull { key ->
+                    serverGeneration = instance ?: listOf("server_generation", "process_start_time", "started_at").firstNotNullOfOrNull { key ->
                         (propsResult.body?.get(key) as? JsonPrimitive)?.contentOrNull?.takeIf(String::isNotBlank)?.let { researchHash(it).take(16) }
                     },
                     modelIdentity = ids?.takeIf { model in it }?.let { researchHash(model).take(16) },
@@ -130,7 +154,7 @@ internal class LlamaHealthDiagnostics(
             val result = withTimeoutOrNull(15_000L) {
                 val response = client().post(config.buildEndpoint("chat/completions")) {
                     config.token?.takeIf(String::isNotBlank)?.let { bearerAuth(it) }
-                    config.extraHeaders.filterKeys { !it.equals("X-Gateway-Allow-Local-Tools", ignoreCase = true) }.forEach { (key, value) -> header(key, value) }
+                    GatewayClientDiagnostics.requestHeaders(config).filterKeys { !it.equals("X-Gateway-Allow-Local-Tools", ignoreCase = true) }.forEach { (key, value) -> header(key, value) }
                     header("X-Gateway-Allow-Local-Tools", "false")
                     parameter("autoload", "false")
                     contentType(ContentType.Application.Json)
@@ -159,6 +183,7 @@ internal class LlamaHealthDiagnostics(
                         }.toString()
                     )
                 }
+                GatewayClientDiagnostics.observe(config, response.status.value) { response.headers[it] }
                 val rawBody = response.boundedMetadata(64 * 1024)
                 val body = runCatching { Json.parseToJsonElement(rawBody) as? JsonObject }.getOrNull()
                 val choices = body?.get("choices") as? JsonArray
@@ -183,16 +208,17 @@ internal class LlamaHealthDiagnostics(
 
     private data class Probe(val status: Int? = null, val body: JsonObject? = null, val failure: String? = null)
 
-    private suspend fun read(endpoint: String, config: ProviderRequestConfig, model: String): Probe = try {
-        withTimeoutOrNull(1_500) {
+    private suspend fun read(endpoint: String, config: ProviderRequestConfig, model: String, timeoutMillis: Long = 1_500): Probe = try {
+        withTimeoutOrNull(timeoutMillis) {
             LocalEndpointConnectionPolicy.probe(endpoint) {
                 val response = client().get(endpoint) {
                     config.token?.takeIf(String::isNotBlank)?.let { bearerAuth(it) }
-                    config.extraHeaders.forEach { (key, value) -> header(key, value) }
+                    GatewayClientDiagnostics.requestHeaders(config).forEach { (key, value) -> header(key, value) }
                     parameter("model", model)
                     parameter("autoload", "false")
                     if (LocalEndpointConnectionPolicy.freshConnection(endpoint)) header(HttpHeaders.Connection, "close")
                 }
+                GatewayClientDiagnostics.observe(config, response.status.value) { response.headers[it] }
                 val body = response.boundedMetadata(64 * 1024)
                 Probe(response.status.value, runCatching { Json.parseToJsonElement(body) as? JsonObject }.getOrNull())
             }

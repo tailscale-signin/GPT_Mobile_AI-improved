@@ -16,6 +16,25 @@ class GitHubChatPolicyTest {
     private val context = GitHubConversationContext("c", "owner", "repo", "main", "a".repeat(40), "p")
     private val features = AppFeatureSettings()
 
+    @Test fun githubCannotInheritAnotherProfileThroughHelpersResearchOrCombinedMode() {
+        val configured = features.copy(localAssist = true)
+        assertFalse(GitHubChatPolicy.features(configured, "p", context).localAssist)
+        assertTrue(configured.localAssist)
+        val workers = dev.chungjungsoo.gptmobile.data.model.ModelDelegationSettings(enabled = true, reviewerEnabled = true, fallbackToAnotherProfile = true, approvedWorkerUids = listOf("different-profile"))
+        val policy = GitHubChatPolicy.delegation(workers, context)
+        assertFalse(policy.enabled)
+        assertFalse(policy.reviewerEnabled)
+        assertFalse(policy.fallbackToAnotherProfile)
+        assertEquals(emptyList<String>(), policy.approvedWorkerUids)
+        assertSame(workers, GitHubChatPolicy.delegation(workers, null))
+        val tools = requireNotNull(GitHubChatPolicy.tools(ChatMcpToolConfig(github = context, enabledToolIds = setOf("delegate_to_model", "local_assist_plan"), research = dev.chungjungsoo.gptmobile.data.model.MultiSearchResearchSelection(researchToggle = true)), configured, "p"))
+        assertFalse(tools.isToolEnabled("delegate_to_model"))
+        assertFalse(tools.isToolEnabled("local_assist_plan"))
+        assertEquals(null, tools.research)
+        assertEquals(profile.uid, GitHubChatPolicy.platform(profile, configured, context).uid)
+        assertEquals(profile.model, GitHubChatPolicy.platform(profile, configured, context).model)
+    }
+
     @Test fun ordinaryChatsAndOtherProfilesKeepOriginalSettings() {
         assertSame(profile, GitHubChatPolicy.platform(profile, features, null))
         assertSame(features, GitHubChatPolicy.features(features, "other", context))

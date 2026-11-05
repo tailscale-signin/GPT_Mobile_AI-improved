@@ -159,13 +159,7 @@ internal class GitHubOperationTool(
                 GitHubOperationArguments.errors(operation, arguments)
             }
             if (errors.isNotEmpty()) {
-                return AgentToolResult(
-                    callId,
-                    ToolResultContent.Text(ToolArgumentValidator.repairMessage(definition.name, errors, definition.inputSchema)),
-                    true,
-                    errorCode = "INVALID_ARGUMENTS",
-                    dispatched = false
-                )
+                return ToolArgumentValidator.rejection(callId, definition.name, arguments, definition.inputSchema, errors)
             }
         }
         if (operation == "github_write") {
@@ -760,7 +754,12 @@ internal class GitHubOperationTool(
                     }
                 }
                 "github_pr" -> {
-                    properties["action"] = choice("list", "headers", "context", "comments", "reviews", "create", "update", "comment", "reply", "review", "merge")
+                    properties["action"] = JsonObject(
+                        choice("list", "headers", "context", "comments", "reviews", "create", "update", "comment", "reply", "review", "merge") + mapOf(
+                            "default" to JsonPrimitive("context"),
+                            "description" to JsonPrimitive("Choose list when pull_number is unknown. All other read actions require the observed pull_number. The default context action also requires pull_number.")
+                        )
+                    )
                     properties["pull_number"] = buildJsonObject {
                         put("type", "integer")
                         put("minimum", 1)
@@ -879,7 +878,7 @@ internal class GitHubOperationTool(
                 "github_stage_patch" -> "Stage an exact replacement with target_file, search_snippet and replacement_snippet, or SHA-checked edits. Reads the pinned blob and rejects ambiguous anchors. Returns immutable version/stage_id and preserves publication receipts. Supply restore_stage_id alone to select a saved local patch at the same branch/base. Commit on a permitted working branch using its current expected_head_sha."
                 "github_commit" -> "Create a working branch, commit a validated stage_id, or delete_branch with expected_head_sha after dependency inspection. Deletion blocks selected/default/protected branches, unmerged commits, open PRs and active runs. GitHub deletion is not an atomic SHA lease."
                 "github_write" -> "Every files item requires a repository-relative path (for example app/src/main/kotlin/.../MainActivity.kt), never an absolute path or directory. Stage up to 20 UTF-8 file creations, replacements or deletions for exact user approval and one atomic commit on a working branch. Supply expected_head_sha and expected_blob_sha for existing files. Replacements require content; deletions require delete=true and no content. Never write to the default branch."
-                "github_pr" -> "Canonical pull-request tool (also known as github_pull_request). Use list to discover pull_number. Prefer headers for title/state/head/base only; it uses a minimal API field selection with no bodies or threads. Use context for files/checks and include_health=true for merge readiness. Use github_watch_checks once for ongoing CI; do not repeatedly poll from the model. Writes require the current expected head SHA."
+                "github_pr" -> "Canonical pull-request tool (also known as github_pull_request). Start with {\"action\":\"list\"} when the PR number is unknown. For one known PR use {\"action\":\"context\",\"pull_number\":<observed positive number>}. Use list to discover pull_number. Prefer headers for title/state/head/base only; it uses a minimal API field selection with no bodies or threads. Use context for files/checks and include_health=true for merge readiness. Use github_watch_checks once for ongoing CI; do not repeatedly poll from the model. Writes require the current expected head SHA."
                 "github_ci" -> "For repository summaries, inspect the selected branch/head and recent relevant runs; traverse full history only when requested. Discover workflows, then runs (100/page), then jobs using run_id. job/logs require job_id; artifacts requires run_id. status inspects run_id/job_id or selected commit/ref checks. Empty collections are valid. definitions reads pinned YAML outlines. Logs use start_line/end_line/start_offset continuations. dispatch requires a discovered workflow_id and explicit ref; a run_id is not a workflow_id. rerun/rerun_failed_jobs retries failed jobs only; rerun_all retries the full completed run. Never cancel an active run to force a retry. Follow continuation_call exactly."
                 "github_watch_checks" -> "Subscribe once to background CI updates for pr_number and/or run_id in this saved chat. Pins the current head and posts native chat updates without model polling. Optional follow_pr=true with pr_number follows new revisions, preserves historical results and invalidates previous merge evidence."
                 "github_issue" -> "List issues (PRs excluded). Prefer headers for title/state/updated_at without bodies or comments; use context/comments/history only when those details are needed. Create/update requires exact approval; update needs expected_updated_at. Timeline is not a full body-edit history."

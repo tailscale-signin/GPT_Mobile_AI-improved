@@ -33,6 +33,7 @@ data class GatewayCapabilities(
     val protocols: List<String> = emptyList(),
     val gatewayVersion: String? = null,
     val contractVersion: Int? = null,
+    val instanceId: String? = null,
     val auth: GatewayAuthCapabilities? = null,
     val identityScope: String? = null,
     val desktop: GatewayDesktopCapabilities? = null,

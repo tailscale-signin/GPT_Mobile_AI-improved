@@ -49,6 +49,7 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual('notify', cfg['update_mode'])
         self.assertEqual('loopback', cfg['access'])
         self.assertEqual(2, cfg['workers'])
+        self.assertFalse(cfg['debug_mode'])
 
     def test_invalid_settings_fail_before_persistence(self):
         for update in [{'port': 80}, {'port': True}, {'schema': True}, {'workers': 9}, {'backend':'http://example.com'},
@@ -69,6 +70,16 @@ class SettingsTests(unittest.TestCase):
             self.assertEqual('loopback', env['GATEWAY_AUTH_MODE'])
             with patch.dict(os.environ, env, clear=True):
                 Config.from_env().validate()
+
+    def test_debug_mode_is_explicit_and_persists_only_inside_managed_log_directory(self):
+        with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, {'GATEWAY_DEBUG_LOG': '/arbitrary/file', 'GATEWAY_DEBUG_MODE': 'true'}):
+            self.assertEqual('false', environment(temp, validate({}), 'secret')['GATEWAY_DEBUG_MODE'])
+            cfg = validate({'debug_mode': True})
+            env = environment(temp, cfg, 'secret')
+            self.assertEqual('true', env['GATEWAY_DEBUG_MODE'])
+            self.assertEqual(str(Path(temp) / 'logs' / 'gateway-debug.jsonl'), env['GATEWAY_DEBUG_LOG'])
+        with self.assertRaises(ValueError):
+            validate({'debug_mode': 'yes'})
 
     def test_atomic_json_replacement_failure_preserves_last_good_file(self):
         with tempfile.TemporaryDirectory() as temp:

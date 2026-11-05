@@ -1368,7 +1368,7 @@ class AgentRunner(
         AgentContractValidation.admission(tool.definition, call.callId)?.let { return it }
         if (!tool.managesExecutionBudget) {
             val errors = ToolArgumentValidator.errors(call.arguments, tool.definition.inputSchema)
-            if (errors.isNotEmpty()) return ToolResultEnvelope.error(call.callId, "INVALID_ARGUMENTS", ToolArgumentValidator.repairMessage(tool.definition.name, errors, tool.definition.inputSchema))
+            if (errors.isNotEmpty()) return ToolArgumentValidator.rejection(call.callId, tool.definition.name, call.arguments, tool.definition.inputSchema, errors)
         }
         val replayableRead = replayableRead(call)
         return try {

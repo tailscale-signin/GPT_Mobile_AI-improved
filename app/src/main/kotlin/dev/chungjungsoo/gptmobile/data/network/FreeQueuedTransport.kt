@@ -47,6 +47,7 @@ import kotlinx.serialization.json.put
 
 internal class FreeQueuedTransport(private val client: HttpClient, private val preparation: ModelRequestPreparation) {
     suspend fun generate(request: ChatCompletionRequest, config: ProviderRequestConfig, timeoutSeconds: Int, emit: suspend (ChatCompletionChunk) -> Unit) {
+        config.requireSelectedRoute(request.model)
         val provider = requireNotNull(config.freeProvider)
         require(provider in setOf(FreeAiProvider.AI_HORDE, FreeAiProvider.HUGGING_FACE))
         val context = currentCoroutineContext()
@@ -133,6 +134,7 @@ internal class FreeQueuedTransport(private val client: HttpClient, private val p
                             val catalog = checkedJsonArray(client.get("${provider.apiUrl}/status/models?type=text"), config, request.model)
                             val selected = HordeTextPolicy.select(catalog, request.model)
                                 ?: error("QUEUE_WORKERS_UNAVAILABLE: No active worker with a supported non-reasoning instruction template. Choose another provider or refresh later.")
+                            config.requireSelectedRoute(selected)
                             val workerRequest = request.copy(model = selected)
                             payload = hordePayload(workerRequest, HordeTextPolicy.prompt(workerRequest))
                             emit(ChatCompletionChunk(applicationNotice = "AI Horde selected $selected with its instruction template; anonymous output remains capped at 256 tokens."))

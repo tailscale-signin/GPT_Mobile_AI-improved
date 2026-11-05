@@ -37,7 +37,8 @@ internal class GitHubVerifiedSession(
     private val lifecycle: (dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind) -> Unit = {},
     private val resumeCommitSha: String? = null,
     private val resumeRequestKey: String = task,
-    private val gatewayDiagnostic: (suspend () -> String)? = null
+    private val gatewayDiagnostic: (suspend () -> String)? = null,
+    private val onPublication: suspend (JsonObject) -> Unit = {}
 ) : AgentProviderSession by delegate {
     private var lastChecklist: JsonObject? = null
     private class ProgressCheckpointFailure(cause: Exception, val originalFailure: ProviderEvent.Failed?) : Exception(cause)
@@ -381,6 +382,7 @@ internal class GitHubVerifiedSession(
         val (text, partial, report) = publication
         emit(ProviderEvent.TextDelta(text))
         evidence.retainVerdict(JsonObject(report + ("response_delivered" to kotlinx.serialization.json.JsonPrimitive(true))))
+        onPublication(report)
         val extractionCode = (report["failure_code"] as? kotlinx.serialization.json.JsonPrimitive)?.content?.takeUnless { it == "null" }
         if (partial) {
             lifecycle(dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.VERIFICATION_REJECTED)

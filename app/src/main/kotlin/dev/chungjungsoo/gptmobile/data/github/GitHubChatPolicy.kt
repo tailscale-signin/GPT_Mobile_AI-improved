@@ -63,6 +63,7 @@ internal object GitHubChatPolicy {
             adaptiveToolCatalog = true
         )
         return original.copy(
+            localAssist = false,
             tokenBudget = budget,
             toolPluginStates = original.toolPluginStates + states,
             profileBehavior = original.profileBehavior + (uid to behavior.copy(toolPluginStates = behavior.toolPluginStates + states)),
@@ -79,7 +80,10 @@ internal object GitHubChatPolicy {
             if (config.githubTools) add(connection)
             if (config.webSearch) addAll(setOf("web_search", "read_url"))
         }
-        val controlled = setOf(connection, "github_decide", "web_search", "read_url", "memory", "memory_recall", "memory_capture", "memory_search", "memory_read_document")
-        return request.copy(allowAllByDefault = false, enabledToolIds = (request.enabledToolIds - controlled) + enabled, disabledToolIds = (request.disabledToolIds - controlled) + (controlled - enabled), maxTools = maxOf(request.maxTools ?: 0, 64), maxToolCalls = minOf(request.maxToolCalls ?: Int.MAX_VALUE, callLimit(config.engineeringMode)), reasoning = true)
+        val controlled = setOf(connection, "github_decide", "web_search", "read_url", "memory", "memory_recall", "memory_capture", "memory_search", "memory_read_document", "delegate_to_model", "local_assist_plan")
+        return request.copy(allowAllByDefault = false, enabledToolIds = (request.enabledToolIds - controlled) + enabled, disabledToolIds = (request.disabledToolIds - controlled) + (controlled - enabled), maxTools = maxOf(request.maxTools ?: 0, 64), maxToolCalls = minOf(request.maxToolCalls ?: Int.MAX_VALUE, callLimit(config.engineeringMode)), reasoning = true, delegation = null, research = null, combined = null)
     }
+
+    fun delegation(original: dev.chungjungsoo.gptmobile.data.model.ModelDelegationSettings, context: GitHubConversationContext?): dev.chungjungsoo.gptmobile.data.model.ModelDelegationSettings =
+        if (context == null) original else original.copy(enabled = false, orchestrationEnabled = false, reviewerEnabled = false, automaticResearch = false, researchEnabled = false, fallbackToAnotherProfile = false, processingOwnership = 100, approvedWorkerUids = emptyList())
 }

@@ -45,4 +45,29 @@ class RecognitionStartGateTest {
         time += 1_000
         assertTrue(gate.acquire("third"))
     }
+
+    @Test fun repeatedBindingFailuresBackOffWithoutReleasingAnotherSession() {
+        var time = 0L
+        val gate = RecognitionStartGate { time }
+        assertTrue(gate.acquire("first"))
+        gate.bindingFailed("other")
+        assertFalse(gate.acquire("second"))
+        gate.bindingFailed("first")
+        org.junit.Assert.assertEquals(5000L, gate.remainingMillis())
+        time += 5000
+        assertTrue(gate.acquire("second"))
+        gate.bindingFailed("second")
+        org.junit.Assert.assertEquals(15000L, gate.remainingMillis())
+        time += 15000
+        assertTrue(gate.acquire("third"))
+        gate.bindingFailed("third")
+        org.junit.Assert.assertEquals(30000L, gate.remainingMillis())
+        time += 30000
+        assertTrue(gate.acquire("recovered"))
+        gate.succeeded("recovered")
+        time += 500
+        assertTrue(gate.acquire("later"))
+        gate.bindingFailed("later")
+        org.junit.Assert.assertEquals(5000L, gate.remainingMillis())
+    }
 }

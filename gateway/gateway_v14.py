@@ -34,9 +34,10 @@ from v14.batch import install_batch
 from v14.catalog import install_catalog_cache
 from v14.browser import BOOTSTRAP_PATH, install_browser_proxy
 from v14.service import ServiceState, LoadGuard
-from v14.activity import ActivityTracker, ActivityMiddleware, desktop_snapshot
+from v14.activity import ActivityTracker, ActivityMiddleware, desktop_snapshot, client_snapshot
 from v14.mcp import install_mcp_resilience
 from v14.health import readiness, diagnostics
+from v14.debug import DebugLogStore, DebugMiddleware, lifecycle as debug_lifecycle, install_routes as install_debug_routes
 from v14.journal import backup_database
 from v14.engineering import EngineeringStore, EngineeringService, principal_authorized
 from gateway_security import device_store
@@ -79,11 +80,15 @@ engineering.authorized = lambda job: principal_authorized(config, job['principal
 engineering.backend.cancelled = lambda job_id: (engineering.store.get(job_id) or {}).get('state') == 'CANCELLED'
 from v14.code_graph.tools import install_graph_tool
 install_graph_tool(runtime, engineering, lambda principal: principal_authorized(config, principal, device_store))
-app = FastAPI(title="Private Gateway 15", version=VERSION, lifespan=engineering.lifecycle(service.lifespan(runtime, config.shutdown_grace)),
+debug_log = DebugLogStore(os.getenv("GATEWAY_DEBUG_LOG") or str(Path(runtime.GATEWAY_JOB_DB_PATH).with_name("gateway-debug.jsonl")),
+                          enabled=os.getenv("GATEWAY_DEBUG_MODE", "false").lower() == "true")
+app = FastAPI(title="Private Gateway 15", version=VERSION, lifespan=debug_lifecycle(debug_log, engineering.lifecycle(service.lifespan(runtime, config.shutdown_grace))),
               docs_url="/gateway/docs", openapi_url="/gateway/openapi.json")
 app.add_middleware(LoadGuard, config=config, state=service)
 app.add_middleware(ActivityMiddleware, tracker=activity)
 app.add_middleware(Admission, config=config)
+app.add_middleware(DebugMiddleware, store=debug_log, instance_id=service.instance_id)
+install_debug_routes(app, debug_log)
 install_engineering_routes(app, engineering)
 from v14.maintenance import install_maintenance
 install_maintenance(app, runtime, service, engineering)
@@ -92,6 +97,12 @@ install_maintenance(app, runtime, service, engineering)
 @app.get("/gateway/admin/dashboard")
 async def dashboard_snapshot():
     return await asyncio.to_thread(desktop_snapshot, runtime, service, activity)
+
+
+@app.get("/gateway/dashboard")
+@app.get("/v1/gateway/dashboard")
+async def mobile_dashboard_snapshot(request: Request):
+    return await asyncio.to_thread(client_snapshot, runtime, service, activity, request.state.principal, device_store)
 
 
 @app.post("/v1/chat/completions")
@@ -193,22 +204,25 @@ def capabilities():
     result = runtime.gateway_capabilities()
     result.update({"gatewayVersion": VERSION, "contractVersion": 1,
                    "build": build,
-                   "accepted_request_headers": ["X-Gateway-Job-ID", "X-Gateway-Performance-Profile", "X-Gateway-Slot-Pinning", "X-Gateway-Slot-Count", "X-Gateway-Cache-Prompt", "X-Gateway-Cache-Reuse", "X-Gateway-Reasoning-Effort", "X-Gateway-Tool-Optimization", "X-Gateway-Tool-Surface-Limit", "X-Gateway-Stable-Tool-Surface", "X-Gateway-Intermediate-Max-Tokens", "X-Gateway-Soft-Synthesis-Round", "X-Gateway-Result-Char-Limit", "X-Gateway-Delegated-Worker", "X-Gateway-Allow-Local-Tools", "X-Gateway-Request-Role", "X-Gateway-Attempt-ID"],
+                   "accepted_request_headers": ["X-Gateway-Job-ID", "X-Gateway-Performance-Profile", "X-Gateway-Slot-Pinning", "X-Gateway-Slot-Count", "X-Gateway-Cache-Prompt", "X-Gateway-Cache-Reuse", "X-Gateway-Reasoning-Effort", "X-Gateway-Tool-Optimization", "X-Gateway-Tool-Surface-Limit", "X-Gateway-Stable-Tool-Surface", "X-Gateway-Intermediate-Max-Tokens", "X-Gateway-Soft-Synthesis-Round", "X-Gateway-Result-Char-Limit", "X-Gateway-Delegated-Worker", "X-Gateway-Allow-Local-Tools", "X-Gateway-Request-Role", "X-Gateway-Attempt-ID", "X-Gateway-Client-Diagnostics"],
                    "auth": {"mode": config.mode, "apiKeyRequired": False, "legacyBearerEnabled": config.legacy_bearer},
                    "desktop": {"managed": bool(config.management_token), "maintenanceProtocol": 1,
                                "stateSchema": 1, "updateAuthority": "local-manager", "idleUpdates": True},
                    "identityScope": "shared-network" if config.mode == "open_network" else "user" if config.mode == "trusted_proxy" else "local-machine",
+                   "diagnostics": {"protocolVersion": 1, "clientMetadata": True, "retainedLineLimit": 5000, "debugEnabled": debug_log.enabled},
+                   "instanceId": service.instance_id,
                    "memory": {"authority": "client", "protocolVersion": 1, "workspaceAdapterEnabled": False},
                    "supportedMcpEras": ["legacy"], "eventVersions": [runtime.GATEWAY_PROGRESS_PROTOCOL],
                    "contracts": {
                        "gatewayProgress": [runtime.GATEWAY_PROGRESS_PROTOCOL],
+                       "gatewayDashboard": ["gptmobile.gateway.dashboard.v1"],
                        "toolArguments": ["gptmobile.tool-arguments.v1"]
                    },
                    "features": dict(result["features"], keyFreePrivateAccess=config.mode != "open_network", keyFreeNetworkAccess=config.mode == "open_network", deterministicSearch=True,
                                     structuredSearch=True, terminalStateProtection=True, memory_novelty_filter=False, structuredEvidence=False, mcpFacade=False,
                                     modernMcp=False, clientMemoryAuthority=True, packageValidation=True,
                                     validatedToolArguments=True, githubClientOwnedFastPath=True,
-                                    githubImmutableReadCache=True, githubPerformanceMetrics=True, intelligentToolBatch=True,
+                                    githubImmutableReadCache=True, githubPerformanceMetrics=True, intelligentToolBatch=True, mobileDashboard=True,
                                     batchDependencies=True, batchDurableReceipts=True, durableEngineeringJobs=True,
                                     shaBoundMergeApproval=True, engineeringSupervisor=True, repositoryCodeGraph=True,
                                     loopbackBrowserCsrf=config.mode == "loopback", boundedAdmission=True,
@@ -232,15 +246,17 @@ def v14_contract():
 
 @app.get("/gateway/ready")
 @app.get("/v1/gateway/ready")
-async def ready():
-    result = await asyncio.to_thread(readiness, runtime, service)
+async def ready(model: str = ""):
+    if len(model) > 512:
+        return JSONResponse({"error": {"code": "invalid_model_identifier"}}, status_code=400)
+    result = await asyncio.to_thread(readiness, runtime, service, model)
     return JSONResponse(result, status_code=200 if result['ready'] else 503)
 
 
 @app.get('/gateway/live')
 @app.get('/v1/gateway/live')
 def live():
-    return {'live': True, 'version': VERSION, 'draining': service.snapshot()['draining']}
+    return {'live': True, 'version': VERSION, 'instanceId': service.instance_id, 'draining': service.snapshot()['draining']}
 
 
 @app.get('/gateway/admin/status')

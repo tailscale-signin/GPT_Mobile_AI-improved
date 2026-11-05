@@ -12,6 +12,7 @@ import dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseInProgressEve
 import dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponsesStreamEvent
 import dev.chungjungsoo.gptmobile.data.dto.openai.response.UnknownEvent
 import dev.chungjungsoo.gptmobile.data.model.FreeAiProvider
+import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayClientDiagnostics
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayResponseMetadata
 import dev.chungjungsoo.gptmobile.data.openrouter.account.recordOpenRouterReceipts
 import dev.chungjungsoo.gptmobile.util.applyPlatformStreamingTimeout
@@ -61,7 +62,7 @@ class OpenAIAPIImpl @Inject constructor(
         val endpoint = config.buildEndpoint("files")
         val responseBody = networkClient().preparePost(endpoint) {
             config.token?.let { bearerAuth(it) }
-            config.extraHeaders.forEach { (key, value) -> header(key, value) }
+            GatewayClientDiagnostics.requestHeaders(config).forEach { (key, value) -> header(key, value) }
             setBody(
                 MultiPartFormDataContent(
                     formData {
@@ -92,7 +93,7 @@ class OpenAIAPIImpl @Inject constructor(
         return try {
             networkClient().prepareGet(endpoint) {
                 config.token?.let { bearerAuth(it) }
-                config.extraHeaders.forEach { (key, value) -> header(key, value) }
+                GatewayClientDiagnostics.requestHeaders(config).forEach { (key, value) -> header(key, value) }
             }.execute { response ->
                 config.freeDiagnostics?.responded()
                 response.status.isSuccess()
@@ -166,7 +167,7 @@ class OpenAIAPIImpl @Inject constructor(
                 FreeQueuedTransport(networkClient(), requestPreparation).generate(preparedRequest, config, timeoutSeconds) { emit(it) }
                 return@flow
             }
-            config = gatewayControls.prepare(config)
+            config = gatewayControls.prepare(GatewayClientDiagnostics.withHeaders(config, request.model))
             val endpoint = config.buildEndpoint("chat/completions")
 
             val executeRequest: suspend () -> Unit = {
@@ -201,9 +202,10 @@ class OpenAIAPIImpl @Inject constructor(
                         setBody(admittedPayload)
                         accept(if (preparedRequest.stream) ContentType.Text.EventStream else ContentType.Application.Json)
                         config.token?.takeIf { it.isNotBlank() && (free == null || free.acceptsUserToken) }?.let { bearerAuth(it) }
-                        config.extraHeaders.forEach { (key, value) -> header(key, value) }
+                        GatewayClientDiagnostics.requestHeaders(config).forEach { (key, value) -> header(key, value) }
                         if (LocalEndpointConnectionPolicy.freshConnection(endpoint)) header(HttpHeaders.Connection, "close")
                     }.execute { response ->
+                        GatewayClientDiagnostics.observe(config, response.status.value) { response.headers[it] }
                         config.freeDiagnostics?.responded()
                         if (!response.status.isSuccess()) {
                             val errorBody = if (free != null) readFreeErrorBody(response) else response.body<String>()
@@ -228,7 +230,7 @@ class OpenAIAPIImpl @Inject constructor(
                                 }
                             }
                             val parameter = rejectedSamplingParameter(errorBody)
-                            if (response.status.value == 400 && parameter != null) {
+                            if (response.status.value == 400 && parameter != null && !dispatchRetryGuard.remoteOutcomeUnknown) {
                                 val sanitized = when (parameter) {
                                     "temperature" -> preparedRequest.copy(temperature = null)
                                     "top_p" -> preparedRequest.copy(topP = null)
@@ -592,7 +594,7 @@ class OpenAIAPIImpl @Inject constructor(
         var preparedRequest = request.withModelSamplingPolicy()
         var effectiveConfig = config
         try {
-            effectiveConfig = gatewayControls.prepare(config)
+            effectiveConfig = gatewayControls.prepare(GatewayClientDiagnostics.withHeaders(config, request.model))
             val endpoint = effectiveConfig.buildEndpoint("responses")
 
             ResilientStreamingClient.executeWithRetry(
@@ -621,13 +623,14 @@ class OpenAIAPIImpl @Inject constructor(
                     setBody(admittedPayload)
                     accept(ContentType.Text.EventStream)
                     effectiveConfig.token?.let { bearerAuth(it) }
-                    effectiveConfig.extraHeaders.forEach { (key, value) -> header(key, value) }
+                    GatewayClientDiagnostics.requestHeaders(effectiveConfig).forEach { (key, value) -> header(key, value) }
                 }.execute { response ->
+                    GatewayClientDiagnostics.observe(config, response.status.value) { response.headers[it] }
                     effectiveConfig.freeDiagnostics?.responded()
                     if (!response.status.isSuccess()) {
                         val errorBody = response.body<String>()
                         val parameter = rejectedSamplingParameter(errorBody)
-                        if (response.status.value == 400 && parameter != null) {
+                        if (response.status.value == 400 && parameter != null && !dispatchRetryGuard.remoteOutcomeUnknown) {
                             val sanitized = when (parameter) {
                                 "temperature" -> preparedRequest.copy(temperature = null)
                                 "top_p" -> preparedRequest.copy(topP = null)

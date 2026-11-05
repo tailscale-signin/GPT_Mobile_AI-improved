@@ -34,7 +34,9 @@ internal class LlamaInferenceProbeEvidence(private val expectedModel: String) {
                 listOf("content", "reasoning_content", "reasoning").any { field ->
                     (message?.get(field) as? JsonPrimitive)?.contentOrNull?.isNotBlank() == true
                 }
-            if (message?.get("tool_calls")?.let { it != JsonNull } == true || message?.get("function_call")?.let { it != JsonNull } == true) invalid = true
+            val toolCalls = message?.get("tool_calls")
+            if (toolCalls != null && toolCalls != JsonNull && (toolCalls !is JsonArray || toolCalls.isNotEmpty())) invalid = true
+            if (message?.get("function_call")?.let { it != JsonNull } == true) invalid = true
             val finish = (choice["finish_reason"] as? JsonPrimitive)?.contentOrNull
             if (finish != null) completed = true
             if (finish in setOf("tool_calls", "function_call", "error", "content_filter")) invalid = true

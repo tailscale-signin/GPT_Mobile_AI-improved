@@ -30,6 +30,29 @@ class LlamaInferenceProbeEvidenceTest {
         assertFalse(evidence.ready)
     }
 
+    @Test fun emptyToolCallListsAreNotToolInvocations() {
+        listOf("delta", "message").forEach { bodyField ->
+            listOf("[]", "null").forEach { toolCalls ->
+                val evidence = LlamaInferenceProbeEvidence("selected")
+                evidence.observe(
+                    """{"model":"selected","choices":[{"$bodyField":{"content":"OK","tool_calls":$toolCalls},"finish_reason":"stop"}]}"""
+                )
+                assertTrue("$bodyField with tool_calls=$toolCalls", evidence.ready)
+            }
+        }
+    }
+
+    @Test fun malformedToolCallContainersCannotProveInferenceReadiness() {
+        listOf("{}", "\"not-a-list\"", "0", "false", "[{}]").forEach { toolCalls ->
+            val evidence = LlamaInferenceProbeEvidence("selected")
+            evidence.observe(
+                """{"model":"selected","choices":[{"message":{"content":"OK","tool_calls":$toolCalls},"finish_reason":"stop"}]}"""
+            )
+            assertTrue("tool_calls=$toolCalls", evidence.invalid)
+            assertFalse(evidence.ready)
+        }
+    }
+
     @Test fun reasoningOnlyTokenCountsCanVerifyGenerationButNeverInventVisibleFirstTokenEvidence() {
         val evidence = LlamaInferenceProbeEvidence("selected")
         evidence.observe("""{"model":"selected","choices":[],"usage":{"completion_tokens":1}}""")

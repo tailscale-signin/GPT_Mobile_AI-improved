@@ -25,6 +25,8 @@ code coverage and an outstanding environment check apply.
 - Provider and tool failures carry stable error categories, failing phases,
   retryability, and dispatch evidence. Unknown transmission remains explicit.
   Confirmed partial answers remain visible after a stream interruption.
+- Known HTTP rejections and local cooldowns retain their status and dispatch
+  evidence; unclassified failures do not invent a transport phase.
 - Known network outages block further provider dispatch through the shared
   connectivity gate. Recovery remains bounded, and possible mutations are not
   automatically repeated after an uncertain outcome. A remote tool capability or
@@ -189,7 +191,7 @@ are under `app/src/test/kotlin/dev/chungjungsoo/gptmobile/`.
 
 | Key | Source and responsibility |
 |---|---|
-| N1 | `data/network/{NetworkFailureKind,ProviderConnectivityPreflight,NetworkRetryUtils,ResilientStreamingClient,OpenAIAPIImpl}.kt`; `util/ApiStateFlowExtensions.kt`; `data/research/academic/ResearchConnectivityGate.kt` — typed transport recovery and preserved output. |
+| N1 | `data/network/{NetworkFailureKind,ProviderConnectivityPreflight,NetworkRetryUtils,ResilientStreamingClient,OpenAIAPIImpl,ProviderExceptionDetails}.kt`; `util/ApiStateFlowExtensions.kt`; `data/research/academic/ResearchConnectivityGate.kt` — typed transport recovery and preserved output. |
 | N2 | `data/network/{LocalServiceHealth,LocalConnectionPreflight,LocalEndpointConnectionPolicy}.kt` — endpoint/DNS health and bounded local recovery. |
 | N3 | `data/network/NetworkClient.kt` — caller-controlled redirects and HTTP policy. |
 | M1 | `data/agent/tool/{McpClientManager,McpCatalogueAvailability}.kt` — session lifecycle, read-only recovery and validated readiness. |

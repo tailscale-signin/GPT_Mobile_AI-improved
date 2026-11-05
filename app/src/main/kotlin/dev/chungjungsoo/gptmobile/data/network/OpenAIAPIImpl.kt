@@ -525,9 +525,13 @@ class OpenAIAPIImpl @Inject constructor(
             LocalServiceHealth.recordLocalFailure(config.apiUrl, e)
             val gatewayOutcomeUnknown = dispatchRetryGuard.remoteOutcomeUnknown
             val transportFailure = networkFailureKind(e)
-            val transportRetryable = !gatewayOutcomeUnknown && e !is LocalServiceUnavailableException && e !is ProviderConnectivityPendingException && !receivedAssistantPayload && transportFailure.retryable
+            val providerFailure = providerExceptionDetails(e, receivedAssistantPayload)
+            val failureCode = providerFailure?.code ?: if (transportFailure == NetworkFailureKind.UNKNOWN) "PROVIDER_INVOCATION_FAILED" else transportFailure.code
+            val failureRetryable = !gatewayOutcomeUnknown && e !is LocalServiceUnavailableException && e !is ProviderConnectivityPendingException && !receivedAssistantPayload && (providerFailure?.retryable ?: transportFailure.retryable)
             val errorMessage = if (gatewayOutcomeUnknown) {
                 "GATEWAY_OUTCOME_UNKNOWN: The connection ended after a request that allows server tools was dispatched. Check the saved gateway job before resuming; the request was not replayed."
+            } else if (providerFailure != null) {
+                providerFailure.message
             } else if (e.message.orEmpty().startsWith("LOCAL_SERVICE_UNREACHABLE:")) {
                 e.message.orEmpty() + ". Local server offline or unreachable; check the server listen address, port and firewall, then use Test connection to retry immediately."
             } else if (transportFailure != NetworkFailureKind.UNKNOWN) {
@@ -570,15 +574,15 @@ class OpenAIAPIImpl @Inject constructor(
                 ChatCompletionChunk(
                     error = ErrorDetail(
                         message = errorMessage,
-                        type = if (config.freeProvider != null) (config.freeDiagnostics?.category ?: freeFailureCategory(e)).name else "network_error",
+                        type = if (config.freeProvider != null) (config.freeDiagnostics?.category ?: freeFailureCategory(e)).name else providerFailure?.type ?: if (transportFailure == NetworkFailureKind.UNKNOWN) "provider_error" else "network_error",
                         code = if (gatewayOutcomeUnknown) {
                             "GATEWAY_OUTCOME_UNKNOWN"
                         } else if (e is LocalServiceUnavailableException) {
                             "LOCAL_SERVICE_UNREACHABLE"
                         } else {
-                            transportFailure.code
+                            failureCode
                         },
-                        retryable = transportRetryable,
+                        retryable = failureRetryable,
                         failureDetails = when {
                             gatewayOutcomeUnknown -> kotlinx.serialization.json.buildJsonObject {
                                 put("failed_stage", kotlinx.serialization.json.JsonPrimitive("gateway_dispatch"))
@@ -586,14 +590,26 @@ class OpenAIAPIImpl @Inject constructor(
                                 put("replay_safe", kotlinx.serialization.json.JsonPrimitive(false))
                             }
                             e is LocalServiceUnavailableException -> e.failureDetails()
+                            providerFailure != null -> providerFailure.failureDetails
                             else -> kotlinx.serialization.json.buildJsonObject {
-                                put("code", kotlinx.serialization.json.JsonPrimitive(transportFailure.code))
-                                put("failed_stage", kotlinx.serialization.json.JsonPrimitive(if (e is ProviderConnectivityPendingException) "provider_admission" else transportFailure.failedStage))
+                                put("code", kotlinx.serialization.json.JsonPrimitive(failureCode))
+                                put(
+                                    "failed_stage",
+                                    kotlinx.serialization.json.JsonPrimitive(
+                                        if (e is ProviderConnectivityPendingException) {
+                                            "provider_admission"
+                                        } else if (transportFailure == NetworkFailureKind.UNKNOWN) {
+                                            "stage_not_recorded"
+                                        } else {
+                                            transportFailure.failedStage
+                                        }
+                                    )
+                                )
                                 if (e is ProviderConnectivityPendingException) {
                                     put("dispatch_state", kotlinx.serialization.json.JsonPrimitive("PRECHECK_REJECTED"))
                                     put("dispatched", kotlinx.serialization.json.JsonPrimitive(false))
                                 }
-                                put("retryable", kotlinx.serialization.json.JsonPrimitive(transportRetryable))
+                                put("retryable", kotlinx.serialization.json.JsonPrimitive(failureRetryable))
                                 if (e is ProviderConnectivityPendingException) {
                                     put("waiting_for_connectivity", kotlinx.serialization.json.JsonPrimitive(true))
                                     put("retry_after_ms", kotlinx.serialization.json.JsonPrimitive(e.retryAfterMs))
@@ -737,9 +753,13 @@ class OpenAIAPIImpl @Inject constructor(
             LocalServiceHealth.recordLocalFailure(effectiveConfig.apiUrl, e)
             val gatewayOutcomeUnknown = dispatchRetryGuard.remoteOutcomeUnknown
             val transportFailure = networkFailureKind(e)
-            val transportRetryable = !gatewayOutcomeUnknown && e !is LocalServiceUnavailableException && e !is ProviderConnectivityPendingException && !receivedResponsePayload && transportFailure.retryable
+            val providerFailure = providerExceptionDetails(e, receivedResponsePayload)
+            val failureCode = providerFailure?.code ?: if (transportFailure == NetworkFailureKind.UNKNOWN) "PROVIDER_INVOCATION_FAILED" else transportFailure.code
+            val failureRetryable = !gatewayOutcomeUnknown && e !is LocalServiceUnavailableException && e !is ProviderConnectivityPendingException && !receivedResponsePayload && (providerFailure?.retryable ?: transportFailure.retryable)
             val errorMessage = if (gatewayOutcomeUnknown) {
                 "GATEWAY_OUTCOME_UNKNOWN: The connection ended after a request that allows server tools was dispatched. Check the saved gateway job before resuming; the request was not replayed."
+            } else if (providerFailure != null) {
+                providerFailure.message
             } else if (e.message.orEmpty().startsWith("LOCAL_SERVICE_UNREACHABLE:")) {
                 e.message.orEmpty() + ". Local server offline or unreachable; check the server listen address, port and firewall, then use Test connection to retry immediately."
             } else if (transportFailure != NetworkFailureKind.UNKNOWN) {
@@ -767,7 +787,7 @@ class OpenAIAPIImpl @Inject constructor(
                     } else if (e is LocalServiceUnavailableException) {
                         "LOCAL_SERVICE_UNREACHABLE"
                     } else {
-                        transportFailure.code
+                        failureCode
                     },
                     failureDetails = when {
                         gatewayOutcomeUnknown -> kotlinx.serialization.json.buildJsonObject {
@@ -776,14 +796,26 @@ class OpenAIAPIImpl @Inject constructor(
                             put("replay_safe", kotlinx.serialization.json.JsonPrimitive(false))
                         }
                         e is LocalServiceUnavailableException -> e.failureDetails()
+                        providerFailure != null -> providerFailure.failureDetails
                         else -> kotlinx.serialization.json.buildJsonObject {
-                            put("code", kotlinx.serialization.json.JsonPrimitive(transportFailure.code))
-                            put("failed_stage", kotlinx.serialization.json.JsonPrimitive(if (e is ProviderConnectivityPendingException) "provider_admission" else transportFailure.failedStage))
+                            put("code", kotlinx.serialization.json.JsonPrimitive(failureCode))
+                            put(
+                                "failed_stage",
+                                kotlinx.serialization.json.JsonPrimitive(
+                                    if (e is ProviderConnectivityPendingException) {
+                                        "provider_admission"
+                                    } else if (transportFailure == NetworkFailureKind.UNKNOWN) {
+                                        "stage_not_recorded"
+                                    } else {
+                                        transportFailure.failedStage
+                                    }
+                                )
+                            )
                             if (e is ProviderConnectivityPendingException) {
                                 put("dispatch_state", kotlinx.serialization.json.JsonPrimitive("PRECHECK_REJECTED"))
                                 put("dispatched", kotlinx.serialization.json.JsonPrimitive(false))
                             }
-                            put("retryable", kotlinx.serialization.json.JsonPrimitive(transportRetryable))
+                            put("retryable", kotlinx.serialization.json.JsonPrimitive(failureRetryable))
                             if (e is ProviderConnectivityPendingException) {
                                 put("waiting_for_connectivity", kotlinx.serialization.json.JsonPrimitive(true))
                                 put("retry_after_ms", kotlinx.serialization.json.JsonPrimitive(e.retryAfterMs))

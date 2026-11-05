@@ -2,6 +2,8 @@ package dev.chungjungsoo.gptmobile.data.agent.tool
 
 import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpServer
+import dev.chungjungsoo.gptmobile.data.agent.ResearchAcquisitionContext
+import dev.chungjungsoo.gptmobile.data.agent.ResearchBudget
 import dev.chungjungsoo.gptmobile.data.agent.ToolOutputAllowance
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import java.net.InetAddress
@@ -21,6 +23,27 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ReadUrlToolTest {
+    @Test fun `research limits retain budget classification and actual dispatch evidence`() = runBlocking {
+        var requests = 0
+        val page = server { exchange ->
+            requests++
+            exchange.respond(200, "text/plain", "source evidence")
+        }
+        val exhausted = ResearchBudget(1).also { assertTrue(it.tryChargeRequests(1)) }
+        val precheck = withContext(ResearchAcquisitionContext(exhausted) { emptyList() }) {
+            tool(allowTestLoopback = true).execute("request-limit", args(page.url("fixture.test", "/evidence")))
+        }
+        assertEquals("BUDGET_EXHAUSTED", precheck.errorCode)
+        assertFalse(precheck.dispatched)
+        assertEquals(0, requests)
+        val download = withContext(ResearchAcquisitionContext(ResearchBudget(2, downloadLimitBytes = 3)) { emptyList() }) {
+            tool(allowTestLoopback = true).execute("download-limit", args(page.url("fixture.test", "/evidence")))
+        }
+        assertEquals("BUDGET_EXHAUSTED", download.errorCode)
+        assertTrue(download.dispatched)
+        assertEquals(1, requests)
+    }
+
     @Test fun `document download requires EOF within the byte limit`() = runBlocking {
         val input = java.io.ByteArrayInputStream(ByteArray(8193))
         val output = java.io.ByteArrayOutputStream()

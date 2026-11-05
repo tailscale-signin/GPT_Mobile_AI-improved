@@ -5,7 +5,7 @@
   "base_sha": "9715e5c5992fcadf7df34c70fde324077d192986",
   "working_branch": "fix/diagnostic-reliability-completion-2026-11-05",
   "intent": "Inspect and remedy all 92 findings in the supplied November 5 diagnostic review, preserving existing GitHub/gateway recovery, selected-profile identity, safe mutations, privacy and bounded resource use.",
-  "state": "IMPLEMENTED_AWAITING_ANDROID_CI",
+  "state": "IMPLEMENTED_CI_TRACKED_ON_PULL_REQUEST",
   "input": {
     "diagnostic": "app-diagnostics-3996514748589439279.jsonl",
     "review_supplied_in_request": true,
@@ -36,7 +36,7 @@
     {
       "id": "validation",
       "scope": "Behavior regressions, canonical host checks, Android CI and per-finding implementation evidence",
-      "state": "AWAITING_CI"
+      "state": "CI_TRACKED_ON_PULL_REQUEST"
     }
   ],
   "acceptance": {
@@ -64,8 +64,16 @@
       "result": "PASSED"
     },
     "android_application": {
-      "result": "PENDING_CI",
-      "reason": "Full JDK 21 / SDK 37 build, unit suite, heap checks, lint and packaged APK checks must pass on this branch head."
+      "result": "CHECK_CURRENT_PULL_REQUEST_HEAD",
+      "pull_request": 803,
+      "workflow": "PR Validation",
+      "first_pass": {
+        "sha": "ec7a2bd444a8ca7ab9e3c762e35fb4c2ea27738a",
+        "production_kotlin": "PASSED",
+        "test_compilation": "Missing assertFalse import identified and corrected in follow-up",
+        "unit_tests": "NOT_RUN_DUE_TO_COMPILATION"
+      },
+      "acceptance": "Complete unit, heap, lint, packaged APK and required aggregate jobs must pass for the current branch head."
     },
     "environment_acceptance": {
       "result": "NOT_RUN",
@@ -76,7 +84,13 @@
         "Live provider DNS and service availability",
         "Actual recognizer/IME and Android job/process recreation"
       ]
+    },
+    "follow_up_regressions": {
+      "llama_empty_tool_list": 6,
+      "provider_failure_classification": 4,
+      "qualification": "Exact production-source JVM tests; full transport and document integrations are evaluated by Android CI."
     }
   },
-  "coverage_ledger": "docs/repairs/diagnostic-reliability-completion-2026-11-05.md"
+  "coverage_ledger": "docs/repairs/diagnostic-reliability-completion-2026-11-05.md",
+  "pull_request": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/803"
 }

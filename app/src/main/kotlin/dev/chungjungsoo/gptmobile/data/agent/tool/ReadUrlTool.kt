@@ -206,7 +206,7 @@ class ReadUrlTool(
                 rateLimitUntil.remove(authority, until)
             }
             val research = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.agent.ResearchAcquisitionContext]
-            check(research?.budget?.tryChargeRequests(1) != false) { "User request limit reached" }
+            if (research?.budget?.tryChargeRequests(1) == false) throw ReadUrlException("BUDGET_EXHAUSTED: the configured research request limit has been reached")
             val result = request(current) { response ->
                 val status = response.status.value
                 if (status in REDIRECT_STATUSES) {
@@ -244,7 +244,7 @@ class ReadUrlTool(
                 var documentSha256: String? = null
                 val rawText = if (documentExtension == null) boundedBody.bytes.toString(contentType.charsetOrUtf8()) else ""
                 val document = if (documentExtension != null && documentContext != null) {
-                    if (boundedBody.truncated) return@request documentExtractionHandoff(callId, current, includeDomains, excludeDomains)
+                    if (boundedBody.truncated) return@request documentExtractionHandoff(callId, current, includeDomains, excludeDomains, documentPageStart, documentPageLimit, documentTextOffset, expectedDocumentSha256)
                     kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                         val file = java.io.File.createTempFile("research-", ".$documentExtension", documentContext.cacheDir)
                         try {
@@ -255,7 +255,7 @@ class ReadUrlTool(
                                     copyCompleteDocument(
                                         read = { buffer -> channel.readAvailable(buffer, 0, buffer.size) },
                                         write = { buffer, size ->
-                                            check(research?.budget?.tryChargeDownloadedBytes(size) != false) { "User download limit reached" }
+                                            if (research?.budget?.tryChargeDownloadedBytes(size) == false) throw ReadUrlException("BUDGET_EXHAUSTED: the configured research download limit has been reached", dispatched = true)
                                             output.write(buffer, 0, size)
                                             digest.update(buffer, 0, size)
                                             sourceBytesRead += size
@@ -454,7 +454,7 @@ class ReadUrlTool(
                 yield()
                 continue
             }
-            check(kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.agent.ResearchAcquisitionContext]?.budget?.tryChargeDownloadedBytes(read) != false) { "User download limit reached" }
+            if (kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.agent.ResearchAcquisitionContext]?.budget?.tryChargeDownloadedBytes(read) == false) throw ReadUrlException("BUDGET_EXHAUSTED: the configured research download limit has been reached", dispatched = true)
             consumed += read
             val retained = minOf(read, bodyLimit - output.size())
             output.write(buffer, 0, retained)
@@ -550,6 +550,7 @@ class ReadUrlTool(
     )
 
     private fun readerFailureCode(message: String): String = when {
+        "BUDGET_EXHAUSTED" in message -> "BUDGET_EXHAUSTED"
         "SOURCE_CHANGED" in message -> "SOURCE_CHANGED"
         "document text offset" in message -> "INVALID_ARGUMENTS"
         "url must be a valid" in message -> "INVALID_ARGUMENTS"
@@ -564,7 +565,7 @@ class ReadUrlTool(
     }
 
     private fun readerFailureStatus(message: String): String = when (readerFailureCode(message)) {
-        "JAVA_HEAP_PRESSURE" -> "waiting_capacity"
+        "JAVA_HEAP_PRESSURE", "BUDGET_EXHAUSTED" -> "waiting_capacity"
         "DNS_RECOVERY", "DNS_FAILED" -> "offline"
         "SOURCE_ACCESS_BLOCKED" -> "blocked"
         "RATE_LIMITED" -> "rate_limited"
@@ -786,7 +787,7 @@ internal suspend fun copyCompleteDocument(read: suspend (ByteArray) -> Int, writ
     }
 }
 
-private fun documentExtractionHandoff(callId: String, url: URI, includeDomains: List<String>, excludeDomains: List<String>) = AgentToolResult(
+private fun documentExtractionHandoff(callId: String, url: URI, includeDomains: List<String>, excludeDomains: List<String>, pageStart: Int, pageLimit: Int, textOffset: Int, expectedSha256: String?) = AgentToolResult(
     callId,
     ToolResultContent.Json(
         buildJsonObject {
@@ -799,6 +800,10 @@ private fun documentExtractionHandoff(callId: String, url: URI, includeDomains: 
                 buildJsonObject {
                     put("url", url.toString())
                     put("extractDocument", true)
+                    put("documentPageStart", pageStart)
+                    put("documentPageLimit", pageLimit)
+                    if (textOffset > 0) put("documentTextOffset", textOffset)
+                    expectedSha256?.let { put("expectedDocumentSha256", it) }
                     put("includeDomains", JsonArray(includeDomains.map(::JsonPrimitive)))
                     put("excludeDomains", JsonArray(excludeDomains.map(::JsonPrimitive)))
                 }

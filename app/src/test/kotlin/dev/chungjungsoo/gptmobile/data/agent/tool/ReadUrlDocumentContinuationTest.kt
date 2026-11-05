@@ -147,6 +147,30 @@ class ReadUrlDocumentContinuationTest {
         assertNotNull(retained.sourceSha256)
     }
 
+    @Test fun aLargeDocumentHandoffPreservesTheRequestedRangeAndSourcePin() = runBlocking {
+        // The inline path must hand off without trying to parse this oversized prefix.
+        val bytes = pdf("Source") + ByteArray(1024 * 1024)
+        val url = serve { bytes }
+        val expectedHash = "a".repeat(64)
+        val result = reader().execute(
+            "large",
+            buildJsonObject {
+                put("url", url)
+                put("documentPageStart", 2)
+                put("documentPageLimit", 1)
+                put("documentTextOffset", 4)
+                put("expectedDocumentSha256", expectedHash)
+            }
+        )
+        assertTrue(result.isError)
+        assertEquals("DOCUMENT_EXTRACTION_REQUIRED", result.errorCode)
+        val next = (result.content as ToolResultContent.Json).value.jsonObject.getValue("arguments").jsonObject
+        assertEquals(2, next["documentPageStart"]?.jsonPrimitive?.intOrNull)
+        assertEquals(1, next["documentPageLimit"]?.jsonPrimitive?.intOrNull)
+        assertEquals(4, next["documentTextOffset"]?.jsonPrimitive?.intOrNull)
+        assertEquals(expectedHash, next["expectedDocumentSha256"]?.jsonPrimitive?.content)
+    }
+
     private fun reader(outputLimit: Int = 256) = ReadUrlTool(
         dns = Dns { listOf(InetAddress.getByName("127.0.0.1")) },
         allowAddress = { it.isLoopbackAddress },

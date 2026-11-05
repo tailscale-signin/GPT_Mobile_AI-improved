@@ -115,6 +115,99 @@ class OpenAIRecoveryTransportTest {
         }
     }
 
+    @Test fun boundedHttpRetriesRetainKnownProviderFailureInBothTransports() = runTest {
+        for (responses in listOf(false, true)) {
+            for (status in listOf(HttpStatusCode.TooManyRequests, HttpStatusCode.ServiceUnavailable)) {
+                var attempts = 0
+                val isolated = config.copy(apiUrl = "https://http-${status.value}-$responses.fixture.invalid/v1/")
+                withApi(
+                    MockEngine {
+                        attempts++
+                        respond("""{"error":{"message":"Temporarily unavailable"}}""", status, headersOf(HttpHeaders.RetryAfter, "0"))
+                    }
+                ) { api ->
+                    val code: String?
+                    val details: kotlinx.serialization.json.JsonObject?
+                    if (responses) {
+                        val input = listOf(dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponseInputMessage("user", dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponseInputContent.text("Saved prompt")))
+                        val failure = api.streamResponses(ResponsesRequest(model = "fixture", input = input), 5, isolated).toList()
+                            .filterIsInstance<dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseErrorEvent>().single()
+                        code = failure.code
+                        details = failure.failureDetails
+                    } else {
+                        val failure = requireNotNull(api.streamChatCompletion(request, 5, isolated).toList().last().error)
+                        code = failure.code
+                        details = failure.failureDetails
+                        assertEquals(true, failure.retryable)
+                        assertEquals("http_error", failure.type)
+                    }
+                    assertEquals(3, attempts)
+                    assertEquals(status.value.toString(), code)
+                    assertEquals(kotlinx.serialization.json.JsonPrimitive(status.value), details?.get("http_status"))
+                    assertEquals(kotlinx.serialization.json.JsonPrimitive(0), details?.get("retry_after_ms"))
+                    assertEquals(kotlinx.serialization.json.JsonPrimitive(true), details?.get("retryable"))
+                    assertEquals(kotlinx.serialization.json.JsonPrimitive("model_invocation"), details?.get("failed_stage"))
+                    assertEquals(kotlinx.serialization.json.JsonPrimitive(true), details?.get("dispatched"))
+                }
+            }
+        }
+    }
+
+    @Test fun knownHttpFailureDoesNotOverrideAnAmbiguousGatewayMutation() = runTest {
+        for (responses in listOf(false, true)) {
+            var attempts = 0
+            val gatewayConfig = config.copy(apiUrl = "https://http-gateway-$responses.fixture.invalid/v1/", extraHeaders = mapOf("X-Gateway-Allow-Local-Tools" to "true"))
+            withApi(
+                MockEngine { incoming ->
+                    if (incoming.url.encodedPath.endsWith("gateway/capabilities")) {
+                        respond("""{"gatewayVersion":"15.0.0","accepted_request_headers":["X-Gateway-Allow-Local-Tools"]}""")
+                    } else {
+                        attempts++
+                        respond("""{"error":{"message":"Temporarily unavailable"}}""", HttpStatusCode.ServiceUnavailable, headersOf(HttpHeaders.RetryAfter, "0"))
+                    }
+                }
+            ) { api ->
+                if (responses) {
+                    val input = listOf(dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponseInputMessage("user", dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponseInputContent.text("Saved prompt")))
+                    val failure = api.streamResponses(ResponsesRequest(model = "fixture", input = input), 5, gatewayConfig).toList()
+                        .filterIsInstance<dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseErrorEvent>().single()
+                    assertEquals("GATEWAY_OUTCOME_UNKNOWN", failure.code)
+                    assertEquals(kotlinx.serialization.json.JsonPrimitive(false), failure.failureDetails?.get("replay_safe"))
+                } else {
+                    val failure = requireNotNull(api.streamChatCompletion(request, 5, gatewayConfig).toList().last().error)
+                    assertEquals("GATEWAY_OUTCOME_UNKNOWN", failure.code)
+                    assertEquals(false, failure.retryable)
+                }
+                assertEquals(1, attempts)
+            }
+        }
+    }
+
+    @Test fun unclassifiedProviderExceptionDoesNotInventATransportStage() = runTest {
+        for (responses in listOf(false, true)) {
+            withApi(MockEngine { throw IllegalStateException("Fixture provider preparation failed") }) { api ->
+                val code: String?
+                val details: kotlinx.serialization.json.JsonObject?
+                if (responses) {
+                    val input = listOf(dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponseInputMessage("user", dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponseInputContent.text("Saved prompt")))
+                    val failure = api.streamResponses(ResponsesRequest(model = "fixture", input = input), 5, config).toList()
+                        .filterIsInstance<dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseErrorEvent>().single()
+                    code = failure.code
+                    details = failure.failureDetails
+                } else {
+                    val failure = requireNotNull(api.streamChatCompletion(request, 5, config).toList().last().error)
+                    code = failure.code
+                    details = failure.failureDetails
+                    assertEquals("provider_error", failure.type)
+                }
+                assertEquals("PROVIDER_INVOCATION_FAILED", code)
+                assertEquals(kotlinx.serialization.json.JsonPrimitive("stage_not_recorded"), details?.get("failed_stage"))
+                assertEquals(kotlinx.serialization.json.JsonPrimitive(false), details?.get("retryable"))
+                assertFalse(requireNotNull(details).containsKey("dispatched"))
+            }
+        }
+    }
+
     @Test
     fun `responses capability rejection removes only unsupported sampling and retries`() = runTest {
         val bodies = mutableListOf<String>()

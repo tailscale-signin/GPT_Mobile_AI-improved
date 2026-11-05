@@ -72,12 +72,12 @@ Debug records contain status, duration, byte counts, request/principal digests a
 
 ## Validation
 
-The table records completed implementation checks. Full Android and hosted CI results are recorded on PR #802 against its published head; focused groups do not substitute for those gates. Focused JVM groups overlap and are not added together as a full-app total.
+The table records completed implementation checks. Application-code validation is pinned to `d20270c1c0dd62ac558590edad1bb8323021cb43` on PR #802; the final documentation update only records results and corrects the gateway test total. Focused JVM groups overlap and are not added together as a full-app total.
 
 | Check | Result |
 | --- | --- |
 | Canonical `bash scripts/validate-local.sh fast` | Passed: 311 host tests, Kotlin regex audit, repository policies, dependency and secret checks, resources and native provenance |
-| Gateway Python suite | Passed: 417 tests; one existing opt-in test skipped |
+| Gateway Python suite | 417 total: 416 passed; one existing opt-in test skipped |
 | Authentication service | Passed: 15 tests |
 | Browser authentication bridge | Passed: 7 tests |
 | Reviewer, route authority, diagnostics and capacity focused group | Passed: 86 tests |
@@ -96,8 +96,17 @@ The table records completed implementation checks. Full Android and hosted CI re
 | Native visual inspection | Light 392 dp and dark 320 dp at 1.4× text inspected; compact metrics stack, device/activity tiles wrap, unavailable speed remains explicitly unmeasured |
 | Changed Kotlin style, Room schemas and whitespace | Passed |
 | Gateway manifest | 137 source hashes verified |
+| Complete Android production and test compilation | Passed on the validated code revision |
+| Complete app unit suite | 6,641 total: 6,637 passed, 4 heap-only cases skipped by the standard suite, 0 failures/errors; confirmed locally and in hosted CI |
+| Portable core unit suite | 4 passed, 0 failures/skips |
+| Constrained-memory recovery/export gate | 10 passed across four classes with a 256 MiB Java heap, including the four cases skipped by the standard suite; these counts overlap the standard suite |
+| Android emulator acceptance | Passed on API 34 and API 36 |
+| Review APK and static analysis | Review APK, packaged-runtime/privacy, APK-size and research-dispatch-size checks passed; CodeQL passed |
+| Android lint and canonical aggregate | Android lint and `Required verification` passed in PR Validation run `41966842867` |
 
-The full Android compilation, app/core unit suites, coverage, constrained-heap gate and APK checks run separately from these focused checks. Their final results belong to the pull request's matching-head validation record and check runs; the table above does not imply they passed. Hardware acceptance is qualified below.
+The full Android results above are taken from the validated code revision. Its PR check runs retain the detailed coverage, constrained-heap, lint and APK evidence; focused groups are not substitutes for those gates. The documentation-only correction leaves application, gateway and test sources unchanged. Hardware acceptance is qualified below.
+
+[Successful canonical validation](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/41966842867) · [Review APK](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/41966842867/artifacts/13389771239) · [App test XML](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/41966842867/artifacts/13388913102) · [Validation logs and heap/core XML](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/41966842867/artifacts/13389572696).
 
 ## Qualification boundary
 

@@ -47,6 +47,29 @@ code coverage and an outstanding environment check apply.
   frame-observer cleanup close lifecycle gaps. Diagnostic events preserve
   cross-line incident identity without merging separate failures.
 
+## Final review and release acceptance
+
+The final review corrected two dispatch-accounting boundaries and added
+explicit regression coverage:
+
+- URL retrieval must retain evidence of an earlier HTTP response when a later
+  redirect fails a domain, DNS, or request-budget precheck. A rejected follow-up
+  request cannot refund the already consumed tool operation.
+- An MCP tool's remote error text cannot prove that the tool was never
+  dispatched. In particular, a write followed by an error about an unknown
+  nested tool must remain unreplayable without reconciliation. Only verified
+  local catalog rejection can supply the corresponding no-effect evidence.
+
+The release candidate is version `0.9.66.5`, build `139`. Its scoped manifest
+starts at the last published `v0.9.66.4` commit,
+`3de77a00946f5c621443dc7c8668dc8879ef0d1c`, so release notes also account for
+changes already merged to main since that publication. The completed CI at
+`ec69d04b8c08820269726a9d054c7390ec074f88` is historical implementation evidence;
+the final candidate must pass its own PR checks, and the publication pipeline
+must verify the actual merged commit and signed artifacts. The corresponding
+GitHub check runs and published release are the authoritative completion
+receipts.
+
 ## Per-finding coverage
 
 Source keys in the tables refer to the files in the source map below.

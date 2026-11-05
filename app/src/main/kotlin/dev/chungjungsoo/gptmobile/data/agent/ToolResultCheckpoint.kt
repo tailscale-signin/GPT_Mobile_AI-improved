@@ -30,6 +30,14 @@ object ToolResultCheckpoint {
     fun confirmsNoEffect(event: ToolEvent): Boolean {
         if (!event.isError) return false
         val receipt = execution(event) ?: return false
+        // Older MCP wrappers inferred UNKNOWN_TOOL prechecks from remote result text.
+        // Such receipts cannot release a mutation unless a local catalogue check is recorded.
+        if (event.modelToolName.startsWith("mcp__") &&
+            receipt["error_code"] == JsonPrimitive("UNKNOWN_TOOL") &&
+            (receipt["schema"] != JsonPrimitive("gptmobile.mcp-operation.v1") || receipt["dispatch_evidence"] != JsonPrimitive("LOCAL_CATALOGUE_PRECHECK"))
+        ) {
+            return false
+        }
         if (receipt["requires_reconciliation"] != JsonPrimitive(false) ||
             (receipt["error_code"] as? JsonPrimitive)?.content in ToolResultEnvelope.unknownOutcomeCodes
         ) {

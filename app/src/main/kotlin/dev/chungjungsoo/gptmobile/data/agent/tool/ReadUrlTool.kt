@@ -147,7 +147,8 @@ class ReadUrlTool(
         val start = parseUrl(arguments) ?: return error(callId, "Read URL failed: url must be a valid HTTP(S) URL without userinfo or fragment.")
         if (start.toASCIIString() in unavailableUrls) return error(callId, "Read URL failed: this source was already unavailable in this turn. Choose another source.")
         if (!dev.chungjungsoo.gptmobile.data.research.academic.ResearchConnectivityGate.shared.available(start.host)) return error(callId, "DNS_RECOVERY: waiting for network recovery after DNS failures on multiple services.")
-        return try {
+        var responseReceived = false
+        val result = try {
             kotlinx.coroutines.withTimeoutOrNull(25_000) {
                 dev.chungjungsoo.gptmobile.data.diagnostics.JavaHeapWorkGate.run("read_url") {
                     read(
@@ -161,7 +162,7 @@ class ReadUrlTool(
                         (arguments["documentPageLimit"] as? JsonPrimitive)?.intOrNull ?: 100,
                         (arguments["documentTextOffset"] as? JsonPrimitive)?.intOrNull ?: 0,
                         (arguments["expectedDocumentSha256"] as? JsonPrimitive)?.contentOrNull
-                    )
+                    ) { responseReceived = true }
                 }
             } ?: error(callId, "Read URL failed: page deadline reached. Choose another source.", true, requestSent = null)
         } catch (exception: CancellationException) {
@@ -188,9 +189,30 @@ class ReadUrlTool(
             recordFailure(start, failure.phase, exception.javaClass.simpleName, failure.code)
             error(callId, "Read URL failed: ${failure.message}", failure.requestSent != false, requestSent = failure.requestSent, code = failure.code)
         }
+        if (!responseReceived || !result.isError) return result
+        // A later redirect precheck cannot undo a completed request or refund its work.
+        // Keep final-hop dispatch uncertain when its outcome is unknown; record prior evidence separately.
+        return result.copy(
+            dispatched = true,
+            executionReceipt = result.executionReceipt?.let { receipt ->
+                JsonObject(
+                    receipt + buildMap {
+                        if (receipt["state"] == JsonPrimitive("UNKNOWN_OUTCOME")) {
+                            put("priorResponseReceived", JsonPrimitive(true))
+                        } else {
+                            put("requestSent", JsonPrimitive(true))
+                        }
+                        if (receipt["state"] == JsonPrimitive("PRECHECK_REJECTED")) {
+                            put("state", JsonPrimitive("FAILED"))
+                            put("phase", JsonPrimitive("REDIRECT_PRECHECK"))
+                        }
+                    }
+                )
+            }
+        )
     }
 
-    private suspend fun read(callId: String, start: URI, includeLinks: Boolean, includeDomains: List<String>, excludeDomains: List<String>, extractDocument: Boolean, documentPageStart: Int, documentPageLimit: Int, documentTextOffset: Int, expectedDocumentSha256: String?): AgentToolResult {
+    private suspend fun read(callId: String, start: URI, includeLinks: Boolean, includeDomains: List<String>, excludeDomains: List<String>, extractDocument: Boolean, documentPageStart: Int, documentPageLimit: Int, documentTextOffset: Int, expectedDocumentSha256: String?, onResponseReceived: () -> Unit): AgentToolResult {
         val outputAllowance = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.agent.ToolOutputAllowance]?.bytes
         val outputCap = minOf(outputLimitBytes, outputAllowance ?: outputLimitBytes).coerceAtLeast(0)
         var current = start
@@ -208,6 +230,7 @@ class ReadUrlTool(
             val research = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.agent.ResearchAcquisitionContext]
             if (research?.budget?.tryChargeRequests(1) == false) throw ReadUrlException("BUDGET_EXHAUSTED: the configured research request limit has been reached")
             val result = request(current) { response ->
+                onResponseReceived()
                 val status = response.status.value
                 if (status in REDIRECT_STATUSES) {
                     if (redirects >= MAX_REDIRECTS) throw ReadUrlException("too many redirects", dispatched = true)

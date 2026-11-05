@@ -191,6 +191,38 @@ class ResponseRecoveryContextTest {
         assertEquals("RECONCILIATION_REQUIRED", result.errorCode)
     }
 
+    @Test fun mcpUnknownToolReceiptRequiresLocalCatalogueEvidenceBeforeRepeatingAWrite() = runTest {
+        for (localPrecheck in listOf(false, true)) {
+            var writes = 0
+            val name = "mcp__fixture__create_ticket"
+            val original = object : AgentTool {
+                override val definition = AgentToolDefinition(name, "Create a ticket", buildJsonObject {})
+                override suspend fun execute(callId: String, arguments: kotlinx.serialization.json.JsonObject): AgentToolResult {
+                    writes++
+                    return AgentToolResult(callId, ToolResultContent.Text("Created after local catalogue repair"), false)
+                }
+            }
+            val receipt = buildJsonObject {
+                put("schema", if (localPrecheck) "gptmobile.mcp-operation.v1" else "gptmobile.tool-execution.v1")
+                put("error_code", "UNKNOWN_TOOL")
+                put("execution_state", "PRECHECK_REJECTED")
+                put("dispatched", false)
+                put("requires_reconciliation", false)
+                if (localPrecheck) put("dispatch_evidence", "LOCAL_CATALOGUE_PRECHECK")
+            }
+            val event = ToolEvent(
+                "prior", run.runId, 0, "old", "connection", "MCP", "create_ticket", name, "{}",
+                ToolResultCheckpoint.encode("Unknown tool", "TEXT", "Unknown tool", executionReceipt = receipt), "CHECKPOINT_V1", "FAILED", isError = true
+            )
+            val recovered = ResponseRecoveryContext(listOf(run), emptyList(), listOf(event), rootWorkId = "root")
+                .reuseCompletedTool(original, "create_ticket", "connection").execute("new", buildJsonObject {})
+            assertEquals(localPrecheck, ToolResultCheckpoint.confirmsNoEffect(event))
+            assertEquals(if (localPrecheck) 1 else 0, writes)
+            assertEquals(!localPrecheck, recovered.isError)
+            if (!localPrecheck) assertEquals("RECONCILIATION_REQUIRED", recovered.errorCode)
+        }
+    }
+
     private val run = AgentRun("old-run", 1, 1, 2, "old-profile", "LLAMA", "qwen", status = "FAILED")
 
     @Test fun failedStageRetryUsesAnIndexWithoutInliningTheFailedAnswer() = runTest {

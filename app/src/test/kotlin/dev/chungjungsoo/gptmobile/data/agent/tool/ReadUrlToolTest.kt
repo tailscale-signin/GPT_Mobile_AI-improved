@@ -2,14 +2,26 @@ package dev.chungjungsoo.gptmobile.data.agent.tool
 
 import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpServer
+import dev.chungjungsoo.gptmobile.data.agent.AgentRunLimits
+import dev.chungjungsoo.gptmobile.data.agent.CombinedExecutionContext
+import dev.chungjungsoo.gptmobile.data.agent.CombinedHardLimits
+import dev.chungjungsoo.gptmobile.data.agent.CombinedPolicyResolver
+import dev.chungjungsoo.gptmobile.data.agent.CombinedReservationStatus
+import dev.chungjungsoo.gptmobile.data.agent.CombinedTurnBudgetStore
 import dev.chungjungsoo.gptmobile.data.agent.ResearchAcquisitionContext
 import dev.chungjungsoo.gptmobile.data.agent.ResearchBudget
+import dev.chungjungsoo.gptmobile.data.agent.ToolExecutionBudget
+import dev.chungjungsoo.gptmobile.data.agent.ToolFailureMetadata
 import dev.chungjungsoo.gptmobile.data.agent.ToolOutputAllowance
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
+import dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope
+import dev.chungjungsoo.gptmobile.data.model.ConversationCombinedSettings
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -105,6 +117,8 @@ class ReadUrlToolTest {
         assertTrue(result.text().contains("DNS", ignoreCase = true))
         assertFalse(result.dispatched)
         assertEquals("DNS_FAILED", result.errorCode)
+        assertEquals(JsonPrimitive(false), result.executionReceipt?.get("requestSent"))
+        assertEquals(JsonPrimitive("PRECHECK_REJECTED"), result.executionReceipt?.get("state"))
     }
 
     private val servers = mutableListOf<HttpServer>()
@@ -279,7 +293,9 @@ class ReadUrlToolTest {
 
     @Test
     fun `redirect validates second host`() = runBlocking {
+        var requests = 0
         val server = server { exchange ->
+            requests++
             exchange.respond(302, "text/plain", "", "Location" to "http://private.test/secret")
         }
         val result = tool(
@@ -292,11 +308,20 @@ class ReadUrlToolTest {
 
         assertTrue(result.isError)
         assertContains(result.text(), "unsafe DNS")
+        assertTrue(result.dispatched)
+        assertEquals(JsonPrimitive(true), result.executionReceipt?.get("requestSent"))
+        assertEquals(JsonPrimitive("FAILED"), result.executionReceipt?.get("state"))
+        assertEquals(JsonPrimitive("REDIRECT_PRECHECK"), result.executionReceipt?.get("phase"))
+        assertEquals(1, requests)
     }
 
     @Test
     fun `domain restriction blocks redirects before DNS lookup`() = runBlocking {
-        val server = server { exchange -> exchange.respond(302, "text/plain", "", "Location" to "http://outside.test/secret") }
+        var requests = 0
+        val server = server { exchange ->
+            requests++
+            exchange.respond(302, "text/plain", "", "Location" to "http://outside.test/secret")
+        }
         var outsideLookups = 0
         val reader = tool(
             dns = Dns { host ->
@@ -314,7 +339,142 @@ class ReadUrlToolTest {
         )
         assertTrue(result.isError)
         assertContains(result.text(), "domain scope")
+        assertTrue(result.dispatched)
+        assertEquals(JsonPrimitive(true), result.executionReceipt?.get("requestSent"))
+        assertEquals(JsonPrimitive("FAILED"), result.executionReceipt?.get("state"))
+        assertEquals(JsonPrimitive("REDIRECT_PRECHECK"), result.executionReceipt?.get("phase"))
+        assertEquals(1, requests)
         assertEquals(0, outsideLookups)
+    }
+
+    @Test
+    fun `redirect DNS failure retains the first response dispatch evidence`() = runBlocking {
+        var requests = 0
+        var missingLookups = 0
+        val page = server { exchange ->
+            requests++
+            exchange.respond(302, "text/plain", "", "Location" to "http://missing.test/next")
+        }
+        val reader = tool(
+            dns = Dns { host ->
+                if (host == "missing.test") {
+                    missingLookups++
+                    throw java.net.UnknownHostException("fixture")
+                }
+                listOf(InetAddress.getByName("127.0.0.1"))
+            },
+            allowTestLoopback = true
+        )
+        val result = reader.execute("redirect-dns", args(page.url("fixture.test", "/redirect")))
+        assertTrue(result.isError)
+        assertEquals("DNS_FAILED", result.errorCode)
+        assertTrue(result.dispatched)
+        assertEquals(JsonPrimitive(true), result.executionReceipt?.get("requestSent"))
+        assertEquals(JsonPrimitive("FAILED"), result.executionReceipt?.get("state"))
+        assertEquals(1, requests)
+        assertEquals(1, missingLookups)
+    }
+
+    @Test
+    fun `redirected timeout keeps unknown final outcome after confirmed first response`() = runBlocking {
+        var requests = 0
+        val page = server { exchange ->
+            requests++
+            exchange.respond(302, "text/plain", "", "Location" to "http://slow.test/next")
+        }
+        val reader = tool(
+            dns = Dns { host ->
+                if (host == "slow.test") throw java.net.SocketTimeoutException("fixture")
+                listOf(InetAddress.getByName("127.0.0.1"))
+            },
+            allowTestLoopback = true
+        )
+        val result = reader.execute("redirect-timeout", args(page.url("fixture.test", "/redirect")))
+        assertTrue(result.isError)
+        assertTrue(result.dispatched)
+        assertEquals(JsonNull, result.executionReceipt?.get("requestSent"))
+        assertEquals(JsonPrimitive(true), result.executionReceipt?.get("priorResponseReceived"))
+        assertEquals(JsonPrimitive("UNKNOWN_OUTCOME"), result.executionReceipt?.get("state"))
+        assertEquals("UNKNOWN_OUTCOME", ToolResultEnvelope.executionState(result))
+        val normalized = ToolFailureMetadata.receipt(result, "read_url")
+        assertTrue(normalized.dispatched)
+        assertEquals(JsonPrimitive("UNKNOWN_OUTCOME"), normalized.executionReceipt?.get("execution_state"))
+        assertEquals("UNKNOWN_OUTCOME", ToolResultEnvelope.executionState(normalized))
+        assertEquals(1, requests)
+    }
+
+    @Test
+    fun `redirect cancellation propagates after confirmed first response`() = runBlocking {
+        var requests = 0
+        val page = server { exchange ->
+            requests++
+            exchange.respond(302, "text/plain", "", "Location" to "http://cancelled.test/next")
+        }
+        val reader = tool(
+            dns = Dns { host ->
+                if (host == "cancelled.test") throw kotlinx.coroutines.CancellationException("fixture")
+                listOf(InetAddress.getByName("127.0.0.1"))
+            },
+            allowTestLoopback = true
+        )
+        val failure = runCatching { reader.execute("redirect-cancelled", args(page.url("fixture.test", "/redirect"))) }.exceptionOrNull()
+        assertTrue(failure is kotlinx.coroutines.CancellationException)
+        assertEquals(1, requests)
+    }
+
+    @Test
+    fun `redirect request budget stops follow-up without refunding initial dispatch`() = runBlocking {
+        var requests = 0
+        var nextLookups = 0
+        val page = server { exchange ->
+            requests++
+            exchange.respond(302, "text/plain", "", "Location" to "http://next.test/next")
+        }
+        val reader = tool(
+            dns = Dns { host ->
+                if (host == "next.test") nextLookups++
+                listOf(InetAddress.getByName("127.0.0.1"))
+            },
+            allowTestLoopback = true
+        )
+        val result = withContext(ResearchAcquisitionContext(ResearchBudget(1)) { emptyList() }) {
+            reader.execute("redirect-budget", args(page.url("fixture.test", "/redirect")))
+        }
+        assertTrue(result.isError)
+        assertEquals("BUDGET_EXHAUSTED", result.errorCode)
+        assertTrue(result.dispatched)
+        assertEquals(JsonPrimitive(true), result.executionReceipt?.get("requestSent"))
+        assertEquals(JsonPrimitive("FAILED"), result.executionReceipt?.get("state"))
+        assertEquals(1, requests)
+        assertEquals(0, nextLookups)
+    }
+
+    @Test
+    fun `redirect precheck consumes operation allowance after initial request`() = runBlocking {
+        var requests = 0
+        val page = server { exchange ->
+            requests++
+            exchange.respond(302, "text/plain", "", "Location" to "http://outside.test/secret")
+        }
+        val requested = CombinedPolicyResolver.accept(ConversationCombinedSettings(effort = 100), listOf("a"), mapOf("a" to "model"), "Read a source", acceptedAtMillis = 1)
+        val context = CombinedExecutionContext(requested, CombinedPolicyResolver.resolve(requested, hardLimits = CombinedHardLimits(toolOperations = 1)), java.util.UUID.randomUUID().toString(), profileUid = "a", persistBudget = false)
+        val store = CombinedTurnBudgetStore.inMemory()
+        val reader = ToolExecutionBudget(AgentRunLimits(maxToolCalls = 20, combined = context), combined = context, combinedBudgets = store).bind(tool(allowTestLoopback = true))
+        val arguments = buildJsonObject {
+            put("url", page.url("fixture.test", "/redirect"))
+            put("includeDomains", kotlinx.serialization.json.JsonArray(listOf(JsonPrimitive("fixture.test"))))
+        }
+        val result = reader.execute("redirect-operation", arguments)
+        assertTrue(result.isError)
+        assertTrue(result.dispatched)
+        val snapshot = store.open(context).snapshot()
+        assertEquals(1L, snapshot.charged.toolOperations)
+        assertEquals(CombinedReservationStatus.SETTLED, snapshot.reservations.values.single().status)
+        val exhausted = reader.execute("after-redirect", arguments)
+        assertTrue(exhausted.isError)
+        assertFalse(exhausted.dispatched)
+        assertEquals(1L, store.open(context).snapshot().charged.toolOperations)
+        assertEquals(1, requests)
     }
 
     @Test

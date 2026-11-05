@@ -4,8 +4,8 @@
   "base_branch": "main",
   "base_sha": "9715e5c5992fcadf7df34c70fde324077d192986",
   "working_branch": "fix/diagnostic-reliability-completion-2026-11-05",
-  "intent": "Inspect and remedy all 92 findings in the supplied November 5 diagnostic review, preserving existing GitHub/gateway recovery, selected-profile identity, safe mutations, privacy and bounded resource use.",
-  "state": "IMPLEMENTED_CI_TRACKED_ON_PULL_REQUEST",
+  "intent": "Inspect and remedy all 92 findings in the supplied November 5 diagnostic review; recheck the branch, complete remaining source work, verify every open PR, merge through normal GitHub rules, and publish a signed release from the verified main commit.",
+  "state": "FINAL_CANDIDATE_PREPARED; CURRENT_HEAD_CI_MERGE_AND_PUBLICATION_TRACKED_IN_GITHUB",
   "input": {
     "diagnostic": "app-diagnostics-3996514748589439279.jsonl",
     "review_supplied_in_request": true,
@@ -89,6 +89,33 @@
         "codeql": "PASSED",
         "heap_check": "SKIPPED_AFTER_UNIT_FAILURES; must pass at current head",
         "qualification": "These are historical results for this SHA; use the current PR head checks for acceptance."
+      },
+      "verified_implementation": {
+        "sha": "ec69d04b8c08820269726a9d054c7390ec074f88",
+        "checks_passed": 20,
+        "checks_failed": 0,
+        "checks_pending": 0,
+        "conditional_skip": "Unsigned release workflow is ineligible for this fix branch.",
+        "pr_validation_run": 42078293007,
+        "diagnostic_audit_run": 42078292820,
+        "normal_unit_tests": {
+          "reported": 6758,
+          "passed": 6754,
+          "failed": 0,
+          "errors": 0,
+          "reserved_for_heap_gate": 4
+        },
+        "heap_tests": {
+          "passed": 10,
+          "failed": 0,
+          "skipped": 0,
+          "max_heap_mib": 256
+        },
+        "acceptance": {
+          "api_34_required_methods_passed": 54,
+          "api_36_required_methods_passed": 54
+        },
+        "qualification": "Verified implementation revision before release preparation; release candidate and merged main checks are tracked separately."
       }
     },
     "environment_acceptance": {
@@ -106,8 +133,42 @@
       "provider_failure_classification": 7,
       "qualification": "Exact production-source JVM tests; full transport and document integrations are evaluated by Android CI.",
       "circuit_receipts": "Typed local admission, preserved partial-output dispatch evidence, provider conversion and durable classification; gateway uncertainty retains reconciliation priority."
+    },
+    "final_review": {
+      "source_review": "Independent review completed for network/gateway/research, durable execution/replay, Android/voice/diagnostics/PDF and release preparation.",
+      "remaining_defects_corrected": [
+        {
+          "boundary": "URL redirect operation accounting",
+          "behavior": "Retain a prior HTTP response across later precheck rejection, preserve final-hop uncertainty through normalization, and consume the operation allowance.",
+          "regressions": "Five new ReadUrlTool integration cases plus strengthened existing redirect/initial-DNS cases; six focused production-source host checks passed."
+        },
+        {
+          "boundary": "MCP remote error and recovery certainty",
+          "behavior": "Remote errors and invalid output do not prove no effect; only typed local catalog rejection supplies precheck evidence, and ambiguous legacy MCP checkpoints cannot authorize replay.",
+          "regressions": "Immediate/restarted write deduplication, explicit approved-read retry, typed local catalog prechecks and valid/malformed output cases."
+        }
+      ],
+      "canonical_host": "bash scripts/validate-local.sh fast: 311 tests passed after release preparation and production corrections.",
+      "current_candidate_acceptance": "Focused tests, canonical host checks, formatting and candidate scope passed before branch publication. Full Android transport/integration, current-head required checks and merged-main signed artifacts remain authoritative in GitHub.",
+      "publication_review": "Version trigger and all five exact-main required workflow names verified; existing signing, provenance, packaged runtime/privacy and immutable release gates retained.",
+      "focused_mcp": {
+        "existing_agent_receipt_tests_passed": 41,
+        "new_mcp_host_tests_passed": 6,
+        "qualification": "Exact production tool/schema code with explicit transport/SDK boundary doubles; full MCP manager/HTTP and durable runner integrations are evaluated by Android CI."
+      }
     }
   },
   "coverage_ledger": "docs/repairs/diagnostic-reliability-completion-2026-11-05.md",
-  "pull_request": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/803"
+  "pull_request": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/803",
+  "publication": {
+    "user_authorization": "Recheck everything, finish remaining branch work, make open PR drafts green, merge to main, and publish.",
+    "version": "0.9.66.5",
+    "version_code": 139,
+    "tag": "v0.9.66.5",
+    "previous_release_commit": "3de77a00946f5c621443dc7c8668dc8879ef0d1c",
+    "workflow": "Publish Signed Release",
+    "status": "RELEASE_CANDIDATE_PREPARED; current-head checks, normal merge and signed publication outcomes are authoritative in GitHub.",
+    "merge_policy": "Normal PR merge with a pinned head, green required checks and GitHub rule enforcement; no administrative bypass.",
+    "publication_policy": "Version-triggered signed release, exact-main checks, signer continuity, artifact identity and provenance verification."
+  }
 }

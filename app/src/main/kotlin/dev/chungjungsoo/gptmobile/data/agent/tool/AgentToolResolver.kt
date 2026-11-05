@@ -1506,6 +1506,7 @@ class AgentToolResolver @Inject constructor(
                     },
                     remoteToolName = remoteTool.name,
                     outputSchema = remoteTool.outputSchema,
+                    approvedReadOnly = remoteTool.name in connection.approvedReadTools.lines().map(String::trim),
                     clientManager = mcpClientManager,
                     metadata = if (dev.chungjungsoo.gptmobile.data.crawl.CrawlerCompanionGrant.recognizes(connection)) {
                         (
@@ -1627,16 +1628,17 @@ class AgentToolResolver @Inject constructor(
     }
 }
 
-private class McpAgentTool(
+internal class McpAgentTool(
     override val definition: AgentToolDefinition,
     private val authType: String,
     private val config: suspend (Boolean, String?) -> McpConnectionConfig,
     private val remoteToolName: String,
     private val clientManager: McpClientManager,
     private val outputSchema: io.modelcontextprotocol.kotlin.sdk.types.ToolSchema? = null,
+    override val approvedReadOnly: Boolean = false,
     private val metadata: (suspend () -> JsonObject)? = null
-) : AgentTool {
-    private val unknownCatalogRefreshed = java.util.concurrent.atomic.AtomicBoolean()
+) : AgentTool,
+    dev.chungjungsoo.gptmobile.data.agent.ApprovedReadOnlyAgentTool {
     override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
         val isFileTool = isFileReadingTool(remoteToolName)
         val startLine = if (isFileTool) {
@@ -1661,37 +1663,52 @@ private class McpAgentTool(
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: Exception) {
-            return AgentToolResult(callId, ToolResultContent.Text("MCP connection unavailable. Check installation, enable state and credentials in Tool connections."), true)
+            return dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.error(callId, "MCP_CONNECTION_UNAVAILABLE", "MCP connection unavailable. Check installation, enable state and credentials in Tool connections.")
         }
         val trustedMetadata = metadata?.invoke()
         val result = try {
-            clientManager.callTool(initialConfig, remoteToolName, remoteArguments, callId, trustedMetadata)
-        } catch (error: CancellationException) {
-            throw error
-        } catch (error: Exception) {
-            if (authType != ToolConnectionAuthType.OAUTH || !error.isUnauthorized()) throw error
-            clientManager.callTool(
-                config(true, initialConfig.authorizationHeader),
-                remoteToolName,
-                remoteArguments,
-                callId,
-                trustedMetadata
+            try {
+                clientManager.callTool(initialConfig, remoteToolName, remoteArguments, callId, trustedMetadata)
+            } catch (error: Exception) {
+                if (error is CancellationException || authType != ToolConnectionAuthType.OAUTH || !error.isUnauthorized()) throw error
+                clientManager.callTool(config(true, initialConfig.authorizationHeader), remoteToolName, remoteArguments, callId, trustedMetadata)
+            }
+        } catch (rejected: McpLocalToolRejection) {
+            return dev.chungjungsoo.gptmobile.data.agent.ToolFailureMetadata.receipt(
+                dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.error(callId, rejected.code, rejected.message.orEmpty()).copy(
+                    executionReceipt = buildJsonObject {
+                        put("schema", "gptmobile.mcp-operation.v1")
+                        put("dispatch_evidence", "LOCAL_CATALOGUE_PRECHECK")
+                    }
+                ),
+                definition.name,
+                replaySafe = approvedReadOnly
             )
         }
-        if (result.isError == true && result.content.toString().let { it.contains("unknown tool", true) || it.contains("tool not found", true) }) {
-            if (!unknownCatalogRefreshed.compareAndSet(false, true)) return dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.error(callId, "UNKNOWN_TOOL", "Tool remains unavailable after one catalog refresh. Stop repeating this call.", dispatched = false)
-            val catalog = clientManager.listTools(initialConfig, forceRefresh = true)
-            // Discovery refresh is read-only. Do not replay an action whose dispatch outcome is uncertain.
-            return dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.error(callId, "UNKNOWN_TOOL", if (catalog.any { it.name == remoteToolName }) "Catalog refreshed; tool exists but execution was rejected. Check arguments and connection." else "Catalog refreshed once; tool is absent. Stop repeating this call.", dispatched = false)
-        }
-        if (outputSchema != null && result.isError != true) {
+        val mapped = mapMcpToolResult(callId, result, startLine, endLine)
+        // A remote tool error can follow a successful side effect or refer to a nested
+        // operation. Its prose cannot establish that this invocation was undispatched.
+        if (result.isError == true) return dispatchedFailure(mapped, "MCP_TOOL_ERROR")
+        if (outputSchema != null) {
             val schema = kotlinx.serialization.json.Json.encodeToJsonElement(io.modelcontextprotocol.kotlin.sdk.types.ToolSchema.serializer(), outputSchema) as JsonObject
-            val invalid = result.structuredContent?.let { schemaError(schema, it) } ?: "The tool did not return its declared structured output."
-            if (invalid.isNotEmpty() && result.structuredContent == null) return AgentToolResult(callId, ToolResultContent.Text(invalid), true)
-            result.structuredContent?.let { schemaError(schema, it) }?.let { error -> return AgentToolResult(callId, ToolResultContent.Text(error), true) }
+            val structured = result.structuredContent
+            val invalid = if (structured == null) "The tool did not return its declared structured output." else schemaError(schema, structured)
+            if (invalid != null) {
+                return dispatchedFailure(
+                    mapped.copy(content = ToolResultContent.Text(invalid), traceContent = ToolResultContent.Text(invalid), retainedContent = mapped.retainedContent ?: mapped.content),
+                    "MCP_OUTPUT_INVALID"
+                )
+            }
         }
-        return mapMcpToolResult(callId, result, startLine, endLine)
+        return mapped
     }
+
+    private fun dispatchedFailure(result: AgentToolResult, cause: String): AgentToolResult = dev.chungjungsoo.gptmobile.data.agent.ToolFailureMetadata.receipt(
+        result.copy(isError = true, dispatched = true, errorCode = if (approvedReadOnly) "READ_FAILED" else "DISPATCH_OUTCOME_UNKNOWN"),
+        definition.name,
+        diagnosticCode = cause,
+        replaySafe = approvedReadOnly
+    )
 }
 
 private fun Tool.isSafelyShareableReadOnly(): Boolean {

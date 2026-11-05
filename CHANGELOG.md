@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.66.5] - 2026-11-05
+
+- Preserve GitHub tasks, objective evidence and review state across branch changes and approved operations; improve workspace admission, bounded final review, task history, recovery presentation and the Status dashboard.
+- Add and repair bounded repository graph navigation and cumulative audit evidence, while retaining explicit limitations for external Graphify and compiler-resolved semantics.
+- Improve event-driven GitHub chat progress, prompt anchoring, workflow budgets, voice ownership/preferences and reproducible self-test/retry routing.
+- Normalize provider DNS, abort, EOF, timeout, HTTP and admission failures; preserve partial output, typed failure phases and dispatch receipts without replaying ambiguous gateway effects.
+- Keep response-flow completion distinct from verified task completion; preserve durable tool receipts, explicit read-only replay authorization, pending work and progressive tool discovery under schema budgets.
+- Retain dispatch evidence across URL redirects and MCP remote errors, so later precheck failures cannot refund consumed operations or authorize replay of a completed write.
+- Preserve search provider, aggregation and refill failure receipts and successful authorized sibling evidence; coordinate bounded provider health and connectivity recovery.
+- Validate MCP catalogs before publishing tool readiness, separate connection/catalog/gateway/inference evidence and add explicit bounded generation probes.
+- Stream URL retrieval into bounded buffers or complete temporary documents; continue PDFs with page/text offsets and pinned source identity, and disclose incomplete coverage and exhausted budgets.
+- Choose style-compatible PDF font substitutes with separate symbol and dingbat coverage checks.
+- Retain speech transcript review during cooldown, clean up composer focus and frame-observer ownership, and reduce diagnostic hot-path allocations.
+- Group interleaved diagnostic continuations and preserve incident/correlation links, safe structured failure fields and redacted exports.
+- Add a source-backed disposition for all 92 supplied findings, meaningful regressions, independent full-suite and API 34/API 36 emulator validation and a release with a new version/build identity.
+
+See [release notes and qualification](RELEASE_NOTES.md) and the [92-finding implementation report](docs/repairs/diagnostic-reliability-completion-2026-11-05.md).
+
 ## [0.9.60.0] - 2026-10-24
 
 - Integrate Research reliability fixes with free-provider activation and recipient-scoped personal-tool consent.

@@ -389,8 +389,8 @@ class McpClientManager internal constructor(
         } else {
             listTools(config, awaitCompletion = true)
         }
-        check(catalogueAvailability(config).executionAvailable) { "MCP_DISCOVERY_REQUIRED: refresh the live tool catalogue before execution." }
-        check(executableTools.any { it.name == toolName }) { "MCP_TOOL_UNAVAILABLE: the live catalogue no longer advertises this tool." }
+        if (!catalogueAvailability(config).executionAvailable) throw McpLocalToolRejection("MCP_DISCOVERY_REQUIRED", "MCP_DISCOVERY_REQUIRED: refresh the live tool catalogue before execution.")
+        if (executableTools.none { it.name == toolName }) throw McpLocalToolRejection("UNKNOWN_TOOL", "MCP_TOOL_UNAVAILABLE: the live catalogue no longer advertises this tool.")
         val observation = healthOrder.begin(config.connectionUid, key)
         fun recordQuota(message: String) {
             if (isMcpQuotaFailure(message)) {

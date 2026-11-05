@@ -51,7 +51,8 @@ concurrency:
 jobs:
   contracts:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # Reserve independent cold-compilation and focused-test deadlines.
+    timeout-minutes: 65
     env:
       OBX_DISABLE_ANALYTICS: 'true'
     steps:
@@ -90,9 +91,31 @@ jobs:
           sudo timeout --kill-after=15s 180s apt-get "${apt_options[@]}" update
           sudo env DEBIAN_FRONTEND=noninteractive timeout --kill-after=15s 180s apt-get "${apt_options[@]}" install --no-install-recommends -y glslc libvulkan-dev spirv-headers
 
+      - name: Provision verified Robolectric runtimes
+        timeout-minutes: 10
+        run: python3 scripts/provision_robolectric_sdks.py
+
+      # KSP and Kotlin compilation otherwise retain processor state in one
+      # 3 GiB JVM. A fresh bounded process releases that state before compiling.
+      - name: Generate production sources in a separate process
+        timeout-minutes: 10
+        shell: bash
+        run: |
+          set -o pipefail
+          chmod +x gradlew
+          python3 scripts/gradle_retry.py --timeout-seconds 540 -- :app:kspDebugKotlin --no-daemon --max-workers=1 --console=plain 2>&1 | tee marketplace-ksp.log
+
+      - name: Compile unit tests in a separate process
+        timeout-minutes: 20
+        shell: bash
+        run: |
+          set -o pipefail
+          python3 scripts/gradle_retry.py --timeout-seconds 1140 -- :app:compileDebugUnitTestKotlin :app:compileDebugUnitTestJavaWithJavac --no-daemon --max-workers=1 --console=plain 2>&1 | tee marketplace-unit-compile.log
+
       - name: Run focused marketplace contracts
+        timeout-minutes: 15
         run: >-
-          ./gradlew :app:testDebugUnitTest --no-daemon --max-workers=2
+          ./gradlew :app:testDebugUnitTest --no-daemon --max-workers=1
           --tests 'dev.chungjungsoo.gptmobile.presentation.ui.mcp.MarketplaceViewModelTest'
           --tests 'dev.chungjungsoo.gptmobile.data.database.ChatDatabaseV2MigrationsTest'
           --tests 'dev.chungjungsoo.gptmobile.data.model.ToolServicePolicyTest'
@@ -177,5 +200,17 @@ jobs:
         with:
           name: marketplace-formatting-review
           path: ${{ runner.temp }}/marketplace-review/
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Upload marketplace test diagnostics
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: marketplace-test-diagnostics-${{ github.run_attempt }}
+          path: |
+            marketplace-*.log
+            app/build/test-results/testDebugUnitTest
+            app/build/reports/tests/testDebugUnitTest
           if-no-files-found: ignore
           retention-days: 7

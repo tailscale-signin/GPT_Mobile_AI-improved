@@ -123,6 +123,47 @@
         "run": 42094633128,
         "job": 127481336995,
         "result": "Production compilation found a missing buildJsonObject import in the new MCP local-precheck receipt builder; import corrected without changing behavior or validation gates. Full checks must pass on the corrected head."
+      },
+      "release_candidate_memory_correction": {
+        "sha": "576d8a1481b92df526d1eb370a3120a255f2c2b7",
+        "failures": [
+          {
+            "workflow": "PR Validation",
+            "run": 42095875839,
+            "job": 127486098948,
+            "phase": "Kotlin production compilation before Android lint",
+            "category": "JAVA_HEAP_EXHAUSTED"
+          },
+          {
+            "workflow": "GenieX preview validation",
+            "run": 42095875794,
+            "job": 127485642995,
+            "phase": "Kotlin production compilation inside preview test compilation",
+            "category": "JAVA_HEAP_EXHAUSTED"
+          }
+        ],
+        "correction": "Separate source generation and compilation from later tests/lint in fresh bounded processes, including the same cold release-variant path. Preserve the existing heap ceilings, single-worker policy, required tests/lint/signing checks and time limits.",
+        "qualification": "Fresh current-head CI is required; earlier passing checks do not accept this candidate."
+      },
+      "release_candidate_retry_fixture_correction": {
+        "sha": "576d8a1481b92df526d1eb370a3120a255f2c2b7",
+        "pr_validation_run": 42095875839,
+        "diagnostic_audit_run": 42095875873,
+        "independent_suite_results": {
+          "reported": 6769,
+          "passed": 6764,
+          "failed": 1,
+          "errors": 0,
+          "reserved_for_heap_gate": 4
+        },
+        "failure": "The approved MCP read retry test placed both calls in one dependent batch; the first failure correctly blocked the second call.",
+        "correction": "The fixture now consumes the failed receipt before requesting an explicit retry in the next provider round, and still requires two physical reads, one catalog discovery and a successful dispatched retry. Same-batch and restarted write replay fences remain asserted.",
+        "focused_validation": "Seven MCP/scheduler host checks passed, including exact IntelligentToolBatch policy/executor reproducing the blocked same-batch call and successful separate-round retry.",
+        "api_acceptance": {
+          "api_34_required_methods_passed": 54,
+          "api_36_required_methods_passed": 54
+        },
+        "qualification": "These are historical results; the corrected candidate must pass fresh full suites, heap checks, emulator checks and all other applicable gates."
       }
     },
     "environment_acceptance": {
@@ -160,8 +201,8 @@
       "publication_review": "Version trigger and all five exact-main required workflow names verified; existing signing, provenance, packaged runtime/privacy and immutable release gates retained.",
       "focused_mcp": {
         "existing_agent_receipt_tests_passed": 41,
-        "new_mcp_host_tests_passed": 6,
-        "qualification": "Exact production tool/schema code with explicit transport/SDK boundary doubles; full MCP manager/HTTP and durable runner integrations are evaluated by Android CI."
+        "qualification": "Exact production tool/schema and IntelligentToolBatch policy/executor code with explicit transport/SDK boundary doubles; full MCP manager/HTTP and AgentRunner integrations are evaluated by Android CI.",
+        "mcp_and_scheduler_host_tests_passed": 7
       }
     }
   },

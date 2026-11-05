@@ -17,6 +17,7 @@ Android build 139. This scoped release includes the merged GitHub, voice and rec
 - Retain speech transcript review during cooldown, clean up composer focus and frame-observer ownership, and reduce diagnostic hot-path allocations.
 - Group interleaved diagnostic continuations and preserve incident/correlation links, safe structured failure fields and redacted exports.
 - Add a source-backed disposition for all 92 supplied findings, meaningful regressions, independent full-suite and API 34/API 36 emulator validation and a release with a new version/build identity.
+- Stabilize CI and release validation by isolating source generation, compilation and lint in bounded processes.
 
 ## Verification and release identity
 

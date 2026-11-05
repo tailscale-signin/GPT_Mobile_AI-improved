@@ -61,13 +61,35 @@ class McpAgentToolRecoveryTest {
             val manager = McpClientManager(network())
             try {
                 val tool = tool(manager, server.url, "lookup_ticket", approvedReadOnly = true)
-                val results = AgentRunner().run(provider(tool.definition), listOf(MeasuredAgentTool(tool, approvedReadOnly = true)))
+                var round = 0
+                val retryingProvider = object : AgentProviderSession {
+                    override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> = flow {
+                        when (round++) {
+                            0 -> emit(ProviderEvent.ToolCall("first", tool.definition.name, JsonObject(emptyMap())))
+                            1 -> {
+                                // Remote calls are serial barriers within a batch. Retry only
+                                // after the failed receipt has returned to the provider.
+                                val failure = exchanges.single().results.single()
+                                assertEquals("READ_FAILED", failure.errorCode)
+                                assertEquals(JsonPrimitive(true), failure.executionReceipt?.get("retryable"))
+                                emit(ProviderEvent.ToolCall("retry", tool.definition.name, JsonObject(emptyMap())))
+                            }
+                            else -> emit(ProviderEvent.TextDelta("Read recovered from the retained failure receipt."))
+                        }
+                        emit(ProviderEvent.Completed)
+                    }
+                }
+                val results = AgentRunner().run(retryingProvider, listOf(MeasuredAgentTool(tool, approvedReadOnly = true)))
                     .toList().filterIsInstance<AgentRunEvent.ToolFinished>().map { it.result }
                 assertEquals(2, reads)
+                assertEquals(listOf("first", "retry"), results.map { it.callId })
+                assertEquals(3, round)
                 assertEquals("READ_FAILED", results.first().errorCode)
                 assertTrue(results.first().dispatched)
                 assertEquals(JsonPrimitive(true), results.first().executionReceipt?.get("retryable"))
                 assertFalse(results.last().isError)
+                assertTrue(results.last().dispatched)
+                assertFalse(results.last().sharedResult)
                 assertEquals(1, server.methods.count { it == "tools/list" })
             } finally {
                 manager.closeAll()

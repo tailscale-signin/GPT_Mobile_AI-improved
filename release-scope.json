@@ -16,7 +16,8 @@
     "Choose style-compatible PDF font substitutes with separate symbol and dingbat coverage checks.",
     "Retain speech transcript review during cooldown, clean up composer focus and frame-observer ownership, and reduce diagnostic hot-path allocations.",
     "Group interleaved diagnostic continuations and preserve incident/correlation links, safe structured failure fields and redacted exports.",
-    "Add a source-backed disposition for all 92 supplied findings, meaningful regressions, independent full-suite and API 34/API 36 emulator validation and a release with a new version/build identity."
+    "Add a source-backed disposition for all 92 supplied findings, meaningful regressions, independent full-suite and API 34/API 36 emulator validation and a release with a new version/build identity.",
+    "Stabilize CI and release validation by isolating source generation, compilation and lint in bounded processes."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; its remaining acceptance cases are not represented as passed.",
@@ -61,8 +62,10 @@
   ],
   "allowedPaths": [
     ".github/workflows/audit-workspace.yml",
+    ".github/workflows/geniex-preview.yml",
     ".github/workflows/marketplace-contracts.yml",
     ".github/workflows/pr-validation.yml",
+    ".github/workflows/release-build.yml",
     "CHANGELOG.md",
     "RELEASE_NOTES.md",
     "app/build.gradle.kts",

@@ -70,6 +70,15 @@ must verify the actual merged commit and signed artifacts. The corresponding
 GitHub check runs and published release are the authoritative completion
 receipts.
 
+Candidate CI also identified a missing JSON-builder import and two cold compiler
+heap failures. The import was corrected; PR lint and GenieX compilation now
+release generated-source processing state before compilation, and release
+validation applies the same bounded separation to its debug and release paths.
+The existing memory ceilings and mandatory checks remain in force.
+The approved-read retry regression now requests its retry after the failed
+receipt returns in a later provider round; same-batch dependency rejection and
+write replay fences remain separate, required behaviors.
+
 ## Per-finding coverage
 
 Source keys in the tables refer to the files in the source map below.

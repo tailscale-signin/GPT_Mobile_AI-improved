@@ -37,7 +37,8 @@ internal class GitHubVerifiedSession(
     private val lifecycle: (dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind) -> Unit = {},
     private val resumeCommitSha: String? = null,
     private val resumeRequestKey: String = task,
-    private val gatewayDiagnostic: (suspend () -> String)? = null
+    private val gatewayDiagnostic: (suspend () -> String)? = null,
+    private val onPublication: suspend (JsonObject) -> Unit = {}
 ) : AgentProviderSession by delegate {
     private var lastChecklist: JsonObject? = null
     private class ProgressCheckpointFailure(cause: Exception, val originalFailure: ProviderEvent.Failed?) : Exception(cause)
@@ -343,7 +344,23 @@ internal class GitHubVerifiedSession(
                     }
                 }
             )
-            evidence.retainVerdict(retained)
+            val execution = GitHubExecutionLedger.attach(GitHubAcceptanceLedger.attach(retained), receipts)
+            val executionLedger = execution["execution_ledger"] as? JsonObject
+            val unresolved = executionLedger?.get("unresolved_remote_outcomes") as? kotlinx.serialization.json.JsonPrimitive
+            val reconciliationRequired = unresolved?.content?.toIntOrNull()?.let { it > 0 } == true
+            val effectivePartial = partial || executionLedger?.get("requested_task") != kotlinx.serialization.json.JsonPrimitive("VERIFIED_COMPLETE") || execution["task_outcome"] != kotlinx.serialization.json.JsonPrimitive("COMPLETED")
+            val effectiveReport = JsonObject(
+                execution + buildJsonObject {
+                    if (effectivePartial) {
+                        put("partial", true)
+                        put("resume_required", true)
+                        put("completion_verified", false)
+                        if (execution["task_outcome"] == kotlinx.serialization.json.JsonPrimitive("COMPLETED")) put("task_outcome", "PARTIAL")
+                    }
+                    if (reconciliationRequired && "verification_failure" !in execution) put("verification_failure", "RECONCILIATION_REQUIRED")
+                }
+            )
+            evidence.retainVerdict(effectiveReport)
             val cause = originalFailure?.let { "**Task interrupted:** ${it.message}\n\n" }.orEmpty()
             val failures = if (GitHubTaskCoverage.boundedDiagnostic(task)) withContext(computationDispatcher) { GitHubFailureSummary.render(receipts) } else ""
             val retentionNotice = if (retention["saved_view_retention_complete"] == kotlinx.serialization.json.JsonPrimitive(false)) {
@@ -351,7 +368,12 @@ internal class GitHubVerifiedSession(
             } else {
                 ""
             }
-            Publication(cause + text + failures + retentionNotice, partial, retained)
+            val reconciliationNotice = if (reconciliationRequired) {
+                "**Task partial: remote outcome unconfirmed.** Reconcile the saved operation receipt and remote state before continuing. A completed response or passing observations cannot establish the outcome of an uncertain operation. No write was repeated.\n\n"
+            } else {
+                ""
+            }
+            Publication(cause + reconciliationNotice + text + failures + retentionNotice, effectivePartial, effectiveReport)
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: Exception) {
@@ -381,6 +403,7 @@ internal class GitHubVerifiedSession(
         val (text, partial, report) = publication
         emit(ProviderEvent.TextDelta(text))
         evidence.retainVerdict(JsonObject(report + ("response_delivered" to kotlinx.serialization.json.JsonPrimitive(true))))
+        onPublication(report)
         val extractionCode = (report["failure_code"] as? kotlinx.serialization.json.JsonPrimitive)?.content?.takeUnless { it == "null" }
         if (partial) {
             lifecycle(dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.VERIFICATION_REJECTED)

@@ -4,6 +4,7 @@ package dev.chungjungsoo.gptmobile.data.voice
 internal class RecognitionStartGate(private val now: () -> Long = { System.nanoTime() / 1_000_000 }) {
     private var nextStart = 0L
     private var throttles = 0
+    private var bindingFailures = 0
     private var activeOwner: String? = null
 
     @Synchronized fun remainingMillis(): Long = maxOf((nextStart - now()).coerceAtLeast(0), if (activeOwner == null) 0L else 500L)
@@ -22,6 +23,20 @@ internal class RecognitionStartGate(private val now: () -> Long = { System.nanoT
     @Synchronized fun succeeded(owner: String = "default") {
         release(owner)
         throttles = 0
+        bindingFailures = 0
+    }
+
+    /** A service that rejected binding must not be hammered by auto-continue or navigation. */
+    @Synchronized fun bindingFailed(owner: String = "default") {
+        if (activeOwner != null && activeOwner != owner) return
+        release(owner)
+        bindingFailures = (bindingFailures + 1).coerceAtMost(3)
+        val delay = when (bindingFailures) {
+            1 -> 5_000L
+            2 -> 15_000L
+            else -> 30_000L
+        }
+        nextStart = maxOf(nextStart, now() + delay)
     }
 
     @Synchronized fun failed(tooManyRequests: Boolean, owner: String = "default") {

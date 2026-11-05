@@ -21,7 +21,12 @@ def install_terminal_guard(runtime):
                 raise GatewayContractError('This gateway job is already terminal. Retrieve its saved result or start a new request without the old job ID.', 'terminal_job_not_resumable', 409)
             snapshot = dict(previous) if previous is not None else None
             try:
-                return register(job_id, *args, **kwargs)
+                result = register(job_id, *args, **kwargs)
+                if previous is None and isinstance(result, dict):
+                    # Volatile birth marker: an older persisted job with unknown
+                    # history must never acquire an entire-job isolation proof.
+                    result['_server_isolation_new'] = True
+                return result
             except Exception:
                 if previous is None:
                     runtime.job_registry.pop(job_id, None)
@@ -64,6 +69,32 @@ def install_terminal_guard(runtime):
     runtime.finish_gateway_job = guarded_finish
     runtime.update_gateway_job = guarded_update
     runtime.register_gateway_job = guarded_register
+
+
+def record_execution_isolation(runtime, job_id, client_owned):
+    """Persist a monotonic proof from the actual execution branch, never request/model metadata."""
+    if not job_id:
+        return
+    with runtime.job_registry_lock:
+        job = runtime.job_registry.get(job_id)
+        if job is None or job.get('status') in TERMINAL:
+            return
+        snapshot = dict(job)
+        prior_proof = (job.get('execution_isolation_schema') == 1
+                       and job.get('execution_isolation_scope') == 'entire_job'
+                       and job.get('execution_isolation') == 'github_client_owned'
+                       and job.get('server_tools_allowed') is False)
+        first_dispatch = job.pop('_server_isolation_new', False) is True
+        proved = client_owned is True and (first_dispatch or prior_proof)
+        job.update(execution_isolation_schema=1, execution_isolation_scope='entire_job',
+                   execution_isolation='github_client_owned' if proved else 'unverified',
+                   server_tools_allowed=False if proved else None)
+        try:
+            runtime.durable_persist_job(job_id)
+        except Exception:
+            job.clear()
+            job.update(snapshot)
+            raise
 
 
 def migrate_legacy_owner(store, device_id, principal_id):

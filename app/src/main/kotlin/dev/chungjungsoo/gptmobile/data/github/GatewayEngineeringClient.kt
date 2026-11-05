@@ -1,8 +1,11 @@
 package dev.chungjungsoo.gptmobile.data.github
 
+import dev.chungjungsoo.gptmobile.data.context.RouteCapabilityCache
+import dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth
 import dev.chungjungsoo.gptmobile.data.network.NetworkClient
 import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
 import dev.chungjungsoo.gptmobile.data.network.boundedMetadata
+import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayClientDiagnostics
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.timeout
 import io.ktor.client.request.bearerAuth
@@ -21,7 +24,6 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
@@ -30,24 +32,26 @@ import kotlinx.serialization.json.put
 class GatewayEngineeringClient internal constructor(private val http: HttpClient) {
     @Inject constructor(network: NetworkClient) : this(network())
     private val json = Json { ignoreUnknownKeys = true }
-    private val unsupported = java.util.concurrent.ConcurrentHashMap<String, Long>()
-    private fun capabilityKey(config: ProviderRequestConfig) = dev.chungjungsoo.gptmobile.data.research.researchHash("${config.profileUid}|${config.apiUrl.trimEnd('/')}|${dev.chungjungsoo.gptmobile.data.research.researchHash(config.token.orEmpty())}")
+    private val capabilityCache = RouteCapabilityCache<GatewayEngineeringCapabilities>({ System.nanoTime() / 1_000_000 }, positiveTtl = 10_000, negativeTtl = 60_000)
+    private fun capabilityKey(config: ProviderRequestConfig) = "${GatewayClientDiagnostics.routeIdentity(config)}|${LocalServiceHealth.networkEpoch}|${GatewayClientDiagnostics.capabilityEpoch(config)}"
 
     private suspend fun request(config: ProviderRequestConfig, path: String, body: String? = null, approval: Boolean = false): String = http.prepareRequest(config.buildEndpoint("gateway/engineering/$path")) {
         method = if (body == null) HttpMethod.Get else HttpMethod.Post
         config.token?.takeIf(String::isNotBlank)?.let { bearerAuth(it) }
-        config.extraHeaders.forEach { (key, value) -> header(key, value) }
+        GatewayClientDiagnostics.requestHeaders(config).forEach { (key, value) -> header(key, value) }
         if (approval) header("X-Gateway-User-Action", "approve-and-merge")
         if (body != null) {
             contentType(ContentType.Application.Json)
             setBody(body)
         }
         timeout {
-            connectTimeoutMillis = 10_000
-            requestTimeoutMillis = 120_000
-            socketTimeoutMillis = 120_000
+            connectTimeoutMillis = if (path == "capabilities") 1_500 else 10_000
+            requestTimeoutMillis = if (path == "capabilities") 4_000 else 120_000
+            socketTimeoutMillis = if (path == "capabilities") 4_000 else 120_000
         }
     }.execute { response ->
+        GatewayClientDiagnostics.observe(config, response.status.value) { response.headers[it] }
+        if (path == "capabilities" && response.status.value in setOf(404, 501)) throw UnsupportedEngineeringGateway()
         check(response.status.isSuccess()) {
             when (response.status.value) {
                 401, 403 -> "Gateway engineering access is not authorized. Check the gateway connection and engineering scope."
@@ -57,26 +61,41 @@ class GatewayEngineeringClient internal constructor(private val http: HttpClient
                 else -> "Gateway engineering request failed (HTTP ${response.status.value}). The job may still be running; reconnect to check."
             }
         }
-        response.boundedMetadata()
+        response.boundedMetadata(if (path == "capabilities") 128 * 1024 else 2_000_000)
     }
 
-    suspend fun principal(config: ProviderRequestConfig): String {
-        val key = capabilityKey(config)
-        check(unsupported[key]?.let { System.nanoTime() - it >= 0 } != false) { "This inference endpoint does not expose engineering jobs. Select an engineering gateway endpoint; ordinary chat remains available." }
-        val payload = try {
-            request(config, "capabilities")
-        } catch (failure: IllegalStateException) {
-            if (failure.message.orEmpty().contains("does not expose")) {
-                if (unsupported.size >= 64) unsupported.clear()
-                unsupported[key] = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(60)
+    suspend fun capabilities(config: ProviderRequestConfig): GatewayEngineeringCapabilities =
+        capabilityCache.getOrLoad(capabilityKey(config)) {
+            val payload = try {
+                request(config, "capabilities")
+            } catch (_: UnsupportedEngineeringGateway) {
+                return@getOrLoad null
             }
-            throw failure
-        }
-        val capability = requireNotNull(json.parseToJsonElement(payload) as? kotlinx.serialization.json.JsonObject) { "Engineering capability response is invalid." }
-        check(capability["service"] == kotlinx.serialization.json.JsonPrimitive("engineering-gateway") && capability["protocol_version"] == kotlinx.serialization.json.JsonPrimitive(1)) { "Engineering endpoint identity or protocol is unsupported. Update the desktop gateway and check its address; inference connectivity is independent." }
-        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Gateway", "ENGINEERING_HANDSHAKE · route=${capabilityKey(config)} · gatewayVersion=${capability["gateway_version"] ?: "Not measured"} · serverBuild=${capability["server_build"] ?: "Not measured"} · protocol=${capability["protocol_version"]}")
-        check(capability["enabled"] == kotlinx.serialization.json.JsonPrimitive(true)) { "The gateway engineering service is disabled or its host connection is unavailable. Chat inference readiness does not establish job readiness." }
-        return requireNotNull(capability["principal_id"]?.jsonPrimitive?.contentOrNull) { "Gateway engineering identity is unavailable." }
+            val capability = try {
+                json.decodeFromString<GatewayEngineeringCapabilities>(payload)
+            } catch (_: kotlinx.serialization.SerializationException) {
+                error("Engineering capability response is invalid. Check the selected gateway address and version.")
+            }
+            check(capability.service == "engineering-gateway" && capability.protocolVersion == 1 && capability.readiness?.schemaVersion in setOf(null, 1)) { "Engineering endpoint identity or protocol is unsupported. Update the desktop gateway and check its address; inference connectivity is independent." }
+            check(!capability.principalId.isNullOrBlank() && capability.principalId.length <= 256 && capability.principalId.none(Char::isISOControl)) { "Gateway engineering identity is unavailable." }
+            val version = capability.gatewayVersion?.takeIf { it.matches(Regex("[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}")) }
+            val build = capability.serverBuild?.takeIf { it.matches(Regex("sha256:[a-f0-9]{64}")) }
+            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Gateway", "ENGINEERING_HANDSHAKE · route=${capabilityKey(config)} · gatewayVersion=${version ?: "Not measured"} · serverBuild=${build ?: "Not measured"} · protocol=1")
+            capability
+        } ?: throw UnsupportedEngineeringGateway()
+
+    suspend fun principal(config: ProviderRequestConfig, requireReady: Boolean = true): String {
+        val capability = capabilities(config)
+        if (requireReady) capability.unavailableReason()?.let { error(it) }
+        if (!requireReady && capability.readiness?.savedResults == false) error("The engineering journal is unavailable. Restore the selected gateway storage to retrieve its saved jobs.")
+        return requireNotNull(capability.principalId)
+    }
+
+    suspend fun requireGraphReady(config: ProviderRequestConfig): String {
+        val capability = capabilities(config)
+        capability.unavailableReason(graph = true)?.let { error(it) }
+        check(capability.codeGraph?.schemaVersion == 1) { "The selected gateway repository graph protocol is unsupported. Update the desktop gateway." }
+        return requireNotNull(capability.principalId)
     }
 
     internal fun diagnosticEvents(config: ProviderRequestConfig, jobId: String, after: Int): kotlinx.coroutines.flow.Flow<JsonObject> = kotlinx.coroutines.flow.flow {
@@ -84,6 +103,7 @@ class GatewayEngineeringClient internal constructor(private val http: HttpClient
         http.prepareRequest(config.buildEndpoint("gateway/engineering/diagnostics/jobs/$jobId/events?after=$after")) {
             method = HttpMethod.Get
             config.token?.takeIf(String::isNotBlank)?.let { bearerAuth(it) }
+            GatewayClientDiagnostics.requestHeaders(config).forEach { (key, value) -> header(key, value) }
             header("Accept", "text/event-stream")
             timeout {
                 connectTimeoutMillis = 10_000
@@ -91,6 +111,7 @@ class GatewayEngineeringClient internal constructor(private val http: HttpClient
                 socketTimeoutMillis = 30_000
             }
         }.execute { response ->
+            GatewayClientDiagnostics.observe(config, response.status.value) { response.headers[it] }
             check(response.status.isSuccess()) { "Gateway diagnostic stream failed (HTTP ${response.status.value})." }
             val channel = response.bodyAsChannel()
             var seen = after
@@ -142,3 +163,5 @@ class GatewayEngineeringClient internal constructor(private val http: HttpClient
         return json.decodeFromString(request(config, "jobs/${job.id}/$action", body.toString(), action == "approve"))
     }
 }
+
+private class UnsupportedEngineeringGateway : IllegalStateException("This inference endpoint does not expose engineering jobs. Select an engineering gateway endpoint; ordinary chat remains available.")

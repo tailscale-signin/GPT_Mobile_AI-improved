@@ -89,6 +89,27 @@ class GatewayOutcomeRecoveryTest {
         assertTrue(runCatching { GatewayOutcomeRecovery.requireTaskReconciled(7, 1, listOf(failedMessage), emptyList()) }.isFailure)
     }
 
+    @Test fun hostVerifiedIsolatedSavedGenerationClearsOnlyItsGatewayTransportFence() {
+        val recovered = failedRun.copy(
+            status = AgentRunStatus.EVIDENCE_MISSING,
+            terminalError = GatewayOutcomeRecovery.ISOLATED_RESULT_PREFIX + " Server tools were forbidden; task verification remains pending.",
+            completedAt = 10,
+            gatewayJobId = "job",
+            gatewayBaseUrl = "https://gateway.invalid/v1"
+        )
+        assertTrue(runCatching { GatewayOutcomeRecovery.requireTaskReconciled(7, 1, listOf(failedMessage), listOf(recovered)) }.isSuccess)
+        for (unproven in listOf(
+            recovered.copy(terminalError = "GATEWAY_RECOVERED_RESULT_UNVERIFIED"),
+            recovered.copy(gatewayJobId = null),
+            recovered.copy(completedAt = null),
+            recovered.copy(assistantMessageId = 9),
+            recovered.copy(status = AgentRunStatus.PARTIAL)
+        )) {
+            assertTrue(runCatching { GatewayOutcomeRecovery.requireTaskReconciled(7, 1, listOf(failedMessage), listOf(unproven)) }.isFailure)
+        }
+        assertEquals(AgentRunStatus.EVIDENCE_MISSING, recovered.status)
+    }
+
     @Test fun controlsRetainOriginalTaskIdentityWithoutBlockingUnrelatedTasksOrChats() {
         val resumed = failedMessage.copy(linkedMessageId = 3, timeline = failedMessage.timeline + AssistantTimelineItem(AssistantTimelineItemType.NOTICE, recovery = TaskResumeDescriptor("7:1", 1, "original", TaskRecoveryAction.CONTINUE_RUN)))
         assertTrue(runCatching { GatewayOutcomeRecovery.requireTaskReconciled(7, 1, listOf(resumed), emptyList()) }.isFailure)

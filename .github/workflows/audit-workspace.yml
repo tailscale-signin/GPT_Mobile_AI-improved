@@ -58,8 +58,8 @@ jobs:
 
   android:
     runs-on: ubuntu-latest
-    # Bound each heavy stage and reserve time for independent lint and reports.
-    timeout-minutes: 100
+    # Bound cold compilation separately and reserve time for lint and reports.
+    timeout-minutes: 135
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -88,6 +88,21 @@ jobs:
       - name: Provision verified Robolectric runtimes
         timeout-minutes: 10
         run: python3 scripts/provision_robolectric_sdks.py
+      # Release KSP processor state before compiling in the same 3 GiB heap
+      # ceiling, then release compiler state before starting test workers.
+      - name: Generate production sources in a separate process
+        timeout-minutes: 10
+        shell: bash
+        run: |
+          set -o pipefail
+          chmod +x gradlew
+          python3 scripts/gradle_retry.py --timeout-seconds 540 -- :app:kspDebugKotlin --no-daemon --max-workers=1 --console=plain 2>&1 | tee audit-ksp.log
+      - name: Compile unit tests in a separate process
+        timeout-minutes: 20
+        shell: bash
+        run: |
+          set -o pipefail
+          python3 scripts/gradle_retry.py --timeout-seconds 1140 -- :app:compileDebugUnitTestKotlin :app:compileDebugUnitTestJavaWithJavac --no-daemon --max-workers=1 --console=plain 2>&1 | tee audit-unit-compile.log
       - name: Android unit tests
         timeout-minutes: 30
         id: tests
@@ -96,12 +111,14 @@ jobs:
           set -o pipefail
           echo "Tested source: $(git rev-parse HEAD)" | tee audit-unit.log
           chmod +x gradlew
-          python3 scripts/gradle_retry.py -- --no-daemon --stacktrace :app:testDebugUnitTest 2>&1 | tee -a audit-unit.log
+          python3 scripts/gradle_retry.py -- --no-daemon --max-workers=1 --stacktrace :app:testDebugUnitTest 2>&1 | tee -a audit-unit.log
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: always()
         with:
           name: audit-unit-results-${{ github.run_attempt }}
           path: |
+            audit-ksp.log
+            audit-unit-compile.log
             audit-unit.log
             app/build/test-results/testDebugUnitTest
             app/build/reports/tests/testDebugUnitTest

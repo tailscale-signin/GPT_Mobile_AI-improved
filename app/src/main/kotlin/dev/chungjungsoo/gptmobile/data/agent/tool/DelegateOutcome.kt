@@ -1,5 +1,14 @@
 package dev.chungjungsoo.gptmobile.data.agent.tool
 
+import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
+import kotlin.coroutines.AbstractCoroutineContextElement
+import kotlin.coroutines.CoroutineContext
+
+/** The coordinator reports its actual worker after live policy and recovery selection. */
+internal class DelegationRouteObserver(val dispatched: (PlatformV2) -> Unit) : AbstractCoroutineContextElement(Key) {
+    companion object Key : CoroutineContext.Key<DelegationRouteObserver>
+}
+
 /** Execution, content and verification are independent dimensions. Estimates never prove cap violations. */
 internal enum class DelegateFailureKind { OUTPUT_LIMIT, REASONING_ONLY, EMPTY_OUTPUT, AUTH_FAILURE, TRANSPORT_FAILURE }
 internal enum class DelegateContentState { USABLE, PARTIAL_OUTPUT, REASONING_ONLY, EMPTY_OUTPUT }

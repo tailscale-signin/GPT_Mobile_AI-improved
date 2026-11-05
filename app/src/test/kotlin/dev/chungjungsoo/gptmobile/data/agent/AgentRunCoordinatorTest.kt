@@ -22,6 +22,15 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AgentRunCoordinatorTest {
+    @Test fun savedGatewayCompletionDoesNotCertifyTaskAcceptanceAndPartialNeverBecomesSuccess() {
+        val complete = dev.chungjungsoo.gptmobile.data.network.gateway.GatewayResultDisposition.COMPLETE
+        val partial = dev.chungjungsoo.gptmobile.data.network.gateway.GatewayResultDisposition.PARTIAL
+        assertEquals(AgentRunStatus.COMPLETED, recoveredGatewayRunStatus(complete, false))
+        assertEquals(AgentRunStatus.EVIDENCE_MISSING, recoveredGatewayRunStatus(complete, true))
+        assertEquals(AgentRunStatus.PARTIAL, recoveredGatewayRunStatus(partial, false))
+        assertEquals(AgentRunStatus.EVIDENCE_MISSING, recoveredGatewayRunStatus(partial, true))
+    }
+
     @Test fun reviewInputBlockKeepsItsOwnTerminalStateAndStage() {
         for (code in listOf("REVIEW_INPUT_REQUIRED", "GITHUB_REVIEW_BLOCKED")) {
             val outcome = dev.chungjungsoo.gptmobile.util.ApiStateFlowOutcome.Failed(code, errorCode = code).toTerminalUpdate()

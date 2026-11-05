@@ -330,7 +330,12 @@ internal class ResearchModelCoordinator(
             }
             if (!stillEnabled()) {
                 authorizationStopped = true
-                record(event.copy(outcome = "CANCELLED", durationMs = elapsed(started), reason = "PERMISSION_REVOKED"))
+                // Losing dispatch permission must not discard bytes that were already received.
+                // Retain them privately without accepting the stage or starting another request.
+                val checkpoint = kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
+                    withTimeoutOrNull(10_000L) { reply?.let { keepPartial(stage, target, it.text) } }
+                }
+                record(event.copy(outcome = "CANCELLED", durationMs = elapsed(started), reason = "PERMISSION_REVOKED", invocationId = reply?.invocationId, transportComplete = reply?.transportComplete == true && reply.transportFailure == null, partialRetained = checkpoint != null, checkpointId = checkpoint, providerHost = target.providerHost, finishReason = reply?.finishReason, requestId = reply?.requestId))
                 return null
             }
             if (reply != null && (!reply.transportComplete || reply.transportFailure != null || reply.outputLimitReached && !valid(stage, parseDelegationObject(reply.text)) || reply.text.startsWith("[PARTIAL_DELEGATE_OUTPUT:"))) {
@@ -485,6 +490,7 @@ internal class ResearchModelCoordinator(
                 delegated?.kind == dev.chungjungsoo.gptmobile.data.agent.tool.DelegateFailureKind.EMPTY_OUTPUT -> "EMPTY_OUTPUT"
                 Regex("(?i)\\bHTTP\\s+(400|413|415|422)\\b|REQUEST_INVALID|REQUEST_SCHEMA_INCOMPATIBLE|invalid_request_error").containsMatchIn(messages) -> "REQUEST_INVALID"
                 listOf("PERMISSION_DENIED", "SOURCE_PERMISSION_REVOKED", "DISPATCH_POLICY_CHANGED").any { messages.contains(it, true) } -> "AUTHORIZATION"
+                dev.chungjungsoo.gptmobile.data.agent.tool.isProviderOutputLimitFailure(messages) -> "OUTPUT_LIMIT"
                 delegated?.kind == dev.chungjungsoo.gptmobile.data.agent.tool.DelegateFailureKind.TRANSPORT_FAILURE -> "TRANSPORT"
                 delegated?.kind == dev.chungjungsoo.gptmobile.data.agent.tool.DelegateFailureKind.OUTPUT_LIMIT -> "OUTPUT_LIMIT"
                 delegated?.kind == dev.chungjungsoo.gptmobile.data.agent.tool.DelegateFailureKind.AUTH_FAILURE -> "AUTHORIZATION"

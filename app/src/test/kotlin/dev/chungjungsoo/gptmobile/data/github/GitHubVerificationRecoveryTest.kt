@@ -97,7 +97,7 @@ class GitHubVerificationRecoveryTest {
     @Test fun malformedVerdictCanRecoverOnceWithoutRerunningTools() = runBlocking {
         var reviews = 0
         val gate = GitHubReviewedSession(answer("checked answer"), GitHubReviewEvidence(), "task", 8192, { _, _ ->
-            answer(if (++reviews == 1) "bad JSON" else """{"approved":true,"reviewed_ids":[],"issues":[],"verified_claims":[]}""")
+            answer(if (++reviews == 1) "bad JSON" else """{"schema_version":1,"verdict":"PASS","reason":"Retained evidence checked.","reviewed_ids":[],"issues":[],"verified_claims":[]}""")
         }, {})
         val events = gate.streamRound(emptyList(), emptyList()).toList()
         assertEquals(2, reviews)

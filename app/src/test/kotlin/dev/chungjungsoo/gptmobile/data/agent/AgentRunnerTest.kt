@@ -1363,6 +1363,8 @@ class AgentRunnerTest {
                     emit(toolCall("gateway-2", "gateway"))
                     emit(ProviderEvent.Completed)
                 } else {
+                    assertEquals(listOf("client-1", "gateway-1", "client-2", "gateway-2"), exchanges.single().calls.map { it.callId })
+                    assertEquals(listOf("client-1", "gateway-1", "client-2", "gateway-2"), exchanges.single().results.map { it.callId })
                     emit(ProviderEvent.TextDelta("done"))
                     emit(ProviderEvent.Completed)
                 }

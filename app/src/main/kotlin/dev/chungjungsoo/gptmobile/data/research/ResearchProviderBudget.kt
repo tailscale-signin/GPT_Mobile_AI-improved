@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.research
 
 import dev.chungjungsoo.gptmobile.data.agent.provider.ProviderRouteCapacity
+import dev.chungjungsoo.gptmobile.data.agent.tool.delegationOutputBudget
 import dev.chungjungsoo.gptmobile.data.context.ContextBudgetService
 import dev.chungjungsoo.gptmobile.data.context.TokenBudgetSettings
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
@@ -18,10 +19,22 @@ internal object ResearchProviderBudget {
             "Do not call tools, delegate, emit markdown fences, or produce hidden reasoning. Fit the complete JSON within $outputTokens tokens."
 
     fun request(profile: PlatformV2, requested: Int, settings: TokenBudgetSettings): ResearchModelRequestBudget {
-        if (profile.compatibleType != ClientType.FREE) return ResearchModelRequestBudget(output(profile, requested, settings.normalized().outputTokens))
         val normalized = settings.normalized()
         val output = output(profile, requested, normalized.outputTokens)
-        val capacity = minOf(normalized.contextTokens, normalized.profileContextCeilings[profile.uid] ?: Int.MAX_VALUE, ProviderRouteCapacity.context(profile) ?: UNKNOWN_CONTEXT_TOKENS)
+        if (profile.compatibleType != ClientType.FREE) {
+            // This uncapped copy only measures the minimum stage envelope. Dispatch still uses
+            // the selected profile and the lower of its hard cap and the configured hard cap.
+            val minimum = delegationOutputBudget(profile.copy(maxTokens = null), minOf(requested, 64))
+            check(output >= minimum) {
+                "RESEARCH_OUTPUT_ALLOWANCE: The selected model needs at least $minimum output tokens for a structured Research stage; the available output allowance admits $output."
+            }
+        }
+        val capacity = minOf(
+            normalized.contextTokens,
+            normalized.profileContextCeilings[profile.uid] ?: Int.MAX_VALUE,
+            ProviderRouteCapacity.context(profile) ?: if (profile.compatibleType == ClientType.FREE) UNKNOWN_CONTEXT_TOKENS else Int.MAX_VALUE
+        )
+        if (capacity == Int.MAX_VALUE) return ResearchModelRequestBudget(output)
         val input = (inputCapacity(capacity, output) - ContextBudgetService.estimate(workerSystemPrompt(output))).coerceAtLeast(0)
         return ResearchModelRequestBudget(output, input, true)
     }
@@ -29,7 +42,7 @@ internal object ResearchProviderBudget {
     fun output(profile: PlatformV2, requested: Int, configuredOutput: Int = 0): Int {
         require(requested > 0)
         val hardOutput = listOfNotNull(profile.maxTokens?.takeIf { it > 0 }, configuredOutput.takeIf { it > 0 }).minOrNull()
-        if (profile.compatibleType != ClientType.FREE) return minOf(requested, hardOutput ?: requested)
+        if (profile.compatibleType != ClientType.FREE) return minOf(delegationOutputBudget(profile, requested), hardOutput ?: Int.MAX_VALUE, ProviderRouteCapacity.ceiling(profile) ?: Int.MAX_VALUE)
         val provider = FreeAiProvider.requireFor(profile)
         provider.fixedOutputTokens?.let { fixed ->
             check(hardOutput == null || hardOutput >= fixed) { "RESEARCH_OUTPUT_ALLOWANCE: The provider's fixed output exceeds the configured hard limit." }

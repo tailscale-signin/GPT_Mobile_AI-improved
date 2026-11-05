@@ -156,6 +156,33 @@ class GitHubProgrammerHomeTest {
         }
     }
 
+    @Test fun unavailablePinnedProfileDoesNotDisplayTheChangedDefaultAsSelected() {
+        var selected: String? = null
+        compose.setContent {
+            MaterialTheme {
+                Column(Modifier.width(360.dp).height(700.dp).verticalScroll(rememberScrollState())) {
+                    GitHubProgrammerSettings(
+                        workspace,
+                        GitHubProgrammerState(
+                            profiles = listOf(PlatformV2(uid = "other", name = "Other coder", enabled = true)),
+                            selectedProfileUid = "pinned",
+                            profileOverrideUid = "other"
+                        ),
+                        { selected = it },
+                        {},
+                        {}
+                    )
+                }
+            }
+        }
+        compose.onNodeWithText("Selected profile unavailable").assertIsDisplayed()
+        compose.onNodeWithText("Other coder").assertDoesNotExist()
+        assertEquals(null, selected)
+        compose.onNodeWithTag("github_main_profile").performClick()
+        compose.onNodeWithText("Other coder").performClick()
+        assertEquals("other", selected)
+    }
+
     @Test fun repositoryMapIsASettingsActionAndUsesTheExistingOpenCallback() {
         var opens = 0
         var available by mutableStateOf(true)

@@ -18,6 +18,7 @@ internal class ModelRequestPreparation(client: NetworkClient) {
     private val llamaHealth = dev.chungjungsoo.gptmobile.data.llama.LlamaHealthDiagnostics(client)
 
     suspend fun prepareQueued(payload: String, config: ProviderRequestConfig, model: String, outputTokens: Int?): String {
+        config.requireSelectedRoute(model)
         val context = kotlinx.coroutines.currentCoroutineContext()
         context[WorkerRequestBudget]?.preflight()
         context[dev.chungjungsoo.gptmobile.data.context.RequestAuthorizationGuard]?.validate?.invoke()
@@ -38,6 +39,7 @@ internal class ModelRequestPreparation(client: NetworkClient) {
     }
 
     suspend fun prepare(payload: String, config: ProviderRequestConfig, model: String, outputTokens: Int?): String {
+        config.requireSelectedRoute(model)
         kotlinx.coroutines.currentCoroutineContext()[WorkerRequestBudget]?.preflight()
         kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestAuthorizationGuard]?.validate?.invoke()
         dev.chungjungsoo.gptmobile.data.context.ProviderMessageValidator.validate(payload, config.intentionalAssistantPrefill)
@@ -64,8 +66,11 @@ internal class ModelRequestPreparation(client: NetworkClient) {
         )
         // Read the actual serialized value as the final authority, not a profile DTO's default.
         var original = Json.parseToJsonElement(payload) as JsonObject
+        config.requireSelectedRoute((original["model"] as? JsonPrimitive)?.content ?: model)
         val review = config.requestRole.startsWith("github-review") && !config.requestRole.endsWith("repair")
-        if (review && discovered != null && llama.supportsReviewSchema(config, model, discovered)) {
+        // Protected administrative metadata does not disable an independently observed
+        // inference capability. Probe only the selected route and never change its model.
+        if (review && config.providerType == "LLAMA" && llama.supportsReviewSchema(config, model, discovered)) {
             original = JsonObject(original + ("response_format" to dev.chungjungsoo.gptmobile.data.github.GitHubReviewSchema.format))
         }
         val reasoning = if (config.providerType == "LLAMA") {

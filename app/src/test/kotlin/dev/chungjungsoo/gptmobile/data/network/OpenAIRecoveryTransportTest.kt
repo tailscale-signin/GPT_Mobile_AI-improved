@@ -128,7 +128,7 @@ class OpenAIRecoveryTransportTest {
             withApi(
                 MockEngine { incoming ->
                     if (incoming.url.encodedPath.endsWith("gateway/capabilities")) {
-                        respond("""{"gateway_version":"15.0.0","accepted_request_headers":["X-Gateway-Allow-Local-Tools"]}""", headers = headersOf(HttpHeaders.ContentType, "application/json"))
+                        respond("""{"gatewayVersion":"15.0.0","accepted_request_headers":["X-Gateway-Allow-Local-Tools"]}""", headers = headersOf(HttpHeaders.ContentType, "application/json"))
                     } else {
                         dispatches++
                         throw java.io.EOFException("Connection closed before its first stream frame")
@@ -148,6 +148,125 @@ class OpenAIRecoveryTransportTest {
                     assertEquals("unknown", error.failureDetails?.get("outcome")?.let { (it as kotlinx.serialization.json.JsonPrimitive).content })
                 }
                 assertEquals(1, dispatches)
+            }
+        }
+    }
+
+    @Test fun samplingRejectionAfterPossibleGatewayMutationDoesNotReplayEitherPhysicalTransport() = runTest {
+        for (responses in listOf(false, true)) {
+            for (serverTools in listOf(false, true)) {
+                val bodies = mutableListOf<String>()
+                withApi(
+                    MockEngine { incoming ->
+                        if (incoming.url.encodedPath.endsWith("gateway/capabilities")) {
+                            respond("""{"gatewayVersion":"15.0.0","accepted_request_headers":["X-Gateway-Allow-Local-Tools"]}""", headers = headersOf(HttpHeaders.ContentType, "application/json"))
+                        } else {
+                            assertEquals(serverTools.toString(), incoming.headers["X-Gateway-Allow-Local-Tools"])
+                            bodies += (incoming.body as TextContent).text
+                            if (bodies.size == 1) {
+                                respond("""{"error":{"message":"Unsupported parameter: 'temperature' is not supported with this model."}}""", HttpStatusCode.BadRequest)
+                            } else if (responses) {
+                                respond("data: {\"type\":\"response.completed\",\"response\":{\"id\":\"r\",\"status\":\"completed\"}}\n\n", headers = headersOf(HttpHeaders.ContentType, "text/event-stream"))
+                            } else {
+                                respond("""{"choices":[{"message":{"content":"recovered"},"finish_reason":"stop"}]}""", headers = headersOf(HttpHeaders.ContentType, "application/json"))
+                            }
+                        }
+                    }
+                ) { api ->
+                    val gatewayConfig = config.copy(extraHeaders = mapOf("X-Gateway-Allow-Local-Tools" to serverTools.toString()))
+                    if (responses) {
+                        val input = listOf(dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponseInputMessage("user", dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponseInputContent.text("Check repository state.")))
+                        val events = api.streamResponses(ResponsesRequest(model = "fixture", input = input, temperature = .4f, maxOutputTokens = 128), 5, gatewayConfig).toList()
+                        assertEquals(serverTools, events.any { it is dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseErrorEvent })
+                    } else {
+                        val chunks = api.streamChatCompletion(request.copy(temperature = .4f, maxTokens = 128), 5, gatewayConfig).toList()
+                        assertEquals(serverTools, chunks.any { it.error != null })
+                    }
+                    assertEquals(if (serverTools) 1 else 2, bodies.size)
+                    val first = NetworkClient.openAIJson.parseToJsonElement(bodies.first()).jsonObject
+                    assertTrue(first.containsKey("temperature"))
+                    if (!serverTools) assertFalse(NetworkClient.openAIJson.parseToJsonElement(bodies.last()).jsonObject.containsKey("temperature"))
+                    bodies.forEach { assertEquals("\"fixture\"", NetworkClient.openAIJson.parseToJsonElement(it).jsonObject["model"].toString()) }
+                }
+            }
+        }
+    }
+
+    @Test fun initialGatewayDiscoveryFailureNeverDispatchesAnUnisolatedModelRequest() = runTest {
+        for (status in listOf(HttpStatusCode.ServiceUnavailable, HttpStatusCode.Forbidden)) {
+            val paths = mutableListOf<String>()
+            withApi(
+                MockEngine { incoming ->
+                    paths += incoming.url.encodedPath
+                    respond("unavailable", status)
+                }
+            ) { api ->
+                val isolated = config.copy(extraHeaders = mapOf("X-Gateway-Delegated-Worker" to "true", "X-Gateway-Allow-Local-Tools" to "false"))
+                val chunks = api.streamChatCompletion(request, 5, isolated).toList()
+                assertTrue(chunks.last().error?.message.orEmpty().contains("GATEWAY_CAPABILITY_UNAVAILABLE"))
+                assertEquals(listOf("/v1/gateway/capabilities"), paths)
+            }
+        }
+    }
+
+    @Test fun terminalJobConflictReadsItsSavedResultOnceWithoutRepeatingInferenceOrTools() = runTest {
+        val paths = mutableListOf<String>()
+        val gatewayConfig = config.copy(extraHeaders = mapOf("X-Gateway-Job-ID" to "saved-job", "X-Gateway-Allow-Local-Tools" to "true"))
+        withApi(
+            MockEngine { incoming ->
+                paths += incoming.url.encodedPath
+                when {
+                    incoming.url.encodedPath.endsWith("gateway/capabilities") -> respond("""{"gatewayVersion":"15.0.0","accepted_request_headers":["X-Gateway-Job-ID","X-Gateway-Allow-Local-Tools"]}""")
+                    incoming.url.encodedPath.endsWith("chat/completions") -> respond("""{"error":{"code":"terminal_job_not_resumable","message":"Job already ended","job_id":"saved-job","dispatch_state":"not_dispatched"}}""", HttpStatusCode.Conflict)
+                    else -> {
+                        assertEquals("/v1/gateway/jobs/saved-job/result", incoming.url.encodedPath)
+                        assertEquals(io.ktor.http.HttpMethod.Get, incoming.method)
+                        respond("""{"job_id":"saved-job","status":"completed","content":"Retained answer","result_quality":"complete","completed_at":1793844300.182,"job":{"model":"fixture"},"result":{"model":"fixture","choices":[{"message":{"content":"Retained answer"},"finish_reason":"stop"}]}}""")
+                    }
+                }
+            }
+        ) { api ->
+            val chunks = api.streamChatCompletion(request, 5, gatewayConfig).toList()
+            assertEquals("Retained answer", chunks.single { it.choices != null }.choices!!.single().effectiveDelta.content)
+            assertTrue(chunks.none { it.error != null })
+            assertEquals("saved-job", chunks.single { it.choices != null }.gatewayMetadata?.jobId)
+            assertEquals("completed", chunks.single { it.choices != null }.gatewayMetadata?.terminalStatus)
+            assertEquals(listOf("/v1/gateway/capabilities", "/v1/chat/completions", "/v1/gateway/jobs/saved-job/result"), paths)
+        }
+    }
+
+    @Test fun incompleteFailedMismatchedOrToolOnlyTerminalReceiptsNeverReplayWork() = runTest {
+        for (kind in listOf("partial", "failed", "tool_calls", "model_changed", "wrong_job", "missing")) {
+            var posts = 0
+            var reads = 0
+            withApi(
+                MockEngine { incoming ->
+                    when {
+                        incoming.url.encodedPath.endsWith("gateway/capabilities") -> respond("""{"gatewayVersion":"15.0.0","accepted_request_headers":["X-Gateway-Job-ID","X-Gateway-Allow-Local-Tools"]}""")
+                        incoming.url.encodedPath.endsWith("chat/completions") -> {
+                            posts++
+                            respond("""{"error":{"code":"terminal_job_not_resumable","message":"Job already ended","job_id":"saved-job"}}""", HttpStatusCode.Conflict)
+                        }
+                        else -> {
+                            reads++
+                            assertEquals(io.ktor.http.HttpMethod.Get, incoming.method)
+                            val tool = if (kind == "tool_calls") """, "tool_calls":[{"id":"already-issued","type":"function","function":{"name":"mutate","arguments":"{}"}}]""" else ""
+                            val status = if (kind == "failed") "failed" else "completed"
+                            val quality = if (kind == "partial") "partial" else "complete"
+                            val model = if (kind == "model_changed") "other-model" else "fixture"
+                            val id = if (kind == "wrong_job") "unrelated-job" else "saved-job"
+                            respond("""{"job_id":"$id","status":"$status","content":"Retained text","result_quality":"$quality","result":{"model":"$model","choices":[{"message":{"content":"Retained text"$tool}}]}}""", if (kind == "missing") HttpStatusCode.NotFound else HttpStatusCode.OK)
+                        }
+                    }
+                }
+            ) { api ->
+                val chunks = api.streamChatCompletion(request, 5, config.copy(extraHeaders = mapOf("X-Gateway-Job-ID" to "saved-job", "X-Gateway-Allow-Local-Tools" to "true"))).toList()
+                assertEquals(kind, 1, posts)
+                assertEquals(kind, 1, reads)
+                assertEquals(kind, "terminal_job_not_resumable", chunks.last().error?.code)
+                assertEquals(kind, false, chunks.last().error?.retryable)
+                assertTrue(kind, chunks.none { it.choices.orEmpty().any { choice -> !choice.effectiveDelta.toolCalls.isNullOrEmpty() || choice.finishReason == "stop" } })
+                assertEquals(kind, kind in setOf("partial", "failed", "tool_calls"), chunks.any { chunk -> chunk.choices.orEmpty().any { !it.effectiveDelta.content.isNullOrBlank() } })
             }
         }
     }

@@ -17,6 +17,24 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ConfiguredDispatchAuthorityTest {
+    @Test fun githubSelectionChangeRevokesQueuedRequestsAndRejectsAnotherModel() = runTest {
+        val settings = mockk<SettingRepository>()
+        val profile = PlatformV2(uid = "selected", name = "Selected", model = "accepted-model")
+        val github = dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext("connection", "owner", "repo", "main", "a".repeat(40), "selected")
+        var features = AppFeatureSettings(conversationGitHub = mapOf(7 to github))
+        coEvery { settings.fetchPlatformV2s() } returns listOf(profile)
+        coEvery { settings.getFeatureSettings() } answers { features }
+        coEvery { settings.providerActivationRequired(any()) } returns false
+        coEvery { settings.providerPermissionRevision(any()) } returns "accepted"
+        val guard = ConfiguredDispatchAuthority.capture(settings, profile, 7)
+        guard.validate()
+        assertTrue(runCatching { ConfiguredDispatchAuthority.capture(settings, profile.copy(model = "substitute"), 7) }.isFailure)
+        features = features.copy(conversationGitHub = mapOf(7 to github.copy(mainProfileUid = "different")))
+        assertTrue(runCatching { guard.validate() }.isFailure)
+        assertTrue(runCatching { guard.authority!!.validate(settings) }.isFailure)
+        assertTrue(runCatching { ConfiguredDispatchAuthority.capture(settings, profile, 7) }.isFailure)
+    }
+
     @Test fun policyFieldsSerializeNonDefaultPluginGrantsWithoutSortedMapPolymorphism() {
         val settings = AppFeatureSettings(toolPluginStates = sortedMapOf("second" to false, "first" to false))
         assertEquals("{\"first\":false,\"second\":false}", ConfiguredDispatchAuthority.policyFields(settings, "p", 1).getValue("tools").toString())

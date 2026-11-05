@@ -134,6 +134,7 @@ class ToolConnectionsViewModel @Inject constructor(
     private val _oauthLaunches = MutableSharedFlow<String>(extraBufferCapacity = 1)
     val oauthLaunches: SharedFlow<String> = _oauthLaunches.asSharedFlow()
     private var oauthStartJob: Job? = null
+    private var gitHubSetupJob: Job? = null
 
     init {
         refresh()
@@ -465,6 +466,59 @@ class ToolConnectionsViewModel @Inject constructor(
 
     fun probeConnection(connection: ToolConnection) = probeConnections(listOf(connection), force = true)
 
+    /** GitHub mode's first-run setup reuses the same verified OAuth flow as Plugins. */
+    fun connectGitHub(clientId: String = dev.chungjungsoo.gptmobile.BuildConfig.GITHUB_OAUTH_CLIENT_ID) {
+        if (gitHubSetupJob?.isActive == true || oauthStartJob?.isActive == true || _uiState.value.isOAuthBusy || _uiState.value.gitHubPublicSignInUid != null) return
+        _uiState.update { it.copy(isOAuthBusy = true, errorMessage = null) }
+        gitHubSetupJob = viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                val requestedClientId = clientId.trim().takeIf(String::isNotBlank)
+                val connection = dev.chungjungsoo.gptmobile.data.marketplace.MarketplaceMutations.mutex.withLock {
+                    val existing = toolConnectionRepository.listConnections()
+                    val reusable = existing.firstOrNull {
+                        it.type == ToolConnectionType.GITHUB &&
+                            (it.endpointUrl.isNullOrBlank() || it.endpointUrl == "https://api.github.com") &&
+                            it.authType == ToolConnectionAuthType.OAUTH &&
+                            (requestedClientId == null || it.oauthClientId == requestedClientId)
+                    }
+                    val candidate = reusable ?: ToolConnection(
+                        connectionUid = UUID.randomUUID().toString(),
+                        name = "GitHub",
+                        alias = generateSequence(0) { it + 1 }.map { if (it == 0) "github" else "github_$it" }.first { alias -> existing.none { it.alias == alias } },
+                        type = ToolConnectionType.GITHUB,
+                        endpointUrl = "https://api.github.com",
+                        authType = ToolConnectionAuthType.OAUTH,
+                        secretRef = null,
+                        oauthClientId = requestedClientId
+                    )
+                    check(gitHubPublicAuth?.canAuthorize(candidate) == true || dev.chungjungsoo.gptmobile.data.github.GitHubDeviceAuthClient.validClientId(candidate.oauthClientId.orEmpty())) {
+                        "GitHub sign-in needs the app's OAuth client ID. Enter it below or configure a GitHub connection in Plugins & Tools."
+                    }
+                    if (reusable == null) toolConnectionRepository.upsertConnection(candidate)
+                    candidate
+                }
+                val updated = settingRepository.mutateFeatureSettings {
+                    it.withToolPluginEnabled(ToolPluginId.GITHUB, true).withToolPluginEnabled(ToolPluginId.connection(connection.connectionUid), true)
+                }
+                _uiState.update { state ->
+                    state.copy(connections = (state.connections.filterNot { it.connectionUid == connection.connectionUid } + connection), pluginStates = updated.toolPluginStates)
+                }
+                if (!connection.secretRef.isNullOrBlank() || gitHubPublicAuth?.connectedAccount(connection.connectionUid) != null) {
+                    _uiState.update { it.copy(isOAuthBusy = false) }
+                    refresh()
+                } else {
+                    startGitHubSignIn(connection.connectionUid)
+                }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                _uiState.update { it.copy(isOAuthBusy = false) }
+                throw cancelled
+            } catch (error: Exception) {
+                _uiState.update { it.copy(isOAuthBusy = false) }
+                showError(error)
+            }
+        }
+    }
+
     fun startOAuth(connectionUid: String) {
         if (oauthStartJob?.isActive == true) return
         if (_uiState.value.connections.any { it.connectionUid == connectionUid && it.type == ToolConnectionType.GITHUB }) {
@@ -484,6 +538,7 @@ class ToolConnectionsViewModel @Inject constructor(
     }
 
     fun cancelGitHubSignIn() {
+        gitHubSetupJob?.cancel()
         oauthStartJob?.cancel()
         _uiState.update { it.copy(gitHubSignIn = null, gitHubPublicSignInUid = null, isOAuthBusy = false) }
         viewModelScope.launch {

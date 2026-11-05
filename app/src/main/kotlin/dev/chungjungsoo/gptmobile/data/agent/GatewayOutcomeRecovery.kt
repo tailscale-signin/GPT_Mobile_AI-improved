@@ -10,7 +10,18 @@ import kotlinx.coroutines.flow.transformWhile
 /** A missing stream response is not proof that gateway-owned tools did not execute. */
 internal object GatewayOutcomeRecovery {
     const val ERROR_CODE = "GATEWAY_OUTCOME_UNKNOWN"
+    const val PARKED_RESULT_PREFIX = "GATEWAY_OUTCOME_UNKNOWN: GATEWAY_RECOVERY_EXPIRED"
+    const val ISOLATED_RESULT_PREFIX = "GATEWAY_ISOLATED_RESULT_RECOVERED:"
     private const val LEGACY_CATEGORY = "REMOTE_OUTCOME_UNKNOWN"
+
+    /** A parked read remains recoverable; unrelated blocked/canceled work is never reopened. */
+    fun canReadSavedResult(run: AgentRun): Boolean = run.status == AgentRunStatus.INTERRUPTED ||
+        run.status == AgentRunStatus.BLOCKED &&
+        run.terminalError?.startsWith(PARKED_RESULT_PREFIX) == true ||
+        run.status in setOf(AgentRunStatus.FAILED, AgentRunStatus.PARTIAL, AgentRunStatus.EVIDENCE_MISSING) &&
+        requiresReconciliation(run.terminalError.orEmpty()) &&
+        !run.terminalError.orEmpty().contains("GATEWAY_SAVED_RESULT_") &&
+        !run.terminalError.orEmpty().contains("GATEWAY_RECOVERED_RESULT_UNVERIFIED")
 
     fun requiresReconciliation(message: String, errorCode: String? = null): Boolean =
         errorCode.equals(ERROR_CODE, ignoreCase = true) ||
@@ -35,9 +46,13 @@ internal object GatewayOutcomeRecovery {
         fun reconciled(runId: String?, assistantMessageId: Int): Boolean = taskRuns.any { run ->
             run.runId == runId &&
                 run.assistantMessageId == assistantMessageId &&
-                run.status == AgentRunStatus.COMPLETED &&
+                (
+                    run.status == AgentRunStatus.COMPLETED &&
+                        run.terminalError.isNullOrBlank() ||
+                        run.status == AgentRunStatus.EVIDENCE_MISSING &&
+                        run.terminalError?.startsWith(ISOLATED_RESULT_PREFIX) == true
+                    ) &&
                 run.completedAt != null &&
-                run.terminalError.isNullOrBlank() &&
                 !run.gatewayJobId.isNullOrBlank() &&
                 !run.gatewayBaseUrl.isNullOrBlank()
         }

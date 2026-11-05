@@ -48,14 +48,15 @@ class GitHubProgrammerViewModelTest {
     private val drafts = mockk<GitHubWorkspaceDraftStore>(relaxed = true)
     private val features = MutableStateFlow(AppFeatureSettings(githubMainProfiles = mapOf("github" to "coder")))
     private val profile = PlatformV2(uid = "coder", name = "Local programmer", model = "selected-model")
+    private val profiles = MutableStateFlow(listOf(profile))
     private val room = ChatRoomV2(id = 42, title = "owner/repo", enabledPlatform = listOf("coder"))
     private lateinit var model: GitHubProgrammerViewModel
 
     @Before fun setup() {
         Dispatchers.setMain(UnconfinedTestDispatcher())
-        every { settings.observePlatformV2s() } returns flowOf(listOf(profile))
+        every { settings.observePlatformV2s() } returns profiles
         every { settings.observeFeatureSettings() } returns features
-        coEvery { settings.fetchPlatformV2s() } returns listOf(profile)
+        coEvery { settings.fetchPlatformV2s() } answers { profiles.value }
         coEvery { settings.getFeatureSettings() } answers { features.value }
         coEvery { settings.providerActivationRequired(any()) } returns false
         coEvery { settings.mutateFeatureSettings(any()) } coAnswers {
@@ -202,5 +203,48 @@ class GitHubProgrammerViewModelTest {
         assertEquals("Queue storage unavailable", failed.error)
         assertFalse(accepted)
         coVerify { drafts.write(match { "owner/repo:feature:coder" in it }, "Keep this command") }
+    }
+
+    @Test fun changingSavedDefaultsNeverSwitchesTheOpenSessionsSelectedProfile() = runBlocking {
+        withTimeout(5000) { model.state.first { it.draftLoaded && it.profileUid == "coder" } }
+        val alternate = profile.copy(uid = "alternate", name = "Another provider", model = "other-model")
+        profiles.value = listOf(profile, alternate)
+        features.value = features.value.copy(githubMainProfiles = mapOf("github" to "alternate"), githubDefaultProfileUid = "alternate")
+        val updated = withTimeout(5000) { model.state.first { it.profiles.size == 2 && it.profileOverrideUid == "alternate" } }
+        assertEquals("coder", updated.profileUid)
+        assertEquals("coder", updated.selectedProfileUid)
+        assertEquals("coder", updated.context?.mainProfileUid)
+        model.selectProfile("alternate")
+        val explicitlySelected = withTimeout(5000) { model.state.first { it.profileUid == "alternate" && it.draftLoaded } }
+        assertEquals("alternate", explicitlySelected.context?.mainProfileUid)
+    }
+
+    @Test fun disabledSelectedProfilePausesInsteadOfUsingAnEnabledAlternative() = runBlocking {
+        withTimeout(5000) { model.state.first { it.draftLoaded && it.profileUid == "coder" } }
+        features.value = features.value.copy(githubMainProfiles = mapOf("github" to "alternate"), githubDefaultProfileUid = "alternate")
+        withTimeout(5000) { model.state.first { it.profileOverrideUid == "alternate" } }
+        profiles.value = listOf(profile.copy(enabled = false), profile.copy(uid = "alternate", model = "other-model"))
+        val paused = withTimeout(5000) { model.state.first { it.profiles.map { p -> p.uid } == listOf("alternate") && it.profileUid == null } }
+        assertEquals("coder", paused.selectedProfileUid)
+        assertEquals(null, paused.context)
+        model.ensureConversation().join()
+        coVerify(exactly = 0) { chats.createDraftChat(any(), any(), any(), any()) }
+        coVerify(exactly = 0) { queue.enqueue(any(), any(), any()) }
+        profiles.value = listOf(profile)
+        val resumed = withTimeout(5000) { model.state.first { it.profileUid == "coder" && it.draftLoaded } }
+        assertEquals("coder", resumed.context?.mainProfileUid)
+    }
+
+    @Test fun anUnconfiguredSessionNeverChoosesTheFirstEnabledProfile() = runBlocking {
+        model.viewModelScope.cancel()
+        features.value = features.value.copy(githubMainProfiles = emptyMap(), githubDefaultProfileUid = null)
+        model = GitHubProgrammerViewModel(settings, chats, database, queue, mockk(relaxed = true), approvals, connections, drafts)
+        model.configureSession(null, newConversation = true)
+        model.bind(GitHubWorkspaceState(connection = connections.getConnection("github"), selection = GitHubRepositoryContext("owner", "repo", "feature"), headSha = "a".repeat(40)))
+        val unconfigured = withTimeout(5000) { model.state.first { it.profiles.isNotEmpty() } }
+        assertEquals(null, unconfigured.profileUid)
+        assertEquals(null, unconfigured.context)
+        model.ensureConversation().join()
+        coVerify(exactly = 0) { chats.createDraftChat(any(), any(), any(), any()) }
     }
 }

@@ -31,14 +31,22 @@ internal fun fitProviderToolSchemas(definitions: List<AgentToolDefinition>, limi
 /** Use the resolver's catalog for both planning and execution, including telemetry-wrapped tools. */
 internal fun planAuthorizedToolContext(turns: List<ConversationTurn>, prompt: String, tools: List<ResolvedAgentTool>, limits: TokenBudgetSettings, externalTools: Boolean): ContextPlan {
     val definitions = tools.map { it.tool.definition }
+    val task = turns.lastOrNull { it.isCurrentTurn }?.userMessage?.content.orEmpty()
+    val required = requiredToolSchemas(explicitlyRequiredToolNames(task, definitions.mapTo(hashSetOf()) { it.name }), tools)
     val catalog = if (externalTools) tools.firstNotNullOfOrNull { it.progressiveCatalog } ?: if (limits.adaptiveToolCatalog) ProgressiveToolCatalog.create(definitions, turns.lastOrNull { it.isCurrentTurn }?.userMessage?.content.orEmpty()) else null else null
-    val advertised = catalog?.selected(definitions + catalog.definition) ?: definitions.filter { it.modelVisible }
+    val advertised = (required + (catalog?.selected(definitions + catalog.definition) ?: definitions.filter { it.modelVisible })).distinctBy { it.name }
     val requestedGitHubOperations = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.taskTools(prompt)
     val requiredGitHubSchemas = advertised.filter { definition ->
         dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(definition.name) in requestedGitHubOperations
     }
-    val prioritized = requiredGitHubSchemas + advertised.filterNot { it in requiredGitHubSchemas }
+    val prioritized = (required + requiredGitHubSchemas + advertised).distinctBy { it.name }
     val plan = ContextBudgetService.plan(turns, prompt, prioritized, limits)
+    val omittedRequired = required.filterNot { wanted -> plan.tools.any { it.name == wanted.name } }
+    if (omittedRequired.isNotEmpty()) {
+        val names = omittedRequired.joinToString { it.name }
+        AppLogRecorder.record("ToolCatalog", "REQUIRED_TOOL_BLOCKED · names=$names · reason=CONTEXT_BUDGET · dispatched=false", "W")
+        throw IllegalArgumentException("REQUIRED_TOOL_CONTEXT_BUDGET: The required tools ($names) do not fit the selected context allowance. Increase the context budget or reduce attached history before starting; no model or tool request was dispatched.")
+    }
     val omittedRequiredGitHubSchemas = requiredGitHubSchemas.filterNot { required -> plan.tools.any { it.name == required.name } }
     if (omittedRequiredGitHubSchemas.isNotEmpty()) {
         val operations = omittedRequiredGitHubSchemas.mapNotNull { definition ->

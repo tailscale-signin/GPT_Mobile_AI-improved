@@ -5,8 +5,8 @@ import dev.chungjungsoo.gptmobile.data.network.error.ErrorClassification
 import java.net.URI
 import java.nio.charset.StandardCharsets
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
@@ -15,6 +15,8 @@ import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.transformWhile
+import kotlinx.coroutines.joinAll
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withTimeoutOrNull
@@ -1261,9 +1263,8 @@ class AgentRunner(
             // Keep undispatched later chunks out of the cancellation race. The
             // dependency-aware scheduler below still owns one complete DAG.
             for (batch in calls.chunked(limits.maxToolCallsPerRound.coerceIn(1, 32))) {
-                val receipts = executeLegacyToolBatch(batch, tools, unknownOutcomes)
+                val receipts = executeLegacyToolBatch(batch, tools, unknownOutcomes, completed)
                 results += receipts
-                batch.zip(receipts).forEach { (call, result) -> completed(call, result) }
             }
             return results
         }
@@ -1293,39 +1294,85 @@ class AgentRunner(
         )
     }
 
-    private suspend fun executeLegacyToolBatch(calls: List<ProviderEvent.ToolCall>, tools: Map<String, AgentTool>, unknownOutcomes: MutableSet<String>): List<AgentToolResult> {
+    private suspend fun executeLegacyToolBatch(calls: List<ProviderEvent.ToolCall>, tools: Map<String, AgentTool>, unknownOutcomes: MutableSet<String>, completed: suspend (ProviderEvent.ToolCall, AgentToolResult) -> Unit): List<AgentToolResult> {
         val semaphore = Semaphore(limits.maxConcurrentTools.coerceIn(1, 32))
         val perTool = calls.map { it.name }.distinct().associateWith { Semaphore(1) }
-        val order = calls.mapIndexed { index, call -> call.callId to index }.toMap()
         fun ownerOf(call: ProviderEvent.ToolCall): AgentToolExecutionOwner =
             (tools[call.name] as? OwnedAgentTool)?.executionOwner ?: AgentToolExecutionOwner.CLIENT
         return coroutineScope {
-            calls.groupBy(::ownerOf)
-                .flatMap { (_, ownedCalls) ->
-                    ownedCalls.map { call ->
-                        async {
-                            perTool.getValue(call.name).withPermit {
-                                semaphore.withPermit {
-                                    val signature = call.name + ":" + dev.chungjungsoo.gptmobile.data.permissions.ScopedToolGrant.canonicalHash(call.arguments)
-                                    suspend fun dispatch(): AgentToolResult = if (!replayableRead(call) && signature in unknownOutcomes) {
-                                        ToolResultEnvelope.error(call.callId, "RECONCILIATION_REQUIRED", "An earlier identical operation has an unknown outcome. Reconcile it before requesting another write.")
-                                    } else {
-                                        executeBounded(call, tools[call.name])
+            // One terminal outcome per worker fits without suspending a confirmed receipt.
+            val channel = Channel<Result<Pair<ProviderEvent.ToolCall, AgentToolResult>>>(calls.size.coerceAtLeast(1))
+            val receipts = linkedMapOf<String, AgentToolResult>()
+            val observed = java.util.concurrent.ConcurrentHashMap<String, AgentToolResult>()
+            val workers = mutableListOf<Job>()
+            var nextCompletion = 0
+            try {
+                for (ownedCalls in calls.groupBy(::ownerOf).values) {
+                    for (call in ownedCalls) {
+                        workers += launch {
+                            try {
+                                val result = perTool.getValue(call.name).withPermit {
+                                    semaphore.withPermit {
+                                        val signature = call.name + ":" + dev.chungjungsoo.gptmobile.data.permissions.ScopedToolGrant.canonicalHash(call.arguments)
+                                        suspend fun dispatch(): AgentToolResult {
+                                            val result = if (!replayableRead(call) && synchronized(unknownOutcomes) { signature in unknownOutcomes }) {
+                                                ToolResultEnvelope.error(call.callId, "RECONCILIATION_REQUIRED", "An earlier identical operation has an unknown outcome. Reconcile it before requesting another write.")
+                                            } else {
+                                                executeBounded(call, tools[call.name])
+                                            }
+                                            // The observer already has the authorized full receipt.
+                                            // Preserve this result even if cancellation arrives while
+                                            // the checkpoint finishes its non-cancellable save.
+                                            observed[call.callId] = result
+                                            return result
+                                        }
+                                        // A local question has its own durable answer. Keep its
+                                        // checkpoint queued while waiting, so process death cannot
+                                        // misclassify user input as an uncertain external write.
+                                        val interaction = AgentToolCapability.USER_DECISION in tools[call.name]?.definition?.capabilities.orEmpty()
+                                        val result = if (interaction) dispatch().also { checkpoint?.complete(call, it) } else checkpoint?.execute(call) { dispatch() } ?: dispatch()
+                                        if (result.errorCode in ToolResultEnvelope.unknownOutcomeCodes && !replayableRead(call)) synchronized(unknownOutcomes) { unknownOutcomes += signature }
+                                        result
                                     }
-                                    // A local question has its own durable answer. Keep its
-                                    // checkpoint queued while waiting, so process death cannot
-                                    // misclassify user input as an uncertain external write.
-                                    val interaction = AgentToolCapability.USER_DECISION in tools[call.name]?.definition?.capabilities.orEmpty()
-                                    val result = if (interaction) dispatch().also { checkpoint?.complete(call, it) } else checkpoint?.execute(call) { dispatch() } ?: dispatch()
-                                    if (result.errorCode in ToolResultEnvelope.unknownOutcomeCodes && !replayableRead(call)) unknownOutcomes += signature
-                                    call to result
                                 }
+                                observed[call.callId] = result
+                                channel.trySend(Result.success(call to result))
+                            } catch (cancelled: CancellationException) {
+                                // Let the collector surface confirmed siblings before cancelling
+                                // this batch; cancelling its scope here would discard queued results.
+                                channel.trySend(Result.failure(cancelled))
+                                throw cancelled
                             }
                         }
-                    }.awaitAll()
+                    }
+                    repeat(ownedCalls.size) {
+                        val outcome = channel.receive()
+                        val cancelled = outcome.exceptionOrNull() as? CancellationException
+                        if (cancelled != null) {
+                            workers.forEach { it.cancel(cancelled) }
+                            workers.joinAll()
+                            // Cancellation can leave a gap in model order. Publish only actual
+                            // completed siblings, in their original relative order, then propagate
+                            // cancellation unchanged without claiming the batch or run completed.
+                            for (call in calls.drop(nextCompletion)) observed[call.callId]?.let { completed(call, it) }
+                            throw cancelled
+                        }
+                        val (call, result) = outcome.getOrThrow()
+                        receipts[call.callId] = result
+                        // Dispatch ownership and completion timing must not change the public
+                        // result order. Persisted observations do not wait for this visible prefix.
+                        while (nextCompletion < calls.size) {
+                            val next = calls[nextCompletion]
+                            val ready = receipts[next.callId] ?: break
+                            completed(next, ready)
+                            nextCompletion++
+                        }
+                    }
                 }
-                .sortedBy { order.getValue(it.first.callId) }
-                .map { it.second }
+                calls.map { receipts.getValue(it.callId) }
+            } finally {
+                channel.close()
+            }
         }
     }
 
@@ -1368,7 +1415,7 @@ class AgentRunner(
         AgentContractValidation.admission(tool.definition, call.callId)?.let { return it }
         if (!tool.managesExecutionBudget) {
             val errors = ToolArgumentValidator.errors(call.arguments, tool.definition.inputSchema)
-            if (errors.isNotEmpty()) return ToolResultEnvelope.error(call.callId, "INVALID_ARGUMENTS", ToolArgumentValidator.repairMessage(tool.definition.name, errors, tool.definition.inputSchema))
+            if (errors.isNotEmpty()) return ToolArgumentValidator.rejection(call.callId, tool.definition.name, call.arguments, tool.definition.inputSchema, errors)
         }
         val replayableRead = replayableRead(call)
         return try {

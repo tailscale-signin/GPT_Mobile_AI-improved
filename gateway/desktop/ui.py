@@ -128,6 +128,29 @@ def build_window(root, parent=None, section='General'):
     diagnostics = tk.StringVar(value='Waiting for measured runtime health.')
     ttk.Label(advanced, textvariable=diagnostics, wraplength=600, justify='left', style='Muted.TLabel').grid(row=7, column=0, columnspan=3, sticky='w')
 
+    values['debug_mode'] = tk.BooleanVar(value=cfg['debug_mode'])
+    ttk.Checkbutton(advanced, text='Debug mode — retain up to 5,000 diagnostic lines', variable=values['debug_mode']).grid(row=8, column=0, columnspan=3, sticky='w', pady=(14, 4))
+    ttk.Label(advanced, text='Records gateway requests, responses and client diagnostic metadata. Enable Debug mode on your phone to include its profile, build and network details. Prompts, message bodies and credentials are excluded.', style='Muted.TLabel', wraplength=600).grid(row=9, column=0, columnspan=3, sticky='w', pady=8)
+    def export_debug():
+        target = filedialog.asksaveasfilename(defaultextension='.jsonl', initialfile='gateway-debug.jsonl', filetypes=[('Diagnostic log', '*.jsonl')])
+        if not target:
+            return
+        def work():
+            try:
+                from v14.debug import DebugLogStore
+                source = root / 'logs' / 'gateway-debug.jsonl'
+                if not source.is_file():
+                    raise ValueError('Enable debug mode, save settings and restart the gateway before exporting.')
+                content = DebugLogStore(source).export()
+                if not content:
+                    raise ValueError('No diagnostic records are available yet.')
+                Path(target).write_text(content, encoding='utf-8')
+                messages.put((True, 'Exported the latest 5,000 diagnostic lines or fewer.'))
+            except (OSError, ValueError) as error:
+                messages.put((False, str(error)))
+        threading.Thread(target=work, daemon=True).start()
+    ttk.Button(advanced, text='Export debug log…', command=export_debug).grid(row=10, column=0, columnspan=3, sticky='w', pady=8)
+
     addons = sections['Add-ons']
     title(addons, 'Extend your gateway', 'Manage configured PC tools and GitHub engineering access.')
     values['engineering'] = tk.BooleanVar(value=cfg['engineering'])

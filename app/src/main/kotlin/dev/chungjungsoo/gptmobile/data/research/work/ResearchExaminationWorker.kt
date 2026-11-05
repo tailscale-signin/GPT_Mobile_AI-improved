@@ -120,7 +120,7 @@ class ResearchExaminationWorker @AssistedInject constructor(
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (failure: Exception) {
-                    if (configurationBlocked(failure)) {
+                    if (examinationConfigurationBlocked(failure)) {
                         archive.database.withTransaction {
                             val live = archive.dao.job(job.jobId)
                             if (live?.lease == job.lease) archive.dao.job(live.copy(checkpointJson = Json.encodeToString(requireNotNull(checkpoint).copy(waitingConfigurationRevision = jobRevision)), cancellationOrigin = "WAITING_FOR_CONFIGURATION", terminalReason = "Examination is waiting for configuration. Review the selected examiner, reader and paper permissions."))
@@ -142,7 +142,7 @@ class ResearchExaminationWorker @AssistedInject constructor(
                 try {
                     val scheduled = Json.decodeFromString<ScheduledExamination>(row.operation)
                     val rowRevision = examinationConfigurationRevision(features, profiles, scheduled.request.chatId, scheduled.request.profileUid, scheduled.tools)
-                    if (scheduled.waitingReason in setOf("USER_PAUSED", "OUTPUT_INVALID", "SOURCE_BLOCKED", "CAPACITY_EXHAUSTED") || scheduled.waitingReason != null && scheduled.waitingRevision == rowRevision) continue
+                    if (scheduled.waitingReason in setOf("USER_PAUSED", "EXECUTION_PAUSED", "OUTPUT_INVALID", "SOURCE_BLOCKED", "CAPACITY_EXHAUSTED") || scheduled.waitingReason != null && scheduled.waitingRevision == rowRevision) continue
                     val policy = settings.getFeatureSettings().researchFeature
                     if (!policy.enabled || policy.autoExamination == AutoExamination.OFF || policy.autoExamination == AutoExamination.WHEN_NEEDED && !scheduled.needed) continue
                     if (archive.dao.deleted("archive:${scheduled.request.workId}") != null || archive.dao.deleted("chat:${scheduled.request.chatId}") != null) {
@@ -150,13 +150,28 @@ class ResearchExaminationWorker @AssistedInject constructor(
                         continue
                     }
                     val examiner = dev.chungjungsoo.gptmobile.data.research.feature.ResearchProfileResolver.examinerSelection(features, profiles, scheduled.request.chatId, scheduled.tools, scheduled.request.profileUid)
-                    if (examiner.profile == null) {
+                    val examinerProfile = examiner.profile
+                    if (examinerProfile == null) {
                         archive.dao.outbox(row.copy(operation = Json.encodeToString(scheduled.copy(waitingReason = "WAITING_FOR_CONFIGURATION", waitingRevision = rowRevision))))
                         val reason = "EXAMINER_${examiner.status.name}"
                         configurationWaits[reason] = (configurationWaits[reason] ?: 0) + 1
                         continue
                     }
-                    val waiting = archive.dao.jobsForWork(scheduled.request.workId).firstOrNull { job -> job.chatId == scheduled.request.chatId && job.origin == scheduled.request.origin && job.authority == scheduled.request.authority && job.stage in dev.chungjungsoo.gptmobile.data.research.feature.ExaminationLifecycle.waiting }
+                    val existingJobs = archive.dao.jobsForWork(scheduled.request.workId).filter { job ->
+                        job.chatId == scheduled.request.chatId &&
+                            job.origin == scheduled.request.origin &&
+                            job.authority == scheduled.request.authority &&
+                            job.profileUid == examinerProfile.uid &&
+                            (scheduled.request.versionId == null || job.requestedVersionId == scheduled.request.versionId) &&
+                            runCatching { Json.decodeFromString<dev.chungjungsoo.gptmobile.data.research.feature.ExaminationCheckpoint>(job.checkpointJson).let { it.rootWorkId == scheduled.request.rootWorkId && it.parentRunId == scheduled.request.parentRunId } }.getOrDefault(false)
+                    }.sortedByDescending { it.updatedAt }
+                    val paused = existingJobs.firstOrNull()?.takeIf { it.stage == dev.chungjungsoo.gptmobile.data.research.feature.ExaminationStage.PAUSED }
+                    val waitReason = paused?.let(::examinationAutomaticWaitReason)
+                    if (waitReason != null) {
+                        archive.dao.outbox(row.copy(operation = Json.encodeToString(scheduled.copy(waitingReason = waitReason, waitingRevision = rowRevision))))
+                        continue
+                    }
+                    val waiting = existingJobs.firstOrNull { it.stage in dev.chungjungsoo.gptmobile.data.research.feature.ExaminationLifecycle.waiting }
                     if (waiting != null) {
                         val saved = runCatching { Json.decodeFromString<dev.chungjungsoo.gptmobile.data.research.feature.ExaminationCheckpoint>(waiting.checkpointJson) }.getOrNull()
                         if (saved?.failure?.retryable == true) pending = true
@@ -169,8 +184,9 @@ class ResearchExaminationWorker @AssistedInject constructor(
                     val stage = coordinator.awaitExecution(id)
                     if (stage in setOf(dev.chungjungsoo.gptmobile.data.research.feature.ExaminationStage.COMPLETE_FULL, dev.chungjungsoo.gptmobile.data.research.feature.ExaminationStage.COMPLETE_PARTIAL, dev.chungjungsoo.gptmobile.data.research.feature.ExaminationStage.ABSTRACT_ONLY, dev.chungjungsoo.gptmobile.data.research.feature.ExaminationStage.CANCELED)) {
                         archive.dao.acknowledge(row.id, row.createdAt)
-                    } else if (stage == dev.chungjungsoo.gptmobile.data.research.feature.ExaminationStage.PAUSED && archive.dao.job(id)?.terminalReason?.startsWith("Paused;") == true) {
-                        archive.dao.outbox(row.copy(operation = Json.encodeToString(scheduled.copy(waitingReason = "USER_PAUSED", waitingRevision = null))))
+                    } else if (stage == dev.chungjungsoo.gptmobile.data.research.feature.ExaminationStage.PAUSED) {
+                        val reason = archive.dao.job(id)?.let(::examinationAutomaticWaitReason)
+                        if (reason == null) pending = true else archive.dao.outbox(row.copy(operation = Json.encodeToString(scheduled.copy(waitingReason = reason, waitingRevision = rowRevision))))
                     } else if (stage == dev.chungjungsoo.gptmobile.data.research.feature.ExaminationStage.FAILED && archive.dao.job(id)?.checkpointJson?.let { saved -> runCatching { dev.chungjungsoo.gptmobile.data.research.feature.blocksUnchangedExaminationRetry(Json.decodeFromString<dev.chungjungsoo.gptmobile.data.research.feature.ExaminationCheckpoint>(saved).failure) }.getOrDefault(false) } == true) {
                         archive.dao.outbox(row.copy(operation = Json.encodeToString(scheduled.copy(waitingReason = "DETERMINISTIC_FAILURE", waitingRevision = rowRevision))))
                     } else if (stage in dev.chungjungsoo.gptmobile.data.research.feature.ExaminationLifecycle.waiting) {
@@ -186,7 +202,7 @@ class ResearchExaminationWorker @AssistedInject constructor(
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (failure: Exception) {
-                    if (configurationBlocked(failure)) {
+                    if (examinationConfigurationBlocked(failure)) {
                         val scheduled = Json.decodeFromString<ScheduledExamination>(row.operation)
                         archive.dao.outbox(row.copy(operation = Json.encodeToString(scheduled.copy(waitingReason = "WAITING_FOR_CONFIGURATION", waitingRevision = examinationConfigurationRevision(features, profiles, scheduled.request.chatId, scheduled.request.profileUid, scheduled.tools)))))
                     } else {
@@ -204,8 +220,6 @@ class ResearchExaminationWorker @AssistedInject constructor(
         archive.dao.trimUnexamined(settings.getFeatureSettings().researchFeature.unexaminedStudyLimit, System.currentTimeMillis())
         return finish(pending)
     }
-
-    private fun configurationBlocked(failure: Exception): Boolean = failure.message.orEmpty().let { it.contains("EXAMINER_OUTPUT_CAPACITY") || it.contains("Choose an enabled examination") || it.contains("consent") || it.contains("disabled") || it.contains("reviewer unavailable", true) || it.contains("REQUIRED_REVIEWER_UNAVAILABLE") || it.contains("policy changed", true) || it.contains("does not permit article retrieval") || it.contains("Article tools are excluded") || it.contains("Web-only scope") || it.contains("Increase Research Depth") || it.contains("Research is off") }
 
     companion object {
         private val lastReconciliation = java.util.concurrent.atomic.AtomicLong(Long.MIN_VALUE)

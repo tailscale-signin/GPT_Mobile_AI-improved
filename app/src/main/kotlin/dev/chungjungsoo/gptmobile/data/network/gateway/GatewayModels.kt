@@ -13,7 +13,9 @@ data class GatewayResponseMetadata(
     val requestId: String? = null,
     val version: String? = null,
     val progressProtocol: String? = null,
-    val singleflightRole: String? = null
+    val singleflightRole: String? = null,
+    val terminalStatus: String? = null,
+    val resultQuality: String? = null
 )
 
 /**
@@ -33,6 +35,7 @@ data class GatewayCapabilities(
     val protocols: List<String> = emptyList(),
     val gatewayVersion: String? = null,
     val contractVersion: Int? = null,
+    val instanceId: String? = null,
     val auth: GatewayAuthCapabilities? = null,
     val identityScope: String? = null,
     val desktop: GatewayDesktopCapabilities? = null,
@@ -90,7 +93,20 @@ data class GatewayJobResult(
     val resultQuality: String? = null,
     val error: String? = null,
     @SerialName("completed_at")
-    val completedAt: Long? = null
+    @Serializable(with = GatewayEpochSecondsSerializer::class)
+    val completedAt: Long? = null,
+    val result: dev.chungjungsoo.gptmobile.data.dto.openai.response.ChatCompletionChunk? = null,
+    val job: GatewaySavedJob? = null
+)
+
+@Serializable
+data class GatewaySavedJob(
+    val model: String? = null,
+    @SerialName("job_id") val jobId: String? = null,
+    @SerialName("execution_isolation_schema") val executionIsolationSchema: Int? = null,
+    @SerialName("execution_isolation_scope") val executionIsolationScope: String? = null,
+    @SerialName("execution_isolation") val executionIsolation: String? = null,
+    @SerialName("server_tools_allowed") val serverToolsAllowed: Boolean? = null
 )
 
 /**

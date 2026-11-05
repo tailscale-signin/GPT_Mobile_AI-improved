@@ -27,11 +27,25 @@ class ChunkedStudyReviewTest {
         assertTrue(interrupted.isFailure)
         assertEquals(4, parts.size)
         val before = parts.toMap()
-        val result = chunkedStudyReview("packet", outcome, listOf(passage), before, ::generate) { key, value -> parts[key] = value }
+        val result = resumeStudyReview("packet", before, complete = { error("A saved domain plan must not repeat the whole review") }, parts = {
+            chunkedStudyReview("packet", outcome, listOf(passage), before, ::generate) { key, value -> parts[key] = value }
+        })
         assertEquals(11, requests)
         assertEquals(5, result.reliability.size)
         assertEquals(5, result.accuracy.size)
         assertTrue(before.all { parts[it.key] == it.value })
         assertEquals(result, chunkedStudyReview("packet", outcome, listOf(passage), parts, generate = { error("Completed parts must not regenerate") }, commit = { _, _ -> error("No additional commit") }))
+    }
+
+    @Test fun anotherEvidencePacketCannotForceSavedPartRecovery() = runBlocking {
+        val value = StudyReviewArtifact("Uncertain effect", "Small sample", "primary", listOf("p"), emptyList(), emptyList())
+        val saved = mapOf(researchHash("old packet") + ":summary" to value)
+        assertEquals(value, resumeStudyReview("new packet", saved, complete = { value }, parts = { error("Unrelated source parts cannot be reused") }))
+    }
+
+    @Test fun cancellationNeverStartsSmallerReviewRequests() = runBlocking {
+        val cancelled = kotlinx.coroutines.CancellationException("OUTPUT_LIMIT during cancellation")
+        val failure = runCatching { resumeStudyReview("packet", emptyMap(), complete = { throw cancelled }, parts = { error("Cancellation must stop dispatch") }) }.exceptionOrNull()
+        assertTrue(failure === cancelled)
     }
 }

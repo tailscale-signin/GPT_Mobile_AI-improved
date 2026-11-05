@@ -16,7 +16,7 @@ internal class GitHubReviewCheckpoint(
     private val read: suspend (String) -> JsonObject?,
     private val write: suspend (String, JsonObject) -> Unit
 ) {
-    data class Saved(val draft: String, val receipts: List<String>, val blockedReason: String? = null, val inputLimit: Int? = null, val reviewerRevision: String = "")
+    data class Saved(val draft: String, val receipts: List<String>, val blockedReason: String? = null, val inputLimit: Int? = null, val reviewerRevision: String = "", val reviewed: Boolean = false)
     private val taskHash = researchHash(task)
     private suspend fun text(value: String): String {
         require(value.toByteArray().size <= 16 * 1024 * 1024)
@@ -58,6 +58,7 @@ internal class GitHubReviewCheckpoint(
         val refs = receipts.map { text(it) }
         val previous = read("active")
         val sameCandidate = previous?.get("task") == JsonPrimitive(taskHash) && previous["draft"] == JsonPrimitive(draftRef) && previous["receipts"] == JsonArray(refs.map(::JsonPrimitive)) && (previous["reviewer_revision"]?.jsonPrimitive?.content.orEmpty() == reviewerRevision)
+        val sameBudget = previous?.get("task") == JsonPrimitive(taskHash) && previous["receipts"] == JsonArray(refs.map(::JsonPrimitive)) && previous["reviewer_revision"]?.jsonPrimitive?.content.orEmpty() == reviewerRevision
         write(
             "active",
             buildJsonObject {
@@ -65,10 +66,15 @@ internal class GitHubReviewCheckpoint(
                 put("draft", draftRef)
                 put("receipts", JsonArray(refs.map(::JsonPrimitive)))
                 put("state", "PENDING")
+                put("generation_state", "COMPLETED")
+                put("review_state", "PENDING")
+                put("delivery_state", "AWAITING_REVIEW")
+                put("verdict_schema_version", GitHubReviewSchema.VERSION)
                 put("reviewer_revision", reviewerRevision)
                 put("review_requirements", JsonArray((listOf("ORIGINAL_TASK", "NONEMPTY_DRAFT", "REVIEW_INPUT_CAPACITY") + if (GitHubRequestCompletion.requiresRepositoryEvidence(task)) listOf("REPOSITORY_EVIDENCE") else emptyList()).map(::JsonPrimitive)))
                 inputLimit?.let { put("input_limit", it.coerceAtLeast(0)) }
                 put("format_retries", if (sameCandidate) (previous.get("format_retries") as? JsonPrimitive)?.intOrNull ?: 0 else 0)
+                put("review_passes", if (sameBudget) (previous.get("review_passes") as? JsonPrimitive)?.intOrNull ?: 0 else 0)
             }
         )
     }
@@ -92,7 +98,7 @@ internal class GitHubReviewCheckpoint(
     }
     suspend fun load(): Saved? {
         val row = read("active") ?: return null
-        if (row["task"] != JsonPrimitive(taskHash) || row["state"] !in setOf(JsonPrimitive("PENDING"), JsonPrimitive("BLOCKED"))) return null
+        if (row["task"] != JsonPrimitive(taskHash) || row["state"] !in setOf(JsonPrimitive("PENDING"), JsonPrimitive("BLOCKED"), JsonPrimitive("REVIEWED"))) return null
         val refs = row["receipts"]!!.jsonArray.also { require(it.size <= 4096) }
         var bytes = 0L
         val receipts = refs.map {
@@ -101,7 +107,7 @@ internal class GitHubReviewCheckpoint(
                 require(bytes <= 16 * 1024 * 1024)
             }
         }
-        return Saved(restore(row["draft"]!!.jsonPrimitive.content), receipts, row["failure_code"]?.jsonPrimitive?.content.takeIf { row["state"] == JsonPrimitive("BLOCKED") }, (row["input_limit"] as? JsonPrimitive)?.intOrNull, row["reviewer_revision"]?.jsonPrimitive?.content.orEmpty())
+        return Saved(restore(row["draft"]!!.jsonPrimitive.content), receipts, row["failure_code"]?.jsonPrimitive?.content.takeIf { row["state"] == JsonPrimitive("BLOCKED") }, (row["input_limit"] as? JsonPrimitive)?.intOrNull, row["reviewer_revision"]?.jsonPrimitive?.content.orEmpty(), row["state"] == JsonPrimitive("REVIEWED"))
     }
 
     /** Failure metadata is retained with the protected checkpoint even when verbose logging is disabled. */
@@ -110,9 +116,11 @@ internal class GitHubReviewCheckpoint(
         write(
             "active",
             JsonObject(
-                current + details + mapOf(
+                current + details.filterKeys { it !in CHECKPOINT_FIELDS } + mapOf(
                     "state" to JsonPrimitive(if (blocked) "BLOCKED" else "PENDING"),
                     "failure_code" to JsonPrimitive(code),
+                    "review_state" to JsonPrimitive(if (code == "GITHUB_REVIEW_INDETERMINATE") "INDETERMINATE" else "FAILED"),
+                    "delivery_state" to JsonPrimitive("WITHHELD"),
                     "failed_stage" to JsonPrimitive("answer_review"),
                     "retryable_without_new_evidence" to JsonPrimitive(!blocked || code == "GITHUB_REVIEW_INVALID_VERDICT" && ((current["format_retries"] as? JsonPrimitive)?.intOrNull ?: 0) == 0)
                 )
@@ -147,6 +155,27 @@ internal class GitHubReviewCheckpoint(
     }
     suspend fun completed() {
         val current = read("active") ?: return
-        write("active", JsonObject(current + ("state" to JsonPrimitive("COMPLETED"))))
+        write("active", JsonObject(current + mapOf("state" to JsonPrimitive("COMPLETED"), "delivery_state" to JsonPrimitive("VERIFIED_OR_EXECUTION_RESUMED"))))
+    }
+
+    /** A successful review is not delivery: deterministic claim verification still owns publication. */
+    suspend fun reviewed() {
+        val current = read("active") ?: return
+        write("active", JsonObject(current + mapOf("state" to JsonPrimitive("REVIEWED"), "review_state" to JsonPrimitive("PASS"), "delivery_state" to JsonPrimitive("AWAITING_FACT_VERIFICATION"))))
+    }
+
+    /** Claim before dispatch so restarts cannot silently replenish a failed review budget. */
+    suspend fun claimPass(maxPasses: Int): Boolean {
+        val current = read("active") ?: return false
+        if (current["task"] != JsonPrimitive(taskHash)) return false
+        val used = (current["review_passes"] as? JsonPrimitive)?.intOrNull ?: 0
+        if (used !in 0 until maxPasses) return false
+        write("active", JsonObject(current + ("review_passes" to JsonPrimitive(used + 1))))
+        return true
+    }
+
+    private companion object {
+        // Failure diagnostics must never replace the durable state that owns recovery.
+        val CHECKPOINT_FIELDS = setOf("task", "draft", "receipts", "reviewer_revision", "review_passes", "format_retries", "input_limit")
     }
 }

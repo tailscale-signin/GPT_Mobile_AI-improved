@@ -24,9 +24,11 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -39,7 +41,15 @@ import dev.chungjungsoo.gptmobile.R
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun GitHubSetupWelcome(onConnect: () -> Unit, onBack: () -> Unit) {
+internal fun GitHubSetupWelcome(
+    onConnect: () -> Unit,
+    onBack: () -> Unit,
+    isConnecting: Boolean = false,
+    error: String? = null,
+    clientId: String? = null,
+    onClientIdChange: (String) -> Unit = {},
+    onManageConnections: (() -> Unit)? = null
+) {
     Scaffold(
         topBar = {
             TopAppBar(
@@ -53,11 +63,26 @@ internal fun GitHubSetupWelcome(onConnect: () -> Unit, onBack: () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(24.dp)
         ) {
             GitHubSetupOverview(step = 1)
-            Text("Your repository. One AI partner.", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
-            Text("Ask for a status update, investigate a bug, or work through a change. Your selected AI keeps the conversation focused on this repository.", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Button(onClick = onConnect, modifier = Modifier.fillMaxWidth().height(56.dp), shape = RoundedCornerShape(18.dp)) {
+            Text("Welcome to GitHub", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
+            Text("Connect your GitHub API account, choose a repository and branch, then work with your selected AI profile. Your profile stays selected for every request and review.", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            clientId?.let { value ->
+                OutlinedTextField(
+                    value = value,
+                    onValueChange = onClientIdChange,
+                    label = { Text("GitHub OAuth client ID") },
+                    supportingText = { Text("Use the public client ID of your GitHub App with device flow enabled. Your password and client secret stay with GitHub.") },
+                    enabled = !isConnecting,
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+            error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }
+            Button(onClick = onConnect, enabled = !isConnecting, modifier = Modifier.fillMaxWidth().height(56.dp), shape = RoundedCornerShape(18.dp)) {
                 Icon(painterResource(R.drawable.ic_github_outline), null, Modifier.size(24.dp))
-                Text("Connect GitHub", Modifier.padding(start = 12.dp))
+                Text(if (isConnecting) "Connecting…" else "Connect GitHub", Modifier.padding(start = 12.dp))
+            }
+            onManageConnections?.let { open ->
+                TextButton(onClick = open, enabled = !isConnecting) { Text("Manage existing or enterprise connections") }
             }
             Text("Choose the repositories you want to share. You can review the connection and change your AI profile in GitHub settings.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
@@ -79,9 +104,9 @@ internal fun GitHubSetupOverview(step: Int) {
                 }
             }
             listOf(
-                Triple(Icons.Rounded.AccountTree, "Connect your account", "Sign in or use an existing API connection"),
+                Triple(Icons.Rounded.AccountTree, "Connect your account", "Authorize GitHub API access securely"),
                 Triple(Icons.Rounded.FolderOpen, "Choose a repository", "Pick the project and branch to work on"),
-                Triple(Icons.Rounded.SmartToy, "Select one AI", "Use your preferred local or online profile")
+                Triple(Icons.Rounded.SmartToy, "Select one AI", "Keep your selected local or online profile")
             ).forEachIndexed { index, (icon, title, description) ->
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
                     Icon(if (index + 1 < step) Icons.Rounded.Check else icon, null, Modifier.size(24.dp), tint = if (index + 1 <= step) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)

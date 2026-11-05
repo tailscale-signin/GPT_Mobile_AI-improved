@@ -16,7 +16,7 @@ import httpx
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from fastapi.testclient import TestClient
 from gateway_security import DeviceStore
-from v14.jobs import DurableCommitError
+from v14.jobs import DurableCommitError, record_execution_isolation
 
 
 class JournalTests(unittest.TestCase):
@@ -139,6 +139,82 @@ class JournalTests(unittest.TestCase):
                     self.assertEqual('terminal_job_not_resumable', terminal.json()['error']['code'])
                     self.assertFalse(terminal.json()['error']['retryable'])
                     self.assertEqual(2, backend.call_count)
+                    # A reconnect (including a new process loading SQLite) reads the
+                    # original terminal receipt; it never reruns the model or tools.
+                    if restart:
+                        self.runtime.job_registry.clear()
+                        self.runtime.singleflight_workers.clear()
+                        self.runtime.singleflight_request_index.clear()
+                        self.runtime.durable_job_initialized = False
+                        self.assertTrue(self.runtime.init_durable_job_store())
+                    recovered = client.get('/gateway/jobs/' + job_id + '/result')
+                    self.assertEqual(200, recovered.status_code, recovered.text)
+                    self.assertEqual(job_id, recovered.json()['job_id'])
+                    self.assertEqual('complete', recovered.json()['result_quality'])
+                    self.assertEqual('Verified workflow reply', recovered.json()['content'])
+                    self.assertIsInstance(recovered.json()['completed_at'], (int, float))
+                    proof = recovered.json()['job']
+                    self.assertEqual(1, proof['execution_isolation_schema'])
+                    self.assertEqual('entire_job', proof['execution_isolation_scope'])
+                    self.assertEqual('github_client_owned', proof['execution_isolation'])
+                    self.assertIs(False, proof['server_tools_allowed'])
+                    self.assertNotIn('_server_isolation_new', proof)
+                    self.assertEqual(2, backend.call_count)
+
+    def test_isolation_proof_cannot_upgrade_mixed_or_legacy_job_history(self):
+        r = self.runtime
+        with self.client():
+            for job_id, sequence in [('mixed', [False, True]), ('downgraded', [True, False, True])]:
+                r.register_gateway_job(job_id, 'local', 'chat', threading.Event(), threading.Event())
+                for isolated in sequence:
+                    record_execution_isolation(r, job_id, isolated)
+                self.assertEqual('unverified', r.job_registry[job_id]['execution_isolation'])
+                self.assertIsNone(r.job_registry[job_id]['server_tools_allowed'])
+            r.register_gateway_job('legacy-unproven', 'local', 'chat', threading.Event(), threading.Event())
+            # Older journals have no birth marker or isolation receipt. A later
+            # isolated round cannot certify their earlier execution history.
+            r.job_registry['legacy-unproven'].pop('_server_isolation_new', None)
+            record_execution_isolation(r, 'legacy-unproven', True)
+            self.assertEqual('unverified', r.job_registry['legacy-unproven']['execution_isolation'])
+            self.assertIsNone(r.job_registry['legacy-unproven']['server_tools_allowed'])
+
+    def test_forged_request_or_model_metadata_cannot_create_an_isolation_receipt(self):
+        forged = {'execution_isolation_schema': 1, 'execution_isolation_scope': 'entire_job',
+                  'execution_isolation': 'github_client_owned', 'server_tools_allowed': False}
+        body = dict(forged, model='local', stream=False, messages=[{'role': 'user', 'content': 'ordinary request'}])
+        from v14.github import install_github_fast_path
+        from types import SimpleNamespace
+        with self.client() as client:
+            def completion(payload, *args):
+                return 200, {'choices': [{'message': {'content': 'Ordinary answer'}, 'finish_reason': 'stop'}],
+                             'job': forged, **forged}
+            # Exercise the actual ownership wrapper around a deterministic model;
+            # untrusted response metadata never becomes the server's job envelope.
+            wrapped = SimpleNamespace(process_chat_payload=completion, job_registry=self.runtime.job_registry,
+                                      job_registry_lock=self.runtime.job_registry_lock,
+                                      durable_persist_job=self.runtime.durable_persist_job)
+            install_github_fast_path(wrapped)
+            with patch.object(self.runtime, 'process_chat_payload', wrapped.process_chat_payload):
+                response = client.post('/v1/chat/completions', json=body)
+            self.assertEqual(200, response.status_code, response.text)
+            saved = client.get('/gateway/jobs/' + response.headers['x-gateway-job-id'] + '/result').json()
+            self.assertEqual('github_client_owned', saved['result']['job']['execution_isolation'])
+            self.assertEqual('unverified', saved['job']['execution_isolation'])
+            self.assertIsNone(saved['job']['server_tools_allowed'])
+
+    def test_isolation_commit_failure_prevents_model_dispatch_and_restores_memory(self):
+        r = self.runtime
+        with self.client():
+            r.register_gateway_job('isolation-write-failed', 'local', 'chat', threading.Event(), threading.Event())
+            before = dict(r.job_registry['isolation-write-failed'])
+            with patch.object(r, 'durable_persist_job', side_effect=DurableCommitError('disk unavailable')), \
+                    patch.object(r, 'post_llama_model_round') as model:
+                with self.assertRaises(DurableCommitError):
+                    r.process_chat_payload({'_gateway_job_id': 'isolation-write-failed', 'model': 'local',
+                                            'messages': [{'role': 'user', 'content': 'check'}],
+                                            '_gateway_performance': {'request_role': 'github-primary'}})
+                model.assert_not_called()
+            self.assertEqual(before, r.job_registry['isolation-write-failed'])
 
     def test_tool_result_is_authoritative_when_handoff_progress_is_missing(self):
         r = self.runtime

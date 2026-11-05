@@ -45,6 +45,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -91,7 +92,8 @@ fun GitHubWorkspaceScreen(
     initialContext: dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext? = null,
     newConversation: Boolean = false,
     onReviewEvidenceAccess: () -> Unit = {},
-    onNavigateToLocalModels: () -> Unit = {}
+    onNavigateToLocalModels: () -> Unit = {},
+    onManageProfiles: () -> Unit = {}
 ) {
     androidx.compose.runtime.DisposableEffect(Unit) {
         val release = dev.chungjungsoo.gptmobile.data.diagnostics.FrameTimingRecorder.screen("GitHubWorkspace")
@@ -124,8 +126,8 @@ fun GitHubWorkspaceScreen(
     LaunchedEffect(connection.connectionUid, initialProfileUid, initialChatId) {
         programmer.configureSession(initialProfileUid, initialChatId, newConversation)
     }
-    LaunchedEffect(commandContext, programmerState.draftLoaded, programmerState.chatId, state.busy) {
-        if (!state.busy && commandContext != null && programmerState.draftLoaded && programmerState.chatId == null) programmer.ensureConversation()
+    LaunchedEffect(commandContext, programmerState.draftLoaded, programmerState.chatId, state.busy, state.setupRequired) {
+        if (!state.busy && !state.setupRequired && commandContext != null && programmerState.draftLoaded && programmerState.chatId == null) programmer.ensureConversation()
     }
     val commitReview: dev.chungjungsoo.gptmobile.presentation.ui.workspace.GitHubReviewViewModel = hiltViewModel()
     LaunchedEffect(commandContext) {
@@ -209,7 +211,7 @@ fun GitHubWorkspaceScreen(
                     TopAppBar(
                         title = {
                             Column {
-                                Text(state.selection?.fullName ?: "GitHub Workspace", style = MaterialTheme.typography.titleLarge.copy(fontSize = MaterialTheme.typography.titleLarge.fontSize * 0.7f), color = MaterialTheme.colorScheme.primary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(state.selection?.fullName ?: "Set up GitHub", style = MaterialTheme.typography.titleLarge.copy(fontSize = MaterialTheme.typography.titleLarge.fontSize * 0.7f), color = MaterialTheme.colorScheme.primary, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 Text(
                                     state.selection?.ref ?: connection.name,
                                     style = MaterialTheme.typography.labelSmall,
@@ -226,13 +228,13 @@ fun GitHubWorkspaceScreen(
             },
             bottomBar = {}
         ) { padding ->
-            Column(Modifier.fillMaxSize().padding(padding).then(if (state.selection == null) Modifier.verticalScroll(setupScroll) else Modifier)) {
-                if (state.selection == null) {
+            Column(Modifier.fillMaxSize().padding(padding).then(if (state.selection == null || state.setupRequired) Modifier.verticalScroll(setupScroll) else Modifier)) {
+                if (state.selection == null || state.setupRequired) {
                     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
-                        GitHubSetupOverview(step = 2)
+                        GitHubSetupOverview(step = if (state.selection == null) 2 else 3)
                     }
                 }
-                if (tab == 5 || state.selection == null) {
+                if (tab == 5 || state.selection == null || state.setupRequired) {
                     Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
                         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             state.recoveryRepository?.let { repository ->
@@ -320,11 +322,27 @@ fun GitHubWorkspaceScreen(
                                 Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                                 OutlinedButton(onClick = viewModel::clearError) { Text("Dismiss") }
                             }
+                            if (state.setupRequired) {
+                                GitHubProfilePicker(visibleProgrammer.profiles, visibleProgrammer.selectedProfileUid ?: visibleProgrammer.profileUid ?: initialProfileUid, programmer::selectProfile)
+                                Text("Your selected AI profile handles every GitHub request and review. You can change it explicitly in GitHub settings.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                TextButton(onClick = onManageProfiles, enabled = !state.busy) {
+                                    Text(if (visibleProgrammer.profiles.isEmpty()) "Add an AI profile" else "Manage AI profiles")
+                                }
+                                Button(
+                                    onClick = viewModel::completeSetup,
+                                    enabled = !state.busy && state.error == null && state.selection != null && state.headSha.isNotBlank() && visibleProgrammer.profileUid != null,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) { Text("Open GitHub chat") }
+                            }
+                            if (state.busy && (state.selection == null || state.setupRequired)) {
+                                androidx.compose.material3.LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                                Text("Loading your GitHub selection…", style = MaterialTheme.typography.bodySmall)
+                            }
                             state.notice?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.heightIn(max = 72.dp).verticalScroll(rememberScrollState())) }
                         }
                     }
                 }
-                if (state.selection == null) return@Column
+                if (state.selection == null || state.setupRequired) return@Column
                 if (tab != 5) {
                     listOfNotNull(state.error, visibleProgrammer.error).distinct().joinToString("\n").takeIf(String::isNotBlank)?.let { error ->
                         Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall, modifier = Modifier.fillMaxWidth().heightIn(max = 80.dp).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp))
@@ -543,21 +561,35 @@ fun GitHubWorkspaceScreen(
                                 }
                             }
                             2 -> {
-                                dev.chungjungsoo.gptmobile.presentation.ui.workspace.GitHubWorkflowExecutionPanel(
-                                    state = visibleProgrammer,
-                                    onRecovery = { request ->
-                                        recoveryRequest = request
-                                        tab = 3
-                                    },
-                                    onExport = {
-                                        exportChatId = visibleProgrammer.chatId
-                                        tab = 3
-                                    }
+                                var taskDetailsOpen by rememberSaveable(state.selection?.fullName, visibleProgrammer.chatId) { mutableStateOf(false) }
+                                var allPullsOpen by rememberSaveable(state.selection?.fullName) { mutableStateOf(false) }
+                                GitHubRepositoryStatusPanel(
+                                    connection,
+                                    requireNotNull(state.selection),
+                                    state.pullRequests,
+                                    viewModel::loadPullRequests,
+                                    chatId = visibleProgrammer.chatId,
+                                    profile = visibleProgrammer.profiles.singleOrNull { it.uid == commandContext?.mainProfileUid }
                                 )
-                                visibleProgrammer.chatId?.let { GitHubChatChecks(it, expanded = true) }
-                                GitHubRepositoryStatusPanel(connection, requireNotNull(state.selection), state.pullRequests, viewModel::loadPullRequests, chatId = visibleProgrammer.chatId)
+                                OutlinedButton(onClick = { taskDetailsOpen = !taskDetailsOpen }, modifier = Modifier.fillMaxWidth()) {
+                                    Text(if (taskDetailsOpen) "Hide task details" else "Task details")
+                                }
+                                if (taskDetailsOpen) {
+                                    dev.chungjungsoo.gptmobile.presentation.ui.workspace.GitHubWorkflowExecutionPanel(
+                                        state = visibleProgrammer,
+                                        onRecovery = { request ->
+                                            recoveryRequest = request
+                                            tab = 3
+                                        },
+                                        onExport = {
+                                            exportChatId = visibleProgrammer.chatId
+                                            tab = 3
+                                        }
+                                    )
+                                    visibleProgrammer.chatId?.let { GitHubChatChecks(it, expanded = true) }
+                                }
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text("Live status", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                                    Text("Pull requests", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
                                     IconButton(onClick = viewModel::loadPullRequests, enabled = !state.busy) { Icon(Icons.Rounded.Refresh, "Refresh pull requests") }
                                     IconButton(onClick = { createPr = !createPr }, enabled = state.canWrite) { Icon(if (createPr) Icons.Rounded.Close else Icons.Rounded.Add, "Create draft pull request") }
                                 }
@@ -568,7 +600,7 @@ fun GitHubWorkspaceScreen(
                                     Button(onClick = { viewModel.createPullRequest(prTitle, prBody) }, enabled = state.canWrite && canNavigate && state.selection?.ref != state.defaultBranch && prTitle.isNotBlank()) { Text("Create draft pull request") }
                                 }
                                 if (state.pullRequests.isEmpty() && !state.busy) WorkspaceEmpty(Icons.Rounded.AccountTree, "No pull requests loaded", "Refresh to see the repository's open requests, or create a draft from your working branch.")
-                                state.pullRequests.forEach { pr ->
+                                (if (allPullsOpen) state.pullRequests else state.pullRequests.take(3)).forEach { pr ->
                                     Surface(onClick = { viewModel.inspectPullRequest(pr.text("number").toInt()) }, enabled = !state.busy, shape = RoundedCornerShape(18.dp), color = MaterialTheme.colorScheme.surfaceContainerLow, modifier = Modifier.fillMaxWidth()) {
                                         Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                             GitHubStatusLight(pr.text("check_state"))
@@ -581,7 +613,12 @@ fun GitHubWorkspaceScreen(
                                         }
                                     }
                                 }
-                                if (state.morePullRequests) OutlinedButton(onClick = viewModel::morePullRequests, enabled = !state.busy) { Text("Load more pull requests") }
+                                if (state.pullRequests.size > 3) {
+                                    TextButton(onClick = { allPullsOpen = !allPullsOpen }) {
+                                        Text(if (allPullsOpen) "Show fewer pull requests" else "Show all ${state.pullRequests.size} pull requests")
+                                    }
+                                }
+                                if (state.morePullRequests && (allPullsOpen || state.pullRequests.size <= 3)) OutlinedButton(onClick = viewModel::morePullRequests, enabled = !state.busy) { Text("Load more pull requests") }
                                 OutlinedButton(onClick = viewModel::refreshVisibleChecks, enabled = !state.busy && state.pullRequests.isNotEmpty()) { Text("Refresh checks for first 5 PRs") }
                                 state.pullDetail?.let { WorkspaceCode(it) }
                                 if (state.pullPackage?.get("files_continuation") != null) OutlinedButton(onClick = { viewModel.continuePullReview() }, enabled = !state.busy) { Text("Next changed files") }

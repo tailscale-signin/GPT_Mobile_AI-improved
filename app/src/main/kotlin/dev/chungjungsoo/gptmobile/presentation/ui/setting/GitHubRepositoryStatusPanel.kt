@@ -10,6 +10,14 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.AccountTree
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.OpenInNew
+import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -17,19 +25,23 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.repeatOnLifecycle
+import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection
 import dev.chungjungsoo.gptmobile.data.github.GitHubLiveProcess
 import dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryContext
@@ -52,7 +64,7 @@ internal fun GitHubStatusLight(status: String, modifier: Modifier = Modifier) {
 }
 
 @Composable
-internal fun GitHubRepositoryStatusPanel(connection: ToolConnection, selection: GitHubRepositoryContext, pulls: List<JsonObject>, refreshPulls: () -> Unit, chatId: Int? = null, model: GitHubLiveStatusViewModel = hiltViewModel()) {
+internal fun GitHubRepositoryStatusPanel(connection: ToolConnection, selection: GitHubRepositoryContext, pulls: List<JsonObject>, refreshPulls: () -> Unit, chatId: Int? = null, profile: PlatformV2? = null, model: GitHubLiveStatusViewModel = hiltViewModel()) {
     val state by model.state.collectAsStateWithLifecycle()
     val currentPulls by androidx.compose.runtime.rememberUpdatedState(pulls)
     val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -71,7 +83,8 @@ internal fun GitHubRepositoryStatusPanel(connection: ToolConnection, selection: 
     val uri = androidx.compose.ui.platform.LocalUriHandler.current
     var selectedRun by remember(selection) { androidx.compose.runtime.mutableStateOf<String?>(null) }
     var query by remember { androidx.compose.runtime.mutableStateOf("") }
-    var details by remember { androidx.compose.runtime.mutableStateOf(false) }
+    var details by remember { mutableStateOf(false) }
+    var searching by remember { mutableStateOf(false) }
     var confirmation by remember { androidx.compose.runtime.mutableStateOf<Pair<GitHubLiveProcess, String>?>(null) }
     fun open(url: String) {
         if (url.startsWith("https://github.com/")) uri.openUri(url)
@@ -90,31 +103,29 @@ internal fun GitHubRepositoryStatusPanel(connection: ToolConnection, selection: 
             dismissButton = { androidx.compose.material3.TextButton(onClick = { confirmation = null }) { Text("Back") } }
         )
     }
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("Repository status", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            listOf("ACTIVE" to "Active", "CURRENT" to "Current revision", "HISTORY" to "History").forEach { (value, label) ->
-                androidx.compose.material3.FilterChip(selected = state.filter == value, onClick = { model.filter(value) }, label = { Text(label) })
+    val summary = gitHubStatusSummary(state, now)
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        GitHubRepositoryStatusSummary(selection, summary, pulls.size, profile?.name, model::refresh) { open("https://github.com/${selection.fullName}/actions") }
+        profile?.let { GitHubGatewayStatusPanel(it, now) }
+        state.notice?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text("Checks", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+            if (summary.other > 0) Text("${summary.other} unverified", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            IconButton(onClick = {
+                searching = !searching
+                if (!searching) query = ""
+            }) { Icon(if (searching) Icons.Rounded.Close else Icons.Rounded.Search, if (searching) "Close check search" else "Find a check", Modifier.size(20.dp)) }
+        }
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            listOf("CURRENT" to "Current", "ACTIVE" to "Running", "HISTORY" to "Recent").forEach { (value, label) ->
+                androidx.compose.material3.FilterChip(selected = state.filter == value, onClick = {
+                    selectedRun = null
+                    model.filter(value)
+                }, label = { Text(label) })
             }
         }
-        Text("Showing ${state.rows.count { it.parentId == null }} of ${state.total?.toString() ?: "unknown total"} runs · ${state.phase.lowercase()}", style = MaterialTheme.typography.bodySmall, modifier = Modifier.semantics { liveRegion = androidx.compose.ui.semantics.LiveRegionMode.Polite })
-        state.error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
-        state.notice?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
-        Row {
-            androidx.compose.material3.TextButton(onClick = model::refresh) { Text("Retry refresh") }
-            androidx.compose.material3.TextButton(onClick = { open("https://github.com/${selection.fullName}/actions") }) { Text("Open GitHub") }
-        }
-        if (state.rows.isEmpty()) {
-            Text(
-                when (state.phase) {
-                    "LOADING" -> "Loading workflow results…"
-                    "EMPTY" -> "No runs match this filter."
-                    else -> "No results available. Retry refresh when access is restored."
-                }
-            )
-        }
-        androidx.compose.material3.OutlinedTextField(value = query, onValueChange = { query = it }, label = { Text("Filter loaded runs, jobs and steps") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-        GitHubStatusOverview(pulls, state.rows.filter { query.isBlank() || it.title.contains(query, true) || it.status.contains(query, true) }, selection.ref, state.phase in setOf("STALE", "OFFLINE", "AUTHORIZATION"), ::open) { row ->
+        if (searching) androidx.compose.material3.OutlinedTextField(value = query, onValueChange = { query = it }, label = { Text("Find a check") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        GitHubStatusOverview(pulls, state.rows.filter { query.isBlank() || it.title.contains(query, true) || it.status.contains(query, true) }, selection.ref, summary.stale, ::open) { row ->
             selectedRun = row.id
             if (row.id !in state.expanded) model.expand(row.id)
         }
@@ -174,20 +185,53 @@ internal fun GitHubRepositoryStatusPanel(connection: ToolConnection, selection: 
                 }
             }
         }
-        if (state.hasMore) androidx.compose.material3.TextButton(onClick = model::more) { Text("Load more runs · results incomplete") }
-        state.checkedAt?.let { Text("Updated ${githubElapsedTime(it, now)} ago · ${pulls.size} PRs loaded", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-        if (state.nextCheckAt > 0) Text("Next check after ${java.text.DateFormat.getTimeInstance().format(java.util.Date(state.nextCheckAt))}", style = MaterialTheme.typography.bodySmall)
+        if (state.hasMore) androidx.compose.material3.TextButton(onClick = model::more) { Text("More checks") }
+        state.checkedAt?.let { Text("Loaded results · updated ${githubElapsedTime(it, now)} ago", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
         val remoteActivity = state.rows.filter { it.parentId == null }.map { row -> GitHubActivityItem("run:${row.id}:${row.attempt}", row.started ?: 0, "${row.title} · ${row.status} · attempt ${row.attempt}", "Revision ${row.headSha}", row.url) } + pulls.map { pr ->
             GitHubActivityItem("pr:${pr.text("number")}", runCatching { java.time.Instant.parse(pr.text("updated_at").ifBlank { pr.text("created_at") }).toEpochMilli() }.getOrDefault(0), "PR #${pr.text("number")}: ${pr.text("title")} · ${pr.text("state")}", "Current loaded PR observation", pr.text("html_url"))
         }
         GitHubActivityPanel(connection, selection, chatId, remoteActivity)
-        androidx.compose.material3.TextButton(onClick = { details = !details }) { Text(if (details) "Hide integration health" else "Integration health and measurements") }
+        GitHubStatusDisclosure("Connection details", details, { details = !details }, if (state.error != null) "Needs attention" else null)
         if (details) {
+            state.error?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
+            Text("${state.rows.count { it.parentId == null }} loaded runs · ${state.total?.toString() ?: "total not measured"}. Missing or skipped checks are not a pass.", style = MaterialTheme.typography.bodySmall)
+            if (state.nextCheckAt > 0) Text("Next refresh ${java.text.DateFormat.getTimeInstance().format(java.util.Date(state.nextCheckAt))}", style = MaterialTheme.typography.bodySmall)
             state.health.forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
             state.metrics?.let { metrics ->
                 listOf("physical_requests", "cache_hits", "queued_requests", "singleflight_joins", "downloaded_bytes", "queue_wait_total_ms", "queue_wait_max_ms").forEach { key -> Text("${key.replace('_', ' ')}: ${metrics[key] ?: "Not measured"}", style = MaterialTheme.typography.bodySmall) }
             }
             Text("First response, token use, verification time and task completion rate: see conversation diagnostics. No estimates are substituted.", style = MaterialTheme.typography.bodySmall)
         }
+    }
+}
+
+@Composable
+internal fun GitHubRepositoryStatusSummary(selection: GitHubRepositoryContext, summary: GitHubStatusSummary, pullCount: Int, profileName: String?, onRefresh: () -> Unit, onOpen: () -> Unit) {
+    Column(Modifier.fillMaxWidth().testTag("github_status_summary"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Surface(shape = RoundedCornerShape(28.dp), color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = .32f), border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = .16f)), modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text("AT A GLANCE", Modifier.weight(1f), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                    GitHubStatusBadge(summary.badge, if (summary.stale) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary)
+                    IconButton(onClick = onRefresh) { Icon(Icons.Rounded.Refresh, "Refresh repository status", Modifier.size(20.dp)) }
+                }
+                Text(summary.headline, style = MaterialTheme.typography.headlineSmall, modifier = Modifier.semantics { liveRegion = androidx.compose.ui.semantics.LiveRegionMode.Polite })
+                Text(selection.fullName, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Icon(Icons.Rounded.AccountTree, null, Modifier.size(15.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(selection.ref, Modifier.weight(1f), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    IconButton(onClick = onOpen) { Icon(Icons.Rounded.OpenInNew, "Open repository on GitHub", Modifier.size(18.dp)) }
+                }
+                profileName?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+            }
+        }
+        GitHubStatusMetricPair(
+            { GitHubStatusMetric("Passing", if (summary.measured) summary.passed.toString() else "Not measured", githubCheckColor("Passed"), it) },
+            { GitHubStatusMetric("Running", if (summary.measured) summary.running.toString() else "Not measured", MaterialTheme.colorScheme.primary, it) }
+        )
+        GitHubStatusMetricPair(
+            { GitHubStatusMetric("Needs attention", if (summary.measured) summary.failed.toString() else "Not measured", MaterialTheme.colorScheme.error, it) },
+            { GitHubStatusMetric("Pull requests", pullCount.toString(), MaterialTheme.colorScheme.secondary, it) }
+        )
     }
 }

@@ -1,9 +1,11 @@
 package dev.chungjungsoo.gptmobile.data.context
 
 import dev.chungjungsoo.gptmobile.data.network.LocalEndpointConnectionPolicy
+import dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth
 import dev.chungjungsoo.gptmobile.data.network.NetworkClient
 import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
 import dev.chungjungsoo.gptmobile.data.network.boundedMetadata
+import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayClientDiagnostics
 import dev.chungjungsoo.gptmobile.data.research.researchHash
 import io.ktor.client.call.body
 import io.ktor.client.request.bearerAuth
@@ -36,11 +38,14 @@ internal class LlamaCapacityRepository(private val client: () -> io.ktor.client.
     private val reasoningCache = RouteCapabilityCache<ReasoningTemplateControl>(now)
     private val schemaCache = RouteCapabilityCache<Boolean>(now, negativeTtl = 60_000L)
 
+    private fun routeRevision(config: ProviderRequestConfig, model: String): String =
+        "${config.profileUid}|${GatewayClientDiagnostics.routeIdentity(config)}|$model|${LocalServiceHealth.networkEpoch}|${GatewayClientDiagnostics.capabilityEpoch(config)}"
+
     suspend fun discover(config: ProviderRequestConfig, model: String): CapacitySnapshot? = metadata(config, model)?.capacity
 
     private suspend fun metadata(config: ProviderRequestConfig, model: String): Metadata? {
         val route = config.apiUrl.trim().trimEnd('/')
-        val identity = researchHash("${config.profileUid}|$route|${researchHash(config.token.orEmpty())}|$model")
+        val identity = researchHash(routeRevision(config, model))
         return cache.getOrLoad(identity) {
             try {
                 withTimeoutOrNull(5000L) {
@@ -50,10 +55,12 @@ internal class LlamaCapacityRepository(private val client: () -> io.ktor.client.
                     val (response, body) = LocalEndpointConnectionPolicy.probe(config.apiUrl) {
                         val response = client().get(endpoint) {
                             config.token?.takeIf { it.isNotBlank() }?.let { bearerAuth(it) }
+                            GatewayClientDiagnostics.requestHeaders(config).forEach { (name, value) -> header(name, value) }
                             parameter("model", model)
                             parameter("autoload", "false")
                             if (LocalEndpointConnectionPolicy.freshConnection(config.apiUrl)) header(HttpHeaders.Connection, "close")
                         }
+                        GatewayClientDiagnostics.observe(config, response.status.value) { response.headers[it] }
                         response to response.boundedMetadata(1_000_000)
                     }
                     if (response.status.value != 200) return@withTimeoutOrNull null
@@ -72,7 +79,7 @@ internal class LlamaCapacityRepository(private val client: () -> io.ktor.client.
     suspend fun reasoningControl(config: ProviderRequestConfig, model: String, capacity: CapacitySnapshot): ReasoningTemplateControl? {
         val metadata = metadata(config, model) ?: return null
         if (metadata.capacity.fingerprint != capacity.fingerprint || !metadata.buildKnown) return null
-        return reasoningCache.getOrLoad(researchHash(capacity.fingerprint.toString())) {
+        return reasoningCache.getOrLoad(researchHash("${routeRevision(config, model)}|${capacity.fingerprint}")) {
             try {
                 withTimeoutOrNull(5000L) {
                     // Probe a synthetic prompt only, on the configured route, without loading a model.
@@ -95,20 +102,28 @@ internal class LlamaCapacityRepository(private val client: () -> io.ktor.client.
         }
     }
 
-    suspend fun supportsReviewSchema(config: ProviderRequestConfig, model: String, capacity: CapacitySnapshot): Boolean =
-        schemaCache.getOrLoad(researchHash(capacity.fingerprint.toString())) {
+    suspend fun supportsReviewSchema(config: ProviderRequestConfig, model: String, capacity: CapacitySnapshot? = null): Boolean =
+        schemaCache.getOrLoad(researchHash("${routeRevision(config, model)}|${capacity?.fingerprint}|${dev.chungjungsoo.gptmobile.data.github.GitHubReviewSchema.VERSION}")) {
             try {
                 withTimeoutOrNull(10_000L) {
-                    val control = reasoningControl(config, model, capacity)
+                    val control = capacity?.let { reasoningControl(config, model, it) }
                     val response = client().post(config.apiUrl.trim().trimEnd('/').removeSuffix("/v1") + "/v1/chat/completions") {
                         config.token?.takeIf { it.isNotBlank() }?.let { bearerAuth(it) }
+                        // This is an independent synthetic inference, never a continuation
+                        // of the user's retained gateway job or idempotency identity.
+                        val headers = GatewayClientDiagnostics.requestHeaders(config)
+                        val identities = setOf("x-gateway-job-id", "x-gateway-request-id", "x-gateway-attempt-id", "x-request-id", "idempotency-key", "x-idempotency-key")
+                        headers.filterKeys { it.lowercase() !in identities }.forEach { (name, value) -> header(name, value) }
+                        if (headers.keys.any { it.equals("X-Gateway-Attempt-ID", true) }) header("X-Gateway-Attempt-ID", java.util.UUID.randomUUID().toString())
+                        parameter("autoload", "false")
                         contentType(ContentType.Application.Json)
                         if (LocalEndpointConnectionPolicy.freshConnection(config.apiUrl)) header(HttpHeaders.Connection, "close")
                         setBody(
                             buildJsonObject {
                                 put("model", model)
                                 put("stream", false)
-                                put("max_tokens", 64)
+                                put("max_tokens", 256)
+                                put("tool_choice", "none")
                                 put(
                                     "messages",
                                     JsonArray(
@@ -125,6 +140,7 @@ internal class LlamaCapacityRepository(private val client: () -> io.ktor.client.
                             }.toString()
                         )
                     }
+                    GatewayClientDiagnostics.observe(config, response.status.value) { response.headers[it] }
                     val body = response.boundedMetadata(64 * 1024)
                     if (response.status.value != 200) return@withTimeoutOrNull null
                     val root = Json.parseToJsonElement(body) as? JsonObject ?: return@withTimeoutOrNull null
@@ -146,6 +162,7 @@ internal class LlamaCapacityRepository(private val client: () -> io.ktor.client.
         val response = LocalEndpointConnectionPolicy.probe(config.apiUrl) {
             client().post(endpoint) {
                 config.token?.takeIf { it.isNotBlank() }?.let { bearerAuth(it) }
+                GatewayClientDiagnostics.requestHeaders(config).forEach { (name, value) -> header(name, value) }
                 parameter("model", model)
                 parameter("autoload", "false")
                 if (LocalEndpointConnectionPolicy.freshConnection(config.apiUrl)) header(HttpHeaders.Connection, "close")
@@ -168,7 +185,10 @@ internal class LlamaCapacityRepository(private val client: () -> io.ktor.client.
                         put("add_generation_prompt", true)
                     }.toString()
                 )
-            }.also { it.body<String>() }
+            }.also {
+                GatewayClientDiagnostics.observe(config, it.status.value) { name -> it.headers[name] }
+                it.body<String>()
+            }
         }
         if (response.status.value != 200) return null
         val body = response.body<String>()

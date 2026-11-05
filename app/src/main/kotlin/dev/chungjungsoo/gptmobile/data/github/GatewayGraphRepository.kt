@@ -5,6 +5,7 @@ import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import dev.chungjungsoo.gptmobile.data.repository.ToolConnectionRepository
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 
@@ -15,6 +16,18 @@ class GatewayGraphRepository @Inject constructor(
     private val connections: ToolConnectionRepository,
     private val client: GatewayEngineeringClient
 ) {
+    /** Read-only admission for a plan that requires a graph; the same route/identity cache serves execution. */
+    suspend fun readiness(context: GitHubConversationContext): String? = try {
+        client.requireGraphReady(settings.engineeringGateway(context.mainProfileUid).engineeringConfig())
+        null
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (failure: IllegalStateException) {
+        failure.message ?: "The selected gateway repository graph service is unavailable."
+    } catch (_: Exception) {
+        "The selected gateway repository graph readiness check could not complete. Check its connection and engineering service status."
+    }
+
     suspend fun execute(context: GitHubConversationContext, arguments: JsonObject): JsonObject {
         val connection = requireNotNull(connections.getConnection(context.connectionUid)) { "The GitHub connection was removed." }
         val profile = settings.fetchPlatformV2s().singleOrNull { it.uid == context.mainProfileUid }
@@ -33,7 +46,7 @@ class GatewayGraphRepository @Inject constructor(
         check(connection.type == "GITHUB") { "The selected connection is not GitHub." }
         val gateway = settings.engineeringGateway(selected.uid)
         val config = gateway.engineeringConfig()
-        val principal = client.principal(config)
+        val principal = client.requireGraphReady(config)
         val payload = boundRequest(context, arguments)
         val result = client.graph(config, payload)
         check(
@@ -45,7 +58,7 @@ class GatewayGraphRepository @Inject constructor(
                         live.isToolPluginEnabledForProfile(selected.uid, ToolPluginId.connection(context.connectionUid))
                 } &&
                 settings.engineeringGateway(selected.uid) == gateway &&
-                client.principal(config) == principal
+                client.requireGraphReady(config) == principal
         ) { "The graph connection or permissions changed. Reopen the repository map." }
         return result
     }

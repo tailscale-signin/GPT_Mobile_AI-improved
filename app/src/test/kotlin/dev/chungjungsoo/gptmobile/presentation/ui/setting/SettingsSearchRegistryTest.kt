@@ -21,6 +21,11 @@ class SettingsSearchRegistryTest {
         }
     }
 
+    @Test fun githubWorkspaceIsNoLongerAnAppSettingsDestination() {
+        assertTrue(SettingsSearchRegistry.entries.none { it.destination == SettingsSearchDestination.WORKSPACE })
+        assertTrue(SettingsSearchRegistry.search("GitHub Workspace").none { it.destination == SettingsSearchDestination.WORKSPACE })
+    }
+
     @Test
     fun oldTerminologyFindsTheOwnerWithoutChangingPermissions() {
         assertTrue(SettingsSearchRegistry.search("tool connections").any { it.destination == SettingsSearchDestination.TOOLS })

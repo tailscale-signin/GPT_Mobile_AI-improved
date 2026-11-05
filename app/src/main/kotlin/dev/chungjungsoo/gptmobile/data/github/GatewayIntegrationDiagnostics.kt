@@ -20,7 +20,7 @@ class GatewayIntegrationDiagnostics @Inject constructor(private val settings: Se
             val profile = settings.engineeringGateway(profileUid)
             val config = profile.engineeringConfig()
             progress("Checking the selected engineering gateway identity and protocol")
-            val principal = client.principal(config)
+            val principal = client.principal(config, requireReady = false)
             checks += "Capability handshake and authenticated identity: passed."
             val request = buildJsonObject {
                 put("request_id", GitHubEvidenceBook.digest(requestKey))
@@ -34,7 +34,7 @@ class GatewayIntegrationDiagnostics @Inject constructor(private val settings: Se
             check(first.size == 1 && first.single()["sequence"] == JsonPrimitive(1)) { "Initial event receipt is missing." }
             checks += "Initial event delivery: passed."
             progress("Reconnecting to the saved gateway probe and checking its completion receipt")
-            check(settings.engineeringGateway(profileUid) == profile && client.principal(config) == principal) { "Gateway connection changed during testing." }
+            check(settings.engineeringGateway(profileUid) == profile && client.principal(config, requireReady = false) == principal) { "Gateway connection changed during testing." }
             val events = client.diagnosticEvents(config, id, 1).toList()
             check(events.size == 2 && events.last()["sequence"] == JsonPrimitive(3)) { "Event stream resume lost or duplicated an event." }
             val resumed = client.diagnostic(config, "jobs/$id?after=1&limit=10")

@@ -34,6 +34,7 @@ class ResearchModelCoordinatorTest {
         assertEquals("CONTEXT_LIMIT", ResearchModelCoordinator.failureCategory(wrapped("DELEGATE_OVERSIZED: prompt exceeds capacity")))
         assertEquals("REASONING_ONLY", ResearchModelCoordinator.failureCategory(wrapped("REASONING_BUDGET_EXHAUSTED: no visible answer")))
         assertEquals("EMPTY_OUTPUT", ResearchModelCoordinator.failureCategory(wrapped("NO_VISIBLE_ANSWER: provider returned no answer")))
+        assertEquals("OUTPUT_LIMIT", ResearchModelCoordinator.failureCategory(wrapped("completion_repair_budget_exhausted: exhausted the output allowance")))
     }
 
     @Test fun acceptedPolicyChangeStopsDependentStagesWithoutAnAuthorizationCascade() = runTest {
@@ -249,9 +250,10 @@ class ResearchModelCoordinatorTest {
         assertEquals("CANCELLED", worker.events.last().outcome)
     }
 
-    @Test fun revocationDuringGenerationDropsResultAndDoesNotTryAnotherDestination() = runTest {
+    @Test fun revocationDuringGenerationRetainsTheReplyBeforeBlockingWithoutAcceptingItOrTryingAnotherDestination() = runTest {
         var enabled = true
         var fallback = 0
+        val retained = mutableListOf<Triple<String, String, String>>()
         val worker = ResearchModelCoordinator(
             listOf(
                 endpoint("local") {
@@ -263,11 +265,74 @@ class ResearchModelCoordinatorTest {
                     plan
                 }
             ),
-            stillEnabled = { enabled }
+            stillEnabled = { enabled },
+            retainPartial = { stage, profile, text ->
+                retained += Triple(stage, profile, text)
+                "private-checkpoint"
+            },
+            onEvent = { if (it.reason == "PERMISSION_REVOKED") assertEquals(plan, retained.single().third) }
         )
         assertNull(worker.generate(ResearchModelStage.PLAN, "task", 128))
         assertEquals(0, fallback)
-        assertEquals("PERMISSION_REVOKED", worker.events.last().reason)
+        assertEquals(Triple("PLAN", "local", plan), retained.single())
+        val stopped = worker.events.last()
+        assertEquals("PERMISSION_REVOKED", stopped.reason)
+        assertEquals("private-checkpoint", stopped.checkpointId)
+        assertTrue(stopped.partialRetained)
+        assertTrue(stopped.transportComplete)
+        assertFalse(stopped.stageAccepted)
+        assertFalse(worker.completedStage("PLAN"))
+    }
+
+    @Test fun selectedReasoningStageUsesItsAdmittedBudgetAndStopsBeforeDispatchWhenHardLimitsCannotFit() = runTest {
+        val selected = dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2(uid = "selected", name = "Gateway", compatibleType = dev.chungjungsoo.gptmobile.data.model.ClientType.LLAMA, model = "qwen3.5-9b", maxTokens = 4096)
+        for (limit in listOf(512, 1024, 2048, 4096)) {
+            val dispatched = mutableListOf<Int>()
+            val target = ResearchModelEndpoint(
+                selected.uid,
+                selected.model,
+                "selected-route",
+                false,
+                { true },
+                requestBudget = { ResearchProviderBudget.request(selected, it, dev.chungjungsoo.gptmobile.data.context.TokenBudgetSettings(outputTokens = limit)) }
+            ) { _, _, cap ->
+                dispatched += cap
+                ResearchModelReply(plan, "selected-route")
+            }
+            val worker = ResearchModelCoordinator(listOf(target))
+            val prepared = worker.requestBudget(ResearchModelStage.PLAN, 512)
+            if (limit < 2048) {
+                assertEquals(0, prepared.outputTokens)
+                assertNull(worker.generate(ResearchModelStage.PLAN, "task", 512))
+                assertTrue(dispatched.isEmpty())
+                assertEquals("BUDGET_DENIED", worker.events.single().failureCategory)
+            } else {
+                assertEquals(2048, prepared.outputTokens)
+                assertNotNull(worker.generate(ResearchModelStage.PLAN, "task", prepared.outputTokens))
+                assertEquals(listOf(2048), dispatched)
+            }
+        }
+    }
+
+    @Test fun structuredStageCannotDispatchWhenReasoningLeavesNoContextForThePacket() = runTest {
+        val selected = dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2(name = "Gateway", compatibleType = dev.chungjungsoo.gptmobile.data.model.ClientType.LLAMA, model = "qwen3.5-9b", maxTokens = 4096)
+        var dispatched = false
+        val target = ResearchModelEndpoint(
+            selected.uid,
+            selected.model,
+            "selected-route",
+            false,
+            { true },
+            requestBudget = { ResearchProviderBudget.request(selected, it, dev.chungjungsoo.gptmobile.data.context.TokenBudgetSettings(contextTokens = 2048)) }
+        ) { _, _, _ ->
+            dispatched = true
+            ResearchModelReply(plan, "selected-route")
+        }
+        val worker = ResearchModelCoordinator(listOf(target))
+        assertNull(worker.generate(ResearchModelStage.PLAN, "task", 512))
+        assertFalse(dispatched)
+        assertEquals("RESEARCH_CONTEXT_OR_OUTPUT_CAPACITY", worker.events.single().reason)
+        assertFalse(worker.events.single().stageAccepted)
     }
 
     @Test fun onlyDistinctKnownModelsCanClaimIndependentReview() = runTest {

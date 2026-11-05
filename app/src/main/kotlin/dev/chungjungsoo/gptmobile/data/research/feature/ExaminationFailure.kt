@@ -18,12 +18,15 @@ internal fun examinationFailure(error: Exception, attempt: Int, now: Long = Syst
         causes.any { it.message.orEmpty().startsWith("SOURCE_TEXT_EMPTY") } -> "SOURCE_TEXT_EMPTY"
         causes.any { it.message.orEmpty().startsWith("EXTRACTION_EMPTY") } -> "NO_GROUNDED_OUTCOME"
         causes.any { it.message.orEmpty().startsWith("GROUNDING_INVALID") } -> "GROUNDING_INVALID"
+        causes.any { it.message.orEmpty().startsWith(ExaminationArtifactBudget.EXHAUSTED) } -> "ADMITTED_CAPACITY_EXHAUSTED"
+        causes.any { it.message.orEmpty().startsWith("EXAMINATION_CHECKPOINT_UNAVAILABLE") } -> "CHECKPOINT_UNAVAILABLE"
         causes.any {
             it.message.orEmpty().startsWith(ExaminationOutputBudget.INSUFFICIENT) ||
                 it.message.orEmpty().startsWith(ExaminationOutputBudget.CONTEXT_INSUFFICIENT) ||
                 it.message.orEmpty().startsWith("REVIEW_PACKET_TOO_LARGE")
         } -> "ADMITTED_CAPACITY_EXHAUSTED"
         causes.any { it.message.orEmpty().startsWith("EXAMINER_OUTPUT_CAPACITY") } -> "EXAMINER_OUTPUT_CAPACITY"
+        causes.any { dev.chungjungsoo.gptmobile.data.agent.tool.isProviderOutputLimitFailure(it.message.orEmpty()) } -> "OUTPUT_LIMIT"
         delegated?.kind == dev.chungjungsoo.gptmobile.data.agent.tool.DelegateFailureKind.TRANSPORT_FAILURE -> "TRANSPORT_FAILED"
         delegated?.kind == dev.chungjungsoo.gptmobile.data.agent.tool.DelegateFailureKind.OUTPUT_LIMIT -> "OUTPUT_LIMIT"
         delegated?.kind == dev.chungjungsoo.gptmobile.data.agent.tool.DelegateFailureKind.AUTH_FAILURE -> "EXAMINER_AUTH_REQUIRED"
@@ -55,7 +58,7 @@ internal fun examinationFailure(error: Exception, attempt: Int, now: Long = Syst
         "NETWORK_UNAVAILABLE", "TRANSPORT_FAILED", "TIMEOUT", "OFFLINE", "SERVER_TEMPORARY", "DNS_RECOVERY", "DNS_FAILED" -> ExaminationStage.WAITING_NETWORK
         "RATE_LIMITED", "HTTP_429", "TOO_MANY_REQUESTS" -> ExaminationStage.WAITING_RATE_LIMIT
         "SOURCE_ACCESS_BLOCKED", "BLOCKED", "REDIRECT_FAILED", "HTTP_403", "FORBIDDEN" -> ExaminationStage.BLOCKED_SOURCE
-        "PERMISSION_REVOKED", "EXAMINER_AUTH_REQUIRED", "HTTP_401", "UNAUTHORIZED", "AUTHENTICATION_REQUIRED" -> ExaminationStage.PAUSED
+        "PERMISSION_REVOKED", "EXAMINER_AUTH_REQUIRED", "HTTP_401", "UNAUTHORIZED", "AUTHENTICATION_REQUIRED", "CHECKPOINT_UNAVAILABLE" -> ExaminationStage.PAUSED
         "METADATA_ONLY", "UNAVAILABLE", "SOURCE_UNAVAILABLE" -> ExaminationStage.UNAVAILABLE
         else -> ExaminationStage.FAILED
     }

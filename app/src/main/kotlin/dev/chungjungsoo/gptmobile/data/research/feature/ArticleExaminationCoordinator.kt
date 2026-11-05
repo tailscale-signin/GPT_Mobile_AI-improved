@@ -71,7 +71,9 @@ data class ExaminationCheckpoint(
     val waitingConfigurationRevision: String? = null,
     val failure: ExaminationFailure? = null,
     val retryAttempt: Int = 0,
-    val unfinishedModelCheckpoint: String? = null
+    val unfinishedModelCheckpoint: String? = null,
+    val modelProgress: ExaminationArtifactProgress? = null,
+    val modelAttempts: Map<String, Int> = emptyMap()
 )
 
 @Serializable
@@ -209,14 +211,14 @@ class ArticleExaminationCoordinator @Inject constructor(
         return submit(ExaminationRequest(job.workId, job.profileUid, job.chatId, job.requestedVersionId, job.authority, job.origin, checkpoint.rootWorkId, checkpoint.parentRunId, resumeJobId = job.jobId), { tools.copy(combined = checkpoint.combined) }, automaticRetry = true)
     }
 
-    private suspend fun submit(request: ExaminationRequest, currentTools: () -> ChatMcpToolConfig, automaticRetry: Boolean = false): String {
+    private suspend fun submit(request: ExaminationRequest, currentTools: () -> ChatMcpToolConfig, automaticRetry: Boolean = false): String = withContext(Dispatchers.IO) {
         recover()
         val acceptedCombined = if (request.origin == ExaminationOrigin.USER_EXAMINE) {
             null
         } else {
             dev.chungjungsoo.gptmobile.data.agent.CombinedAcquisitionBoundary.context() ?: currentTools().combined
         }
-        return lock.withLock {
+        lock.withLock {
             val features = settings.getFeatureSettings()
             val acceptedTools = currentTools()
             val researchSelection = features.conversationResearch[request.chatId] ?: acceptedTools.research ?: MultiSearchResearchSelection()
@@ -431,16 +433,46 @@ class ArticleExaminationCoordinator @Inject constructor(
             dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("ResearchExamine", "STAGE_COMMITTED · jobId=${record.jobId} · workId=${record.workId} · chatId=${record.chatId} · lease=${record.lease} · stage=$value")
         }
         suspend fun <T> artifact(actor: PlatformV2, prompt: String, kind: String, tokens: Int, maxChars: Int, validate: (String) -> T): T {
+            val requestKey = ExaminationArtifactBudget.key(actor, kind, prompt)
+            val storageStage = ExaminationArtifactBudget.storageStage(kind, requestKey)
+            val root = checkpoint.rootWorkId ?: "examination:${record.jobId}"
+            suspend fun retainOutput(output: String, complete: Boolean) = withContext(NonCancellable) {
+                if (output.isBlank()) return@withContext
+                withTimeout(10_000) {
+                    archive.database.withTransaction {
+                        val live = archive.dao.job(record.jobId)
+                        if (live?.lease != record.lease || live.stage !in ExaminationLifecycle.active || archive.dao.deleted("archive:${record.workId}") != null || archive.dao.deleted("chat:${request.chatId}") != null) return@withTransaction
+                        val retained = sessions.journal("examination:${record.jobId}", request.chatId, true, root, authority = request.authority, shareEnabled = false, acceptedTools = checkpoint.acceptedTools).retainPartial(storageStage, actor.uid, output)
+                        check(retained != null) { "EXAMINATION_CHECKPOINT_UNAVAILABLE: Received model output could not be retained; no later stage was dispatched." }
+                        if (complete) {
+                            check(sessions.loadPartial(root, retained, request.chatId, request.authority, storageStage, actor.uid, "examination:${record.jobId}") == output) {
+                                "EXAMINATION_CHECKPOINT_UNAVAILABLE: The complete model artifact exceeds durable retention or could not be read back; no later stage was dispatched."
+                            }
+                        }
+                        checkpoint = checkpoint.copy(modelProgress = ExaminationArtifactProgress(requestKey, retained, complete), unfinishedModelCheckpoint = retained.takeUnless { complete })
+                        check(archive.dao.advanceJob(record.jobId, record.lease, currentStage, Json.encodeToString(checkpoint), "Model ${if (complete) "artifact" else "partial output"} saved", System.currentTimeMillis()) == 1) { "Examination ownership changed" }
+                    }
+                }
+            }
+            checkpoint.modelProgress?.takeIf { it.requestKey == requestKey && it.complete }?.let { saved ->
+                val output = sessions.loadPartial(root, saved.checkpointId, request.chatId, request.authority, storageStage, actor.uid, "examination:${record.jobId}")
+                check(output != null) { "EXAMINATION_CHECKPOINT_UNAVAILABLE: The completed model artifact is unavailable; restore saved evidence before retrying this stage." }
+                val value = validate(output)
+                check(allowed()) { "Examination permission changed before saved artifact reuse: $permissionChange" }
+                dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("ResearchExamine", "ARTIFACT_REUSED · jobId=${record.jobId} · stage=$currentStage · kind=$kind · dispatched=false")
+                return value
+            }
             var resumeLookupAttempted = false
-            return validatedExaminationOutput(
+            var validatedOutput: String? = null
+            val artifact = validatedExaminationOutput(
                 prompt,
                 generate = { instruction, attempt ->
                     check(allowed()) { "Examination permission changed before model dispatch: $permissionChange" }
                     if (attempt > 1) stage(currentStage, "Retrying this validation once; ${checkpoint.failure?.detail.orEmpty().take(240)}; completed progress retained")
                     val partial = if (!resumeLookupAttempted) {
                         resumeLookupAttempted = true
-                        checkpoint.unfinishedModelCheckpoint?.let { id ->
-                            sessions.loadPartial(checkpoint.rootWorkId ?: "examination:${record.jobId}", id, request.chatId, request.authority, kind, actor.uid, "examination:${record.jobId}")
+                        checkpoint.modelProgress?.takeIf { it.requestKey == requestKey && !it.complete }?.let { saved ->
+                            sessions.loadPartial(root, saved.checkpointId, request.chatId, request.authority, storageStage, actor.uid, "examination:${record.jobId}")
                                 ?.takeIf { it.length < maxChars }
                         }
                     } else {
@@ -455,11 +487,14 @@ class ArticleExaminationCoordinator @Inject constructor(
                     }
                     val output = StringBuilder(partial.orEmpty())
                     var failure: String? = null
+                    var providerFailure: ProviderEvent.Failed? = null
                     var completed = false
                     var failureComplete = false
                     var limited = false
                     val ids = mutableListOf<String>()
                     val started = System.nanoTime()
+                    checkpoint = checkpoint.copy(modelAttempts = ExaminationArtifactBudget.claim(checkpoint.modelAttempts, requestKey))
+                    stage(currentStage, "Model attempt admitted; completed progress retained")
                     try {
                         models.openResearchSession(actor, dispatchInstruction, checkpoint.rootWorkId ?: "examination:${record.jobId}", kind, tokens, parentRunId = checkpoint.parentRunId ?: "examination:${record.jobId}") { ids += it }.streamRound(emptyList(), emptyList()).collect { event ->
                             when (event) {
@@ -469,7 +504,9 @@ class ArticleExaminationCoordinator @Inject constructor(
                                 }
                                 is ProviderEvent.Failed -> {
                                     failure = event.message
+                                    providerFailure = event
                                     failureComplete = event.transportComplete
+                                    limited = limited || dev.chungjungsoo.gptmobile.data.agent.tool.isProviderOutputLimitFailure("${event.errorCode.orEmpty()} ${event.message}")
                                 }
                                 ProviderEvent.Completed -> completed = true
                                 is ProviderEvent.Usage -> limited = limited || event.finishReason in setOf("length", "max_tokens", "output_limit")
@@ -477,23 +514,29 @@ class ArticleExaminationCoordinator @Inject constructor(
                                 else -> Unit
                             }
                         }
+                    } catch (cancelled: CancellationException) {
+                        // Revoking dispatch permission does not discard bytes already received.
+                        // The local lease/tombstone fence still prevents writes after deletion or takeover.
+                        try {
+                            retainOutput(output.toString(), complete = false)
+                        } catch (storageFailure: Exception) {
+                            cancelled.addSuppressed(storageFailure)
+                        }
+                        throw cancelled
+                    } catch (failure: Exception) {
+                        try {
+                            retainOutput(output.toString(), complete = false)
+                        } catch (storageFailure: Exception) {
+                            failure.addSuppressed(storageFailure)
+                        }
+                        throw failure
                     } finally {
                         checkpoint = checkpoint.copy(invocationIds = (checkpoint.invocationIds + ids).distinct())
                         dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("ResearchExamine", "MODEL_ATTEMPT · jobId=${record.jobId} · lease=${record.lease} · stage=$currentStage · kind=$kind · profile=${actor.uid} · model=${actor.model} · provider=${actor.compatibleType} · connection=${actor.providerConnectionUid.orEmpty()} · attempt=$attempt · chunk=${checkpoint.nextChunk}/${checkpoint.chunkCount} · invocations=${ids.joinToString(",")} · durationMs=${(System.nanoTime() - started) / 1_000_000} · outputChars=${output.length} · outputHash=${researchHash(output.toString())} · truncated=$limited · failure=${dev.chungjungsoo.gptmobile.data.security.DiagnosticRedactor.redact(failure.orEmpty()).take(500)}")
                     }
                     val completeArtifact = if ((completed || failureComplete) && (limited || failure != null)) (runCatching { validate(output.toString()) }.isSuccess || isExaminationFieldRepairPacket(output.toString())) else false
                     if ((limited || failure != null || !completed) && !completeArtifact) {
-                        if (output.isNotBlank() && allowed()) {
-                            val root = checkpoint.rootWorkId ?: "examination:${record.jobId}"
-                            val retained = try {
-                                sessions.journal("examination:${record.jobId}", request.chatId, true, root, authority = request.authority, shareEnabled = false, acceptedTools = checkpoint.acceptedTools).retainPartial(kind, actor.uid, output.toString())
-                            } catch (cancelled: CancellationException) {
-                                throw cancelled
-                            } catch (_: Exception) {
-                                null
-                            }
-                            checkpoint = checkpoint.copy(unfinishedModelCheckpoint = retained)
-                        }
+                        retainOutput(output.toString(), complete = false)
                         throw dev.chungjungsoo.gptmobile.data.agent.tool.DelegateGenerationException(
                             kind = if (limited) dev.chungjungsoo.gptmobile.data.agent.tool.DelegateFailureKind.OUTPUT_LIMIT else dev.chungjungsoo.gptmobile.data.agent.tool.DelegateFailureKind.TRANSPORT_FAILURE,
                             message = if (limited) "EXAMINATION_OUTPUT_TRUNCATED: saved evidence retained" else "EXAMINATION_PROVIDER_FAILED: ${dev.chungjungsoo.gptmobile.data.security.DiagnosticRedactor.redact(failure.orEmpty().ifBlank { "No completion signal" })}",
@@ -502,18 +545,22 @@ class ArticleExaminationCoordinator @Inject constructor(
                             totalTokens = 0,
                             usageEstimated = true,
                             partialText = output.toString(),
-                            transportComplete = completed && failure == null || failureComplete
+                            transportComplete = completed && failure == null || failureComplete,
+                            providerLimit = providerFailure?.providerLimit
                         )
                     }
-                    check(allowed()) { "Examination permission changed after model response: $permissionChange" }
                     output.toString()
                 },
                 invalid = { attempt, reply, failure ->
                     checkpoint = checkpoint.copy(failure = ExaminationFailure(if (reply.isBlank()) "OUTPUT_EMPTY" else "OUTPUT_INVALID", currentStage, false, detail = examinationFailureDetail(failure, includeFrames = false)))
                     dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("ResearchExamine", "OUTPUT_INVALID · jobId=${record.jobId} · lease=${record.lease} · stage=$currentStage · kind=$kind · profile=${actor.uid} · attempt=$attempt · outputChars=${reply.length} · outputHash=${researchHash(reply)} · detail=${examinationFailureDetail(failure)}", "W")
                 },
-                validate = validate
-            ).also { checkpoint = checkpoint.copy(failure = null, unfinishedModelCheckpoint = null) }
+                validate = { output -> validate(output).also { validatedOutput = output } }
+            )
+            retainOutput(requireNotNull(validatedOutput), complete = true)
+            checkpoint = checkpoint.copy(failure = null, unfinishedModelCheckpoint = null)
+            check(allowed()) { "Examination permission changed after model response: $permissionChange" }
+            return artifact
         }
         try {
             withTimeout(ExaminationLifecycle.ATTEMPT_MS) {
@@ -815,12 +862,9 @@ Accuracy anchors: 0 contradicted/unsupported, 1 mostly unsupported, 2 partly sup
 Coverage: ${captured.coverage}; inspected scope ${Json.encodeToString(checkpoint.coverage)}. Required unavailable material remains unknown.
 Outcome: ${Json.encodeToString(outcome)}
 <evidence>$packetJson</evidence>"""
-                            val artifact = try {
-                                artifact(profile, prompt, "research-study-review", ExaminationOutputBudget.STUDY_REVIEW, 48000) { reply ->
-                                    ResearchReviewScoreCalculator.validate(reply, outcome, packet)
-                                }
-                            } catch (failure: Exception) {
-                                if (!ExaminationOutputBudget.canSplit(failure)) throw failure
+                            val artifact = resumeStudyReview(prompt, checkpoint.studyReviewParts, complete = {
+                                artifact(profile, prompt, "research-study-review", ExaminationOutputBudget.STUDY_REVIEW, 48000) { reply -> ResearchReviewScoreCalculator.validate(reply, outcome, packet) }
+                            }, parts = {
                                 chunkedStudyReview(prompt, outcome, packet, checkpoint.studyReviewParts, generate = { instruction ->
                                     stage(ExaminationStage.APPRAISING, "Reviewing one evidence domain; completed domains retained")
                                     artifact(profile, instruction, "research-study-review-part", ExaminationOutputBudget.PART, 16000) { reply -> ResearchReviewScoreCalculator.validate(reply, outcome, packet) }
@@ -828,7 +872,7 @@ Outcome: ${Json.encodeToString(outcome)}
                                     checkpoint = checkpoint.copy(studyReviewParts = checkpoint.studyReviewParts + (key to part))
                                     stage(ExaminationStage.APPRAISING, "Review domain validated and saved")
                                 })
-                            }
+                            })
                             val work = requireNotNull(archive.dao.work(record.workId))
                             val design = archive.dao.appraisals(captured.versionId).firstOrNull()?.design ?: StudyDesign.UNKNOWN
                             val scores = ResearchReviewScoreCalculator.calculate(artifact, completeAssessment, design, work.retracted == true)

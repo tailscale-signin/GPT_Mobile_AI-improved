@@ -96,6 +96,19 @@ class DeviceStore:
             row = db.execute("SELECT device_id FROM ownership WHERE job_id=?", (job_id,)).fetchone()
         return bool(row and hmac.compare_digest(row[0], device))
 
+    def owned_job_ids(self, job_ids, device=None):
+        """Read one bounded ownership set for a dashboard, without granting or changing a job."""
+        device = device or current_device.get()
+        ids = list(dict.fromkeys(job_ids))
+        if not device or not ids:
+            return set()
+        if len(ids) > 200 or any(not isinstance(value, str) for value in ids):
+            raise ValueError('Ownership lookup is limited to 200 job identifiers')
+        placeholders = ','.join('?' for _ in ids)
+        with self.connect() as db:
+            return {row[0] for row in db.execute(
+                f'SELECT job_id FROM ownership WHERE device_id=? AND job_id IN ({placeholders})', [device] + ids)}
+
     def claim(self, job_id, device=None):
         device = device or current_device.get()
         if not device:

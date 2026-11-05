@@ -39,6 +39,10 @@ interface WorkspaceDao {
     @Query("SELECT * FROM workspace_records WHERE chatId = :chatId AND substr(id, 1, length(:prefix)) = :prefix ORDER BY updatedAt, id LIMIT 4097")
     suspend fun githubTaskEvidence(chatId: Int, prefix: String): List<WorkspaceRecord>
 
+    /** Host-created task metadata survives a changed or removed conversation binding. */
+    @Query("SELECT EXISTS(SELECT 1 FROM workspace_records WHERE chatId = :chatId AND runId = :runId AND ((kind = 'github_evidence' AND id GLOB 'github-evidence:*') OR (kind = 'synthesis_checkpoint' AND (id GLOB 'github-active-task:*' OR id GLOB 'github-review:*' OR id GLOB 'github-output:*' OR id GLOB 'github-evidence:*'))))")
+    suspend fun hasGitHubTaskForRun(chatId: Int, runId: String): Boolean
+
     @Upsert suspend fun save(record: WorkspaceRecord)
 
     @Query("SELECT * FROM workspace_records WHERE chatId = :chatId ORDER BY updatedAt, id")

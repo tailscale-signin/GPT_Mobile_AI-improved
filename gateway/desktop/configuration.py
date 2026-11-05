@@ -12,7 +12,7 @@ DEFAULTS = dict(schema=1, port=8090, backend='http://127.0.0.1:8080', workers=2,
                 active_chats=8, shutdown_seconds=30, update_mode='notify',
                 update_interval_hours=24, start_at_login=True, access='loopback',
                 tailnet_host='', tailnet_user='', engineering=False, mcp_config='',
-                bind_host='127.0.0.1', network_hostnames='')
+                bind_host='127.0.0.1', network_hostnames='', debug_mode=False)
 
 
 def validate(value):
@@ -27,7 +27,7 @@ def validate(value):
             raise ValueError(f'{key} must be between {low} and {high}')
     if cfg['workers'] > cfg['active_chats']:
         raise ValueError('Workers cannot exceed active chat limit')
-    for key in ('start_at_login', 'engineering'):
+    for key in ('start_at_login', 'engineering', 'debug_mode'):
         if type(cfg[key]) is not bool:
             raise ValueError(key + ' must be boolean')
     if cfg['update_mode'] not in {'off', 'notify', 'auto'} or cfg['access'] not in {'loopback', 'network', 'tailscale'}:
@@ -119,6 +119,7 @@ def environment(root, cfg, management_token=''):
                GATEWAY_ALLOWED_ORIGINS=json.dumps([] if cfg['access'] == 'network' else ['http://' + h for h in hosts]),
                GATEWAY_REMOTE_ENGINEERING=str(cfg['engineering']).lower(), GATEWAY_MANAGEMENT_TOKEN=management_token,
                GATEWAY_ACTIVITY_STATE=str(data / 'activity.json'),
+               GATEWAY_DEBUG_MODE=str(cfg['debug_mode']).lower(), GATEWAY_DEBUG_LOG=str(root / 'logs' / 'gateway-debug.jsonl'),
                GATEWAY_JOB_DB=str(data / 'jobs.sqlite3'), GATEWAY_AUTH_DB=str(data / 'auth.sqlite3'),
                GATEWAY_MAX_WORKERS=str(cfg['workers']), GATEWAY_MAX_ACTIVE_CHATS=str(cfg['active_chats']),
                GATEWAY_SHUTDOWN_GRACE=str(cfg['shutdown_seconds']),

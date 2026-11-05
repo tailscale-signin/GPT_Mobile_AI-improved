@@ -43,4 +43,20 @@ class ExaminationFailureClassificationTest {
         assertEquals("OUTPUT_INVALID", failure.code)
         assertEquals(ExaminationStage.FAILED, failure.stage)
     }
+
+    @Test fun exhaustedCompletionBudgetCannotBecomeANetworkRetryThroughAnOlderTransportWrapper() {
+        val wrapped = dev.chungjungsoo.gptmobile.data.agent.tool.DelegateGenerationException(
+            dev.chungjungsoo.gptmobile.data.agent.tool.DelegateFailureKind.TRANSPORT_FAILURE,
+            "PROVIDER_PAYLOAD_ERROR: Backend exhausted the output allowance without a usable completion. code=completion_repair_budget_exhausted; retryable=false",
+            0,
+            0,
+            0,
+            true
+        )
+        val failure = examinationFailure(wrapped, 0, 1000)
+        assertEquals("OUTPUT_LIMIT", failure.code)
+        assertEquals(ExaminationStage.WAITING_CAPACITY, failure.stage)
+        assertFalse(failure.retryable)
+        assertEquals(null, failure.retryAtMs)
+    }
 }

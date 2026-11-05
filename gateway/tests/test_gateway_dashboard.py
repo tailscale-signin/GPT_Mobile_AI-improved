@@ -14,8 +14,9 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from desktop.configuration import atomic_json
 from desktop.dashboard_model import counters, read_snapshot, rows
-from v14.activity import ActivityMiddleware, ActivityTracker, MAX_ACTIVITIES, MAX_DEVICES, current_peer, desktop_snapshot
+from v14.activity import ActivityMiddleware, ActivityTracker, MAX_ACTIVITIES, MAX_DEVICES, current_peer, desktop_snapshot, client_snapshot
 from v14.actions import current_gateway_job_id
+from gateway_security import DeviceStore, current_device
 
 
 class ActivityTests(unittest.TestCase):
@@ -62,7 +63,7 @@ class ActivityTests(unittest.TestCase):
         tracker = ActivityTracker()
         async def empty(*args):
             pass
-        for path in ['/gateway/admin/dashboard', '/v1/gateway/admin/maintenance', '/gateway/live', '/gateway/ready']:
+        for path in ['/gateway/admin/dashboard', '/v1/gateway/admin/maintenance', '/gateway/live', '/gateway/ready', '/gateway/dashboard', '/v1/gateway/dashboard']:
             asyncio.run(ActivityMiddleware(empty, tracker)({'type': 'http', 'path': path}, None, None))
         self.assertEqual(0, tracker.snapshot()['requests'])
 
@@ -125,6 +126,61 @@ class ActivityTests(unittest.TestCase):
         self.assertEqual('feature', snapshot['engineering'][0]['branch'])
         self.assertNotIn('private', json.dumps(snapshot))
         self.assertNotIn('secret', json.dumps(snapshot))
+
+
+class MobileDashboardTests(unittest.TestCase):
+    def test_identity_filter_does_not_merge_two_principals_on_one_proxy_socket(self):
+        tracker = ActivityTracker(now=lambda: 100)
+        for owner, title, sent in [('first', 'First activity', 10), ('second', 'Hidden activity', 20)]:
+            token = current_device.set(owner)
+            try:
+                peer = tracker.enter('127.0.0.1', 'Android')
+                tracker.begin('chat', title, peer)
+                tracker.leave(peer, 200, 5, sent)
+            finally:
+                current_device.reset(token)
+        snapshot = tracker.snapshot('first')
+        self.assertEqual(1, len(snapshot['devices']))
+        self.assertEqual(1, snapshot['requests'])
+        self.assertEqual(10, snapshot['sentBytes'])
+        self.assertEqual(['First activity'], [item['title'] for item in snapshot['activities']])
+        self.assertNotIn('Hidden activity', json.dumps(snapshot))
+        self.assertNotIn('_principal', json.dumps(snapshot))
+        self.assertEqual(2, tracker.snapshot()['requests'])
+
+    def test_owned_history_and_complete_open_count_are_independent_of_displayed_history(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = str(Path(temp) / 'jobs.sqlite3')
+            ownership = DeviceStore(Path(temp) / 'owners.sqlite3')
+            with closing(sqlite3.connect(path)) as db, db:
+                db.execute('CREATE TABLE gateway_jobs(job_id, public_json, status, created_at, updated_at)')
+                for index in range(105):
+                    ident = 'chat-' + str(index)
+                    db.execute('INSERT INTO gateway_jobs VALUES(?,?,?,?,?)', (ident, '{}', 'running' if index == 0 else 'completed', 1, index))
+                    ownership.claim(ident, 'first')
+                db.execute('INSERT INTO gateway_jobs VALUES(?,?,?,?,?)', ('other-job', '{"model":"hidden model"}', 'running', 1, 200))
+                ownership.claim('other-job', 'second')
+                db.execute('CREATE TABLE engineering_jobs(id,state,data,next_at)')
+                for owner in ['first', 'second']:
+                    db.execute('INSERT INTO engineering_jobs VALUES(?,?,?,?)', ('eng-' + owner, 'NEEDS_INPUT', json.dumps({'principal': owner, 'request': {'repository': owner + '/repo'}}), 10))
+            runtime = SimpleNamespace(GATEWAY_DURABLE_JOBS=True, durable_job_initialized=True, durable_job_lock=threading.RLock(), _durable_connect=lambda: sqlite3.connect(path))
+            service = SimpleNamespace(instance_id='a' * 32, snapshot=lambda: {'activeWorkers': 1, 'workerLimit': 2})
+            snapshot = client_snapshot(runtime, service, ActivityTracker(), SimpleNamespace(id='first'), ownership)
+            self.assertEqual(2, snapshot['openJobs'])
+            self.assertTrue(snapshot['availability']['openJobs'])
+            self.assertNotIn('chat-0', [item['id'] for item in snapshot['jobs']])
+            self.assertNotIn('other-job', [item['id'] for item in snapshot['jobs']])
+            self.assertEqual(['first/repo'], [item['title'] for item in snapshot['engineering']])
+            self.assertNotIn('hidden model', json.dumps(snapshot))
+            self.assertFalse(snapshot['availability']['usage'])
+
+    def test_unavailable_inventory_never_becomes_a_zero_job_measurement(self):
+        runtime = SimpleNamespace(GATEWAY_DURABLE_JOBS=False, durable_job_initialized=False)
+        service = SimpleNamespace(instance_id='a' * 32, snapshot=lambda: {'activeWorkers': 0})
+        snapshot = client_snapshot(runtime, service, ActivityTracker(), SimpleNamespace(id='first'), None)
+        self.assertIsNone(snapshot['openJobs'])
+        self.assertFalse(snapshot['availability']['openJobs'])
+        self.assertFalse(snapshot['availability']['history'])
 
 
 class PresentationTests(unittest.TestCase):

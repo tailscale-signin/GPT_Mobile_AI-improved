@@ -1,0 +1,183 @@
+{
+  "schema": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "fix/diagnostic-recovery-completion-2026-11-04",
+  "base_sha": "bf35994eff463016a9db2ca5cc44fbd1285753c1",
+  "parent_pull_request": 801,
+  "working_branch": "fix/github-verdict-tool-gateway-reliability-2026-11-04",
+  "intent": "Repair the attached build 138 GitHub verdict, argument, recovery, gateway, output budget, diagnostic and speech failures; add bounded gateway/client debug exchange, selected-profile-only execution, faster GitHub loading and guided first-use setup. Redesign the GitHub Status tab with beginner-friendly bubble tiles modeled on the Windows gateway dashboard and live active-gateway stats/devices. Include the subsequent full 24-item diagnostic review: terminal job reconciliation, independent engineering readiness, durable execution/verification/delivery ledger, staged Research recovery, delegated child isolation, explicit tool readiness and compact diagnostic exports.",
+  "state": "IMPLEMENTED",
+  "acceptance": {
+    "review": "Versioned deterministic PASS/FAIL/INDETERMINATE verdicts, bounded same-profile review and durable evidence/drafts.",
+    "tools": "Actionable schema-aware preflight, one safe correction and no unchanged invalid dispatch or uncertain write replay.",
+    "gateway": "Independent reachability/readiness/metadata signals; bounded connection recovery and sanitized exportable debug logs capped at 5000 lines, including client diagnostic exchange.",
+    "identity": "Every GitHub generation, tool planning, review and continuation uses the selected AI profile; failure cannot substitute another profile.",
+    "onboarding": "First-use welcome and guided authentication/profile/repository setup; returning GitHub mode renders without waiting for remote preparation; remove GitHub workshop entry from app Settings.",
+    "voice": "Unavailable recognition and binding failures preserve typed input without repeated service binding.",
+    "validation": "Behavior regressions, canonical host checks and Android compilation/tests for this revision. Live hardware/network behavior is qualified separately.",
+    "status": "A clean, minimal-text GitHub Status dashboard retains the tile/bubble system, exposes selected-profile gateway measurements and devices, distinguishes unavailable/stale data, and follows the Windows gateway layout.",
+    "durable_recovery": "Preserve original job identity, partial text, completed operations and unfinished verification across interruption; reconcile terminal results without replaying uncertain mutations; blocked reads remain recoverable after connectivity returns.",
+    "research": "Admit reasoning/output/context budgets before reservations; checkpoint bounded artifacts and stage attempts; retain successful children and permission-blocked partial evidence; no automatic selected-profile substitution."
+  },
+  "validation": {
+    "scope": "Application-code evidence is pinned to the validated code commit. The final documentation update only records results and corrects a test total. Focused groups overlap and are not added to the full-app total.",
+    "host_fast": {
+      "passed": 311
+    },
+    "gateway": {
+      "passed": 416,
+      "skipped": 1,
+      "manifest_hashes_verified": 137,
+      "total": 417
+    },
+    "authentication": {
+      "passed": 15
+    },
+    "browser_authentication_bridge": {
+      "passed": 7
+    },
+    "review_route_diagnostics_capacity_focused": {
+      "passed": 86
+    },
+    "review_recovery_focused": {
+      "passed": 65
+    },
+    "onboarding_focused": {
+      "passed": 59
+    },
+    "tool_voice_focused": {
+      "jvm_passed": 64,
+      "robolectric_passed": 5
+    },
+    "dashboard_focused": {
+      "passed": 26
+    },
+    "native_status_ui": {
+      "passed": 2,
+      "inspected": [
+        "light 392dp",
+        "dark 320dp, font scale 1.4"
+      ]
+    },
+    "style_room_schemas_whitespace": "PASS",
+    "final_android_and_ci_evidence": "All canonical gates passed on validated_code_commit in PR Validation run41966842867; the documentation-only follow-up leaves application, gateway and test sources identical.",
+    "hardware": "Not qualified by host tests; requires live phone, gateway/network and Windows installation acceptance.",
+    "additional_diagnostic_scope": "Focused recovery, Research, delegate, ledger, export and polling checks and the complete app/core, heap, emulator, lint, coverage and APK gates are recorded against validated_code_commit.",
+    "additional_recovery_ledger_export_focused": {
+      "passed": 87
+    },
+    "additional_research_focused": {
+      "passed": 111
+    },
+    "additional_onboarding_focused": {
+      "passed": 61
+    },
+    "gateway_polling_focused": {
+      "passed": 7
+    },
+    "gateway_cache_result_proof_focused": {
+      "passed": 58
+    },
+    "additional_delegate_catalog_focused": {
+      "passed": 115
+    },
+    "additional_context_ledger_export_focused": {
+      "passed": 104,
+      "includes_live_publication": 23
+    },
+    "final_runner_order_and_cancellation_focused": {
+      "passed": 51
+    },
+    "saved_gateway_verification_boundary_focused": {
+      "passed": 34,
+      "generated_room_query": "Covered by full Android suite after DAO regeneration; not inferred from focused coordinator mocks."
+    },
+    "full_app_unit": {
+      "total": 6641,
+      "passed": 6637,
+      "skipped": 4,
+      "failures": 0,
+      "errors": 0,
+      "evidence": "Local full-suite XML and hosted statistics-schema-and-tests artifact 13388913102 from PR Validation run 41966842867."
+    },
+    "portable_core_unit": {
+      "passed": 4,
+      "skipped": 0,
+      "failures": 0
+    },
+    "constrained_heap": {
+      "status": "PASS",
+      "heap_mib": 256,
+      "total": 10,
+      "passed": 10,
+      "skipped": 0,
+      "failures": 0,
+      "scope": "Four classes, including the four cases skipped by the standard suite; counts overlap the standard suite."
+    },
+    "android_emulator_acceptance": {
+      "status": "PASS",
+      "api_levels": [
+        34,
+        36
+      ],
+      "run_id": 41966821464
+    },
+    "review_apk_and_privacy": {
+      "status": "PASS",
+      "run_id": 41966821738,
+      "artifact_id": 13388916462
+    },
+    "codeql": {
+      "status": "PASS",
+      "run_id": 41966821765
+    },
+    "android_lint": {
+      "status": "PASS",
+      "run_id": 41966842867,
+      "job_id": 127045801986
+    },
+    "canonical_required_verification": {
+      "status": "PASS",
+      "run_id": 41966842867,
+      "job_id": 127058950654
+    },
+    "apk_verification": {
+      "status": "PASS",
+      "run_id": 41966842867,
+      "artifact_id": 13389771239,
+      "checks": [
+        "build",
+        "packaged runtime",
+        "privacy",
+        "APK size",
+        "research dispatch size"
+      ]
+    },
+    "coverage": {
+      "status": "PASS",
+      "run_id": 41966842867
+    }
+  },
+  "parent_status_at_validation": {
+    "state": "MERGED",
+    "merge_sha": "79665ff5121138be149e10424e462ef7414e545b",
+    "head_sha": "bf35994eff463016a9db2ca5cc44fbd1285753c1",
+    "merged_at": "2026-11-05T02:18:07Z"
+  },
+  "diagnostic_review": {
+    "input": "app-diagnostics-5315895657738052256.jsonl",
+    "records": 8663,
+    "primary_events": 4425,
+    "continuation_records": 4238,
+    "items": 24,
+    "implementation_mapping": "docs/implementation/GitHub_Gateway_Reliability_2026-11-04.md",
+    "raw_log_committed": false,
+    "vendor_finalizer": "Observed framework/vendor stack; no app hidden-settings call established.",
+    "workmanager": "Matching callback records were informational; no warning/error substantiated by this export."
+  },
+  "final_review_followups": {
+    "tool_order": "Restore original tool result/provider exchange ordering while retaining confirmed results across child cancellation.",
+    "recovery_verification": "Use authoritative client-owned saved-job proof or exact persisted GitHub task metadata when current conversation bindings are missing; metadata read failure cannot grant completion."
+  },
+  "validated_code_commit": "d20270c1c0dd62ac558590edad1bb8323021cb43"
+}

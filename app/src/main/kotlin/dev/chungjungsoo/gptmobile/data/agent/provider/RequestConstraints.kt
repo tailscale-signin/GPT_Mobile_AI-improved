@@ -7,6 +7,7 @@ data class RequestConstraints(
     val allowReasoning: Boolean = true,
     val maximizeReasoning: Boolean = false,
     val allowGatewayLocalTools: Boolean = false,
+    val lockSelectedRoute: Boolean = false,
     val requestRole: String? = null,
     val attemptId: String? = null,
     val queueScope: String? = null,

@@ -93,6 +93,34 @@ class GitHubWorkspaceAdmissionTest {
         coVerify(exactly = 1) { drafts.write(any(), any()) }
     }
 
+    @Test fun queuedAutosaveCannotReplaceProtectedRecoveryBeforeItsDraftReachesTheDisplayedState() = runBlocking {
+        model.viewModelScope.cancel()
+        authorize()
+        val empty = state.value
+        val queued = pending(empty, 100)
+        state.value = empty.copy(busy = true)
+        invokeSuspending("persistDraft", pending(state.value, 101), true)
+        state.value = empty
+        val saved = empty.copy(staged = listOf(GitHubStagedFile("Code.kt", "old", "saved edit")), editorDrafts = mapOf("Other.kt" to "unsaved text"))
+        val value = GitHubWorkspaceViewModel::class.java.getDeclaredMethod("draft", GitHubWorkspaceState::class.java).apply { isAccessible = true }.invoke(model, saved) as Pair<*, *>
+        GitHubWorkspaceViewModel::class.java.getDeclaredField("pendingRecovery").apply { isAccessible = true }.set(model, value.second)
+        invokeSuspending("persistDraft", queued, true)
+        coVerify(exactly = 0) { drafts.write(any(), any()) }
+        state.value = saved.copy(busy = true)
+        invokeSuspending("persist", pending(state.value, 102))
+        coVerify(exactly = 1) { drafts.write("connection", match { "saved edit" in it && "unsaved text" in it }) }
+        coVerify(exactly = 1) { drafts.write(any(), any()) }
+    }
+
+    @Test fun anUnfinishedOrFailedDraftReadCannotBeOverwrittenByAutosaveOrClose() = runBlocking {
+        model.viewModelScope.cancel()
+        authorize()
+        GitHubWorkspaceViewModel::class.java.getDeclaredField("draftRestorationPending").apply { isAccessible = true }.set(model, true)
+        invokeSuspending("persistDraft", pending(state.value, 100), true)
+        invokeSuspending("persist", pending(state.value, 101))
+        coVerify(exactly = 0) { drafts.write(any(), any()) }
+    }
+
     @Test fun refreshingTheHeadInvalidatesCardsAndContinuationsFromThePreviousSnapshot() = runBlocking {
         val client = authorize()
         val old = buildJsonObject {
@@ -193,7 +221,7 @@ class GitHubWorkspaceAdmissionTest {
         val client = authorize()
         state.value = state.value.copy(appAuthorization = true, installationId = null)
         invokeSuspending("loadRepositories", 1)
-        assertTrue(rejected("selectRepositoryInternal", "owner", "repo", "main").message.orEmpty().contains("installation"))
+        assertTrue(rejected("selectRepositoryInternal", "owner", "repo", "main", false).message.orEmpty().contains("installation"))
         coVerify(exactly = 0) { client.execute(any(), any()) }
     }
 
@@ -211,7 +239,7 @@ class GitHubWorkspaceAdmissionTest {
         org.junit.Assert.assertEquals("42", state.value.installationId)
         org.junit.Assert.assertEquals(1, state.value.repositories.size)
         coVerify(exactly = 1) { client.execute("list_installation_repositories", match { it["installation_id"].toString() == "\"42\"" }) }
-        assertTrue(rejected("selectRepositoryInternal", "other", "repository", "main").message.orEmpty().contains("installation"))
+        assertTrue(rejected("selectRepositoryInternal", "other", "repository", "main", false).message.orEmpty().contains("installation"))
         coVerify(exactly = 0) { client.execute("get_repository", any()) }
     }
 
@@ -223,7 +251,7 @@ class GitHubWorkspaceAdmissionTest {
         coEvery { client.execute("get_repository", any()) } returns repository
         coEvery { client.execute("list_branches", any()) } returns Json.parseToJsonElement("""{"items":[{"name":"main"}],"has_more":false}""")
         coEvery { client.execute("resolve_context", any()) } returns buildJsonObject { put("commit_sha", "b".repeat(40)) }
-        invokeSuspending("selectRepositoryInternal", "owner", "repo", "main")
+        invokeSuspending("selectRepositoryInternal", "owner", "repo", "main", false)
         assertFalse(state.value.canWrite)
         org.junit.Assert.assertEquals("owner/repo", state.value.selection?.fullName)
     }
@@ -234,10 +262,61 @@ class GitHubWorkspaceAdmissionTest {
         val value = GitHubWorkspaceViewModel::class.java.getDeclaredMethod("draft", GitHubWorkspaceState::class.java).apply { isAccessible = true }.invoke(model, saved) as Pair<*, *>
         GitHubWorkspaceViewModel::class.java.getDeclaredField("pendingRecovery").apply { isAccessible = true }.set(model, value.second)
         state.value = state.value.copy(selection = null, recoveryRepository = "owner/repo", appAuthorization = true, installationId = "42", repositories = listOf(Json.parseToJsonElement("""{"full_name":"other/repository"}""").jsonObject))
-        assertTrue(rejected("selectRepositoryInternal", "other", "repository", null).message.orEmpty().contains("Restore owner/repo"))
+        assertTrue(rejected("selectRepositoryInternal", "other", "repository", null, false).message.orEmpty().contains("Restore owner/repo"))
         coVerify(exactly = 0) { client.execute(any(), any()) }
         coVerify(exactly = 0) { drafts.write(any(), any()) }
         org.junit.Assert.assertEquals("owner/repo", state.value.recoveryRepository)
+    }
+
+    @Test fun returningToASavedRepositoryDoesNotLoadOptionalInventoriesOrHistory() = runBlocking {
+        val client = authorize()
+        val repository = Json.parseToJsonElement("""{"full_name":"owner/repo","default_branch":"main","permissions":{"push":true}}""").jsonObject
+        coEvery { client.execute("get_repository", any()) } returns repository
+        coEvery { client.execute("resolve_context", any()) } returns buildJsonObject { put("commit_sha", "b".repeat(40)) }
+        invokeSuspending("selectRepositoryInternal", "owner", "repo", "main", true)
+        org.junit.Assert.assertEquals("b".repeat(40), state.value.headSha)
+        assertTrue(state.value.canWrite)
+        coVerify(exactly = 0) { client.execute("get_account", any()) }
+        coVerify(exactly = 0) { client.execute("list_repositories", any()) }
+        coVerify(exactly = 0) { client.execute("list_branches", any()) }
+        coVerify(exactly = 0) { client.execute("list_commits", any()) }
+    }
+
+    @Test fun restoringAnAppRepositoryDoesNotInventMissingInstallationWriteAccess() = runBlocking {
+        val client = authorize()
+        state.value = state.value.copy(appAuthorization = true, installationId = null)
+        coEvery { client.execute("get_repository", any()) } returns Json.parseToJsonElement("""{"default_branch":"main","permissions":{"push":true}}""")
+        coEvery { client.execute("resolve_context", any()) } returns buildJsonObject { put("commit_sha", "b".repeat(40)) }
+        invokeSuspending("selectRepositoryInternal", "owner", "repo", "main", true)
+        assertFalse(state.value.canWrite)
+        assertTrue(rejected("selectRepositoryInternal", "other", "repository", "main", true).message.orEmpty().contains("installation"))
+    }
+
+    @Test fun failedHeadRefreshPreservesTheRestoredDraftAndItsOriginalBase() = runBlocking {
+        val client = authorize()
+        val saved = state.value.copy(staged = listOf(GitHubStagedFile("Code.kt", "old", "saved edit")), editorDrafts = mapOf("Other.kt" to "unsaved text"))
+        val value = GitHubWorkspaceViewModel::class.java.getDeclaredMethod("draft", GitHubWorkspaceState::class.java).apply { isAccessible = true }.invoke(model, saved) as Pair<*, *>
+        GitHubWorkspaceViewModel::class.java.getDeclaredField("pendingRecovery").apply { isAccessible = true }.set(model, value.second)
+        coEvery { client.execute("get_repository", any()) } returns Json.parseToJsonElement("""{"default_branch":"main","permissions":{"push":true}}""")
+        coEvery { client.execute("resolve_context", any()) } throws IllegalStateException("Offline")
+        assertTrue(rejected("selectRepositoryInternal", "owner", "repo", "main", true).message.orEmpty().contains("Offline"))
+        org.junit.Assert.assertEquals(saved.staged, state.value.staged)
+        org.junit.Assert.assertEquals(saved.editorDrafts, state.value.editorDrafts)
+        org.junit.Assert.assertEquals(saved.headSha, state.value.headSha)
+        coVerify(exactly = 0) { drafts.write(any(), any()) }
+        assertTrue(state.value.notice.orEmpty().contains("preserved"))
+    }
+
+    @Test fun initialRepositorySetupDefersTheChatUntilTheUserCompletesIt() = runBlocking {
+        val client = authorize()
+        state.value = state.value.copy(setupRequired = true, busy = false)
+        coEvery { client.execute("get_repository", any()) } returns Json.parseToJsonElement("""{"default_branch":"main","permissions":{"push":true}}""")
+        coEvery { client.execute("resolve_context", any()) } returns buildJsonObject { put("commit_sha", "b".repeat(40)) }
+        coEvery { client.execute("list_branches", any()) } returns Json.parseToJsonElement("""{"items":[{"name":"main"}],"has_more":false}""")
+        invokeSuspending("selectRepositoryInternal", "owner", "repo", "main", false)
+        assertTrue(state.value.setupRequired)
+        assertTrue(state.value.branchesLoaded)
+        org.junit.Assert.assertEquals(listOf("main"), state.value.branches)
     }
 
     private fun authorize(): GitHubWorkspaceClient {

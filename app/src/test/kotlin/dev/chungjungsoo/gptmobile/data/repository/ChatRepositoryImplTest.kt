@@ -100,6 +100,18 @@ import org.junit.Test
 class ChatRepositoryImplTest {
     @get:org.junit.Rule val testFiles = org.junit.rules.TemporaryFolder()
 
+    @Test fun delegatedInputReservesTheFullOutputWithinGlobalAndProfileContextCaps() = runBlocking {
+        val profile = customPlatform()
+        val settings = mockk<SettingRepository>(relaxed = true)
+        var budget = dev.chungjungsoo.gptmobile.data.context.TokenBudgetSettings(contextTokens = 4096)
+        coEvery { settings.getFeatureSettings() } answers { dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings(tokenBudget = budget) }
+        val repository = createRepository(settingsOverride = settings)
+        assertEquals(1776, repository.delegationInputBudget(profile, 2048))
+        budget = budget.copy(profileContextCeilings = mapOf(profile.uid to 2048))
+        assertEquals(752, repository.delegationInputBudget(profile, 1024))
+        assertEquals(0, repository.delegationInputBudget(profile, 2048))
+    }
+
     @Test fun knownPrivacyRejectionStopsBeforePreparationOrRetrieval() = runBlocking {
         val privacy = mockk<dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterPrivacyPreflight>()
         coEvery { privacy.check(any(), any(), any(), any()) } throws IllegalStateException("POLICY_RESTRICTED: choose a compatible model")

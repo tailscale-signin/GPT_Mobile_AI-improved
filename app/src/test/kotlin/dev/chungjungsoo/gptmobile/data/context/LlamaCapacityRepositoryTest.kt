@@ -1,11 +1,13 @@
 package dev.chungjungsoo.gptmobile.data.context
 
 import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
+import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayClientDiagnostics
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
 import io.ktor.http.HttpHeaders
 import io.ktor.http.content.TextContent
+import io.ktor.http.headersOf
 import java.io.EOFException
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
@@ -15,6 +17,49 @@ import org.junit.Assert.assertNotNull
 import org.junit.Test
 
 class LlamaCapacityRepositoryTest {
+    @Test fun protectedMetadataCannotDisableAnObservedSchemaCapabilityOrChangeTheSelectedModel() = runTest {
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+            var probes = 0
+            val models = mutableListOf<String>()
+            val http = HttpClient(
+                MockEngine { request ->
+                    assertEquals("Bearer configured-token", request.headers[HttpHeaders.Authorization])
+                    assertEquals("selected-identity", request.headers["X-Client-Identity"])
+                    assertEquals("false", request.headers["X-Gateway-Allow-Local-Tools"])
+                    assertEquals("false", request.url.parameters["autoload"])
+                    if (request.url.encodedPath == "/props") {
+                        respond("restricted", io.ktor.http.HttpStatusCode.Forbidden, headersOf("X-Gateway-Instance-ID", "1".repeat(32)))
+                    } else {
+                        assertEquals("/v1/chat/completions", request.url.encodedPath)
+                        assertEquals(null, request.headers["X-Gateway-Job-ID"])
+                        assertEquals(null, request.headers["Idempotency-Key"])
+                        org.junit.Assert.assertNotEquals("original-attempt", request.headers["X-Gateway-Attempt-ID"])
+                        assertNotNull(request.headers["X-Gateway-Attempt-ID"])
+                        probes++
+                        val body = Json.parseToJsonElement((request.body as TextContent).text).jsonObject
+                        models += body.getValue("model").toString().trim('"')
+                        assertEquals("\"none\"", body["tool_choice"].toString())
+                        respond("""{"choices":[{"message":{"content":"{\"ok\":true}"}}]}""")
+                    }
+                }
+            )
+            try {
+                val repository = LlamaCapacityRepository({ http })
+                val config = ProviderRequestConfig("http://127.0.0.1:29771/v1", "configured-token", profileUid = "selected", extraHeaders = mapOf("X-Client-Identity" to "selected-identity", "X-Gateway-Allow-Local-Tools" to "false", "X-Gateway-Job-ID" to "retained-user-job", "X-Gateway-Attempt-ID" to "original-attempt", "Idempotency-Key" to "user-request"))
+                assertEquals(null, repository.discover(config, "selected-model"))
+                org.junit.Assert.assertTrue(repository.supportsReviewSchema(config, "selected-model"))
+                org.junit.Assert.assertTrue(repository.supportsReviewSchema(config, "selected-model"))
+                assertEquals(1, probes)
+                org.junit.Assert.assertTrue(repository.supportsReviewSchema(config, "changed-model"))
+                GatewayClientDiagnostics.observeInstance(config, "2".repeat(32))
+                org.junit.Assert.assertTrue(repository.supportsReviewSchema(config, "selected-model"))
+                assertEquals(listOf("selected-model", "changed-model", "selected-model"), models)
+            } finally {
+                http.close()
+            }
+        }
+    }
+
     @Test fun explicitModelCapacityDoesNotRequireAnOptionalTemplateAndCannotConfirmReasoning() = runTest {
         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
             val http = HttpClient(MockEngine { respond("""{"model_alias":"test-model","build_info":"fixture","default_generation_settings":{"n_ctx":8192}}""") })

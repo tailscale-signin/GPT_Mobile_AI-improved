@@ -1,0 +1,97 @@
+{
+  "schema": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "b9089569b073465c2ec24f2526c821f1f1f01046",
+  "working_branch": "fix/diagnostic-recovery-completion-2026-11-04",
+  "parent_pr": 801,
+  "observed_head_sha": "e9247594b950f4b8a4ce0e7ab38a29b1c126e034",
+  "intent": "Repair PR 801 hosted glass-rendering regressions and transient Robolectric provisioning failure, preserve adaptive pressure protection and checksum verification, then validate and publish on the existing branch.",
+  "state": "IMPLEMENTED_PENDING_EXACT_REVISION_CI",
+  "failures": [
+    {
+      "workflow_run": 41938958249,
+      "jobs": [
+        126954510022,
+        126954510400
+      ],
+      "evidence": "API 34 and 36 fail the same dialog blur and conversation backdrop detail, opacity and restoration assertions; blur-on and blur-off images are identical.",
+      "diagnosis": "The new process-wide emergency frame guard accepts first-draw stalls and depends on two complete healthy windows for recovery. Glass becomes unavailable under reduced effects. Logs do not independently identify the triggering frame."
+    },
+    {
+      "workflow_run": 41938958148,
+      "job": 126954509358,
+      "evidence": "Provision verified Robolectric runtimes fails in urllib.request.urlopen with HTTP 429 Too Many Requests; the same head passes PR Validation.",
+      "diagnosis": "The existing three attempts wait only 5 and 10 seconds, exhausting retries during shared-egress rate limiting. Server Retry-After is not honored."
+    }
+  ],
+  "acceptance": [
+    "First-draw measurements cannot trigger runtime rendering-pressure fallback.",
+    "Genuine runtime stalls still reduce effects and repeated pressure extends the hold.",
+    "Reduced effects have a bounded recovery path on a quiet screen.",
+    "Glass opacity, blur and restoration assertions remain intact and pass on hosted API 34 and 36.",
+    "Provisioning retries only transient download failures with bounded waits and validates the existing pinned checksums.",
+    "Applicable hosted workflows pass for the published repair revision."
+  ],
+  "validation": [
+    {
+      "scope": "Robolectric provisioning",
+      "command": "python3 -m unittest scripts.tests.test_robolectric_provisioning -v",
+      "result": "16 tests passed; publisher pins and permanent-failure safeguards retained."
+    },
+    {
+      "scope": "Canonical host validation after both repairs",
+      "command": "bash scripts/validate-local.sh fast",
+      "result": "311 tests passed; CI policy, dependency catalog, secret scan, resource, Android regex and whitespace checks passed."
+    },
+    {
+      "scope": "Pure frame-pressure behavior",
+      "toolchain": "Kotlin 2.4.20 / JUnit 4.13.2",
+      "result": "All 10 FrameEffectsGuardTest cases passed against unchanged guard and observation sources."
+    },
+    {
+      "scope": "Changed Kotlin formatting",
+      "toolchain": "ktlint 1.3.1",
+      "result": "All eight changed/new Kotlin files passed."
+    },
+    {
+      "scope": "Independent lifecycle and concurrency review",
+      "result": "Passed: stopped-listener fence, single handler-owned timer, latest-deadline recheck, idle and resume recovery, representative sample filtering."
+    },
+    {
+      "scope": "Android Gradle integration",
+      "tasks": [
+        ":app:testDebugUnitTest (FrameEffectsGuardTest, FrameDurationHistogramTest, StreamingGlassPolicyTest)",
+        ":app:compileDebugAndroidTestKotlin"
+      ],
+      "result": "BUILD SUCCESSFUL in 6m 16s; 12 tests passed, no failures/errors/skips; app and instrumentation Kotlin compilation passed. Repository Gradle memory limits retained."
+    }
+  ],
+  "qualification": "Hosted emulators validate rendering contracts. No physical-device performance improvement, vendor qualification or external-service recovery is claimed.",
+  "checkpoints": [
+    {
+      "local_commit": "e85f9616f355b30b94d8f24287e68c312f457a3d",
+      "change": "Verified runtime rate-limit recovery",
+      "state": "PREPARED_PENDING_BRANCH_UPDATE",
+      "prepared_remote_commit": "1fd0db3693b80501e23b519851484ade8f194f5a",
+      "verified_tree_sha": "740527799f6d8fc26963cb266dd5de63c593e93d"
+    }
+  ],
+  "implementation": {
+    "rendering": "Exclude first draws from adaptive pressure while retaining raw diagnostics. Preserve immediate critical-stall and sustained-pressure protection. Expire the latest 30-second hold independently of frame production, check expiry on resume, and reject callbacks from stopped observations.",
+    "pixel_acceptance": "Fixtures use controlled instances of the real policy; all existing pixel assertions remain unchanged. Add a forced-chat pressure/fallback/idle-recovery regression including restored 0.15 and 0.50 transmission.",
+    "provisioning": "Bounded six-attempt HTTP 429 recovery with Retry-After and jitter; original checksum pins and global deadline retained."
+  },
+  "validated_source_sha256": {
+    "app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/presentation/common/GlassBackdropInstrumentedTest.kt": "965527d5cd9b4867aa59ee46307d510a1301310145f7626b2dcbd8ae3555efad",
+    "app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ConversationGlassInstrumentedTest.kt": "2fe7b051d3430dc9183960afa95dd12ed25d17c090a32aa46b1507a56c9af787",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/FrameEffectsGuard.kt": "c189f17bbfbe37383777a897ca47749465e133aeb02c9bacb681be4bd7f6954d",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/FrameEffectsObservation.kt": "bcc01eb1c4c82b518520e4c8f225b02e7bd7f83dd7f86cd94e76103c858f26fd",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/FrameTimingRecorder.kt": "12cbdbbcc79db93ffbfeeeea20a6d964194c7451b2fc3a39225300ab75bbfea5",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/common/GlassBackdrop.kt": "fe77d0e6b0e3658a36ff504210a9836557fe6aa953bb6d4ce7bfc55b324afac5",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/common/SettingsGlassBackdrop.kt": "f428a18452b82d795bbdb41e0023254eeeae902b9eafa5c7b64daf0f9b815c35",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/FrameEffectsGuardTest.kt": "ebb391956fa0709c2ddde9674951bc1afbf2e953db975a55304ce6ff28880c20",
+    "scripts/provision_robolectric_sdks.py": "d6863ba41ebef5cd26c98b71e4feb9b227a6db875a50714d78dedba5996dd988",
+    "scripts/tests/test_robolectric_provisioning.py": "22695452afd3e29c0074dc2a9062e75ff7c21d7c173b4e1bf41a0c4c3c3cd003"
+  }
+}

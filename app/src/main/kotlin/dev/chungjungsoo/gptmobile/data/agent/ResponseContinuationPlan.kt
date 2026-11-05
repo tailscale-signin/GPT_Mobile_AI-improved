@@ -22,7 +22,8 @@ internal fun planResponseContinuation(
     draft: String,
     instruction: String,
     exchanges: List<AgentToolExchange>,
-    preserveFullInput: Boolean = false
+    preserveFullInput: Boolean = false,
+    advertisedTools: List<AgentToolDefinition> = emptyList()
 ): ContextPlan {
     val limits = settings.normalized().let {
         it.copy(outputTokens = responseOutputAllowance(it, it.outputTokens.takeIf { output -> output > 0 } ?: 4096))
@@ -30,24 +31,29 @@ internal fun planResponseContinuation(
     val base = appendResponseContinuationContext(turns, instruction, "", exchanges)
     val required = if (preserveFullInput) base else base.filter { it.isCurrentTurn }
     val reserve = limits.outputTokens
+    val toolResultReserve = if (advertisedTools.isEmpty()) 0 else (limits.contextTokens / 8).coerceAtMost(8192)
     val safety = minOf(256, limits.contextTokens / 16)
     val tailBudget = if (limits.contextTokens == Int.MAX_VALUE) {
         4096
     } else {
-        // Account for the replay label as well as the unchanged original task and evidence.
-        (limits.contextTokens.toLong() - reserve - safety - ContextBudgetService.breakdown(required, system, emptyList()).total - 40)
-            .coerceAtMost(4096).toInt()
+        // Keep the selected schemas and room for their results alongside the task and evidence.
+        (limits.contextTokens.toLong() - reserve - toolResultReserve - safety - ContextBudgetService.breakdown(required, system, advertisedTools).total - 40)
+            .coerceIn(0, 4096).toInt()
     }
     require(draft.isBlank() || tailBudget >= 48) {
-        "CONTINUATION_CONTEXT_CAPACITY: The original request, completed evidence and output allowance leave no room for a saved answer tail. The full partial answer is retained."
+        "CONTINUATION_CONTEXT_CAPACITY: The original request, completed evidence, selected tool schemas and output allowance leave no room for a saved answer tail. The full partial answer is retained."
     }
     val replay = LongResponsePolicy.continuationContext(draft, tailBudget.coerceAtLeast(0))
     val continued = appendResponseContinuationContext(turns, instruction, replay, exchanges)
-    return if (preserveFullInput) {
+    val plan = if (preserveFullInput && advertisedTools.isEmpty()) {
         ContextBudgetService.planFullInput(continued, system, limits)
     } else {
-        ContextBudgetService.plan(continued, system, emptyList(), limits)
+        ContextBudgetService.plan(continued, system, advertisedTools, limits)
     }
+    require(plan.tools == advertisedTools && (!preserveFullInput || plan.turns == continued)) {
+        "CONTINUATION_CONTEXT_CAPACITY: The selected tool schemas and required input do not fit the continuation budget. No request was dispatched; the full partial answer is retained."
+    }
+    return plan
 }
 
 private fun appendResponseContinuationContext(

@@ -346,10 +346,10 @@ class ProviderAdaptersTest {
         }
     }
 
-    @Test fun outputLimitDiscardsPendingToolsWithoutLosingTheContinuationReason() = runBlocking {
+    @Test fun outputLimitRetainsTheProtocolFailureAndDoesNotAuthorizeIncompleteToolContinuation() = runBlocking {
         val partial = """{"choices":[{"index":0,"delta":{"content":"Saved research.","tool_calls":[{"index":0,"id":"call1","type":"function","function":{"name":"weather","arguments":"{"}}]}}]}"""
         val limited = """{"choices":[{"index":0,"delta":{},"finish_reason":"length"}]}"""
-        for (type in listOf(ClientType.CUSTOM, ClientType.GROQ)) {
+        for (type in listOf(ClientType.CUSTOM, ClientType.LLAMA, ClientType.GROQ)) {
             val openai = FakeOpenAIAPI(
                 chatRounds = ArrayDeque(
                     listOf(
@@ -376,10 +376,80 @@ class ProviderAdaptersTest {
                 .openSession(turns(), platform(type)).streamRound(listOf(definition), emptyList()).toList()
             val failure = events.filterIsInstance<ProviderEvent.Failed>().single()
             assertTrue(dev.chungjungsoo.gptmobile.data.agent.tool.isProviderOutputLimitFailure(failure.message))
-            assertTrue(failure.transportComplete)
-            assertNull(failure.errorCode)
+            assertFalse(failure.transportComplete)
+            assertEquals("TOOL_PROTOCOL_INVALID_FRAME", failure.errorCode)
             assertFalse(events.any { it is ProviderEvent.ToolCall || it == ProviderEvent.Completed })
             assertEquals("Saved research.", events.filterIsInstance<ProviderEvent.TextDelta>().joinToString("") { it.text })
+        }
+    }
+
+    @Test fun groqTextOnlyLengthRemainsEligibleForBoundedContinuation() = runBlocking {
+        val payload = """{"choices":[{"index":0,"delta":{"content":"Retained output."},"finish_reason":"length"}]}"""
+        val groq = FakeGroqAPI(ArrayDeque(listOf(flowOf(NetworkClient.json.decodeFromString<GroqChatCompletionChunk>(payload), GroqChatCompletionChunk(streamFinished = true)))))
+        val events = OpenAICompatibleAdapter(FakeOpenAIAPI(), groq, attachmentEncoder())
+            .openSession(turns(), platform(ClientType.GROQ)).streamRound(emptyList(), emptyList()).toList()
+        val failure = events.filterIsInstance<ProviderEvent.Failed>().single()
+        assertTrue(failure.transportComplete)
+        assertEquals("OUTPUT_LIMIT", failure.errorCode)
+        assertTrue(dev.chungjungsoo.gptmobile.data.agent.tool.isProviderOutputLimitFailure(failure.message))
+        assertEquals("Retained output.", events.filterIsInstance<ProviderEvent.TextDelta>().single().text)
+        assertFalse(events.contains(ProviderEvent.Completed))
+    }
+
+    @Test fun groqCredentialRotationIsAllowedOnlyBeforeDeliveringPayload() = runBlocking {
+        for (delivered in listOf(false, true)) {
+            val failure = NetworkClient.json.decodeFromString<GroqChatCompletionChunk>("""{"error":{"message":"Rate limit exceeded","code":"429"}}""")
+            val first = if (delivered) {
+                flowOf(GroqChatCompletionChunk(choices = listOf(GroqChoice(index = 0, delta = GroqDelta(content = "Retained partial.")))), failure)
+            } else {
+                flowOf(failure)
+            }
+            val groq = FakeGroqAPI(ArrayDeque(listOf(first, flowOf(GroqChatCompletionChunk(choices = listOf(GroqChoice(index = 0, delta = GroqDelta(content = "Completed."), finishReason = "stop")))))))
+            val events = OpenAICompatibleAdapter(FakeOpenAIAPI(), groq, attachmentEncoder())
+                .openSession(turns(), platform(ClientType.GROQ).copy(uid = "groq-rotation-${java.util.UUID.randomUUID()}", token = "first,second"))
+                .streamRound(emptyList(), emptyList()).toList()
+            assertEquals(if (delivered) 1 else 2, groq.requests.size)
+            assertEquals(if (delivered) "Retained partial." else "Completed.", events.filterIsInstance<ProviderEvent.TextDelta>().single().text)
+            assertEquals(!delivered, events.contains(ProviderEvent.Completed))
+            assertEquals(delivered, events.any { it is ProviderEvent.Failed })
+            if (!delivered) assertEquals(2, groq.configs.map { it.token }.distinct().size)
+        }
+    }
+
+    @Test fun llamaNativeToolsSerializeTheAdmittedBudgetAndReportTheSameEffectiveLimit() = runBlocking {
+        data class Scenario(val profile: Int?, val admitted: Int?, val providerCeiling: Int?, val expected: Int)
+        for (scenario in listOf(
+            Scenario(null, null, null, 4096),
+            Scenario(8192, null, null, 8192),
+            Scenario(16384, 12288, null, 12288),
+            Scenario(16384, 12288, 6144, 6144),
+            Scenario(8192, 2048, 6144, 2048)
+        )) {
+            val profile = platform(ClientType.LLAMA).copy(apiUrl = "https://budget-${java.util.UUID.randomUUID()}.example/v1", maxTokens = scenario.profile)
+            scenario.providerCeiling?.let { ceiling ->
+                assertEquals(ceiling, ProviderOutputLimits.learn(ProviderRouteCapacity.key(profile), "max_tokens is too large; supports at most $ceiling completion tokens", 16384))
+            }
+            val api = FakeOpenAIAPI(
+                chatRounds = ArrayDeque(
+                    listOf(
+                        flowOf(
+                            ChatCompletionChunk(serializedOutputTokens = scenario.expected),
+                            ChatCompletionChunk(choices = listOf(Choice(delta = Delta(content = "Done."), finishReason = "stop")))
+                        )
+                    )
+                )
+            )
+            val constraints = RequestConstraints(maxOutputTokens = scenario.admitted, contextCeiling = 32768, requireKnownCapacity = true)
+            val events = OpenAICompatibleAdapter(api, FakeGroqAPI(), attachmentEncoder())
+                .openSession(turns(), profile, constraints).streamRound(listOf(definition), emptyList()).toList()
+            assertEquals(scenario.expected, api.chatRequests.single().maxTokens)
+            assertEquals(scenario.expected.toString(), requestJson(api.chatRequests.single())["max_tokens"]?.jsonPrimitive?.content)
+            val configured = events.filterIsInstance<ProviderEvent.RequestConfigured>()
+            assertTrue(configured.all { it.effectiveOutputTokens == scenario.expected })
+            assertEquals(scenario.expected, configured.last().serializedOutputTokens)
+            assertEquals(32768, api.configs.single().contextCeiling)
+            assertTrue(api.configs.single().requireKnownCapacity)
+            assertEquals(ProviderEvent.Completed, events.last())
         }
     }
 
@@ -494,7 +564,9 @@ class ProviderAdaptersTest {
                 .openSession(turns(), platform(type))
                 .streamRound(emptyList(), emptyList()).toList()
             assertEquals("Saved research.", events.filterIsInstance<ProviderEvent.TextDelta>().single().text)
-            assertTrue(events.last() is ProviderEvent.Failed)
+            val failure = events.filterIsInstance<ProviderEvent.Failed>().single()
+            assertTrue(failure.transportComplete)
+            if (type != ClientType.OLLAMA) assertEquals("OUTPUT_LIMIT", failure.errorCode)
             assertFalse(events.any { it is ProviderEvent.Completed })
         }
     }

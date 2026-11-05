@@ -27,16 +27,19 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.chungjungsoo.gptmobile.data.diagnostics.AppLogEntry
 import dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder
 import dev.chungjungsoo.gptmobile.data.diagnostics.GroupedAppLog
 import kotlinx.coroutines.CancellationException
@@ -54,9 +57,10 @@ private data class LogViewRequest(
 )
 
 @Composable
-internal fun AppLogPanel() {
+internal fun AppLogPanel(entriesOverride: List<AppLogEntry>? = null) {
     val enabled by AppLogRecorder.enabled.collectAsStateWithLifecycle()
-    val entries by AppLogRecorder.entries.collectAsStateWithLifecycle()
+    val recordedEntries by AppLogRecorder.entries.collectAsStateWithLifecycle()
+    val entries by rememberUpdatedState(entriesOverride ?: recordedEntries)
     val error by AppLogRecorder.error.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -65,7 +69,7 @@ internal fun AppLogPanel() {
     var selectedTag by rememberSaveable { mutableStateOf("All tags") }
     var structuredExport by rememberSaveable { mutableStateOf(true) }
     var frozen by remember { mutableStateOf<List<dev.chungjungsoo.gptmobile.data.diagnostics.AppLogEntry>?>(null) }
-    var visible by remember { mutableStateOf<List<GroupedAppLog>>(emptyList()) }
+    var projection by remember { mutableStateOf(AppLogProjection()) }
     DisposableEffect(Unit) {
         val leaveScreen = dev.chungjungsoo.gptmobile.data.diagnostics.FrameTimingRecorder.screen("Debug/Logs")
         onDispose { leaveScreen() }
@@ -76,16 +80,12 @@ internal fun AppLogPanel() {
         // Keep the newest pending snapshot while one is being grouped, rather
         // than restarting expensive parsing on every logging update.
         snapshotFlow { LogViewRequest(frozen ?: entries, errorsOnly, selectedTag, query) }.conflate().collect { request ->
-            visible = withContext(Dispatchers.Default) {
+            projection = withContext(Dispatchers.Default) {
                 if (groupedEntries !== request.entries) {
                     grouped = dev.chungjungsoo.gptmobile.data.diagnostics.groupAppLogs(request.entries)
                     groupedEntries = request.entries
                 }
-                grouped.filter {
-                    (!request.errorsOnly || it.incidentIds.isNotEmpty()) &&
-                        (request.selectedTag == "All tags" || it.entry.tag == request.selectedTag) &&
-                        (it.entry.tag + it.entry.message).contains(request.query, ignoreCase = true)
-                }.takeLast(100)
+                projectAppLogs(request.entries, grouped, request.errorsOnly, request.selectedTag, request.query)
             }
         }
     }
@@ -101,20 +101,20 @@ internal fun AppLogPanel() {
             }
         }
         error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-        val warningCount = entries.count { it.level in setOf("W", "E", "F") }
-        val failureCount = entries.count { it.level in setOf("E", "F") }
+        val warningCount = projection.warningEvents
+        val failureCount = projection.errorEvents
         Text(
-            "${entries.size} recent events · $warningCount warnings · $failureCount errors · ${entries.map { it.tag }.distinct().size} tags",
+            "${projection.totalEvents} recent events · $warningCount warnings · $failureCount errors · ${projection.tags.size - 1} tags",
             style = MaterialTheme.typography.labelLarge,
             color = if (failureCount > 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
         )
-        OutlinedTextField(query, { query = it }, label = { Text("Filter logs") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+        OutlinedTextField(query, { query = it }, label = { Text("Filter logs") }, modifier = Modifier.fillMaxWidth().testTag("app_log_filter"), singleLine = true)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             FilterChip(!errorsOnly, { errorsOnly = false }, label = { Text("All levels") })
             FilterChip(errorsOnly, { errorsOnly = true }, label = { Text("Warnings & errors") })
         }
         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            (listOf("All tags") + entries.map { it.tag }.distinct().sorted()).forEach { tag ->
+            projection.tags.forEach { tag ->
                 FilterChip(selectedTag == tag, { selectedTag = tag }, label = { Text(tag) })
             }
         }
@@ -149,29 +149,35 @@ internal fun AppLogPanel() {
                 AppLogRecorder.clear()
             }) { Text("Clear logs") }
         }
-        Text("${visible.sumOf { it.repetitions }} events · ${visible.flatMap { it.incidentIds }.distinct().size} issue groups · ${visible.size} rows · newest first", style = MaterialTheme.typography.labelMedium)
+        Text("${projection.visibleEvents} events · ${projection.visibleIssues} issue groups · ${projection.rows.size} rows · newest first", style = MaterialTheme.typography.labelMedium)
         Text("Records with the same incident or operation identity share one issue group. Similar messages may share a display row; expand it for every event. Missing causal identities remain separate.", style = MaterialTheme.typography.labelSmall)
-        if (visible.isEmpty()) Text(if (enabled) "Waiting for matching app events…" else "Enable tracking to record a test session.")
-        LazyColumn(Modifier.fillMaxWidth().heightIn(max = 560.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(visible.asReversed()) { group ->
-                val entry = group.entry
-                var expanded by remember(entry.time, entry.tag) { mutableStateOf(false) }
+        if (projection.rows.isEmpty()) Text(if (enabled) "Waiting for matching app events…" else "Enable tracking to record a test session.")
+        LazyColumn(Modifier.fillMaxWidth().heightIn(max = 560.dp).testTag("app_log_rows"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            items(projection.rows, key = { it.key }) { row ->
+                val group = row.group
+                var expanded by remember(row.key) { mutableStateOf(false) }
+                var detailLimit by remember(row.key) { mutableStateOf(20) }
                 Card(Modifier.fillMaxWidth()) {
                     Column {
                         Text(
-                            entry.line() + if (group.repetitions > 1) "\n× ${group.repetitions} · last ${java.time.Instant.ofEpochMilli(group.lastTime)}" else "",
+                            row.preview + if (group.repetitions > 1) "\n× ${group.repetitions} · last ${java.time.Instant.ofEpochMilli(group.lastTime)}" else "",
                             modifier = Modifier.padding(12.dp),
                             fontFamily = FontFamily.Monospace,
                             style = MaterialTheme.typography.bodySmall,
-                            color = when (dev.chungjungsoo.gptmobile.data.diagnostics.classifyDiagnostic(entry.level, entry.tag, entry.message).severity) {
+                            color = when (row.severity) {
                                 "error", "critical" -> MaterialTheme.colorScheme.error
                                 "warning" -> MaterialTheme.colorScheme.tertiary
                                 else -> MaterialTheme.colorScheme.onSurface
                             }
                         )
-                        if (group.repetitions > 1) {
+                        if (row.hasDetails) {
                             TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "Hide Raw Details" else "Show Raw Details") }
-                            if (expanded) group.rawDetails.forEach { detail -> Text(detail.line(), modifier = Modifier.padding(12.dp), fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall) }
+                            if (expanded) {
+                                group.rawDetails.take(detailLimit).forEach { detail -> Text(detail.line(), modifier = Modifier.padding(12.dp), fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall) }
+                                if (group.rawDetails.size > detailLimit) {
+                                    TextButton(onClick = { detailLimit += 20 }) { Text("Show next ${minOf(20, group.rawDetails.size - detailLimit)} events") }
+                                }
+                            }
                         }
                     }
                 }

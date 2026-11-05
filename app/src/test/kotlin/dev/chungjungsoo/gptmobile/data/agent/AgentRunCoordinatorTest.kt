@@ -22,6 +22,16 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AgentRunCoordinatorTest {
+    @Test fun reviewInputBlockKeepsItsOwnTerminalStateAndStage() {
+        for (code in listOf("REVIEW_INPUT_REQUIRED", "GITHUB_REVIEW_BLOCKED")) {
+            val outcome = dev.chungjungsoo.gptmobile.util.ApiStateFlowOutcome.Failed(code, errorCode = code).toTerminalUpdate()
+            assertEquals(AgentRunStatus.BLOCKED, outcome.status)
+            assertEquals("answer_review", ProfileFailureRecord.classify(code).phase)
+            assertFalse(ProfileFailureRecord.classify(code).retryAllowed)
+        }
+        assertEquals(AgentRunStatus.BLOCKED, dev.chungjungsoo.gptmobile.util.ApiStateFlowOutcome.Failed("Missing review input", errorCode = "GITHUB_EVIDENCE_REQUIRED", taskOutcome = "BLOCKED").toTerminalUpdate().status)
+    }
+
     @Test fun partialDeliveryKeepsTaskResumableAndOriginalError() {
         val result = dev.chungjungsoo.gptmobile.util.ApiStateFlowOutcome.Failed("Continuation rejected", errorCode = "client_tool_results_required", taskOutcome = "PARTIAL").toTerminalUpdate()
         assertEquals(AgentRunStatus.PARTIAL, result.status)

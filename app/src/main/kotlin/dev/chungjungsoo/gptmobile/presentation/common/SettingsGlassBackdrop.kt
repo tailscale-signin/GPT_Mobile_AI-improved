@@ -29,6 +29,8 @@ import androidx.compose.ui.unit.IntSize
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 
 internal val LocalHomeGlassLayer = compositionLocalOf<GraphicsLayer?> { null }
 
@@ -41,10 +43,15 @@ internal fun SettingsGlassBackdropHost(settings: Boolean, content: @Composable (
     val density = LocalDensity.current
     val layoutDirection = LocalLayoutDirection.current
     val active = lifecycle.isAtLeast(Lifecycle.State.STARTED)
-    LaunchedEffect(settings, active) {
-        if (!active) {
+    val pressure = remember { dev.chungjungsoo.gptmobile.presentation.ui.chat.ChatRuntimeHealth.memory.map { it.level != "normal" }.distinctUntilChanged() }
+    val underPressure by pressure.collectAsState(initial = false)
+    val reduceEffects by LocalFrameEffectsGuard.current.reduced.collectAsState()
+    val captureEnabled = active && !underPressure && !reduceEffects && LocalOverlayMaterial.current == "glass" && LocalOverlayBlur.current == "auto"
+    LaunchedEffect(settings, active, captureEnabled) {
+        if (!captureEnabled) {
             homeSnapshot = null
-            // Drop private pixels and retained child RenderNodes when the app stops.
+            // The solid fallback must release the backing pixels as well as the
+            // blur effect; otherwise heavy operations still pay the capture cost.
             layer.record(density, layoutDirection, IntSize(1, 1)) { }
         } else if (settings) {
             // The outgoing HomeScreen can still draw during the navigation transition.
@@ -71,10 +78,10 @@ internal fun SettingsGlassBackdropHost(settings: Boolean, content: @Composable (
         }
     }
     val base = appBaseBackground()
-    CompositionLocalProvider(LocalHomeGlassLayer provides layer, LocalAppBaseBackground provides base) {
+    CompositionLocalProvider(LocalHomeGlassLayer provides layer.takeIf { captureEnabled }, LocalAppBaseBackground provides base) {
         Box(Modifier.fillMaxSize().background(base)) {
             val snapshot = homeSnapshot
-            if (settings && active && snapshot != null) {
+            if (settings && captureEnabled && snapshot != null) {
                 Image(
                     bitmap = snapshot,
                     contentDescription = null,
@@ -85,7 +92,7 @@ internal fun SettingsGlassBackdropHost(settings: Boolean, content: @Composable (
             if (settings) {
                 // Before capture (or for a direct settings deep link), show the tinted
                 // material rather than asking Haze to sample a missing home source.
-                val blurAvailable = LocalGlassBackdropActive.current && snapshot != null
+                val blurAvailable = captureEnabled && LocalGlassBackdropActive.current && snapshot != null
                 CompositionLocalProvider(LocalGlassBackdropActive provides blurAvailable) {
                     AppGlassSurface(Modifier.fillMaxSize(), shape = androidx.compose.ui.graphics.RectangleShape) { }
                 }

@@ -84,7 +84,7 @@ class ChatCompletionsEventAssembler {
         val events = completed.values.map { call ->
             val name = call.name
             if (name.isNullOrBlank()) {
-                ProviderEvent.Failed("Provider returned an incomplete function call.")
+                ProviderEvent.Failed("Provider returned an incomplete function call.", errorCode = "TOOL_PROTOCOL_INVALID_FRAME")
             } else {
                 // Some compatible servers omit IDs; preserve supplied IDs and replay generated ones.
                 val callId = call.callId?.takeIf(String::isNotBlank) ?: "call_${java.util.UUID.randomUUID()}"
@@ -98,7 +98,7 @@ class ChatCompletionsEventAssembler {
     fun discardIncomplete(): List<ProviderEvent> {
         if (pending.isEmpty()) return emptyList()
         pending.clear()
-        return listOf(ProviderEvent.Failed("Provider stopped before completing the tool call. No incomplete tool was run."))
+        return listOf(ProviderEvent.Failed("Provider stopped before completing the tool call. No incomplete tool was run.", errorCode = "TOOL_PROTOCOL_INVALID_FRAME"))
     }
 }
 

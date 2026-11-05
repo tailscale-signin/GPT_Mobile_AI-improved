@@ -1678,6 +1678,9 @@ class GitHubTool(
         if (detail.startsWith("EVIDENCE_UNAVAILABLE:")) {
             return AgentToolResult(callId, ToolResultContent.Text(detail), true, errorCode = "EVIDENCE_UNAVAILABLE", dispatched = false)
         }
+        if (throwable is dev.chungjungsoo.gptmobile.data.github.GitHubReadValidation) {
+            return AgentToolResult(callId, ToolResultContent.Json(throwable.details), true, errorCode = throwable.code, dispatched = false)
+        }
         if (throwable is dev.chungjungsoo.gptmobile.data.github.GitHubHeaderLookupFailure) {
             return AgentToolResult(callId, ToolResultContent.Json(throwable.details), true, errorCode = throwable.code, dispatched = true)
         }

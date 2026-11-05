@@ -29,12 +29,17 @@ import dev.chrisbanes.haze.HazeTint
 import dev.chrisbanes.haze.hazeEffect
 import dev.chrisbanes.haze.hazeSource
 import dev.chrisbanes.haze.rememberHazeState
+import dev.chungjungsoo.gptmobile.data.diagnostics.FrameEffectPressure
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 
 internal val LocalGlassBackdrop = compositionLocalOf<HazeState?> { null }
 private val LocalInlineGlassBackdrop = compositionLocalOf<HazeState?> { null }
 internal val LocalGlassBackdropActive = compositionLocalOf { false }
+
+// Captures and consumers share the real runtime policy, including forced chat glass.
+internal val LocalFrameEffectsGuard = compositionLocalOf { FrameEffectPressure.guard }
+
 private val LocalGlassWindowConsumers = compositionLocalOf<MutableIntState?> { null }
 private val LocalGlassPopupSequence = compositionLocalOf<java.util.concurrent.atomic.AtomicInteger?> { null }
 internal val LocalOverlayWindow = compositionLocalOf { false }
@@ -76,7 +81,7 @@ fun Modifier.glassBackdropSource(): Modifier {
 internal fun hasGlassBackdrop(force: Boolean = false): Boolean {
     val pressure = remember { dev.chungjungsoo.gptmobile.presentation.ui.chat.ChatRuntimeHealth.memory.map { it.level != "normal" }.distinctUntilChanged() }
     val underPressure by pressure.collectAsState(initial = false)
-    val reduceEffects by dev.chungjungsoo.gptmobile.data.diagnostics.FrameEffectPressure.guard.reduced.collectAsState()
+    val reduceEffects by LocalFrameEffectsGuard.current.reduced.collectAsState()
     return !underPressure &&
         !reduceEffects &&
         LocalGlassBackdrop.current != null &&

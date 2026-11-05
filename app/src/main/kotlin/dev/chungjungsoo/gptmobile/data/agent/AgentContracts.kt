@@ -15,7 +15,13 @@ sealed interface ProviderEvent {
 
     /** The body and its attribution are one publication; neither may be checkpointed alone. */
     data class CombinedAnswer(val text: String, val report: CombinedQualityReport, val formatVersion: Int = 1) : ProviderEvent
-    data class ToolCall(val callId: String, val name: String, val arguments: JsonObject) : ProviderEvent
+    data class ToolCall(
+        val callId: String,
+        val name: String,
+        val arguments: JsonObject,
+        /** Runner-owned identity before authorized routing; never part of the model's arguments. */
+        val originalInvocationFingerprint: String? = null
+    ) : ProviderEvent
     data class ToolResult(val call: ToolCall, val result: AgentToolResult) : ProviderEvent
     data class Failed(val message: String, val progressDeadline: ProgressDeadlineOutcome? = null, val errorCode: String? = null, val transportComplete: Boolean = false, val providerLimit: dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision? = null, val taskOutcome: String? = null, val failureDetails: JsonObject? = null) : ProviderEvent
     data class Notice(val message: String, val persistent: Boolean = false, val researchDelivery: dev.chungjungsoo.gptmobile.data.research.delivery.ResearchDeliveryReceipt? = null) : ProviderEvent

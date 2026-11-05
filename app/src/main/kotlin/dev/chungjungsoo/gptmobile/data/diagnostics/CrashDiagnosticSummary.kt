@@ -9,6 +9,16 @@ internal fun crashDiagnosticSummary(failure: Throwable, threadName: String): Str
         causes += next
         next = next.cause
     }
+    val topFrame = causes.lastOrNull()?.stackTrace?.firstOrNull()
+    // Stack origin is evidence, not a root-cause claim. A framework throw can
+    // still have been triggered by app or SDK code further down the stack.
+    val topFrameOrigin = when {
+        topFrame == null -> "unknown"
+        topFrame.className.startsWith("dev.chungjungsoo.gptmobile.") || topFrame.className.startsWith("dev.melo.gptmobile.") -> "application"
+        topFrame.className.startsWith("android.") || topFrame.className.startsWith("com.android.") -> "android_framework"
+        topFrame.className.startsWith("java.") || topFrame.className.startsWith("kotlin.") || topFrame.className.startsWith("dalvik.") -> "runtime"
+        else -> "library_or_vendor"
+    }
     val allFrames = causes.sumOf { it.stackTrace.size }
     val suppressed = causes.sumOf { it.suppressed.size }
     val records = mutableListOf<String>()
@@ -34,6 +44,7 @@ internal fun crashDiagnosticSummary(failure: Throwable, threadName: String): Str
     }
     return buildString {
         append("type=${identity(failure.javaClass.name)} · thread=${identity(threadName)}")
+        append(" · topFrameOrigin=$topFrameOrigin · rootCauseAttribution=not_established")
         append(" · causesRetained=${causes.size} · causeChainComplete=${next == null}")
         append(" · framesTotal=$allFrames · framesRetained=$retained · framesOmitted=${allFrames - retained}")
         append(" · suppressedTotal=$suppressed · suppressedCaptured=false")

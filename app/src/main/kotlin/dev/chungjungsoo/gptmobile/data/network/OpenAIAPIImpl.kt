@@ -109,7 +109,9 @@ class OpenAIAPIImpl @Inject constructor(
     ): Flow<ChatCompletionChunk> = flow {
         var config = if (config.freeProvider != null) config.copy(freeDiagnostics = dev.chungjungsoo.gptmobile.data.free.FreeRequestDiagnostics()) else config
         val workerBudget = kotlinx.coroutines.currentCoroutineContext()[WorkerRequestBudget]
+        val connectionTimeout = kotlinx.coroutines.currentCoroutineContext()[ProfileConnectionTimeout]?.millis
         var receivedAssistantPayload = false
+        var llamaActivity: AutoCloseable? = null
         var receivedGatewayToolActivity = false
         val dispatchRetryGuard = ProviderDispatchRetryGuard(config)
         var receivedTerminal = false
@@ -194,7 +196,7 @@ class OpenAIAPIImpl @Inject constructor(
                     dispatchStarted = true
                     dispatchRetryGuard.dispatched()
                     networkClient().preparePost(endpoint) {
-                        applyPlatformStreamingTimeout(timeoutSeconds, workerBudget)
+                        applyPlatformStreamingTimeout(timeoutSeconds, workerBudget, connectionTimeout)
                         contentType(ContentType.Application.Json)
                         setBody(admittedPayload)
                         accept(if (preparedRequest.stream) ContentType.Text.EventStream else ContentType.Application.Json)
@@ -430,6 +432,9 @@ class OpenAIAPIImpl @Inject constructor(
                             receivedError = receivedError || chunk.error != null
                             if (free != null && chunk.error != null) dev.chungjungsoo.gptmobile.data.free.FreeProviderDiagnostics.record(config, preparedRequest.model, chunk.error.message, status = 200, body = data, event = "error", terminal = true)
                             reachedOutputLimit = reachedOutputLimit || chunk.choices.orEmpty().any { it.finishReason == "length" }
+                            if (llamaActivity == null && chunk.hasAssistantStreamPayload()) {
+                                llamaActivity = dev.chungjungsoo.gptmobile.data.llama.LlamaGenerationActivity.started(config, request.model, providerRequestIdentity { response.headers[it] })
+                            }
                             receivedAssistantPayload = receivedAssistantPayload || chunk.hasAssistantStreamPayload()
                             receivedToolCalls = receivedToolCalls || chunk.choices.orEmpty().any { !it.effectiveDelta.toolCalls.isNullOrEmpty() }
                             // Tool assembly commits only after the entire stream is validated.
@@ -568,6 +573,7 @@ class OpenAIAPIImpl @Inject constructor(
                 )
             )
         } finally {
+            llamaActivity?.close()
             if (recoveryCheck) config.freeProvider?.let { dev.chungjungsoo.gptmobile.data.free.FreeCatalogState.endGeneration(it, requestedHealthModel, freeCredentialIdentity(it, config.token)) }
         }
     }.normalizeFreeTextBlocks(config.freeProvider).recordOpenRouterReceipts(config.openRouterReceipt, openRouterReceipts).flowOn(Dispatchers.IO)
@@ -578,6 +584,7 @@ class OpenAIAPIImpl @Inject constructor(
         config: ProviderRequestConfig
     ): Flow<ResponsesStreamEvent> = flow {
         val workerBudget = kotlinx.coroutines.currentCoroutineContext()[WorkerRequestBudget]
+        val connectionTimeout = kotlinx.coroutines.currentCoroutineContext()[ProfileConnectionTimeout]?.millis
         var receivedResponsePayload = false
         val dispatchRetryGuard = ProviderDispatchRetryGuard(config)
         var receivedTerminal = false
@@ -609,7 +616,7 @@ class OpenAIAPIImpl @Inject constructor(
                 effectiveConfig.freeDiagnostics?.attempted()
                 dispatchRetryGuard.dispatched()
                 networkClient().preparePost(endpoint) {
-                    applyPlatformStreamingTimeout(timeoutSeconds, workerBudget)
+                    applyPlatformStreamingTimeout(timeoutSeconds, workerBudget, connectionTimeout)
                     contentType(ContentType.Application.Json)
                     setBody(admittedPayload)
                     accept(ContentType.Text.EventStream)

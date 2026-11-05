@@ -57,6 +57,11 @@ fun ConnectionDoctorDialog(onDismiss: () -> Unit, model: ConnectionDoctorViewMod
                     Text("Test NVIDIA inference · may use API credits")
                 }
             }
+            deadlineProfile?.let { profile ->
+                TextButton(enabled = !busy, onClick = { model.testLlamaInference(profile) }) {
+                    Text("Test llama.cpp inference")
+                }
+            }
             if (detectedContext != null) TextButton(enabled = !busy, onClick = model::applyDetectedContext) { Text(stringResource(R.string.context_apply_detected)) }
             if (busy) TextButton(onClick = model::cancel) { Text(stringResource(R.string.connection_doctor_dialog_label_5)) }
             androidx.compose.material3.PrimaryTabRow(selectedTabIndex = tab) {
@@ -65,6 +70,7 @@ fun ConnectionDoctorDialog(onDismiss: () -> Unit, model: ConnectionDoctorViewMod
                 }
             }
             if (tab == 2 && deadlineProfile != null) {
+                var connect by rememberSaveable(deadlineProfile?.uid, deadlineSettings) { mutableStateOf(deadlineSettings.connectMillis?.div(1000)?.toString().orEmpty()) }
                 var first by rememberSaveable(deadlineProfile?.uid, deadlineSettings) { mutableStateOf(deadlineSettings.firstProgressMillis?.div(1000)?.toString().orEmpty()) }
                 var idle by rememberSaveable(deadlineProfile?.uid, deadlineSettings) { mutableStateOf(deadlineSettings.meaningfulIdleMillis?.div(1000)?.toString().orEmpty()) }
                 var queue by rememberSaveable(deadlineProfile?.uid, deadlineSettings) { mutableStateOf(deadlineSettings.queueMillis?.div(1000)?.toString().orEmpty()) }
@@ -72,6 +78,7 @@ fun ConnectionDoctorDialog(onDismiss: () -> Unit, model: ConnectionDoctorViewMod
                 var round by rememberSaveable(deadlineProfile?.uid, deadlineSettings) { mutableStateOf(deadlineSettings.roundDeadlineMillis?.div(1000)?.toString().orEmpty()) }
                 var adaptive by rememberSaveable(deadlineProfile?.uid, deadlineSettings) { mutableStateOf(deadlineSettings.adaptiveFirstProgress) }
                 Text(stringResource(R.string.connection_wait_settings_hint), Modifier.padding(top = 12.dp))
+                DeadlineSecondsField(stringResource(R.string.connection_wait_connect), connect, { connect = it }, !busy)
                 DeadlineSecondsField(stringResource(R.string.connection_wait_first), first, { first = it }, !busy)
                 DeadlineSecondsField(stringResource(R.string.connection_wait_idle), idle, { idle = it }, !busy)
                 DeadlineSecondsField(stringResource(R.string.connection_wait_queue), queue, { queue = it }, !busy)
@@ -81,7 +88,7 @@ fun ConnectionDoctorDialog(onDismiss: () -> Unit, model: ConnectionDoctorViewMod
                     Text(stringResource(R.string.connection_wait_adaptive), Modifier.weight(1f))
                     androidx.compose.material3.Switch(checked = adaptive, onCheckedChange = { adaptive = it }, enabled = !busy)
                 }
-                TextButton(enabled = !busy, onClick = { model.saveProgressDeadlines(first, idle, queue, load, round, adaptive) }) { Text(stringResource(R.string.connection_wait_save)) }
+                TextButton(enabled = !busy, onClick = { model.saveProgressDeadlines(first, idle, queue, load, round, adaptive, connect) }) { Text(stringResource(R.string.connection_wait_save)) }
             }
             androidx.compose.foundation.text.selection.SelectionContainer {
                 Text(

@@ -81,7 +81,13 @@ class GitHubSearchTraversalTest {
         assertEquals(105, paths.distinct().size)
         assertEquals(0, fixture.blobs.get())
         val changed = JsonObject(continuation + ("query" to JsonPrimitive("different")))
-        assertTrue(runCatching { fixture.session.execute("search_repository", "owner", "repo", changed) }.isFailure)
+        val restarted = fixture.session.execute("search_repository", "owner", "repo", changed).jsonObject
+        assertEquals(JsonPrimitive("SEARCH_PARAMETERS_CHANGED"), restarted.getValue("recovery").jsonObject["code"])
+        assertEquals(JsonPrimitive(0), restarted["interval_start"])
+        assertEquals(JsonPrimitive(0), restarted["returned"])
+        val retained = fixture.session.execute("search_repository", "owner", "repo", args("paths")).jsonObject
+        assertEquals(first["items"], retained["items"])
+        assertEquals(JsonPrimitive(true), retained["cache_hit"])
     }
 
     @Test fun contentPagesPreserveFetchBudgetCoverageAndCache() = runBlocking {

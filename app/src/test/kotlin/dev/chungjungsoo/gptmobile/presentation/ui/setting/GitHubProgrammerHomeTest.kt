@@ -156,6 +156,35 @@ class GitHubProgrammerHomeTest {
         }
     }
 
+    @Test fun repositoryMapIsASettingsActionAndUsesTheExistingOpenCallback() {
+        var opens = 0
+        var available by mutableStateOf(true)
+        compose.setContent {
+            MaterialTheme {
+                Column(Modifier.width(360.dp).height(700.dp).verticalScroll(rememberScrollState())) {
+                    GitHubProgrammerSettings(
+                        workspace,
+                        GitHubProgrammerState(context = context),
+                        {},
+                        {},
+                        {},
+                        onOpenRepositoryMap = if (available) {
+                            { opens++ }
+                        } else {
+                            null
+                        }
+                    )
+                }
+            }
+        }
+        compose.onNodeWithTag("github_repository_map").performScrollTo().assertIsDisplayed().performClick()
+        compose.runOnIdle {
+            assertEquals(1, opens)
+            available = false
+        }
+        compose.onNodeWithText("Repository map").assertDoesNotExist()
+    }
+
     @Test fun waitingAndFailedRunsNeverClaimACompletedOutcome() {
         fun run(status: String) = AgentRun("run", 1, 2, 3, "local", "CUSTOM", "model", status)
         assertEquals("Waiting", GitHubProgrammerState(runs = listOf(run("WAITING_PROVIDER_LIMIT"))).activityLabel())

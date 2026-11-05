@@ -29,8 +29,10 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.unit.dp
 import androidx.test.filters.SdkSuppress
 import androidx.test.platform.app.InstrumentationRegistry
+import dev.chungjungsoo.gptmobile.data.diagnostics.FrameEffectsGuard
 import dev.chungjungsoo.gptmobile.presentation.common.GlassBackdropBox
 import dev.chungjungsoo.gptmobile.presentation.common.GlassBackdropHost
+import dev.chungjungsoo.gptmobile.presentation.common.LocalFrameEffectsGuard
 import dev.chungjungsoo.gptmobile.presentation.common.LocalGlassBackdropActive
 import dev.chungjungsoo.gptmobile.presentation.common.LocalOverlayBlur
 import dev.chungjungsoo.gptmobile.presentation.common.LocalOverlayMaterial
@@ -45,6 +47,7 @@ import org.junit.Test
 @SdkSuppress(minSdkVersion = 32)
 class ConversationGlassInstrumentedTest {
     @get:Rule val compose = createComposeRule()
+    private val frameEffects = FrameEffectsGuard()
     private var dark by mutableStateOf(false)
     private var backdropEnabled by mutableStateOf(true)
     private var edgeFades by mutableStateOf(true)
@@ -119,12 +122,49 @@ class ConversationGlassInstrumentedTest {
         }
     }
 
+    @Test fun criticalPressureFallsBackAndIdleRecoveryRestoresForcedConversationGlass() {
+        edgeFades = false
+        pattern = Pattern.STRIPES
+        showConversation()
+        val filtered = samples()
+        compose.runOnIdle { frameEffects.observeCriticalStall(250_000_000, 1000) }
+        val fallback = samples()
+        saveScreenshot("conversation-glass-pressure-fallback.png")
+        for (tag in fallback.keys) {
+            val sharp = variance(fallback.getValue(tag))
+            val blurred = variance(filtered.getValue(tag))
+            assertTrue("$tag pressure fallback must retain a visible tinted background: $sharp", sharp > 0.002)
+            assertTrue("$tag forced glass must release its blur under pressure: blur=$blurred fallback=$sharp", blurred < sharp * 0.4)
+        }
+
+        // No healthy frame window is supplied: an idle screen must also recover.
+        compose.runOnIdle { frameEffects.recoverAfterCooldown(31000) }
+        val recovered = samples()
+        saveScreenshot("conversation-glass-pressure-recovered.png")
+        for (tag in recovered.keys) {
+            val sharp = variance(fallback.getValue(tag))
+            val restored = variance(recovered.getValue(tag))
+            assertTrue("$tag must restore backdrop filtering after idle recovery: fallback=$sharp recovered=$restored", restored < sharp * 0.4)
+        }
+        compose.runOnIdle {
+            edgeFades = true
+            pattern = Pattern.RED
+        }
+        val red = samples()
+        compose.runOnIdle { pattern = Pattern.BLUE }
+        val blue = samples()
+        for ((tag, transparency) in listOf("chat_input_glass" to 0.15, "chat_latest_glass" to 0.50)) {
+            val transmission = (red.getValue(tag).average() - blue.getValue(tag).average()) / 2.0
+            assertEquals("$tag must restore the requested opacity over faded messages", transparency, transmission, 0.045)
+        }
+    }
+
     private fun showConversation() {
         compose.setContent {
             MaterialTheme(colorScheme = if (dark) darkColorScheme() else lightColorScheme()) {
                 // Chat controls must blur even when menu blur is disabled. The sharp
                 // reference below disables only the consumers' backdrop availability.
-                CompositionLocalProvider(LocalOverlayMaterial provides "glass", LocalOverlayBlur provides "off") {
+                CompositionLocalProvider(LocalFrameEffectsGuard provides frameEffects, LocalOverlayMaterial provides "glass", LocalOverlayBlur provides "off") {
                     GlassBackdropHost {
                         // An unrelated outgoing destination must not contaminate this chat.
                         Canvas(Modifier.fillMaxSize().glassBackdropSource()) { drawRect(Color.Green) }

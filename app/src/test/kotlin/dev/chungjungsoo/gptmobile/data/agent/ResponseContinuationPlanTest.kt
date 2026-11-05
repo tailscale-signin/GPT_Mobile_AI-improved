@@ -5,6 +5,8 @@ import dev.chungjungsoo.gptmobile.data.context.ConversationTurn
 import dev.chungjungsoo.gptmobile.data.context.TokenBudgetSettings
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.model.ConversationCombinedSettings
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -47,6 +49,52 @@ class ResponseContinuationPlanTest {
         }.exceptionOrNull()
         assertTrue(error is IllegalArgumentException)
         assertTrue(error?.message.orEmpty().contains("CONTINUATION_CONTEXT_CAPACITY"))
+    }
+
+    @Test fun selectedToolSchemasAndTheirResultsReduceOnlyTheReplayedAnswerTail() {
+        val turns = listOf(current("Continue the authorized repository work and retain its receipts."))
+        val tools = listOf(
+            AgentToolDefinition("repository_read", "Read repository state and return its receipt. ".repeat(12), buildJsonObject { put("type", "object") }),
+            AgentToolDefinition("repository_check", "Verify the saved revision and check results. ".repeat(12), buildJsonObject { put("type", "object") })
+        )
+        val settings = TokenBudgetSettings(contextTokens = 2048, outputTokens = 256)
+        val draft = (1..4096).joinToString(" ") { "saved$it" }
+        val textOnly = planResponseContinuation(turns, "Preserve receipts.", settings, draft, "\nContinue.", emptyList())
+        val continued = planResponseContinuation(turns, "Preserve receipts.", settings, draft, "\nContinue.", emptyList(), advertisedTools = tools)
+
+        assertEquals(tools, continued.tools)
+        assertTrue(continued.toolOmissions.isEmpty())
+        assertEquals(768, continued.toolResultBytes)
+        assertTrue(continued.promptTokens + 256 + 256 + 128 <= 2048)
+        assertEquals(ContextBudgetService.breakdown(continued.turns, continued.system, tools).total, continued.promptTokens)
+        val replayed = continued.turns.single().userMessage.content
+        assertTrue(replayed.startsWith(turns.single().userMessage.content))
+        assertTrue(replayed.endsWith("saved4096"))
+        assertTrue(replayed.length < textOnly.turns.single().userMessage.content.length)
+    }
+
+    @Test fun oversizedSelectedSchemaIsRejectedEvenWithoutAnAnswerTail() {
+        val tools = listOf(
+            AgentToolDefinition("small_read", "Read a receipt.", buildJsonObject { put("type", "object") }),
+            AgentToolDefinition("large_write", "Required schema documentation ".repeat(1000), buildJsonObject { put("type", "object") })
+        )
+        for (draft in listOf("Saved partial answer", "")) {
+            val error = runCatching {
+                planResponseContinuation(listOf(current("Complete the repository task.")), "Preserve receipts.", TokenBudgetSettings(contextTokens = 1024, outputTokens = 256), draft, "\nContinue.", emptyList(), advertisedTools = tools)
+            }.exceptionOrNull()
+            assertTrue(error is IllegalArgumentException)
+            assertTrue(error?.message.orEmpty().contains("CONTINUATION_CONTEXT_CAPACITY"))
+        }
+    }
+
+    @Test fun fullInputTextOnlyContinuationStillPreservesTheFrozenHistory() {
+        val history = ConversationTurn(MessageV2(id = 0, chatId = 1, platformType = null, content = "Frozen earlier evidence."), null, isCurrentTurn = false)
+        val plan = planResponseContinuation(listOf(history, current("Write the final synthesis.")), "Preserve facts.", TokenBudgetSettings(contextTokens = 2048, outputTokens = 256), "Saved answer tail", "\nContinue.", emptyList(), preserveFullInput = true)
+        assertEquals(history, plan.turns.first())
+        assertTrue(plan.tools.isEmpty())
+        assertEquals(0, plan.toolResultBytes)
+        assertTrue(plan.notice.startsWith("Combined workflow: FULL_INPUT."))
+        assertTrue(plan.turns.last().userMessage.content.endsWith("Saved answer tail"))
     }
 
     @Test fun singleFinalWriterDoesNotDisableContributorContinuation() {

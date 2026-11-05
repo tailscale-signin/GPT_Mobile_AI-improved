@@ -1074,6 +1074,7 @@
     <string name="assist_auto_prepare">Prepare automatically</string>
     <string name="combined_primary_profile_label">%1$s · Primary</string>
     <string name="connection_wait_settings_hint">Wait limits in seconds. Blank fields inherit the default; a blank round limit adds no profile cap. Conversation limits still apply.</string>
+    <string name="connection_wait_connect">Connection timeout</string>
     <string name="connection_wait_first">First meaningful progress</string>
     <string name="connection_wait_idle">Meaningful progress idle</string>
     <string name="connection_wait_queue">Queue wait</string>

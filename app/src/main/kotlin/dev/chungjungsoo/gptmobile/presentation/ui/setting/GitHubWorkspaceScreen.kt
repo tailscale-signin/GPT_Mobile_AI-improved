@@ -114,6 +114,8 @@ fun GitHubWorkspaceScreen(
     val engineering by engineeringModel.state.collectAsStateWithLifecycle()
     LaunchedEffect(visibleProgrammer.chatId) { visibleProgrammer.chatId?.let(engineeringModel::bind) }
     val engineeringProfile = visibleProgrammer.profiles.firstOrNull { it.uid == commandContext?.mainProfileUid }
+    val repositoryMapAvailable = commandContext != null && visibleProgrammer.chatId?.let { it > 0 } == true && visibleProgrammer.chatId == programmerState.chatId && dev.chungjungsoo.gptmobile.data.github.GitHubAutonomousEngineeringPolicy.supportsSavedJobs(engineeringProfile)
+    var repositoryMapOpen by remember(commandContext) { mutableStateOf(false) }
     val engineeringJob = if (dev.chungjungsoo.gptmobile.data.github.GitHubAutonomousEngineeringPolicy.supportsSavedJobs(engineeringProfile)) {
         engineering.bindings.lastOrNull { it.chatId == visibleProgrammer.chatId && it.profileUid == engineeringProfile?.uid && it.job?.terminal == false }?.job
     } else {
@@ -196,6 +198,9 @@ fun GitHubWorkspaceScreen(
         }
     }
     Dialog(onDismissRequest = { close() }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        if (repositoryMapOpen && repositoryMapAvailable && commandContext != null) {
+            dev.chungjungsoo.gptmobile.presentation.ui.chat.RepositoryGraphPanel(commandContext, engineeringProfile, onDismiss = { repositoryMapOpen = false })
+        }
         Scaffold(
             modifier = Modifier.fillMaxSize().imePadding(),
             containerColor = MaterialTheme.colorScheme.surface,
@@ -389,10 +394,23 @@ fun GitHubWorkspaceScreen(
                                 }
                             }
                             5 -> {
-                                GitHubProgrammerSettings(state, visibleProgrammer, programmer::selectProfile, programmer::setPrepareIndex, viewModel::prepareCodeIndex, programmer::setProfileSettings, onExport = {
-                                    exportChatId = visibleProgrammer.chatId
-                                    tab = 3
-                                })
+                                GitHubProgrammerSettings(
+                                    state,
+                                    visibleProgrammer,
+                                    programmer::selectProfile,
+                                    programmer::setPrepareIndex,
+                                    viewModel::prepareCodeIndex,
+                                    programmer::setProfileSettings,
+                                    onExport = {
+                                        exportChatId = visibleProgrammer.chatId
+                                        tab = 3
+                                    },
+                                    onOpenRepositoryMap = if (repositoryMapAvailable) {
+                                        { repositoryMapOpen = true }
+                                    } else {
+                                        null
+                                    }
+                                )
                                 if (state.selection != null) {
                                     OutlinedTextField(branchName, { branchName = it }, label = { Text("New working branch") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                                     Button(onClick = {

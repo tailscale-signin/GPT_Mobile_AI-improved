@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 """Provision verified Robolectric runtimes before tests encounter network throttling."""
 import argparse
+from datetime import timezone
+from email.utils import parsedate_to_datetime
 import hashlib
 import http.client
 import os
 from pathlib import Path
+import random
 import tempfile
 import time
 import urllib.error
@@ -23,6 +26,9 @@ SDKS = {
 }
 BASE = "https://repo.maven.apache.org/maven2/org/robolectric/android-all-instrumented"
 TRANSIENT_STATUS = {408, 429, 500, 502, 503, 504}
+TRANSIENT_ATTEMPTS = 3
+THROTTLED_ATTEMPTS = 6
+MAX_RETRY_BACKOFF_SECONDS = 60
 
 
 def verified(path, digest):
@@ -35,11 +41,33 @@ def verified(path, digest):
     return checksum.hexdigest() == digest
 
 
-def download(target, url, digest, deadline, opener=urllib.request.urlopen, wait=time.sleep, clock=time.monotonic):
+def retry_after_seconds(error, wall_clock=time.time):
+    if not isinstance(error, urllib.error.HTTPError) or error.headers is None:
+        return None
+    value = error.headers.get("Retry-After", "").strip()
+    if not value:
+        return None
+    if value.isascii() and value.isdigit():
+        try:
+            return int(value)
+        except ValueError:
+            return None
+    try:
+        retry_at = parsedate_to_datetime(value)
+        if retry_at.tzinfo is None:
+            retry_at = retry_at.replace(tzinfo=timezone.utc)
+        return max(0, retry_at.timestamp() - wall_clock())
+    except (OverflowError, TypeError, ValueError):
+        return None
+
+
+def download(target, url, digest, deadline, opener=urllib.request.urlopen, wait=time.sleep, clock=time.monotonic,
+             jitter=random.uniform, wall_clock=time.time):
     if verified(target, digest):
         return
     target.parent.mkdir(parents=True, exist_ok=True)
-    for attempt in range(3):
+    attempts_allowed = TRANSIENT_ATTEMPTS
+    for attempt in range(THROTTLED_ATTEMPTS):
         temporary = None
         try:
             remaining = deadline - clock()
@@ -62,11 +90,23 @@ def download(target, url, digest, deadline, opener=urllib.request.urlopen, wait=
         except (urllib.error.URLError, TimeoutError, ConnectionError, http.client.IncompleteRead) as error:
             if isinstance(error, urllib.error.HTTPError) and error.code not in TRANSIENT_STATUS:
                 raise
+            throttled = isinstance(error, urllib.error.HTTPError) and error.code == 429
+            if throttled:
+                # Shared CI egress can remain throttled beyond the former 15-second
+                # retry window. Keep the overall deadline and permit bounded recovery.
+                attempts_allowed = THROTTLED_ATTEMPTS
             remaining = deadline - clock()
-            if attempt == 2 or remaining <= 0:
+            if attempt + 1 >= attempts_allowed or remaining <= 0:
                 raise
-            pause = min(5 * (2 ** attempt), remaining)
-            print(f"Transient Robolectric download failure; retry {attempt + 2}/3 after {pause:g}s", flush=True)
+            backoff = min((15 if throttled else 5) * (2 ** attempt), MAX_RETRY_BACKOFF_SECONDS)
+            pause = max(backoff, retry_after_seconds(error, wall_clock) or 0)
+            if pause < remaining:
+                pause += jitter(0, min(5, backoff / 5))
+            detail = f"HTTP {error.code}" if isinstance(error, urllib.error.HTTPError) else type(error).__name__
+            if pause >= remaining:
+                print(f"Robolectric {detail}: next retry cannot fit within the provisioning deadline", flush=True)
+                raise
+            print(f"Transient Robolectric download failure ({detail}); retry {attempt + 2}/{attempts_allowed} after {pause:g}s", flush=True)
             wait(pause)
         finally:
             if temporary is not None:

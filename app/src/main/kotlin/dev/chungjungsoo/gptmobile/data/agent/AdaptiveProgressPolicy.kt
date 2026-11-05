@@ -9,10 +9,11 @@ data class ProgressDeadlineSettings(
     val queueMillis: Long? = null,
     val loadMillis: Long? = null,
     val roundDeadlineMillis: Long? = null,
-    val adaptiveFirstProgress: Boolean = true
+    val adaptiveFirstProgress: Boolean = true,
+    val connectMillis: Long? = null
 ) {
     init {
-        require(listOfNotNull(firstProgressMillis, meaningfulIdleMillis, queueMillis, loadMillis, roundDeadlineMillis).all { it > 0 })
+        require(listOfNotNull(firstProgressMillis, meaningfulIdleMillis, queueMillis, loadMillis, roundDeadlineMillis, connectMillis).all { it > 0 })
     }
 }
 

@@ -19,7 +19,6 @@ import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -56,6 +55,7 @@ internal class ModernMcpTransport(private val http: HttpClient, private val inte
             }
         )
         val now = nowMs()
+        if (endpoints[config.connectionUid]?.identity?.let { it != identity } == true) schemas.remove(config.connectionUid)
         endpoints[config.connectionUid]?.takeIf { endpoint ->
             val ttl = if (endpoint.discovery == null) LEGACY_DECISION_CACHE_MS else DISCOVERY_CACHE_MS
             !refresh && endpoint.identity == identity && now - endpoint.checkedAt < ttl
@@ -101,7 +101,13 @@ internal class ModernMcpTransport(private val http: HttpClient, private val inte
                 // attempts an unsupported GET/SSE legacy handshake.
                 val postOnly = if (error.status == 400 && error.code == null) {
                     kotlinx.coroutines.withTimeoutOrNull(5_000L) {
-                        runCatching { rpc(config, "tools/list", JsonObject(emptyMap())) }.getOrNull()
+                        try {
+                            rpc(config, "tools/list", JsonObject(emptyMap()))
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (_: Exception) {
+                            null
+                        }
                     }
                 } else {
                     null
@@ -298,7 +304,10 @@ internal class ModernMcpTransport(private val http: HttpClient, private val inte
         error("MCP exceeded eight input rounds; the operation was not replayed.")
     }
 
-    private suspend fun rpc(config: McpConnectionConfig, method: String, params: JsonObject, mirrored: Map<String, String> = emptyMap()): JsonObject = withTimeout(60_000) {
+    private suspend fun rpc(config: McpConnectionConfig, method: String, params: JsonObject, mirrored: Map<String, String> = emptyMap()): JsonObject =
+        withMcpReadRecovery(method) { rpcOnce(config, method, params, mirrored) }
+
+    private suspend fun rpcOnce(config: McpConnectionConfig, method: String, params: JsonObject, mirrored: Map<String, String>): JsonObject = withMcpRequestDeadline(60_000, method) {
         val id = UUID.randomUUID().toString()
         val body = buildJsonObject {
             put("jsonrpc", "2.0")
@@ -387,6 +396,7 @@ internal class ModernMcpTransport(private val http: HttpClient, private val inte
                 val message = if (quota) "MCP provider quota exhausted. Try later or configure provider credentials." else "MCP request failed (${response.status.value}, ${error?.get("code") ?: "no protocol error"})."
                 throw ModernMcpError(response.status.value, (error?.get("code") as? JsonPrimitive)?.intOrNull, message)
             }
+            if (envelope == null) throw McpIncompleteResponseException(method, bytes)
             check(envelope?.get("id") == JsonPrimitive(id)) { "MCP response ID did not match the request." }
             requireNotNull(envelope?.get("result") as? JsonObject) { "MCP result is missing." }
         }

@@ -209,4 +209,76 @@ class McpCatalogueDeadlineTest {
             client.close()
         }
     }
+
+    @Test fun changingNetworkEpochInvalidatesExecutionWithoutLosingKnownSchemas() = runBlocking {
+        val client = HttpClient(
+            MockEngine { request ->
+                val body = Json.parseToJsonElement((request.body as TextContent).text).jsonObject
+                val result = if (body.getValue("method").jsonPrimitive.content == "server/discover") {
+                    Json.parseToJsonElement("""{"supportedVersions":["2026-07-28"]}""")
+                } else {
+                    Json.parseToJsonElement("""{"tools":[{"name":"read","inputSchema":{"type":"object"}}]}""")
+                }
+                respond(
+                    buildJsonObject {
+                        put("id", body.getValue("id"))
+                        put("result", result)
+                    }.toString(),
+                    headers = headersOf("Content-Type", "application/json")
+                )
+            }
+        )
+        val manager = McpClientManager(client, modern = ModernMcpTransport(client))
+        val config = McpConnectionConfig("network-epoch", "https://network-epoch.example/mcp", false)
+        try {
+            manager.listTools(config, awaitCompletion = true)
+            assertTrue(manager.catalogueAvailability(config).executionAvailable)
+            LocalServiceHealth.networkChanged()
+            assertFalse(manager.catalogueAvailability(config).executionAvailable)
+            assertFalse(manager.catalogueAvailability(config).connectionHealthy)
+            manager.listTools(config, awaitCompletion = true)
+            assertTrue(manager.catalogueAvailability(config).executionAvailable)
+        } finally {
+            manager.closeAll()
+            client.close()
+        }
+    }
+
+    @Test fun staleHeartbeatRequiresFreshCatalogBeforeClaimingExecutionAvailable() = runBlocking {
+        var now = 1000L
+        var catalogs = 0
+        val client = HttpClient(
+            MockEngine { request ->
+                val body = Json.parseToJsonElement((request.body as TextContent).text).jsonObject
+                val result = if (body.getValue("method").jsonPrimitive.content == "server/discover") {
+                    Json.parseToJsonElement("""{"supportedVersions":["2026-07-28"]}""")
+                } else {
+                    catalogs++
+                    Json.parseToJsonElement("""{"tools":[{"name":"read","inputSchema":{"type":"object"}}]}""")
+                }
+                respond(
+                    buildJsonObject {
+                        put("id", body.getValue("id"))
+                        put("result", result)
+                    }.toString(),
+                    headers = headersOf("Content-Type", "application/json")
+                )
+            }
+        )
+        val manager = McpClientManager(client, nowMs = { now }, modern = ModernMcpTransport(client, nowMs = { now }))
+        val config = McpConnectionConfig("heartbeat", "https://heartbeat.example/mcp", false)
+        try {
+            manager.listTools(config, awaitCompletion = true)
+            assertTrue(manager.catalogueAvailability(config).executionAvailable)
+            now += 60_001
+            assertTrue(manager.catalogueAvailability(config).schemaKnown)
+            assertFalse(manager.catalogueAvailability(config).executionAvailable)
+            manager.listTools(config, awaitCompletion = true)
+            assertEquals(2, catalogs)
+            assertTrue(manager.catalogueAvailability(config).executionAvailable)
+        } finally {
+            manager.closeAll()
+            client.close()
+        }
+    }
 }

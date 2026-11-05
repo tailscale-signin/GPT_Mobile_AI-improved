@@ -227,7 +227,8 @@ class AgentRunner(
             val observedLimit = if (limits.combined == null) limits.maxObservedToolCalls.coerceIn(1, 1024) else limits.maxObservedToolCalls.coerceAtLeast(0)
             val roundDefinitions = fitProviderToolSchemas(selectDefinitions(exposedDefinitions), limits, initialSchemaTokens, replayTokens)
             reconcileDiscoveryExchange(exchanges, roundDefinitions)
-            val round = if (restoredCalls.isNotEmpty()) RoundResult(calls = restoredCalls, completed = true, observedCalls = restoredCalls.size).also { restoredCalls = emptyList() } else collectRound(session, roundDefinitions, exchanges, (observedLimit - observedToolCalls).coerceAtLeast(0), searchContext.successful, searchContext.names, consumedCallIds)
+            val restoringBatch = restoredCalls.isNotEmpty()
+            val round = if (restoringBatch) RoundResult(calls = restoredCalls, completed = true, observedCalls = restoredCalls.size).also { restoredCalls = emptyList() } else collectRound(session, roundDefinitions, exchanges, (observedLimit - observedToolCalls).coerceAtLeast(0), searchContext.successful, searchContext.names, consumedCallIds)
             observedToolCalls += round.observedCalls
             if (round.batchRejected) {
                 if (limits.combined?.requested?.singlePass == true) {
@@ -277,7 +278,11 @@ class AgentRunner(
                 }
                 finalizationToolRepairAttempted = true
             }
-            val resolvedCalls = round.calls.map { resolveGitHubReadAlias(GitHubRecoveryCalls.resolve(it, exchanges, executableToolByName), executableToolByName.keys) }
+            val resolvedCalls = round.calls.map { call ->
+                // Stamp live calls at the trusted routing boundary; restored journals retain their identity.
+                val identified = if (restoringBatch) call else call.copy(originalInvocationFingerprint = dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook.digest("${call.callId}:${call.name}:${call.arguments}"))
+                resolveGitHubReadAlias(GitHubRecoveryCalls.resolve(identified, exchanges, executableToolByName), executableToolByName.keys)
+            }
             resolvedCalls.forEach { emit(AgentRunEvent.Provider(it)) }
             val calls = routeSearchCalls(resolvedCalls, executableToolByName)
             if (calls.isEmpty()) {
@@ -1022,6 +1027,7 @@ class AgentRunner(
                 return@flow
             }
             val rawReplayTokens = ToolExchangeCompactor.estimateTokens(exchanges)
+            val compactionStarted = System.nanoTime()
             val replayExchanges = compactReplay(
                 exchanges = exchanges,
                 maxReplayTokens = limits.maxReplayTokens,
@@ -1031,10 +1037,11 @@ class AgentRunner(
             val originalResults = exchanges.flatMap { it.results }.associateBy { it.callId }
             deliveredCallIds = replayExchanges.flatMap { it.results }.filter { originalResults[it.callId]?.content == it.content }.mapTo(mutableSetOf()) { it.callId }
             val compactedReplayTokens = ToolExchangeCompactor.estimateTokens(replayExchanges)
+            val compactionMicros = ((System.nanoTime() - compactionStarted) / 1000).coerceAtLeast(0)
             if (rawReplayTokens > compactedReplayTokens) {
                 AppLogRecorder.record(
                     "Agent",
-                    "PRIMARY_REPLAY_COMPACTED · rawTokens=$rawReplayTokens · replayTokens=$compactedReplayTokens · savedTokens=${rawReplayTokens - compactedReplayTokens} · exchanges=${exchanges.size} · budget=${limits.maxReplayTokens}"
+                    "PRIMARY_REPLAY_COMPACTED · rawTokens=$rawReplayTokens · replayTokens=$compactedReplayTokens · savedTokens=${rawReplayTokens - compactedReplayTokens} · exchanges=${exchanges.size} · budget=${limits.maxReplayTokens} · compactionUs=$compactionMicros · tokenCounts=ESTIMATED · retainedEvidenceIndependent=true"
                 )
             }
             if (compactedReplayTokens > limits.maxReplayTokens) {
@@ -1369,7 +1376,9 @@ class AgentRunner(
             // this call's authorized receipt, never its private intermediate calls.
             val result = kotlinx.coroutines.withContext(
                 ToolReceiptObserver { observedCall, receipt ->
-                    if (observedCall == call) onToolResult?.invoke(call, receipt)
+                    if (observedCall.callId == call.callId && observedCall.name == call.name && observedCall.arguments == call.arguments) {
+                        onToolResult?.invoke(call, receipt)
+                    }
                 }
             ) {
                 if (!tool.managesExecutionBudget && limits.toolTimeoutMillis < Long.MAX_VALUE) {

@@ -1234,11 +1234,12 @@ class ChatRepositoryImplTest {
             listOf(
                 ApiState.Loading,
                 ApiState.Thinking("Still reasoning"),
-                ApiState.Error("Groq reached the model output limit before producing a final answer."),
+                ApiState.Error("Groq reached the model output limit before producing a final answer.", errorCode = "OUTPUT_LIMIT"),
                 ApiState.Done
             ),
             states
         )
+        assertEquals(1, groqAPI.streamCalls)
     }
 
     @Test

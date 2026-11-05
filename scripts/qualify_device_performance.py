@@ -42,6 +42,7 @@ if __name__ == '__main__':
         'workloadRevision': subprocess.check_output(['git', 'rev-parse', 'HEAD:macrobenchmark/src'], text=True).strip(),
         'animations': {key: adb('shell', 'settings', 'get', 'global', key) for key in ('animator_duration_scale', 'window_animation_scale', 'transition_animation_scale')},
     }
+    args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(current, indent=2) + '\n')
     status = {'qualification': 'NOT_QUALIFIED', 'reason': 'No reviewed reference-device baseline supplied', 'candidateCommit': current['candidateCommit']}
     if args.baseline:
@@ -51,7 +52,9 @@ if __name__ == '__main__':
             raise SystemExit('Baseline must be a reviewed repository file under docs/implementation/performance-baselines')
         failures = qualify(json.loads(baseline_path.read_text()), current)
         status = {'qualification': 'FAIL' if failures else 'PASS', 'failures': failures, 'candidateCommit': current['candidateCommit']}
-    Path('device-evidence/performance-status.json').write_text(json.dumps(status, indent=2) + '\n')
+    status_path = Path('device-evidence/performance-status.json')
+    status_path.parent.mkdir(parents=True, exist_ok=True)
+    status_path.write_text(json.dumps(status, indent=2) + '\n')
     print(json.dumps(status))
     if status['qualification'] == 'FAIL':
         raise SystemExit(1)

@@ -34,7 +34,7 @@ class DiagnosticAuditRegressionTest {
     }
 
     @Test fun platformAndOptionalEmbeddingWarningsAreNotAppCrashes() {
-        assertFalse(classifyDiagnostic("E", "Android", "SecurityException asus_leak_detect_proj").actionable)
+        assertTrue(classifyDiagnostic("E", "Android", "SecurityException asus_leak_detect_proj").actionable)
         assertFalse(classifyDiagnostic("W", "tflite", "Feedback manager requires a model with a single signature inference").actionable)
         assertTrue(classifyDiagnostic("E", "Android", "FATAL EXCEPTION main").actionable)
     }

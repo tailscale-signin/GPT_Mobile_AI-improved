@@ -46,6 +46,9 @@ internal class GitHubEvidenceBook(
     private var observedHead: String? = null
     private var overflow = false
 
+    /** Stable task identity already includes account, conversation, repository and branch scope. */
+    fun checkpointBinding(): String = binding
+
     /** Explicit restoration never refreshes historical observations or borrows another task's proof. */
     suspend fun restore() = mutex.withLock {
         val ids = retainedIds().distinct()
@@ -293,11 +296,25 @@ internal class GitHubEvidenceBook(
         save("policy_" + digest(policy.toString()).take(24), policy)
     }
 
-    suspend fun retainProgress(task: String, tools: List<dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition>, failureCode: String? = null) {
+    suspend fun retainProgress(task: String, tools: List<dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition>, failureCode: String? = null, failure: ProviderEvent.Failed? = null) {
         val (receipts, _) = snapshot()
         val checkpoint = GitHubTestChecklist.checkpoint(task, receipts, tools)
         val retention = retentionStatus()
         val previous = diagnostic()
+        if (previous == null) {
+            save(
+                "verification_plan_" + digest("$binding|$task").take(24),
+                buildJsonObject {
+                    put("binding", binding)
+                    put("task_state", GitHubTaskLifecycle.State.PLANNED.name)
+                    put("request_digest", digest(task))
+                    put("completion_verified", false)
+                    put("response_prepared", false)
+                    put("response_delivered", false)
+                    put("observed_at_ms", now())
+                }
+            )
+        }
         val publishedProgressDigest = publishedChecklistDigest(previous)
         val requirements = GitHubRequestCompletion.requirements(task).map { requirement ->
             buildJsonObject {
@@ -320,7 +337,9 @@ internal class GitHubEvidenceBook(
                 retention.forEach { (key, value) -> put(key, value) }
                 put("response_prepared", false)
                 put("response_delivered", false)
-                put("task_outcome", "PARTIAL")
+                put("task_outcome", if (failure?.taskOutcome == "BLOCKED") "BLOCKED" else "PARTIAL")
+                put("task_state", GitHubTaskLifecycle.progress(failure ?: failureCode?.let { ProviderEvent.Failed(it, errorCode = it) }, receipts.size).name)
+                failure?.let { GitHubTaskLifecycle.failureMetadata(it).forEach { (key, value) -> put(key, value) } }
                 failureCode?.let { put("failure_code", it) }
                 put("requirements", kotlinx.serialization.json.JsonArray(requirements))
                 put("remaining_requirements", kotlinx.serialization.json.JsonArray(requirements))
@@ -345,12 +364,27 @@ internal class GitHubEvidenceBook(
                 put("completion_verified", false)
                 put("partial", true)
                 put("resume_required", true)
-                put("task_outcome", "PARTIAL")
+                put("task_outcome", if (value["task_outcome"] in setOf(JsonPrimitive("BLOCKED"), JsonPrimitive("CONFIGURATION_INVALIDATED"))) value.getValue("task_outcome") else JsonPrimitive("PARTIAL"))
             }
         } else {
             JsonObject(emptyMap())
         }
-        val checkpoint = GitHubAcceptanceLedger.attach(JsonObject(value + retention + limitation))
+        val retained = GitHubAcceptanceLedger.attach(JsonObject(value + retention + limitation))
+        val checklistComplete = (retained["acceptance_ledger"] as? JsonObject)?.get("completion_verified") == JsonPrimitive(true)
+        val checked = if (retained["task_outcome"] == JsonPrimitive("COMPLETED") && !checklistComplete) {
+            JsonObject(
+                retained + buildJsonObject {
+                    put("task_outcome", "PARTIAL")
+                    put("completion_verified", false)
+                    put("partial", true)
+                    put("resume_required", true)
+                    if (retained["verification_failure"] == null) put("verification_failure", "GITHUB_ACCEPTANCE_CHECKLIST_REQUIRED")
+                }
+            )
+        } else {
+            retained
+        }
+        val checkpoint = JsonObject(checked + ("task_state" to JsonPrimitive(GitHubTaskLifecycle.terminal(checked).name)))
         save("verification_" + digest("$binding|$checkpoint").take(24), JsonObject(checkpoint + ("binding" to JsonPrimitive(binding))))
     }
 

@@ -36,6 +36,8 @@ object AppLogRecorder {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val droppedRecords = java.util.concurrent.atomic.AtomicLong()
     private val captureEpoch = java.util.concurrent.atomic.AtomicLong()
+    private val preferenceRevision = java.util.concurrent.atomic.AtomicLong()
+    private val preferenceWriteLock = Any()
     private val queue = Channel<Pair<Long, AppLogEntry>>(QUEUE_CAPACITY, BufferOverflow.DROP_OLDEST, onUndeliveredElement = { droppedRecords.incrementAndGet() })
     private val mutableEnabled = MutableStateFlow(false)
     private val mutableEntries = MutableStateFlow<List<AppLogEntry>>(emptyList())
@@ -149,7 +151,15 @@ object AppLogRecorder {
         mutableEnabled.value = value
         RunDiagnostics.journal?.enabled = value
         FrameTimingRecorder.refresh()
-        app?.getSharedPreferences("app_diagnostics", Context.MODE_PRIVATE)?.edit()?.putBoolean("tracking", value)?.apply()
+        val revision = preferenceRevision.incrementAndGet()
+        val owner = app
+        scope.launch {
+            synchronized(preferenceWriteLock) {
+                if (preferenceRevision.get() == revision) {
+                    owner?.getSharedPreferences("app_diagnostics", Context.MODE_PRIVATE)?.edit()?.putBoolean("tracking", value)?.apply()
+                }
+            }
+        }
         if (!value) {
             process?.destroy()
             process = null
@@ -191,6 +201,7 @@ object AppLogRecorder {
         scope.launch { captureHistoricalAnrSummaries() }
         scope.launch {
             checkpoint("Application", "version=${BuildConfig.VERSION_NAME} · versionCode=${BuildConfig.VERSION_CODE} · package=${BuildConfig.APPLICATION_ID} · appCommit=${BuildConfig.APP_COMMIT} · variant=${BuildConfig.BUILD_TYPE} · droppedRecords=${droppedRecords.get()} · vendor_log_available=false · process=${Process.myPid()}")
+            checkpoint("AndroidBuild", androidBuildDiagnostic())
         }
     }
 
@@ -266,6 +277,8 @@ object AppLogRecorder {
             val incidents = DiagnosticIncidentTracker()
             target.bufferedWriter().use { output ->
                 if (structured) output.appendLine(structuredDiagnosticLine("${Instant.now()} I/Export: version=${BuildConfig.VERSION_NAME} · build=${BuildConfig.VERSION_CODE} · package=${BuildConfig.APPLICATION_ID} · appCommit=${BuildConfig.APP_COMMIT} · variant=${BuildConfig.BUILD_TYPE} · droppedRecords=${droppedRecords.get()} · vendor_log_available=false · process=${Process.myPid()}"))
+                val buildMetadata = "${Instant.now()} I/AndroidBuild: ${androidBuildDiagnostic()}"
+                output.appendLine(if (structured) structuredDiagnosticLine(buildMetadata) else buildMetadata)
                 historicalExitMetadata(context).forEach { line ->
                     output.appendLine(if (structured) structuredDiagnosticLine(line, "android_exit_history", exportedAtMillis = exportedAt) else line)
                 }
@@ -298,6 +311,11 @@ object AppLogRecorder {
             target.delete()
             throw failure
         }
+    }
+
+    private fun androidBuildDiagnostic(): String {
+        fun field(value: String) = value.replace(Regex("[^A-Za-z0-9._:/ -]"), "_").take(256)
+        return "manufacturer=${field(android.os.Build.MANUFACTURER)} · model=${field(android.os.Build.MODEL)} · sdk=${android.os.Build.VERSION.SDK_INT} · androidRelease=${field(android.os.Build.VERSION.RELEASE)} · buildId=${field(android.os.Build.ID)} · buildFingerprint=${field(android.os.Build.FINGERPRINT)} · source=public_build_api · protected_properties_read=false"
     }
 
     /** Capture only allow-listed main-thread stack frames, never raw ANR traces or private text. */

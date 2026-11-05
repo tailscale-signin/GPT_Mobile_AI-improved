@@ -361,14 +361,17 @@ class McpClientManagerTest {
             val client = testClient()
             val manager = McpClientManager(client)
             val config = McpConnectionConfig("connection-1", server.url, allowCleartext = true)
+            try {
+                // Pagination needs the completed catalogue, independently of the interactive snapshot budget.
+                val tools = manager.listTools(config, awaitCompletion = true)
 
-            val tools = manager.listTools(config)
-
-            assertEquals(listOf("echo", "second"), tools.map { it.name })
-            assertEquals(2, server.methods.count { it == "tools/list" })
-            assertEquals(1, server.methods.count { it == "initialize" })
-            manager.closeAll()
-            client.close()
+                assertEquals(listOf("echo", "second"), tools.map { it.name })
+                assertEquals(2, server.methods.count { it == "tools/list" })
+                assertEquals(1, server.methods.count { it == "initialize" })
+            } finally {
+                manager.closeAll()
+                client.close()
+            }
         }
     }
 

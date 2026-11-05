@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -22,6 +23,7 @@ import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.unit.dp
 import androidx.test.filters.SdkSuppress
+import dev.chungjungsoo.gptmobile.data.diagnostics.FrameEffectsGuard
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -31,11 +33,12 @@ import org.junit.Test
 @SdkSuppress(minSdkVersion = 32)
 class GlassBackdropInstrumentedTest {
     @get:Rule val compose = createComposeRule()
+    private val frameEffects = FrameEffectsGuard()
 
     @Test fun settingsBackdropAndTypographyChangesKeepNavigationContentComposed() {
         var settings by mutableStateOf(false)
         val allocations = java.util.concurrent.atomic.AtomicInteger()
-        compose.setContent {
+        setContent {
             MaterialTheme {
                 GlassBackdropHost {
                     SettingsGlassBackdropHost(settings) {
@@ -65,7 +68,7 @@ class GlassBackdropInstrumentedTest {
     @Test fun openingSettingsWhileHomeBlurStillDrawsDoesNotReplayLiveHomeLayers() {
         var settings by mutableStateOf(false)
         var outgoingHome by mutableStateOf(true)
-        compose.setContent {
+        setContent {
             MaterialTheme {
                 CompositionLocalProvider(LocalOverlayMaterial provides "glass", LocalOverlayBlur provides "auto") {
                     GlassBackdropHost {
@@ -106,7 +109,7 @@ class GlassBackdropInstrumentedTest {
 
     @Test fun dialogBlurSwitchActuallyFiltersTheBackground() {
         var blur by mutableStateOf(false)
-        compose.setContent {
+        setContent {
             MaterialTheme {
                 CompositionLocalProvider(LocalOverlayMaterial provides "glass", LocalOverlayBlur provides if (blur) "auto" else "off") {
                     GlassBackdropHost {
@@ -148,7 +151,7 @@ class GlassBackdropInstrumentedTest {
 
     @Test fun stackedDialogSamplesItsVisibleParentInsteadOfOnlyTheActivity() {
         var child by mutableStateOf(false)
-        compose.setContent {
+        setContent {
             MaterialTheme {
                 CompositionLocalProvider(LocalOverlayMaterial provides "glass", LocalOverlayBlur provides "auto") {
                     GlassBackdropHost {
@@ -184,5 +187,13 @@ class GlassBackdropInstrumentedTest {
         val instrumentation = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation()
         val foregroundPackage = instrumentation.uiAutomation.rootInActiveWindow?.packageName?.toString()
         assertEquals("A system/foreign window is obstructing the fixture; inspect the retained screenshot before diagnosing app pixels", instrumentation.targetContext.packageName, foregroundPackage)
+    }
+
+    private fun setContent(content: @Composable () -> Unit) {
+        compose.setContent {
+            // Renderer acceptance uses a controlled real policy. Emulator startup or
+            // unrelated prior tests must not silently select the pressure fallback.
+            CompositionLocalProvider(LocalFrameEffectsGuard provides frameEffects, content = content)
+        }
     }
 }

@@ -75,7 +75,7 @@ internal fun AgentProviderSession.withProgressWatchdog(
                 val bucket = java.lang.Long.highestOneBit(receipt.promptTokens.coerceAtLeast(1))
                 dev.chungjungsoo.gptmobile.data.research.researchHash("${receipt.runtime}|${receipt.role}|${receipt.permissionRevision}|$bucket")
             }
-            val upstream = transportScope.launch {
+            val upstream = transportScope.launch(dev.chungjungsoo.gptmobile.data.network.ProfileConnectionTimeout(settings.connectMillis)) {
                 try {
                     delegate.streamRound(tools, exchanges).collect { event ->
                         val terminal = event == ProviderEvent.Completed || event is ProviderEvent.Failed

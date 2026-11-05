@@ -4956,7 +4956,50 @@ class ChatRepositoryImpl(
             platform, latestUser, runId, turnKey, chatToolConfig?.github,
             effectiveTools, catalog, dispatchAuthority, originalUserRequest, validateSavedEvidence
         )
-        val reviewEvidence = if (chatToolConfig?.github != null && platform.compatibleType == ClientType.LLAMA && !dev.chungjungsoo.gptmobile.data.github.GitHubStatusRequest.isGreeting(githubEffectiveTask) && !dev.chungjungsoo.gptmobile.data.github.GitHubStatusRequest.matches(githubEffectiveTask) && !dev.chungjungsoo.gptmobile.data.github.GitHubTaskCoverage.matches(githubEffectiveTask)) dev.chungjungsoo.gptmobile.data.github.GitHubReviewEvidence() else null
+        val githubContinuedSession = if (chatToolConfig?.github != null && verifiedEvidence != null && latestUser != null) {
+            val checkpointKey = "github-output:${verifiedEvidence.checkpointBinding()}"
+            dev.chungjungsoo.gptmobile.data.agent.GitHubOutputContinuationSession(
+                selectedSession,
+                maxCharacters = budgetSettings.responseCharacterLimit.takeIf { it > 0 }?.coerceAtMost(1_048_576) ?: 1_048_576,
+                continuationRevision = dev.chungjungsoo.gptmobile.data.research.researchHash("${platform.uid}:${platform.model}:${platform.apiUrl}:${dispatchAuthority.revision}:${limits.contextTokens}:$resolvedOutputCap"),
+                readCheckpoint = {
+                    dispatchAuthority.validate()
+                    check(validateSavedEvidence())
+                    workspace?.protectedSynthesisCheckpoint(checkpointKey)
+                },
+                saveCheckpoint = { value ->
+                    dispatchAuthority.validate()
+                    check(validateSavedEvidence())
+                    workspace?.saveProtectedSynthesisCheckpoint(checkpointKey, latestUser.chatId, runId, value)
+                }
+            ) { draft, exchanges, tools ->
+                val selected = catalog?.selected(tools) ?: tools
+                val continuation = dev.chungjungsoo.gptmobile.data.agent.planResponseContinuation(
+                    contextPlan.turns,
+                    requestPlatform.systemPrompt.orEmpty(),
+                    limits.copy(outputTokens = resolvedOutputCap),
+                    draft,
+                    "Continue the saved GitHub draft from its stopping point. Do not repeat text or completed operations. If repository work is unfinished, use the authorized tools and retained receipts; a finished model response does not establish task completion.",
+                    exchanges,
+                    advertisedTools = selected
+                )
+                val reopened = openPrimarySession(continuation.turns, "github-output-continuation", textOnly = selected.isEmpty(), passOutputTokens = continuation.outputTokens, continuationPrefixDigest = dev.chungjungsoo.gptmobile.data.research.researchHash(draft))
+                catalog?.let { reopened.withToolCatalog(it) } ?: reopened
+            }
+        } else {
+            selectedSession
+        }
+        val reviewEvidence = if (chatToolConfig?.github != null && platform.compatibleType == ClientType.LLAMA && !dev.chungjungsoo.gptmobile.data.github.GitHubStatusRequest.isGreeting(githubEffectiveTask) && !dev.chungjungsoo.gptmobile.data.github.GitHubStatusRequest.matches(githubEffectiveTask) && !dev.chungjungsoo.gptmobile.data.github.GitHubTaskCoverage.matches(githubEffectiveTask)) {
+            dev.chungjungsoo.gptmobile.data.github.GitHubReviewEvidence().also { review ->
+                verifiedEvidence?.let { retained ->
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+                        review.restoreValidated(retained.checkpointBinding(), retained.snapshot().first)
+                    }
+                }
+            }
+        } else {
+            null
+        }
         fun reviewOutputTokens(): Int = minOf(8192, minOf(limits.contextTokens, observedRequestContext.get() ?: 32_768) / 4).coerceAtLeast(256)
         fun reviewInputLimit(): Int = (minOf(limits.contextTokens, observedRequestContext.get() ?: 32_768).toLong() - reviewOutputTokens() - 1536).coerceIn(0, 1_048_576).toInt()
         suspend fun measureReview(prompt: String): Int = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
@@ -4986,21 +5029,23 @@ class ChatRepositoryImpl(
         val reviewedSession = if (reviewEvidence != null) {
             val reviewUser = requireNotNull(latestUser) { "GITHUB_REVIEW_REQUIRED: The original task is missing; no answer can be published." }
             dev.chungjungsoo.gptmobile.data.github.GitHubReviewedSession(
-                selectedSession,
+                githubContinuedSession,
                 reviewEvidence,
                 githubEffectiveTask,
                 inputTokenLimit = reviewInputLimit(),
                 currentInputLimit = ::reviewInputLimit,
                 measureInput = ::measureReview,
+                reviewerRevision = dev.chungjungsoo.gptmobile.data.research.researchHash("${platform.uid}:${platform.model}:${platform.apiUrl}:${dispatchAuthority.revision}:${reviewOutputTokens()}:$resolvedOutputCap"),
                 checkpoint = workspace?.let { store ->
                     val github = requireNotNull(chatToolConfig?.github)
-                    val binding = dev.chungjungsoo.gptmobile.data.research.researchHash("${reviewUser.chatId}:${reviewUser.id}:${platform.uid}:${github.connectionUid}:${github.owner}/${github.repo}:${github.ref}:${dispatchAuthority.revision}")
+                    val legacyBinding = dev.chungjungsoo.gptmobile.data.research.researchHash("${reviewUser.chatId}:${reviewUser.id}:${platform.uid}:${github.connectionUid}:${github.owner}/${github.repo}:${github.ref}:${dispatchAuthority.revision}")
+                    val binding = verifiedEvidence?.checkpointBinding() ?: legacyBinding
                     dev.chungjungsoo.gptmobile.data.github.GitHubReviewCheckpoint(
                         githubEffectiveTask,
                         read = { id ->
                             dispatchAuthority.validate()
                             check(validateSavedEvidence())
-                            store.protectedSynthesisCheckpoint("github-review:$binding:$id")
+                            store.protectedSynthesisCheckpoint("github-review:$binding:$id") ?: store.protectedSynthesisCheckpoint("github-review:$legacyBinding:$id")
                         },
                         write = { id, value ->
                             dispatchAuthority.validate()
@@ -5027,7 +5072,7 @@ class ChatRepositoryImpl(
                 }
             )
         } else {
-            selectedSession
+            githubContinuedSession
         }
         val verifiedSession = if (verifiedEvidence != null) {
             val user = requireNotNull(latestUser)

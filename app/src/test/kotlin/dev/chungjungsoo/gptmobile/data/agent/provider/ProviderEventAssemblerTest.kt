@@ -115,7 +115,7 @@ class ProviderEventAssemblerTest {
         assertTrue(completed.finish().single() is ProviderEvent.ToolCall)
         val interrupted = ChatCompletionsEventAssembler()
         interrupted.accept(null, null, calls, null)
-        assertTrue(interrupted.discardIncomplete().single() is ProviderEvent.Failed)
+        assertEquals("TOOL_PROTOCOL_INVALID_FRAME", (interrupted.discardIncomplete().single() as ProviderEvent.Failed).errorCode)
         assertTrue(interrupted.finish().isEmpty())
         val prose = "Testing device_location() {\"permission_status\":\"granted\"}"
         assertEquals(

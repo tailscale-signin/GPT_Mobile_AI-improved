@@ -12,7 +12,9 @@ import struct
 import zipfile
 
 ART_CODE_UNIT_LIMIT = 65535 // 4
+COMPATIBLE_ADAPTER = 'Ldev/chungjungsoo/gptmobile/data/agent/provider/OpenAICompatibleAdapter'
 AGENT_PREFIXES = (
+    COMPATIBLE_ADAPTER,
     'Ldev/chungjungsoo/gptmobile/data/agent/AgentRunner',
     'Ldev/chungjungsoo/gptmobile/data/agent/provider/LiteRtLmAdapter',
     'Ldev/chungjungsoo/gptmobile/data/research/ResearchSessionStore',
@@ -50,6 +52,17 @@ def is_dispatch_method(descriptor, name):
     # Kotlin local suspend functions are static methods on their enclosing lambda;
     # their small continuation classes are not the actual dispatch implementation.
     return any(stage in name or stage in descriptor for stage in DISPATCH_STAGES)
+
+
+def require_provider_coroutines(rows):
+    for prefix, stage, label in (
+        ('Ldev/chungjungsoo/gptmobile/data/agent/provider/LiteRtLmAdapter$openSession$',
+         '$streamPlannedRound$', 'local inference planning'),
+        (COMPATIBLE_ADAPTER + '$openSession$', '$streamRound$', 'OpenAI-compatible streaming'),
+    ):
+        if not any(row['class'].startswith(prefix) and stage in row['class']
+                   and row['method'] == 'invokeSuspend' for row in rows):
+            raise ValueError(f'The actual {label} coroutine was not found')
 
 
 def uleb(data, offset):
@@ -143,8 +156,7 @@ def main():
     ):
         if not any(row['class'] == descriptor and row['method'] == method for row in rows):
             raise ValueError(f'The actual {descriptor}.{method} method was not found')
-    if not any('LiteRtLmAdapter$openSession$' in row['class'] and 'streamPlannedRound' in row['class'] and row['method'] == 'invokeSuspend' for row in rows):
-        raise ValueError('The local inference planning coroutine was not found')
+    require_provider_coroutines(rows)
     rows.sort(key=lambda row: row['code_units'], reverse=True)
     print(json.dumps({'apk': args.apk, 'max_code_units': args.max_code_units, 'methods': rows}, indent=2))
     if rows[0]['code_units'] >= args.max_code_units:

@@ -5,7 +5,7 @@ import dev.chungjungsoo.gptmobile.data.network.error.ErrorClassification
 import java.net.URI
 import java.nio.charset.StandardCharsets
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.cancel
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.transformWhile
+import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
@@ -1299,21 +1300,31 @@ class AgentRunner(
         fun ownerOf(call: ProviderEvent.ToolCall): AgentToolExecutionOwner =
             (tools[call.name] as? OwnedAgentTool)?.executionOwner ?: AgentToolExecutionOwner.CLIENT
         return coroutineScope {
-            val batchScope = this
-            val channel = Channel<Pair<ProviderEvent.ToolCall, AgentToolResult>>(calls.size.coerceAtLeast(1))
+            // One terminal outcome per worker fits without suspending a confirmed receipt.
+            val channel = Channel<Result<Pair<ProviderEvent.ToolCall, AgentToolResult>>>(calls.size.coerceAtLeast(1))
             val receipts = linkedMapOf<String, AgentToolResult>()
+            val observed = java.util.concurrent.ConcurrentHashMap<String, AgentToolResult>()
+            val workers = mutableListOf<Job>()
+            var nextCompletion = 0
             try {
                 for (ownedCalls in calls.groupBy(::ownerOf).values) {
                     for (call in ownedCalls) {
-                        launch {
+                        workers += launch {
                             try {
                                 val result = perTool.getValue(call.name).withPermit {
                                     semaphore.withPermit {
                                         val signature = call.name + ":" + dev.chungjungsoo.gptmobile.data.permissions.ScopedToolGrant.canonicalHash(call.arguments)
-                                        suspend fun dispatch(): AgentToolResult = if (!replayableRead(call) && synchronized(unknownOutcomes) { signature in unknownOutcomes }) {
-                                            ToolResultEnvelope.error(call.callId, "RECONCILIATION_REQUIRED", "An earlier identical operation has an unknown outcome. Reconcile it before requesting another write.")
-                                        } else {
-                                            executeBounded(call, tools[call.name])
+                                        suspend fun dispatch(): AgentToolResult {
+                                            val result = if (!replayableRead(call) && synchronized(unknownOutcomes) { signature in unknownOutcomes }) {
+                                                ToolResultEnvelope.error(call.callId, "RECONCILIATION_REQUIRED", "An earlier identical operation has an unknown outcome. Reconcile it before requesting another write.")
+                                            } else {
+                                                executeBounded(call, tools[call.name])
+                                            }
+                                            // The observer already has the authorized full receipt.
+                                            // Preserve this result even if cancellation arrives while
+                                            // the checkpoint finishes its non-cancellable save.
+                                            observed[call.callId] = result
+                                            return result
                                         }
                                         // A local question has its own durable answer. Keep its
                                         // checkpoint queued while waiting, so process death cannot
@@ -1324,19 +1335,38 @@ class AgentRunner(
                                         result
                                     }
                                 }
-                                channel.send(call to result)
+                                observed[call.callId] = result
+                                channel.trySend(Result.success(call to result))
                             } catch (cancelled: CancellationException) {
-                                batchScope.cancel(cancelled)
+                                // Let the collector surface confirmed siblings before cancelling
+                                // this batch; cancelling its scope here would discard queued results.
+                                channel.trySend(Result.failure(cancelled))
                                 throw cancelled
                             }
                         }
                     }
                     repeat(ownedCalls.size) {
-                        val (call, result) = channel.receive()
+                        val outcome = channel.receive()
+                        val cancelled = outcome.exceptionOrNull() as? CancellationException
+                        if (cancelled != null) {
+                            workers.forEach { it.cancel(cancelled) }
+                            workers.joinAll()
+                            // Cancellation can leave a gap in model order. Publish only actual
+                            // completed siblings, in their original relative order, then propagate
+                            // cancellation unchanged without claiming the batch or run completed.
+                            for (call in calls.drop(nextCompletion)) observed[call.callId]?.let { completed(call, it) }
+                            throw cancelled
+                        }
+                        val (call, result) = outcome.getOrThrow()
                         receipts[call.callId] = result
-                        // Publish a confirmed child immediately. A later sibling failure or
-                        // cancellation must not hide evidence already retained by the checkpoint.
-                        completed(call, result)
+                        // Dispatch ownership and completion timing must not change the public
+                        // result order. Persisted observations do not wait for this visible prefix.
+                        while (nextCompletion < calls.size) {
+                            val next = calls[nextCompletion]
+                            val ready = receipts[next.callId] ?: break
+                            completed(next, ready)
+                            nextCompletion++
+                        }
                     }
                 }
                 calls.map { receipts.getValue(it.callId) }

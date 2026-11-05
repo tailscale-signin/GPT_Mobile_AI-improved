@@ -578,7 +578,11 @@ class AgentRunCoordinator @Inject constructor(
                     parkUnavailableResult()
                     continue
                 }
-                val requiresVerification = run.chatId in githubConversations || run.synthesisSnapshot != null
+                // Current settings cannot erase the saved job's GitHub verification boundary.
+                val requiresVerification = run.chatId in githubConversations ||
+                    run.synthesisSnapshot != null ||
+                    result.hasClientOwnedExecutionProof ||
+                    chatRepository.hasSavedGitHubTask(run)
                 val status = recoveredGatewayRunStatus(disposition, requiresVerification)
                 val content = result.recoverableContent
                 val isolatedCompletion = disposition == GatewayResultDisposition.COMPLETE && result.hasClientOwnedExecutionProof

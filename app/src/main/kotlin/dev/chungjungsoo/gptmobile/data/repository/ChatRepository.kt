@@ -185,6 +185,7 @@ interface ChatRepository {
     suspend fun bindGatewayJob(runId: String, jobId: String, baseUrl: String): Boolean
     suspend fun advanceGatewaySequence(runId: String, sequence: Int): Boolean
     suspend fun getRecoverableGatewayRuns(): List<AgentRun>
+    suspend fun hasSavedGitHubTask(run: AgentRun): Boolean = false
     suspend fun restoreGatewayAnswer(runId: String, jobId: String, content: String, completedAt: Long, terminalStatus: String = dev.chungjungsoo.gptmobile.data.database.entity.AgentRunStatus.COMPLETED, terminalError: String? = null): Boolean = false
     fun generateDefaultChatTitle(messages: List<MessageV2>): String?
     suspend fun updateChatTitle(chatRoom: ChatRoomV2, title: String, isCustomized: Boolean = false)

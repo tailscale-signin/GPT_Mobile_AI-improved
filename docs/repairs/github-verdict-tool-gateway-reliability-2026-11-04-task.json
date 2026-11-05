@@ -83,6 +83,13 @@
     "additional_context_ledger_export_focused": {
       "passed": 104,
       "includes_live_publication": 23
+    },
+    "final_runner_order_and_cancellation_focused": {
+      "passed": 51
+    },
+    "saved_gateway_verification_boundary_focused": {
+      "passed": 34,
+      "generated_room_query": "Covered by full Android suite after DAO regeneration; not inferred from focused coordinator mocks."
     }
   },
   "parent_status_at_validation": {
@@ -101,5 +108,9 @@
     "raw_log_committed": false,
     "vendor_finalizer": "Observed framework/vendor stack; no app hidden-settings call established.",
     "workmanager": "Matching callback records were informational; no warning/error substantiated by this export."
+  },
+  "final_review_followups": {
+    "tool_order": "Restore original tool result/provider exchange ordering while retaining confirmed results across child cancellation.",
+    "recovery_verification": "Use authoritative client-owned saved-job proof or exact persisted GitHub task metadata when current conversation bindings are missing; metadata read failure cannot grant completion."
   }
 }

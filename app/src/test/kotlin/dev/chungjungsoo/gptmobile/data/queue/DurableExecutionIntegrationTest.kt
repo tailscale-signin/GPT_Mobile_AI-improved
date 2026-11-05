@@ -208,6 +208,37 @@ class DurableExecutionIntegrationTest {
         assertEquals(0, runs.finishGatewayRecovery("r", "COMPLETED", 7, null))
     }
 
+    @Test fun savedGithubRecoveryScopeUsesOnlyMatchingHostMetadataWithoutReadingProtectedPayloads() = runBlocking {
+        database.chatRoomDao().addChatRoom(ChatRoomV2(id = 2, title = "Other", enabledPlatform = listOf("p")))
+        database.agentPersistenceDao().persistAgentTurn(request().copy(queuedPromptId = null))
+        val records = database.workspaceDao()
+        fun row(id: String, kind: String, chatId: Int = 1, runId: String = "r") =
+            dev.chungjungsoo.gptmobile.data.workspace.WorkspaceRecord(id, kind, "Saved task", "Protected payload unavailable", chatId, runId)
+        val unrelated = listOf(
+            row("github-evidence:binding:verification_foreign_run", "github_evidence", runId = "other"),
+            row("github-evidence:binding:verification_foreign_chat", "github_evidence", chatId = 2),
+            row("github-evidence:binding:verification_context", "context"),
+            row("arbitrary-report", "github_evidence"),
+            row("github-active-task:binding", "github_engineering_memory"),
+            row("ordinary-checkpoint", "synthesis_checkpoint")
+        )
+        unrelated.forEach { records.save(it) }
+        assertFalse(records.hasGitHubTaskForRun(1, "r"))
+        val retained = listOf(
+            row("github-evidence:binding:verification_saved", "github_evidence"),
+            row("github-evidence:binding:verification_legacy", "synthesis_checkpoint"),
+            row("github-active-task:saved-binding", "synthesis_checkpoint"),
+            row("github-review:binding:draft", "synthesis_checkpoint"),
+            row("github-output:binding", "synthesis_checkpoint")
+        )
+        for (record in retained) {
+            records.save(record)
+            assertTrue(record.id, records.hasGitHubTaskForRun(1, "r"))
+            records.delete(record.id)
+            assertFalse(records.hasGitHubTaskForRun(1, "r"))
+        }
+    }
+
     @Test fun `deleted knowledge does not reappear when original attachment is seen again`() = runBlocking {
         val repository = MemoryDocumentRepository(database)
         val id = repository.index("Manual", "The camera uses a blue lens.", chatId = 1)

@@ -35,6 +35,7 @@ class GatewayCoordinatorRecoveryTest {
             coEvery { settings.fetchPlatformV2s() } returns listOf(PlatformV2(uid = "profile", name = "Selected", model = "model", apiUrl = "http://127.0.0.1:8090"))
             coEvery { settings.getFeatureSettings() } returns AppFeatureSettings(conversationGitHub = if (github) mapOf(1 to GitHubConversationContext("connection", "o", "r", "feature", "a".repeat(40), "profile")) else emptyMap())
             coEvery { chats.getRecoverableGatewayRuns() } answers { listOf(run.copy(status = state, terminalError = error)) }
+            coEvery { chats.hasSavedGitHubTask(any()) } returns false
             coEvery { gateway.getCapabilities(any()) } returns GatewayCapabilities(supportsResultRecovery = true)
             coEvery { gateway.getJobResult("saved-job", any()) } returns complete
             coEvery { chats.restoreGatewayAnswer(any(), any(), any(), any(), any(), any()) } answers {
@@ -144,6 +145,46 @@ class GatewayCoordinatorRecoveryTest {
             assertTrue(!GatewayOutcomeRecovery.canReadSavedResult(f.run.copy(status = f.state, terminalError = f.error)))
             coVerify(exactly = 1) { f.chats.restoreGatewayAnswer(any(), "saved-job", any(), any(), AgentRunStatus.EVIDENCE_MISSING, any()) }
         }
+    }
+
+    @Test fun savedClientOwnedProofStillRequiresVerificationAfterGithubSettingsDisappear() = runTest {
+        val f = Fixture(github = false)
+        f.state = AgentRunStatus.FAILED
+        f.error = "GATEWAY_OUTCOME_UNKNOWN: disconnected"
+        coEvery { f.gateway.getJobResult("saved-job", any()) } returns f.complete.copy(
+            job = GatewaySavedJob("model", jobId = "saved-job", executionIsolationSchema = 1, executionIsolationScope = "entire_job", executionIsolation = "github_client_owned", serverToolsAllowed = false)
+        )
+        f.coordinator().recoverInterruptedGatewayRuns()
+        assertEquals(AgentRunStatus.EVIDENCE_MISSING, f.state)
+        assertTrue(f.error.orEmpty().startsWith(GatewayOutcomeRecovery.ISOLATED_RESULT_PREFIX))
+        coVerify(exactly = 1) { f.chats.restoreGatewayAnswer("run", "saved-job", "Saved answer", 42, AgentRunStatus.EVIDENCE_MISSING, any()) }
+        coVerify(exactly = 0) { f.chats.hasSavedGitHubTask(any()) }
+        coVerify(exactly = 0) { f.gateway.cancelJob(any(), any()) }
+    }
+
+    @Test fun retainedLegacyGithubTaskMetadataPreventsFinalCompletionWithoutServerProof() = runTest {
+        val f = Fixture(github = false)
+        f.state = AgentRunStatus.FAILED
+        f.error = "GATEWAY_OUTCOME_UNKNOWN: disconnected"
+        coEvery { f.chats.hasSavedGitHubTask(any()) } answers {
+            val run = firstArg<AgentRun>()
+            run.chatId == 1 && run.runId == "run"
+        }
+        f.coordinator().recoverInterruptedGatewayRuns()
+        assertEquals(AgentRunStatus.EVIDENCE_MISSING, f.state)
+        assertTrue(f.error.orEmpty().contains("GATEWAY_RECOVERED_RESULT_UNVERIFIED"))
+        assertTrue(GatewayOutcomeRecovery.requiresReconciliation(f.error.orEmpty()))
+        coVerify(exactly = 1) { f.chats.restoreGatewayAnswer("run", "saved-job", "Saved answer", 42, AgentRunStatus.EVIDENCE_MISSING, any()) }
+        coVerify(exactly = 0) { f.gateway.cancelJob(any(), any()) }
+    }
+
+    @Test fun unreadableSavedTaskMetadataCannotAuthorizeFinalCompletion() = runTest {
+        val f = Fixture(github = false)
+        coEvery { f.chats.hasSavedGitHubTask(any()) } throws IllegalStateException("Saved metadata unavailable")
+        f.coordinator().recoverInterruptedGatewayRuns()
+        assertEquals(AgentRunStatus.INTERRUPTED, f.state)
+        coVerify(exactly = 0) { f.chats.restoreGatewayAnswer(any(), any(), any(), any(), any(), any()) }
+        coVerify(exactly = 0) { f.gateway.cancelJob(any(), any()) }
     }
 
     @Test fun gatewayDisconnectThenAppRestartReadsTheOriginalJobAndAdoptsItOnce() = runTest {

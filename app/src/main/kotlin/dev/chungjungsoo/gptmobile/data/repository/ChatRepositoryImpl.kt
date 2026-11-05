@@ -6199,6 +6199,9 @@ class ChatRepositoryImpl(
     override suspend fun getRecoverableGatewayRuns(): List<AgentRun> =
         agentRunDao.getRecoverableGatewayRuns()
 
+    override suspend fun hasSavedGitHubTask(run: AgentRun): Boolean =
+        workspace?.dao?.hasGitHubTaskForRun(run.chatId, run.runId) == true
+
     override fun generateDefaultChatTitle(messages: List<MessageV2>): String? = messages.sortedBy { it.createdAt }.firstOrNull { it.platformType == null }?.content?.replace('\n', ' ')?.take(50)
 
     override suspend fun updateChatTitle(chatRoom: ChatRoomV2, title: String, isCustomized: Boolean) {

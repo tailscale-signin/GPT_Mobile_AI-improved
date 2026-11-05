@@ -36,7 +36,9 @@ class GitHubDiagnosticRecoveryTest {
     }
     private fun verdict(prompt: String): String = buildJsonObject {
         val input = Json.parseToJsonElement(prompt).jsonObject
-        put("approved", true)
+        put("schema_version", 1)
+        put("verdict", "PASS")
+        put("reason", "Retained evidence checked.")
         put("reviewed_ids", JsonArray(input["records"]!!.jsonArray.map { it.jsonObject.getValue("id") }))
         put("issues", JsonArray(emptyList()))
         put("verified_claims", JsonArray(listOf(JsonPrimitive("Receipt checked."))))

@@ -4,6 +4,19 @@ import dev.chungjungsoo.gptmobile.data.research.researchHash
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
+/** A saved domain plan continues directly; it never retries the oversized whole artifact. */
+internal suspend fun resumeStudyReview(prompt: String, saved: Map<String, StudyReviewArtifact>, complete: suspend () -> StudyReviewArtifact, parts: suspend () -> StudyReviewArtifact): StudyReviewArtifact {
+    if (saved.keys.any { it.startsWith(researchHash(prompt) + ":") }) return parts()
+    return try {
+        complete()
+    } catch (cancelled: kotlinx.coroutines.CancellationException) {
+        throw cancelled
+    } catch (failure: Exception) {
+        if (!ExaminationOutputBudget.canSplit(failure)) throw failure
+        parts()
+    }
+}
+
 /** Every saved part is a valid, grounded artifact tied to the exact evidence packet. */
 internal suspend fun chunkedStudyReview(
     prompt: String,

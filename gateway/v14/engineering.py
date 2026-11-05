@@ -2,6 +2,7 @@
 import json
 import re
 import threading
+import sqlite3
 import time
 import uuid
 import logging
@@ -159,6 +160,17 @@ class EngineeringStore:
             return dict(job, state='PLAN', revision=0)
         return self.tx(insert)
 
+    def existing_request(self, principal, request):
+        """Reconcile a lost create receipt without admitting new work or changing the request identity."""
+        request = validate_request(request)
+        def read(db):
+            row = db.execute('SELECT data,state,revision,request_digest FROM engineering_jobs WHERE principal=? AND request_id=?',
+                             (principal, request['request_id'])).fetchone()
+            if row and row[3] != digest(request):
+                raise ValueError('Request identity was reused with different settings')
+            return self.decode(row[:3]) if row else None
+        return self.tx(read)
+
     def get(self, job_id, principal=None):
         def read(db):
             row = db.execute('SELECT data,state,revision FROM engineering_jobs WHERE id=?' + (' AND principal=?' if principal else ''),
@@ -306,6 +318,31 @@ class EngineeringService:
         self.wake = threading.Event()
         self.thread = None
         self.authorized = lambda job: True
+
+    def readiness(self):
+        """Local engineering prerequisites; this never implies model or GitHub API success."""
+        runtime = self.store.runtime
+        journal = 'disabled' if not runtime.GATEWAY_DURABLE_JOBS else 'unavailable'
+        if runtime.GATEWAY_DURABLE_JOBS and runtime.durable_job_initialized:
+            try:
+                with runtime.durable_job_lock:
+                    db = runtime._durable_connect()
+                    try:
+                        db.execute('SELECT id FROM engineering_jobs LIMIT 1').fetchone()
+                        journal = 'ready' if getattr(runtime, 'durable_write_healthy', True) else 'write_failed'
+                    finally:
+                        db.close()
+            except (sqlite3.Error, OSError, ValueError):
+                journal = 'unavailable'
+        configured = bool(self.backend.available())
+        worker = self.thread is not None and self.thread.is_alive() and not self.stop.is_set()
+        draining = bool(getattr(runtime, 'gateway_draining', False))
+        graph_ready = journal == 'ready' and configured and not draining
+        return {'schema_version': 1, 'ready': graph_ready and worker, 'graph_ready': graph_ready,
+                'saved_results': journal in {'ready', 'write_failed'},
+                'checks': {'journal': journal, 'host_github_connection': 'configured' if configured else 'missing',
+                           'worker': 'running' if worker else 'unavailable', 'draining': draining},
+                'github_reachable': None, 'repository_access': None, 'inference_ready': None}
 
     def approve(self, job_id, principal, expected_revision, pr, head):
         job = self.store.get(job_id, principal)

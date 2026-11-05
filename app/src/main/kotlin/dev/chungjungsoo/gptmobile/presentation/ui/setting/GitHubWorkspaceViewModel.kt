@@ -118,7 +118,9 @@ class GitHubWorkspaceViewModel @Inject constructor(
         val dirty: Boolean get() = staged.isNotEmpty() || edits.isNotEmpty() || patchStage != null
     }
 
-    private var pendingRecovery: Draft? = null
+    @Volatile private var pendingRecovery: Draft? = null
+
+    @Volatile private var draftRestorationPending = false
 
     private val draftWrites = kotlinx.coroutines.sync.Mutex()
     private val draftSequence = java.util.concurrent.atomic.AtomicLong()
@@ -127,7 +129,14 @@ class GitHubWorkspaceViewModel @Inject constructor(
     private fun draft(state: GitHubWorkspaceState): Pair<String, Draft>? = state.connection?.connectionUid?.let { connection ->
         state.selection?.let { connection to Draft(it, state.headSha, state.directory, state.file, state.staged, state.editorDrafts, state.reviewBaseline, state.patchStage) }
     }
-    private suspend fun persist(pending: PendingDraft) = draftWrites.withLock {
+    private suspend fun persist(pending: PendingDraft) = persistDraft(pending, automatic = false)
+
+    private suspend fun persistDraft(pending: PendingDraft, automatic: Boolean) = draftWrites.withLock {
+        // A debounced snapshot may predate a restore or repository refresh. Recheck
+        // ownership at the write boundary, including an unreadable encrypted draft.
+        if (draftRestorationPending || automatic && (_state.value.busy || pendingRecovery != null)) return@withLock
+        val recovery = pendingRecovery
+        if (recovery != null && (pending.value.selection != recovery.selection || pending.value.baseSha != recovery.baseSha)) return@withLock
         val current = draft(_state.value)
         if (current == null || current.first != pending.connection || current.second != pending.value) return@withLock
         if (pending.sequence <= (persistedDraftSequence[pending.connection] ?: -1)) return@withLock
@@ -136,11 +145,11 @@ class GitHubWorkspaceViewModel @Inject constructor(
     }
 
     @OptIn(kotlinx.coroutines.FlowPreview::class)
-    private fun observeDrafts() = viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-        _state.map { if (it.busy || pendingRecovery != null) null else draft(it) }.filterNotNull().distinctUntilChanged()
+    private fun observeDrafts() = viewModelScope.launch {
+        _state.map { if (it.busy || draftRestorationPending || pendingRecovery != null) null else draft(it) }.filterNotNull().distinctUntilChanged()
             .map { PendingDraft(draftSequence.incrementAndGet(), it.first, it.second) }.debounce(400).collect { pending ->
                 try {
-                    persist(pending)
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { persistDraft(pending, automatic = true) }
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (_: Exception) {
@@ -162,6 +171,7 @@ class GitHubWorkspaceViewModel @Inject constructor(
         tool = null
         credentialDigest = null
         authorizationIdentity = null
+        draftRestorationPending = true
         pendingRecovery = null
         val requestedContext = initialContext?.takeIf { it.connectionUid == connection.connectionUid }
         _state.value = GitHubWorkspaceState(
@@ -174,6 +184,7 @@ class GitHubWorkspaceViewModel @Inject constructor(
             // context is display-only until the transport revalidates the repository.
             val recovered = draftWrites.withLock { drafts.read(connection.connectionUid)?.let { Json.decodeFromString(Draft.serializer(), it) } }
             pendingRecovery = recovered
+            draftRestorationPending = false
             val requested = requestedContext?.repository
             require(requested == null || recovered?.dirty != true || recovered.selection == requested) {
                 "Saved edits belong to another branch. Open GitHub mode from the main menu to save or discard them before opening this chat."

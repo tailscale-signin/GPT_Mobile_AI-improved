@@ -64,6 +64,21 @@ for inference. The engineering worker reuses gateway slot admission and
 cancellation-aware model transport; it does not add unbounded parallel model
 requests or register a model-facing merge-approval tool.
 
+The versioned `readiness` object separates journal access, the configured host
+GitHub connection, and the running engineering worker. `code_graph.enabled`
+reflects the graph service's own prerequisites; graph reads do not require the
+background job worker. These local checks leave GitHub network/repository access
+and model inference unverified until the corresponding operation runs. A working
+chat endpoint therefore cannot establish engineering readiness. Android caches
+the handshake for ten seconds by authenticated route, network generation and
+observed gateway instance; an observed restart invalidates that identity's cache.
+
+Saved jobs and evidence remain readable when the host GitHub connection or worker
+is unavailable and the journal can still be read. Reconnecting a pending create
+reuses its persisted request ID and exact payload. If the gateway already saved
+that request, it returns the original job even when new work cannot be admitted.
+Changing the payload under an existing request ID is rejected.
+
 ## Workflow, recovery and evidence
 
 The persisted phases are PLAN, READ, IMPLEMENT, REVIEW, COMMIT, OPEN_PR, CI,

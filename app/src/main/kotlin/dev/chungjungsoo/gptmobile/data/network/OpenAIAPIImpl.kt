@@ -49,7 +49,9 @@ class OpenAIAPIImpl @Inject constructor(
     private val openRouterReceipts: dev.chungjungsoo.gptmobile.data.openrouter.account.OpenRouterReceiptStore? = null
 ) : OpenAIAPI {
     private val requestPreparation = ModelRequestPreparation(networkClient)
-    private val gatewayControls = dev.chungjungsoo.gptmobile.data.network.gateway.GatewayControlNegotiation(dev.chungjungsoo.gptmobile.data.network.gateway.GatewayAPIImpl(networkClient))
+    private val gatewayApi = dev.chungjungsoo.gptmobile.data.network.gateway.GatewayAPIImpl(networkClient)
+    private val gatewayControls = dev.chungjungsoo.gptmobile.data.network.gateway.GatewayControlNegotiation(gatewayApi)
+    private val gatewayRecovery = dev.chungjungsoo.gptmobile.data.network.gateway.GatewayTerminalRecovery(gatewayApi)
 
     override suspend fun checkSavedHordeJob(runId: String, chatId: Int, config: ProviderRequestConfig): String = FreeQueuedTransport(networkClient(), requestPreparation).checkSavedHordeJob(runId, chatId, config)
 
@@ -209,6 +211,14 @@ class OpenAIAPIImpl @Inject constructor(
                         config.freeDiagnostics?.responded()
                         if (!response.status.isSuccess()) {
                             val errorBody = if (free != null) readFreeErrorBody(response) else response.body<String>()
+                            if (free == null) {
+                                gatewayRecovery.read(response.status.value, structuredProviderFailure(errorBody), config, preparedRequest.model, response.headers["X-Gateway-Job-ID"])?.let { saved ->
+                                    receivedAssistantPayload = receivedAssistantPayload || saved.hasAssistantStreamPayload()
+                                    receivedTerminal = true
+                                    emit(saved)
+                                    return@execute
+                                }
+                            }
                             if (free != null) {
                                 val retryAt = retainFreeHttpFailure(config, preparedRequest.model, response.status.value, errorBody) { response.headers[it] }
                                 val retrySeconds = retryAt?.let { ((it - System.currentTimeMillis() + 999) / 1000).coerceAtLeast(1) }

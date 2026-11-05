@@ -77,7 +77,7 @@ class SettingsTests(unittest.TestCase):
             cfg = validate({'debug_mode': True})
             env = environment(temp, cfg, 'secret')
             self.assertEqual('true', env['GATEWAY_DEBUG_MODE'])
-            self.assertEqual(str(Path(temp) / 'logs' / 'gateway-debug.jsonl'), env['GATEWAY_DEBUG_LOG'])
+            self.assertEqual((Path(temp) / 'logs' / 'gateway-debug.jsonl').resolve(), Path(env['GATEWAY_DEBUG_LOG']).resolve())
         with self.assertRaises(ValueError):
             validate({'debug_mode': 'yes'})
 

@@ -10,6 +10,31 @@ An explicit `[DONE]` terminates reading without requiring a further blank line o
 
 Android stops collecting a response at its first `Done` or `Error` event and flushes pending text. Late socket-close errors cannot overwrite an already completed answer. Cancellation still propagates and releases upstream resources.
 
+## Terminal jobs and saved results
+
+An HTTP 409 `terminal_job_not_resumable` is reconciled with one authenticated
+`GET /gateway/jobs/{job_id}/result` on the same selected connection. Android binds
+the rejection, requested ID and saved receipt, checks the saved model against the
+requested model, and accepts fractional Unix completion timestamps. It retains
+available answer text and preserves partial/failed status. Saved tool calls are
+never dispatched again. Missing, mismatched or incomplete receipts leave an
+explicit recovery error; they do not trigger another inference request or a new
+job ID. A genuinely new work item must start with its own identity.
+
+Gateway completion is evidence of a model response. GitHub task completion still
+requires its separate operation and verification receipts, including the required
+CI evidence.
+
+For the GitHub client-owned execution path, the gateway commits an isolation
+receipt in the public job envelope before dispatch: `execution_isolation_schema=1`,
+`execution_isolation_scope=entire_job`, `execution_isolation=github_client_owned`,
+and `server_tools_allowed=false`. This proof means every gateway model segment
+used the branch that returns tool calls to Android and cannot execute gateway
+tools. Mixed execution and legacy jobs with unknown history cannot acquire that
+proof. Request fields and model-generated metadata cannot supply it. A matching
+completed receipt may resolve transport uncertainty while GitHub acceptance and
+client-tool mutation reconciliation remain separate requirements.
+
 ## Multi-engine search
 
 The Android search aggregator attempts every unique selected compatible engine, rather than silently selecting only two. Existing per-engine permissions, profile selections, and shared tool/byte budgets still apply. Parallel mode permits three concurrent engines; sequential mode still visits all selected engines. Each execution has an isolated 20-second timeout. A failed engine or optional crawler cannot erase successful search evidence. Duplicate URLs retain the names of all contributing engines. Only successful evidence is cached, and query lock storage is bounded.

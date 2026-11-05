@@ -692,15 +692,25 @@ interface AgentPersistenceDao :
 
     /** A canceled job or superseded assistant revision must never be resurrected. */
     @Transaction
-    suspend fun restoreGatewayAnswer(runId: String, jobId: String, content: String, completedAt: Long): Boolean {
+    suspend fun restoreGatewayAnswer(runId: String, jobId: String, content: String, completedAt: Long, terminalStatus: String = "COMPLETED", terminalError: String? = null): Boolean {
+        require(terminalStatus in setOf("COMPLETED", "PARTIAL", "FAILED", "EVIDENCE_MISSING"))
+        require(content.isNotBlank())
+        require(terminalStatus != "COMPLETED" || terminalError == null)
         val run = recoveryRun(runId) ?: return false
-        if (run.gatewayJobId != jobId || run.status != "INTERRUPTED" || run.terminalError == "BACKUP_RESTORED") return false
+        if (run.gatewayJobId != jobId || !dev.chungjungsoo.gptmobile.data.agent.GatewayOutcomeRecovery.canReadSavedResult(run) || run.terminalError == "BACKUP_RESTORED") return false
         val message = recoveryMessage(run.assistantMessageId) ?: return false
         if (message.currentRunId != runId || message.chatId != run.chatId || message.ownershipFence != run.ownershipFence) return false
-        val restored = message.copy(content = content, thoughts = "", timeline = emptyList())
+        val restored = message.copy(
+            content = content,
+            revisions = if (message.content.isNotBlank() && !content.startsWith(message.content)) listOfNotNull(message.snapshotLatestAssistantRevision(completedAt)) + message.revisions else message.revisions,
+            activeRevisionIndex = ACTIVE_REVISION_LATEST,
+            timeline = message.timeline.filter { it.type != dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType.TEXT } +
+                dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem(dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType.TEXT, content = content) +
+                listOfNotNull(terminalError?.let { dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem(dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType.NOTICE, runError = it) })
+        )
         updateMessage(restored)
-        publishReply(run, restored, "COMPLETED", completedAt)
-        updateRunStatus(runId, "COMPLETED", run.startedAt, completedAt, null)
+        publishReply(run, restored, terminalStatus, completedAt)
+        updateRunStatus(runId, terminalStatus, run.startedAt, completedAt, terminalError)
         cancelActiveToolEvents(runId, completedAt)
         return true
     }

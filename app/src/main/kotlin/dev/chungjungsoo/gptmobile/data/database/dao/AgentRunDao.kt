@@ -125,8 +125,11 @@ interface AgentRunDao : RunPolicySnapshotAccess {
     @Query("UPDATE agent_runs SET input_tokens = :inputTokens, output_tokens = :outputTokens, total_tokens = :totalTokens WHERE run_id = :runId")
     suspend fun replaceMeasuredUsage(runId: String, inputTokens: Int?, outputTokens: Int?, totalTokens: Int?): Int
 
-    @Query("SELECT * FROM agent_runs WHERE gateway_job_id IS NOT NULL AND status IN ('QUEUED', 'RUNNING', 'INTERRUPTED')")
+    @Query("SELECT r.* FROM agent_runs r JOIN messages_v2 m ON m.message_id = r.assistant_message_id AND m.current_run_id = r.run_id AND m.ownership_fence = r.ownership_fence WHERE r.gateway_job_id IS NOT NULL AND (r.status IN ('QUEUED', 'RUNNING', 'INTERRUPTED') OR (r.status = 'BLOCKED' AND r.terminal_error GLOB 'GATEWAY_OUTCOME_UNKNOWN: GATEWAY_RECOVERY_EXPIRED*') OR (r.status IN ('FAILED', 'PARTIAL', 'EVIDENCE_MISSING') AND (instr(upper(r.terminal_error), 'GATEWAY_OUTCOME_UNKNOWN') > 0 OR instr(upper(r.terminal_error), 'REMOTE_OUTCOME_UNKNOWN') > 0) AND instr(r.terminal_error, 'GATEWAY_SAVED_RESULT_') = 0 AND instr(r.terminal_error, 'GATEWAY_RECOVERED_RESULT_UNVERIFIED') = 0))")
     suspend fun rawGetRecoverableGatewayRuns(): List<AgentRun>
+
+    @Query("UPDATE agent_runs SET status = :status, completed_at = :completedAt, terminal_error = :terminalError WHERE run_id = :runId AND (status = 'INTERRUPTED' OR (status = 'BLOCKED' AND terminal_error GLOB 'GATEWAY_OUTCOME_UNKNOWN: GATEWAY_RECOVERY_EXPIRED*') OR (status IN ('FAILED', 'PARTIAL', 'EVIDENCE_MISSING') AND (instr(upper(terminal_error), 'GATEWAY_OUTCOME_UNKNOWN') > 0 OR instr(upper(terminal_error), 'REMOTE_OUTCOME_UNKNOWN') > 0) AND instr(terminal_error, 'GATEWAY_SAVED_RESULT_') = 0 AND instr(terminal_error, 'GATEWAY_RECOVERED_RESULT_UNVERIFIED') = 0)) AND EXISTS (SELECT 1 FROM messages_v2 m WHERE m.message_id = agent_runs.assistant_message_id AND m.current_run_id = agent_runs.run_id AND m.ownership_fence = agent_runs.ownership_fence)")
+    suspend fun finishGatewayRecovery(runId: String, status: String, completedAt: Long, terminalError: String?): Int
 
     suspend fun getById(runId: String): AgentRun? = hydratePolicyRun(rawGetById(runId))
     suspend fun getByChatId(chatId: Int): List<AgentRun> = hydratePolicyRuns(rawGetByChatId(chatId))

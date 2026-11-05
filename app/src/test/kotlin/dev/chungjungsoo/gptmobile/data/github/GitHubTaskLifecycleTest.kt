@@ -83,7 +83,7 @@ class GitHubTaskLifecycleTest {
         var reviews = 0
         fun gate(revision: String) = GitHubReviewedSession(noGeneration, GitHubReviewEvidence(), "task", 8192, { _, _ ->
             reviews++
-            answer("""{"approved":true,"reviewed_ids":[],"issues":[],"verified_claims":[]}""")
+            answer("""{"schema_version":1,"verdict":"PASS","reason":"Retained evidence checked.","reviewed_ids":[],"issues":[],"verified_claims":[]}""")
         }, {}, checkpoint = checkpoint(), reviewerRevision = revision)
         val blocked = gate("old-config").streamRound(emptyList(), emptyList()).toList()
         assertEquals("BLOCKED", (blocked.last() as ProviderEvent.Failed).taskOutcome)

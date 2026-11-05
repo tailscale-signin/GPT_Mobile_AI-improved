@@ -45,7 +45,7 @@ internal fun structuredDiagnosticLine(
     val exitConfirmed = (parsedFields["workerExitConfirmed"] as? JsonPrimitive)?.booleanOrNull
         ?: (parsedFields["exitConfirmed"] as? JsonPrimitive)?.booleanOrNull
     return buildJsonObject {
-        put("schema", 6)
+        put("schema", 7)
         put("incidentId", incidentId ?: text("incidentId") ?: parentEventId ?: captureIdentity ?: diagnosticEventIdentity(line))
         put("incidentRoot", incidentRoot)
         put("eventId", captureIdentity ?: diagnosticEventIdentity(line))

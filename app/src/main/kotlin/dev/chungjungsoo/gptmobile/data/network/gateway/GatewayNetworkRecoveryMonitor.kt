@@ -7,12 +7,17 @@ import android.net.Network
 import android.net.NetworkCapabilities
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.chungjungsoo.gptmobile.data.agent.AgentRunCoordinator
+import dev.chungjungsoo.gptmobile.data.repository.ChatRepository
+import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 /**
@@ -25,12 +30,26 @@ import kotlinx.coroutines.launch
 @Singleton
 class GatewayNetworkRecoveryMonitor @Inject constructor(
     @param:ApplicationContext private val context: Context,
-    private val agentRunCoordinator: AgentRunCoordinator
+    private val agentRunCoordinator: AgentRunCoordinator,
+    private val chatRepository: ChatRepository,
+    private val settings: SettingRepository
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val started = AtomicBoolean(false)
     private val connectivityManager by lazy {
         context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+    }
+    private val recoveryPolling by lazy {
+        GatewayRecoveryPoller(
+            scope,
+            hasPending = {
+                hasEligibleGatewayRecovery(chatRepository.getRecoverableGatewayRuns(), settings.fetchPlatformV2s(), agentRunCoordinator.activeRuns.value.keys)
+            },
+            reconcile = { agentRunCoordinator.recoverInterruptedGatewayRuns() },
+            onFailure = { error ->
+                dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Gateway", "RECOVERY_POLL_FAILED · reason=${error.javaClass.simpleName} · action=saved_jobs_retained", "W")
+            }
+        )
     }
 
     @Volatile
@@ -50,26 +69,22 @@ class GatewayNetworkRecoveryMonitor @Inject constructor(
                 if (dev.chungjungsoo.gptmobile.BuildConfig.MCP_ROUTE_RECOVERY) dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.networkChanged()
                 if (validatedNetwork == network) {
                     resumeResearchOutbox()
-                    scope.launch { agentRunCoordinator.recoverInterruptedGatewayRuns() }
+                    recoveryPolling.wake()
                 }
             }
         }
 
         override fun onCapabilitiesChanged(network: Network, networkCapabilities: NetworkCapabilities) {
-            val validated = networkCapabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) ||
-                networkCapabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
-                networkCapabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) ||
-                networkCapabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
+            val validated = networkCapabilities.hasGatewayRoute()
             if (validated && validatedNetwork != network) {
                 validatedNetwork = network
                 dev.chungjungsoo.gptmobile.data.readiness.ReadinessHints.networkChanged()
                 if (dev.chungjungsoo.gptmobile.BuildConfig.MCP_ROUTE_RECOVERY) dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.networkChanged()
                 resumeResearchOutbox()
-                scope.launch {
-                    agentRunCoordinator.recoverInterruptedGatewayRuns()
-                }
+                recoveryPolling.routeChanged(true)
             } else if (!validated && validatedNetwork == network) {
                 validatedNetwork = null
+                recoveryPolling.routeChanged(false)
             }
         }
 
@@ -79,6 +94,7 @@ class GatewayNetworkRecoveryMonitor @Inject constructor(
             if (dev.chungjungsoo.gptmobile.BuildConfig.MCP_ROUTE_RECOVERY) dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.networkChanged()
             if (validatedNetwork == network) {
                 validatedNetwork = null
+                recoveryPolling.routeChanged(false)
             }
         }
     }
@@ -89,17 +105,23 @@ class GatewayNetworkRecoveryMonitor @Inject constructor(
         val active = connectivityManager.activeNetwork
         val capabilities = active?.let(connectivityManager::getNetworkCapabilities)
         validatedNetwork = active?.takeIf {
-            capabilities != null
+            capabilities?.hasGatewayRoute() == true
         }
 
         connectivityManager.registerDefaultNetworkCallback(callback)
 
-        if (validatedNetwork != null) {
-            scope.launch {
-                agentRunCoordinator.recoverInterruptedGatewayRuns()
-            }
+        recoveryPolling.routeChanged(validatedNetwork != null)
+        scope.launch {
+            // A run becoming interrupted on an unchanged network must also wake
+            // recovery. Ignore token/progress updates while its live owner exists.
+            agentRunCoordinator.activeRuns.map { it.keys.toSet() }.distinctUntilChanged().collect { recoveryPolling.wake() }
         }
     }
+
+    private fun NetworkCapabilities.hasGatewayRoute() = hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) ||
+        hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
+        hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) ||
+        hasTransport(NetworkCapabilities.TRANSPORT_VPN)
 
     private fun resumeResearchOutbox() {
         scope.launch {

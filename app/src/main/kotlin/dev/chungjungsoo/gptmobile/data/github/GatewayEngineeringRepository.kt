@@ -35,7 +35,7 @@ class GatewayEngineeringRepository @Inject constructor(
     suspend fun evidence(requestId: String, receiptId: String): String {
         val binding = bindings().single { it.request.requestId == requestId }
         val config = config(binding)
-        check(binding.principalId == client.principal(config)) { "The gateway account changed; evidence is unavailable." }
+        check(binding.principalId == client.principal(config, requireReady = false)) { "The gateway account changed; evidence is unavailable." }
         return client.evidence(config, requireNotNull(binding.job).id, receiptId)
     }
 
@@ -83,10 +83,11 @@ class GatewayEngineeringRepository @Inject constructor(
         if (binding.job?.terminal == true && binding.syncedRevision >= requireNotNull(binding.job).revision) return@withLock binding
         val config = config(binding)
         if (binding.job != null && System.nanoTime() / 1_000_000 - (lastPoll[requestId] ?: Long.MIN_VALUE / 2) < 2000) return@withLock binding
-        check(binding.principalId == client.principal(config)) { "The gateway account changed. Restore the original connection before reconnecting to this job." }
+        check(binding.principalId == client.principal(config, requireReady = false)) { "The gateway account changed. Restore the original connection before reconnecting to this job." }
         if (binding.job == null) {
             // Reuse the persisted key after a lost create response. Never launch a duplicate job.
             val job = client.create(config, binding.request)
+            check(job.id.matches(Regex("eng_[a-f0-9]{32}")) && job.repository == binding.request.repository && job.branch == binding.request.branch && job.chatId == binding.request.chatId) { "Engineering create receipt does not match the saved request. Its original request identity was retained." }
             binding = binding.copy(job = job)
             save(binding)
         }
@@ -114,7 +115,7 @@ class GatewayEngineeringRepository @Inject constructor(
 
     suspend fun syncAll(): Boolean {
         var success = true
-        for (binding in bindings().filter { it.job?.terminal != true }) {
+        for (binding in bindings().filter { it.job?.terminal != true || it.syncedRevision < (it.job?.revision ?: -1) }) {
             try {
                 reconnect(binding.request.requestId)
             } catch (cancelled: CancellationException) {
@@ -131,7 +132,7 @@ class GatewayEngineeringRepository @Inject constructor(
         val binding = bindings().single { it.request.requestId == requestId }
         check(binding.job?.id == expected.id && binding.job?.revision == expected.revision) { "Refresh the job before confirming." }
         val config = config(binding)
-        check(binding.principalId == client.principal(config)) { "The gateway account changed; approval was not sent." }
+        check(binding.principalId == client.principal(config, requireReady = action == "approve")) { "The gateway account changed; the control request was not sent." }
         val result = client.control(config, expected, action)
         check(result.id == expected.id)
         save(binding.copy(job = result))

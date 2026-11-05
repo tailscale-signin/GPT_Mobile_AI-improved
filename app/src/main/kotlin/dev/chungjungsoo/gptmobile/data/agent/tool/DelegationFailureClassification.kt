@@ -1,5 +1,10 @@
 package dev.chungjungsoo.gptmobile.data.agent.tool
 
+/** An interrupted child may have completed writes; another helper cannot safely replay it. */
+internal fun isUncertainDelegateOutcome(message: String): Boolean =
+    dev.chungjungsoo.gptmobile.data.agent.GatewayOutcomeRecovery.requiresReconciliation(message) ||
+        dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.unknownOutcomeCodes.any { message.contains(it, ignoreCase = true) }
+
 /** Provider-specific completion-limit messages that should end an identical retry loop. */
 internal fun isProviderOutputLimitFailure(message: String): Boolean {
     val normalized = message.lowercase()
@@ -7,6 +12,8 @@ internal fun isProviderOutputLimitFailure(message: String): Boolean {
         "reached its output limit",
         "reached the model output limit",
         "output_limit:",
+        "completion_repair_budget_exhausted",
+        "exhausted the output allowance",
         "maximum output tokens",
         "maximum completion tokens",
         "finish_reason=length",

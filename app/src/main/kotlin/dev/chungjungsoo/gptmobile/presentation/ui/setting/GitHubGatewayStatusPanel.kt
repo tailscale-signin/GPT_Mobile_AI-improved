@@ -32,6 +32,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -50,7 +51,6 @@ import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayDashboardState
 import java.text.NumberFormat
 import java.time.LocalDate
 import java.time.format.TextStyle
-import java.util.Locale
 
 @Composable
 internal fun GitHubGatewayStatusPanel(profile: PlatformV2, now: Long, model: GitHubGatewayStatusViewModel = hiltViewModel()) {
@@ -66,6 +66,7 @@ internal fun GitHubGatewayStatusPanel(profile: PlatformV2, now: Long, model: Git
 @Composable
 internal fun GitHubGatewayStatusContent(state: GatewayDashboardState, now: Long, onRefresh: () -> Unit) {
     if (state.phase == GatewayDashboardPhase.HIDDEN) return
+    val locale = LocalConfiguration.current.locales[0]
     val fresh = state.isFresh(now)
     val snapshot = state.observation?.snapshot
     var allDevices by remember(state.target?.identity) { mutableStateOf(false) }
@@ -105,7 +106,7 @@ internal fun GitHubGatewayStatusContent(state: GatewayDashboardState, now: Long,
                 { GitHubStatusMetric("Today", measuredCount(snapshot.days.lastOrNull()?.outputTokens), MaterialTheme.colorScheme.primary, it) }
             )
             GitHubStatusMetricPair(
-                { GitHubStatusMetric("Speed", snapshot.tokensPerSecond?.let { speed -> String.format(Locale.getDefault(), "%.1f tok/s", speed) } ?: "Not measured", MaterialTheme.colorScheme.secondary, it) },
+                { GitHubStatusMetric("Speed", snapshot.tokensPerSecond?.let { speed -> String.format(locale, "%.1f tok/s", speed) } ?: "Not measured", MaterialTheme.colorScheme.secondary, it) },
                 { GitHubStatusMetric("Open jobs", measuredCount(state.openJobs(now)), MaterialTheme.colorScheme.secondary, it) }
             )
             if (snapshot.days.isNotEmpty()) GatewayTokenHistory(snapshot.days)
@@ -173,6 +174,7 @@ internal fun GitHubGatewayStatusContent(state: GatewayDashboardState, now: Long,
 
 @Composable
 private fun GatewayTokenHistory(days: List<GatewayDashboardDay>) {
+    val locale = LocalConfiguration.current.locales[0]
     Text("Tokens · last 7 days", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     val maximum = days.mapNotNull { it.outputTokens }.maxOrNull()?.coerceAtLeast(1) ?: 1
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -182,7 +184,7 @@ private fun GatewayTokenHistory(days: List<GatewayDashboardDay>) {
                     val height = day.outputTokens?.let { (it.toDouble() / maximum * 42).coerceAtLeast(2.0).toFloat().dp } ?: 2.dp
                     Box(Modifier.fillMaxWidth(.6f).height(height).background(if (day.outputTokens == null) MaterialTheme.colorScheme.outlineVariant else MaterialTheme.colorScheme.primary.copy(alpha = .72f), RoundedCornerShape(5.dp)))
                 }
-                Text(LocalDate.parse(day.day).dayOfWeek.getDisplayName(TextStyle.NARROW, Locale.getDefault()), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(LocalDate.parse(day.day).dayOfWeek.getDisplayName(TextStyle.NARROW, locale), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }

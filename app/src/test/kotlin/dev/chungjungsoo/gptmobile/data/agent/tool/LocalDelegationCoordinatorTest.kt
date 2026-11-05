@@ -20,6 +20,28 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LocalDelegationCoordinatorTest {
+    @Test fun gatewayCompletionRepairExhaustionCannotRestartTheIdenticalChild() = runTest {
+        var calls = 0
+        val coordinator = LocalDelegationCoordinator(source, { config.copy(researchEnabled = false, localRetryLimit = 5, fallbackToAnotherProfile = false) }, { listOf(target) }, { _, _, _ ->
+            calls++
+            error("PROVIDER_PAYLOAD_ERROR: Backend exhausted the output allowance without a usable completion. code=completion_repair_budget_exhausted · retryable=false")
+        })
+        assertNull(coordinator.executeTask(target, "Extract the supplied source", 512))
+        assertEquals(1, calls)
+    }
+
+    @Test fun unknownChildOutcomeStopsRetriesAndApprovedFallbackUntilReconciled() = runTest {
+        var calls = 0
+        val fallback = target.copy(uid = "unknown-outcome-fallback")
+        val coordinator = LocalDelegationCoordinator(source, { config.copy(researchEnabled = false, localRetryLimit = 5, fallbackToAnotherProfile = true) }, { listOf(target, fallback) }, { _, _, _ ->
+            calls++
+            error("GATEWAY_OUTCOME_UNKNOWN: inspect the saved job before retrying")
+        })
+        assertTrue(runCatching { coordinator.executeTask(target, "Apply selected changes", 512) }.exceptionOrNull()?.message.orEmpty().contains("GATEWAY_OUTCOME_UNKNOWN"))
+        assertTrue(runCatching { coordinator.executeTask(fallback, "Apply a smaller change", 512) }.exceptionOrNull()?.message.orEmpty().contains("GATEWAY_OUTCOME_UNKNOWN"))
+        assertEquals(1, calls)
+    }
+
     @Test fun deterministicReasoningFailureStopsBeforeIdenticalRetries() = runTest {
         var calls = 0
         val coordinator = LocalDelegationCoordinator(
@@ -47,8 +69,50 @@ class LocalDelegationCoordinatorTest {
             },
             inputBudget = { _, _ -> 1000 }
         )
-        val result = coordinator.executeTask(target, "Original goal ".repeat(150) + "NEVER publish", 256)
+        val result = coordinator.executeTask(target, "Original goal ".repeat(500) + "NEVER publish", 256)
         assertNull(result)
+        assertEquals(0, calls)
+    }
+
+    @Test fun inputCapacityIsTokensAndThePhysicalChildKeepsThatCeiling() = runTest {
+        val task = "evidence ".repeat(180)
+        var calls = 0
+        val coordinator = LocalDelegationCoordinator(
+            source,
+            { config.copy(researchEnabled = false, fallbackToAnotherProfile = false) },
+            { listOf(target) },
+            { _, _, _ -> error("Expected the bounded child transport") },
+            generateWithProgress = { _, prompt, output, input, _ ->
+                calls++
+                assertEquals(task, prompt)
+                assertTrue(prompt.length > 1000)
+                assertEquals(1000, input)
+                val actualRequest = prompt + DelegatedRequestPrompt.systemPrompt("delegate", output)
+                assertTrue(dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.estimate(actualRequest) <= input)
+                "Complete evidence"
+            },
+            inputBudget = { _, _ -> 1000 }
+        )
+        assertEquals("Complete evidence", coordinator.executeTask(target, task, 256))
+        assertEquals(1, calls)
+    }
+
+    @Test fun systemPromptCannotConsumeUnreservedContextAfterTaskAdmission() = runTest {
+        var calls = 0
+        val coordinator = LocalDelegationCoordinator(
+            source,
+            { config.copy(researchEnabled = false, fallbackToAnotherProfile = false) },
+            { listOf(target) },
+            { _, _, _ ->
+                calls++
+                "must not dispatch"
+            },
+            inputBudget = { _, _ -> 1000 }
+        )
+        // The task alone fits 1000 estimated tokens; its real system prompt does not.
+        val task = "a".repeat(2900)
+        assertTrue(dev.chungjungsoo.gptmobile.data.context.ContextBudgetService.estimate(task) <= 1000)
+        assertNull(coordinator.executeTask(target, task, 256))
         assertEquals(0, calls)
     }
 

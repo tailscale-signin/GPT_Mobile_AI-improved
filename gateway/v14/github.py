@@ -5,6 +5,7 @@ import json
 import math
 import threading
 import time
+from v14.jobs import record_execution_isolation
 
 NATIVE_TOOLS = frozenset({
     'github_context', 'github_search', 'github_read', 'github_pr', 'github_ci',
@@ -70,7 +71,9 @@ def install_github_fast_path(runtime):
     original = runtime.process_chat_payload
 
     def process(payload, cancel_event=None, progress_callback=None, hard_cancel_event=None):
-        if not native_github_request(payload):
+        client_owned = native_github_request(payload)
+        if not client_owned:
+            record_execution_isolation(runtime, payload.get('_gateway_job_id'), False)
             return original(payload, cancel_event, progress_callback, hard_cancel_event)
         incoming = dict(payload)
         policy = dict(incoming.get('_gateway_performance') or {})
@@ -78,6 +81,9 @@ def install_github_fast_path(runtime):
         # One model round returns every tool call to it, without MCP discovery.
         policy['github_client_owned'] = True
         incoming['_gateway_performance'] = policy
+        # The retained core unconditionally takes its no-server-tools branch for
+        # github_client_owned. Commit the proof before entering that branch.
+        record_execution_isolation(runtime, incoming.get('_gateway_job_id'), True)
         with metrics.lock:
             metrics.counts['requests'] += 1
             metrics.counts['active'] += 1

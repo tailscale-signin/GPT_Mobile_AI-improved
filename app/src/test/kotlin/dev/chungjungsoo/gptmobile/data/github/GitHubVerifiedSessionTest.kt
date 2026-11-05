@@ -33,6 +33,42 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubVerifiedSessionTest {
+    @Test fun apparentlyCompleteReportRemainsPartialAtTheLiveBoundaryWhenWriteOutcomeIsUnknown() = runBlocking {
+        val saved = mutableListOf<JsonObject>()
+        var published: JsonObject? = null
+        val sha = "a".repeat(40)
+        val book = GitHubEvidenceBook("b", "o/r", "feature", setOf("github_context", "github_pr", "github_write"), now = { 1000L }, save = { _, value -> saved += value })
+        book.observe(
+            ProviderEvent.ToolCall("lost-write", "github_write", Json.parseToJsonElement("""{"action":"commit","branch":"feature"}""").jsonObject),
+            AgentToolResult("lost-write", ToolResultContent.Text("Response lost"), true, errorCode = "TIMEOUT_OUTCOME_UNKNOWN", dispatched = true)
+        )
+        val sources = listOf(
+            Triple("github_context", "status", """{"repository":{"full_name":"o/r"},"branch":"feature","commit_sha":"$sha","latest_workflow":{"head_sha":"$sha","head_branch":"feature","status":"completed","conclusion":"success"}}"""),
+            Triple("github_context", "checks", """{"commit_sha":"$sha","checks":0,"statuses":0,"check_details":{"check_runs":[]}}"""),
+            Triple("github_pr", "list", """{"pull_requests":[]}"""),
+            Triple("github_context", "commits", """{"commit_sha":"$sha","items":[{"sha":"$sha"}]}""")
+        )
+        for ((tool, action, body) in sources) {
+            book.observe(
+                ProviderEvent.ToolCall(action, tool, JsonObject(mapOf("action" to JsonPrimitive(action)))),
+                AgentToolResult(action, ToolResultContent.Json(JsonObject(mapOf("data" to Json.parseToJsonElement(body)))), false)
+            )
+        }
+        val (receipts, epoch) = book.snapshot()
+        assertEquals(JsonPrimitive("COMPLETED"), requireNotNull(GitHubEvidencePolicy.status(receipts, 1000, epoch, "status")).second["task_outcome"])
+        val session = GitHubVerifiedSession(answer("unused"), book, "status", { 8192 }, { error("Status is built from receipts") }, {}, {}, now = { 1000L }, onPublication = { published = it })
+        val events = session.streamRound(emptyList(), emptyList()).toList()
+        assertTrue(events.none { it is ProviderEvent.Completed })
+        val failure = events.last() as ProviderEvent.Failed
+        assertEquals("PARTIAL", failure.taskOutcome)
+        assertEquals("RECONCILIATION_REQUIRED", failure.errorCode)
+        assertTrue(events.filterIsInstance<ProviderEvent.TextDelta>().single().text.contains("remote outcome unconfirmed"))
+        assertEquals(JsonPrimitive("PARTIAL"), published?.get("task_outcome"))
+        assertEquals(JsonPrimitive(false), published?.get("completion_verified"))
+        assertEquals(JsonPrimitive("PARTIAL"), saved.last()["task_state"])
+        assertEquals(JsonPrimitive(true), saved.last()["response_delivered"])
+    }
+
     @Test fun checklistPlanningYieldsToTheComputationDispatcher() = runTest {
         val tools = listOf(AgentToolDefinition("github_context", "Status", JsonObject(emptyMap())))
         val gate = GitHubVerifiedSession(

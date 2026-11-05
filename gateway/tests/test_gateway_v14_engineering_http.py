@@ -5,6 +5,7 @@ import sys
 import unittest
 from unittest.mock import patch
 from pathlib import Path
+from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from fastapi import FastAPI
@@ -63,6 +64,8 @@ class EngineeringHTTPTests(unittest.TestCase):
     def setUp(self):
         fixtures.DurableEngineeringTests.setUp(self)
         self.backend.available = lambda: True
+        self.store.tx(lambda db: db.execute('SELECT 1'))
+        self.service.thread = SimpleNamespace(is_alive=lambda: True)
         app = FastAPI()
         config = Config(mode='trusted_proxy', allowed_hosts=('testserver',), allowed_origins=(),
                         trusted_users={'owner@example.test': {'principalId': 'owner', 'scopes': ['chat', 'jobs', 'tools', 'engineering']},
@@ -123,10 +126,58 @@ class EngineeringHTTPTests(unittest.TestCase):
 
     def test_disabled_durable_storage_does_not_break_gateway_startup(self):
         self.runtime.GATEWAY_DURABLE_JOBS = False
+        self.service.thread = None
         self.service.start()
         self.assertIsNone(self.service.thread)
         self.assertFalse(self.client.get('/gateway/engineering/capabilities', headers=self.headers).json()['enabled'])
         self.assertEqual(503, self.client.post('/gateway/engineering/jobs', json=self.request, headers=self.headers).status_code)
+
+    def test_readiness_separates_host_configuration_storage_worker_and_chat(self):
+        url = '/gateway/engineering/capabilities'
+        ready = self.client.get(url, headers=self.headers).json()
+        self.assertTrue(ready['enabled'])
+        self.assertTrue(ready['code_graph']['enabled'])
+        self.assertIsNone(ready['readiness']['inference_ready'])
+        self.assertIsNone(ready['readiness']['github_reachable'])
+        self.assertIsNone(ready['readiness']['repository_access'])
+        self.backend.available = lambda: False
+        missing = self.client.get(url, headers=self.headers).json()
+        self.assertFalse(missing['enabled'])
+        self.assertFalse(missing['code_graph']['enabled'])
+        self.assertEqual('missing', missing['readiness']['checks']['host_github_connection'])
+        self.assertTrue(missing['readiness']['saved_results'])
+        with patch.object(self.service.graph, 'execute') as graph:
+            self.assertEqual(503, self.client.post('/gateway/engineering/graph', json={'action': 'status'}, headers=self.headers).status_code)
+            graph.assert_not_called()
+        self.backend.available = lambda: True
+        self.service.thread = None
+        stopped = self.client.get(url, headers=self.headers).json()
+        self.assertFalse(stopped['enabled'])
+        self.assertTrue(stopped['code_graph']['enabled'])
+        self.assertEqual('unavailable', stopped['readiness']['checks']['worker'])
+        self.assertEqual(503, self.client.post('/gateway/engineering/jobs', json=self.request, headers=self.headers).status_code)
+        self.runtime.durable_write_healthy = False
+        blocked = self.client.get(url, headers=self.headers).json()
+        self.assertFalse(blocked['code_graph']['enabled'])
+        self.assertEqual('write_failed', blocked['readiness']['checks']['journal'])
+        self.assertTrue(blocked['readiness']['saved_results'])
+
+    def test_lost_create_receipt_recovers_same_terminal_job_when_new_work_is_unavailable(self):
+        created = self.client.post('/gateway/engineering/jobs', json=self.request, headers=self.headers)
+        self.assertEqual(202, created.status_code)
+        job = created.json()
+        self.store.control(job['id'], 'tailnet:owner', 'cancel', job['revision'])
+        self.backend.available = lambda: False
+        self.service.thread = None
+        recovered = self.client.post('/gateway/engineering/jobs', json=self.request, headers=self.headers)
+        self.assertEqual(200, recovered.status_code, recovered.text)
+        self.assertEqual(job['id'], recovered.json()['id'])
+        self.assertEqual('CANCELLED', recovered.json()['state'])
+        self.assertEqual(200, self.client.get('/gateway/engineering/jobs/' + job['id'], headers=self.headers).status_code)
+        self.assertEqual(409, self.client.post('/gateway/engineering/jobs', json=dict(self.request, objective='different task'), headers=self.headers).status_code)
+        self.assertEqual(503, self.client.post('/gateway/engineering/jobs', json=dict(self.request, request_id='new-work'), headers=self.headers).status_code)
+        self.assertEqual(1, len(self.store.list('tailnet:owner')))
+        self.assertEqual([], self.backend.calls)
 
     def test_missed_updates_paginate_without_replaying_execution(self):
         job = self.store.create('tailnet:owner', self.request)

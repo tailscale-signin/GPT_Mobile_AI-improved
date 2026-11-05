@@ -30,9 +30,14 @@ class GatewayClientDiagnosticsTest {
     }
 
     @Test fun disabledDiagnosticsRemoveEvenAnInjectedClientHeader() {
-        LocalDiagnosticsPolicy.setEnabled(false)
-        val config = ProviderRequestConfig("https://debug-off.example/v1", null, providerType = "LLAMA", extraHeaders = mapOf("x-gateway-client-diagnostics" to "secret", "Accept" to "application/json"))
-        assertEquals(mapOf("Accept" to "application/json"), GatewayClientDiagnostics.withHeaders(config, "selected").extraHeaders)
+        val original = LocalDiagnosticsPolicy.enabled
+        try {
+            LocalDiagnosticsPolicy.setEnabled(false)
+            val config = ProviderRequestConfig("https://debug-off.example/v1", null, providerType = "LLAMA", extraHeaders = mapOf("x-gateway-client-diagnostics" to "secret", "Accept" to "application/json"))
+            assertEquals(mapOf("Accept" to "application/json"), GatewayClientDiagnostics.withHeaders(config, "selected").extraHeaders)
+        } finally {
+            LocalDiagnosticsPolicy.setEnabled(original)
+        }
     }
 
     @Test fun observedRestartsAreSharedAcrossProfilesButIsolatedByCredentialAndCustomAuthentication() {
@@ -41,14 +46,33 @@ class GatewayClientDiagnosticsTest {
         val before = GatewayClientDiagnostics.capabilityEpoch(first)
         GatewayClientDiagnostics.observeInstance(first, "a".repeat(32))
         assertEquals("a".repeat(32), GatewayClientDiagnostics.runtimeEpoch(second))
-        assertEquals(before, GatewayClientDiagnostics.capabilityEpoch(first))
+        val observed = GatewayClientDiagnostics.capabilityEpoch(first)
+        assertTrue(observed >= before)
+        GatewayClientDiagnostics.observeInstance(second, "a".repeat(32))
+        assertEquals(observed, GatewayClientDiagnostics.capabilityEpoch(first))
+        assertEquals(observed, GatewayClientDiagnostics.capabilityEpoch(second))
         GatewayClientDiagnostics.observeInstance(second, "b".repeat(32))
-        assertTrue(GatewayClientDiagnostics.capabilityEpoch(first) > before)
+        assertTrue(GatewayClientDiagnostics.capabilityEpoch(first) > observed)
         GatewayClientDiagnostics.observeInstance(second, "raw secret")
         assertEquals("b".repeat(32), GatewayClientDiagnostics.runtimeEpoch(first))
         assertEquals("unobserved", GatewayClientDiagnostics.runtimeEpoch(first.copy(token = "different")))
         assertEquals("unobserved", GatewayClientDiagnostics.runtimeEpoch(first.copy(extraHeaders = mapOf("X-Api-Key" to "different"))))
         assertNotEquals(GatewayClientDiagnostics.routeIdentity(first), GatewayClientDiagnostics.routeIdentity(first.copy(apiUrl = "https://other-runtime.example/v1")))
+    }
+
+    @Test fun firstObservationUnderCachePressureAdvancesConservativelyThenKeepsTheSameInstanceStable() {
+        repeat(129) { index ->
+            GatewayClientDiagnostics.observeInstance(ProviderRequestConfig("https://initial-epoch-pressure-$index.example/v1", null, profileUid = "initial-epoch-pressure-$index"), "c".repeat(32))
+        }
+        val config = ProviderRequestConfig("https://initial-epoch-after-eviction.example/v1", "credential", profileUid = "initial-epoch-after-eviction")
+        val before = GatewayClientDiagnostics.capabilityEpoch(config)
+        GatewayClientDiagnostics.observeInstance(config, "d".repeat(32))
+        val first = GatewayClientDiagnostics.capabilityEpoch(config)
+        assertTrue(first > before)
+        GatewayClientDiagnostics.observeInstance(config, "d".repeat(32))
+        assertEquals(first, GatewayClientDiagnostics.capabilityEpoch(config))
+        GatewayClientDiagnostics.observeInstance(config, "e".repeat(32))
+        assertTrue(GatewayClientDiagnostics.capabilityEpoch(config) > first)
     }
 
     @Test fun knownReviewStagesHaveCanonicalMetadataInsteadOfArbitraryRoleText() {

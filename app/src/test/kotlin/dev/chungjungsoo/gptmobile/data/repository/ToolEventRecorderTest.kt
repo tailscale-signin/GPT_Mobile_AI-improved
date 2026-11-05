@@ -408,6 +408,7 @@ class ToolEventRecorderTest {
 private class FakeAgentRunDao :
     AgentRunDao,
     UnusedPolicySnapshotAccess {
+    override suspend fun finishGatewayRecovery(runId: String, status: String, completedAt: Long, terminalError: String?): Int = 0
     override suspend fun replaceMeasuredUsage(runId: String, inputTokens: Int?, outputTokens: Int?, totalTokens: Int?): Int = 0
     override suspend fun rawGetById(runId: String): AgentRun? = getById(runId)
     override suspend fun rawGetByChatId(chatId: Int): List<AgentRun> = getByChatId(chatId)

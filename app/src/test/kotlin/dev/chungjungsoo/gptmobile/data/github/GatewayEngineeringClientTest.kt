@@ -64,6 +64,67 @@ class GatewayEngineeringClientTest {
         }
     }
 
+    @Test fun engineeringReadinessIsCachedPerAuthenticatedRouteAndObservedServerEpoch() = runTest {
+        val first = "a".repeat(32)
+        val second = "b".repeat(32)
+        var epoch = first
+        var calls = 0
+        dev.chungjungsoo.gptmobile.data.network.gateway.GatewayClientDiagnostics.observeInstance(config, first)
+        http(
+            MockEngine {
+                calls++
+                respond("""{"service":"engineering-gateway","protocol_version":1,"enabled":true,"principal_id":"owner"}""", HttpStatusCode.OK, headersOf("X-Gateway-Instance-ID", epoch))
+            }
+        ).use { http ->
+            val client = GatewayEngineeringClient(http)
+            repeat(3) { assertEquals("owner", client.principal(config)) }
+            assertEquals("owner", client.principal(config.copy(profileUid = "another-profile-on-same-connection")))
+            assertEquals(1, calls)
+            epoch = second
+            dev.chungjungsoo.gptmobile.data.network.gateway.GatewayClientDiagnostics.observeInstance(config, second)
+            assertEquals("owner", client.principal(config))
+            assertEquals(2, calls)
+            assertEquals("owner", client.principal(config.copy(token = "different-principal")))
+            assertEquals(3, calls)
+            assertEquals("owner", client.principal(config.copy(extraHeaders = mapOf("X-Identity" to "different-proxy-identity"))))
+            assertEquals(4, calls)
+        }
+    }
+
+    @Test fun missingHostGithubConnectionBlocksGraphAndNewWorkButPreservesSavedResultIdentity() = runTest {
+        var calls = 0
+        http(
+            MockEngine {
+                calls++
+                respond("""{"service":"engineering-gateway","protocol_version":1,"enabled":false,"principal_id":"owner","code_graph":{"schema_version":1,"enabled":false},"readiness":{"schema_version":1,"ready":false,"graph_ready":false,"saved_results":true,"checks":{"journal":"ready","host_github_connection":"missing","worker":"running"}}}""", HttpStatusCode.OK)
+            }
+        ).use { http ->
+            val client = GatewayEngineeringClient(http)
+            assertEquals("owner", client.principal(config, requireReady = false))
+            assertTrue(runCatching { client.principal(config) }.exceptionOrNull()?.message.orEmpty().contains("GitHub connection"))
+            assertTrue(runCatching { client.requireGraphReady(config) }.exceptionOrNull()?.message.orEmpty().contains("GitHub connection"))
+            assertEquals(1, calls)
+        }
+    }
+
+    @Test fun engineeringAuthenticationFailureIsNotCachedAsUnsupportedOrRetried() = runTest {
+        var calls = 0
+        http(
+            MockEngine {
+                calls++
+                respond("credentials-and-private-source", HttpStatusCode.Forbidden)
+            }
+        ).use { http ->
+            val client = GatewayEngineeringClient(http)
+            repeat(2) {
+                val message = runCatching { client.capabilities(config) }.exceptionOrNull()?.message.orEmpty()
+                assertTrue(message.contains("not authorized"))
+                assertFalse(message.contains("private-source"))
+            }
+            assertEquals(2, calls)
+        }
+    }
+
     @Test fun createRetriesKeepTheSameRequestIdentityAndNeverCarryApproval() = runTest {
         val payload = GatewayEngineeringRequest("owner/repo", "feature/job", "main", "Fix tests", "local", chatId = 4, requestId = "saved-before-dispatch")
         var count = 0

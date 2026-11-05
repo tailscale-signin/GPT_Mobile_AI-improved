@@ -6,6 +6,19 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class DiagnosticIncidentTrackerTest {
+    @Test fun androidFinalizerHeaderAndFrameworkStackCountAsOneIncidentWithoutSuppressingIt() {
+        val tracker = DiagnosticIncidentTracker()
+        val header = tracker.accept("2026-11-05T00:00:00Z E/Android: E/System (42): Uncaught exception thrown by finalizer", "header", null)
+        val exception = tracker.accept("2026-11-05T00:00:00Z E/Android: E/System (42): java.lang.SecurityException: Settings key: <asus_leak_detect_proj> is not readable", "exception", null)
+        val frame = tracker.accept("2026-11-05T00:00:00Z E/Android: E/System (42): at com.android.internal.os.BinderInternal\$GcWatcher.finalize(BinderInternal.java:61)", "frame", null)
+        assertTrue(header.first)
+        assertFalse(exception.first)
+        assertFalse(frame.first)
+        assertEquals(header.id, exception.id)
+        assertEquals(header.id, frame.id)
+        assertTrue(classifyDiagnostic("E", "Android", "java.lang.SecurityException: asus_leak_detect_proj").actionable)
+    }
+
     @Test fun traceRowsKeepOneOccurrenceButANewCrashRemainsDistinct() {
         val tracker = DiagnosticIncidentTracker()
         val rows = (0 until 142).map { i -> tracker.accept("2026-10-14T02:05:45.758Z F/DEBUG: ${if (i == 0) "Fatal signal 6" else "native frame $i"}", "e$i", null) }

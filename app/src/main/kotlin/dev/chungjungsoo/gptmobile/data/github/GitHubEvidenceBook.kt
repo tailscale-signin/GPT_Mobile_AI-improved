@@ -349,11 +349,12 @@ internal class GitHubEvidenceBook(
         )
         // The existing latest-verification query can recover this status even if
         // the process dies before a final response or a final verifier exists.
-        save("verification_progress_" + digest("$binding|$progress").take(24), progress)
+        val durable = GitHubExecutionLedger.attach(progress, receipts)
+        save("verification_progress_" + digest("$binding|$durable").take(24), durable)
     }
 
     suspend fun retainChecklist(value: JsonObject) {
-        val checkpoint = GitHubAcceptanceLedger.attach(JsonObject(value + retentionStatus()))
+        val checkpoint = GitHubExecutionLedger.attach(GitHubAcceptanceLedger.attach(JsonObject(value + retentionStatus())), snapshot().first)
         save("checklist_" + digest("$binding|$checkpoint").take(24), JsonObject(checkpoint + ("binding" to JsonPrimitive(binding))))
     }
 
@@ -384,7 +385,8 @@ internal class GitHubEvidenceBook(
         } else {
             retained
         }
-        val checkpoint = JsonObject(checked + ("task_state" to JsonPrimitive(GitHubTaskLifecycle.terminal(checked).name)))
+        val execution = GitHubExecutionLedger.attach(checked, snapshot().first)
+        val checkpoint = JsonObject(execution + ("task_state" to JsonPrimitive(GitHubTaskLifecycle.terminal(execution).name)))
         save("verification_" + digest("$binding|$checkpoint").take(24), JsonObject(checkpoint + ("binding" to JsonPrimitive(binding))))
     }
 

@@ -276,6 +276,7 @@ object AppLogRecorder {
         try {
             val exportedAt = System.currentTimeMillis()
             val incidents = DiagnosticIncidentTracker()
+            val duplicateReferences = DiagnosticExportDeduplicator()
             target.bufferedWriter().use { output ->
                 if (structured) output.appendLine(structuredDiagnosticLine("${Instant.now()} I/Export: version=${BuildConfig.VERSION_NAME} · build=${BuildConfig.VERSION_CODE} · package=${BuildConfig.APPLICATION_ID} · appCommit=${BuildConfig.APP_COMMIT} · variant=${BuildConfig.BUILD_TYPE} · droppedRecords=${droppedRecords.get()} · vendor_log_available=false · process=${Process.myPid()}"))
                 val buildMetadata = "${Instant.now()} I/AndroidBuild: ${androidBuildDiagnostic()}"
@@ -302,10 +303,16 @@ object AppLogRecorder {
                         lines.forEachIndexed { index, line ->
                             val record = cursor.accept(line, index)
                             val incident = incidents.accept(line, record.identity, record.parent)
+                            if (structured) {
+                                val duplicate = duplicateReferences.accept(line, record.identity, source, index)
+                                duplicate.batch?.let(output::appendLine)
+                                if (duplicate.duplicate) return@forEachIndexed
+                            }
                             output.appendLine(if (structured) structuredDiagnosticLine(line, source, record.duplicate, record.parent, record.sequence, record.identity, incident.id, incident.first, exportedAtMillis = exportedAt) else line)
                         }
                     }
                 }
+                if (structured) duplicateReferences.flush()?.let(output::appendLine)
             }
             return target
         } catch (failure: Exception) {

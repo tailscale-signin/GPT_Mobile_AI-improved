@@ -209,6 +209,68 @@ class OpenAIRecoveryTransportTest {
         }
     }
 
+    @Test fun terminalJobConflictReadsItsSavedResultOnceWithoutRepeatingInferenceOrTools() = runTest {
+        val paths = mutableListOf<String>()
+        val gatewayConfig = config.copy(extraHeaders = mapOf("X-Gateway-Job-ID" to "saved-job", "X-Gateway-Allow-Local-Tools" to "true"))
+        withApi(
+            MockEngine { incoming ->
+                paths += incoming.url.encodedPath
+                when {
+                    incoming.url.encodedPath.endsWith("gateway/capabilities") -> respond("""{"gatewayVersion":"15.0.0","accepted_request_headers":["X-Gateway-Job-ID","X-Gateway-Allow-Local-Tools"]}""")
+                    incoming.url.encodedPath.endsWith("chat/completions") -> respond("""{"error":{"code":"terminal_job_not_resumable","message":"Job already ended","job_id":"saved-job","dispatch_state":"not_dispatched"}}""", HttpStatusCode.Conflict)
+                    else -> {
+                        assertEquals("/v1/gateway/jobs/saved-job/result", incoming.url.encodedPath)
+                        assertEquals(io.ktor.http.HttpMethod.Get, incoming.method)
+                        respond("""{"job_id":"saved-job","status":"completed","content":"Retained answer","result_quality":"complete","completed_at":1793844300.182,"job":{"model":"fixture"},"result":{"model":"fixture","choices":[{"message":{"content":"Retained answer"},"finish_reason":"stop"}]}}""")
+                    }
+                }
+            }
+        ) { api ->
+            val chunks = api.streamChatCompletion(request, 5, gatewayConfig).toList()
+            assertEquals("Retained answer", chunks.single { it.choices != null }.choices!!.single().effectiveDelta.content)
+            assertTrue(chunks.none { it.error != null })
+            assertEquals("saved-job", chunks.single { it.choices != null }.gatewayMetadata?.jobId)
+            assertEquals("completed", chunks.single { it.choices != null }.gatewayMetadata?.terminalStatus)
+            assertEquals(listOf("/v1/gateway/capabilities", "/v1/chat/completions", "/v1/gateway/jobs/saved-job/result"), paths)
+        }
+    }
+
+    @Test fun incompleteFailedMismatchedOrToolOnlyTerminalReceiptsNeverReplayWork() = runTest {
+        for (kind in listOf("partial", "failed", "tool_calls", "model_changed", "wrong_job", "missing")) {
+            var posts = 0
+            var reads = 0
+            withApi(
+                MockEngine { incoming ->
+                    when {
+                        incoming.url.encodedPath.endsWith("gateway/capabilities") -> respond("""{"gatewayVersion":"15.0.0","accepted_request_headers":["X-Gateway-Job-ID","X-Gateway-Allow-Local-Tools"]}""")
+                        incoming.url.encodedPath.endsWith("chat/completions") -> {
+                            posts++
+                            respond("""{"error":{"code":"terminal_job_not_resumable","message":"Job already ended","job_id":"saved-job"}}""", HttpStatusCode.Conflict)
+                        }
+                        else -> {
+                            reads++
+                            assertEquals(io.ktor.http.HttpMethod.Get, incoming.method)
+                            val tool = if (kind == "tool_calls") """, "tool_calls":[{"id":"already-issued","type":"function","function":{"name":"mutate","arguments":"{}"}}]""" else ""
+                            val status = if (kind == "failed") "failed" else "completed"
+                            val quality = if (kind == "partial") "partial" else "complete"
+                            val model = if (kind == "model_changed") "other-model" else "fixture"
+                            val id = if (kind == "wrong_job") "unrelated-job" else "saved-job"
+                            respond("""{"job_id":"$id","status":"$status","content":"Retained text","result_quality":"$quality","result":{"model":"$model","choices":[{"message":{"content":"Retained text"$tool}}]}}""", if (kind == "missing") HttpStatusCode.NotFound else HttpStatusCode.OK)
+                        }
+                    }
+                }
+            ) { api ->
+                val chunks = api.streamChatCompletion(request, 5, config.copy(extraHeaders = mapOf("X-Gateway-Job-ID" to "saved-job", "X-Gateway-Allow-Local-Tools" to "true"))).toList()
+                assertEquals(kind, 1, posts)
+                assertEquals(kind, 1, reads)
+                assertEquals(kind, "terminal_job_not_resumable", chunks.last().error?.code)
+                assertEquals(kind, false, chunks.last().error?.retryable)
+                assertTrue(kind, chunks.none { it.choices.orEmpty().any { choice -> !choice.effectiveDelta.toolCalls.isNullOrEmpty() || choice.finishReason == "stop" } })
+                assertEquals(kind, kind in setOf("partial", "failed", "tool_calls"), chunks.any { chunk -> chunk.choices.orEmpty().any { !it.effectiveDelta.content.isNullOrBlank() } })
+            }
+        }
+    }
+
     private suspend fun withApi(engine: MockEngine, block: suspend (OpenAIAPI) -> Unit) {
         val client = HttpClient(engine) { install(HttpTimeout) }
         val wrapper = mockk<NetworkClient>()

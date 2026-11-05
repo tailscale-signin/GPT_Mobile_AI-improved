@@ -167,6 +167,47 @@ class DurableExecutionIntegrationTest {
         assertFalse(database.agentPersistenceDao().restoreGatewayAnswer("r", "job-1", "duplicate", 4))
     }
 
+    @Test fun recoveredPartialGatewayTextKeepsConfirmedToolHistoryAndCannotPublishFinalCompletion() = runBlocking {
+        database.pendingPromptDao().enqueue(prompt())
+        val owner = database.agentPersistenceDao()
+        val result = owner.persistAgentTurn(request())
+        val tool = dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem(dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType.TOOL, toolSequence = 7)
+        owner.updateMessage(result.assistantMessages.single().copy(content = "Earlier partial", thoughts = "Retained reasoning", timeline = listOf(tool)))
+        database.agentRunDao().bindGatewayJob("r", "job-1", "http://192.168.1.2")
+        database.agentRunDao().updateStatus("r", "INTERRUPTED", 1, 2, null)
+        assertTrue(owner.restoreGatewayAnswer("r", "job-1", "Saved partial", 3, "EVIDENCE_MISSING", "GATEWAY_RECOVERED_RESULT_UNVERIFIED"))
+        val restored = database.messageDao().loadMessages(1).first { it.id == result.assistantMessages.single().id }
+        assertEquals("Saved partial", restored.content)
+        assertEquals("Retained reasoning", restored.thoughts)
+        assertEquals("Earlier partial", restored.revisions.first().content)
+        assertTrue(restored.revisions.first().timeline.contains(tool))
+        assertTrue(restored.timeline.contains(tool))
+        assertEquals("GATEWAY_RECOVERED_RESULT_UNVERIFIED", restored.timeline.last().runError)
+        assertEquals("EVIDENCE_MISSING", database.agentRunDao().getById("r")!!.status)
+        assertFalse(owner.restoreGatewayAnswer("r", "job-1", "Repeated", 4))
+    }
+
+    @Test fun parkedGatewayResultRemainsReadableButCancellationAndTerminalStateFenceAdoption() = runBlocking {
+        database.pendingPromptDao().enqueue(prompt())
+        val owner = database.agentPersistenceDao()
+        owner.persistAgentTurn(request())
+        val runs = database.agentRunDao()
+        runs.bindGatewayJob("r", "job-1", "http://192.168.1.2")
+        runs.updateStatus("r", "FAILED", 1, 2, "GATEWAY_OUTCOME_UNKNOWN: disconnected")
+        assertEquals(listOf("r"), runs.getRecoverableGatewayRuns().map { it.runId })
+        runs.updateStatus("r", "INTERRUPTED", 1, 2, null)
+        val parked = dev.chungjungsoo.gptmobile.data.agent.GatewayOutcomeRecovery.PARKED_RESULT_PREFIX
+        assertEquals(1, runs.finishGatewayRecovery("r", "BLOCKED", 3, parked))
+        assertEquals(listOf("r"), runs.getRecoverableGatewayRuns().map { it.runId })
+        assertTrue(owner.restoreGatewayAnswer("r", "job-1", "Recovered after outage", 4))
+        assertTrue(runs.getRecoverableGatewayRuns().isEmpty())
+        assertEquals(0, runs.finishGatewayRecovery("r", "FAILED", 5, "stale reader"))
+        runs.updateStatus("r", "CANCELED", 1, 6, parked)
+        assertTrue(runs.getRecoverableGatewayRuns().isEmpty())
+        assertFalse(owner.restoreGatewayAnswer("r", "job-1", "Cancelled work", 7))
+        assertEquals(0, runs.finishGatewayRecovery("r", "COMPLETED", 7, null))
+    }
+
     @Test fun `deleted knowledge does not reappear when original attachment is seen again`() = runBlocking {
         val repository = MemoryDocumentRepository(database)
         val id = repository.index("Manual", "The camera uses a blue lens.", chatId = 1)

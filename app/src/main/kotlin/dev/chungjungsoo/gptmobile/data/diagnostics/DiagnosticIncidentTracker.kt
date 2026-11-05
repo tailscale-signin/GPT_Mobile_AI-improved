@@ -42,7 +42,11 @@ internal class DiagnosticIncidentTracker {
             traceAt != null &&
             tag == traceTag &&
             java.time.Duration.between(traceAt, at).toMillis() in 0..3000
-        val fatalHeader = content.startsWith("FATAL EXCEPTION", true) || content.startsWith("Fatal signal", true) || content.startsWith("type=")
+        val fatalHeader = content.startsWith("FATAL EXCEPTION", true) ||
+            content.startsWith("Fatal signal", true) ||
+            content.startsWith("type=") ||
+            tag == "Android" &&
+            content.startsWith("Uncaught exception thrown by finalizer", true)
         val begins = fatalHeader || exceptionStart.containsMatchIn(content)
         val continuation = content.startsWith("at ") ||
             content.startsWith("Caused by:") ||

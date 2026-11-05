@@ -147,16 +147,10 @@ class GatewayAPIImpl @Inject constructor(
             }.execute { response ->
                 GatewayClientDiagnostics.observe(config, response.status.value) { response.headers[it] }
                 when {
-                    response.status == HttpStatusCode.Accepted -> {
-                        // HTTP 202: Job is still in progress
-                        GatewayJobResult(
-                            jobId = jobId,
-                            status = "RUNNING"
-                        )
-                    }
+                    response.status == HttpStatusCode.Accepted -> GatewayJobResult(jobId = jobId, status = "RUNNING")
                     response.status.isSuccess() -> {
-                        val body = response.body<String>()
-                        json.decodeFromString<GatewayJobResult>(body)
+                        val body = response.boundedMetadata(4 * 1024 * 1024)
+                        json.decodeFromString<GatewayJobResult>(body).takeIf { it.jobId == jobId }
                     }
                     else -> null
                 }

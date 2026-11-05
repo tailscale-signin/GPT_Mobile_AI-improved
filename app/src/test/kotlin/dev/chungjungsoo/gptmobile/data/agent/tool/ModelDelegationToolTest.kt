@@ -6,6 +6,7 @@ import dev.chungjungsoo.gptmobile.data.model.ModelDelegationSettings
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
@@ -149,6 +150,10 @@ class ModelDelegationToolTest {
 
         assertFalse(result.isError)
         assertEquals(target.uid, selected)
+        assertEquals(JsonPrimitive("missing"), result.executionReceipt?.get("requested_profile_uid"))
+        assertEquals(JsonPrimitive(target.uid), result.executionReceipt?.get("actual_profile_uid"))
+        assertEquals(JsonPrimitive(true), result.executionReceipt?.get("fallback_used"))
+        assertTrue(result.content.toString().contains("Approved fallback helper"))
     }
 
     @Test
@@ -275,5 +280,125 @@ class ModelDelegationToolTest {
         config = config.copy(enabled = false)
         assertTrue(tool.execute("2", task).isError)
         assertEquals(1, count)
+    }
+
+    @Test fun invalidArgumentsAndDisabledDelegationAreUndispatchedPrechecks() = runTest {
+        var calls = 0
+        val tool = ModelDelegationTool(source, { enabled.copy(enabled = false) }, { listOf(target) }) { _, _, _ ->
+            calls++
+            "unexpected"
+        }
+        val invalid = tool.execute(
+            "invalid",
+            buildJsonObject {
+                put("task", "Read this")
+                put("profile", "another")
+            }
+        )
+        assertEquals("INVALID_ARGUMENTS", invalid.errorCode)
+        assertFalse(invalid.dispatched)
+        val disabled = tool.execute("disabled", task)
+        assertEquals("DELEGATION_PRECHECK_REJECTED", disabled.errorCode)
+        assertFalse(disabled.dispatched)
+        assertEquals(0, calls)
+    }
+
+    @Test fun blankChildrenFailExplicitlyAndCannotLoopWhileOtherSubtasksCanSucceed() = runTest {
+        var calls = 0
+        val tool = ModelDelegationTool(source, { enabled.copy(maxCallsPerTurn = 3) }, { listOf(target) }) { _, text, _ ->
+            calls++
+            if (text == "Read the missing paragraph") "Useful evidence" else "   "
+        }
+        repeat(2) { index ->
+            val result = tool.execute("empty-$index", task)
+            assertEquals("EMPTY_OUTPUT", result.errorCode)
+            assertTrue(result.dispatched)
+            assertEquals(JsonPrimitive("FAILED"), result.executionReceipt?.get("status"))
+        }
+        val blocked = tool.execute("unchanged", task)
+        assertEquals("DELEGATION_RETRY_EXHAUSTED", blocked.errorCode)
+        assertFalse(blocked.dispatched)
+        val useful = tool.execute("missing", buildJsonObject { put("task", "Read the missing paragraph") })
+        assertFalse(useful.isError)
+        assertTrue(useful.content.toString().contains("Useful evidence"))
+        assertEquals(3, calls)
+    }
+
+    @Test fun totalAttemptAllowanceCannotBeRenewedByChangingFailedTasks() = runTest {
+        var calls = 0
+        val tool = ModelDelegationTool(source, { enabled }, { listOf(target) }) { _, _, _ ->
+            calls++
+            error("temporary failure")
+        }
+        repeat(2) { index -> assertTrue(tool.execute("attempt-$index", buildJsonObject { put("task", "Task $index") }).dispatched) }
+        val blocked = tool.execute("third", buildJsonObject { put("task", "New task") })
+        assertEquals("DELEGATION_ATTEMPT_LIMIT", blocked.errorCode)
+        assertFalse(blocked.dispatched)
+        assertEquals(2, calls)
+    }
+
+    @Test fun providerBudgetExhaustionStopsUnchangedRetryAndRetainsPartialEvidence() = runTest {
+        var calls = 0
+        val tool = ModelDelegationTool(source, { enabled }, { listOf(target) }) { _, _, _ ->
+            calls++
+            throw DelegateGenerationException(DelegateFailureKind.OUTPUT_LIMIT, "code=completion_repair_budget_exhausted", 20, 128, 148, false, partialText = "Confirmed source fact.")
+        }
+        val result = tool.execute("limited", task)
+        assertEquals("OUTPUT_LIMIT", result.errorCode)
+        assertTrue(result.content.toString().contains("Confirmed source fact."))
+        assertTrue(result.content.toString().contains("unverified evidence"))
+        assertTrue(result.content.toString().contains("unfinished"))
+        assertEquals("DELEGATION_RETRY_EXHAUSTED", tool.execute("repeat", task).errorCode)
+        assertEquals(1, calls)
+    }
+
+    @Test fun failedChildDoesNotSilentlyChangeThePinnedProfile() = runTest {
+        val dispatched = mutableListOf<String>()
+        val other = target.copy(uid = "other")
+        val tool = ModelDelegationTool(source, { enabled.copy(fallbackToAnotherProfile = false) }, { listOf(target, other) }) { profile, _, _ ->
+            dispatched += profile.uid
+            throw DelegateGenerationException(DelegateFailureKind.AUTH_FAILURE, "HTTP 403", 0, 0, 0, false)
+        }
+        val failed = tool.execute("failed", task)
+        assertEquals("AUTH_FAILURE", failed.errorCode)
+        assertEquals(JsonPrimitive(target.uid), failed.executionReceipt?.get("actual_profile_uid"))
+        assertEquals(JsonPrimitive(false), failed.executionReceipt?.get("fallback_used"))
+        assertFalse(tool.execute("retry", task).dispatched)
+        assertEquals(listOf(target.uid), dispatched)
+    }
+
+    @Test fun coordinatorRecoveryReportsTheActualApprovedHelperAndHonorsItsOutputCap() = runTest {
+        val initial = target.copy(uid = "route-initial", model = "route-initial-model", maxTokens = 64)
+        val recovery = target.copy(uid = "route-recovered", name = "Recovered helper", model = "route-recovery-model", maxTokens = 128)
+        val policy = enabled.copy(targetProfileUid = initial.uid, researchEnabled = false, automaticResearch = false, reviewerEnabled = false, localRetryLimit = 0, maxLocalModelCalls = 4)
+        val dispatches = mutableListOf<Pair<String, Int>>()
+        val coordinator = LocalDelegationCoordinator(source, { policy }, { listOf(initial, recovery) }, { profile, _, cap ->
+            dispatches += profile.uid to cap
+            if (profile.uid == initial.uid) throw java.net.UnknownHostException("fixture unavailable")
+            "Retained child evidence"
+        })
+        val tool = ModelDelegationTool(source, { policy }, { listOf(initial, recovery) }) { profile, text, cap -> coordinator.delegate(profile, text, cap, emptyList(), "route-recovery") }
+        val result = tool.execute("route", task)
+        assertFalse(result.isError)
+        assertEquals(listOf(initial.uid to 64, recovery.uid to 128), dispatches)
+        assertEquals(JsonPrimitive(recovery.uid), result.executionReceipt?.get("actual_profile_uid"))
+        assertEquals(JsonPrimitive("COORDINATOR_RECOVERY"), result.executionReceipt?.get("routing_reason"))
+        assertTrue(result.content.toString().contains("Approved fallback helper Recovered helper"))
+        assertTrue(result.content.toString().contains("Retained child evidence"))
+    }
+
+    @Test fun unknownRemoteOutcomeStaysAnExplicitReconciliationReceipt() = runTest {
+        var calls = 0
+        val tool = ModelDelegationTool(source, { enabled }, { listOf(target) }) { _, _, _ ->
+            calls++
+            throw DelegateGenerationException(DelegateFailureKind.TRANSPORT_FAILURE, "GATEWAY_OUTCOME_UNKNOWN: saved job requires reconciliation", 0, 0, 0, true, partialText = "A child operation returned a receipt.")
+        }
+        val result = tool.execute("unknown", task)
+        assertEquals("RECONCILIATION_REQUIRED", result.errorCode)
+        assertEquals(JsonPrimitive("UNKNOWN_OUTCOME"), result.executionReceipt?.get("status"))
+        assertTrue(result.content.toString().contains("remote outcome is unknown"))
+        assertTrue(result.content.toString().contains("A child operation returned a receipt."))
+        assertFalse(tool.execute("retry", task).dispatched)
+        assertEquals(1, calls)
     }
 }

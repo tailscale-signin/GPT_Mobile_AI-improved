@@ -58,6 +58,7 @@ internal class LocalDelegationCoordinator(
     private val profiles: suspend () -> List<PlatformV2>,
     private val generate: suspend (PlatformV2, String, Int) -> String,
     private val generateWithProgress: (suspend (PlatformV2, String, Int, Int, (DelegateProgress) -> Unit) -> String)? = null,
+    // Total input TOKENS, including the system prompt and tool schemas, after reserving output.
     private val inputBudget: suspend (PlatformV2, Int) -> Int = { _, _ -> Int.MAX_VALUE },
     private val batteryPercent: suspend () -> Int? = { null },
     private val generateTextWithProgress: (suspend (PlatformV2, String, Int, Int, (DelegateProgress) -> Unit) -> String)? = null,
@@ -124,6 +125,7 @@ internal class LocalDelegationCoordinator(
     private val cancellationCause = AtomicReference<dev.chungjungsoo.gptmobile.data.delegation.CancellationOrigin?>(null)
     private val userSelectedRecoveryProfile = AtomicReference<PlatformV2?>(null)
     private val lastFailure = AtomicReference<String?>(null)
+    private val unresolvedWorkerOutcome = AtomicReference<Exception?>(null)
     private val activeRequests = ConcurrentHashMap.newKeySet<Deferred<String?>>()
     private val reviewStateLock = Any()
     private val failureFingerprints = ConcurrentHashMap<String, AtomicInteger>()
@@ -255,14 +257,17 @@ internal class LocalDelegationCoordinator(
             try {
                 val reviewCap = delegationOutputBudget(reviewer, config.reviewerOutputTokens)
                 val available = inputBudget(reviewer, reviewCap).coerceAtLeast(0)
-                if (available < 600) {
+                val hardInputTokenCap = minOf(config.effectiveLocalInputTokens(), MAX_DELEGATION_INPUT_TOKENS, available)
+                val systemTokens = DelegatedRequestPrompt.overheadTokens("reviewer", reviewCap)
+                val promptTokens = (hardInputTokenCap - systemTokens).coerceAtLeast(0)
+                if (promptTokens < 150) {
                     lastIssue = "Reviewer input capacity is unavailable."
                     continue
                 }
-                val hardInputTokenCap = minOf(config.effectiveLocalInputTokens(), MAX_DELEGATION_INPUT_TOKENS)
-                val boundedPrompt = fitDelegatePrompt(reviewPrompt(), minOf(available, hardInputTokenCap * APPROX_CHARS_PER_TOKEN))
+                val boundedPrompt = fitDelegatePrompt(reviewPrompt(), DelegatedRequestPrompt.characterCapacity(promptTokens))
                     ?: return "[REVIEW_INPUT_TOO_LARGE][UNVERIFIED] The full task and retained evidence exceed reviewer capacity. No shortened review was dispatched.\n\n$delegateOutput"
                 val estimatedInput = estimatedDelegateTokens(boundedPrompt)
+                if (estimatedInput.toLong() + systemTokens > hardInputTokenCap) return "[REVIEW_INPUT_TOO_LARGE][UNVERIFIED] The full task and retained evidence exceed reviewer capacity. No shortened review was dispatched.\n\n$delegateOutput"
                 var observedInputTokens = 0L
                 val runtimeSeconds = adaptiveRuntimeSeconds(estimatedInput, config)
                 val response = invokeWorkerWithWatchdog(
@@ -377,7 +382,7 @@ internal class LocalDelegationCoordinator(
                 return false
             }
             val available = inputBudget(target, config.maxOutputTokens)
-            val result = available >= 600
+            val result = available.toLong() - DelegatedRequestPrompt.overheadTokens("delegate", config.maxOutputTokens) >= 150
             AppLogRecorder.record("Delegation", "Research availability=$result · target=${target.uid} · inputBudget=$available · ownership=${config.processingOwnership}")
             result
         } catch (cancelled: CancellationException) {
@@ -397,7 +402,7 @@ internal class LocalDelegationCoordinator(
 
         return try {
             val available = inputBudget(candidate, outputTokens)
-            if (available < 600) {
+            if (available.toLong() - DelegatedRequestPrompt.overheadTokens("delegate", outputTokens) < 150) {
                 runtimeNotReadyUntilMs[readinessKey] = now + RUNTIME_NOT_READY_COOLDOWN_MS
                 if (logFailure) {
                     AppLogRecorder.record(
@@ -511,12 +516,14 @@ internal class LocalDelegationCoordinator(
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: Exception) {
-            1000
+            0
         }
+        val inputTokens = minOf(available, config.effectiveLocalInputTokens(), MAX_DELEGATION_INPUT_TOKENS)
+        val promptTokens = (inputTokens - DelegatedRequestPrompt.overheadTokens("delegate", config.maxOutputTokens)).coerceAtLeast(0)
         return config.copy(
             maxInputCharacters = minOf(
                 config.maxInputCharacters,
-                available.coerceAtMost(config.effectiveLocalInputTokens() * APPROX_CHARS_PER_TOKEN)
+                DelegatedRequestPrompt.characterCapacity(promptTokens)
             ).coerceAtLeast(600)
         )
     }
@@ -737,6 +744,10 @@ internal class LocalDelegationCoordinator(
         allowFailover: Boolean,
         requestedOutputCap: Int
     ): WorkerResolution {
+        if (isUncertainDelegateOutcome(failure.message.orEmpty())) {
+            unresolvedWorkerOutcome.compareAndSet(null, failure)
+            throw failure
+        }
         val budgetExhausted = failure.message.orEmpty().contains("DELEGATE_WASTE_BUDGET_EXHAUSTED")
         // REPAIR_WASTE already charged the complete provider usage before stopping.
         val classified = classifyWorkerFailure(failure)
@@ -1103,7 +1114,8 @@ internal class LocalDelegationCoordinator(
             }
         )
         val budget = inputBudget(profile, requestedOutputCap).coerceAtLeast(0)
-        if (budget < 600) {
+        val systemTokens = DelegatedRequestPrompt.overheadTokens("delegate", requestedOutputCap)
+        if (budget.toLong() - systemTokens < 150) {
             return recovery(profile.uid, "The delegate does not have enough input capacity for this task.", retrySameTarget = false).also {
                 AppLogRecorder.record("Delegation", "Worker rejected · input budget too small · target=${profile.uid} · inputBudget=$budget · fallback=${it.failoverTarget?.uid}", "W")
             }
@@ -1112,16 +1124,16 @@ internal class LocalDelegationCoordinator(
             AppLogRecorder.record("Delegation", "Worker rejected · wasted token budget exhausted · target=${profile.uid} · wasted=${failedLocalTokens.get() + canceledLocalTokens.get()} · max=$effectiveWasteLimit", "W")
             return WorkerPreparation(resolvedProfileUid = profile.uid)
         }
-        val hardInputTokenCap = minOf(latest.effectiveLocalInputTokens(), MAX_DELEGATION_INPUT_TOKENS)
+        val hardInputTokenCap = minOf(latest.effectiveLocalInputTokens(), MAX_DELEGATION_INPUT_TOKENS, budget)
         val profileOverhead = observedRequestOverheadTokens.getOrPut(profile.uid, ::AtomicLong)
-        val knownRequestOverhead = profileOverhead.get().coerceAtLeast(0L)
+        val knownRequestOverhead = maxOf(profileOverhead.get(), systemTokens.toLong())
         val promptTokenBudget = (hardInputTokenCap.toLong() - knownRequestOverhead).coerceAtLeast(0L).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
         if (promptTokenBudget < 150) {
             quarantinedWorkerUids += profile.uid
             AppLogRecorder.record("Delegation", "Worker quarantined · target=${profile.uid} · reason=INPUT_OVERHEAD_EXHAUSTED · observedRequestOverheadTokens=$knownRequestOverhead · maxInputTokens=$hardInputTokenCap", "W")
             return recovery(profile.uid, "The delegate's provider overhead exhausted its available input budget.", retrySameTarget = false)
         }
-        val charCap = minOf(promptTokenBudget * APPROX_CHARS_PER_TOKEN, budget).coerceAtLeast(600)
+        val charCap = DelegatedRequestPrompt.characterCapacity(promptTokenBudget)
         val boundedPrompt = fitDelegatePrompt(prompt, charCap)
             ?: return recovery(profile.uid, "DELEGATE_INPUT_TOO_LARGE: The complete task and evidence do not fit. Select an explicit segmented task or a larger context; no clipped request was sent.", retrySameTarget = false)
         val estimatedInput = estimatedDelegateTokens(boundedPrompt)
@@ -1253,6 +1265,7 @@ internal class LocalDelegationCoordinator(
         attemptedProfiles: Set<String> = emptySet(),
         sameTargetRetryAttempt: Int = 0
     ): String? {
+        unresolvedWorkerOutcome.get()?.let { throw it }
         val config = effectiveWorkerPolicy(pinnedConfig)
         if (target.uid in attemptedProfiles) return null
         if (!config.enabled || delegationCanceledByUser.get()) return null
@@ -1306,6 +1319,7 @@ internal class LocalDelegationCoordinator(
                     "Delegation",
                     "Worker dispatch · target=${profile.uid} · type=${profile.compatibleType} · model=${profile.model} · requestedInputChars=${prompt.length} · actualInputChars=${boundedPrompt.length} · estimatedPromptTokens=$estimatedInput · observedRequestOverheadTokens=$knownRequestOverhead · estimatedEffectiveInputTokens=$estimatedEffectiveInput · maxInputTokens=$hardInputTokenCap · call=$callNumber/$effectiveCallLimit · sameTargetAttempt=${sameTargetRetryAttempt + 1}/${latest.localRetryLimit + 1} · requestedOutputCap=$requestedOutputCap · configuredOutputCap=${latest.maxOutputTokens} · adaptiveRuntimeMs=${runtimeSeconds * 1000L} · hardRuntimeMs=${hardRuntimeSeconds * 1000L} · firstProgressTimeoutMs=${firstProgressSeconds * 1000L} · idleTimeoutMs=${idleSeconds * 1000L}"
                 )
+                kotlinx.coroutines.currentCoroutineContext()[DelegationRouteObserver]?.dispatched?.invoke(profile)
                 val response = try {
                     invokeWorkerWithWatchdog(
                         profile,

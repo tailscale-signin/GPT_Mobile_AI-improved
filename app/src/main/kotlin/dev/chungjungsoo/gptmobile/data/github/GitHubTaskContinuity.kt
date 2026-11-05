@@ -67,6 +67,11 @@ internal object GitHubTaskContinuity {
             append("\n\nRetained operations: ${receipts.size}; successful: ${receipts.values.count { it["success"] == kotlinx.serialization.json.JsonPrimitive(true) }}.")
             last?.let { append(" Last successful operation: `${it.text("tool").replace(Regex("[^A-Za-z0-9_]"), "")}`.") }
             if (unfinished.isNotEmpty()) append(" ${unfinished.size} checklist capabilities remained without a passing observation.")
+            (verdict["execution_ledger"] as? kotlinx.serialization.json.JsonObject)?.let { ledger ->
+                append("\nTask: ${ledger.text("requested_task").lowercase().replace('_', ' ')}. Verification: ${ledger.text("verification").lowercase()}. Answer delivery: ${ledger.text("delivery").lowercase()}.")
+                if (ledger.text("recovery") == "RECONCILE_REMOTE_OUTCOME") append(" A remote operation has an unknown outcome. Check its saved receipt before any further write.")
+                if (ledger["user_input_required"] == kotlinx.serialization.json.JsonPrimitive(true)) append(" A recorded user decision is required to continue.")
+            }
             append(" These are historical diagnostics, not a new validation of the repository or running app.")
         }
     }

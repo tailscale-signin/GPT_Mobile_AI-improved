@@ -93,6 +93,34 @@ class GitHubWorkspaceAdmissionTest {
         coVerify(exactly = 1) { drafts.write(any(), any()) }
     }
 
+    @Test fun queuedAutosaveCannotReplaceProtectedRecoveryBeforeItsDraftReachesTheDisplayedState() = runBlocking {
+        model.viewModelScope.cancel()
+        authorize()
+        val empty = state.value
+        val queued = pending(empty, 100)
+        state.value = empty.copy(busy = true)
+        invokeSuspending("persistDraft", pending(state.value, 101), true)
+        state.value = empty
+        val saved = empty.copy(staged = listOf(GitHubStagedFile("Code.kt", "old", "saved edit")), editorDrafts = mapOf("Other.kt" to "unsaved text"))
+        val value = GitHubWorkspaceViewModel::class.java.getDeclaredMethod("draft", GitHubWorkspaceState::class.java).apply { isAccessible = true }.invoke(model, saved) as Pair<*, *>
+        GitHubWorkspaceViewModel::class.java.getDeclaredField("pendingRecovery").apply { isAccessible = true }.set(model, value.second)
+        invokeSuspending("persistDraft", queued, true)
+        coVerify(exactly = 0) { drafts.write(any(), any()) }
+        state.value = saved.copy(busy = true)
+        invokeSuspending("persist", pending(state.value, 102))
+        coVerify(exactly = 1) { drafts.write("connection", match { "saved edit" in it && "unsaved text" in it }) }
+        coVerify(exactly = 1) { drafts.write(any(), any()) }
+    }
+
+    @Test fun anUnfinishedOrFailedDraftReadCannotBeOverwrittenByAutosaveOrClose() = runBlocking {
+        model.viewModelScope.cancel()
+        authorize()
+        GitHubWorkspaceViewModel::class.java.getDeclaredField("draftRestorationPending").apply { isAccessible = true }.set(model, true)
+        invokeSuspending("persistDraft", pending(state.value, 100), true)
+        invokeSuspending("persist", pending(state.value, 101))
+        coVerify(exactly = 0) { drafts.write(any(), any()) }
+    }
+
     @Test fun refreshingTheHeadInvalidatesCardsAndContinuationsFromThePreviousSnapshot() = runBlocking {
         val client = authorize()
         val old = buildJsonObject {

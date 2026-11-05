@@ -20,6 +20,8 @@ class DelegationFailureClassificationTest {
         assertTrue(isProviderOutputLimitFailure("Groq reached the model output limit before producing a final answer."))
         assertTrue(isProviderOutputLimitFailure("finish_reason=length"))
         assertTrue(isProviderOutputLimitFailure("Maximum completion tokens exceeded"))
+        assertTrue(isProviderOutputLimitFailure("PROVIDER_PAYLOAD_ERROR: Backend exhausted the output allowance without a usable completion. No unbudgeted retry was started."))
+        assertTrue(isProviderOutputLimitFailure("code=completion_repair_budget_exhausted · retryable=false"))
     }
 
     @Test

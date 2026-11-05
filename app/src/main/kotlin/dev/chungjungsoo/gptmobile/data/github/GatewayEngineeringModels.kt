@@ -5,6 +5,53 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonObject
 
 @Serializable
+data class GatewayEngineeringCapabilities(
+    val service: String,
+    @SerialName("protocol_version") val protocolVersion: Int,
+    val enabled: Boolean = false,
+    @SerialName("principal_id") val principalId: String? = null,
+    @SerialName("gateway_version") val gatewayVersion: String? = null,
+    @SerialName("server_build") val serverBuild: String? = null,
+    @SerialName("code_graph") val codeGraph: GatewayGraphCapability? = null,
+    val readiness: GatewayEngineeringReadiness? = null
+) {
+    fun unavailableReason(graph: Boolean = false): String? {
+        val ready = if (graph) codeGraph?.enabled == true && readiness?.graphReady != false else enabled && readiness?.ready != false
+        if (ready) return null
+        val checks = readiness?.checks
+        return when {
+            checks?.journal == "disabled" -> "Enable durable storage in the selected desktop gateway before using engineering jobs or repository graphs."
+            checks?.journal in setOf("unavailable", "write_failed") -> "The engineering journal is unavailable. Check the desktop gateway storage and retained jobs before retrying."
+            checks?.hostGithubConnection == "missing" -> "Configure the GitHub connection on the selected gateway host. Chat inference availability does not establish engineering or repository graph readiness."
+            checks?.draining == true -> "The selected engineering gateway is stopping or updating. Reconnect to its retained jobs when it is ready."
+            !graph && checks?.worker == "unavailable" -> "The engineering worker is not running. Check the selected desktop gateway; retained jobs remain available."
+            graph && codeGraph?.enabled != true -> "The selected gateway has not advertised an available repository graph service. Check its engineering status and update it if needed."
+            else -> "The gateway engineering service is disabled or unavailable. Chat inference readiness does not establish job readiness."
+        }
+    }
+}
+
+@Serializable
+data class GatewayGraphCapability(@SerialName("schema_version") val schemaVersion: Int = 0, val enabled: Boolean = false)
+
+@Serializable
+data class GatewayEngineeringReadiness(
+    @SerialName("schema_version") val schemaVersion: Int = 0,
+    val ready: Boolean = false,
+    @SerialName("graph_ready") val graphReady: Boolean = false,
+    @SerialName("saved_results") val savedResults: Boolean = false,
+    val checks: GatewayEngineeringChecks = GatewayEngineeringChecks()
+)
+
+@Serializable
+data class GatewayEngineeringChecks(
+    val journal: String? = null,
+    @SerialName("host_github_connection") val hostGithubConnection: String? = null,
+    val worker: String? = null,
+    val draining: Boolean = false
+)
+
+@Serializable
 data class GatewayEngineeringSettings(val durationHours: Int = 3, val repairAttempts: Int = 5, val acceptance: List<GatewayEngineeringAcceptance> = emptyList()) {
     init {
         require(durationHours in setOf(0, 3, 6, 12) && repairAttempts in 1..5)

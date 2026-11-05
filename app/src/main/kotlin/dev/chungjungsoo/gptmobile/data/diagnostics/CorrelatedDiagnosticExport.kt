@@ -15,6 +15,9 @@ internal fun correlatedDiagnosticRecords(readLines: ((Sequence<String>) -> Unit)
     if (patterns.isEmpty()) return emptyList()
     val retained = mutableSetOf<String>()
     val parents = mutableMapOf<String, String?>()
+    val incidentByEvent = mutableMapOf<String, String>()
+    val runByEvent = mutableMapOf<String, String>()
+    val selectedRuns = mutableSetOf<String>()
     // The immutable export can be reopened. Do not retain unrelated messages, source or stacks.
     readLines { lines ->
         lines.forEach { line ->
@@ -22,22 +25,32 @@ internal fun correlatedDiagnosticRecords(readLines: ((Sequence<String>) -> Unit)
             if (row.text("kind") != "duplicate_reference_batch") {
                 row.text("eventId")?.let { id ->
                     parents[id] = row.text("parentEventId")
-                    if (patterns.any { it.containsMatchIn(line) }) retained += id
+                    row.text("incidentId")?.let { incidentByEvent[id] = it }
+                    val runId = (row["fields"] as? JsonObject)?.text("runId")
+                    if (runId != null) runByEvent[id] = runId
+                    if (patterns.any { it.containsMatchIn(line) }) {
+                        retained += id
+                        runId?.let(selectedRuns::add)
+                    }
                 }
             }
         }
     }
-    // A matching stack frame also retains its root. No unrelated incident or batch is imported.
+    // Explicit incident association also connects separately timestamped Android
+    // frames. Shared network incidents must not import another run's private rows.
+    val children = parents.mapNotNull { (id, parent) -> parent?.let { it to id } }.groupBy({ it.first }, { it.second })
+    val incidentMembers = incidentByEvent.entries.groupBy({ it.value }, { it.key })
+    val expandedIncidents = mutableSetOf<String>()
     val pending = ArrayDeque(retained)
     while (pending.isNotEmpty()) {
-        parents[pending.removeFirst()]?.takeIf(retained::add)?.let(pending::addLast)
-    }
-    val children = parents.mapNotNull { (id, parent) ->
-        parent?.let { it to id }
-    }.groupBy({ it.first }, { it.second })
-    pending.addAll(retained)
-    while (pending.isNotEmpty()) {
-        children[pending.removeFirst()].orEmpty().filter(retained::add).forEach(pending::addLast)
+        val id = pending.removeFirst()
+        parents[id]?.takeIf(retained::add)?.let(pending::addLast)
+        children[id].orEmpty().filter(retained::add).forEach(pending::addLast)
+        incidentByEvent[id]?.takeIf(expandedIncidents::add)?.let { incident ->
+            incidentMembers[incident].orEmpty().filter { candidate ->
+                runByEvent[candidate]?.let { it in selectedRuns } != false
+            }.filter(retained::add).forEach(pending::addLast)
+        }
     }
     val result = mutableListOf<JsonElement>()
     readLines { lines ->

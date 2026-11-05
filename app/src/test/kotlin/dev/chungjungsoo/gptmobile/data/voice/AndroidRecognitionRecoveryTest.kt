@@ -168,4 +168,27 @@ class AndroidRecognitionRecoveryTest {
         audio.listen(listener)
         verify(service.engine, never()).startListening(any(Intent::class.java))
     }
+
+    @Test fun errorTenAfterReadyUsesRateCooldownAndClosesTheOldRecognizer() {
+        val service = Service()
+        val audio = audio(service, RecognitionStartGate { 0L })
+        val listener = Listener()
+        try {
+            audio.listen(listener)
+            val platform = service.listener()
+            platform.onReadyForSpeech(Bundle())
+            platform.onError(SpeechRecognizer.ERROR_TOO_MANY_REQUESTS)
+            assertEquals(1, listener.retryable)
+            assertTrue(listener.failures.isEmpty())
+            assertEquals(1000L, audio.retryAfterMillis())
+            verify(service.engine).cancel()
+            verify(service.engine).destroy()
+            // A retired binder cannot extend the cooldown or trigger another retry.
+            platform.onError(SpeechRecognizer.ERROR_TOO_MANY_REQUESTS)
+            assertEquals(1, listener.retryable)
+            assertEquals(1000L, audio.retryAfterMillis())
+        } finally {
+            audio.close()
+        }
+    }
 }

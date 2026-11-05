@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
@@ -21,6 +22,54 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AgentRunnerTest {
+    @Test fun unapprovedRemoteReaderCannotRepeatAnUnknownOutcomeWithANewCallId() = runBlocking {
+        var executions = 0
+        var round = 0
+        val arguments = JsonObject(emptyMap())
+        val reader = object : AgentTool {
+            override val definition = AgentToolDefinition("mcp__server__read_url", "Unapproved reader", arguments, capabilities = setOf(AgentToolCapability.PAGE_READER))
+            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+                executions++
+                throw java.net.SocketTimeoutException("Response timed out")
+            }
+        }
+        val provider = session { _, _ ->
+            flow {
+                if (round++ == 0) {
+                    emit(ProviderEvent.ToolCall("first", reader.definition.name, arguments))
+                    emit(ProviderEvent.ToolCall("new-id", reader.definition.name, arguments))
+                } else {
+                    emit(ProviderEvent.TextDelta("Reconcile the previous operation before continuing."))
+                }
+                emit(ProviderEvent.Completed)
+            }
+        }
+        val measured = dev.chungjungsoo.gptmobile.data.agent.tool.MeasuredAgentTool(reader)
+        val results = AgentRunner().run(provider, listOf(measured)).toList().filterIsInstance<AgentRunEvent.ToolFinished>().map { it.result }
+        assertEquals(1, executions)
+        assertEquals(listOf("DISPATCH_OUTCOME_UNKNOWN", "RECONCILIATION_REQUIRED"), results.map { it.errorCode })
+        assertFalse(results.last().dispatched)
+    }
+
+    @Test fun replayAdmissionFailureRecordsPlanningWithoutProviderDispatch() = runBlocking {
+        val provider = session { _, _ -> error("No request should reach the provider") }
+        val events = AgentRunner(AgentRunLimits(maxReplayTokens = 0)).run(provider, listOf(tool { id, _ -> AgentToolResult(id, ToolResultContent.Text("unused"), false) })).toList()
+        val failure = events.filterIsInstance<AgentRunEvent.Provider>().map { it.event }.filterIsInstance<ProviderEvent.Failed>().single()
+        assertEquals("REPLAY_EVIDENCE_REQUIRED", failure.errorCode)
+        assertEquals(kotlinx.serialization.json.JsonPrimitive("planning"), failure.failureDetails?.get("failed_stage"))
+        assertEquals(kotlinx.serialization.json.JsonPrimitive(false), failure.failureDetails?.get("dispatched"))
+    }
+
+    @Test fun upstreamDnsFailureKeepsItsObservedStageAndNormalizedCode() = runBlocking {
+        val events = AgentRunner(AgentRunLimits(maxRounds = 1)).run(
+            session { _, _ -> flow { throw java.net.UnknownHostException("configured-provider.example") } },
+            emptyList()
+        ).toList()
+        val failure = events.filterIsInstance<AgentRunEvent.Provider>().map { it.event }.filterIsInstance<ProviderEvent.Failed>().last()
+        assertEquals("DNS_RESOLUTION_FAILED", failure.errorCode)
+        assertEquals(kotlinx.serialization.json.JsonPrimitive("dns"), failure.failureDetails?.get("failed_stage"))
+    }
+
     @Test fun reviewObserverOnlyReceivesTheAuthorizedOuterReceiptOfDelegatedWork() = runBlocking {
         val observed = mutableListOf<Pair<String, String>>()
         val child = ToolExecutionBudget(AgentRunLimits()).bind(tool("child_private_read") { id, _ -> AgentToolResult(id, ToolResultContent.Text("private child intermediate"), false) })
@@ -829,9 +878,58 @@ class AgentRunnerTest {
 
         assertEquals(1, providerCalls.get())
         assertEquals(
-            listOf(AgentRunEvent.Provider(ProviderEvent.Failed("Service temporarily unavailable due to high error rates. Please wait a moment before trying again.", errorCode = "CIRCUIT_BREAKER_OPEN"))),
+            listOf(
+                AgentRunEvent.Provider(
+                    ProviderEvent.Failed(
+                        "Service temporarily unavailable due to high error rates. Please wait a moment before trying again.",
+                        errorCode = "CIRCUIT_BREAKER_OPEN",
+                        failureDetails = buildJsonObject {
+                            put("failed_stage", "provider_admission")
+                            put("dispatched", false)
+                            put("retry_after_ms", 3000L)
+                        }
+                    )
+                )
+            ),
             events
         )
+    }
+
+    @Test fun `gateway uncertainty cannot become a no dispatch circuit rejection`() = runBlocking {
+        for (code in listOf("GATEWAY_OUTCOME_UNKNOWN", "REMOTE_OUTCOME_UNKNOWN")) {
+            val providerCalls = AtomicInteger()
+            val session = session { _, _ ->
+                providerCalls.incrementAndGet()
+                flow { throw CircuitBreakerOpenException(3000L, "test-provider", "$code: prior gateway request needs reconciliation") }
+            }
+            val failure = AgentRunner().run(session, emptyList()).toList()
+                .filterIsInstance<AgentRunEvent.Provider>().map { it.event }.filterIsInstance<ProviderEvent.Failed>().single()
+            assertEquals(1, providerCalls.get())
+            assertEquals("GATEWAY_OUTCOME_UNKNOWN", failure.errorCode)
+            assertEquals(JsonPrimitive("gateway_dispatch"), failure.failureDetails?.get("failed_stage"))
+            assertFalse(failure.failureDetails.orEmpty().containsKey("dispatched"))
+            assertFalse(ProfileFailureRecord.fromProvider(failure.message, failure.errorCode, failure.failureDetails).retryAllowed)
+        }
+    }
+
+    @Test fun `circuit exception after provider output retains dispatch evidence and partial text`() = runBlocking {
+        val providerCalls = AtomicInteger()
+        val session = session { _, _ ->
+            providerCalls.incrementAndGet()
+            flow {
+                emit(ProviderEvent.TextDelta("Saved partial answer"))
+                throw CircuitBreakerOpenException(3000L, "test-provider")
+            }
+        }
+        val events = AgentRunner().run(session, emptyList()).toList().filterIsInstance<AgentRunEvent.Provider>().map { it.event }
+        assertEquals(1, providerCalls.get())
+        assertTrue(events.contains(ProviderEvent.TextDelta("Saved partial answer")))
+        val failure = events.filterIsInstance<ProviderEvent.Failed>().single()
+        assertEquals("CIRCUIT_BREAKER_OPEN", failure.errorCode)
+        assertEquals(JsonPrimitive("model_invocation"), failure.failureDetails?.get("failed_stage"))
+        assertEquals(JsonPrimitive(true), failure.failureDetails?.get("dispatched"))
+        assertEquals(JsonPrimitive(true), failure.failureDetails?.get("partial_output_preserved"))
+        assertEquals(RemoteRequestAcceptance.UNKNOWN, ProfileFailureRecord.fromProvider(failure.message, failure.errorCode, failure.failureDetails).remoteAcceptance)
     }
 
     @Test

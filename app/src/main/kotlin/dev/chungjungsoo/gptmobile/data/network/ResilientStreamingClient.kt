@@ -92,7 +92,7 @@ object ResilientStreamingClient {
         // those requests restarts the entire budget after the bounded repair.
         val terminalContracts = listOf("missing_required_tool_call", "backend omitted the required tool call", "completion_repair_budget_exhausted", "completion_repair_usage_unavailable", "terminal_job_not_resumable", "context_budget_exceeded", "invalid_v14_request", "mixed_tool_batch", "empty_completion", "unauthorized_tool_call", "invalid_tool_arguments")
         if (causes.any { cause -> terminalContracts.any { cause.message.orEmpty().contains(it, true) } }) return false
-        if (causes.any { it.message.orEmpty().contains("LOCAL_SERVICE_UNREACHABLE", true) }) return false
+        if (causes.any { it is ProviderConnectivityPendingException || it.message.orEmpty().contains("LOCAL_SERVICE_UNREACHABLE", true) }) return false
         if (causes.any { it is CancellationException || it is javax.net.ssl.SSLHandshakeException || it is javax.net.ssl.SSLPeerUnverifiedException || it is java.security.cert.CertificateException }) return false
         var current: Throwable? = throwable
         repeat(8) {
@@ -162,7 +162,9 @@ object ResilientStreamingClient {
                 message.contains("end of stream") ||
                 message.contains("stream was reset") ||
                 message.contains("connection reset") ||
-                message.contains("reset by peer")
+                message.contains("reset by peer") ||
+                message.contains("software caused connection abort") ||
+                message.contains("broken pipe")
             ) {
                 return true
             }

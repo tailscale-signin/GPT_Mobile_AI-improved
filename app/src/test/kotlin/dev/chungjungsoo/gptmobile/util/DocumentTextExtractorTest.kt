@@ -6,6 +6,7 @@ import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
 import com.tom_roush.pdfbox.pdmodel.PDDocument
 import com.tom_roush.pdfbox.pdmodel.PDPage
 import com.tom_roush.pdfbox.pdmodel.PDPageContentStream
+import com.tom_roush.pdfbox.pdmodel.PDPageTree
 import com.tom_roush.pdfbox.pdmodel.font.PDType1Font
 import java.io.File
 import java.util.zip.ZipEntry
@@ -79,6 +80,109 @@ class DocumentTextExtractorTest {
             document.save(file)
         }
         assertEquals("Meeting agenda", DocumentTextExtractor.extract(context, file, "application/pdf").text)
+    }
+
+    @Test fun pdfPageRangesReturnOnlyRequestedPagesAndAnExactContinuation() {
+        val context = ApplicationProvider.getApplicationContext<Application>()
+        AndroidPdfFonts.initialize(context)
+        val file = files.newFile("segmented.pdf")
+        PDDocument().use { document ->
+            for (index in 1..3) {
+                val page = PDPage()
+                document.addPage(page)
+                PDPageContentStream(document, page).use { stream ->
+                    stream.beginText()
+                    stream.setFont(PDType1Font.TIMES_ITALIC, 12f)
+                    stream.newLineAtOffset(30f, 700f)
+                    stream.showText("Evidence page $index")
+                    stream.endText()
+                }
+            }
+            document.save(file)
+        }
+        val first = DocumentTextExtractor.extract(context, file, "application/pdf", pageLimit = 2)
+        assertTrue(first.text.contains("Evidence page 1"))
+        assertTrue(first.text.contains("Evidence page 2"))
+        assertTrue(!first.text.contains("Evidence page 3"))
+        assertEquals(1, first.firstPage)
+        assertEquals(2, first.lastPage)
+        assertEquals(3, first.totalPages)
+        assertEquals(3, first.nextPage)
+        assertTrue(first.note != null)
+        val next = DocumentTextExtractor.extract(context, file, "application/pdf", pageStart = requireNotNull(first.nextPage), pageLimit = 2)
+        assertEquals("Evidence page 3", next.text)
+        assertEquals(null, next.nextPage)
+        assertTrue(next.note != null) // Earlier pages are not evidence in this particular result.
+        assertThrows(IllegalArgumentException::class.java) { DocumentTextExtractor.extract(context, file, "application/pdf", pageStart = 4) }
+    }
+
+    @Test fun aMultiPageRangeTraversesTheDocumentTreeOnlyOnce() {
+        val context = ApplicationProvider.getApplicationContext<Application>()
+        AndroidPdfFonts.initialize(context)
+        var traversals = 0
+        val document = object : PDDocument() {
+            override fun getPages(): PDPageTree = object : PDPageTree(super.getPages().cosObject) {
+                override fun iterator(): MutableIterator<PDPage> {
+                    traversals++
+                    return super.iterator()
+                }
+            }
+        }
+        document.use {
+            repeat(20) { index ->
+                val page = PDPage()
+                document.addPage(page)
+                PDPageContentStream(document, page).use { stream ->
+                    stream.beginText()
+                    stream.setFont(PDType1Font.HELVETICA, 12f)
+                    stream.newLineAtOffset(30f, 700f)
+                    stream.showText("Evidence page ${index + 1}")
+                    stream.endText()
+                }
+            }
+            traversals = 0
+            val result = DocumentTextExtractor.extractPdf(document, 4, 10)
+            assertEquals(1, traversals)
+            assertEquals(4, result.firstPage)
+            assertEquals(13, result.lastPage)
+            assertEquals(14, result.nextPage)
+            assertTrue(result.text.startsWith("Evidence page 4"))
+            assertTrue(result.text.trimEnd().endsWith("Evidence page 13"))
+        }
+    }
+
+    @Test fun standardFontVariantsAndSymbolGlyphsSurviveTextExtraction() {
+        val context = ApplicationProvider.getApplicationContext<Application>()
+        AndroidPdfFonts.initialize(context)
+        val file = files.newFile("font-coverage.pdf")
+        val fixtures = listOf(
+            PDType1Font.TIMES_BOLD to "Serif bold",
+            PDType1Font.TIMES_ITALIC to "Serif italic",
+            PDType1Font.TIMES_BOLD_ITALIC to "Serif bold italic",
+            PDType1Font.HELVETICA_BOLD to "Sans bold",
+            PDType1Font.HELVETICA_OBLIQUE to "Sans oblique",
+            PDType1Font.HELVETICA_BOLD_OBLIQUE to "Sans bold oblique",
+            // Adobe Symbol maps its Omega glyph to U+2126, not U+03A9.
+            PDType1Font.SYMBOL to "\u03B1\u2126",
+            PDType1Font.ZAPF_DINGBATS to "✓"
+        )
+        PDDocument().use { document ->
+            for ((font, text) in fixtures) {
+                val page = PDPage()
+                document.addPage(page)
+                PDPageContentStream(document, page).use { stream ->
+                    stream.beginText()
+                    stream.setFont(font, 12f)
+                    stream.newLineAtOffset(30f, 700f)
+                    stream.showText(text)
+                    stream.endText()
+                }
+            }
+            document.save(file)
+        }
+        val result = DocumentTextExtractor.extract(context, file, "application/pdf")
+        for ((_, text) in fixtures) assertTrue("Missing expected text: $text", result.text.contains(text))
+        assertEquals(null, result.note)
     }
 
     @Test fun externalEntitiesAreRejected() {

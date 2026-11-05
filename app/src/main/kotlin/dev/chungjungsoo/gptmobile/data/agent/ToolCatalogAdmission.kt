@@ -16,7 +16,13 @@ internal fun fitProviderToolSchemas(definitions: List<AgentToolDefinition>, limi
     if (limits.contextTokens == Int.MAX_VALUE) return visible
     val base = (limits.initialContextTokens.toLong() - initialSchemaTokens).coerceAtLeast(0)
     var remaining = (limits.contextTokens.toLong() - base - replayTokens - limits.finalResponseReserveTokens - minOf(256, limits.contextTokens / 16)).coerceAtLeast(0)
+    // Preserve a path to the rest of the authorized catalog when a large optional
+    // schema consumes the remaining round budget. The returned order stays stable.
+    val discovery = visible.firstOrNull { it.name == ProgressiveToolCatalog.NAME }
+    val discoveryFits = discovery != null && ProgressiveToolCatalog.schemaTokens(discovery) <= remaining
+    if (discoveryFits) remaining -= ProgressiveToolCatalog.schemaTokens(requireNotNull(discovery))
     return visible.filter { tool ->
+        if (tool === discovery && discoveryFits) return@filter true
         val cost = ProgressiveToolCatalog.schemaTokens(tool)
         (cost <= remaining).also { fits ->
             if (fits) {
@@ -39,7 +45,7 @@ internal fun planAuthorizedToolContext(turns: List<ConversationTurn>, prompt: St
     val requiredGitHubSchemas = advertised.filter { definition ->
         dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(definition.name) in requestedGitHubOperations
     }
-    val prioritized = (required + requiredGitHubSchemas + advertised).distinctBy { it.name }
+    val prioritized = (required + advertised.filter { it.name == ProgressiveToolCatalog.NAME } + requiredGitHubSchemas + advertised).distinctBy { it.name }
     val plan = ContextBudgetService.plan(turns, prompt, prioritized, limits)
     val omittedRequired = required.filterNot { wanted -> plan.tools.any { it.name == wanted.name } }
     if (omittedRequired.isNotEmpty()) {

@@ -82,4 +82,14 @@ class LocalServiceHealthTest {
         LocalServiceHealth.recordLocalFailure("https://public.example/v1", java.net.ConnectException("Connection refused"))
         assertEquals(ConnectionHealth.UNKNOWN, LocalServiceHealth.health("https://public.example/v1"))
     }
+
+    @Test fun wrappedSocketAbortRetainsItsTransportCategoryAndWrappedCancellationDoesNotOpenACircuit() {
+        assertEquals(ConnectionHealth.STREAM_INTERRUPTED, LocalServiceHealth.classify(java.io.IOException("HTTP read failed", java.net.SocketException("Software caused connection abort"))))
+        assertEquals(ConnectionHealth.DNS_FAILED, LocalServiceHealth.classify(java.nio.channels.UnresolvedAddressException()))
+        val cancelled = java.io.IOException("connection reset", kotlinx.coroutines.CancellationException("stop"))
+        val local = "http://127.0.0.1:8102/mcp"
+        LocalServiceHealth.recordFailure(local, cancelled)
+        assertEquals(0L, LocalServiceHealth.retryAfterMillis(local))
+        assertEquals(ConnectionHealth.UNKNOWN, LocalServiceHealth.classify(cancelled))
+    }
 }

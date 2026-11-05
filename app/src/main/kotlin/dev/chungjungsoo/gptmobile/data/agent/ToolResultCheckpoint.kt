@@ -26,6 +26,28 @@ object ToolResultCheckpoint {
         }.getOrNull()
     }
 
+    /** Native rejection or a normalized precheck can prove no effect; uncertainty never can. */
+    fun confirmsNoEffect(event: ToolEvent): Boolean {
+        if (!event.isError) return false
+        val receipt = execution(event) ?: return false
+        // Older MCP wrappers inferred UNKNOWN_TOOL prechecks from remote result text.
+        // Such receipts cannot release a mutation unless a local catalogue check is recorded.
+        if (event.modelToolName.startsWith("mcp__") &&
+            receipt["error_code"] == JsonPrimitive("UNKNOWN_TOOL") &&
+            (receipt["schema"] != JsonPrimitive("gptmobile.mcp-operation.v1") || receipt["dispatch_evidence"] != JsonPrimitive("LOCAL_CATALOGUE_PRECHECK"))
+        ) {
+            return false
+        }
+        if (receipt["requires_reconciliation"] != JsonPrimitive(false) ||
+            (receipt["error_code"] as? JsonPrimitive)?.content in ToolResultEnvelope.unknownOutcomeCodes
+        ) {
+            return false
+        }
+        return receipt["phase"] in setOf(JsonPrimitive("PREFLIGHT_REJECTED"), JsonPrimitive("REJECTED")) ||
+            receipt["execution_state"] == JsonPrimitive("PRECHECK_REJECTED") &&
+            receipt["dispatched"] == JsonPrimitive(false)
+    }
+
     fun personalData(event: ToolEvent): List<dev.chungjungsoo.gptmobile.data.permissions.PersonalDataProvenance> {
         if (event.resultType != ToolEventResultType.CHECKPOINT) return emptyList()
         val saved = Json.parseToJsonElement(event.result.orEmpty()) as? JsonObject ?: return emptyList()

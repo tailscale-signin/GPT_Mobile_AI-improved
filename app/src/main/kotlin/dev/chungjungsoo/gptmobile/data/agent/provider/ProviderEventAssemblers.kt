@@ -98,7 +98,7 @@ class OpenAIResponsesEventAssembler {
 
         is ResponseFailedEvent -> listOf(ProviderEvent.Failed(event.response.error?.message ?: "Response failed"))
 
-        is ResponseErrorEvent -> listOf(ProviderEvent.Failed(event.message, errorCode = event.code))
+        is ResponseErrorEvent -> listOf(ProviderEvent.Failed(event.message, errorCode = event.code, failureDetails = event.failureDetails))
 
         is ResponseCompletedEvent -> buildList {
             event.response.usage?.let { add(ProviderEvent.Usage(it.inputTokens, it.outputTokens, it.totalTokens, reasoningTokens = (it.outputTokensDetails?.get("reasoning_tokens") as? JsonPrimitive)?.intOrNull?.takeIf { count -> count >= 0 })) }

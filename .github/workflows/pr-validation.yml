@@ -228,6 +228,22 @@ jobs:
           sudo timeout --kill-after=15s 180s apt-get "${apt_options[@]}" update
           sudo env DEBIAN_FRONTEND=noninteractive timeout --kill-after=15s 180s apt-get "${apt_options[@]}" install --no-install-recommends -y glslc libvulkan-dev spirv-headers
 
+      # Cold lint otherwise retains KSP and compiler state in one 3 GiB JVM.
+      # Keep the same heap/worker bounds and release each phase before lint.
+      - name: Generate production sources before lint in a separate process
+        timeout-minutes: 10
+        shell: bash
+        run: |
+          set -o pipefail
+          python3 scripts/gradle_retry.py --timeout-seconds 540 -- :app:kspDebugKotlin --no-daemon --max-workers=1 --console=plain 2>&1 | tee lint-ksp.log
+
+      - name: Compile production sources before lint in a separate process
+        timeout-minutes: 20
+        shell: bash
+        run: |
+          set -o pipefail
+          python3 scripts/gradle_retry.py --timeout-seconds 1140 -- :app:compileDebugKotlin :app:compileDebugJavaWithJavac --no-daemon --max-workers=1 --console=plain 2>&1 | tee lint-compile.log
+
       - name: Run Android Lint
         id: android_lint
         # The expanded app's cold local lint pass took 19m29s; retain useful headroom.
@@ -235,7 +251,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          python3 scripts/gradle_retry.py -- :app:lintDebug --no-daemon --info 2>&1 | tee lint.log || (echo "=== LINT FAILURE LOG ===" && tail -n 100 lint.log && exit 1)
+          python3 scripts/gradle_retry.py -- :app:lintDebug --no-daemon --max-workers=1 --info 2>&1 | tee lint.log || (echo "=== LINT FAILURE LOG ===" && tail -n 100 lint.log && exit 1)
 
       - name: Retain lint diagnostics
         if: always()
@@ -243,6 +259,8 @@ jobs:
         with:
           name: android-lint-reports
           path: |
+            lint-ksp.log
+            lint-compile.log
             lint.log
             app/build/reports/lint-results-debug.*
           if-no-files-found: ignore

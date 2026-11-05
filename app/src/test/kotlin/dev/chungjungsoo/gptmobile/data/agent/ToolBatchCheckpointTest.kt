@@ -25,6 +25,34 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(manifest = Config.NONE, sdk = [34])
 class ToolBatchCheckpointTest {
+    @Test fun measuredMutationTimeoutRemainsUnknownAcrossAProcessIndependentCheckpoint() = runBlocking {
+        val file = File.createTempFile("measured-mutation", ".json").apply { delete() }
+        try {
+            var executions = 0
+            val call = ProviderEvent.ToolCall("write", "github_write", buildJsonObject { put("action", "create_issue") })
+            val delegate = object : AgentTool {
+                override val definition = AgentToolDefinition(call.name, "Write a repository issue", JsonObject(emptyMap()))
+                override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+                    executions++
+                    throw java.net.SocketTimeoutException("Response timed out after dispatch")
+                }
+            }
+            val measured = dev.chungjungsoo.gptmobile.data.agent.tool.MeasuredAgentTool(delegate)
+            val checkpoint = ToolBatchCheckpoint(file, "same-grant")
+            checkpoint.enqueue(listOf(call))
+            val failure = checkpoint.execute(call) { measured.execute(call.callId, call.arguments) }
+            assertEquals("DISPATCH_OUTCOME_UNKNOWN", failure.errorCode)
+            val restored = ToolBatchCheckpoint(file, "same-grant").execute(call) { measured.execute(call.callId, call.arguments) }
+            assertEquals(1, executions)
+            assertTrue(restored.sharedResult)
+            assertEquals("DISPATCH_OUTCOME_UNKNOWN", restored.errorCode)
+            assertEquals(JsonPrimitive("NETWORK_TIMEOUT"), restored.executionReceipt?.get("cause_code"))
+            assertEquals("UNKNOWN_OUTCOME", ToolResultEnvelope.executionState(restored))
+        } finally {
+            file.delete()
+        }
+    }
+
     @Test fun originalInvocationIdentitySurvivesQueuedAndCompletedCheckpointRestoration() = runBlocking {
         val file = File.createTempFile("original-invocation", ".json").apply { delete() }
         try {

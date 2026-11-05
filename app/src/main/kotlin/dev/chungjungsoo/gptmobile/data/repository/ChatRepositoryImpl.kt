@@ -1822,12 +1822,19 @@ class ChatRepositoryImpl(
             savedUserTurns.lastOrNull()?.let { user ->
                 val savedHistory = if (user.chatId > 0) agentPersistenceDao.getMessages(user.chatId) else emptyList()
                 val priorRuns = if (user.chatId > 0) agentRunDao.getByChatId(user.chatId) else emptyList()
-                dev.chungjungsoo.gptmobile.data.agent.GatewayOutcomeRecovery.requireTaskReconciled(
-                    user.chatId,
-                    acceptedSourceMessageId ?: user.id,
-                    savedHistory + acceptedAssistantMessages.flatten(),
-                    priorRuns
-                )
+                try {
+                    dev.chungjungsoo.gptmobile.data.agent.GatewayOutcomeRecovery.requireTaskReconciled(
+                        user.chatId,
+                        acceptedSourceMessageId ?: user.id,
+                        savedHistory + acceptedAssistantMessages.flatten(),
+                        priorRuns
+                    )
+                } catch (rejected: dev.chungjungsoo.gptmobile.data.agent.GatewayOutcomeRecovery.UnreconciledTask) {
+                    // Complete the producer normally so already queued privacy notices
+                    // are delivered before this terminal receipt instead of cancelled.
+                    emit(ApiState.Error(rejected.message.orEmpty(), errorCode = dev.chungjungsoo.gptmobile.data.agent.GatewayOutcomeRecovery.ERROR_CODE))
+                    return@authorizedRun
+                }
             }
             if (freshRepositoryTurn) {
                 userMessages.lastOrNull()?.let { user ->
@@ -3961,7 +3968,8 @@ class ChatRepositoryImpl(
                             toolIdentity = buildSharedToolIdentity(resolved),
                             shareableReadOnly = sharingEnabled && resolved.shareableReadOnly,
                             tool = recovery?.reuseCompletedTool(resolved.tool, resolved.realToolName, resolved.connectionUid, resolved.shareableReadOnly, resolved.canReuseResult) ?: resolved.tool
-                        )
+                        ),
+                        approvedReadOnly = resolved.shareableReadOnly
                     )
                 )
             } + listOfNotNull(
@@ -5347,7 +5355,7 @@ class ChatRepositoryImpl(
                     is ProviderEvent.Failed -> {
                         val recovery = if (runId.startsWith("combined-synthesis:")) dev.chungjungsoo.gptmobile.data.agent.CombinedRecoveryFailure.from(providerEvent) else null
                         recovery?.let { dev.chungjungsoo.gptmobile.data.agent.CombinedWriterObservations.recordFailure(observationKey, it.category) }
-                        emit(ApiState.Error(providerEvent.message, providerEvent.progressDeadline, combinedFailure = recovery, providerLimit = providerEvent.providerLimit?.bindAuthority(dispatchAuthority), errorCode = providerEvent.errorCode, taskOutcome = providerEvent.taskOutcome))
+                        emit(ApiState.Error(providerEvent.message, providerEvent.progressDeadline, combinedFailure = recovery, providerLimit = providerEvent.providerLimit?.bindAuthority(dispatchAuthority), errorCode = providerEvent.errorCode, taskOutcome = providerEvent.taskOutcome, failureDetails = providerEvent.failureDetails))
                     }
                     is ProviderEvent.Notice -> emit(ApiState.Notice(providerEvent.message, providerEvent.persistent, providerEvent.researchDelivery))
                     is ProviderEvent.PhaseChanged -> {
@@ -6108,10 +6116,8 @@ class ChatRepositoryImpl(
         if (committed) {
             val failure = message.timeline.asReversed().firstNotNullOfOrNull { it.profileFailure }
                 ?: terminalError?.let { dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.classify(it) }
-            val reason = failure?.category ?: if (status == AgentRunStatus.COMPLETED) "PROVIDER_FLOW_FINISHED" else "TASK_INCOMPLETE"
-            val stage = failure?.phase?.takeIf { it.matches(Regex("[a-zA-Z0-9_:-]{1,80}")) }
-                ?: if (reason in setOf("ANSWER_REVIEW", "REVIEW_INPUT_REQUIRED")) "answer_review" else "unknown"
-            AppLogRecorder.record("Agent", "RUN_TERMINAL · runId=$runId · status=$status · reason=$reason · failedStage=$stage · retryable=${failure?.retryAllowed ?: false} · dispatched=${failure?.dispatched?.toString() ?: "unknown"} · causalEvidence=message:${message.id}:run_error · terminalErrorRetained=${terminalError != null} · visibleCharacters=${message.content.length} · reasoningCharacters=${message.thoughts.length} · ownershipFence=${message.ownershipFence}")
+            val terminal = dev.chungjungsoo.gptmobile.data.agent.AgentRunTerminalDiagnostics.from(status, failure)
+            AppLogRecorder.record("Agent", "RUN_TERMINAL · runId=$runId · status=$status · reason=${terminal.reason} · failedStage=${terminal.stage} · retryable=${failure?.retryAllowed ?: false} · dispatched=${failure?.dispatched?.toString() ?: "not_recorded"} · executionState=${terminal.executionState} · taskVerification=${terminal.taskVerification} · acceptanceEvidence=task_acceptance_ledger · causalEvidence=message:${message.id}:run_error · terminalErrorRetained=${terminalError != null} · visibleCharacters=${message.content.length} · reasoningCharacters=${message.thoughts.length} · ownershipFence=${message.ownershipFence}")
             settleCombinedStage(runId, message, status, terminalError)
             dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.let { journal ->
                 withContext(Dispatchers.Default) { journal.traceOutput(runId, dev.chungjungsoo.gptmobile.data.diagnostics.OutputTraceBoundary.COMMITTED, message.content, fence = message.ownershipFence) }

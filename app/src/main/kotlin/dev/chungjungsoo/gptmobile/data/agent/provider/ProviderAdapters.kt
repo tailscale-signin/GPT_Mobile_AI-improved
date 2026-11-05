@@ -156,6 +156,9 @@ class OpenAIResponsesAdapter @Inject constructor(
                     var canRotate = false
                     var terminalReceived = false
                     var failedTransportComplete = false
+                    var localCircuitRejection: ProviderEvent.Failed? = null
+                    var failureDetails: JsonObject? = null
+                    var responseObserved = false
 
                     api.streamResponses(request, platform.timeout, config)
                         .transformWhile { event ->
@@ -167,11 +170,13 @@ class OpenAIResponsesAdapter @Inject constructor(
                             roundFailed = true
                             terminalReceived = false
                             failedTransportComplete = false
+                            localCircuitRejection = providerCircuitRejection(error, responseObserved)
                             lastFailedMessage = providerFailureMessage(error, "OpenAI stream request failed")
                             lastFailedCode = dev.chungjungsoo.gptmobile.data.network.error.ErrorClassification.classify(error).errorCode
                             canRotate = !dev.chungjungsoo.gptmobile.data.agent.GatewayOutcomeRecovery.requiresReconciliation(lastFailedMessage.orEmpty(), lastFailedCode) && previousResponseId == null && ApiCredentialRotator.isRotatableError(error)
                         }
                         .collect { event ->
+                            if (event !is dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseErrorEvent) responseObserved = true
                             when (event) {
                                 is ResponseCreatedEvent -> previousResponseId = event.response.id
                                 is ResponseInProgressEvent -> previousResponseId = event.response.id
@@ -191,6 +196,7 @@ class OpenAIResponsesAdapter @Inject constructor(
                                         if (!dev.chungjungsoo.gptmobile.data.agent.GatewayOutcomeRecovery.requiresReconciliation(lastFailedMessage.orEmpty(), lastFailedCode)) {
                                             lastFailedMessage = mapped.message
                                             lastFailedCode = mapped.errorCode
+                                            failureDetails = mapped.failureDetails
                                         }
                                         canRotate = !dev.chungjungsoo.gptmobile.data.agent.GatewayOutcomeRecovery.requiresReconciliation(lastFailedMessage.orEmpty(), lastFailedCode) && previousResponseId == null && ApiCredentialRotator.containsQuotaOrRateLimitMessage(mapped.message)
                                     }
@@ -210,7 +216,7 @@ class OpenAIResponsesAdapter @Inject constructor(
                     } else if (canRotate && attempt < attempts - 1) {
                         continue
                     } else if (roundFailed) {
-                        emit(ProviderEvent.Failed(lastFailedMessage ?: "OpenAI stream request failed", errorCode = lastFailedCode, transportComplete = terminalReceived && failedTransportComplete))
+                        emit(localCircuitRejection ?: ProviderEvent.Failed(lastFailedMessage ?: "OpenAI stream request failed", errorCode = lastFailedCode, transportComplete = terminalReceived && failedTransportComplete, failureDetails = failureDetails))
                         return@flow
                     }
                 }
@@ -723,6 +729,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                         var lastFinishReason: String? = null
                         var terminalReceived = false
                         var streamInterrupted = false
+                        var localCircuitRejection: ProviderEvent.Failed? = null
 
                         if (isOllama) {
                             val ollama = streamOllamaAttempt(request, config) ?: return@flow
@@ -785,6 +792,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                                 if (error is CancellationException || error is ToolDefinitionsRejectedException) throw error
                                 roundFailed = true
                                 streamInterrupted = true
+                                localCircuitRejection = providerCircuitRejection(error, deliveredPayload)
                                 val classified = dev.chungjungsoo.gptmobile.data.network.error.ErrorClassification.classify(error)
                                 lastFailedMessage = providerFailureMessage(error, "OpenAI-compatible stream request failed")
                                 protocolErrorCode = if (dev.chungjungsoo.gptmobile.data.agent.GatewayOutcomeRecovery.requiresReconciliation(lastFailedMessage.orEmpty(), classified.errorCode)) {
@@ -951,7 +959,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                             break
                         } else {
                             val completeOutputLimit = !streamInterrupted && terminalReceived && protocolErrorCode == null && lastFinishReason == "length"
-                            emit(ProviderEvent.Failed(lastFailedMessage ?: "Provider request failed", errorCode = protocolErrorCode ?: "OUTPUT_LIMIT".takeIf { completeOutputLimit }, transportComplete = completeOutputLimit, providerLimit = providerLimitDecision, failureDetails = failureDetails))
+                            emit(localCircuitRejection ?: ProviderEvent.Failed(lastFailedMessage ?: "Provider request failed", errorCode = protocolErrorCode ?: "OUTPUT_LIMIT".takeIf { completeOutputLimit }, transportComplete = completeOutputLimit, providerLimit = providerLimitDecision, failureDetails = failureDetails))
                             return@flow
                         }
                     }
@@ -972,6 +980,7 @@ class OpenAICompatibleAdapter @Inject constructor(
         var roundFailed = false
         var canRotate = false
         var lastFailedMessage: String? = null
+        var localCircuitRejection: ProviderEvent.Failed? = null
         val effectiveOutputTokens = constraints.outputLimit(platform.maxTokens)
         if (constraints.maxOutputTokens != null) {
             emit(
@@ -1021,6 +1030,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                 if (error is CancellationException || error is ToolDefinitionsRejectedException) throw error
                 roundFailed = true
                 streamInterrupted = true
+                localCircuitRejection = providerCircuitRejection(error, deliveredPayload)
                 lastFailedMessage = providerFailureMessage(error, "Groq stream request failed")
                 protocolErrorCode = if (error is java.io.IOException || error is io.ktor.client.plugins.HttpRequestTimeoutException) "NETWORK_ERROR" else protocolErrorCode
                 canRotate = ApiCredentialRotator.isRotatableError(error)
@@ -1079,7 +1089,7 @@ class OpenAICompatibleAdapter @Inject constructor(
             return true
         } else {
             val completeOutputLimit = terminalReceived && !streamInterrupted && protocolErrorCode == null && lastFailedMessage == GROQ_OUTPUT_LIMIT_MESSAGE
-            emit(ProviderEvent.Failed(lastFailedMessage ?: "Provider request failed", errorCode = protocolErrorCode ?: "OUTPUT_LIMIT".takeIf { completeOutputLimit }, transportComplete = completeOutputLimit))
+            emit(localCircuitRejection ?: ProviderEvent.Failed(lastFailedMessage ?: "Provider request failed", errorCode = protocolErrorCode ?: "OUTPUT_LIMIT".takeIf { completeOutputLimit }, transportComplete = completeOutputLimit))
             return false
         }
     }
@@ -1261,6 +1271,7 @@ class AnthropicMessagesAdapter @Inject constructor(
                     var canRotate = false
                     var terminalReceived = false
                     var deliveredPayload = false
+                    var localCircuitRejection: ProviderEvent.Failed? = null
 
                     // catch is upstream of collect: a collector failure must never be
                     // mistaken for an API failure, rotated, or emitted a second time.
@@ -1273,6 +1284,7 @@ class AnthropicMessagesAdapter @Inject constructor(
                             if (error is CancellationException || error is ToolDefinitionsRejectedException) throw error
                             roundFailed = true
                             terminalReceived = false
+                            localCircuitRejection = providerCircuitRejection(error, deliveredPayload)
                             lastFailedMessage = providerFailureMessage(error, "Anthropic stream request failed")
                             canRotate = ApiCredentialRotator.isRotatableError(error)
                         }
@@ -1309,7 +1321,7 @@ class AnthropicMessagesAdapter @Inject constructor(
                     } else if (canRotate && !deliveredPayload && attempt < attempts - 1) {
                         continue
                     } else {
-                        emit(ProviderEvent.Failed(lastFailedMessage ?: "Anthropic stream request failed", transportComplete = terminalReceived && dev.chungjungsoo.gptmobile.data.agent.tool.isProviderOutputLimitFailure(lastFailedMessage.orEmpty())))
+                        emit(localCircuitRejection ?: ProviderEvent.Failed(lastFailedMessage ?: "Anthropic stream request failed", transportComplete = terminalReceived && dev.chungjungsoo.gptmobile.data.agent.tool.isProviderOutputLimitFailure(lastFailedMessage.orEmpty())))
                         return@flow
                     }
                 }
@@ -1500,6 +1512,7 @@ class GeminiAdapter @Inject constructor(
                     var deliveredPayload = false
                     val roundParts = mutableListOf<Pair<String?, Part>>()
                     val roundCallIds = mutableListOf<String>()
+                    var localCircuitRejection: ProviderEvent.Failed? = null
 
                     api.streamGenerateContent(request, platform.model, platform.timeout, config)
                         .transformWhile { response ->
@@ -1510,6 +1523,7 @@ class GeminiAdapter @Inject constructor(
                             if (error is CancellationException || error is ToolDefinitionsRejectedException) throw error
                             roundFailed = true
                             terminalReceived = false
+                            localCircuitRejection = providerCircuitRejection(error, deliveredPayload)
                             lastFailedMessage = providerFailureMessage(error, "Gemini stream request failed")
                             canRotate = ApiCredentialRotator.isRotatableError(error)
                         }
@@ -1561,7 +1575,7 @@ class GeminiAdapter @Inject constructor(
                     } else if (canRotate && !deliveredPayload && attempt < attempts - 1) {
                         continue
                     } else {
-                        emit(ProviderEvent.Failed(lastFailedMessage ?: "Provider request failed", transportComplete = terminalReceived && dev.chungjungsoo.gptmobile.data.agent.tool.isProviderOutputLimitFailure(lastFailedMessage.orEmpty())))
+                        emit(localCircuitRejection ?: ProviderEvent.Failed(lastFailedMessage ?: "Provider request failed", transportComplete = terminalReceived && dev.chungjungsoo.gptmobile.data.agent.tool.isProviderOutputLimitFailure(lastFailedMessage.orEmpty())))
                         return@flow
                     }
                 }
@@ -1713,9 +1727,21 @@ private fun createGroqChatCompletionRequest(
 private const val GROQ_OUTPUT_LIMIT_MESSAGE =
     "Groq reached the model output limit before producing a final answer."
 
+private fun providerCircuitRejection(error: Throwable, partialOutput: Boolean): ProviderEvent.Failed? {
+    val circuit = error as? dev.chungjungsoo.gptmobile.data.network.error.CircuitBreakerOpenException ?: return null
+    val classified = dev.chungjungsoo.gptmobile.data.network.error.ErrorClassification.classify(circuit)
+    if (dev.chungjungsoo.gptmobile.data.agent.GatewayOutcomeRecovery.requiresReconciliation(error.message.orEmpty(), classified.errorCode)) return null
+    return ProviderEvent.Failed(classified.userMessage, errorCode = "CIRCUIT_BREAKER_OPEN", failureDetails = circuit.failureDetails(partialOutput))
+}
+
 private fun providerFailureMessage(error: Throwable, fallback: String): String =
     if (error is dev.chungjungsoo.gptmobile.data.network.error.CircuitBreakerOpenException) {
-        dev.chungjungsoo.gptmobile.data.network.error.ErrorClassification.classify(error).userMessage + " CIRCUIT_BREAKER_OPEN: retryAfterMs=${error.cooldownRemainingMs}; dispatched=false"
+        val classified = dev.chungjungsoo.gptmobile.data.network.error.ErrorClassification.classify(error)
+        if (dev.chungjungsoo.gptmobile.data.agent.GatewayOutcomeRecovery.requiresReconciliation(error.message.orEmpty(), classified.errorCode)) {
+            error.message ?: classified.userMessage
+        } else {
+            classified.userMessage
+        }
     } else {
         error.message ?: fallback
     }

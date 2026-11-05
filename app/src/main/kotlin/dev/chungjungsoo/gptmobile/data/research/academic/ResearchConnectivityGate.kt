@@ -73,7 +73,7 @@ internal class ResearchConnectivityGate(private val now: () -> Long = { System.n
 
     @Synchronized fun failed(host: String, error: Throwable) {
         if (dnsIndependent(host)) return
-        if (generateSequence(error) { it.cause }.take(16).none { it is UnknownHostException }) return
+        if (generateSequence(error) { it.cause }.take(16).none { it is UnknownHostException || it is java.nio.channels.UnresolvedAddressException }) return
         val key = host.lowercase().trim().removeSuffix(".")
         if (key.isEmpty()) return
         val time = now()

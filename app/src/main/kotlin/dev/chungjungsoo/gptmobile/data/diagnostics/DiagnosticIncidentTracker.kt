@@ -8,10 +8,12 @@ internal class DiagnosticIncidentTracker {
     private val counted = linkedSetOf<String>()
     private val associations = linkedMapOf<String, String>()
     private val identityField = Regex("(?:^| · |(?<=\\s))(incidentId|causalIncidentId|failureIncidentId|nativeOperationId|physicalAttemptId|runtimeRequestId|operationId|failureId|networkEpisodeId|episode|processId|process|workerGenerationId)=([A-Za-z0-9_.:-]+)")
-    private var trace: String? = null
-    private var traceAt: Instant? = null
-    private var traceTag: String? = null
-    private var traceHasFatalHeader = false
+    private data class Trace(val id: String, val at: Instant?, val hasFatalHeader: Boolean)
+
+    // Android logcat interleaves framework and application streams. A record from
+    // another origin must neither steal a stack nor end a still-active stack.
+    private val traces = linkedMapOf<String, Trace>()
+    private var lastTrace: String? = null
     private val record = Regex("^(\\S+) ([VDIWEF])/([^:]+): (.*)$")
     private val exceptionStart = Regex("^(?:[A-Za-z_$][A-Za-z0-9_$]*\\.)*[A-Za-z_$][A-Za-z0-9_$]*(?:Exception|Error)(?::|$)")
 
@@ -19,7 +21,7 @@ internal class DiagnosticIncidentTracker {
         associations[eventId]?.let { return Association(it, false) }
         val match = record.matchEntire(line)
         if (match == null) {
-            val owner = parentEventId?.let { associations[it] ?: it } ?: trace ?: eventId
+            val owner = parentEventId?.let { associations[it] ?: it } ?: lastTrace ?: eventId
             return remember(eventId, owner, false)
         }
         val (timestamp, level, tag, message) = match.destructured
@@ -37,11 +39,16 @@ internal class DiagnosticIncidentTracker {
             ?: listOf("physicalAttemptId", "runtimeRequestId").firstNotNullOfOrNull { key -> identity(key)?.let { "$key:$it" } }
         val operation = physical?.let { "operation:${identity("workerGenerationId") ?: identity("processId") ?: identity("process") ?: "unscoped"}:$it" }
         val causal = explicit ?: operation
-        val withinTrace = trace != null &&
-            at != null &&
-            traceAt != null &&
-            tag == traceTag &&
-            java.time.Duration.between(traceAt, at).toMillis() in 0..3000
+        val source = if (tag == "Android") {
+            diagnosticAndroidSource(message) ?: "$tag:${identity("processId") ?: "unscoped"}"
+        } else {
+            "$tag:${identity("processId") ?: identity("process") ?: "unscoped"}"
+        }
+        val trace = traces[source]?.takeIf { candidate ->
+            at != null && candidate.at != null && java.time.Duration.between(candidate.at, at).toMillis() in 0..3000
+        }
+        if (trace == null) traces.remove(source)
+        lastTrace = null
         val fatalHeader = content.startsWith("FATAL EXCEPTION", true) ||
             content.startsWith("Fatal signal", true) ||
             content.startsWith("type=") ||
@@ -54,30 +61,29 @@ internal class DiagnosticIncidentTracker {
             content.startsWith("... ") ||
             classification.category == "fatal" &&
             !begins ||
-            traceHasFatalHeader &&
+            trace?.hasFatalHeader == true &&
             !fatalHeader &&
             exceptionStart.containsMatchIn(content)
         if (causal != null) {
-            if (begins) setTrace(causal, at, tag, fatalHeader)
+            if (begins) setTrace(causal, at, source, fatalHeader)
             return remember(eventId, causal, classification.actionable)
         }
-        if (withinTrace && continuation) return remember(eventId, trace!!, false)
+        if (trace != null && continuation) {
+            setTrace(trace.id, at, source, trace.hasFatalHeader && !exceptionStart.containsMatchIn(content))
+            return remember(eventId, trace.id, false)
+        }
         if (begins || classification.category == "fatal") {
-            setTrace(eventId, at, tag, fatalHeader)
+            setTrace(eventId, at, source, fatalHeader)
             return remember(eventId, eventId, classification.actionable)
         }
-        trace = null
-        traceAt = null
-        traceTag = null
-        traceHasFatalHeader = false
+        traces.remove(source)
         return remember(eventId, eventId, classification.actionable)
     }
 
-    private fun setTrace(id: String, at: Instant?, tag: String, fatalHeader: Boolean) {
-        trace = id
-        traceAt = at
-        traceTag = tag
-        traceHasFatalHeader = fatalHeader
+    private fun setTrace(id: String, at: Instant?, source: String, fatalHeader: Boolean) {
+        traces[source] = Trace(id, at, fatalHeader)
+        lastTrace = id
+        while (traces.size > 64) traces.remove(traces.keys.first())
     }
 
     private fun remember(eventId: String, incidentId: String, actionable: Boolean): Association {

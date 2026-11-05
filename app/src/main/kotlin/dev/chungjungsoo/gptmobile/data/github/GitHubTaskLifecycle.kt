@@ -16,7 +16,7 @@ internal object GitHubTaskLifecycle {
         failure == null -> State.RUNNING
         failure.taskOutcome == "BLOCKED" -> State.BLOCKED
         failure.errorCode == "GITHUB_REVIEW_BLOCKED" || failure.errorCode == "REVIEW_INPUT_REQUIRED" -> State.BLOCKED
-        !ProfileFailureRecord.classify(failure.message).retryAllowed -> State.BLOCKED
+        !ProfileFailureRecord.fromProvider(failure.message, failure.errorCode, failure.failureDetails).retryAllowed -> State.BLOCKED
         receiptCount > 0 || failure.taskOutcome == "PARTIAL" -> State.PARTIAL
         else -> State.FAILED
     }
@@ -38,12 +38,12 @@ internal object GitHubTaskLifecycle {
 
     /** Absence is explicitly unknown; prior tool dispatch does not prove review dispatch. */
     fun failureMetadata(failure: ProviderEvent.Failed): JsonObject {
-        val classification = ProfileFailureRecord.classify(failure.message)
+        val classification = ProfileFailureRecord.fromProvider(failure.message, failure.errorCode, failure.failureDetails)
         val details = failure.failureDetails.orEmpty()
         val review = failure.errorCode?.startsWith("GITHUB_REVIEW_") == true || classification.phase == "answer_review"
         return buildJsonObject {
             put("failure_code", failure.errorCode ?: classification.category)
-            put("failed_stage", details["failed_stage"] ?: JsonPrimitive(if (review) "answer_review" else classification.phase.ifBlank { "provider_generation" }))
+            put("failed_stage", details["failed_stage"] ?: JsonPrimitive(if (review) "answer_review" else classification.phase.ifBlank { "stage_not_recorded" }))
             details["dispatched"]?.let { put("failed_stage_dispatched", it) }
                 ?: classification.dispatched?.let { put("failed_stage_dispatched", it) }
             put("retryable_without_new_input", failure.taskOutcome != "BLOCKED" && classification.retryAllowed)

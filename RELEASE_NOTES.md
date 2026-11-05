@@ -1,34 +1,29 @@
-# GPT Mobile 0.9.66.4
+# GPT Mobile 0.9.66.5
 
-Android build 138. Signed release of the merged GitHub, voice, recovery and gateway integration changes since v0.9.65.0.
+Android build 139. This scoped release includes the merged GitHub, voice and recovery changes since v0.9.66.4 and the November 5 diagnostic reliability implementation.
 
 ## Changes
 
-- Make GitHub chat progress event-driven, move workflow budgets to Settings, enlarge chat text and repair reproducible self-test and retry routing defects.
+- Preserve GitHub tasks, objective evidence and review state across branch changes and approved operations; improve workspace admission, bounded final review, task history, recovery presentation and the Status dashboard.
+- Add and repair bounded repository graph navigation and cumulative audit evidence, while retaining explicit limitations for external Graphify and compiler-resolved semantics.
+- Improve event-driven GitHub chat progress, prompt anchoring, workflow budgets, voice ownership/preferences and reproducible self-test/retry routing.
+- Normalize provider DNS, abort, EOF, timeout, HTTP and admission failures; preserve partial output, typed failure phases and dispatch receipts without replaying ambiguous gateway effects.
+- Keep response-flow completion distinct from verified task completion; preserve durable tool receipts, explicit read-only replay authorization, pending work and progressive tool discovery under schema budgets.
+- Retain dispatch evidence across URL redirects and MCP remote errors, so later precheck failures cannot refund consumed operations or authorize replay of a completed write.
+- Preserve search provider, aggregation and refill failure receipts and successful authorized sibling evidence; coordinate bounded provider health and connectivity recovery.
+- Validate MCP catalogs before publishing tool readiness, separate connection/catalog/gateway/inference evidence and add explicit bounded generation probes.
+- Stream URL retrieval into bounded buffers or complete temporary documents; continue PDFs with page/text offsets and pinned source identity, and disclose incomplete coverage and exhausted budgets.
+- Choose style-compatible PDF font substitutes with separate symbol and dingbat coverage checks.
+- Retain speech transcript review during cooldown, clean up composer focus and frame-observer ownership, and reduce diagnostic hot-path allocations.
+- Group interleaved diagnostic continuations and preserve incident/correlation links, safe structured failure fields and redacted exports.
+- Add a source-backed disposition for all 92 supplied findings, meaningful regressions, independent full-suite and API 34/API 36 emulator validation and a release with a new version/build identity.
+- Stabilize CI and release validation by isolating source generation, compilation and lint in bounded processes.
 
-- Add opt-in full-screen Voice Chat with speech lifecycle recovery, editable drafts, captions and audio routing.
-- Improve GitHub task continuation, bounded evidence recovery, current-revision CI decisions, credential rotation and persistent task history.
-- Add prompt-top anchoring, recurring activity summaries, expanded workflow status and APK provenance views.
-- Repair MCP discovery, tool argument serialization, pagination, provider outcome accounting and diagnostic export pressure.
-- Add the Gateway 15 desktop dashboard and Windows installer infrastructure, configurable listeners, durable engineering jobs and isolated publication validation.
-- Fix legacy credential replacement admission, Android voice lint and streaming coroutine DEX size without weakening validation gates.
+## Verification and release identity
 
-- Compress debug APK DEX and enforce unchanged per-ABI download budgets in PR validation as well as main builds.
-- Use the shared bounded Android pipeline for signed release packaging, retaining the existing memory ceilings, APK budgets, signing checks and artifact verification.
+The signed release pipeline validates the exact merged commit, waits for its required main-branch checks, verifies packaged runtimes and privacy, preserves the established signing certificate, and publishes APKs, an AAB, SHA-256 checksums and provenance. PR results from an earlier source revision are not substituted for release-candidate checks.
 
-- Run signed-release validation in separate one-worker compilation, test and lint processes, and exercise the same validation on release-workflow PRs before merge.
-
-- Select MockK's JVM test artifact explicitly, pin five publisher-verified Byte Buddy and MockK test artifacts and descriptors for cold resolution, and require canonical PR Validation to pass on the exact published commit.
-
-- Complete required release lint in a separate bounded process before APK packaging so cold lint analysis cannot retain the heap needed by Zipflinger; lint failures still block packaging.
-
-- Preserve GitHub tasks across branch changes and approved commits, recover malformed reviewer output with a bounded saved retry, and synchronize smooth prompt and bottom following with the UI frame clock.
-
-- Add opt-in bounded repository graph search, calls, impact and revision-aware retrieval with encrypted caches; structural navigation does not claim compiler-resolved Kotlin/Java semantics.
-
-- Persist cumulative GitHub audit evidence, owned mutation-fixture results and usage observations, with Room schema 48 migration, bounded table rendering and speech-start ownership.
-
-- Repair build 138 self-test dependency selection, pinned workflow discovery and bounded saved-page recovery; move checklist computation off the UI thread.
+The implementation report maps every supplied finding to its source paths and distinguishes implemented behavior, existing coverage and environment acceptance: [November 5 diagnostic implementation](docs/repairs/diagnostic-reliability-completion-2026-11-05.md).
 
 ## Qualification and remaining work
 
@@ -42,7 +37,7 @@ Android build 138. Signed release of the merged GitHub, voice, recovery and gate
 - Live GitHub sign-in, private-repository access and credential-refresh acceptance remain unverified in this diagnostic audit; public browser sign-in requires the registered broker deployment.
 - The October 28 export still requires physical-device performance replay; fixing the identified filesDir calls does not establish that the 748 ms frame stalls are resolved.
 - Provider HTTP 403s, Android-app GitHub token endpoint permissions, private local/MCP server reachability and the remote MCP discovery timeout require service, credential or device-route verification.
-- The ASUS framework finalizer SecurityException is outside application control. Host and emulator checks do not qualify the affected vendor firmware.
+- No application access to asus_leak_detect_proj was found; the originating ASUS framework/vendor finalizer path still requires an affected-device stack. Host and emulator checks do not qualify the affected firmware.
 - Live Android sign-in, authenticated App-token read/write and refresh acceptance remain unverified and are not claimed as qualified by this release.
 - Browser PKCE requires its broker and verified HTTPS callback deployment.
 - The October 30 GitHub chat diagnostic scenarios still require live provider and physical-device replay; automated tests do not establish private server availability or uninterrupted execution through permanent outages.
@@ -55,27 +50,16 @@ Android build 138. Signed release of the merged GitHub, voice, recovery and gate
 - Android webhook push, complete approval/activity history, unified model readiness, full mutation fixtures, attestation retrieval and remaining performance/accessibility work are partial.
 - Voice speech services, GitHub prompt anchoring during physical gestures/IME/rotation, process death and reboot still require device acceptance. This release does not claim those cases passed.
 - The Android signed release does not install or publish a new Windows gateway package; Windows installer checks are tracked separately.
-
 - External Graphify server behavior and physical-device graph, speech and scrolling performance have not been qualified by these host and emulator checks.
 - Automated mutation fixtures cover owned disposable branch creation, dependency inspection and cleanup; content writes, releases, merges and cancellations require separately authorized fixture plans.
-
 - External Graphify execution, compiler-resolved navigation, and physical-device graph, speech and UI performance remain unqualified; host and emulator evidence does not establish those outcomes.
-
-Publication requires successful validation of this exact commit, current main checks, signature continuity, APK/AAB identity and native-library verification.
-
 - The November 3 build-138 chat audit implements bounded UI and planner repairs; full mutation fixtures, retained-page capacity recovery and physical-device acceptance remain incomplete.
-
-### Diagnostic follow-up for build 138
-
-- Move TTS Binder work to a serial worker, cache language/voice configuration, load voice preferences asynchronously and retain immutable voice-operation terminal receipts.
-- Make empty cold discovery install executable schemas; preserve matching aggregate search tools; reject known-incompatible privacy routes before expensive retrieval.
-- Permit the one available saved review-format retry and explicitly block exhausted retries. Retain private candidates/evidence and surface the failure stage without publishing unverified claims.
-- Add incomplete-task classification and reconcile catalog omission summaries. See `docs/repairs/build138-diagnostic-followup.md` for all 28 findings, existing safeguards and remaining device/provider acceptance checks.
-- Physical-device frame/StrictMode improvements, live privacy-route availability and database contention remain unqualified until measured on the updated build.
-
-### November 4 GitHub workspace reliability follow-up
-
-- Repair GitHub workspace tool admission, durable allowances and evidence recovery, acceptance verification, bounded final review, local service diagnostics, terminal delivery and workflow recovery presentation.
 - The November 4 GitHub workspace repairs do not qualify physical-device process death, UI frame pacing or private Llama/server reachability; those outcomes require live device and service receipts. Saved evidence remains quota bounded, and an unavailable mutation result must be reconciled rather than replayed.
 - Temporary conversations do not persist recovery evidence; interrupted work with missing receipts or counters remains blocked, and changing storage mode does not grant more tool calls.
-- See `docs/repairs/github-workspace-reliability-2026-11-04.md` for implementation coverage and exact validation status.
+- The November 5 diagnostic changes retain partial output and durable execution evidence; providers without a resume protocol do not gain token-for-token stream resumption.
+- The affected ports 8101 and 8102, live DNS/providers, authenticated gateway inference, OEM recognizer/IME behavior, and the recorded frame stalls still require deployment or physical-device acceptance.
+- PDF font selection uses available compatible system fonts and checked glyph coverage. Exact layout and all glyphs require the affected documents and device fonts; bounded retrieval can still report explicit partial coverage for oversized sources or pages.
+
+## Recovery and rollback
+
+Preserve the existing signed release and its immutable tag. Any rollback is a reviewed forward-revert change on a new branch, followed by a higher version/build and fresh validation; published tags and release assets are not replaced.

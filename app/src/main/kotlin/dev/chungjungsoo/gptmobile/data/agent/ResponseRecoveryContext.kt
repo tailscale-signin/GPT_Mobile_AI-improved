@@ -242,7 +242,7 @@ internal class ResponseRecoveryContext(
             val rejected = candidates.lastOrNull { event ->
                 event.isError &&
                     ToolResultCheckpoint.execution(event)?.let { receipt ->
-                        receipt["phase"] == kotlinx.serialization.json.JsonPrimitive("PREFLIGHT_REJECTED") &&
+                        ToolResultCheckpoint.confirmsNoEffect(event) &&
                             receipt["error_code"] == kotlinx.serialization.json.JsonPrimitive("INVALID_ARGUMENTS") &&
                             receipt["requires_reconciliation"] == kotlinx.serialization.json.JsonPrimitive(false)
                     } == true
@@ -250,10 +250,7 @@ internal class ResponseRecoveryContext(
             if (rejected != null) return AgentToolResult(callId, ToolResultContent.Text("The unchanged request was previously rejected before dispatch. Correct its arguments and use a new call ID. " + rejected.recoveryResult().orEmpty()), true, sharedResult = true, dispatched = false, errorCode = "INVALID_ARGUMENTS")
             val unresolved = candidates.filter { event ->
                 // Only a persisted native dispatch receipt can prove an earlier failure harmless.
-                val receipt = ToolResultCheckpoint.execution(event)
-                receipt == null ||
-                    receipt["requires_reconciliation"] != kotlinx.serialization.json.JsonPrimitive(false) ||
-                    receipt["phase"] !in setOf(kotlinx.serialization.json.JsonPrimitive("PREFLIGHT_REJECTED"), kotlinx.serialization.json.JsonPrimitive("REJECTED"))
+                !ToolResultCheckpoint.confirmsNoEffect(event)
             }
             if (!reusableRead && (effectId != null || unresolved.isNotEmpty())) {
                 return AgentToolResult(callId, ToolResultContent.Text("Saved action requires reconciliation. Read its receipt and use its exact _recovery_effect_id only when completed. An unknown outcome must be checked using a read-only status tool before a new action is authorized."), true, dispatched = false, errorCode = "RECONCILIATION_REQUIRED")

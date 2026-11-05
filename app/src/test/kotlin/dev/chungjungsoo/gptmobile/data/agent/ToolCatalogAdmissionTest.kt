@@ -22,6 +22,15 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ToolCatalogAdmissionTest {
+    @Test fun discoveryRemainsAvailableWhenAnOptionalSchemaWouldConsumeItsBudget() {
+        val discovery = ProgressiveToolCatalog(emptyList(), "find tools").definition
+        val large = AgentToolDefinition("optional_reader", "Read source ranges ".repeat(100), buildJsonObject {})
+        val available = maxOf(ProgressiveToolCatalog.schemaTokens(discovery), ProgressiveToolCatalog.schemaTokens(large))
+        val limits = AgentRunLimits(contextTokens = 4096, initialContextTokens = 4096 - 1024 - 256 - available, finalResponseReserveTokens = 1024)
+        val selected = fitProviderToolSchemas(listOf(large, discovery), limits, 0, 0)
+        assertEquals(listOf(discovery), selected)
+    }
+
     @Test fun warmDiscoveryAlsoRespectsTheRemainingRoundBudgetAndPreservesPriority() {
         val github = AgentToolDefinition("github_context", "GitHub status", buildJsonObject {})
         val large = AgentToolDefinition("github_read", "Read source ranges ".repeat(700), buildJsonObject {})

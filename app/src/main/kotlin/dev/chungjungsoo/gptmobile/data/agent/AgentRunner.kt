@@ -23,6 +23,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.put
 
 data class AgentRunLimits(
     val runTimeoutMillis: Long = Long.MAX_VALUE,
@@ -76,7 +77,18 @@ class AgentRunner(
 
     fun run(session: AgentProviderSession, tools: List<AgentTool>, dynamicTools: () -> List<AgentTool> = { emptyList() }, selectDefinitions: (List<AgentToolDefinition>) -> List<AgentToolDefinition> = { it }): Flow<AgentRunEvent> = flow {
         if (tools.isNotEmpty() && !session.handlesToolsInternally && limits.maxReplayTokens <= 0) {
-            emit(AgentRunEvent.Provider(ProviderEvent.Failed("No actionable tool receipt fits the replay budget. Reallocate stage output or narrow schemas before starting tool work.", errorCode = "REPLAY_EVIDENCE_REQUIRED")))
+            emit(
+                AgentRunEvent.Provider(
+                    ProviderEvent.Failed(
+                        "No actionable tool receipt fits the replay budget. Reallocate stage output or narrow schemas before starting tool work.",
+                        errorCode = "REPLAY_EVIDENCE_REQUIRED",
+                        failureDetails = kotlinx.serialization.json.buildJsonObject {
+                            put("failed_stage", "planning")
+                            put("dispatched", false)
+                        }
+                    )
+                )
+            )
             return@flow
         }
         if (tools.groupBy { it.definition.name }.any { it.value.size > 1 }) {
@@ -173,7 +185,7 @@ class AgentRunner(
                 onToolResult?.invoke(call, result)
                 // Replayed receipts remain visible as shared results, without a fresh dispatch.
                 emit(AgentRunEvent.ToolFinished(call, result))
-                if (result.errorCode in ToolResultEnvelope.unknownOutcomeCodes && !replayableRead(call)) {
+                if (result.errorCode in ToolResultEnvelope.unknownOutcomeCodes && !replayableRead(call, toolByName[call.name])) {
                     unknownOutcomes += call.name + ":" + dev.chungjungsoo.gptmobile.data.permissions.ScopedToolGrant.canonicalHash(call.arguments)
                 }
                 exchanges += exchange
@@ -987,6 +999,7 @@ class AgentRunner(
         var failureDetails: JsonObject? = null
         var providerLimit: dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision? = null
         var textEmitted = false
+        var providerPayloadObserved = false
         val answerCandidate = StringBuilder()
         var toolDefinitionsRejected = false
         val roundInput = ProviderUsageCounter()
@@ -998,6 +1011,8 @@ class AgentRunner(
         var roundReasoningTokens: Long? = null
         var roundSettingsConfirmed = false
         var deliveredCallIds: Set<String> = emptySet()
+        var invocationStage = "planning"
+        var invocationStarted = false
 
         suspend fun emitRoundUsage() {
             if (roundInput.value == null && roundOutput.value == null && roundTotal.value == null && roundDecodeSpeed == null && roundFinishReason == null && !roundSettingsConfirmed && roundReasoningTokens == null) return
@@ -1025,7 +1040,16 @@ class AgentRunner(
         // particular, never emit usage from finally after cancellation or a failed emit.
         flow {
             if (exchanges.isNotEmpty() && limits.maxReplayTokens <= 0) {
-                emit(ProviderEvent.Failed("No actionable tool receipt fits this request. Lower the stage output reservation or narrow the schemas before continuing; saved evidence was retained.", errorCode = "REPLAY_EVIDENCE_REQUIRED"))
+                emit(
+                    ProviderEvent.Failed(
+                        "No actionable tool receipt fits this request. Lower the stage output reservation or narrow the schemas before continuing; saved evidence was retained.",
+                        errorCode = "REPLAY_EVIDENCE_REQUIRED",
+                        failureDetails = kotlinx.serialization.json.buildJsonObject {
+                            put("failed_stage", "planning")
+                            put("dispatched", false)
+                        }
+                    )
+                )
                 return@flow
             }
             val rawReplayTokens = ToolExchangeCompactor.estimateTokens(exchanges)
@@ -1057,8 +1081,19 @@ class AgentRunner(
             val preparedExchanges = replayExchanges.map { exchange -> exchange.copy(results = exchange.results.map { dev.chungjungsoo.gptmobile.data.assist.OptionalAssistArtifacts.ready(it) }) }
             val exchangeError = AgentContractValidation.exchangeError(preparedExchanges)
             if (exchangeError != null) {
-                emit(ProviderEvent.Failed(exchangeError, errorCode = "TOOL_EXCHANGE_INVALID"))
+                emit(
+                    ProviderEvent.Failed(
+                        exchangeError,
+                        errorCode = "TOOL_EXCHANGE_INVALID",
+                        failureDetails = kotlinx.serialization.json.buildJsonObject {
+                            put("failed_stage", "planning")
+                            put("dispatched", false)
+                        }
+                    )
+                )
             } else {
+                invocationStage = "model_invocation"
+                invocationStarted = true
                 emitAll(session.streamRound(exposedDefinitions, preparedExchanges).withAssistantTextMarkupGuard(successfulSearch || session.hasPreparedSearchEvidence, searchToolNames, allowControlJsonText = session.allowsControlJsonText))
             }
         }.catch { error ->
@@ -1074,11 +1109,27 @@ class AgentRunner(
             // must not replace it or change the recovery decision.
             if (failure == null) {
                 toolDefinitionsRejected = error is ToolDefinitionsRejectedException
+                val network = dev.chungjungsoo.gptmobile.data.network.networkFailureKind(error)
+                val classified = ErrorClassification.classify(error)
+                val gatewayOutcomeUnknown = GatewayOutcomeRecovery.requiresReconciliation(error.message.orEmpty(), classified.errorCode)
+                val localCircuitRejection = (error as? dev.chungjungsoo.gptmobile.data.network.error.CircuitBreakerOpenException)
+                    ?.takeUnless { gatewayOutcomeUnknown }
+                failureDetails = localCircuitRejection?.failureDetails(providerPayloadObserved) ?: kotlinx.serialization.json.buildJsonObject {
+                    put(
+                        "failed_stage",
+                        when {
+                            gatewayOutcomeUnknown -> "gateway_dispatch"
+                            toolDefinitionsRejected -> "provider_admission"
+                            network != dev.chungjungsoo.gptmobile.data.network.NetworkFailureKind.UNKNOWN -> network.failedStage
+                            else -> invocationStage
+                        }
+                    )
+                    if (!invocationStarted) put("dispatched", false)
+                }
                 failure = if (toolDefinitionsRejected) {
                     error.message ?: "Tools are unavailable for this model."
                 } else {
-                    val classified = ErrorClassification.classify(error)
-                    failureCode = classified.errorCode
+                    failureCode = if (gatewayOutcomeUnknown) GatewayOutcomeRecovery.ERROR_CODE else ToolFailureMetadata.classify(error)
                     classified.userMessage
                 }
             }
@@ -1099,6 +1150,7 @@ class AgentRunner(
                 true
             }
         }.collect { event ->
+            if (event is ProviderEvent.TextDelta || event is ProviderEvent.ThinkingDelta || event is ProviderEvent.ToolCall || event is ProviderEvent.ToolResult || event is ProviderEvent.CombinedAnswer) providerPayloadObserved = true
             if (event is ProviderEvent.Failed && GatewayOutcomeRecovery.requiresReconciliation(event.message, event.errorCode)) {
                 failure = event.message
                 failureCode = GatewayOutcomeRecovery.ERROR_CODE
@@ -1256,7 +1308,7 @@ class AgentRunner(
         val intelligent = limits.githubTask ||
             limits.researchAcquisition ||
             calls.any {
-                dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it.name) != null || replayableRead(it)
+                dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it.name) != null || replayableRead(it, tools[it.name])
             }
         if (!intelligent) {
             val results = mutableListOf<AgentToolResult>()
@@ -1279,14 +1331,14 @@ class AgentRunner(
                     return@execute ToolResultEnvelope.error(call.callId, "DEPENDENCY_DEFERRED", "A prerequisite was deferred by admission. This operation was not dispatched; replan after the missing read completes.")
                 }
                 val signature = call.name + ":" + dev.chungjungsoo.gptmobile.data.permissions.ScopedToolGrant.canonicalHash(call.arguments)
-                suspend fun dispatch(): AgentToolResult = if (!replayableRead(call) && synchronized(unknownOutcomes) { signature in unknownOutcomes }) {
+                suspend fun dispatch(): AgentToolResult = if (!replayableRead(call, tools[call.name]) && synchronized(unknownOutcomes) { signature in unknownOutcomes }) {
                     ToolResultEnvelope.error(call.callId, "RECONCILIATION_REQUIRED", "An earlier identical operation has an unknown outcome. Reconcile it before requesting another write.")
                 } else {
                     executeBounded(call, tools[call.name])
                 }
                 val interaction = AgentToolCapability.USER_DECISION in tools[call.name]?.definition?.capabilities.orEmpty()
-                val result = if (interaction) dispatch().also { checkpoint?.complete(call, it) } else checkpoint?.execute(call, replayableRead = replayableRead(call)) { dispatch() } ?: dispatch()
-                if (result.errorCode in ToolResultEnvelope.unknownOutcomeCodes && !replayableRead(call)) synchronized(unknownOutcomes) { unknownOutcomes += signature }
+                val result = if (interaction) dispatch().also { checkpoint?.complete(call, it) } else checkpoint?.execute(call, replayableRead = replayableRead(call, tools[call.name])) { dispatch() } ?: dispatch()
+                if (result.errorCode in ToolResultEnvelope.unknownOutcomeCodes && !replayableRead(call, tools[call.name])) synchronized(unknownOutcomes) { unknownOutcomes += signature }
                 result
             },
             completed = completed,
@@ -1315,7 +1367,7 @@ class AgentRunner(
                                     semaphore.withPermit {
                                         val signature = call.name + ":" + dev.chungjungsoo.gptmobile.data.permissions.ScopedToolGrant.canonicalHash(call.arguments)
                                         suspend fun dispatch(): AgentToolResult {
-                                            val result = if (!replayableRead(call) && synchronized(unknownOutcomes) { signature in unknownOutcomes }) {
+                                            val result = if (!replayableRead(call, tools[call.name]) && synchronized(unknownOutcomes) { signature in unknownOutcomes }) {
                                                 ToolResultEnvelope.error(call.callId, "RECONCILIATION_REQUIRED", "An earlier identical operation has an unknown outcome. Reconcile it before requesting another write.")
                                             } else {
                                                 executeBounded(call, tools[call.name])
@@ -1330,8 +1382,8 @@ class AgentRunner(
                                         // checkpoint queued while waiting, so process death cannot
                                         // misclassify user input as an uncertain external write.
                                         val interaction = AgentToolCapability.USER_DECISION in tools[call.name]?.definition?.capabilities.orEmpty()
-                                        val result = if (interaction) dispatch().also { checkpoint?.complete(call, it) } else checkpoint?.execute(call) { dispatch() } ?: dispatch()
-                                        if (result.errorCode in ToolResultEnvelope.unknownOutcomeCodes && !replayableRead(call)) synchronized(unknownOutcomes) { unknownOutcomes += signature }
+                                        val result = if (interaction) dispatch().also { checkpoint?.complete(call, it) } else checkpoint?.execute(call, replayableRead = replayableRead(call, tools[call.name])) { dispatch() } ?: dispatch()
+                                        if (result.errorCode in ToolResultEnvelope.unknownOutcomeCodes && !replayableRead(call, tools[call.name])) synchronized(unknownOutcomes) { unknownOutcomes += signature }
                                         result
                                     }
                                 }
@@ -1417,7 +1469,7 @@ class AgentRunner(
             val errors = ToolArgumentValidator.errors(call.arguments, tool.definition.inputSchema)
             if (errors.isNotEmpty()) return ToolArgumentValidator.rejection(call.callId, tool.definition.name, call.arguments, tool.definition.inputSchema, errors)
         }
-        val replayableRead = replayableRead(call)
+        val replayableRead = replayableRead(call, tool)
         return try {
             // A delegated child can have different data permissions. Capture only
             // this call's authorized receipt, never its private intermediate calls.
@@ -1441,7 +1493,7 @@ class AgentRunner(
                     tool.execute(call.callId, call.arguments)
                 }
             }
-            val receipt = AgentContractValidation.receipt(call.callId, result)
+            val receipt = ToolFailureMetadata.receipt(AgentContractValidation.receipt(call.callId, result), call.name, replaySafe = replayableRead)
             onToolResult?.invoke(call, receipt)
             ToolObservationRetention.bound(if (tool.managesExecutionBudget) receipt else receipt.copy(content = boundContent(receipt.content)))
         } catch (error: CancellationException) {
@@ -1455,15 +1507,14 @@ class AgentRunner(
                 callId = call.callId,
                 content = ToolResultContent.Text(error.message ?: "Tool '${call.name}' failed."),
                 isError = true,
-                errorCode = if (replayableRead) "READ_FAILED" else "DISPATCH_OUTCOME_UNKNOWN"
-            ).let { it.copy(content = boundContent(it.content)) }
+                errorCode = if (replayableRead) ToolFailureMetadata.classify(error) else "DISPATCH_OUTCOME_UNKNOWN"
+            ).let { ToolFailureMetadata.receipt(it, call.name, diagnosticCode = ToolFailureMetadata.classify(error), replaySafe = replayableRead) }
+                .let { it.copy(content = boundContent(it.content)) }
         }
     }
 
-    private fun replayableRead(call: ProviderEvent.ToolCall): Boolean =
-        call.name == ProgressiveToolCatalog.NAME ||
-            dev.chungjungsoo.gptmobile.data.permissions.GitHubAuthorizationBoundary.isReplayableRead(call.name, call.arguments) ||
-            dev.chungjungsoo.gptmobile.data.research.ResearchTimeouts.isAcademicRead(call.name)
+    private fun replayableRead(call: ProviderEvent.ToolCall, tool: AgentTool?): Boolean =
+        ToolReplaySafety.isReplayableRead(call.name, call.arguments, tool)
 
     private fun boundContent(content: ToolResultContent): ToolResultContent = ToolObservationRetention.content(content, limits.maxToolOutputBytes.coerceIn(0, 256 * 1024))
 

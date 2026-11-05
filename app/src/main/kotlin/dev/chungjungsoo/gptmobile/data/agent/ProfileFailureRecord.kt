@@ -2,6 +2,11 @@ package dev.chungjungsoo.gptmobile.data.agent
 
 import java.time.Instant
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.longOrNull
 
 /** Durable classification. Legacy text is parsed once at the boundary, not by each dialog. */
 @Serializable
@@ -21,6 +26,28 @@ data class ProfileFailureRecord(
     companion object {
         fun reviewRetryBlock(details: String?): String? = details?.takeIf { classify(it).category == "REVIEW_INPUT_REQUIRED" }?.let {
             "This saved review requires an updated request or new evidence. Send an updated prompt; the saved draft and tool results are retained."
+        }
+
+        private val phases = setOf("planning", "provider_admission", "connection_preflight", "dns_resolution", "dns", "connection", "response_stream", "tls", "cancelled", "transport", "provider_generation", "model_invocation", "tool_precheck", "tool_dispatch", "tool_execution", "gateway_dispatch", "answer_review", "claim_extraction", "claim_verification", "verification", "final_synthesis", "delivery", "lifecycle")
+        private val typedCodes = setOf("CIRCUIT_BREAKER_OPEN", "DNS_RESOLUTION_FAILED", "NETWORK_TIMEOUT", "NETWORK_DISCONNECTED", "CONNECTION_ABORTED", "TRANSPORT_EOF", "TLS_FAILURE", "CLIENT_CANCELLED", "AUTHENTICATION_FAILED", "ACCESS_FORBIDDEN", "SERIALIZATION_ERROR", "PARSING_ERROR", "SERVICE_UNAVAILABLE", "PROVIDER_UNAVAILABLE", "GITHUB_TASK_INCOMPLETE", "GITHUB_EVIDENCE_REQUIRED", "GITHUB_EVIDENCE_RETENTION_INCOMPLETE", "REPLAY_EVIDENCE_REQUIRED", "TOOL_OUTCOME_UNKNOWN", "TIMEOUT_OUTCOME_UNKNOWN", "DISPATCH_OUTCOME_UNKNOWN", "TOOL_RESULT_ID_MISMATCH", "RECONCILIATION_REQUIRED", "GATEWAY_OUTCOME_UNKNOWN", "GATEWAY_TOOL_OUTCOME_UNKNOWN", "REMOTE_OUTCOME_UNKNOWN")
+
+        /** Preserve typed stage/dispatch facts; arbitrary provider text is never promoted to evidence. */
+        fun fromProvider(message: String, errorCode: String? = null, details: JsonObject? = null): ProfileFailureRecord {
+            val legacy = classify(listOfNotNull(errorCode?.takeIf { it in typedCodes }, message).joinToString(": "))
+            // A local rejection must not replace an already ambiguous remote operation.
+            if (legacy.category == GatewayOutcomeRecovery.ERROR_CODE) return legacy
+            val stage = (details?.get("failed_stage") as? JsonPrimitive)?.contentOrNull?.takeIf { it in phases }
+            val dispatchFact = details?.get("dispatched")
+                ?: details?.get("inference_dispatched")?.takeIf { stage == "connection_preflight" }
+            val dispatched = (dispatchFact as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull ?: legacy.dispatched
+            val localCircuitRejection = legacy.category == "CIRCUIT_BREAKER_OPEN" && stage == "provider_admission" && dispatched == false
+            val retryAfter = (details?.get("retry_after_ms") as? JsonPrimitive)?.takeUnless { it.isString }?.longOrNull?.takeIf { it in 0L..86_400_000L }
+            return legacy.copy(
+                phase = stage ?: legacy.phase.ifBlank { "stage_not_recorded" },
+                dispatched = dispatched,
+                remoteAcceptance = if (localCircuitRejection) RemoteRequestAcceptance.NO else legacy.remoteAcceptance,
+                retryAfterMillis = if (localCircuitRejection && retryAfter != null) System.currentTimeMillis() + retryAfter else legacy.retryAfterMillis
+            )
         }
 
         private val httpStatus = Regex("""(?i)\b(?:HTTP(?:/\d(?:\.\d)?)?(?:\s+(?:error|status)(?:\s+code)?)?|status(?:\s+code)?|statusCode|responseCode)["']?(?:\s*[:=]\s*|\s+)(\d{3})\b""")
@@ -44,9 +71,17 @@ data class ProfileFailureRecord(
             val reviewBlocked = details.contains("GITHUB_REVIEW_INCOMPATIBLE", true) || details.contains("GITHUB_REVIEW_INDETERMINATE", true) || details.contains("REVIEW_INPUT_REQUIRED", true) || details.contains("Saved review requires new evidence", true) || details.contains("GITHUB_REVIEW_BLOCKED", true) || details.contains("unchanged draft will not be reviewed again", true)
             val privacyBlocked = details.contains("POLICY_RESTRICTED", true) || details.contains("PERSONAL_DATA_LOCAL_ONLY", true)
             val category = when {
+                listOf("TOOL_OUTCOME_UNKNOWN", "TIMEOUT_OUTCOME_UNKNOWN", "DISPATCH_OUTCOME_UNKNOWN", "TOOL_RESULT_ID_MISMATCH", "RECONCILIATION_REQUIRED", "GATEWAY_TOOL_OUTCOME_UNKNOWN").any { details.contains(it, true) } -> "TOOL_OUTCOME_UNKNOWN"
                 circuit -> "CIRCUIT_BREAKER_OPEN"
                 reviewBlocked -> "REVIEW_INPUT_REQUIRED"
                 details.contains("GITHUB_REVIEW_", true) -> "ANSWER_REVIEW"
+                details.contains("GITHUB_TASK_INCOMPLETE", true) -> "TASK_INCOMPLETE"
+                listOf("GITHUB_EVIDENCE_REQUIRED", "GITHUB_EVIDENCE_RETENTION_INCOMPLETE", "REPLAY_EVIDENCE_REQUIRED").any { details.contains(it, true) } -> "EVIDENCE_REQUIRED"
+                details.contains("TLS_FAILURE", true) -> "TLS_FAILURE"
+                details.contains("CLIENT_CANCELLED", true) -> "CLIENT_CANCELLED"
+                details.contains("AUTHENTICATION_FAILED", true) -> "AUTHENTICATION_FAILED"
+                details.contains("ACCESS_FORBIDDEN", true) -> "ACCESS_FORBIDDEN"
+                details.contains("SERIALIZATION_ERROR", true) || details.contains("PARSING_ERROR", true) -> "SERIALIZATION_ERROR"
                 privacyBlocked -> "PRIVACY_CONFIGURATION"
                 permanentEndpoint -> "ENDPOINT_RETIRED"
                 billing -> "BILLING_UNAVAILABLE"
@@ -64,24 +99,31 @@ data class ProfileFailureRecord(
                 details.contains("NO_VISIBLE_ANSWER", true) || details.contains("COMBINED_EMPTY_OUTPUT", true) -> "NO_VISIBLE_ANSWER"
                 details.contains("HOSTED_GENERATION_FAILED", true) -> "HOSTED_GENERATION_FAILED"
                 retryAt != null || Regex("(?i)429|rate.?limit|cooldown|quota").containsMatchIn(details) -> "RATE_LIMIT"
-                Regex("(?i)timeout|timed out").containsMatchIn(details) -> "TIMEOUT"
-                details.contains("DNS", true) -> "DNS_RESOLUTION_FAILED"
-                Regex("(?i)\\b50[234]\\b").containsMatchIn(details) -> "UPSTREAM_UNAVAILABLE"
-                details.contains("connection", true) -> "CONNECTION"
+                Regex("(?i)DNS|UnknownHostException|unable to resolve host|host cannot be resolved|name or service not known").containsMatchIn(details) -> "DNS_RESOLUTION_FAILED"
+                Regex("(?i)timeout|timed out|NETWORK_TIMEOUT").containsMatchIn(details) -> "TIMEOUT"
+                Regex("(?i)unexpected end of stream|TRANSPORT_EOF|EOFException").containsMatchIn(details) -> "TRANSPORT_EOF"
+                Regex("(?i)\\b50[234]\\b").containsMatchIn(details) || details.contains("SERVICE_UNAVAILABLE", true) || details.contains("PROVIDER_UNAVAILABLE", true) -> "UPSTREAM_UNAVAILABLE"
+                details.contains("connection", true) || details.contains("NETWORK_DISCONNECTED", true) -> "CONNECTION"
                 else -> "INCOMPLETE"
             }
             return ProfileFailureRecord(
                 category,
-                !incompatible && !unavailablePolicy && category !in setOf("REVIEW_INPUT_REQUIRED", "PRIVACY_CONFIGURATION", "QUEUED_JOB", "CACHED_UNUSABLE_RESPONSE", "ENDPOINT_RETIRED", "BILLING_UNAVAILABLE"),
+                !incompatible && !unavailablePolicy && category !in setOf("REVIEW_INPUT_REQUIRED", "PRIVACY_CONFIGURATION", "QUEUED_JOB", "CACHED_UNUSABLE_RESPONSE", "ENDPOINT_RETIRED", "BILLING_UNAVAILABLE", "TOOL_OUTCOME_UNKNOWN", "TLS_FAILURE", "CLIENT_CANCELLED", "AUTHENTICATION_FAILED", "ACCESS_FORBIDDEN", "SERIALIZATION_ERROR"),
                 retryAt,
-                dispatched = false.takeIf { circuit || details.contains("dispatched=false", true) || details.contains("No request was dispatched", true) },
-                remoteAcceptance = if (circuit) RemoteRequestAcceptance.NO else RemoteRequestAcceptance.UNKNOWN,
+                dispatched = false.takeIf { !circuit && (details.contains("dispatched=false", true) || details.contains("No request was dispatched", true)) },
                 phase = when {
-                    circuit -> "provider_admission"
                     category == "DNS_RESOLUTION_FAILED" -> "dns_resolution"
-                    category == "CONNECTION" -> "transport"
+                    category == "TLS_FAILURE" -> "tls"
+                    category == "CLIENT_CANCELLED" -> "cancelled"
+                    category in setOf("CONNECTION", "TIMEOUT", "TRANSPORT_EOF") -> "transport"
+                    category == "TOOL_OUTCOME_UNKNOWN" -> "tool_dispatch"
+                    category in setOf("TASK_INCOMPLETE", "EVIDENCE_REQUIRED") -> "verification"
                     category in setOf("ANSWER_REVIEW", "REVIEW_INPUT_REQUIRED") -> "answer_review"
-                    else -> ""
+                    category == "APP_EXECUTION" -> "lifecycle"
+                    category in setOf("PRIVACY_CONFIGURATION", "SAVED_POLICY_UNAVAILABLE", "INCOMPATIBLE_CONFIGURATION", "ADMISSION_EXPIRED", "AUTHENTICATION_FAILED", "ACCESS_FORBIDDEN") -> "provider_admission"
+                    category == "NO_VISIBLE_ANSWER" -> "delivery"
+                    category in setOf("REASONING_BUDGET_EXHAUSTED", "OUTPUT_PROTOCOL_INVALID") -> "final_synthesis"
+                    else -> "stage_not_recorded"
                 }
             )
         }

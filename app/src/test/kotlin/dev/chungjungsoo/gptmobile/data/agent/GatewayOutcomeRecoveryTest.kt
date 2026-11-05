@@ -59,7 +59,7 @@ class GatewayOutcomeRecoveryTest {
                 GatewayOutcomeRecovery.requireTaskReconciled(7, 1, listOf(restored), listOf(failedRun))
                 AgentRunner().run(provider, listOf(tool)).toList()
             }.exceptionOrNull()
-            assertTrue(failed is IllegalStateException)
+            assertTrue(failed is GatewayOutcomeRecovery.UnreconciledTask)
             assertTrue(failed?.message.orEmpty().startsWith("GATEWAY_OUTCOME_UNKNOWN:"))
         }
         assertEquals(0, modelRequests)

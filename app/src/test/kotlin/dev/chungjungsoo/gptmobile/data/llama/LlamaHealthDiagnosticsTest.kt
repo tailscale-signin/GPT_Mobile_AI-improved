@@ -125,7 +125,7 @@ class LlamaHealthDiagnosticsTest {
                             inferenceCalls++
                             val payload = kotlinx.serialization.json.Json.parseToJsonElement((request.body as io.ktor.http.content.TextContent).text).let { it as kotlinx.serialization.json.JsonObject }
                             assertEquals("1", payload["max_tokens"].toString())
-                            assertEquals("false", payload["stream"].toString())
+                            assertEquals("true", payload["stream"].toString())
                             assertFalse(payload.containsKey("tools"))
                             assertEquals("\"none\"", payload["tool_choice"].toString())
                             assertEquals(listOf("false"), request.headers.getAll("X-Gateway-Allow-Local-Tools"))
@@ -143,6 +143,8 @@ class LlamaHealthDiagnosticsTest {
             val report = LlamaHealthDiagnostics({ http }).testInference(ProviderRequestConfig("https://local.example/v1", "secret", extraHeaders = mapOf("x-gateway-allow-local-tools" to "true")), "selected")
             assertEquals(1, inferenceCalls)
             assertEquals(true, report.inferenceReady)
+            assertNull(report.timeToFirstTokenMs)
+            assertTrue(report.inferenceLatencyMs != null)
             assertTrue(report.inferenceTested)
             assertEquals(LlamaConnectionPhase.INFERENCE_READY, report.phase)
         } finally {
@@ -259,6 +261,79 @@ class LlamaHealthDiagnosticsTest {
             assertNull(report.gatewayReady)
             assertEquals(LlamaConnectionPhase.REACHABLE, report.phase)
             assertFalse(report.inferenceTested)
+        } finally {
+            http.close()
+        }
+    }
+
+    @Test fun explicitStreamingProbeMeasuresFirstTokenAndRejectsUnterminatedOutput() = runTest {
+        var terminal = true
+        val http = HttpClient(MockEngine) {
+            engine {
+                dispatcher = StandardTestDispatcher(testScheduler)
+                addHandler { request ->
+                    when (request.url.encodedPath) {
+                        "/health" -> respond("""{"status":"ok"}""")
+                        "/props" -> respond("{}")
+                        "/v1/models" -> respond("""{"data":[{"id":"selected"}]}""")
+                        "/v1/chat/completions" -> {
+                            delay(75)
+                            val delta = """data: {"model":"selected","choices":[{"delta":{"content":"OK"}}]}""" + "\n\n"
+                            respond(delta + if (terminal) "data: [DONE]\n\n" else "", headers = headersOf(HttpHeaders.ContentType, "text/event-stream"))
+                        }
+                        else -> error("Unexpected endpoint")
+                    }
+                }
+            }
+        }
+        try {
+            val diagnostics = LlamaHealthDiagnostics({ http }, now = { testScheduler.currentTime })
+            val config = ProviderRequestConfig("https://streamed-probe.example/v1", null)
+            val ready = diagnostics.testInference(config, "selected")
+            assertEquals(true, ready.inferenceReady)
+            assertEquals(75L, ready.timeToFirstTokenMs)
+            assertEquals(75L, ready.inferenceLatencyMs)
+            terminal = false
+            val interrupted = diagnostics.testInference(config, "selected")
+            assertEquals(false, interrupted.inferenceReady)
+            assertEquals(75L, interrupted.timeToFirstTokenMs)
+            assertTrue(interrupted.inferenceFailure.orEmpty().contains("complete verified"))
+        } finally {
+            http.close()
+        }
+    }
+
+    @Test fun recognizedGatewayReportsToolReadinessWithoutPerformingAChatRoundTrip() = runTest {
+        var gatewayReads = 0
+        val config = ProviderRequestConfig("https://known-gateway.example/v1", "secret")
+        GatewayClientDiagnostics.observeInstance(config, "d".repeat(32))
+        val http = HttpClient(MockEngine) {
+            engine {
+                dispatcher = StandardTestDispatcher(testScheduler)
+                addHandler { request ->
+                    assertEquals("GET", request.method.value)
+                    assertEquals("Bearer secret", request.headers[HttpHeaders.Authorization])
+                    val body = when (request.url.encodedPath) {
+                        "/health" -> """{"status":"ok"}"""
+                        "/props" -> "{}"
+                        "/v1/models" -> """{"data":[{"id":"selected"}]}"""
+                        "/v1/gateway/ready" -> {
+                            gatewayReads++
+                            """{"schemaVersion":1,"instanceId":"${"d".repeat(32)}","ready":true,"capabilities":{"generationReady":true,"modelAvailable":true,"toolsReady":false,"selectedModelDigest":"${researchHash("selected")}"}}"""
+                        }
+                        else -> error("Unexpected endpoint")
+                    }
+                    respond(body, headers = headersOf(HttpHeaders.ContentType, "application/json"))
+                }
+            }
+        }
+        try {
+            val report = LlamaHealthDiagnostics({ http }).inspect(config, "selected")
+            assertEquals(1, gatewayReads)
+            assertEquals(true, report.gatewayReady)
+            assertEquals(false, report.gatewayToolsReady)
+            assertFalse(report.inferenceTested)
+            assertNull(report.timeToFirstTokenMs)
         } finally {
             http.close()
         }

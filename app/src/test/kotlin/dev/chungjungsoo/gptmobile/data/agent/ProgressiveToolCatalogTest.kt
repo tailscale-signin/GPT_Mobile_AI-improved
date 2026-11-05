@@ -21,6 +21,15 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ProgressiveToolCatalogTest {
+    @Test fun omissionsRemainVisibleAfterTheOuterPlannerHasAlreadyFilteredSchemas() {
+        val catalog = ProgressiveToolCatalog(tools, "task_1")
+        val planned = catalog.selected(tools + catalog.definition).take(2)
+        val omitted = catalog.selectionOmissions(planned)
+        assertEquals(tools.map { it.name }.toSet() - planned.map { it.name }.toSet(), omitted.keys)
+        assertTrue(omitted.values.contains("NOT_ADMITTED_TO_ROUND"))
+        assertTrue(omitted.values.any { it != "NOT_ADMITTED_TO_ROUND" })
+    }
+
     @Test fun emptyColdDiscoveryInstallsExecutableSchemasOnTheNextRound() = runTest {
         for ((task, toolName) in listOf("Read document" to "read_document", "Read source" to "github_read__github_api")) {
             var executions = 0

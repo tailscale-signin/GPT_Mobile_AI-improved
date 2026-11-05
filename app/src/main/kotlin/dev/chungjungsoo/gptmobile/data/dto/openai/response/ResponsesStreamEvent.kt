@@ -168,7 +168,11 @@ data class ResponseErrorEvent(
     val message: String,
 
     @SerialName("param")
-    val param: String? = null
+    val param: String? = null,
+
+    /** Local transport facts cannot be supplied by a provider response body. */
+    @kotlinx.serialization.Transient
+    val failureDetails: JsonObject? = null
 ) : ResponsesStreamEvent()
 
 /**

@@ -449,7 +449,8 @@ class McpClientManagerTest {
         private val paginateTools: Boolean = false,
         acceptedAuthorization: String? = null,
         private val toolsResponse: String? = null,
-        private val postOnly: Boolean = false
+        private val postOnly: Boolean = false,
+        private val toolResult: ((JsonObject) -> String)? = null
     ) : AutoCloseable {
         @Volatile
         var acceptedAuthorization: String? = acceptedAuthorization
@@ -502,9 +503,12 @@ class McpClientManagerTest {
                     }
 
                     "tools/call" -> {
-                        toolParams += request["params"] as JsonObject
-                        val text = request["params"]!!.let { it as JsonObject }["arguments"]!!.let { it as JsonObject }["text"]!!.jsonPrimitive.content
-                        """{"content":[{"type":"text","text":"$text"}]}"""
+                        val params = request["params"] as JsonObject
+                        toolParams += params
+                        toolResult?.invoke(params) ?: run {
+                            val text = (params["arguments"] as JsonObject)["text"]!!.jsonPrimitive.content
+                            """{"content":[{"type":"text","text":"$text"}]}"""
+                        }
                     }
 
                     else -> error("Unexpected MCP method: $method")

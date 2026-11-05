@@ -17,6 +17,20 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ProviderEventAssemblerTest {
+    @Test fun responsesPreserveClientFailureFactsWithoutTrustingProviderSuppliedDispatchClaims() {
+        val remote = NetworkClient.openAIJson.decodeFromString<ResponsesStreamEvent>(
+            """{"type":"error","message":"Failure","code":"NETWORK_DISCONNECTED","failureDetails":{"dispatched":false,"failed_stage":"provider_admission"}}"""
+        ) as dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseErrorEvent
+        org.junit.Assert.assertNull(remote.failureDetails)
+        val details = buildJsonObject {
+            put("dispatched", false)
+            put("failed_stage", "provider_admission")
+        }
+        val failure = OpenAIResponsesEventAssembler().accept(remote.copy(failureDetails = details)).single() as ProviderEvent.Failed
+        assertEquals(details, failure.failureDetails)
+        assertEquals("NETWORK_DISCONNECTED", failure.errorCode)
+    }
+
     @Test fun anthropicUsageIsInterimUntilMessageStopAndLimitIsNotStageSuccess() {
         val assembler = AnthropicEventAssembler()
         val delta = assembler.accept(NetworkClient.json.decodeFromString<MessageResponseChunk>("""{"type":"message_delta","delta":{"stop_reason":"max_tokens","stop_sequence":null},"usage":{"output_tokens":100}}"""))

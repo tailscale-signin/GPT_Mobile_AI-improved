@@ -14,6 +14,12 @@ internal object GatewayOutcomeRecovery {
     const val ISOLATED_RESULT_PREFIX = "GATEWAY_ISOLATED_RESULT_RECOVERED:"
     private const val LEGACY_CATEGORY = "REMOTE_OUTCOME_UNKNOWN"
 
+    class UnreconciledTask :
+        IllegalStateException(
+            "$ERROR_CODE: This task has an unreconciled gateway request that may already have performed actions. " +
+                "Resume and Retry are blocked until its saved job result is reconciled. Check the gateway and remote results; no new model or tool request was sent."
+        )
+
     /** A parked read remains recoverable; unrelated blocked/canceled work is never reopened. */
     fun canReadSavedResult(run: AgentRun): Boolean = run.status == AgentRunStatus.INTERRUPTED ||
         run.status == AgentRunStatus.BLOCKED &&
@@ -62,10 +68,7 @@ internal object GatewayOutcomeRecovery {
                 !reconciled(message.currentRunId, message.id) ||
                 message.revisions.any { it.timeline.hasUnknownOutcome() && !reconciled(it.runId, message.id) }
         }
-        check(!unknownRun && !unknownMessage) {
-            "$ERROR_CODE: This task has an unreconciled gateway request that may already have performed actions. " +
-                "Resume and Retry are blocked until its saved job result is reconciled. Check the gateway and remote results; no new model or tool request was sent."
-        }
+        if (unknownRun || unknownMessage) throw UnreconciledTask()
     }
 }
 

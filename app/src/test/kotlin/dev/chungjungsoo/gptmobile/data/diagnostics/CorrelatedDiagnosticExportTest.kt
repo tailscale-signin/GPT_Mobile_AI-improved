@@ -39,6 +39,23 @@ class CorrelatedDiagnosticExportTest {
         assertTrue(rows.any { it.toString().contains("Second()") })
     }
 
+    @Test fun separatelyTimestampedIncidentFramesSurviveCorrelationWithoutImportingOtherRuns() {
+        val root = structuredDiagnosticLine("2026-11-05T02:00:00Z E/Voice: eventId=voice-root · runId=run-current-chat · failure", incidentId = "voice-incident")
+        val frame = structuredDiagnosticLine("2026-11-05T02:00:01Z E/Android: eventId=voice-frame · E/System (42): at framework.call()", incidentId = "voice-incident", incidentRoot = false)
+        val other = structuredDiagnosticLine("2026-11-05T02:00:02Z E/Voice: eventId=other-root · runId=run-other-chat · Private failure", incidentId = "voice-incident", incidentRoot = false)
+        val rows = select(listOf(root, frame, other), listOf("run-current-chat"))
+        assertEquals(2, rows.size)
+        assertTrue(rows.any { it.toString().contains("framework.call") })
+        assertFalse(rows.toString().contains("run-other-chat"))
+    }
+
+    @Test fun matchingIncidentFrameRetainsRootAndSiblingsWithoutRunMetadata() {
+        val root = structuredDiagnosticLine("2026-11-05T02:00:00Z E/Android: eventId=header · E/System (42): Uncaught exception thrown by finalizer", incidentId = "finalizer-incident")
+        val cause = structuredDiagnosticLine("2026-11-05T02:00:00Z E/Android: eventId=cause · E/System (42): java.lang.SecurityException: asus_leak_detect_proj", incidentId = "finalizer-incident", incidentRoot = false)
+        val frame = structuredDiagnosticLine("2026-11-05T02:00:00Z E/Android: eventId=frame · E/System (42): at framework.finalize()", incidentId = "finalizer-incident", incidentRoot = false)
+        assertEquals(3, select(listOf(root, cause, frame), listOf("asus_leak_detect_proj")).size)
+    }
+
     @Test fun unknownIdentifiersAndBatchOnlyMatchesDoNotImportAnotherChat() {
         val root = "2026-11-05T02:00:00Z E/Provider: eventId=event-unrelated · runId=run-other-chat · Failure"
         val rows = export(listOf(root), listOf(root))

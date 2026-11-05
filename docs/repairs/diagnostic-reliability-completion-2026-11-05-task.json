@@ -1,0 +1,252 @@
+{
+  "schema": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "9715e5c5992fcadf7df34c70fde324077d192986",
+  "working_branch": "fix/diagnostic-reliability-completion-2026-11-05",
+  "intent": "Inspect and remedy all 92 findings in the supplied November 5 diagnostic review; recheck the branch, complete remaining source work, verify every open PR, merge through normal GitHub rules, and publish a signed release from the verified main commit.",
+  "state": "FINAL_CANDIDATE_PREPARED; CURRENT_HEAD_CI_MERGE_AND_PUBLICATION_TRACKED_IN_GITHUB",
+  "input": {
+    "diagnostic": "app-diagnostics-3996514748589439279.jsonl",
+    "review_supplied_in_request": true,
+    "raw_log_committed": false,
+    "findings": 92
+  },
+  "work_packages": [
+    {
+      "id": "network_gateway",
+      "scope": "DNS/transport classification, bounded recovery, MCP discovery/session lifecycle and measured gateway/model readiness",
+      "state": "IMPLEMENTED"
+    },
+    {
+      "id": "agent_completion",
+      "scope": "Operation receipts, exact failure phases, durable objective recovery, verified completion, tool admission and result classification",
+      "state": "IMPLEMENTED"
+    },
+    {
+      "id": "android_diagnostics",
+      "scope": "Voice/input lifecycle, performance, vendor attribution and diagnostic incident reconstruction",
+      "state": "IMPLEMENTED"
+    },
+    {
+      "id": "research",
+      "scope": "Authorized search fallback, access failures, bounded document segmentation, complete-source evidence and PDF text/font handling",
+      "state": "IMPLEMENTED"
+    },
+    {
+      "id": "validation",
+      "scope": "Behavior regressions, canonical host checks, Android CI and per-finding implementation evidence",
+      "state": "CI_TRACKED_ON_PULL_REQUEST"
+    }
+  ],
+  "acceptance": {
+    "truthful_completion": "Provider and tool completion must not be reported as verified task completion without objective evidence.",
+    "recovery": "Keep confirmed output and receipts; do not blindly repeat ambiguous repository mutations or switch the selected AI profile.",
+    "external_limits": "Phone/vendor, LAN, DNS/provider availability and rendering must be labeled unverified unless exercised on the corresponding environment.",
+    "coverage": "Every finding has source evidence and an implementation/existing-coverage/external-validation disposition."
+  },
+  "validation": {
+    "canonical_host": {
+      "command": "bash scripts/validate-local.sh fast",
+      "result": "PASSED",
+      "tests": 311
+    },
+    "focused_jvm": {
+      "network_recovery": 39,
+      "agent_completion": 41,
+      "android_voice_diagnostics": 89,
+      "pdf_writer_and_policy": 9,
+      "search_receipt": 5,
+      "qualification": "Targeted production-source JVM harnesses use explicit Android/HTTP boundary adapters; not a full Android build."
+    },
+    "pdf_api_compile": {
+      "pdfbox_android": "2.0.27.0",
+      "result": "PASSED"
+    },
+    "android_application": {
+      "result": "CHECK_CURRENT_PULL_REQUEST_HEAD",
+      "pull_request": 803,
+      "workflow": "PR Validation",
+      "first_pass": {
+        "sha": "ec7a2bd444a8ca7ab9e3c762e35fb4c2ea27738a",
+        "production_kotlin": "PASSED",
+        "test_compilation": "Missing assertFalse import identified and corrected in follow-up",
+        "unit_tests": "NOT_RUN_DUE_TO_COMPILATION"
+      },
+      "acceptance": "Complete unit, heap, lint, packaged APK and required aggregate jobs must pass for the current branch head.",
+      "second_pass": {
+        "sha": "cdba337cc7c8d6dddf7bc2e99ca5f31d9a8fc0fa",
+        "production_and_test_compilation": "PASSED",
+        "unit_tests": {
+          "total": 6748,
+          "failed": 3,
+          "skipped": 4,
+          "result": "Two stale behavior assertions and one asynchronous test fixture race identified and corrected in follow-up"
+        },
+        "android_lint": "PASSED",
+        "android_acceptance_api_34": "PASSED",
+        "android_acceptance_api_36": "PASSED",
+        "codeql": "PASSED",
+        "heap_check": "SKIPPED_AFTER_UNIT_FAILURES; must pass at current head",
+        "qualification": "These are historical results for this SHA; use the current PR head checks for acceptance."
+      },
+      "verified_implementation": {
+        "sha": "ec69d04b8c08820269726a9d054c7390ec074f88",
+        "checks_passed": 20,
+        "checks_failed": 0,
+        "checks_pending": 0,
+        "conditional_skip": "Unsigned release workflow is ineligible for this fix branch.",
+        "pr_validation_run": 42078293007,
+        "diagnostic_audit_run": 42078292820,
+        "normal_unit_tests": {
+          "reported": 6758,
+          "passed": 6754,
+          "failed": 0,
+          "errors": 0,
+          "reserved_for_heap_gate": 4
+        },
+        "heap_tests": {
+          "passed": 10,
+          "failed": 0,
+          "skipped": 0,
+          "max_heap_mib": 256
+        },
+        "acceptance": {
+          "api_34_required_methods_passed": 54,
+          "api_36_required_methods_passed": 54
+        },
+        "qualification": "Verified implementation revision before release preparation; release candidate and merged main checks are tracked separately."
+      },
+      "release_candidate_compile_correction": {
+        "sha": "cd90631da754fae2bdd8f8f30196ce1361ae7f35",
+        "workflow": "GitHub build downloads",
+        "run": 42094633128,
+        "job": 127481336995,
+        "result": "Production compilation found a missing buildJsonObject import in the new MCP local-precheck receipt builder; import corrected without changing behavior or validation gates. Full checks must pass on the corrected head."
+      },
+      "release_candidate_memory_correction": {
+        "sha": "576d8a1481b92df526d1eb370a3120a255f2c2b7",
+        "failures": [
+          {
+            "workflow": "PR Validation",
+            "run": 42095875839,
+            "job": 127486098948,
+            "phase": "Kotlin production compilation before Android lint",
+            "category": "JAVA_HEAP_EXHAUSTED"
+          },
+          {
+            "workflow": "GenieX preview validation",
+            "run": 42095875794,
+            "job": 127485642995,
+            "phase": "Kotlin production compilation inside preview test compilation",
+            "category": "JAVA_HEAP_EXHAUSTED"
+          }
+        ],
+        "correction": "Separate source generation and compilation from later tests/lint in fresh bounded processes, including the same cold release-variant path. Preserve the existing heap ceilings, single-worker policy, required tests/lint/signing checks and time limits.",
+        "qualification": "Fresh current-head CI is required; earlier passing checks do not accept this candidate."
+      },
+      "release_candidate_retry_fixture_correction": {
+        "sha": "576d8a1481b92df526d1eb370a3120a255f2c2b7",
+        "pr_validation_run": 42095875839,
+        "diagnostic_audit_run": 42095875873,
+        "independent_suite_results": {
+          "reported": 6769,
+          "passed": 6764,
+          "failed": 1,
+          "errors": 0,
+          "reserved_for_heap_gate": 4
+        },
+        "failure": "The approved MCP read retry test placed both calls in one dependent batch; the first failure correctly blocked the second call.",
+        "correction": "The fixture now consumes the failed receipt before requesting an explicit retry in the next provider round, and still requires two physical reads, one catalog discovery and a successful dispatched retry. Same-batch and restarted write replay fences remain asserted.",
+        "focused_validation": "Seven MCP/scheduler host checks passed, including exact IntelligentToolBatch policy/executor reproducing the blocked same-batch call and successful separate-round retry.",
+        "api_acceptance": {
+          "api_34_required_methods_passed": 54,
+          "api_36_required_methods_passed": 54
+        },
+        "qualification": "These are historical results; the corrected candidate must pass fresh full suites, heap checks, emulator checks and all other applicable gates."
+      },
+      "geniex_compiler_memory_followup": {
+        "sha": "36f98cdc575e8dc0948aa520aba40ea748ade375",
+        "run": 42100244581,
+        "job": 127500824386,
+        "observed": "Separate KSP succeeded in 1m48s and was UP-TO-DATE in the next process. KAPT stub generation and annotation processing then preceded compileDebugKotlin, which exhausted the 3 GiB heap; that process failed after 10m05s.",
+        "correction": "Isolate the observed kaptDebugKotlin task in its own 3 GiB, single-worker process after KSP. Bound only GenieX production/test compilation at 4 GiB heap and 768 MiB metaspace, matching an existing successful build envelope. Keep global defaults, other validation jobs and all required test/package/signing gates.",
+        "qualification": "Measured workflow-specific exception to the existing global memory policy; must pass fresh current-head CI."
+      },
+      "recovery_notice_delivery_correction": {
+        "sha": "36f98cdc575e8dc0948aa520aba40ea748ade375",
+        "audit_run": 42100244629,
+        "pr_validation_run": 42100244483,
+        "observed": "The diagnostic audit lost the privacy isolation Notice before the expected GATEWAY_OUTCOME_UNKNOWN error; zero provider dispatch and private-context exclusion still passed. The independent PR suite passed the same test. Throwing a local recovery rejection from channelFlow can cancel queued notices before they drain.",
+        "correction": "Use a dedicated local UnreconciledTask rejection and emit its typed terminal error before normal producer completion. Preserve earlier gateway outcome uncertainty and keep fresh provider/tool dispatch blocked.",
+        "regression": "Require the isolation Notice to precede the terminal error while retaining zero provider calls, the exact error code and private-context exclusion. Require the dedicated subtype for all blocked recovery actions.",
+        "pr_suite_before_correction": {
+          "reported": 6769,
+          "passed": 6765,
+          "failed": 0,
+          "errors": 0,
+          "reserved_for_heap_gate": 4
+        },
+        "qualification": "The independent audit exposed this ordering race; both full suites must pass on the corrected candidate."
+      }
+    },
+    "environment_acceptance": {
+      "result": "NOT_RUN",
+      "scope": [
+        "Affected ASUS vendor finalizer",
+        "Physical-device Perfetto and frame/allocation evidence",
+        "Ports 8101 and 8102 listener/firewall/process validation",
+        "Live provider DNS and service availability",
+        "Actual recognizer/IME and Android job/process recreation"
+      ]
+    },
+    "follow_up_regressions": {
+      "llama_empty_tool_list": 6,
+      "provider_failure_classification": 7,
+      "qualification": "Exact production-source JVM tests; full transport and document integrations are evaluated by Android CI.",
+      "circuit_receipts": "Typed local admission, preserved partial-output dispatch evidence, provider conversion and durable classification; gateway uncertainty retains reconciliation priority."
+    },
+    "final_review": {
+      "source_review": "Independent review completed for network/gateway/research, durable execution/replay, Android/voice/diagnostics/PDF and release preparation.",
+      "remaining_defects_corrected": [
+        {
+          "boundary": "URL redirect operation accounting",
+          "behavior": "Retain a prior HTTP response across later precheck rejection, preserve final-hop uncertainty through normalization, and consume the operation allowance.",
+          "regressions": "Five new ReadUrlTool integration cases plus strengthened existing redirect/initial-DNS cases; six focused production-source host checks passed."
+        },
+        {
+          "boundary": "MCP remote error and recovery certainty",
+          "behavior": "Remote errors and invalid output do not prove no effect; only typed local catalog rejection supplies precheck evidence, and ambiguous legacy MCP checkpoints cannot authorize replay.",
+          "regressions": "Immediate/restarted write deduplication, explicit approved-read retry, typed local catalog prechecks and valid/malformed output cases."
+        },
+        {
+          "boundary": "Ordered recovery notice delivery",
+          "behavior": "Drain the privacy isolation Notice before a typed local gateway recovery rejection without authorizing replay or reclassifying the earlier uncertain dispatch.",
+          "regressions": "Strengthened notice-before-error assertion with the existing dispatch, privacy and exact failure-code checks retained."
+        }
+      ],
+      "canonical_host": "bash scripts/validate-local.sh fast: 311 tests passed after release preparation and production corrections.",
+      "current_candidate_acceptance": "Focused tests, canonical host checks, formatting and candidate scope passed before branch publication. Full Android transport/integration, current-head required checks and merged-main signed artifacts remain authoritative in GitHub.",
+      "publication_review": "Version trigger and all five exact-main required workflow names verified; existing signing, provenance, packaged runtime/privacy and immutable release gates retained.",
+      "focused_mcp": {
+        "existing_agent_receipt_tests_passed": 41,
+        "qualification": "Exact production tool/schema and IntelligentToolBatch policy/executor code with explicit transport/SDK boundary doubles; full MCP manager/HTTP and AgentRunner integrations are evaluated by Android CI.",
+        "mcp_and_scheduler_host_tests_passed": 7
+      }
+    }
+  },
+  "coverage_ledger": "docs/repairs/diagnostic-reliability-completion-2026-11-05.md",
+  "pull_request": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/803",
+  "publication": {
+    "user_authorization": "Recheck everything, finish remaining branch work, make open PR drafts green, merge to main, and publish.",
+    "version": "0.9.66.5",
+    "version_code": 139,
+    "tag": "v0.9.66.5",
+    "previous_release_commit": "3de77a00946f5c621443dc7c8668dc8879ef0d1c",
+    "workflow": "Publish Signed Release",
+    "status": "RELEASE_CANDIDATE_PREPARED; current-head checks, normal merge and signed publication outcomes are authoritative in GitHub.",
+    "merge_policy": "Normal PR merge with a pinned head, green required checks and GitHub rule enforcement; no administrative bypass.",
+    "publication_policy": "Version-triggered signed release, exact-main checks, signer continuity, artifact identity and provenance verification.",
+    "pr_validation_lifecycle": "Superseded pull-request release validation is cancelled within its PR-specific concurrency group. Main and manual publication remain serialized without automatic cancellation."
+  }
+}

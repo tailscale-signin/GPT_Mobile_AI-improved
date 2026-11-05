@@ -66,7 +66,11 @@ internal fun structuredDiagnosticLine(
         put("causalAttribution", "UNVERIFIED")
         put("category", classification.category)
         put("severity", classification.severity)
-        put("stage", text("stage") ?: text("runtimeStage"))
+        put("stage", text("failedStage") ?: text("stage") ?: text("runtimeStage"))
+        put("errorCode", text("errorCode") ?: text("failureCode"))
+        put("dispatched", (parsedFields["dispatched"] as? JsonPrimitive)?.booleanOrNull)
+        put("dispatchState", text("dispatchState"))
+        put("retryable", (parsedFields["retryable"] as? JsonPrimitive)?.booleanOrNull)
         put("recovery", classification.recovery)
         put("occurredAtMillis", occurredAt)
         put("capturedAtMillis", capturedAt)
@@ -134,7 +138,9 @@ private fun diagnosticFields(message: String): JsonObject {
         fields.take(64).forEachIndexed { index, field ->
             val key = field.groupValues[1]
             val end = fields.getOrNull(index + 1)?.range?.first ?: message.length
-            val formattedValue = message.substring(field.range.last + 1, end).trim().trimEnd('·').trim()
+            // Payload redaction removes the following private field, including its
+            // key. Its marker must not turn the preceding safe Boolean/number into prose.
+            val formattedValue = message.substring(field.range.last + 1, end).trim().removeSuffix("[private payload redacted]").trim().trimEnd('·').trim()
             val value = if (key in setOf("eventId", "parentEventId", "monoNs", "bootMs", "processId", "processName")) formattedValue.takeWhile { !it.isWhitespace() && it != '·' } else formattedValue
             val nested = if (value.startsWith('{') || value.startsWith('[')) runCatching { Json.parseToJsonElement(value) }.getOrNull() else null
             when {

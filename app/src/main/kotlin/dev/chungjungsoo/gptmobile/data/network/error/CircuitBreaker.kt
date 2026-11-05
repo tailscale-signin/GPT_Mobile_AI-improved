@@ -4,6 +4,8 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 class CircuitBreakerOpenException(
     val cooldownRemainingMs: Long,
@@ -15,6 +17,17 @@ class CircuitBreakerOpenException(
         circuitBreakerName = circuitBreakerName,
         message = "Circuit breaker '$circuitBreakerName' is OPEN. Cooldown remaining: ${cooldownRemainingMs}ms"
     )
+
+    /** acquirePermission rejects before the protected request block can execute. */
+    fun failureDetails(partialOutput: Boolean = false) = buildJsonObject {
+        put("failed_stage", if (partialOutput) "model_invocation" else "provider_admission")
+        put("dispatched", partialOutput)
+        if (partialOutput) {
+            put("partial_output_preserved", true)
+        } else {
+            put("retry_after_ms", cooldownRemainingMs.coerceIn(0L, 86_400_000L))
+        }
+    }
 }
 
 /**

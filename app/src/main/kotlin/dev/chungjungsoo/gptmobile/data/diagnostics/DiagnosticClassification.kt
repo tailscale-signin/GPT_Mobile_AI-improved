@@ -15,6 +15,10 @@ internal fun classifyDiagnostic(level: String?, tag: String?, message: String): 
         // An attributed fatal event must never be downgraded by a vendor setting,
         // optional model feature, or benign platform phrase elsewhere in its stack.
         tag == "AppCrash" || "fatal exception" in text || level == "F" -> DiagnosticClassification("fatal", "critical", true)
+        tag == "VoiceRecognition" && Regex("(?:^| · )errorcode=speech_service_(?:start_failed|start_timeout|unavailable)(?: · |$)").containsMatchIn(text) ->
+            DiagnosticClassification("speech_service_start", "warning", true, "check_service_availability_and_respect_binding_cooldown")
+        tag == "VoiceRecognition" && Regex("^recognition_error=10(?: · |$)").containsMatchIn(text) && "failedstage=recognition" !in text ->
+            DiagnosticClassification("speech_service_or_rate_limit", "warning", true, "inspect_recognition_phase_before_attributing_error_ten")
         tag == "VoiceRecognition" && Regex("^recognition_error=10(?: · |$)").containsMatchIn(text) ->
             DiagnosticClassification("speech_rate_limit", "warning", true, "respect_shared_recognition_cooldown")
         tag == "VoiceRecognition" && Regex("^recognition_error=9(?: · |$)").containsMatchIn(text) ->
@@ -77,7 +81,11 @@ internal fun classifyDiagnostic(level: String?, tag: String?, message: String): 
         )
         tag == "Android" && capturedTag == "imebackdispatcher" && text.startsWith("ime callback not found. ignoring unregisterreceivedcallback.") -> DiagnosticClassification("platform_input_cleanup", "info", false)
         tag == "Android" && capturedTag == "interactionjankmonitor" && text.startsWith("initializing without read_device_config permission. enabled=false") -> DiagnosticClassification("platform_optional_monitor", "info", false)
-        "inactive inputconnection" in text -> DiagnosticClassification("input_lifecycle", "warning", true)
+        "inactive inputconnection" in text -> DiagnosticClassification("input_lifecycle", "warning", true, "release_composer_focus_before_screen_or_editor_detaches")
+        tag == "Android" && "systemjobservice" in text && "onnetworkchanged" in text && "not implemented" in text ->
+            DiagnosticClassification("work_scheduler_compatibility", "warning", true, "verify_workmanager_and_android_build_with_background_recovery")
+        tag == "Android" && "reducing the number of considered missed gc histogram windows" in text ->
+            DiagnosticClassification("gc_sampling_window", "info", false, "profile_allocations_before_attributing_memory_leak")
         "getenv: not attached" in text -> DiagnosticClassification("native_thread_attachment", "info", false)
         "feedback manager requires a model with a single signature" in text -> DiagnosticClassification("optional_model_feature", "info", false)
         tag == "Android" &&
@@ -122,6 +130,11 @@ private fun significantFrameWindow(message: String): Boolean {
 /** Strip recorder metadata without swallowing the event label. */
 private fun diagnosticRecorderPayload(message: String): String = message.replace(Regex("^(?:(?:eventId=[A-Za-z0-9_.:-]+|monoNs=[0-9]+|bootMs=(?:[0-9]+|unknown)|processId=-?[0-9]+|processName=[A-Za-z0-9_.:-]+)(?: · | +))+"), "")
 
-private val capturedAndroidPrefix = Regex("^[VDIWEF]/([^(:]+)(?:\\(\\s*[0-9]+\\))?:\\s*")
+private val capturedAndroidPrefix = Regex("^[VDIWEF]/([^(:]+)(?:\\(\\s*([0-9]+)\\))?:\\s*")
 
 internal fun diagnosticEventMessage(message: String): String = diagnosticRecorderPayload(message).replace(capturedAndroidPrefix, "")
+
+/** Stable source identity includes the original Android tag and PID, never recorder severity. */
+internal fun diagnosticAndroidSource(message: String): String? = capturedAndroidPrefix.find(diagnosticRecorderPayload(message))?.let { match ->
+    "Android:${match.groupValues[1].trim()}:${match.groupValues[2].ifBlank { "unscoped" }}"
+}

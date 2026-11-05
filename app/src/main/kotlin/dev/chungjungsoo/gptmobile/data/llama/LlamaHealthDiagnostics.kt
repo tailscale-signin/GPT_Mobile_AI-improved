@@ -15,11 +15,13 @@ import io.ktor.client.request.bearerAuth
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.parameter
-import io.ktor.client.request.post
+import io.ktor.client.request.preparePost
 import io.ktor.client.request.setBody
+import io.ktor.client.statement.bodyAsChannel
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.contentType
+import io.ktor.utils.io.readUTF8Line
 import java.net.URI
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
@@ -58,7 +60,10 @@ internal data class LlamaHealthReport(
     val inferenceReady: Boolean? = null,
     val inferenceFailure: String? = null,
     val activeGenerations: Int = 0,
-    val activeRequestId: String? = null
+    val activeRequestId: String? = null,
+    val inferenceLatencyMs: Long? = null,
+    val timeToFirstTokenMs: Long? = null,
+    val gatewayToolsReady: Boolean? = null
 ) {
     val phase: LlamaConnectionPhase get() = when {
         activeGenerations > 0 -> LlamaConnectionPhase.GENERATING
@@ -77,7 +82,7 @@ internal data class LlamaHealthReport(
         "gatewayHttp=${gatewayHttpStatus ?: "unknown"}; gatewayReady=${gatewayReady ?: "Not measured"}; metadataRestricted=$metadataRestricted; " +
         "phase=$phase; serverGeneration=${serverGeneration ?: "Not reported"}; modelIdentity=${modelIdentity ?: "Not reported"}; " +
         "healthFailure=${healthFailure ?: "none"}; propsFailure=${propsFailure ?: "none"}; modelsFailure=${modelsFailure ?: "none"}; " +
-        "activeGenerations=$activeGenerations; requestId=${activeRequestId ?: "Not reported"}; inferenceTested=$inferenceTested; inferenceReady=${inferenceReady ?: "Not measured"}; inferenceFailure=${inferenceFailure ?: "none"}"
+        "activeGenerations=$activeGenerations; requestId=${activeRequestId ?: "Not reported"}; inferenceTested=$inferenceTested; inferenceReady=${inferenceReady ?: "Not measured"}; inferenceFailure=${inferenceFailure ?: "none"}; inferenceLatencyMs=${inferenceLatencyMs ?: "Not measured"}; timeToFirstTokenMs=${timeToFirstTokenMs ?: "Not measured"}; gatewayToolsReady=${gatewayToolsReady ?: "Not measured"}"
 }
 
 /** Read-only checks stay on the configured authenticated route and never request model autoload. */
@@ -86,6 +91,7 @@ internal class LlamaHealthDiagnostics(
     now: () -> Long = { System.nanoTime() / 1_000_000 }
 ) {
     constructor(client: NetworkClient) : this({ client() })
+    private val nowMs = now
     private val cache = RouteCapabilityCache<LlamaHealthReport>(now, positiveTtl = 30_000)
 
     suspend fun inspect(config: ProviderRequestConfig, model: String, capacity: CapacitySnapshot? = null): LlamaHealthReport {
@@ -102,7 +108,7 @@ internal class LlamaHealthDiagnostics(
                 val modelResult = models.await()
                 val propsResult = props.await()
                 val restricted = healthResult.status in setOf(401, 403) || propsResult.status in setOf(401, 403)
-                val gateway = if (restricted) read(config.buildEndpoint("gateway/ready"), config, model, timeoutMillis = 3_500) else null
+                val gateway = if (restricted || GatewayClientDiagnostics.runtimeEpoch(config) != "unobserved") read(config.buildEndpoint("gateway/ready"), config, model, timeoutMillis = 3_500) else null
                 val gatewayBody = gateway?.body?.takeIf {
                     (it["schemaVersion"] as? JsonPrimitive)?.longOrNull == 1L &&
                         (it["instanceId"] as? JsonPrimitive)?.contentOrNull?.matches(Regex("[a-f0-9]{32}")) == true &&
@@ -127,6 +133,7 @@ internal class LlamaHealthDiagnostics(
                     propsHttpStatus = propsResult.status,
                     gatewayHttpStatus = gateway?.status,
                     gatewayReady = gatewayReady,
+                    gatewayToolsReady = (capability?.get("toolsReady") as? JsonPrimitive)?.booleanOrNull?.takeIf { gateway?.status == 200 },
                     metadataRestricted = restricted,
                     contextTokens = ((propsResult.body?.get("default_generation_settings") as? JsonObject)?.get("n_ctx") as? JsonPrimitive)?.longOrNull?.takeIf { it > 0 },
                     serverGeneration = instance ?: listOf("server_generation", "process_start_time", "started_at").firstNotNullOfOrNull { key ->
@@ -150,12 +157,15 @@ internal class LlamaHealthDiagnostics(
         if (metadata.phase != LlamaConnectionPhase.MODEL_LOADED) {
             return metadata.copy(inferenceFailure = "Confirm healthy server and selected loaded model before testing inference.")
         }
+        val started = nowMs()
+        var firstTokenMs: Long? = null
         return try {
             val result = withTimeoutOrNull(15_000L) {
-                val response = client().post(config.buildEndpoint("chat/completions")) {
+                client().preparePost(config.buildEndpoint("chat/completions")) {
                     config.token?.takeIf(String::isNotBlank)?.let { bearerAuth(it) }
                     GatewayClientDiagnostics.requestHeaders(config).filterKeys { !it.equals("X-Gateway-Allow-Local-Tools", ignoreCase = true) }.forEach { (key, value) -> header(key, value) }
                     header("X-Gateway-Allow-Local-Tools", "false")
+                    header(HttpHeaders.Accept, "text/event-stream, application/json")
                     parameter("autoload", "false")
                     contentType(ContentType.Application.Json)
                     timeout {
@@ -166,7 +176,7 @@ internal class LlamaHealthDiagnostics(
                     setBody(
                         buildJsonObject {
                             put("model", model)
-                            put("stream", false)
+                            put("stream", true)
                             put("max_tokens", 1)
                             put("tool_choice", "none")
                             put(
@@ -182,27 +192,52 @@ internal class LlamaHealthDiagnostics(
                             )
                         }.toString()
                     )
-                }
-                GatewayClientDiagnostics.observe(config, response.status.value) { response.headers[it] }
-                val rawBody = response.boundedMetadata(64 * 1024)
-                val body = runCatching { Json.parseToJsonElement(rawBody) as? JsonObject }.getOrNull()
-                val choices = body?.get("choices") as? JsonArray
-                val generated = ((body?.get("usage") as? JsonObject)?.get("completion_tokens") as? JsonPrimitive)?.longOrNull
-                val payload = choices.orEmpty().any { choice ->
-                    val message = (choice as? JsonObject)?.get("message") as? JsonObject
-                    listOf("content", "reasoning_content", "reasoning").any { field ->
-                        (message?.get(field) as? JsonPrimitive)?.contentOrNull?.isNotBlank() == true
+                }.execute { response ->
+                    GatewayClientDiagnostics.observe(config, response.status.value) { response.headers[it] }
+                    val evidence = LlamaInferenceProbeEvidence(model)
+                    val streaming = response.headers[HttpHeaders.ContentType].orEmpty().substringBefore(';').trim().equals("text/event-stream", true)
+                    if (streaming) {
+                        val channel = response.bodyAsChannel()
+                        var bytes = 0
+                        try {
+                            while (true) {
+                                val line = channel.readUTF8Line(16 * 1024) ?: break
+                                bytes += line.toByteArray(Charsets.UTF_8).size
+                                check(bytes <= 64 * 1024) { "INFERENCE_PROBE_RESPONSE_TOO_LARGE" }
+                                val payload = dev.chungjungsoo.gptmobile.data.network.SseUtils.extractSseData(line) ?: continue
+                                if (dev.chungjungsoo.gptmobile.data.network.SseUtils.isDone(payload)) {
+                                    evidence.completed = true
+                                    break
+                                }
+                                evidence.observe(payload)
+                                if (evidence.hasPayload && firstTokenMs == null) firstTokenMs = (nowMs() - started).coerceAtLeast(0)
+                                if (evidence.completed || evidence.invalid) break
+                            }
+                        } finally {
+                            channel.cancel(null)
+                        }
+                    } else {
+                        // Some direct endpoints ignore stream=true. Their full response proves
+                        // generation, but it cannot establish time to the first token.
+                        evidence.observe(response.boundedMetadata(64 * 1024))
+                        evidence.completed = true
                     }
+                    val ready = response.status.value in 200..299 && evidence.ready
+                    metadata.copy(
+                        inferenceHttpStatus = response.status.value,
+                        inferenceTested = true,
+                        inferenceReady = ready,
+                        inferenceFailure = if (ready) null else "Inference returned no complete verified generated output (HTTP ${response.status.value}).",
+                        inferenceLatencyMs = (nowMs() - started).coerceAtLeast(0),
+                        timeToFirstTokenMs = firstTokenMs
+                    )
                 }
-                val observedModel = (body?.get("model") as? JsonPrimitive)?.contentOrNull
-                val ready = response.status.value in 200..299 && body?.get("error") == null && (observedModel == null || observedModel == model) && (payload || (generated ?: 0) > 0)
-                metadata.copy(inferenceHttpStatus = response.status.value, inferenceTested = true, inferenceReady = ready, inferenceFailure = if (ready) null else "Inference returned no verified generated output (HTTP ${response.status.value}).")
             }
-            result ?: metadata.copy(inferenceTested = true, inferenceReady = false, inferenceFailure = "INFERENCE_PROBE_TIMEOUT")
+            result ?: metadata.copy(inferenceTested = true, inferenceReady = false, inferenceFailure = "INFERENCE_PROBE_TIMEOUT", inferenceLatencyMs = (nowMs() - started).coerceAtLeast(0), timeToFirstTokenMs = firstTokenMs)
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: Exception) {
-            metadata.copy(inferenceTested = true, inferenceReady = false, inferenceFailure = LocalServiceHealth.classify(failure).name)
+            metadata.copy(inferenceTested = true, inferenceReady = false, inferenceFailure = LocalServiceHealth.classify(failure).name, inferenceLatencyMs = (nowMs() - started).coerceAtLeast(0), timeToFirstTokenMs = firstTokenMs)
         }
     }
 

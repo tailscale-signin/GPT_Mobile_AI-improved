@@ -11,6 +11,29 @@ class CatalogCache:
     @staticmethod
     def key(name,config):
         return name+':'+hashlib.sha256(json.dumps(config,sort_keys=True,separators=(',',':'),default=str).encode()).hexdigest()
+    def readiness(self):
+        """Read current evidence without starting discovery, processes, or a tool call."""
+        config = self.runtime.load_mcp_config()
+        keys = [self.key(name, item) for name, item in config.items()]
+        with self.lock:
+            if not keys:
+                return {'toolsReady': None, 'toolsState': 'NOT_CONFIGURED', 'toolConnectionCount': 0,
+                        'toolCount': 0}
+            snapshots = [(self.cache.get(key), self.health.get(key, {})) for key in keys]
+            count = sum(len(cached[1]) for cached, _ in snapshots if cached)
+            if any(health.get('executionAvailable') is False for _, health in snapshots):
+                ready, state = False, 'UNAVAILABLE'
+            elif any(not cached for cached, _ in snapshots):
+                ready, state = None, 'NOT_DISCOVERED'
+            elif any(time.monotonic() - cached[0] > self.ttl for cached, _ in snapshots):
+                ready, state = False, 'STALE'
+            elif all(health.get('executionAvailable') is True for _, health in snapshots):
+                ready, state = True, 'READY'
+            else:
+                ready, state = None, 'NOT_MEASURED'
+            return {'toolsReady': ready, 'toolsState': state, 'toolConnectionCount': len(keys),
+                    'toolCount': count}
+
     def get(self,force=False):
         config=self.runtime.load_mcp_config();keys={name:self.key(name,cfg) for name,cfg in config.items()}
         if len(keys)>64: raise ValueError('MCP connection catalogue exceeds 64 connections')

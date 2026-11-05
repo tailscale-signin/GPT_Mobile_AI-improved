@@ -59,7 +59,7 @@ jobs:
           apt_options=(-o Acquire::Retries=2 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 -o DPkg::Lock::Timeout=60)
           sudo timeout --kill-after=15s 180s apt-get "${apt_options[@]}" update
           sudo env DEBIAN_FRONTEND=noninteractive timeout --kill-after=15s 180s apt-get "${apt_options[@]}" install --no-install-recommends -y glslc libvulkan-dev spirv-headers
-      # Release KSP processor state before compiling in the fresh bounded 3 GiB JVM.
+      # Release KSP processor state before the separate compilation process.
       - name: Generate isolated preview sources in a separate process
         timeout-minutes: 10
         shell: bash
@@ -67,14 +67,25 @@ jobs:
           set -o pipefail
           mkdir -p build/geniex-validation
           python3 scripts/build_metrics.py --label geniex-source-generation --output build/geniex-validation/source-generation-metrics.json -- python3 scripts/gradle_retry.py --timeout-seconds 540 -- -PgeniexRuntime=true :app:kspDebugKotlin --no-daemon --max-workers=1 --console=plain --stacktrace --profile 2>&1 | tee build/geniex-validation/source-generation.log
+      # KAPT retains its own compiler and processor state; release it before compilation.
+      - name: Process isolated preview annotations in a separate process
+        timeout-minutes: 10
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p build/geniex-validation
+          python3 scripts/build_metrics.py --label geniex-annotation-processing --output build/geniex-validation/annotation-processing-metrics.json -- python3 scripts/gradle_retry.py --timeout-seconds 540 -- -PgeniexRuntime=true :app:kaptDebugKotlin --no-daemon --max-workers=1 --console=plain --stacktrace --profile 2>&1 | tee build/geniex-validation/annotation-processing.log
       # Keep cold compilation out of the complete suite's execution deadline.
+      # Run 42100244581 exhausted the 3 GiB heap in compileDebugKotlin after
+      # KAPT stub generation and processing. Bound only this cold compile to
+      # 4 GiB; source generation, test execution and global defaults stay unchanged.
       - name: Compile isolated preview unit tests
         timeout-minutes: 25
         shell: bash
         run: |
           set -o pipefail
           mkdir -p build/geniex-validation
-          python3 scripts/build_metrics.py --label geniex-unit-compile --output build/geniex-validation/unit-compile-metrics.json -- python3 scripts/gradle_retry.py -- -PgeniexRuntime=true :app:compileDebugUnitTestKotlin :app:compileDebugUnitTestJavaWithJavac --no-daemon --max-workers=1 --console=plain --stacktrace --profile 2>&1 | tee build/geniex-validation/unit-compile.log
+          python3 scripts/build_metrics.py --label geniex-unit-compile --output build/geniex-validation/unit-compile-metrics.json -- python3 scripts/gradle_retry.py -- -PgeniexRuntime=true :app:compileDebugUnitTestKotlin :app:compileDebugUnitTestJavaWithJavac --no-daemon --max-workers=1 --console=plain --stacktrace --profile '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8' 2>&1 | tee build/geniex-validation/unit-compile.log
       - name: Run isolated preview unit tests
         timeout-minutes: 25
         shell: bash

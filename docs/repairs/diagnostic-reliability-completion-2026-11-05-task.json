@@ -164,6 +164,30 @@
           "api_36_required_methods_passed": 54
         },
         "qualification": "These are historical results; the corrected candidate must pass fresh full suites, heap checks, emulator checks and all other applicable gates."
+      },
+      "geniex_compiler_memory_followup": {
+        "sha": "36f98cdc575e8dc0948aa520aba40ea748ade375",
+        "run": 42100244581,
+        "job": 127500824386,
+        "observed": "Separate KSP succeeded in 1m48s and was UP-TO-DATE in the next process. KAPT stub generation and annotation processing then preceded compileDebugKotlin, which exhausted the 3 GiB heap; that process failed after 10m05s.",
+        "correction": "Isolate the observed kaptDebugKotlin task in its own 3 GiB, single-worker process after KSP. Bound only GenieX production/test compilation at 4 GiB heap and 768 MiB metaspace, matching an existing successful build envelope. Keep global defaults, other validation jobs and all required test/package/signing gates.",
+        "qualification": "Measured workflow-specific exception to the existing global memory policy; must pass fresh current-head CI."
+      },
+      "recovery_notice_delivery_correction": {
+        "sha": "36f98cdc575e8dc0948aa520aba40ea748ade375",
+        "audit_run": 42100244629,
+        "pr_validation_run": 42100244483,
+        "observed": "The diagnostic audit lost the privacy isolation Notice before the expected GATEWAY_OUTCOME_UNKNOWN error; zero provider dispatch and private-context exclusion still passed. The independent PR suite passed the same test. Throwing a local recovery rejection from channelFlow can cancel queued notices before they drain.",
+        "correction": "Use a dedicated local UnreconciledTask rejection and emit its typed terminal error before normal producer completion. Preserve earlier gateway outcome uncertainty and keep fresh provider/tool dispatch blocked.",
+        "regression": "Require the isolation Notice to precede the terminal error while retaining zero provider calls, the exact error code and private-context exclusion. Require the dedicated subtype for all blocked recovery actions.",
+        "pr_suite_before_correction": {
+          "reported": 6769,
+          "passed": 6765,
+          "failed": 0,
+          "errors": 0,
+          "reserved_for_heap_gate": 4
+        },
+        "qualification": "The independent audit exposed this ordering race; both full suites must pass on the corrected candidate."
       }
     },
     "environment_acceptance": {
@@ -194,6 +218,11 @@
           "boundary": "MCP remote error and recovery certainty",
           "behavior": "Remote errors and invalid output do not prove no effect; only typed local catalog rejection supplies precheck evidence, and ambiguous legacy MCP checkpoints cannot authorize replay.",
           "regressions": "Immediate/restarted write deduplication, explicit approved-read retry, typed local catalog prechecks and valid/malformed output cases."
+        },
+        {
+          "boundary": "Ordered recovery notice delivery",
+          "behavior": "Drain the privacy isolation Notice before a typed local gateway recovery rejection without authorizing replay or reclassifying the earlier uncertain dispatch.",
+          "regressions": "Strengthened notice-before-error assertion with the existing dispatch, privacy and exact failure-code checks retained."
         }
       ],
       "canonical_host": "bash scripts/validate-local.sh fast: 311 tests passed after release preparation and production corrections.",
@@ -217,6 +246,7 @@
     "workflow": "Publish Signed Release",
     "status": "RELEASE_CANDIDATE_PREPARED; current-head checks, normal merge and signed publication outcomes are authoritative in GitHub.",
     "merge_policy": "Normal PR merge with a pinned head, green required checks and GitHub rule enforcement; no administrative bypass.",
-    "publication_policy": "Version-triggered signed release, exact-main checks, signer continuity, artifact identity and provenance verification."
+    "publication_policy": "Version-triggered signed release, exact-main checks, signer continuity, artifact identity and provenance verification.",
+    "pr_validation_lifecycle": "Superseded pull-request release validation is cancelled within its PR-specific concurrency group. Main and manual publication remain serialized without automatic cancellation."
   }
 }

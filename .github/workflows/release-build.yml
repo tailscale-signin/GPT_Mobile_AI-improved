@@ -17,7 +17,8 @@ permissions:
   actions: read
 concurrency:
   group: ${{ github.event_name == 'pull_request' && format('signed-release-pr-{0}', github.event.pull_request.number) || 'signed-release' }}
-  cancel-in-progress: false
+  # Cancel superseded PR validation while keeping publication runs serialized.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 env:
   OBX_DISABLE_ANALYTICS: "true"
 jobs:

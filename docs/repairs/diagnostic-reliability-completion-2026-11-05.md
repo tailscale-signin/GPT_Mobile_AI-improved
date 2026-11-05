@@ -49,8 +49,8 @@ code coverage and an outstanding environment check apply.
 
 ## Final review and release acceptance
 
-The final review corrected two dispatch-accounting boundaries and added
-explicit regression coverage:
+The final review corrected dispatch-accounting and recovery-delivery boundaries
+and added explicit regression coverage:
 
 - URL retrieval must retain evidence of an earlier HTTP response when a later
   redirect fails a domain, DNS, or request-budget precheck. A rejected follow-up
@@ -59,6 +59,11 @@ explicit regression coverage:
   dispatched. In particular, a write followed by an error about an unknown
   nested tool must remain unreplayable without reconciliation. Only verified
   local catalog rejection can supply the corresponding no-effect evidence.
+- A local gateway recovery rejection must drain the queued privacy isolation
+  notice before delivering its terminal error. A typed rejection now completes
+  the producer normally, while unresolved earlier effects still block all new
+  dispatch and private saved context remains excluded. The regression requires
+  notice-before-error ordering as well as zero provider calls.
 
 The release candidate is version `0.9.66.5`, build `139`. Its scoped manifest
 starts at the last published `v0.9.66.4` commit,
@@ -74,7 +79,9 @@ Candidate CI also identified a missing JSON-builder import and two cold compiler
 heap failures. The import was corrected; PR lint and GenieX compilation now
 release generated-source processing state before compilation, and release
 validation applies the same bounded separation to its debug and release paths.
-The existing memory ceilings and mandatory checks remain in force.
+GenieX also isolates its observed KAPT processing phase. Its compiler has a
+measured 4 GiB job limit after the 3 GiB process exhausted its heap; the global
+3 GiB default and all mandatory verification gates remain in force.
 The approved-read retry regression now requests its retry after the failed
 receipt returns in a later provider round; same-batch dependency rejection and
 write replay fences remain separate, required behaviors.

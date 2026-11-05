@@ -1822,12 +1822,19 @@ class ChatRepositoryImpl(
             savedUserTurns.lastOrNull()?.let { user ->
                 val savedHistory = if (user.chatId > 0) agentPersistenceDao.getMessages(user.chatId) else emptyList()
                 val priorRuns = if (user.chatId > 0) agentRunDao.getByChatId(user.chatId) else emptyList()
-                dev.chungjungsoo.gptmobile.data.agent.GatewayOutcomeRecovery.requireTaskReconciled(
-                    user.chatId,
-                    acceptedSourceMessageId ?: user.id,
-                    savedHistory + acceptedAssistantMessages.flatten(),
-                    priorRuns
-                )
+                try {
+                    dev.chungjungsoo.gptmobile.data.agent.GatewayOutcomeRecovery.requireTaskReconciled(
+                        user.chatId,
+                        acceptedSourceMessageId ?: user.id,
+                        savedHistory + acceptedAssistantMessages.flatten(),
+                        priorRuns
+                    )
+                } catch (rejected: dev.chungjungsoo.gptmobile.data.agent.GatewayOutcomeRecovery.UnreconciledTask) {
+                    // Complete the producer normally so already queued privacy notices
+                    // are delivered before this terminal receipt instead of cancelled.
+                    emit(ApiState.Error(rejected.message.orEmpty(), errorCode = dev.chungjungsoo.gptmobile.data.agent.GatewayOutcomeRecovery.ERROR_CODE))
+                    return@authorizedRun
+                }
             }
             if (freshRepositoryTurn) {
                 userMessages.lastOrNull()?.let { user ->

@@ -1935,7 +1935,11 @@ class ChatRepositoryImplTest {
                 assertEquals(states.toString(), 0, api.streamChatCompletionCalls)
                 assertEquals(states.toString(), "GATEWAY_OUTCOME_UNKNOWN", states.filterIsInstance<ApiState.Error>().single().errorCode)
                 assertFalse(states.filterIsInstance<ApiState.Success>().any { it.textChunk.contains("PRIVATE_CONTEXT_MUST_NOT_BE_SENT") })
-                if (mode == "isolated") assertTrue(states.any { it is ApiState.Notice && it.message.contains("without saved personal context") })
+                if (mode == "isolated") {
+                    val noticeIndex = states.indexOfFirst { it is ApiState.Notice && it.message.contains("without saved personal context") }
+                    val errorIndex = states.indexOfFirst { it is ApiState.Error }
+                    assertTrue("$mode continued=$continued: $states", noticeIndex >= 0 && noticeIndex < errorIndex)
+                }
             }
         }
     }

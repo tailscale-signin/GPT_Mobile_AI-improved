@@ -58,4 +58,18 @@ class RepositoryGraphFallbackTest {
         assertSame(cancelled, runCatching { tool.execute("status", JsonObject(mapOf("action" to JsonPrimitive("status")))) }.exceptionOrNull())
         assertEquals(0, nativeReads)
     }
+
+    @Test fun typedReadinessOutageAllowsOneAuthorizedReadButNeverReplaysIndexing() = runTest {
+        var nativeReads = 0
+        val tool = RepositoryGraphTool("repository_graph__active", nativeStatus = { call ->
+            nativeReads++
+            AgentToolResult(call, ToolResultContent.Text("Selected repository status"), false)
+        }) { throw dev.chungjungsoo.gptmobile.data.github.GatewayGraphUnavailableException("Graph is unavailable") }
+        val status = tool.execute("status", JsonObject(mapOf("action" to JsonPrimitive("status"))))
+        assertTrue(status.isError)
+        assertEquals(1, nativeReads)
+        assertTrue(((status.content as ToolResultContent.Json).value as JsonObject).containsKey("native_fallback"))
+        tool.execute("index", JsonObject(mapOf("action" to JsonPrimitive("index"))))
+        assertEquals(1, nativeReads)
+    }
 }

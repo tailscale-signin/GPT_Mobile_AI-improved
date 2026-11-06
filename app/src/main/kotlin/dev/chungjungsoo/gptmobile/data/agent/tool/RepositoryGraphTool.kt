@@ -4,6 +4,7 @@ import dev.chungjungsoo.gptmobile.data.agent.AgentTool
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
+import dev.chungjungsoo.gptmobile.data.github.GatewayGraphUnavailableException
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -39,10 +40,13 @@ internal class RepositoryGraphTool(
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: Exception) {
-            // Only a transport failure of a status read may trigger one independent,
-            // authorized native read. Never replay graph indexing/notes or bypass a
-            // graph admission/permission rejection through another provider.
-            val fallback = if (arguments["action"] == JsonPrimitive("status") && failure is java.io.IOException && failure !is javax.net.ssl.SSLException) {
+            // A transport/readiness failure of a status read may trigger one independent,
+            // authorized native read. Typed readiness does not include graph policy,
+            // identity or permission rejection. Indexing and notes are never replayed.
+            val unavailable = failure is GatewayGraphUnavailableException ||
+                failure is java.io.IOException &&
+                failure !is javax.net.ssl.SSLException
+            val fallback = if (arguments["action"] == JsonPrimitive("status") && unavailable) {
                 try {
                     nativeStatus?.invoke("$callId-native-status")
                 } catch (cancelled: CancellationException) {

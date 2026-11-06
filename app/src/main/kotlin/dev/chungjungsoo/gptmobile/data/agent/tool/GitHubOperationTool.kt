@@ -699,6 +699,10 @@ internal class GitHubOperationTool(
                 "github_commit" -> {
                     properties["action"] = choice("commit", "commit_staged_patch", "branch", "delete_branch")
                     listOf("stage_id", "branch", "message", "expected_head_sha", "from_branch").forEach { properties[it] = field("string") }
+                    properties["select_created_branch"] = buildJsonObject {
+                        put("type", "boolean")
+                        put("description", "For action=branch only. Defaults to true. Use false for an explicitly authorized disposable fixture; read back its ref without changing the selected workspace.")
+                    }
                     properties["expected_head_sha"] = buildJsonObject {
                         put("type", "string")
                         put("pattern", "^[a-fA-F0-9]{40}$")

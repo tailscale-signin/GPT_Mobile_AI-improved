@@ -117,7 +117,7 @@ class GatewayEngineeringClient internal constructor(private val http: HttpClient
 
     suspend fun requireGraphReady(config: ProviderRequestConfig): String {
         val capability = capabilities(config)
-        capability.unavailableReason(graph = true)?.let { error(it) }
+        capability.unavailableReason(graph = true)?.let { throw GatewayGraphUnavailableException(it) }
         check(capability.codeGraph?.schemaVersion == 1) { "The selected gateway repository graph protocol is unsupported. Update the desktop gateway." }
         return requireNotNull(capability.principalId)
     }
@@ -188,7 +188,10 @@ class GatewayEngineeringClient internal constructor(private val http: HttpClient
     }
 }
 
-private class UnsupportedEngineeringGateway : IllegalStateException("This inference endpoint does not expose engineering jobs. Select an engineering gateway endpoint; ordinary chat remains available.")
+/** Availability only: policy, identity, TLS and authorization failures must not use this type. */
+internal open class GatewayGraphUnavailableException(message: String) : IllegalStateException(message)
+
+private class UnsupportedEngineeringGateway : GatewayGraphUnavailableException("This inference endpoint does not expose engineering jobs. Select an engineering gateway endpoint; ordinary chat remains available.")
 
 class GatewayExecutionRejected(val code: String, val httpStatus: Int) :
     IllegalStateException(

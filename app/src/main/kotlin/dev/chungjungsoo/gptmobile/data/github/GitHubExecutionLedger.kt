@@ -27,7 +27,10 @@ internal object GitHubExecutionLedger {
                 outcome in setOf("UNKNOWN", "UNKNOWN_OUTCOME") ||
                 receipt.text("error_code") in ToolResultEnvelope.unknownOutcomeCodes ||
                 receipt.text("error_code") in setOf("GATEWAY_OUTCOME_UNKNOWN", "GATEWAY_TOOL_OUTCOME_UNKNOWN", "REMOTE_OUTCOME_UNKNOWN") -> ReceiptState.UNKNOWN_OUTCOME
-            receipt["success"] == JsonPrimitive(true) -> ReceiptState.COMPLETED
+            receipt["success"] == JsonPrimitive(true) ||
+                receipt.text("error_code") == "RETAINED_RESULT_CAPACITY" &&
+                execution?.get("upstream_completed") == JsonPrimitive(true) &&
+                execution?.text("upstream_execution_state") == "COMPLETED" -> ReceiptState.COMPLETED
             phase in setOf("PRECHECK_REJECTED", "PREFLIGHT_REJECTED") || receipt["dispatched"] == JsonPrimitive(false) -> ReceiptState.PRECHECK_REJECTED
             phase == "DISPATCHED" && receipt["success"] == null -> ReceiptState.DISPATCHED
             receipt["success"] == JsonPrimitive(false) && receipt["dispatched"] == JsonPrimitive(true) -> ReceiptState.FAILED
@@ -81,6 +84,7 @@ internal object GitHubExecutionLedger {
         val ledger = buildJsonObject {
             put("schema", "github.execution-ledger.v1")
             put("receipt_count", receipts.size)
+            put("presentation_failures", receipts.values.count { (it["execution"] as? JsonObject)?.text("presentation_state") == "CAPACITY_REJECTED" })
             put("receipt_states", buildJsonObject { ReceiptState.entries.forEach { put(it.name, states.getOrDefault(it, 0)) } })
             put("unresolved_remote_outcomes", unresolved)
             put("reconciled_remote_outcomes", reconciled.size)

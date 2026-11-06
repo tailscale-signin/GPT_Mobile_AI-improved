@@ -118,6 +118,7 @@ class GitHubRepositoryStateStore private constructor(private val directory: File
                 temp.outputStream().use {
                     it.write(crypt(identity, plain, true))
                     it.flush()
+                    it.fd.sync()
                 }
                 check(temp.renameTo(target)) { "Could not atomically retain GitHub task state." }
             } finally {
@@ -139,11 +140,13 @@ class GitHubRepositoryStateStore private constructor(private val directory: File
         remember(identity, value)
     }
 
-    suspend fun remove(scope: String, key: String) = mutex.withLock {
-        val identity = "$scope:$key"
-        memoryCharacters -= values.remove(identity)?.toString()?.length ?: 0
-        directory?.let { File(it, digest(identity) + ".record").delete() }
-        Unit
+    suspend fun remove(scope: String, key: String) = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            val identity = "$scope:$key"
+            memoryCharacters -= values.remove(identity)?.toString()?.length ?: 0
+            directory?.let { File(it, digest(identity) + ".record").delete() }
+            Unit
+        }
     }
 
     /** Cache cleanup removes bodies, never authority. Only explicit app-data erasure removes fences. */

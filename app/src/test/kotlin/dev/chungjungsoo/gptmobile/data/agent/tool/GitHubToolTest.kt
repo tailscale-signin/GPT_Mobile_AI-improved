@@ -948,4 +948,52 @@ class GitHubToolTest {
             }
         }
     }
+
+    @Test fun disposableBranchReadbackNeverSelectsTheFixtureAsWorkspaceContext() = runTest {
+        val sha = "a".repeat(40)
+        val tree = "b".repeat(40)
+        var created = false
+        val paths = mutableListOf<String>()
+        val http = HttpClient(
+            MockEngine { request ->
+                paths += request.url.encodedPath
+                when (request.url.encodedPath) {
+                    "/repos/o/r/git/ref/heads/main" -> respond("""{"ref":"refs/heads/main","object":{"sha":"$sha"}}""")
+                    "/repos/o/r/git/ref/heads/fixture" -> if (created) respond("""{"ref":"refs/heads/fixture","object":{"sha":"$sha"}}""") else respond("{}", HttpStatusCode.NotFound)
+                    "/repos/o/r/git/refs" -> {
+                        created = true
+                        respond("""{"ref":"refs/heads/fixture","object":{"sha":"$sha"}}""", HttpStatusCode.Created)
+                    }
+                    "/repos/o/r/commits/main" -> respond("""{"sha":"$sha","commit":{"tree":{"sha":"$tree"}},"files":[]}""")
+                    else -> error("A fixture must not become the selected context: ${request.url}")
+                }
+            }
+        )
+        try {
+            val tool = GitHubTool("token", http, repositoryContext = GitHubRepositoryContext("o", "r", "main"))
+            val result = tool.execute(
+                "fixture",
+                buildJsonObject {
+                    put("action", "create_branch")
+                    put("owner", "o")
+                    put("repo", "r")
+                    put("branch", "fixture")
+                    put("base", "main")
+                    put("expected_head_sha", sha)
+                    put("select_created_branch", false)
+                }
+            )
+            assertFalse(result.isError)
+            val body = (result.content as ToolResultContent.Json).value.jsonObject
+            assertEquals("true", body["selection_preserved"].toString())
+            assertEquals("true", body["remote_state_verified"].toString())
+            assertEquals("false", body["context_selected"].toString())
+            assertFalse(body.containsKey("context"))
+            assertFalse(tool.execute("read", buildJsonObject { put("action", "get_commit_detail") }).isError)
+            assertFalse(paths.any { it == "/repos/o/r/commits/fixture" })
+            assertEquals(1, paths.count { it == "/repos/o/r/commits/main" })
+        } finally {
+            http.close()
+        }
+    }
 }

@@ -367,6 +367,7 @@ class GitHubTool(
                             put("description", "Branch name for create_branch or update_file.")
                         }
                     )
+                    put("select_created_branch", buildJsonObject { put("type", "boolean") })
                     put(
                         "base",
                         buildJsonObject {
@@ -1519,13 +1520,15 @@ class GitHubTool(
         }
         return if (response.status.isSuccess()) {
             val receipt = jsonParser.parseToJsonElement(text).jsonObject
+            val selectCreated = arguments["select_created_branch"] != JsonPrimitive(false)
             val selection = try {
                 workspaceClient.execute(
-                    "resolve_context",
+                    if (selectCreated) "resolve_context" else "get_branch_head",
                     buildJsonObject {
                         put("owner", owner)
                         put("repo", repo)
                         put("ref", branch)
+                        put("branch", branch)
                         put("refresh", true)
                     }
                 ).jsonObject
@@ -1544,9 +1547,19 @@ class GitHubTool(
                     put("base_sha", sha)
                     put("receipt_verified", receipt["object"]?.jsonObject?.get("sha")?.jsonPrimitive?.content == sha && receipt["ref"]?.jsonPrimitive?.content == "refs/heads/$branch")
                     put("created", true)
-                    put("remote_state_verified", selection?.get("commit_sha") == JsonPrimitive(sha) && selection?.get("ref") == JsonPrimitive(branch))
+                    val selected = selectCreated && selection?.get("commit_sha") == JsonPrimitive(sha) && selection?.get("ref") == JsonPrimitive(branch)
+                    val fixtureVerified = !selectCreated &&
+                        selection?.get("ref") == JsonPrimitive("refs/heads/$branch") &&
+                        (selection?.get("object") as? JsonObject)?.get("sha") == JsonPrimitive(sha)
+                    put("remote_state_verified", selected || fixtureVerified)
+                    put("context_selected", selected)
                     put("upstream_completed", true)
-                    selection?.let { put("context", it) } ?: put("context_refresh_required", true)
+                    if (selectCreated) {
+                        selection?.let { put("context", it) } ?: put("context_refresh_required", true)
+                    } else {
+                        put("selection_preserved", true)
+                        selection?.let { put("ref_observation", it) }
+                    }
                 }.toString()
             )
         } else {

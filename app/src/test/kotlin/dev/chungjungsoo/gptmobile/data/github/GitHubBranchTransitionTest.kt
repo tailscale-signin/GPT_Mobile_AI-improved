@@ -54,4 +54,9 @@ class GitHubBranchTransitionTest {
         assertNull(GitHubBranchTransition.verified("owner/repo", "github_commit", arguments, result(verified = false), true))
         assertNull(GitHubBranchTransition.verified("owner/repo", "github_read", arguments, result(), true))
     }
+
+    @Test fun disposableFixtureCannotChangeTheTaskDestinationEvenWithAContextPayload() {
+        val fixture = JsonObject(arguments + ("select_created_branch" to JsonPrimitive(false)))
+        assertNull(GitHubBranchTransition.verified("owner/repo", "github_commit", fixture, result(), true))
+    }
 }

@@ -377,14 +377,18 @@ internal class GitHubResultViews(
         is JsonObject -> JsonObject(
             value.mapNotNull { (key, child) ->
                 if ((key == "continuation" || key.endsWith("_continuation")) && child is JsonObject) {
-                    val args = continuationArguments(operation, request, child)
+                    // A tag inspection embeds a pinned commit page, not another tag page.
+                    // Preserve the authorized connection suffix while selecting the correct contract.
+                    val targetOperation = if (operation == "github_release" && child["action"] == JsonPrimitive("get_commit_detail")) "github_context" else operation
+                    val targetName = targetOperation + modelName.removePrefix(operation)
+                    val args = continuationArguments(targetOperation, request, child)
                     target += buildJsonObject {
                         put("pointer", pointer + "/" + key.replace("~", "~0").replace("/", "~1"))
                         put("native", child)
                         put(
                             "call",
                             buildJsonObject {
-                                put("tool", modelName)
+                                put("tool", targetName)
                                 put("arguments", args)
                             }
                         )
@@ -455,11 +459,12 @@ internal class GitHubResultViews(
     }
 
     private fun fragment(pointer: String, value: JsonElement, target: FragmentBuffer, pageBytes: Int) {
-        if (value.toString().toByteArray().size <= minOf(1024, pageBytes / 4)) {
-            target += buildJsonObject {
-                put("pointer", pointer)
-                put("value", value)
-            }
+        val whole = buildJsonObject {
+            put("pointer", pointer)
+            put("value", value)
+        }
+        if (whole.toString().encodeToByteArray().size <= minOf(384, pageBytes / 4)) {
+            target += whole
             return
         }
         when (value) {
@@ -550,7 +555,18 @@ internal class GitHubResultViews(
             }
         ),
         isError = true,
-        errorCode = "RETAINED_RESULT_CAPACITY"
+        errorCode = "RETAINED_RESULT_CAPACITY",
+        retainedContent = upstream.retainedContent ?: upstream.content.takeIf { value.toString().encodeToByteArray().size <= MAX_SOURCE_BYTES },
+        executionReceipt = JsonObject(
+            upstream.executionReceipt.orEmpty() + buildJsonObject {
+                put("upstream_completed", !upstream.isError)
+                put("presentation_state", "CAPACITY_REJECTED")
+                put("original_available_for_retention", value.toString().encodeToByteArray().size <= MAX_SOURCE_BYTES)
+                // This is execution evidence, not proof that the view or the task was delivered.
+                put("upstream_execution_state", if (upstream.isError) "FAILED" else "COMPLETED")
+                upstream.errorCode?.let { put("upstream_error_code", it) }
+            }
+        )
     )
 
     /** Persisted result/checkpoint envelopes carry this recipe beyond the in-memory cache. */

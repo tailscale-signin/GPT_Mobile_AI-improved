@@ -51,6 +51,7 @@ internal object GitHubSelfTestFixtures {
                         put("branch", fixture)
                         put("from_branch", branch)
                         put("expected_head_sha", sha)
+                        put("select_created_branch", false)
                     }
                 )
             } else if (creation["success"] == JsonPrimitive(true) && root(creation)?.get("created") == JsonPrimitive(true) && root(creation)?.get("receipt_verified") == JsonPrimitive(true) && root(creation)?.text("head_sha") == sha) {

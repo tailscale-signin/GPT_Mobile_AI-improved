@@ -75,13 +75,15 @@ internal class GitHubInspection(private val get: suspend (String) -> JsonElement
             }
             "branch_dependencies" -> {
                 val branch = required("branch")
+                // Resolve first: a missing branch must not fan out into unrelated PR/CI reads.
+                val branchDetails = get("$root/branches/${segment(branch)}")
                 val owner = root.removePrefix("/repos/").substringBefore('/')
                 val headPrs = get("$root/pulls?state=open&head=${segment("$owner:$branch")}&per_page=30&page=$page").jsonArray
                 val basePrs = get("$root/pulls?state=open&base=${segment(branch)}&per_page=30&page=$page").jsonArray
                 val runs = get("$root/actions/runs?branch=${segment(branch)}&per_page=30&page=$page").jsonObject
                 val more = headPrs.size == 30 || basePrs.size == 30 || (runs.s("total_count").toIntOrNull() ?: Int.MAX_VALUE) > page * 30
                 buildJsonObject {
-                    put("branch", get("$root/branches/${segment(branch)}"))
+                    put("branch", branchDetails)
                     put("head_pull_requests", headPrs)
                     put("base_pull_requests", basePrs)
                     put("workflow_runs", runs)
@@ -138,7 +140,19 @@ internal class GitHubInspection(private val get: suspend (String) -> JsonElement
                     put("ref", ref)
                     put("annotation", annotation)
                     put("resolved_target", resolved)
-                    put("commit", if (resolved.s("type") == "commit") get("$root/commits/${segment(resolved.s("sha"))}") else JsonNull)
+                    put(
+                        "commit",
+                        if (resolved.s("type") == "commit") {
+                            GitHubCommitDetail.present(
+                                get("$root/commits/${segment(resolved.s("sha"))}?per_page=30&page=1").jsonObject,
+                                page = 1,
+                                perPage = 30,
+                                includePatches = false
+                            )
+                        } else {
+                            JsonNull
+                        }
+                    )
                     put("release", observed("$root/releases/tags/$tag"))
                 }
             }

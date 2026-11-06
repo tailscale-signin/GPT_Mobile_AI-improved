@@ -2,7 +2,7 @@ package dev.chungjungsoo.gptmobile.data.github
 
 /** Evict account state together so quota and cache identities cannot diverge. */
 internal object GitHubSessionCaches {
-    private data class State(val cache: GitHubResponseCache = GitHubResponseCache(), val limits: GitHubRateLimitManager = GitHubRateLimitManager(), val scheduler: GitHubRequestScheduler = GitHubRequestScheduler(), val store: GitHubRepositoryStateStore = GitHubRepositoryStateStore(), val authenticationRejected: java.util.concurrent.atomic.AtomicBoolean = java.util.concurrent.atomic.AtomicBoolean())
+    private data class State(val cache: GitHubResponseCache = GitHubResponseCache(), val limits: GitHubRateLimitManager = GitHubRateLimitManager(), val scheduler: GitHubRequestScheduler = GitHubRequestScheduler(), val store: GitHubRepositoryStateStore = GitHubRepositoryStateStore(), val authenticationRejected: java.util.concurrent.atomic.AtomicBoolean = java.util.concurrent.atomic.AtomicBoolean(), val refs: GitHubRefAvailability = GitHubRefAvailability())
     private val states = LinkedHashMap<String, State>(8, 0.75f, true)
     private val identities = mutableMapOf<String, String>()
 
@@ -21,10 +21,12 @@ internal object GitHubSessionCaches {
         val state = states.getOrPut(scopedIdentity) { previous ?: State() }
         state.cache.clear()
         state.authenticationRejected.set(false)
+        state.refs.clear()
         identities[digest] = scopedIdentity
         // Aliases contain hashes only. Older credentials cannot be used after rotation.
         while (identities.size > 256) identities.remove(identities.keys.first())
     }
+    fun refsForCredential(token: String, host: String = "github.com"): GitHubRefAvailability = state(token, host).refs
     fun authenticationForCredential(token: String, host: String = "github.com"): java.util.concurrent.atomic.AtomicBoolean = state(token, host).authenticationRejected
     fun forCredential(token: String, host: String = "github.com"): GitHubResponseCache = state(token, host).cache
     fun rateLimitsForCredential(token: String, host: String = "github.com"): GitHubRateLimitManager = state(token, host).limits
@@ -36,6 +38,7 @@ internal object GitHubSessionCaches {
         states[identities[credentialKey(token, host)] ?: credentialKey(token, host)]?.let {
             it.authenticationRejected.set(false)
             it.cache.clear()
+            it.refs.clear()
         }
     }
 

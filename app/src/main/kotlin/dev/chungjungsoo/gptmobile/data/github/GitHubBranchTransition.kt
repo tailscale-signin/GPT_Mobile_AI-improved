@@ -14,6 +14,7 @@ internal object GitHubBranchTransition {
         val operation = tool.substringBefore("__")
         val action = arguments.text("action")
         if (!(operation == "github_commit" && action == "branch" || operation == "github_context" && action == "resolve")) return null
+        if (operation == "github_commit" && arguments["select_created_branch"] == JsonPrimitive(false)) return null
         val envelope = result as? JsonObject ?: return null
         val data = envelope["data"] as? JsonObject ?: envelope
         val context = data["context"] as? JsonObject ?: data.takeIf { operation == "github_context" } ?: return null

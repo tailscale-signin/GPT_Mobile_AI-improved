@@ -71,6 +71,7 @@ class GitHubWorkspaceClient(
     private val rateLimits = rateLimits ?: if (client === sharedClient) GitHubSessionCaches.rateLimitsForCredential(token, apiOrigins.hostIdentity) else GitHubRateLimitManager()
     private val scheduler = scheduler ?: if (client === sharedClient) GitHubSessionCaches.schedulerForCredential(token, apiOrigins.hostIdentity) else GitHubRequestScheduler()
     private val authenticationRejected = authenticationRejected ?: if (client === sharedClient) GitHubSessionCaches.authenticationForCredential(token, apiOrigins.hostIdentity) else java.util.concurrent.atomic.AtomicBoolean()
+    private val refAvailability = if (client === sharedClient) GitHubSessionCaches.refsForCredential(token, apiOrigins.hostIdentity) else GitHubRefAvailability()
 
     companion object {
         const val API_VERSION = "2026-03-10"
@@ -155,6 +156,7 @@ class GitHubWorkspaceClient(
         if (refreshed != token) {
             token = refreshed
             responseCache.clear()
+            refAvailability.clear()
             authenticationRejected.set(false)
         }
     }
@@ -165,7 +167,7 @@ class GitHubWorkspaceClient(
             try {
                 executeInvocation(action, args)
             } catch (failure: Exception) {
-                if (attempts.uncertainOrAccepted && (failure is GitHubRequestScheduler.AdmissionRejected || failure is GitHubRequestRejected || failure is GitHubRequestCircuit.Open)) {
+                if (attempts.uncertainOrAccepted && (failure is GitHubRequestScheduler.AdmissionRejected || failure is GitHubRequestRejected || failure is GitHubRequestCircuit.Open || failure is GitHubReadValidation)) {
                     throw GitHubExecutionBlocked(
                         buildJsonObject {
                             put("status", "RECONCILE_REQUIRED")
@@ -223,6 +225,10 @@ class GitHubWorkspaceClient(
             "Invalid repository owner or name."
         }
         val root = "/repos/${segment(owner)}/${segment(repo)}"
+        if (action == "resolve_context" && args["refresh"] == JsonPrimitive(true)) {
+            val selectedRef = field("commit_sha").ifBlank { field("ref").ifBlank { field("branch").ifBlank { repositorySession.context()?.ref.orEmpty() } } }
+            if (selectedRef.isNotBlank()) refAvailability.revalidate(root, selectedRef)
+        }
         if (action in setOf("pr_headers", "issue_headers")) {
             val pullRequest = action == "pr_headers"
             val number = required(if (pullRequest) "pull_number" else "issue_number").toInt().also { require(it > 0) }
@@ -1857,6 +1863,7 @@ class GitHubWorkspaceClient(
         refreshCredential()
         if (authenticated || method != HttpMethod.Get) require(token.isNotBlank()) { "A GitHub credential is required." }
         check(!authenticationRejected.get()) { "GitHub authentication was rejected (HTTP 401). Reconnect the GitHub account before retrying any operation." }
+        if (method == HttpMethod.Get) refAvailability.requireAvailable(path)
         val cacheKey = "${apiOrigins.rest}:$durableIdentity:${GitHubRepositoryStateStore.digest(token)}:${method.value}:$path"
         val cacheable = conditionalReads && method == HttpMethod.Get && path != "/rate_limit"
         val forceLive = kotlinx.coroutines.currentCoroutineContext()[GitHubDispatchAccounting]?.forceLiveReads == true
@@ -1932,6 +1939,7 @@ class GitHubWorkspaceClient(
                     val githubMessage = runCatching {
                         json.parseToJsonElement(text).jsonObject["message"]?.jsonPrimitive?.content
                     }.getOrNull()?.takeIf { it.isNotBlank() }
+                    if (method == HttpMethod.Get) refAvailability.failed(path, response.status.value, githubMessage.orEmpty())
                     val category = GitHubFailurePolicy.classify(response.status.value, githubMessage.orEmpty(), response.headers["X-RateLimit-Remaining"], response.headers["Retry-After"], response.headers["X-GitHub-SSO"])
                     if (category == "GITHUB_SECONDARY_RATE_LIMITED") rateLimits.cooldown(GitHubReadRetry.retryAfterMillis(response.headers["Retry-After"])?.let { it / 1000 + if (it % 1000 == 0L) 0 else 1 } ?: 60)
                     val details = buildList {
@@ -1964,6 +1972,7 @@ class GitHubWorkspaceClient(
                     )
                 }
                 val parsed = if (text.isBlank()) JsonObject(emptyMap()) else json.parseToJsonElement(text)
+                if (method == HttpMethod.Get) refAvailability.succeeded(path)
                 if (method != HttpMethod.Get) responseCache.invalidateMutable(path.substringBefore("/git/").substringBefore("/pulls/").substringBefore("/releases"))
                 if (cacheable) responseCache.put(cacheKey, response.headers[HttpHeaders.ETag], parsed, immutablePath(path))
                 parsed

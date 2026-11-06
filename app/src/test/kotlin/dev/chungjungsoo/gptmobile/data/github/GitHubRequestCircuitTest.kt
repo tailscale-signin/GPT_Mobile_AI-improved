@@ -53,4 +53,24 @@ class GitHubRequestCircuitTest {
         circuit.failed(replacement, IOException())
         assertEquals(5000L, (runCatching { circuit.admit() }.exceptionOrNull() as GitHubRequestCircuit.Open).retryAfterMs)
     }
+
+    @Test fun observedValidationResponseBreaksAConsecutiveTransportFailureStreak() {
+        val circuit = GitHubRequestCircuit(threshold = 2)
+        circuit.failed(circuit.admit(), IOException("network"))
+        circuit.failed(circuit.admit(), GitHubRequestRejected(422, "Invalid ref"))
+        circuit.failed(circuit.admit(), IOException("network"))
+        assertFalse(circuit.admit().probe)
+    }
+
+    @Test fun localValidationAndTlsCannotHealAnExpiredOpenCircuit() {
+        var time = 0L
+        val circuit = GitHubRequestCircuit(1, 100, now = { time })
+        circuit.failed(circuit.admit(), IOException("network"))
+        time = 100
+        circuit.failed(circuit.admit(), IllegalArgumentException("local schema"))
+        val afterValidation = circuit.admit()
+        assertTrue(afterValidation.probe)
+        circuit.failed(afterValidation, SSLException("untrusted"))
+        assertTrue(circuit.admit().probe)
+    }
 }

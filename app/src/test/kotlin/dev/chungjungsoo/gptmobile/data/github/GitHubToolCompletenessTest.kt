@@ -242,7 +242,7 @@ class GitHubToolCompletenessTest {
                 when (path) {
                     "/repos/o/r/git/ref/tags/v1" -> """{"object":{"type":"tag","sha":"annotation"}}"""
                     "/repos/o/r/git/tags/annotation" -> """{"message":"Release notes","object":{"type":"commit","sha":"pinned"}}"""
-                    "/repos/o/r/commits/pinned" -> """{"sha":"pinned"}"""
+                    "/repos/o/r/commits/pinned?per_page=30&page=1" -> """{"sha":"pinned"}"""
                     "/repos/o/r/releases/tags/v1" -> """{"tag_name":"v1","body":"Release notes"}"""
                     else -> error("Unexpected mutable lookup: $path")
                 }
@@ -251,5 +251,39 @@ class GitHubToolCompletenessTest {
         val result = client.execute("tag_context", "/repos/o/r", args("tag_name" to "v1"), 1)
         assertEquals("pinned", result["commit"]!!.jsonObject["sha"]!!.jsonPrimitive.content)
         assertEquals("Release notes", result["annotation"]!!.jsonObject["message"]!!.jsonPrimitive.content)
+    }
+
+    @Test fun tagInspectionBoundsCommitPatchesAndRetainsAnExactFileContinuation() = runTest {
+        val sha = "a".repeat(40)
+        val commit = buildJsonObject {
+            put("sha", sha)
+            put(
+                "files",
+                kotlinx.serialization.json.JsonArray(
+                    (1..30).map { index ->
+                        buildJsonObject {
+                            put("filename", "file$index.kt")
+                            put("status", "modified")
+                            put("patch", "x".repeat(100_000))
+                        }
+                    }
+                )
+            )
+        }
+        val client = GitHubInspection { path ->
+            when (path) {
+                "/repos/o/r/git/ref/tags/v1" -> Json.parseToJsonElement("""{"ref":"refs/tags/v1","object":{"type":"commit","sha":"$sha"}}""")
+                "/repos/o/r/commits/$sha?per_page=30&page=1" -> commit
+                "/repos/o/r/releases/tags/v1" -> Json.parseToJsonElement("""{"tag_name":"v1"}""")
+                else -> error("Unexpected request: $path")
+            }
+        }
+        val result = client.execute("tag_context", "/repos/o/r", args("tag_name" to "v1"), 1)
+        assertTrue(result.toString().encodeToByteArray().size < 10_000)
+        val detail = result.getValue("commit").jsonObject
+        assertEquals(kotlinx.serialization.json.JsonPrimitive(false), detail["patches_included"])
+        assertEquals(kotlinx.serialization.json.JsonPrimitive(sha), detail.getValue("continuation").jsonObject["commit_sha"])
+        assertEquals(kotlinx.serialization.json.JsonPrimitive(2), detail.getValue("continuation").jsonObject["page"])
+        assertEquals(30, detail.getValue("files").jsonArray.size)
     }
 }

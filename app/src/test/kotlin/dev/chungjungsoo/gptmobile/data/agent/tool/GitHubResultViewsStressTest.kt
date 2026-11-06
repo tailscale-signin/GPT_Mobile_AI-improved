@@ -198,4 +198,62 @@ class GitHubResultViewsStressTest {
         val stillTooLarge = data(views.present("scope", "github_context", "github_context", raw, call))
         assertFalse("recovery_call" in stillTooLarge)
     }
+
+    @Test fun longJsonPointersAreIncludedInFragmentByteAccounting() {
+        val views = GitHubResultViews(pageBytes = 2048)
+        val key = "k".repeat(320)
+        val value = "v".repeat(380)
+        val source = buildJsonObject { put(key, value) }
+        val first = views.present("scope", "github_read", "github_read", AgentToolResult("first", ToolResultContent.Json(source), false))
+        assertFalse(first.isError)
+        assertEquals(source, data(first).getValue("data"))
+        val recovery = data(first).getValue("recovery_call").jsonObject.getValue("arguments").jsonObject.getValue("view_cursor").jsonPrimitive.content
+        var page = data(views.read("scope", "github_read", "github_read", recovery, "recover"))
+        val rebuilt = StringBuilder()
+        var pages = 0
+        while (true) {
+            assertTrue(page.toString().encodeToByteArray().size <= 1536)
+            for (fragment in page.getValue("fragments").jsonArray) {
+                val row = fragment.jsonObject
+                assertEquals("/$key", row.getValue("pointer").jsonPrimitive.content)
+                assertEquals(rebuilt.length, row.getValue("offset").jsonPrimitive.int)
+                rebuilt.append(row.getValue("value").jsonPrimitive.content)
+            }
+            if (page.getValue("local_page_complete").jsonPrimitive.boolean) break
+            page = data(views.read("scope", "github_read", "github_read", cursor(page), "next"))
+            assertTrue(++pages < 100)
+        }
+        assertEquals(value, rebuilt.toString())
+    }
+
+    @Test fun tagCommitContinuationUsesPinnedContextContractAndPreservesConnection() {
+        val sha = "a".repeat(40)
+        val source = Json.parseToJsonElement("""{"commit":{"sha":"$sha","continuation":{"action":"get_commit_detail","commit_sha":"$sha","ref":"$sha","page":2,"per_page":30,"include_patches":false}}}""").jsonObject
+        val request = Json.parseToJsonElement("""{"action":"tag","tag_name":"v1","owner":"o","repo":"r"}""").jsonObject
+        val first = data(GitHubResultViews().present("scope", "github_release", "github_release__active", AgentToolResult("tag", ToolResultContent.Json(source), false), request))
+        val call = first.getValue("remote_continuations").jsonArray.single().jsonObject.getValue("call").jsonObject
+        assertEquals(JsonPrimitive("github_context__active"), call["tool"])
+        val args = call.getValue("arguments").jsonObject
+        assertEquals(JsonPrimitive("commit"), args["action"])
+        assertEquals(JsonPrimitive(sha), args["commit_sha"])
+        assertEquals(JsonPrimitive(2), args["page"])
+        assertFalse(args.containsKey("tag_name"))
+        assertTrue(ToolArgumentValidator.errors(args, GitHubOperationTool.definition("github_context").inputSchema).isEmpty())
+    }
+
+    @Test fun presentationCapacityRetainsBoundedOriginalAndSeparateUpstreamOutcome() {
+        val source = ToolResultContent.Json(
+            buildJsonObject {
+                put("sha", "a".repeat(40))
+                put("receipt", "confirmed")
+            }
+        )
+        val result = GitHubResultViews(capacityBytes = 100).present("scope", "github_commit", "github_commit", AgentToolResult("write", source, false))
+        assertTrue(result.isError)
+        assertEquals("RETAINED_RESULT_CAPACITY", result.errorCode)
+        assertEquals(source, result.retainedContent)
+        assertEquals(JsonPrimitive(true), result.executionReceipt?.get("upstream_completed"))
+        assertEquals(JsonPrimitive("COMPLETED"), result.executionReceipt?.get("upstream_execution_state"))
+        assertEquals(JsonPrimitive("CAPACITY_REJECTED"), result.executionReceipt?.get("presentation_state"))
+    }
 }

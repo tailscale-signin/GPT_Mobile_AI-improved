@@ -58,7 +58,7 @@ class GitHubWorkspaceClientTest {
         }
     }
 
-    @Test fun identicalBodiesWithNewReviewedPreconditionsAreDistinctMutations() = runTest {
+    @Test fun identicalPayloadCannotReplayInOneTaskButSeparatelyReviewedTaskCanMutate() = runTest {
         var updated = "first"
         var writes = 0
         val http = HttpClient(
@@ -72,8 +72,9 @@ class GitHubWorkspaceClientTest {
             }
         )
         try {
-            val client = GitHubWorkspaceClient("token", http, conditionalReads = false)
-            suspend fun update() = client.execute(
+            val store = GitHubRepositoryStateStore()
+            val client = GitHubWorkspaceClient("token", http, conditionalReads = false, taskId = "review-one", stateStore = store)
+            suspend fun update(active: GitHubWorkspaceClient) = active.execute(
                 "update_issue",
                 buildJsonObject {
                     put("owner", "o")
@@ -83,11 +84,20 @@ class GitHubWorkspaceClientTest {
                     put("title", "same reviewed title")
                 }
             )
-            update()
-            update()
+            update(client)
+            update(client)
             assertEquals(1, writes)
+
+            // Changing only a precondition in the same task cannot turn a
+            // retained successful HTTP payload into another mutation.
             updated = "second"
-            update()
+            update(client)
+            assertEquals(1, writes)
+
+            // A genuinely new task with a fresh remote-state precondition is
+            // a separate authorization scope and may perform another write.
+            val newlyReviewed = GitHubWorkspaceClient("token", http, conditionalReads = false, taskId = "review-two", stateStore = store)
+            update(newlyReviewed)
             assertEquals(2, writes)
         } finally {
             http.close()

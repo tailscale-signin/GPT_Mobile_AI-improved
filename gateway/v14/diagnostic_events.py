@@ -351,8 +351,21 @@ class DiagnosticSessionJournal:
                         return sources[key]
 
                     rejected, committed, duplicate, accounted = [], [], [], []
-                    for raw in rows:
-                        key = identity(raw)
+                    # Batch the digest lookup rather than doing 50,000 individual
+                    # SQLite SELECTs during a large import. Keep per-event inserts
+                    # and the transaction's FULL durability contract unchanged.
+                    identified = [(raw, identity(raw)) for raw in rows]
+                    identities = [key[3] for _, key in identified if key is not None]
+                    prior_digests = {}
+                    if identities:
+                        placeholders = ','.join('?' for _ in identities)
+                        prior_digests = {
+                            previous['event_id']: previous['digest']
+                            for previous in db.execute(
+                                f'SELECT event_id,digest FROM verification WHERE owner=? AND session=? AND event_id IN ({placeholders})',
+                                (owner, session, *identities))
+                        }
+                    for raw, key in identified:
                         if key is None:
                             rejected.append({'event_id': None, 'code': 'INVALID_EVENT_ID'})
                             capture['rejected'] += 1
@@ -367,9 +380,9 @@ class DiagnosticSessionJournal:
                             capture['rejected'] += 1
                             continue
                         verification = hashlib.sha256(encoded(item).encode()).hexdigest()
-                        prior = db.execute('SELECT digest FROM verification WHERE owner=? AND session=? AND event_id=?', (owner, session, event_id)).fetchone()
-                        if prior:
-                            if prior[0] != verification:
+                        prior = prior_digests.get(event_id)
+                        if prior is not None:
+                            if prior != verification:
                                 rejected.append({'event_id': event_id, 'code': 'EVENT_ID_CONFLICT'})
                                 capture['rejected'] += 1
                             else:
@@ -384,6 +397,9 @@ class DiagnosticSessionJournal:
                         db.execute('INSERT INTO events VALUES(?,?,?,?,?,?,?,?)',
                                    (owner, session, capture['last_ingest'], event_id, origin, boot, sequence, encoded(item)))
                         db.execute('INSERT INTO verification VALUES(?,?,?,?,?)', (owner, session, event_id, verification, capture['last_ingest']))
+                        # A repeated ID inside this same batch must be recognized
+                        # without another database round-trip.
+                        prior_digests[event_id] = verification
                         source['highest_received'] = max(source['highest_received'], sequence)
                         source['received_count'] += 1
                         source['updated'] = now

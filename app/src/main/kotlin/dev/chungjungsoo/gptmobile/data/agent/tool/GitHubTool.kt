@@ -561,6 +561,7 @@ class GitHubTool(
                 }
                 result
             } catch (cancelled: CancellationException) {
+                accounting.cancelled()
                 throw cancelled
             } catch (_: Exception) {
                 accounting.finish(AgentToolResult(callId, ToolResultContent.Text("GitHub execution state is unavailable. Retain this task and inspect saved receipts before retrying an operation."), true, dispatched = false, errorCode = "GITHUB_STATE_UNAVAILABLE"), (arguments["action"] as? JsonPrimitive)?.content in MUTATING_ACTIONS)
@@ -2059,7 +2060,7 @@ class GitHubTool(
             }
             scheduler.recordRequest()
             dev.chungjungsoo.gptmobile.data.github.GitHubMutationAttempts.dispatched()
-            dev.chungjungsoo.gptmobile.data.github.GitHubDispatchAccounting.started(true)
+            val observationId = dev.chungjungsoo.gptmobile.data.github.GitHubDispatchAccounting.started(true)
             httpClient.githubRequest(url) {
                 this.method = method
                 contentType(ContentType.Application.Json)
@@ -2070,7 +2071,7 @@ class GitHubTool(
                 setBody(body.toString())
             }.also {
                 if (it.status.value in 400..499 && it.status.value != 408) dev.chungjungsoo.gptmobile.data.github.GitHubMutationAttempts.rejected()
-                dev.chungjungsoo.gptmobile.data.github.GitHubDispatchAccounting.responded(true, it.status.value)
+                dev.chungjungsoo.gptmobile.data.github.GitHubDispatchAccounting.responded(true, it.status.value, observationId, it.headers["X-GitHub-Request-Id"])
                 rateLimits.record(it.headers, it.status.value)
                 if (it.status.value == 401) authenticationRejected.set(true)
             }
@@ -2084,14 +2085,14 @@ class GitHubTool(
             check(!authenticationRejected.get()) { "GitHub authentication was rejected (HTTP 401). Reconnect the GitHub account before retrying any operation." }
             rateLimits.requireAvailable(if (url.contains("/search/")) "search" else "core")
             scheduler.recordRequest()
-            dev.chungjungsoo.gptmobile.data.github.GitHubDispatchAccounting.started(false)
+            val observationId = dev.chungjungsoo.gptmobile.data.github.GitHubDispatchAccounting.started(false)
             httpClient.githubRequest(url) {
                 header(HttpHeaders.Accept, "application/vnd.github+json")
                 header(HttpHeaders.UserAgent, "GPT-Mobile-App")
                 header("X-GitHub-Api-Version", GitHubWorkspaceClient.API_VERSION)
                 if (apiToken.isNotBlank()) header(HttpHeaders.Authorization, "Bearer $apiToken")
             }.also {
-                dev.chungjungsoo.gptmobile.data.github.GitHubDispatchAccounting.responded(false, it.status.value)
+                dev.chungjungsoo.gptmobile.data.github.GitHubDispatchAccounting.responded(false, it.status.value, observationId, it.headers["X-GitHub-Request-Id"])
                 rateLimits.record(it.headers, it.status.value)
                 if (it.status.value == 401) authenticationRejected.set(true)
                 // Read the body within the retry boundary, including an interrupted HTTP/2 body.

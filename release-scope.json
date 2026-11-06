@@ -23,7 +23,8 @@
     "Persist gateway response provenance, ordered answer segments and bounded diagnostic snapshots; add GitHub bootstrap, enterprise-origin isolation and durable workflow evidence support.",
     "Extend release evidence and deployment/performance qualification tooling while retaining exact-commit checks and explicit unmeasured or unqualified outcomes.",
     "Repair the November 6 diagnostic workflow by reusing complete GitHub evidence, reserving verification and cleanup, distinguishing transport provenance, streaming bounded journal/receipt exports, chunking large redacted records, validating MCP negotiation and reducing progress rendering work.",
-    "Repair the expanded November 6 diagnostic scope with run-bound acceptance receipts, action validation and native graph alternatives, protected result retention and upgrade recovery, durable gateway disconnect handling, selected-model capacity confirmation, opt-in failed-attempt tracing, deferred startup/workspace IO and adaptive blur."
+    "Repair the expanded November 6 diagnostic scope with run-bound acceptance receipts, action validation and native graph alternatives, protected result retention and upgrade recovery, durable gateway disconnect handling, selected-model capacity confirmation, opt-in failed-attempt tracing, deferred startup/workspace IO and adaptive blur.",
+    "Correlate GitHub request and response observations, preserve uncertain GraphQL mutation claims, and verify ready-for-review by exact remote readback without replaying a lost write."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; its remaining acceptance cases are not represented as passed.",
@@ -570,12 +571,14 @@
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubContinuityUpgradeTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubDiagnosticRecoveryTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubDispatchAccountingTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubDispatchObservationTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEvidencePolicyTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEvidenceRetentionTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubExecutionJournalTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubExecutionLedgerTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubExecutionLimitsTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubFailureSummaryTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubGraphQlMutationRecoveryTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubIncidentRegressionTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubInputRegressionTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubMergedBranchAuditTest.kt",
@@ -719,6 +722,7 @@
     "docs/repairs/github-chat-progress-2026-11-03-task.json",
     "docs/repairs/github-checklist-diagnostics-2026-11-03-task.json",
     "docs/repairs/github-checklist-diagnostics-6228467361406318808.md",
+    "docs/repairs/github-dispatch-graphql-2026-11-06.md",
     "docs/repairs/github-log-scroll-2026-11-03-task.json",
     "docs/repairs/github-status-1793718669685-task.json",
     "docs/repairs/github-status-1793718669685.md",

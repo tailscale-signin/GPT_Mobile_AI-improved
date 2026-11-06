@@ -12,17 +12,16 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.Card
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Surface
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -33,16 +32,16 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
-import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogProperties
@@ -56,13 +55,11 @@ import dev.chungjungsoo.gptmobile.presentation.common.glassBackdrop
 import kotlin.math.cos
 import kotlin.math.sin
 import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.put
-
 
 /**
  * The Status tab owns a visual, source-backed map. Loading the map does not
@@ -109,6 +106,7 @@ fun RepositoryGraphStatusMap(
             put("name", community.text("name", "Subsystem ${index + 1}"))
             put("qualified", community.text("name", "Subsystem ${index + 1}"))
             put("kind", "community")
+            put("file_count", (community["files"] as? JsonArray)?.size ?: 0)
         }
     }
     Surface(
@@ -153,7 +151,7 @@ fun RepositoryGraphStatusMap(
             }
             selectedNode?.let { node ->
                 Text(node.text("qualified", node.text("name")), style = MaterialTheme.typography.titleSmall)
-                Text(node.text("path", "Graph subsystem") + node.text("line").takeIf(String::isNotBlank)?.let { ":$it" }.orEmpty(), style = MaterialTheme.typography.bodySmall)
+                Text(node.text("path", "Graph subsystem") + (node.text("line").takeIf(String::isNotBlank)?.let { ":$it" } ?: node.text("file_count").takeIf { it != "0" }?.let { " · $it files" }.orEmpty()), style = MaterialTheme.typography.bodySmall)
             }
             state.error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
             if (map?.get("stale") == JsonPrimitive(true)) Text("This graph is stale; refresh the selected branch revision.", color = MaterialTheme.colorScheme.error)

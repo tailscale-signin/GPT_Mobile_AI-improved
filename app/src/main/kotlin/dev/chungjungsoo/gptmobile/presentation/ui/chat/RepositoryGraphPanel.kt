@@ -5,7 +5,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -100,15 +99,20 @@ fun RepositoryGraphStatusMap(
     val communities = map?.objects("communities").orEmpty()
     // Communities are drawn as distinct bubbles when the architecture endpoint
     // supplies community data but no symbol-level nodes.
-    val bubbles = if (sourceNodes.isNotEmpty()) sourceNodes else communities.mapIndexed { index, community ->
-        buildJsonObject {
-            put("id", community.text("id", "community-$index"))
-            put("name", community.text("name", "Subsystem ${index + 1}"))
-            put("qualified", community.text("name", "Subsystem ${index + 1}"))
-            put("kind", "community")
-            put("file_count", (community["files"] as? JsonArray)?.size ?: 0)
+    val bubbles =
+        if (sourceNodes.isNotEmpty()) {
+            sourceNodes
+        } else {
+            communities.mapIndexed { index, community ->
+                buildJsonObject {
+                    put("id", community.text("id", "community-$index"))
+                    put("name", community.text("name", "Subsystem ${index + 1}"))
+                    put("qualified", community.text("name", "Subsystem ${index + 1}"))
+                    put("kind", "community")
+                    put("file_count", (community["files"] as? JsonArray)?.size ?: 0)
+                }
+            }
         }
-    }
     Surface(
         shape = androidx.compose.foundation.shape.RoundedCornerShape(24.dp),
         color = MaterialTheme.colorScheme.surfaceContainerLow,
@@ -334,7 +338,11 @@ internal fun GraphMiniMap(nodes: List<JsonObject>, edges: List<JsonObject>, onSe
                         val ringCount = if (nodes.size > 12) if (i >= 12) nodes.size - 12 else 12 else nodes.size.coerceAtLeast(1)
                         val slot = if (nodes.size > 12 && i >= 12) i - 12 else i
                         val angle = 2 * Math.PI * slot / ringCount - Math.PI / 2
-                        val ring = if (nodes.size > 12 && i >= 12) 0.44f else if (nodes.size > 6) 0.34f else 0.30f
+                        val ring = when {
+                            nodes.size > 12 && i >= 12 -> 0.44f
+                            nodes.size > 6 -> 0.34f
+                            else -> 0.30f
+                        }
                         val point = Offset(
                             size.width / 2f + cos(angle).toFloat() * size.width * ring,
                             size.height / 2f + sin(angle).toFloat() * size.height * ring
@@ -349,7 +357,11 @@ internal fun GraphMiniMap(nodes: List<JsonObject>, edges: List<JsonObject>, onSe
             val ringCount = if (nodes.size > 12) if (i >= 12) nodes.size - 12 else 12 else nodes.size.coerceAtLeast(1)
             val slot = if (nodes.size > 12 && i >= 12) i - 12 else i
             val angle = 2 * Math.PI * slot / ringCount - Math.PI / 2
-            val ring = if (nodes.size > 12 && i >= 12) 0.44f else if (nodes.size > 6) 0.34f else 0.30f
+            val ring = when {
+                nodes.size > 12 && i >= 12 -> 0.44f
+                nodes.size > 6 -> 0.34f
+                else -> 0.30f
+            }
             Offset(
                 size.width / 2 + cos(angle).toFloat() * size.width * ring,
                 size.height / 2 + sin(angle).toFloat() * size.height * ring

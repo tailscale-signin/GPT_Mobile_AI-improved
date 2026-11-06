@@ -993,7 +993,7 @@ class GitHubToolTest {
                 }
             )
             assertFalse(result.isError)
-            val body = (result.content as ToolResultContent.Json).value.jsonObject
+            val body = dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.element(result.content).jsonObject
             assertEquals("true", body["selection_preserved"].toString())
             assertEquals("true", body["remote_state_verified"].toString())
             assertEquals("false", body["context_selected"].toString())

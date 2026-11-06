@@ -78,18 +78,25 @@ class GitHubRefAvailabilityTest {
     }
 
     @Test fun staleCommitStopsCascadingHttpAndExplicitRefreshCanRecover() = runTest {
-        var requests = 0
+        val paths = mutableListOf<String>()
         var restored = false
         val sha = "a".repeat(40)
         val tree = "b".repeat(40)
         val http = HttpClient(
             MockEngine { request ->
-                requests++
-                assertEquals("/repos/o/r/commits/gone", request.url.encodedPath)
-                if (restored) {
-                    respond("""{"sha":"$sha","commit":{"tree":{"sha":"$tree"}},"files":[]}""")
-                } else {
-                    respond("""{"message":"No commit found for SHA: gone"}""", HttpStatusCode.UnprocessableEntity)
+                paths += request.url.encodedPath
+                when (request.url.encodedPath) {
+                    "/repos/o/r/commits/gone" -> if (restored) {
+                        respond("""{"sha":"$sha","commit":{"tree":{"sha":"$tree"}},"files":[]}""")
+                    } else {
+                        respond("""{"message":"No commit found for SHA: gone"}""", HttpStatusCode.UnprocessableEntity)
+                    }
+                    "/repos/o/r/git/trees/$tree" -> {
+                        assertTrue(restored)
+                        assertEquals("1", request.url.parameters["recursive"])
+                        respond("""{"sha":"$tree","tree":[],"truncated":false}""")
+                    }
+                    else -> error("Ref recovery must stay on the requested ref and its resolved tree: ${request.url}")
                 }
             }
         )
@@ -102,12 +109,13 @@ class GitHubRefAvailabilityTest {
             }
             assertTrue(runCatching { client.execute("get_commit_detail", args) }.exceptionOrNull() is GitHubRequestRejected)
             assertTrue(runCatching { client.execute("get_commit_status_summary", args) }.exceptionOrNull() is GitHubReadValidation)
-            assertEquals(1, requests)
+            assertEquals(listOf("/repos/o/r/commits/gone"), paths)
             assertNull(client.taskContext())
             restored = true
             client.execute("resolve_context", JsonObject(args + ("refresh" to JsonPrimitive(true))))
-            assertEquals(2, requests)
+            assertEquals(listOf("/repos/o/r/commits/gone", "/repos/o/r/commits/gone", "/repos/o/r/git/trees/$tree"), paths)
             assertEquals("gone", client.taskContext()?.ref)
+            assertEquals(sha, client.taskSnapshot()?.commitSha)
         } finally {
             http.close()
         }

@@ -28,6 +28,8 @@ This candidate combines the November 6 GitHub, gateway, retained-evidence and An
 - Repair the expanded November 6 diagnostic scope with run-bound acceptance receipts, action validation and native graph alternatives, protected result retention and upgrade recovery, durable gateway disconnect handling, selected-model capacity confirmation, opt-in failed-attempt tracing, deferred startup/workspace IO and adaptive blur.
 - Correlate GitHub request and response observations, preserve uncertain GraphQL mutation claims, and verify ready-for-review by exact remote readback without replaying a lost write.
 
+- Bind REST mutation claims to their actual HTTP payload, preserve exact legacy fences and proof-based recovery, connect GraphQL reconciliation to task acceptance, and retain deterministic workflow-error blocking across error-code upgrades.
+
 ## Implementation and verification
 
 Implementation reports: [diagnostic workflow](docs/repairs/diagnostic-workflow-evidence-2026-11-06.md), [gateway, acceptance and retention](docs/repairs/gateway-task-retention-2026-11-06.md), and [GraphQL recovery and dispatch correlation](docs/repairs/github-dispatch-graphql-2026-11-06.md).
@@ -72,3 +74,4 @@ The existing signed-release pipeline verifies exact-commit tests, required main 
 - Selected-profile guarantees, bidirectional debug capture, restart recovery and response frame pacing still require live Android/PC qualification with the configured local model and gateway. Performance targets are not measured improvements.
 - The GitHub ticket broker, callback registration and enterprise/private-repository deployment remain operator qualification tasks; deterministic tests do not establish production sign-in or credential refresh.
 - The November 6 diagnostic repairs require live acceptance on the original MCP endpoints, an authorized GitHub workflow against the running application build, and physical-device frame measurements. Retained exports cannot recover previously deleted, evicted or uncaptured history; cached or mocked observations do not establish live integration success.
+- Legacy writes whose original invocation arguments and identifying context were already lost cannot be reconstructed from their hashes. Exact retained fences remain enforced; arbitrary resumption of that historical work requires external remote-state reconciliation.

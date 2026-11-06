@@ -107,7 +107,12 @@ class GitHubReplayRecoveryTest {
             }
         }
         val tool = GitHubOperationTool("github_release", backend, "recover-current-page", views = GitHubResultViews())
-        val input = buildJsonObject { put("action", "list") }
+        // List results intentionally preview long notes. A selected release's
+        // detail retains the full body and exercises actual replay compaction.
+        val input = buildJsonObject {
+            put("action", "detail")
+            put("tag_name", "v1")
+        }
         val first = tool.execute("original", input)
         assertTrue((first.content as ToolResultContent.Json).value.jsonObject.containsKey("data"))
         val initialCall = ProviderEvent.ToolCall("original", "github_release", input)

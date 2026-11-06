@@ -971,7 +971,10 @@ class GitHubWorkspaceClient(
                         buildJsonObject {
                             put("reconciled", true)
                             put("verification", "REMOTE_PR_READY_AT_EXPECTED_HEAD")
+                            put("repository", root.removePrefix("/repos/"))
                             put("pull_number", number)
+                            put("node_id", observed.getValue("node_id"))
+                            put("state", "open")
                             put("head_sha", expected)
                             put("draft", false)
                         }
@@ -993,7 +996,11 @@ class GitHubWorkspaceClient(
                 JsonObject(
                     mutation + buildJsonObject {
                         put("remote_state_verified", true)
+                        put("verification", "REMOTE_PR_READY_AT_EXPECTED_HEAD")
+                        put("repository", root.removePrefix("/repos/"))
                         put("pull_number", number)
+                        put("node_id", observed.getValue("node_id"))
+                        put("state", "open")
                         put("head_sha", expected)
                         put("draft", false)
                     }
@@ -1223,7 +1230,7 @@ class GitHubWorkspaceClient(
             put("sha", receipt.getValue("sha"))
             put("force", false)
         }
-        executionJournal.acceptRemoteProof("http.PATCH", requestIdentity(path, body), receipt)
+        acceptHttpRemoteProof(path, HttpMethod.Patch, body, receipt)
         return receipt
     }
 
@@ -1914,23 +1921,154 @@ class GitHubWorkspaceClient(
     ): JsonElement {
         if (method == HttpMethod.Get) return requestUntracked(path, method, body, authenticated)
         require(token.isNotBlank()) { "A GitHub credential is required." }
-        val identity = requestIdentity(path, body)
-        val result = executionJournal.run("http.${method.value}", identity, singleHttpRequest = true) { requestUntracked(path, method, body, authenticated) }.jsonObject
+        val action = "http.${method.value}"
+        val identity = requestIdentity(path, method, body)
+        val legacy = legacyRequestIdentity(path, body)
+        val legacyClaim = hasRetainedRequestClaim(action, legacy)
+        if (!legacyClaim && !hasRetainedRequestClaim(action, identity)) requirePayloadIdentityScope()
+        val result = executionJournal.run(action, identity, singleHttpRequest = true) {
+            if (legacyClaim) {
+                // Bind an already retained receipt to the new payload fence without
+                // dispatching again. Future presentation/context variants share it.
+                val retained = executionJournal.run(action, legacy, singleHttpRequest = true) {
+                    error("A retained legacy HTTP claim cannot dispatch another mutation.")
+                }.jsonObject
+                if (retained["execution"]?.jsonObject?.get("status")?.jsonPrimitive?.content != "COMPLETED") {
+                    throw GitHubExecutionBlocked(retained)
+                }
+                retained
+            } else {
+                requestUntracked(path, method, body, authenticated)
+            }
+        }.jsonObject
         if (result["execution"]?.jsonObject?.get("status")?.jsonPrimitive?.content != "COMPLETED") {
             throw GitHubExecutionBlocked(result)
         }
         return result
     }
 
-    private suspend fun requestIdentity(path: String, body: JsonObject?): JsonObject {
+    private fun requestIdentity(path: String, method: HttpMethod, body: JsonObject?): JsonObject = buildJsonObject {
+        put("method", method.value)
+        put("path", path)
+        // Preconditions still run before dispatch. They and presentation/context
+        // arguments cannot authorize repeating an uncertain, identical HTTP write.
+        body?.let { put("body", it) }
+    }
+
+    private suspend fun legacyRequestIdentity(path: String, body: JsonObject?): JsonObject {
         val invocation = currentCoroutineContext()[Invocation]?.identity.orEmpty()
         return buildJsonObject {
             put("path", path)
-            // Two identical HTTP bodies with newly reviewed preconditions are
-            // different executions. The whole invocation is hashed, never logged.
             put("invocation", invocation)
             body?.let { put("body", it) }
         }
+    }
+
+    private fun requestScopes(): List<String> = (listOf(executionScope) + legacyCredentialIdentities.map { listOf(it, connectionUid, conversationId, taskId).joinToString(":") }).distinct()
+
+    private suspend fun hasRetainedRequestClaim(action: String, identity: JsonObject): Boolean {
+        for (scope in requestScopes()) {
+            val id = GitHubRepositoryStateStore.digest("$scope|$action|${GitHubExecutionJournal.canonical(identity)}")
+            val retained = repositoryState.read(scope, "execution:$id") ?: continue
+            if (retained["status"]?.jsonPrimitive?.content != "REJECTED") return true
+        }
+        return false
+    }
+
+    private suspend fun acceptHttpRemoteProof(path: String, method: HttpMethod, body: JsonObject?, receipt: JsonObject) {
+        val action = "http.${method.value}"
+        val identities = listOf(requestIdentity(path, method, body), legacyRequestIdentity(path, body))
+        for (scope in requestScopes()) {
+            val retained = GitHubExecutionJournal(repositoryState, scope)
+            for (identity in identities) retained.acceptRemoteProof(action, identity, receipt)
+        }
+    }
+
+    private fun payloadIdentityMarkerKey(scope: String) = "execution:" + GitHubRepositoryStateStore.digest("$scope|http.payload-identity|v2")
+
+    private fun JsonObject.isPayloadIdentityScope(): Boolean = this["payload_identity_version"] == JsonPrimitive(2) && this["status"] == JsonPrimitive("COMPLETED")
+
+    private suspend fun payloadIdentityScopeRecovered(scope: String, marker: JsonObject): Boolean {
+        if (marker.isPayloadIdentityScope()) return true
+        val ids = marker["legacy_execution_ids"] as? JsonArray ?: return false
+        if (ids.isEmpty() || ids.size > 32) return false
+        for (value in ids) {
+            val id = (value as? JsonPrimitive)?.takeIf { it.isString }?.content?.takeIf { it.matches(Regex("[a-f0-9]{64}")) } ?: return false
+            val receipt = repositoryState.read(scope, "execution:$id") ?: return false
+            if (receipt["status"] != JsonPrimitive("COMPLETED") || "result" !in receipt) return false
+        }
+        val recovered = repositoryState.update(scope, payloadIdentityMarkerKey(scope)) { current ->
+            if (current != marker) {
+                checkNotNull(current) { "The retained legacy HTTP identity marker disappeared." }
+            } else {
+                JsonObject(marker + mapOf("payload_identity_version" to JsonPrimitive(2), "status" to JsonPrimitive("COMPLETED"), "legacy_receipts_reconciled" to JsonPrimitive(true)))
+            }
+        }
+        return recovered.isPayloadIdentityScope()
+    }
+
+    private fun legacyHttpScopeBlocked() = GitHubExecutionBlocked(
+        buildJsonObject {
+            put("schema", "github.execution.v1")
+            put("status", "RECONCILE_REQUIRED")
+            put("code", "GITHUB_LEGACY_HTTP_IDENTITY_UNRESOLVED")
+            put("dispatched", false)
+            put("message", "This retained task has an unresolved HTTP write from the earlier request-identity format. Changing arguments cannot authorize another write. Reopen the original saved request or use read-only remote checks to reconcile it; start a newly authorized task for new changes. Missing legacy context is not evidence that every historical write was reconciled.")
+        }
+    )
+
+    /** The old format did not retain payload identities; never infer them from changed arguments. */
+    private suspend fun requirePayloadIdentityScope() {
+        for (scope in requestScopes()) {
+            val markerKey = payloadIdentityMarkerKey(scope)
+            val marker = repositoryState.read(scope, markerKey)
+            if (marker != null) {
+                if (!payloadIdentityScopeRecovered(scope, marker)) throw legacyHttpScopeBlocked()
+                continue
+            }
+            val context = repositoryState.read(scope, "execution-context")
+            val rows = context?.get("executions") as? JsonArray
+            val unreadable = context != null && rows == null || context == null && repositoryState.contains(scope, "execution-context")
+            val unresolved = mutableListOf<JsonElement>()
+            for (value in rows.orEmpty()) {
+                val row = value as? JsonObject
+                if (row == null) {
+                    unresolved += value
+                    continue
+                }
+                if ((row["action"] as? JsonPrimitive)?.content !in setOf("http.POST", "http.PUT", "http.PATCH", "http.DELETE")) continue
+                val id = (row["execution_id"] as? JsonPrimitive)?.takeIf { it.isString && it.content.matches(Regex("[a-f0-9]{64}")) }?.content
+                val receipt = id?.let { repositoryState.read(scope, "execution:$it") }
+                // Context is an inventory hint. Its cached COMPLETED status cannot
+                // override a protected fence whose receipt body is missing/corrupt.
+                val settled = receipt?.get("status") == JsonPrimitive("REJECTED") ||
+                    receipt?.get("status") == JsonPrimitive("COMPLETED") &&
+                    "result" in receipt
+                if (!settled) unresolved += row
+            }
+            if (unreadable || unresolved.isNotEmpty()) {
+                val ids = unresolved.mapNotNull { (it as? JsonObject)?.get("execution_id") as? JsonPrimitive }
+                    .takeIf { !unreadable && it.size == unresolved.size && it.all { id -> id.isString && id.content.matches(Regex("[a-f0-9]{64}")) } }
+                val retained = repositoryState.update(scope, markerKey) { previous ->
+                    previous ?: buildJsonObject {
+                        put("payload_identity_version", 1)
+                        put("status", "RECONCILE_REQUIRED")
+                        put("reason", "LEGACY_HTTP_IDENTITY_UNRESOLVED")
+                        put("legacy_execution_ids", JsonArray(ids.orEmpty()))
+                    }
+                }
+                // A concurrent new-format request may already have initialized this
+                // scope. Otherwise cache pruning cannot erase its ambiguity latch.
+                if (!retained.isPayloadIdentityScope()) throw legacyHttpScopeBlocked()
+            }
+        }
+        val marker = repositoryState.update(executionScope, payloadIdentityMarkerKey(executionScope)) { previous ->
+            previous ?: buildJsonObject {
+                put("payload_identity_version", 2)
+                put("status", "COMPLETED")
+            }
+        }
+        if (!marker.isPayloadIdentityScope()) throw legacyHttpScopeBlocked()
     }
 
     private suspend fun requestUntracked(

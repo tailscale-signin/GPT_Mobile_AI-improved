@@ -14,7 +14,15 @@ import kotlinx.serialization.json.put
 /** A bounded projection of durable receipts; model completion never substitutes for acceptance. */
 internal object GitHubExecutionLedger {
     enum class ReceiptState { PRECHECK_REJECTED, DISPATCHED, COMPLETED, FAILED, UNKNOWN_OUTCOME }
-    private data class ReconciliationKey(val binding: String, val tool: String, val repository: String, val branch: String, val arguments: JsonObject)
+    private data class ReconciliationKey(
+        val binding: String,
+        val tool: String,
+        val repository: String,
+        val branch: String,
+        val arguments: JsonObject,
+        val executionId: String? = null,
+        val correlationId: String? = null
+    )
 
     fun receiptState(receipt: JsonObject): ReceiptState {
         val execution = receipt["execution"] as? JsonObject
@@ -129,6 +137,25 @@ internal object GitHubExecutionLedger {
         val arguments = receipt["arguments"] as? JsonObject ?: return false
         val native = if (receipt.text("tool").substringBefore("__") == "github") arguments else GitHubOperationTool.nativeArguments(receipt.text("tool"), arguments) ?: return false
         val result = receipt.result() ?: return false
+        if (native.text("action") == "mark_ready_for_review") {
+            val expected = native.text("expected_head_sha").takeIf { it.matches(Regex("[a-fA-F0-9]{40}")) } ?: return false
+            val number = native.text("pull_number").toLongOrNull()?.takeIf { it > 0 } ?: return false
+            val execution = result["execution"] as? JsonObject ?: return false
+            return GitHubEvidenceOrigin.of(receipt) == "LIVE" &&
+                result["reconciled"] == JsonPrimitive(true) &&
+                result["remote_state_verified"] == JsonPrimitive(true) &&
+                result.text("verification") == "REMOTE_PR_READY_AT_EXPECTED_HEAD" &&
+                result.text("repository").equals(receipt.text("repository"), ignoreCase = true) &&
+                result.text("pull_number").toLongOrNull() == number &&
+                result.text("node_id").isNotBlank() &&
+                result.text("state") == "open" &&
+                result["draft"] == JsonPrimitive(false) &&
+                result.text("head_sha") == expected &&
+                execution.text("action") == "graphql.mutation" &&
+                execution.text("status") == "COMPLETED" &&
+                execution["remote_reconciled"] == JsonPrimitive(true) &&
+                execution["replayed_receipt"] == JsonPrimitive(true)
+        }
         if (native.text("action") == "create_branch") {
             val expected = native.text("expected_head_sha").takeIf { it.matches(Regex("[a-fA-F0-9]{40}")) } ?: return false
             val branch = runCatching { normalizeGitHubBranch(native.text("branch")) }.getOrNull() ?: return false
@@ -159,10 +186,30 @@ internal object GitHubExecutionLedger {
         if (receipt["trusted"] != JsonPrimitive(true)) return null
         val scope = listOf("binding", "tool", "repository", "branch").map { receipt.text(it).takeIf(String::isNotBlank) ?: return null }
         val arguments = receipt["arguments"] as? JsonObject ?: return null
+        val native = if (scope[1].substringBefore("__") == "github") arguments else GitHubOperationTool.nativeArguments(scope[1], arguments)
+        if (native?.text("action") == "mark_ready_for_review") {
+            val execution = receipt.result()?.get("execution") as? JsonObject ?: return null
+            if (execution.text("action") != "graphql.mutation") return null
+            val executionId = execution.text("execution_id").takeIf { it.matches(Regex("[a-f0-9]{64}")) } ?: return null
+            val correlationId = execution.text("correlation_id").takeIf(String::isNotBlank) ?: return null
+            val number = native.text("pull_number").toLongOrNull()?.takeIf { it > 0 } ?: return null
+            val expected = native.text("expected_head_sha").takeIf { it.matches(Regex("[a-fA-F0-9]{40}")) } ?: return null
+            val request = buildJsonObject {
+                put("action", "mark_ready_for_review")
+                put("pull_number", number)
+                put("expected_head_sha", expected)
+                native["expected_base_sha"]?.let { put("expected_base_sha", it) }
+            }
+            return ReconciliationKey(scope[0], scope[1], scope[2], scope[3], request, executionId, correlationId)
+        }
         return ReconciliationKey(scope[0], scope[1], scope[2], scope[3], arguments)
     }
 
-    private fun JsonObject.result(): JsonObject? = (get("result") as? JsonObject)?.let { (it["data"] as? JsonObject) ?: it }
+    private fun JsonObject.result(): JsonObject? = (get("result") as? JsonObject)?.let {
+        // A GraphQL mutation's data is part of its response, beside the protected
+        // execution receipt. Do not discard that receipt when unwrapping tool views.
+        if ((it["execution"] as? JsonObject)?.text("action") == "graphql.mutation") it else (it["data"] as? JsonObject) ?: it
+    }
 
     private fun JsonObject.text(key: String): String = (get(key) as? JsonPrimitive)?.contentOrNull?.takeUnless { it == "null" }.orEmpty()
 }

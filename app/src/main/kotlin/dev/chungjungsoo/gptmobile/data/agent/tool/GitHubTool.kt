@@ -543,7 +543,7 @@ class GitHubTool(
                 if (blockable &&
                     result.isError &&
                     result.executionReceipt?.get("requires_reconciliation") == JsonPrimitive(false) &&
-                    (result.errorCode in setOf("INVALID_ARGUMENTS", "GITHUB_NOT_FOUND_OR_HIDDEN", "GITHUB_ENDPOINT_PERMISSION_REQUIRED", "AUTH_REQUIRED") || result.errorCode?.startsWith("WORKFLOW_") == true)
+                    (result.errorCode in setOf("INVALID_ARGUMENTS", "GITHUB_NOT_FOUND_OR_HIDDEN", "GITHUB_NOT_FOUND_OR_INACCESSIBLE", "GITHUB_ENDPOINT_PERMISSION_REQUIRED", "AUTH_REQUIRED") || result.errorCode?.startsWith("WORKFLOW_") == true)
                 ) {
                     operationBlocks.write(
                         operationBlockScope,

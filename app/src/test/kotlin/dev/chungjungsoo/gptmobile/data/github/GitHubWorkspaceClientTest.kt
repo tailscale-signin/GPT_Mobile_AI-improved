@@ -669,8 +669,12 @@ class GitHubWorkspaceClientTest {
                     }
                 )
             }.exceptionOrNull()
-            assertTrue(failure != null)
-            assertTrue(failure!!.message.orEmpty().contains("workflow write permission", ignoreCase = true))
+            assertTrue(failure is GitHubRequestRejected)
+            assertEquals(403, (failure as GitHubRequestRejected).status)
+            assertTrue(failure.message.orEmpty().contains("GITHUB_ENDPOINT_PERMISSION_REQUIRED"))
+            assertTrue(failure.message.orEmpty().contains("Actions read permission", ignoreCase = true))
+            assertFalse(failure.message.orEmpty().contains("write permission", ignoreCase = true))
+            assertFalse(failure.message.orEmpty().contains("rate limit", ignoreCase = true))
         } finally {
             http.close()
         }

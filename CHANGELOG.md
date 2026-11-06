@@ -3,6 +3,7 @@
 - Verified task completion, stale-ref recovery, protected result retention, gateway recovery and correlated diagnostics.
 - Off-main startup/workspace persistence, reduced rendering churn and additional regression/benchmark coverage.
 - Durable ready-for-review mutation recovery and exact remote readback without replaying uncertain writes.
+- Payload-bound REST write claims, protected legacy recovery, acceptance-ledger reconciliation and deterministic workflow-error blocking.
 - Build 140; scoped qualification and all unmeasured device/deployment boundaries are retained in RELEASE_NOTES.md.
 
 # Changelog

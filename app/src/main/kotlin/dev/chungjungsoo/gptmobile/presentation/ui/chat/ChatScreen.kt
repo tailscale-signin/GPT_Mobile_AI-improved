@@ -2178,20 +2178,7 @@ private suspend fun exportChat(context: Context, chatViewModel: ChatViewModel, f
             } ?: error("Export provider cannot open the file.")
             provided
         }
-        val clip = ClipData.newUri(context.contentResolver, file.name, uri)
-        val shareIntent = Intent(Intent.ACTION_SEND).apply {
-            type = format.mimeType
-            putExtra(Intent.EXTRA_STREAM, uri)
-            clipData = clip
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        }
-        // The chooser itself carries the grant, so the selected recipient can
-        // open the document without relying on package-visibility enumeration.
-        val chooser = Intent.createChooser(shareIntent, "Share Chat Export").apply {
-            clipData = clip
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
-        context.startActivity(chooser)
+        context.startActivity(chatExportChooser(context, uri, file.name, format.mimeType))
     } catch (e: kotlinx.coroutines.CancellationException) {
         throw e
     } catch (_: dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticExportBusy) {
@@ -2201,6 +2188,22 @@ private suspend fun exportChat(context: Context, chatViewModel: ChatViewModel, f
     } catch (e: Exception) {
         Log.e("ChatExport", "Failed to export chat", e)
         Toast.makeText(context, "Failed to export chat", Toast.LENGTH_SHORT).show()
+    }
+}
+
+/** Android sharesheet grants URI access only to the selected destination. */
+internal fun chatExportChooser(context: Context, uri: android.net.Uri, fileName: String, mimeType: String): Intent {
+    require(uri.scheme == "content") { "Only content-provider exports may be shared." }
+    val clip = ClipData.newUri(context.contentResolver, fileName, uri)
+    val send = Intent(Intent.ACTION_SEND).apply {
+        type = mimeType
+        putExtra(Intent.EXTRA_STREAM, uri)
+        clipData = clip
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+    return Intent.createChooser(send, "Share Chat Export").apply {
+        clipData = clip
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
     }
 }
 

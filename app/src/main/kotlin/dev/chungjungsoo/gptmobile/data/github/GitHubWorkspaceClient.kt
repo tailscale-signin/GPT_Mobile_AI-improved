@@ -1433,7 +1433,13 @@ class GitHubWorkspaceClient(
                 val dispatchTime = java.time.Instant.now().toString()
                 val correlationId = java.util.UUID.randomUUID().toString()
                 val versionPreflight = validateReleaseVersionHint(root, sourceSha, tagName)
-                val dispatchResponse = request(
+                // The outer publish_release execution journal is the durable per-operation
+                // fence. Dispatching through the generic payload-only HTTP fence
+                // would return the previous run for a *different*, explicitly
+                // authorized execution_id using identical workflow inputs.
+                // Never retry a lost acknowledgement: the outer journal keeps
+                // that execution uncertain until remote reconciliation.
+                val dispatchResponse = requestUntracked(
                     "$root/actions/workflows/${segment(workflowId)}/dispatches",
                     HttpMethod.Post,
                     buildJsonObject {

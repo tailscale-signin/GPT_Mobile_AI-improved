@@ -19,6 +19,11 @@ Android build 139. This scoped release includes the merged GitHub, voice and rec
 - Add a source-backed disposition for all 92 supplied findings, meaningful regressions, independent full-suite and API 34/API 36 emulator validation and a release with a new version/build identity.
 - Stabilize CI and release validation by isolating source generation, compilation and lint in bounded processes.
 
+- Bind gateway engineering planning, review, repair and resumed work to the selected profile and resolved endpoint, with explicit identity and capacity failures instead of model substitution.
+- Add bounded correlated Android/gateway diagnostic events, acknowledged client spooling, redacted session export, component readiness observations and selected-model benchmark tooling.
+- Persist gateway response provenance, ordered answer segments and bounded diagnostic snapshots; add GitHub bootstrap, enterprise-origin isolation and durable workflow evidence support.
+- Extend release evidence and deployment/performance qualification tooling while retaining exact-commit checks and explicit unmeasured or unqualified outcomes.
+
 ## Verification and release identity
 
 The signed release pipeline validates the exact merged commit, waits for its required main-branch checks, verifies packaged runtimes and privacy, preserves the established signing certificate, and publishes APKs, an AAB, SHA-256 checksums and provenance. PR results from an earlier source revision are not substituted for release-candidate checks.
@@ -59,6 +64,10 @@ The implementation report maps every supplied finding to its source paths and di
 - The November 5 diagnostic changes retain partial output and durable execution evidence; providers without a resume protocol do not gain token-for-token stream resumption.
 - The affected ports 8101 and 8102, live DNS/providers, authenticated gateway inference, OEM recognizer/IME behavior, and the recorded frame stalls still require deployment or physical-device acceptance.
 - PDF font selection uses available compatible system fonts and checked glyph coverage. Exact layout and all glyphs require the affected documents and device fonts; bounded retrieval can still report explicit partial coverage for oversized sources or pages.
+
+- The November 5 gateway/GitHub changes implement source and test contracts; the coverage ledger separately tracks remaining integration and acceptance work, and automated success is not evidence that every specification requirement is qualified.
+- Selected-profile guarantees, bidirectional debug capture, restart recovery and response frame pacing still require live Android/PC qualification with the configured local model and gateway. Performance targets are not measured improvements.
+- The GitHub ticket broker, callback registration and enterprise/private-repository deployment remain operator qualification tasks; deterministic tests do not establish production sign-in or credential refresh.
 
 ## Recovery and rollback
 

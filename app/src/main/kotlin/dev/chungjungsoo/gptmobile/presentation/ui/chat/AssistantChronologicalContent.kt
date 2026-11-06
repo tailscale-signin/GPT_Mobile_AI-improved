@@ -188,39 +188,39 @@ internal fun AssistantChronologicalContent(
                                         withContext(Dispatchers.Default) { prepareAssistantDisplay(body, combinedWording != null) }
                                     }.collect { value = it }
                                 }
-                            }
-                            if (effectiveExecutionTrace && expanded && showReasoning && preparedDisplay.thinking.isNotBlank()) {
-                                Text(preparedDisplay.thinking, Modifier.padding(vertical = 8.dp), style = MaterialTheme.typography.bodySmall)
-                            }
-                            val citationText = preparedDisplay.citationText
-                            val response = preparedDisplay.response
-                            if (response.isNotBlank()) {
-                                if (isError) {
-                                    Text(citationText, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(vertical = 8.dp))
-                                } else {
-                                    if (response.length > dev.chungjungsoo.gptmobile.data.agent.CombinedDocuments.INLINE_CHARACTERS) {
-                                        BoundedInlineAssistantDocument("$answerIdentity:$rendererIndex", response, combinedWording, proseColor, outputTrace?.copy(partId = "$index"), articleCards, streaming = isLoading)
-                                    } else if (isLoading) {
-                                        ChatMarkdown(adaptiveAnswerLength = totalAnswerLength, wording = combinedWording, outputTrace = outputTrace?.copy(partId = "$index"), proseColor = proseColor, memoryValues = recalledSources.map { it.value }, content = response, contentIdentity = "$answerIdentity:$rendererIndex", streaming = true, animateStreaming = animateResponse, modifier = Modifier.padding(vertical = 8.dp))
+                                if (effectiveExecutionTrace && expanded && showReasoning && preparedDisplay.thinking.isNotBlank()) {
+                                    Text(preparedDisplay.thinking, Modifier.padding(vertical = 8.dp), style = MaterialTheme.typography.bodySmall)
+                                }
+                                val citationText = preparedDisplay.citationText
+                                val response = preparedDisplay.response
+                                if (response.isNotBlank()) {
+                                    if (isError) {
+                                        Text(citationText, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(vertical = 8.dp))
                                     } else {
-                                        if (!splitForPassageIndicators && !debugSettings.researchFeature.articleCards) {
-                                            // Standard and Combined replies without citation cards use
-                                            // one Markdown tree: no paragraph splitting or extra work.
-                                            ChatMarkdown(adaptiveAnswerLength = totalAnswerLength, wording = combinedWording, outputTrace = outputTrace?.copy(partId = "$index"), proseColor = proseColor, memoryValues = recalledSources.map { it.value }, content = response, contentIdentity = "$answerIdentity:$rendererIndex", streaming = false, modifier = Modifier.padding(vertical = 8.dp))
+                                        if (response.length > dev.chungjungsoo.gptmobile.data.agent.CombinedDocuments.INLINE_CHARACTERS) {
+                                            BoundedInlineAssistantDocument("$answerIdentity:$rendererIndex", response, combinedWording, proseColor, outputTrace?.copy(partId = "$index"), articleCards, streaming = isLoading)
+                                        } else if (isLoading) {
+                                            ChatMarkdown(adaptiveAnswerLength = totalAnswerLength, wording = combinedWording, outputTrace = outputTrace?.copy(partId = "$index"), proseColor = proseColor, memoryValues = recalledSources.map { it.value }, content = response, contentIdentity = "$answerIdentity:$rendererIndex", streaming = true, animateStreaming = animateResponse, modifier = Modifier.padding(vertical = 8.dp))
                                         } else {
-                                            val prepared by produceState<PreparedResearchBlocks?>(null, response, splitForPassageIndicators) {
-                                                value = withContext(Dispatchers.Default) {
-                                                    PreparedResearchBlocks(response, splitForPassageIndicators, researchResponseBlocks(response, splitParagraphs = splitForPassageIndicators))
-                                                }
-                                            }
-                                            val blocks = prepared?.takeIf { it.response == response && it.splitParagraphs == splitForPassageIndicators }?.blocks
-                                            if (blocks == null) {
-                                                // Keep prose responsive while preparing citation boundaries.
-                                                ChatMarkdown(adaptiveAnswerLength = totalAnswerLength, wording = combinedWording, outputTrace = outputTrace?.copy(partId = "$index:pending"), proseColor = proseColor, memoryValues = recalledSources.map { it.value }, content = response, contentIdentity = "$answerIdentity:$rendererIndex:pending", streaming = false, modifier = Modifier.padding(vertical = 8.dp))
+                                            if (!splitForPassageIndicators && !debugSettings.researchFeature.articleCards) {
+                                                // Standard and Combined replies without citation cards use
+                                                // one Markdown tree: no paragraph splitting or extra work.
+                                                ChatMarkdown(adaptiveAnswerLength = totalAnswerLength, wording = combinedWording, outputTrace = outputTrace?.copy(partId = "$index"), proseColor = proseColor, memoryValues = recalledSources.map { it.value }, content = response, contentIdentity = "$answerIdentity:$rendererIndex", streaming = false, modifier = Modifier.padding(vertical = 8.dp))
                                             } else {
-                                                blocks.forEachIndexed { blockIndex, block ->
-                                                    ChatMarkdown(adaptiveAnswerLength = totalAnswerLength, wording = combinedWording, outputTrace = outputTrace?.copy(partId = "$index:$blockIndex"), proseColor = proseColor, memoryValues = recalledSources.map { it.value }, content = block.text, contentIdentity = "$answerIdentity:$rendererIndex:$blockIndex", streaming = false, modifier = Modifier.padding(vertical = 8.dp))
-                                                    passageIndicators(block.text)
+                                                val prepared by produceState<PreparedResearchBlocks?>(null, response, splitForPassageIndicators) {
+                                                    value = withContext(Dispatchers.Default) {
+                                                        PreparedResearchBlocks(response, splitForPassageIndicators, researchResponseBlocks(response, splitParagraphs = splitForPassageIndicators))
+                                                    }
+                                                }
+                                                val blocks = prepared?.takeIf { it.response == response && it.splitParagraphs == splitForPassageIndicators }?.blocks
+                                                if (blocks == null) {
+                                                    // Keep prose responsive while preparing citation boundaries.
+                                                    ChatMarkdown(adaptiveAnswerLength = totalAnswerLength, wording = combinedWording, outputTrace = outputTrace?.copy(partId = "$index:pending"), proseColor = proseColor, memoryValues = recalledSources.map { it.value }, content = response, contentIdentity = "$answerIdentity:$rendererIndex:pending", streaming = false, modifier = Modifier.padding(vertical = 8.dp))
+                                                } else {
+                                                    blocks.forEachIndexed { blockIndex, block ->
+                                                        ChatMarkdown(adaptiveAnswerLength = totalAnswerLength, wording = combinedWording, outputTrace = outputTrace?.copy(partId = "$index:$blockIndex"), proseColor = proseColor, memoryValues = recalledSources.map { it.value }, content = block.text, contentIdentity = "$answerIdentity:$rendererIndex:$blockIndex", streaming = false, modifier = Modifier.padding(vertical = 8.dp))
+                                                        passageIndicators(block.text)
+                                                    }
                                                 }
                                             }
                                         }

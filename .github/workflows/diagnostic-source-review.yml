@@ -1,0 +1,36 @@
+name: Diagnostic source review
+
+on:
+  push:
+    branches: [fix/diagnostic-workflow-evidence-2026-11-06]
+    paths: ['.github/workflows/diagnostic-source-review.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  source-evidence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Capture tracked source at this exact revision
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rev-parse HEAD > diagnostic-source-revision.txt
+          git archive --format=tar.gz -o diagnostic-source.tar.gz HEAD \
+            AGENTS.md .editorconfig .github app/src app/build.gradle.kts \
+            gateway core-domain macrobenchmark scripts docs gradle \
+            gradlew gradlew.bat gradle.properties settings.gradle.kts \
+            build.gradle.kts release-scope.json RELEASE_NOTES.md
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: diagnostic-source-${{ github.sha }}
+          path: |
+            diagnostic-source.tar.gz
+            diagnostic-source-revision.txt
+          retention-days: 1
+          if-no-files-found: error

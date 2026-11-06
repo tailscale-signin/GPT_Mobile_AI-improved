@@ -13,15 +13,22 @@ import org.junit.Test
 class GitHubMergedBranchAuditTest {
     private fun json(value: String) = Json.parseToJsonElement(value) as JsonObject
     private fun tool(name: String, vararg actions: String) = AgentToolDefinition(name, name, json("""{"properties":{"action":{"enum":${JsonArray(actions.map(::JsonPrimitive))}}}}"""))
-    private fun receipt(tool: String, args: String, result: String, id: String = "read") = json("""{"receipt_id":"$id","binding":"task","repository":"owner/repo","trusted":true,"success":true,"tool":"$tool","arguments":$args,"result":$result}""")
+    private fun receipt(tool: String, args: String, result: String, id: String = "read") = json("""{"receipt_id":"$id","binding":"task","repository":"owner/repo","trusted":true,"success":true,"dispatched":true,"tool":"$tool","arguments":$args,"result":$result}""")
     private val sha = "a".repeat(40)
     private val source get() = receipt("github_context", """{"action":"status"}""", """{"branch":"main","commit_sha":"$sha","repository":{"default_branch":"main"}}""", "source")
     private val branch get() = "codex-self-test/" + GitHubEvidenceBook.digest("tasksource").take(20)
     private val creation get() = receipt("github_commit", """{"action":"branch","branch":"$branch","from_branch":"main","expected_head_sha":"$sha"}""", """{"branch":"$branch","created":true,"receipt_verified":true,"head_sha":"$sha"}""", "creation")
-    private val cleanup get() = receipt("github_commit", """{"action":"delete_branch","branch":"$branch","expected_head_sha":"$sha"}""", """{"deleted":true,"branch":"$branch","observed_head_sha":"$sha"}""", "cleanup")
+    private val cleanup get() = receipt("github_commit", """{"action":"delete_branch","branch":"$branch","expected_head_sha":"$sha"}""", """{"deleted":true,"absence_verified":true,"branch":"$branch","observed_head_sha":"$sha"}""", "cleanup")
     private val fixtureTools = listOf(tool("github_context", "status"), tool("github_commit", "branch", "delete_branch"))
     private fun fixtures() = linkedMapOf("source" to source, "creation" to creation, "cleanup" to cleanup)
     private fun cleaned(records: Map<String, JsonObject>) = (GitHubSelfTestFixtures.checkpoint(records).single() as JsonObject)["cleanup_status"] == JsonPrimitive("CLEANED")
+
+    @Test fun acceptedDeletionWithoutRemoteAbsenceCannotCompleteTheFixture() {
+        val accepted = json(cleanup.toString().replace("\"absence_verified\":true", "\"absence_verified\":false"))
+        assertFalse(cleaned(fixtures().apply { put("cleanup", accepted) }))
+        val legacy = json(cleanup.toString().replace("\"absence_verified\":true,", ""))
+        assertFalse(cleaned(fixtures().apply { put("cleanup", legacy) }))
+    }
 
     @Test fun ownedUnchangedFixtureCanCompleteItsExactApiScope() {
         assertTrue(cleaned(fixtures()))

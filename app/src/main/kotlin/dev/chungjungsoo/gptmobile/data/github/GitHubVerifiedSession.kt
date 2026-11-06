@@ -38,7 +38,8 @@ internal class GitHubVerifiedSession(
     private val resumeCommitSha: String? = null,
     private val resumeRequestKey: String = task,
     private val gatewayDiagnostic: (suspend () -> String)? = null,
-    private val onPublication: suspend (JsonObject) -> Unit = {}
+    private val onPublication: suspend (JsonObject) -> Unit = {},
+    private val remainingToolCalls: () -> Int? = { null }
 ) : AgentProviderSession by delegate {
     private var lastChecklist: JsonObject? = null
     private class ProgressCheckpointFailure(cause: Exception, val originalFailure: ProviderEvent.Failed?) : Exception(cause)
@@ -101,8 +102,8 @@ internal class GitHubVerifiedSession(
             val receipts = evidence.snapshot().first
             val (checkpoint, planned, missing) = withContext(computationDispatcher) {
                 Triple(
-                    GitHubTestChecklist.checkpoint(task, receipts, authorizedTools),
-                    GitHubTestChecklist.nextCall(task, tools, receipts),
+                    GitHubTestChecklist.checkpoint(task, receipts, authorizedTools, remainingToolCalls()),
+                    GitHubTestChecklist.nextCall(task, tools, receipts, remainingToolCalls()),
                     authorizedTools.filter { definition -> definition.name.startsWith("github_") && tools.none { it.name == definition.name } && receipts.values.none { it["tool"] == kotlinx.serialization.json.JsonPrimitive(definition.name) } }.take(12)
                 )
             }
@@ -110,7 +111,8 @@ internal class GitHubVerifiedSession(
             val discovered = receipts.values.any { it["tool"] == kotlinx.serialization.json.JsonPrimitive("discover_available_tools") }
             val discoveryArgs = if (!discovered) JsonObject(emptyMap()) else buildJsonObject { put("names", JsonArray(missing.map { kotlinx.serialization.json.JsonPrimitive(it.name) })) }
             val discoveryAlreadyTried = receipts.values.any { it["tool"] == kotlinx.serialization.json.JsonPrimitive("discover_available_tools") && it["arguments"] == discoveryArgs }
-            val next = if (discovery != null && (!discovered || planned == null && missing.isNotEmpty()) && !discoveryAlreadyTried) ProviderEvent.ToolCall("checklist-discovery-" + GitHubEvidenceBook.digest(discoveryArgs.toString()).take(20), discovery.name, discoveryArgs) else planned
+            val acquisitionAllowed = GitHubChecklistBudget.remaining(receipts, remainingToolCalls())?.let { it > GitHubChecklistBudget.VERIFICATION_RESERVE } != false
+            val next = if (acquisitionAllowed && discovery != null && (!discovered || planned == null && missing.isNotEmpty()) && !discoveryAlreadyTried) ProviderEvent.ToolCall("checklist-discovery-" + GitHubEvidenceBook.digest(discoveryArgs.toString()).take(20), discovery.name, discoveryArgs) else planned
             if (checkpoint != lastChecklist) {
                 if (receipts.isNotEmpty()) withContext(computationDispatcher) { evidence.retainChecklist(checkpoint) }
                 lastChecklist = checkpoint
@@ -285,7 +287,7 @@ internal class GitHubVerifiedSession(
             }
             val (renderedText, report) = status ?: coverage ?: if (request == null) partial(receipts, epoch, failureCode ?: "GITHUB_EXTRACTION_UNAVAILABLE") else extract(request, receipts, epoch)
             val (checklist, progressDigest) = withContext(computationDispatcher) {
-                val checklist = if (coverage != null) GitHubTestChecklist.checkpoint(task, receipts, authorizedTools) else null
+                val checklist = if (coverage != null) GitHubTestChecklist.checkpoint(task, receipts, authorizedTools, remainingToolCalls()) else null
                 checklist to checklist?.let { GitHubTestChecklist.progressDigest(task, receipts, authorizedTools) }
             }
             val previous = evidence.diagnostic()

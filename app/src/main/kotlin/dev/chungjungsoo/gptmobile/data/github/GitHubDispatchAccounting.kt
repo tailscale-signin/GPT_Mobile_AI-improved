@@ -9,7 +9,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
 /** Per invocation, including compound operations. A read preflight is never a sent mutation. */
-internal class GitHubDispatchAccounting : AbstractCoroutineContextElement(Key) {
+internal class GitHubDispatchAccounting(val forceLiveReads: Boolean = false) : AbstractCoroutineContextElement(Key) {
     companion object Key : CoroutineContext.Key<GitHubDispatchAccounting> {
         suspend fun started(mutation: Boolean) = currentCoroutineContext()[Key]?.start(mutation)
         suspend fun responded(mutation: Boolean, status: Int) = currentCoroutineContext()[Key]?.response(mutation, status)
@@ -79,6 +79,7 @@ internal class GitHubDispatchAccounting : AbstractCoroutineContextElement(Key) {
             executionReceipt = buildJsonObject {
                 put("schema", "github.dispatch.v1")
                 put("phase", phase)
+                put("live_read_requested", forceLiveReads)
                 put("read_requests", reads)
                 put("cached_read_observations", cachedReads)
                 // A cached commit used to resolve a SHA cannot age freshly fetched checks.

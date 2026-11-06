@@ -18,8 +18,10 @@ internal class GitHubCiLogReader(private val client: HttpClient, private val tok
         require(path.startsWith("/") && !path.startsWith("//")) { "Use a relative GitHub API log path." }
         val cacheKey = "ci-log:${apiOrigins.rest}:${GitHubRepositoryStateStore.digest(token)}:$path"
         check(!authenticationRejected.get()) { "GitHub authentication was rejected (HTTP 401). Reconnect the GitHub account before retrying any operation." }
-        if (immutable) {
+        val forceLive = kotlinx.coroutines.currentCoroutineContext()[GitHubDispatchAccounting]?.forceLiveReads == true
+        if (immutable && !forceLive) {
             cache.getDecodedBlob(cacheKey)?.let {
+                GitHubDispatchAccounting.cached(0L, immutable = true)
                 scheduler.recordCacheHit()
                 return Log(it, it.encodeToByteArray().size, true)
             }

@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -28,11 +27,13 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
@@ -42,6 +43,8 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import dev.chungjungsoo.gptmobile.data.github.GitHubChatDecision
 import dev.chungjungsoo.gptmobile.data.github.GitHubChatPresence
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 @Composable
 internal fun GitHubDecisionCard(decision: GitHubChatDecision, waiting: Boolean, onAnswer: (Int?, String?) -> Unit, onResume: () -> Unit, onStop: () -> Unit) {
@@ -96,13 +99,16 @@ internal fun GitHubDecisionCard(decision: GitHubChatDecision, waiting: Boolean, 
 }
 
 @Composable
-internal fun GitHubLiveProgressCard(timeline: List<dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem>, task: String = "", events: List<dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent> = emptyList(), expanded: Boolean = false) {
-    val search = remember(events) { gitHubSearchActivity(events) }
+internal fun GitHubLiveProgressCard(timeline: List<dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem>, task: String = "", events: List<dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent> = emptyList(), expanded: Boolean = false, active: Boolean = true) {
+    // Search receipts contain JSON and URLs; parse them off the composition thread.
+    val search by produceState<GitHubSearchActivity?>(null, events) {
+        value = withContext(Dispatchers.Default) { gitHubSearchActivity(events) }
+    }
     val lines = remember(timeline, task, search != null) { gitHubActivityLines(timeline, task, searchActive = search != null) }
     var visibleEntries by remember(task, expanded) { androidx.compose.runtime.mutableIntStateOf(20) }
     Column(Modifier.fillMaxWidth().padding(horizontal = 28.dp, vertical = 8.dp)) {
-        val visibleLines = gitHubVisibleActivityLines(lines, compact = true, entryLimit = visibleEntries)
-        val latestPreview = visibleLines.lastIndex.takeIf { it >= 0 && !visibleLines[it].statusSummary } ?: -1
+        val visibleLines = remember(lines, visibleEntries) { gitHubVisibleActivityLines(lines, compact = true, entryLimit = visibleEntries) }
+        val latestPreview = visibleLines.lastIndex.takeIf { active && it >= 0 && !visibleLines[it].statusSummary } ?: -1
         val motion = rememberGitHubProgressMotion(latestPreview >= 0)
         Column(Modifier.fillMaxWidth().testTag("github_live_activity"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             if (visibleLines.size < lines.size) {
@@ -131,7 +137,8 @@ private fun GitHubActivitySummary(text: String, expanded: Boolean) {
         color = MaterialTheme.colorScheme.onSurface,
         maxLines = if (expanded) Int.MAX_VALUE else 6,
         overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-        modifier = Modifier.offset(y = (-6).dp * (1f - entry.value))
+        // Translation changes only drawing, not text composition or measurement.
+        modifier = Modifier.graphicsLayer { translationY = (-6).dp.toPx() * (1f - entry.value) }
             .testTag("github_activity_summary")
             .semantics { liveRegion = androidx.compose.ui.semantics.LiveRegionMode.Polite }
     )

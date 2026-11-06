@@ -1201,8 +1201,14 @@ class GitHubWorkspaceClient(
         require(ref["object"]?.jsonObject?.get("sha")?.jsonPrimitive?.content == expected) { "Branch moved; refresh before deletion." }
         request("$root/git/refs/heads/${segment(branch)}", HttpMethod.Delete)
         responseCache.invalidateMutable(root)
+        // A 204 acknowledges the request. Only a fresh matching-ref listing
+        // verifies the fixture is absent; a concurrent recreation remains visible.
+        val remaining = request("$root/git/matching-refs/heads/${segment(branch)}").jsonArray
+        val absent = remaining.none { it.jsonObject["ref"]?.jsonPrimitive?.content == "refs/heads/$branch" }
         return buildJsonObject {
             put("deleted", true)
+            put("absence_verified", absent)
+            put("verification_status", if (absent) "VERIFIED_ABSENT" else "REF_STILL_PRESENT")
             put("branch", branch)
             put("observed_head_sha", expected)
             put("default_head_sha", defaultSha)
@@ -1853,7 +1859,8 @@ class GitHubWorkspaceClient(
         check(!authenticationRejected.get()) { "GitHub authentication was rejected (HTTP 401). Reconnect the GitHub account before retrying any operation." }
         val cacheKey = "${apiOrigins.rest}:$durableIdentity:${GitHubRepositoryStateStore.digest(token)}:${method.value}:$path"
         val cacheable = conditionalReads && method == HttpMethod.Get && path != "/rate_limit"
-        val cached = if (cacheable) responseCache.get(cacheKey) else null
+        val forceLive = kotlinx.coroutines.currentCoroutineContext()[GitHubDispatchAccounting]?.forceLiveReads == true
+        val cached = if (cacheable && !forceLive) responseCache.get(cacheKey) else null
         // Mutable branch heads and permission checks are always revalidated.
         val freshList = path.startsWith("/user/repos") || path.startsWith("/user/installations") || path.matches(Regex("/repos/[^/]+/[^/]+/(?:branches|contents)(?:[?].*)?"))
         if (cached != null && freshList && System.currentTimeMillis() - cached.storedAtMillis < freshnessSeconds.coerceIn(0, 120) * 1000L) {

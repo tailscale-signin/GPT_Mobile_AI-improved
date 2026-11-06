@@ -19,6 +19,23 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubResultViewsStressTest {
+    @Test fun completeSourceAndRemoteRecipesAreRetainedOutsideTheDisplayPage() {
+        val views = GitHubResultViews(pageBytes = 2048)
+        val source = buildJsonObject {
+            put("content", "large original source ".repeat(1000))
+            put("continuation", Json.parseToJsonElement("""{"action":"list_branches","page":2}"""))
+        }
+        val raw = AgentToolResult("read", ToolResultContent.Json(source), false)
+        val shown = views.present("scope", "github_context", "github_context__one", raw, Json.parseToJsonElement("""{"action":"branches"}""").jsonObject)
+        assertEquals(raw.content, shown.retainedContent)
+        assertEquals(JsonPrimitive(true), shown.executionReceipt?.get("retained_original_complete"))
+        val recipe = shown.executionReceipt!!.getValue("retained_remote_continuations").jsonArray.single().jsonObject.getValue("call").jsonObject
+        assertEquals(JsonPrimitive("github_context__one"), recipe["tool"])
+        assertEquals(JsonPrimitive(2), recipe.getValue("arguments").jsonObject["page"])
+        assertTrue(data(shown).toString().encodeToByteArray().size <= 2048)
+        assertFalse(data(shown).containsKey("retained_remote_continuations"))
+    }
+
     @Test fun alteredRecoveryCursorGetsExactIssuedCorrectionWithoutGrantingAnUnissuedOffset() {
         val views = GitHubResultViews(pageBytes = 2048)
         val first = data(views.present("scope", "github_read", "github_read", AgentToolResult("first", ToolResultContent.Json(JsonPrimitive("source")), false)))

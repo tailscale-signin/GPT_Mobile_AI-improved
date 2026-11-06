@@ -107,6 +107,7 @@ class McpClientManager internal constructor(
     // ponytail: one global lock serializes session setup only; use per-connection locks if startup contention becomes measurable.
     private val providerCooldowns = ConcurrentHashMap<String, Pair<String, Long>>()
     private val configurationFailures = ConcurrentHashMap<String, String>()
+    private val protocolFailures = ConcurrentHashMap<String, Pair<String, McpProtocolConfigurationException>>()
     private val transportConfigurationKeys = ConcurrentHashMap<String, String>()
     private val sessions = mutableMapOf<String, Session>()
     private val inFlight = mutableMapOf<String, InFlight>()
@@ -115,6 +116,11 @@ class McpClientManager internal constructor(
 
     private suspend fun modernTransport(config: McpConnectionConfig, refresh: Boolean = false): ModernMcpTransport? {
         val key = config.validatedKey()
+        protocolFailures[config.connectionUid]?.let { (identity, failure) ->
+            if (!refresh && identity == config.catalogueIdentity()) throw failure
+            protocolFailures.remove(config.connectionUid)
+            resetHealth(config.connectionUid)
+        }
         val previousKey = transportConfigurationKeys.put(config.connectionUid, key)
         if (previousKey != null && previousKey != key) resetHealth(config.connectionUid)
         if (refresh) dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.checkAgain(config.endpointUrl)
@@ -150,7 +156,7 @@ class McpClientManager internal constructor(
     suspend fun peekToolsForConnection(uid: String, endpointUrl: String? = null, allowCleartext: Boolean = false): List<Tool>? {
         val validatedKey = endpointUrl?.let { McpConnectionConfig(uid, it, allowCleartext).validatedKey() }
         val health = healthSnapshot(uid)
-        if (health.state == McpConnectionHealthState.AUTHENTICATION_REQUIRED) return null
+        if (health.state == McpConnectionHealthState.AUTHENTICATION_REQUIRED || protocolFailures.containsKey(uid)) return null
         if (validatedKey != null && configurationFailures[uid] == validatedKey) return null
         val identity = catalogueIdentities[uid]?.takeIf {
             it.first == dev.chungjungsoo.gptmobile.data.readiness.ReadinessInvalidation.epoch &&
@@ -207,7 +213,11 @@ class McpClientManager internal constructor(
 
     suspend fun listTools(config: McpConnectionConfig, forceRefresh: Boolean = false, awaitCompletion: Boolean = false, passiveBackoff: Boolean = false): List<Tool> {
         val policyEpoch = dev.chungjungsoo.gptmobile.data.readiness.ReadinessInvalidation.epoch
-        if (healthSnapshot(config.connectionUid).state == McpConnectionHealthState.AUTHENTICATION_REQUIRED && providerCooldowns[config.connectionUid]?.first == config.validatedKey()) throw McpAuthenticationRequiredException()
+        protocolFailures[config.connectionUid]?.takeIf { !forceRefresh && it.first == config.catalogueIdentity() }?.let { (_, failure) ->
+            if (passiveBackoff && !awaitCompletion) return emptyList()
+            throw failure
+        }
+        if (!forceRefresh && healthSnapshot(config.connectionUid).state == McpConnectionHealthState.AUTHENTICATION_REQUIRED && providerCooldowns[config.connectionUid]?.first == config.validatedKey()) throw McpAuthenticationRequiredException()
         val key = config.validatedKey() + ":" + policyEpoch
         val ready = if (forceRefresh || !catalogueAvailability(config).executionAvailable) null else catalogue.peek(key, 300_000)
         kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.readiness.ReadinessCacheObservation]?.read(ready != null)
@@ -305,7 +315,15 @@ class McpClientManager internal constructor(
             throw cancelled
         } catch (error: Exception) {
             if (error is McpBackoffException) throw error
-            dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.recordFailure(config.endpointUrl, error)
+            if (error is McpProtocolConfigurationException) {
+                val previous = protocolFailures[config.connectionUid]
+                if (previous?.first == config.catalogueIdentity() && previous.second === error) throw error
+                healthOrder.publish(observation) {
+                    if (protocolFailures.size >= 64) protocolFailures.keys.firstOrNull()?.let(protocolFailures::remove)
+                    protocolFailures[config.connectionUid] = config.catalogueIdentity() to error
+                }
+            }
+            if (error !is McpProtocolConfigurationException) dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.recordFailure(config.endpointUrl, error)
             if (error.isMcpUnauthorized()) providerCooldowns[config.connectionUid] = config.validatedKey() to Long.MAX_VALUE
             recordFailure(config.connectionUid, error, observation = observation, stage = "discovery")
             throw error
@@ -626,12 +644,12 @@ class McpClientManager internal constructor(
                     state = when {
                         authenticationRequired -> McpConnectionHealthState.AUTHENTICATION_REQUIRED
                         error is McpCatalogueTimeoutException -> McpConnectionHealthState.DEGRADED
-                        error is McpEndpointConfigurationException || failures >= CIRCUIT_BREAKER_FAILURES -> McpConnectionHealthState.UNREACHABLE
+                        error is McpEndpointConfigurationException || error is McpProtocolConfigurationException || failures >= CIRCUIT_BREAKER_FAILURES -> McpConnectionHealthState.UNREACHABLE
                         else -> McpConnectionHealthState.DEGRADED
                     },
                     lastFailureAtMs = now,
                     consecutiveFailures = failures,
-                    nextRetryAtMs = if (error is McpEndpointConfigurationException || authenticationRequired) Long.MAX_VALUE else retryAtMs ?: (now + delay),
+                    nextRetryAtMs = if (error is McpEndpointConfigurationException || error is McpProtocolConfigurationException || authenticationRequired) Long.MAX_VALUE else retryAtMs ?: (now + delay),
                     lastError = "[$failedStage] " + dev.chungjungsoo.gptmobile.data.diagnostics.redactLogMessage(error.message.orEmpty().take(1024)),
                     failedStage = failedStage,
                     connectionHealth = failureClass,
@@ -667,6 +685,7 @@ class McpClientManager internal constructor(
 
     suspend fun close(connectionUid: String) {
         healthOrder.invalidate(connectionUid)
+        protocolFailures.remove(connectionUid)
         resetHealth(connectionUid)
         statistics?.observeHealth(connectionUid, "NOT_CHECKED", "CONFIG_CHANGED", nowMs())
         modern?.close(connectionUid)
@@ -675,6 +694,7 @@ class McpClientManager internal constructor(
     }
 
     suspend fun closeAll() {
+        protocolFailures.clear()
         clearReadinessCache()
         healthOrder.invalidateAll().forEach { uid ->
             resetHealth(uid)
@@ -812,6 +832,9 @@ class McpClientManager internal constructor(
                         if (generateSequence(error as Throwable) { it.cause?.takeUnless { cause -> cause === it } }.take(16).any { it is StreamableHttpError }) connectivity.success(endpointHost)
                         AppLogRecorder.record("MCP", "Connect failed · connection=${config.connectionUid} · host=$endpointHost · elapsedMs=${nowMs() - connectStartedAtMs} · transportTimeoutMs=$transportConnectTimeoutMs · initializationTimeoutMs=$effectiveSessionTimeoutMs · ${error.javaClass.simpleName}: ${error.message.orEmpty()}", "E")
                         withContext(NonCancellable) { runCatching { withTimeoutOrNull(2_000) { client.close() } } }
+                        if (generateSequence(error as Throwable) { it.cause?.takeUnless { cause -> cause === it } }.take(16).any { it is StreamableHttpError && it.code == 400 } && !isMcpQuotaFailure(error.message.orEmpty())) {
+                            throw McpProtocolConfigurationException("MCP_INITIALIZATION_SCHEMA_INVALID", "The server rejected the initialize handshake (HTTP 400). Validate the endpoint path, initialization request schema and supported protocol version.")
+                        }
                         if (generateSequence(error as Throwable) { it.cause }.any { it is StreamableHttpError && it.code == 404 }) {
                             configurationFailures[config.connectionUid] = key
                             throw McpEndpointConfigurationException()

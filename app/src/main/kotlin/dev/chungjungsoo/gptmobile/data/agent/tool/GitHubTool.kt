@@ -495,7 +495,7 @@ class GitHubTool(
 
     override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
         refreshCredential()
-        val accounting = dev.chungjungsoo.gptmobile.data.github.GitHubDispatchAccounting()
+        val accounting = dev.chungjungsoo.gptmobile.data.github.GitHubDispatchAccounting(forceLiveReads = arguments["verify_live"] == JsonPrimitive(true))
         return kotlinx.coroutines.withContext(accounting) {
             try {
                 val action = (arguments["action"] as? JsonPrimitive)?.content.orEmpty()
@@ -1544,6 +1544,7 @@ class GitHubTool(
                     put("base_sha", sha)
                     put("receipt_verified", receipt["object"]?.jsonObject?.get("sha")?.jsonPrimitive?.content == sha && receipt["ref"]?.jsonPrimitive?.content == "refs/heads/$branch")
                     put("created", true)
+                    put("remote_state_verified", selection?.get("commit_sha") == JsonPrimitive(sha) && selection?.get("ref") == JsonPrimitive(branch))
                     put("upstream_completed", true)
                     selection?.let { put("context", it) } ?: put("context_refresh_required", true)
                 }.toString()

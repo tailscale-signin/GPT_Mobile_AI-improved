@@ -24,6 +24,10 @@ Android build 139. This scoped release includes the merged GitHub, voice and rec
 - Persist gateway response provenance, ordered answer segments and bounded diagnostic snapshots; add GitHub bootstrap, enterprise-origin isolation and durable workflow evidence support.
 - Extend release evidence and deployment/performance qualification tooling while retaining exact-commit checks and explicit unmeasured or unqualified outcomes.
 
+## Unreleased November 6 diagnostic follow-up
+
+The branch repair reuses complete GitHub evidence instead of draining the tool budget on local display pages, reserves verification and fixture cleanup, records live/cache provenance, streams retained journal and receipt history, chunks oversized redacted messages with hashes, repairs MCP protocol negotiation and privacy-aware discovery, and reduces progress rendering work. The [24-finding implementation report](docs/repairs/diagnostic-workflow-evidence-2026-11-06.md) describes the changes and their acceptance boundaries. This follow-up does not publish a new application build or alter the existing release identity.
+
 ## Verification and release identity
 
 The signed release pipeline validates the exact merged commit, waits for its required main-branch checks, verifies packaged runtimes and privacy, preserves the established signing certificate, and publishes APKs, an AAB, SHA-256 checksums and provenance. PR results from an earlier source revision are not substituted for release-candidate checks.
@@ -68,6 +72,7 @@ The implementation report maps every supplied finding to its source paths and di
 - The November 5 gateway/GitHub changes implement source and test contracts; the coverage ledger separately tracks remaining integration and acceptance work, and automated success is not evidence that every specification requirement is qualified.
 - Selected-profile guarantees, bidirectional debug capture, restart recovery and response frame pacing still require live Android/PC qualification with the configured local model and gateway. Performance targets are not measured improvements.
 - The GitHub ticket broker, callback registration and enterprise/private-repository deployment remain operator qualification tasks; deterministic tests do not establish production sign-in or credential refresh.
+- The November 6 diagnostic repairs require live acceptance on the original MCP endpoints, an authorized GitHub workflow against the running application build, and physical-device frame measurements. Retained exports cannot recover previously deleted, evicted or uncaptured history; cached or mocked observations do not establish live integration success.
 
 ## Recovery and rollback
 

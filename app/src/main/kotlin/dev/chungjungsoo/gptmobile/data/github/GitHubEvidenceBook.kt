@@ -181,6 +181,21 @@ internal class GitHubEvidenceBook(
             put("verification_eligible", trusted && selected)
             put("success", !result.isError && result.errorCode == null)
             put("dispatched", result.dispatched)
+            put("shared_result", result.sharedResult)
+            put("evidence_origin", GitHubEvidenceOrigin.classify(result.dispatched, result.sharedResult, result.executionReceipt))
+            if (result.retainedContent != null && result.executionReceipt?.get("retained_original_complete") == JsonPrimitive(true)) {
+                put("retained_result_complete", true)
+                put("retained_remote_continuations", result.executionReceipt?.get("retained_remote_continuations") ?: kotlinx.serialization.json.JsonArray(emptyList()))
+            }
+            put(
+                "tool_budget",
+                buildJsonObject {
+                    result.toolCallBudgetUsed?.let { put("used", it) }
+                    result.toolCallBudgetLimit?.let { put("limit", it) }
+                    result.toolCallBudgetConfigured?.let { put("configured", it) }
+                    result.toolCallBudgetReserved?.let { put("final_response_reserved", it) }
+                }
+            )
             result.executionReceipt?.let { put("execution", it) }
             put("error_code", result.errorCode?.let(::JsonPrimitive) ?: JsonNull)
             put("result", content)

@@ -112,7 +112,22 @@ internal class GitHubResultViews(
         }
         val first = page(id, entry, 0, modelName)
         authorize(entry, first)
-        return upstream.copy(content = ToolResultContent.Json(first), retainedContent = upstream.retainedContent ?: upstream.content)
+        // The verifier consumes the complete durable source, not each display fragment.
+        // Keep its exact remote recipes outside the model-visible page. If those
+        // recipes are themselves too large, preserve the existing paged fallback.
+        val retainedRecipes = JsonArray(continuations)
+        val completeRecipes = continuations.size <= 128 && retainedRecipes.toString().encodeToByteArray().size <= 64 * 1024
+        val receipt = JsonObject(
+            upstream.executionReceipt.orEmpty() + buildJsonObject {
+                put("retained_original_complete", completeRecipes)
+                if (completeRecipes) put("retained_remote_continuations", retainedRecipes)
+            }
+        )
+        return upstream.copy(
+            content = ToolResultContent.Json(first),
+            retainedContent = upstream.retainedContent ?: upstream.content,
+            executionReceipt = receipt
+        )
     }
 
     @Synchronized

@@ -5093,6 +5093,7 @@ class ChatRepositoryImpl(
                 delegate = reviewedSession,
                 evidence = verifiedEvidence,
                 task = githubEffectiveTask,
+                remainingToolCalls = { toolBudget.remainingCalls() },
                 authorizedTools = runnerTools.map { it.definition }.filter { it.modelVisible },
                 inputLimit = { (githubStageBudget("github-claim-extraction").input - dev.chungjungsoo.gptmobile.data.context.TextTokenEstimate.estimate(dev.chungjungsoo.gptmobile.data.github.GitHubEvidencePolicy.INSTRUCTION)).coerceAtLeast(0) },
                 openVerifier = { prompt ->

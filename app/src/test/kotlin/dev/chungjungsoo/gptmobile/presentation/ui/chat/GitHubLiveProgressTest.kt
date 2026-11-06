@@ -31,6 +31,36 @@ class GitHubLiveProgressTest {
     @get:Rule val compose = createComposeRule()
     private fun line(text: String, summary: Boolean = false) = AssistantTimelineItem(AssistantTimelineItemType.NOTICE, content = text, progressCheckpoint = true, statusSummary = summary)
 
+    @Test fun finishedActivityKeepsHistoryWithoutAnAnimatedLatestRow() {
+        var active by mutableStateOf(true)
+        val timeline = listOf(line("Reviewing the task", true), line("Reading source files."))
+        compose.setContent { MaterialTheme { GitHubLiveProgressCard(timeline, active = active) } }
+        compose.onAllNodesWithTag("github_latest_preview").assertCountEquals(1)
+        compose.runOnIdle { active = false }
+        compose.onAllNodesWithTag("github_latest_preview").assertCountEquals(0)
+        compose.onAllNodesWithTag("github_previous_preview").assertCountEquals(1)
+    }
+
+    @Test fun reducedEffectsFreezeProgressAtAVisiblePhaseAndRecoverAfterCooldown() {
+        compose.mainClock.autoAdvance = false
+        lateinit var phase: androidx.compose.runtime.State<Float>
+        val guard = dev.chungjungsoo.gptmobile.data.diagnostics.FrameEffectPressure.guard
+        try {
+            compose.setContent { phase = rememberGitHubProgressMotion(true) }
+            compose.mainClock.advanceTimeBy(400)
+            compose.runOnIdle { guard.observeCriticalStall(300_000_000L, 0L) }
+            compose.mainClock.advanceTimeBy(32)
+            compose.runOnIdle { assertEquals(0.5f, phase.value, 0f) }
+            compose.mainClock.advanceTimeBy(2000)
+            compose.runOnIdle { assertEquals(0.5f, phase.value, 0f) }
+            compose.runOnIdle { guard.recoverAfterCooldown(30_000L) }
+            compose.mainClock.advanceTimeBy(400)
+            compose.runOnIdle { assertTrue(phase.value != 0.5f) }
+        } finally {
+            guard.recoverAfterCooldown(30_000L)
+        }
+    }
+
     @Test fun summaryUsesThemeForegroundAbovePreviewAndOnlyTheNewestBottomLineAnimates() {
         val summary = "I’ll inspect the loading bar."
         val first = line("Reading source files.")

@@ -237,6 +237,9 @@ internal class GitHubOperationTool(
                 )
             }
         }
+        if (arguments["verify_live"] == JsonPrimitive(true) && !dev.chungjungsoo.gptmobile.data.permissions.GitHubAuthorizationBoundary.isReplayableRead(definition.name, arguments)) {
+            return AgentToolResult(callId, ToolResultContent.Text("Live verification is available only for read-only operations."), true, errorCode = "INVALID_ARGUMENTS", dispatched = false)
+        }
         val native = nativeArguments(operation, JsonObject(arguments - "response_detail"))
             ?: return AgentToolResult(callId, ToolResultContent.Text("Unsupported GitHub operation."), true, errorCode = "INVALID_ARGUMENTS", dispatched = false)
         pagination.completedPage(operation, arguments)?.let { lastPage ->
@@ -600,6 +603,12 @@ internal class GitHubOperationTool(
                 put("enum", JsonArray(names.map(::JsonPrimitive)))
             }
             val properties = linkedMapOf("owner" to field("string"), "repo" to field("string"), "commit_sha" to field("string"), "view_cursor" to field("string"))
+            if (operation in setOf("github_context", "github_search", "github_read", "github_pr", "github_ci", "github_issue", "github_release")) {
+                properties["verify_live"] = buildJsonObject {
+                    put("type", "boolean")
+                    put("description", "For read-only integration verification, bypass local HTTP response reuse once. Does not authorize writes or expand the tool budget.")
+                }
+            }
             when (operation) {
                 "github_context" -> {
                     properties["action"] = choice("resolve", "status", "index", "changes", "efficiency", "capabilities", "branches", "branch", "branch_dependencies", "commits", "commit", "commit_search", "checks", "repository", "repositories", "recovery")

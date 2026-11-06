@@ -26,6 +26,33 @@ import org.junit.Test
 class StagedDiagnosticCaptureTest {
     private val available = DiagnosticCaptureOptions(minimumHeadroomBytes = 0)
 
+    @Test fun availabilityAndMissingEvidenceSeparateEmptyFromFailedCapture() = temporary { directory ->
+        runBlocking {
+            val result = StagedDiagnosticCapture.capture(
+                directory,
+                "availability",
+                listOf(
+                    stage("empty") { it.note("metadata") },
+                    stage("failed") { throw IOException("private source") },
+                    stage("partial") {
+                        it.record("retained")
+                        it.omit("EVIDENCE_MISSING")
+                    },
+                    stage("complete") { it.record("retained") }
+                ),
+                available
+            )
+            assertEquals("EMPTY_RETAINED", receipt(result, "empty").text("availability"))
+            assertEquals("UNAVAILABLE", receipt(result, "failed").text("availability"))
+            assertEquals("PARTIAL", receipt(result, "partial").text("availability"))
+            assertEquals("AVAILABLE", receipt(result, "complete").text("availability"))
+            assertEquals(JsonPrimitive(50), result.manifest["captureCompletionPercent"])
+            val missing = result.manifest["missingEvidence"] as JsonArray
+            assertEquals(setOf("failed", "partial"), missing.map { it.jsonObject.text("stage") }.toSet())
+            assertFalse(result.manifest.toString().contains("private source"))
+        }
+    }
+
     @Test fun failedStageFileOpenStillPublishesOtherSections() = temporary { directory ->
         runBlocking {
             val result = StagedDiagnosticCapture.capture(

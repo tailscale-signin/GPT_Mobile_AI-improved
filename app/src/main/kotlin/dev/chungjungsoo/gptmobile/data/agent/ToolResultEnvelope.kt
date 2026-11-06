@@ -62,7 +62,9 @@ internal object ToolResultEnvelope {
                 put("dispatched", result.dispatched)
                 put("state", executionState(result))
                 put("retryable", ToolFailureMetadata.retryable(ToolFailureMetadata.normalize(result)))
-                result.executionReceipt?.let { put("receipt", it) }
+                // Exact GitHub continuation recipes are durable verifier evidence,
+                // not part of the bounded model-visible display page.
+                result.executionReceipt?.let { put("receipt", JsonObject(it - "retained_remote_continuations")) }
                 put(
                     "outcome",
                     when {

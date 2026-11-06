@@ -3,6 +3,7 @@ package dev.chungjungsoo.gptmobile.data.diagnostics
 import dev.chungjungsoo.gptmobile.data.security.SecretVault
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicLong
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
@@ -93,7 +94,9 @@ data class RunJournalSnapshot(
     val completeProviderWireCapture: Boolean = false,
     val captureEnabled: Boolean? = null,
     val counterScope: String = "process_session",
-    val lossReasons: Map<String, Long> = emptyMap()
+    val lossReasons: Map<String, Long> = emptyMap(),
+    val coverageScope: String = "bounded_recent_window",
+    val intentionallyOmittedBatches: Int = 0
 )
 
 /** Typed lifecycle metadata is retained for saved runs; verbose capture remains optional. Generation never depends on this journal. */
@@ -153,16 +156,48 @@ internal class RunDiagnosticJournal(
                         // Keep each encrypted vault record below the vault's 64 KiB bound.
                         for ((run, events) in batch.groupBy { it.runId }) {
                             if (synchronized(lock) { run !in permittedRuns }) continue
-                            events.chunked(32).forEach { chunk ->
+                            // Persist the allocated sequence boundary separately from retained event batches.
+                            // A later restart or retention eviction must not turn a missing tail into completeness.
+                            val checkpoint = RunJournalCheckpoint(run, "$sessionId:$run", synchronized(lock) { sequences[run] ?: 0L }, now())
+                            val checkpointReference = "journalcheckpoint-${identity(run)}-${identity(sessionId)}"
+                            val checkpointBytes = json.encodeToString(checkpoint).toByteArray(Charsets.UTF_8)
+                            try {
+                                vault.put(checkpointReference, checkpointBytes)
+                                if (synchronized(lock) { run !in permittedRuns }) vault.delete(checkpointReference)
+                            } finally {
+                                checkpointBytes.fill(0)
+                            }
+                            // Pack by encoded bytes as well as event count: enriched typed receipts can
+                            // exceed a 64 KiB vault record even when a fixed batch contains only 32 events.
+                            var encoded = mutableListOf<String>()
+                            var encodedBytes = 2
+                            suspend fun flush() {
+                                if (encoded.isEmpty()) return
                                 val reference = "journal-${identity(run)}-${now()}-${UUID.randomUUID()}"
-                                val bytes = json.encodeToString(chunk).toByteArray(Charsets.UTF_8)
+                                val bytes = encoded.joinToString(",", "[", "]").toByteArray(Charsets.UTF_8)
                                 try {
                                     vault.put(reference, bytes)
                                     if (synchronized(lock) { run !in permittedRuns }) vault.delete(reference)
                                 } finally {
                                     bytes.fill(0)
                                 }
+                                encoded = mutableListOf()
+                                encodedBytes = 2
                             }
+                            for (event in events) {
+                                val value = json.encodeToString(event)
+                                val length = value.toByteArray(Charsets.UTF_8).size
+                                if (length + 2 > 60 * 1024) {
+                                    failed = true
+                                    dropped.incrementAndGet()
+                                    storageFailedEvents.incrementAndGet()
+                                    continue
+                                }
+                                if (encoded.size >= 32 || encodedBytes + length + 1 > 60 * 1024) flush()
+                                encoded += value
+                                encodedBytes += length + 1
+                            }
+                            flush()
                         }
                         if (now() - retentionCheckedAt >= 60_000 || retentionCheckedAt == 0L) {
                             prune()
@@ -197,7 +232,7 @@ internal class RunDiagnosticJournal(
         setRunPrivacy(runId, isTemporary = true)
         writes.withLock {
             try {
-                vault.references().filter { it.startsWith("journal-${identity(runId)}-") }.forEach { vault.delete(it) }
+                vault.references().filter { it.startsWith("journal-${identity(runId)}-") || it.startsWith("journalcheckpoint-${identity(runId)}-") }.forEach { vault.delete(it) }
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
@@ -327,16 +362,19 @@ internal class RunDiagnosticJournal(
         }
         val events = mutableListOf<RunDiagnosticEvent>()
         var missing = 0
+        var intentionallyOmitted = 0
         var snapshotBytes = 0L
         try {
             val prefixes = runIds.map { "journal-${identity(it)}-" }
             for (reference in vault.references().filter { ref -> prefixes.any(ref::startsWith) }.sortedByDescending { it.split('-').getOrNull(2)?.toLongOrNull() ?: 0L }) {
                 try {
                     if (snapshotBytes >= boundedBytes || events.size >= boundedEvents) {
+                        intentionallyOmitted++
                         missing++
                         continue
                     }
                     if (vault.storedSize(reference)?.let { it > boundedBytes - snapshotBytes } == true) {
+                        intentionallyOmitted++
                         missing++
                         continue
                     }
@@ -347,6 +385,7 @@ internal class RunDiagnosticJournal(
                         try {
                             snapshotBytes += bytes.size
                             if (snapshotBytes > boundedBytes) {
+                                intentionallyOmitted++
                                 missing++
                             } else {
                                 events += json.decodeFromString<List<RunDiagnosticEvent>>(bytes.decodeToString())
@@ -389,10 +428,123 @@ internal class RunDiagnosticJournal(
             storageFailed = failed,
             missingSequences = frozen.entries.sumOf { (stream, high) -> (high - retained.count { it.streamId == stream }).coerceAtLeast(0) },
             captureEnabled = enabled,
+            intentionallyOmittedBatches = intentionallyOmitted,
             captureLevel = if (enabled) "metadata" else "minimal_lifecycle",
             lossReasons = mapOf("suppressed_disabled" to disabledSuppressed.get(), "suppressed_private" to privacySuppressed.get(), "rejected_validation" to rejected.get(), "capacity_dropped" to capacityDropped.get(), "storage_failed_events" to storageFailedEvents.get(), "retention_pruned_batches" to retentionPrunedBatches.get())
         )
     }
+
+    /** Export every retained batch at a frozen boundary, decoding only one vault record at a time. */
+    suspend fun stream(
+        runId: String,
+        beforeRead: suspend () -> Unit,
+        consume: suspend (RunDiagnosticEvent) -> Unit
+    ): RunJournalExportCoverage {
+        beforeRead()
+        val capturedAt = now()
+        val runPrefix = "journal-${identity(runId)}-"
+        val statePrefix = "journalcheckpoint-${identity(runId)}-"
+        // Freeze the checkpoint VALUES with reference names. A mutable checkpoint may advance
+        // immediately after releasing this lock; reading it later would invent a missing tail.
+        val frozen = writes.withLock {
+            val references = vault.references()
+            val boundaries = linkedMapOf<String, Long>()
+            var unreadableCheckpoints = 0
+            for (reference in references.filter { it.startsWith(statePrefix) }) {
+                beforeRead()
+                try {
+                    val bytes = requireNotNull(vault.read(reference))
+                    try {
+                        require(bytes.size <= 4096)
+                        val checkpoint = json.decodeFromString<RunJournalCheckpoint>(bytes.decodeToString())
+                        require(checkpoint.runId == runId && checkpoint.highWatermark >= 0)
+                        boundaries[checkpoint.streamId] = maxOf(boundaries[checkpoint.streamId] ?: 0L, checkpoint.highWatermark)
+                    } finally {
+                        bytes.fill(0)
+                    }
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    unreadableCheckpoints++
+                }
+            }
+            synchronized(lock) {
+                FrozenJournalBoundary(references, boundaries, unreadableCheckpoints, sequences[runId] ?: 0L, (pending + inFlight).filter { it.runId == runId }, runId in privateRuns || privateSession, captureEpoch)
+            }
+        }
+        if (frozen.privacySuppressed) return RunJournalExportCoverage(capturedAtMillis = capturedAt, privacySuppressed = true)
+        val boundaries = frozen.highWatermarks.toMutableMap()
+        val checkpointStreams = boundaries.keys.toMutableSet()
+        val coverage = RunJournalSequenceCoverage()
+        var unreadable = 0
+        var records = 0L
+        fun ensureCurrent() {
+            check(synchronized(lock) { captureEpoch == frozen.epoch && runId !in privateRuns && !privateSession }) { "JOURNAL_CAPTURE_REVOKED" }
+        }
+        val currentStream = "$sessionId:$runId"
+        boundaries[currentStream] = frozen.currentHighWatermark
+        checkpointStreams += currentStream
+        suspend fun emit(event: RunDiagnosticEvent) {
+            beforeRead()
+            ensureCurrent()
+            if (event.runId != runId || event.sequence <= 0) return
+            val boundary = boundaries[event.streamId]
+            if (event.streamId in checkpointStreams && boundary != null && event.sequence > boundary) return
+            if (!coverage.add(event.streamId, event.sequence)) return
+            if (boundary == null) boundaries[event.streamId] = event.sequence
+            // Legacy batches have no durable boundary: extend their observed maximum without claiming tail coverage.
+            if (event.streamId !in checkpointStreams) boundaries[event.streamId] = maxOf(boundaries[event.streamId] ?: 0L, event.sequence)
+            consume(event)
+            records++
+        }
+        for (reference in frozen.references.filter { it.startsWith(runPrefix) }.sortedBy { it.split('-').getOrNull(2)?.toLongOrNull() ?: 0L }) {
+            beforeRead()
+            val batch = try {
+                val bytes = requireNotNull(vault.read(reference))
+                try {
+                    require(bytes.size <= 64 * 1024)
+                    json.decodeFromString<List<RunDiagnosticEvent>>(bytes.decodeToString())
+                } finally {
+                    bytes.fill(0)
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                unreadable++
+                continue
+            }
+            for (event in batch) emit(event)
+        }
+        for (event in frozen.queued) emit(event)
+        beforeRead()
+        ensureCurrent()
+        val missing = boundaries.entries.sumOf { (stream, high) -> (high - coverage.count(stream)).coerceAtLeast(0) }
+        val gaps = coverage.gaps(boundaries, 128)
+        return RunJournalExportCoverage(
+            capturedAtMillis = capturedAt,
+            eventCount = records,
+            highWatermarks = boundaries,
+            missingSequences = missing,
+            missingBatches = unreadable,
+            unreadableCheckpoints = frozen.unreadableCheckpoints,
+            unknownTailStreams = boundaries.keys.count { it !in checkpointStreams },
+            storageFailed = failed,
+            captureEnabled = enabled,
+            missingRanges = gaps.first,
+            missingRangesTruncated = gaps.second,
+            retentionPrunedBatches = retentionPrunedBatches.get()
+        )
+    }
+
+    private data class FrozenJournalBoundary(
+        val references: Set<String>,
+        val highWatermarks: Map<String, Long>,
+        val unreadableCheckpoints: Int,
+        val currentHighWatermark: Long,
+        val queued: List<RunDiagnosticEvent>,
+        val privacySuppressed: Boolean,
+        val epoch: Long
+    )
 
     suspend fun clear() = writes.withLock {
         synchronized(lock) {
@@ -406,7 +558,7 @@ internal class RunDiagnosticJournal(
             listOf(disabledSuppressed, privacySuppressed, rejected, capacityDropped, storageFailedEvents, retentionPrunedBatches).forEach { it.set(0) }
         }
         try {
-            vault.references().filter { it.startsWith("journal-") }.forEach { vault.delete(it) }
+            vault.references().filter { it.startsWith("journal-") || it.startsWith("journalcheckpoint-") }.forEach { vault.delete(it) }
             failed = false
         } catch (cancelled: kotlinx.coroutines.CancellationException) {
             throw cancelled
@@ -416,9 +568,31 @@ internal class RunDiagnosticJournal(
     }
 
     private suspend fun prune() {
+        val references = vault.references()
+        val checkpoints = mutableListOf<Pair<String, Long>>()
+        for (reference in references.filter { it.startsWith("journalcheckpoint-") }) {
+            val captured = try {
+                val bytes = requireNotNull(vault.read(reference))
+                try {
+                    require(bytes.size <= 4096)
+                    json.decodeFromString<RunJournalCheckpoint>(bytes.decodeToString()).capturedAtMillis
+                } finally {
+                    bytes.fill(0)
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                // Keep unreadable boundaries so exports report uncertainty instead of erasing it.
+                Long.MAX_VALUE
+            }
+            checkpoints += reference to captured
+        }
+        checkpoints.sortedByDescending { it.second }.forEachIndexed { index, (reference, captured) ->
+            if (captured < now() - retentionMillis || index >= 4096) vault.delete(reference)
+        }
         var total = 0L
         var batches = 0
-        for (reference in vault.references().filter { it.startsWith("journal-") }.sortedByDescending { it.split('-').getOrNull(2)?.toLongOrNull() ?: 0L }) {
+        for (reference in references.filter { it.startsWith("journal-") }.sortedByDescending { it.split('-').getOrNull(2)?.toLongOrNull() ?: 0L }) {
             val captured = reference.split('-').getOrNull(2)?.toLongOrNull() ?: 0L
             // Unknown stores are charged one maximum-size batch, never decrypted for sizing.
             total += vault.storedSize(reference) ?: (64L * 1024)

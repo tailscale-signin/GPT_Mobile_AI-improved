@@ -211,7 +211,7 @@ class RunDiagnosticJournalTest {
         assertTrue(journal.snapshot(setOf("run")).events.isEmpty())
     }
 
-    @Test fun retentionUsesMetadataWithoutDecryptingStoredBatches() = runTest {
+    @Test fun retentionSizesBatchesWithoutDecryptingAndRetainsSequenceCheckpoint() = runTest {
         val vault = MemoryVault()
         var time = 1_000_000L
         val journal = RunDiagnosticJournal(vault, backgroundScope, now = { time }, maxStoredBytes = 1).apply {
@@ -223,8 +223,10 @@ class RunDiagnosticJournalTest {
             journal.record("run", RunDiagnosticKind.REQUEST_SERIALIZED)
             runCurrent()
         }
-        assertEquals(0, vault.readCount)
-        assertTrue(vault.rows.isEmpty())
+        assertEquals(0, vault.batchReadCount)
+        assertTrue(vault.rows.keys.none { it.startsWith("journal-") })
+        assertEquals(1, vault.rows.keys.count { it.startsWith("journalcheckpoint-") })
+        assertEquals(5L, journal.stream("run", {}) {}.missingSequences)
     }
 
     @Test fun snapshotReportsOmittedBatchesInsteadOfExhaustingHeap() = runTest {
@@ -299,9 +301,11 @@ class RunDiagnosticJournalTest {
             rows[secretRef] = secret.copyOf()
         }
         var readCount = 0
+        var batchReadCount = 0
         override suspend fun storedSize(secretRef: String) = rows[secretRef]?.size?.toLong()
         override suspend fun read(secretRef: String): ByteArray? {
             readCount++
+            if (secretRef.startsWith("journal-")) batchReadCount++
             return rows[secretRef]?.copyOf()
         }
         override suspend fun delete(secretRef: String) {

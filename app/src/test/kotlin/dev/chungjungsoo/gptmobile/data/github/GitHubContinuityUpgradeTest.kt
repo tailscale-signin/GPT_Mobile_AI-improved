@@ -26,6 +26,8 @@ class GitHubContinuityUpgradeTest {
         fun receipt(action: String) = buildJsonObject {
             put("trusted", true)
             put("success", true)
+            put("dispatched", action == "branches")
+            put("evidence_origin", if (action == "branches") "LIVE" else "LOCAL")
             put("tool", "github_context")
             put("arguments", buildJsonObject { put("action", action) })
             put("result", JsonObject(emptyMap()))
@@ -37,6 +39,10 @@ class GitHubContinuityUpgradeTest {
         assertFalse(GitHubTestChecklist.apiComplete("Test all GitHub tools and Android device behavior", records, listOf(tool)))
         assertFalse(GitHubTestChecklist.apiComplete("Test all GitHub tools and fix all failures", records, listOf(tool)))
         assertFalse(GitHubTestChecklist.apiComplete("Test all GitHub tools", records - "two", listOf(tool)))
+        val withoutProvenance = records + ("two" to JsonObject(records.getValue("two") - "dispatched" - "evidence_origin"))
+        assertFalse(GitHubTestChecklist.apiComplete("Test all GitHub tools", withoutProvenance, listOf(tool)))
+        val cached = records + ("two" to JsonObject(records.getValue("two") + ("evidence_origin" to JsonPrimitive("CACHED"))))
+        assertEquals(JsonPrimitive(false), GitHubEvidencePolicy.testing(cached, 1000, 0, "Test all GitHub tools", listOf(tool)).second["completion_verified"])
     }
 
     @Test fun testAcceptanceRequiresAllJobPagesAtTheImplementedHead() {

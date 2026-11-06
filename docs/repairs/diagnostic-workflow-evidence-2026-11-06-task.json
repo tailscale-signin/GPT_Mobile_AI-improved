@@ -116,7 +116,7 @@
     "github_workflow_host": {
       "status": "PASSED",
       "tests": 85,
-      "scope": "Production checklist/fixtures/acceptance and complete OperationTool, ResultViews and ToolResultEnvelope integration, with explicit unrelated process boundaries. Fresh-read authorization/budget rejection, mutation rejection and recipe envelope bounds verified. HTTP MockEngine harness ongoing separately."
+      "scope": "Production checklist/fixtures/acceptance and complete OperationTool, ResultViews and ToolResultEnvelope integration, with explicit unrelated process boundaries. Fresh-read authorization/budget rejection, mutation rejection and recipe envelope bounds verified."
     },
     "android_full": {
       "status": "PENDING_RECHECK",
@@ -142,6 +142,31 @@
         "tests_executed": false,
         "failure": "Two Room/export fixtures supplied a type argument to the installed non-generic Robolectric RuntimeEnvironment.getApplication API.",
         "repair": "Remove both unnecessary type arguments while retaining real Room-to-staged-export integration coverage."
+      },
+      "third_attempt": {
+        "head_sha": "2ea2e8b9ff14b0ea74fe72bc26858fbeb2bcbf55",
+        "job_id": 127932369225,
+        "production_compile": "PASSED",
+        "unit_test_compile": "PASSED",
+        "tests": 6997,
+        "passed": 6990,
+        "failed": 2,
+        "skipped": 5,
+        "failures": [
+          "Ordinary GitHub facade schemas grew to 1175 estimated tokens, exceeding the existing under-1000 gate.",
+          "A synthetic complete-coverage receipt fixture omitted explicit live-read provenance required by the strengthened verifier."
+        ],
+        "verified_integration_boundaries": [
+          "All 41 tests across DiagnosticDatabaseSourceTest, DiagnosticRecordChunksTest, DiagnosticTimelineTest, RunDiagnosticJournalTest, RunJournalCoverageTest and StagedChatDebugExportTest passed, including real Room-to-ZIP receipt pagination and oversized-message reconstruction.",
+          "InvocationLedgerTest, ToolExchangeCompactorTest, AgentToolResolverTest, McpClientManagerTest, ModernMcpTransportTest and GitHubDecisionCardTest passed.",
+          "API 34 and API 36 emulator acceptance passed with all 54 required distinct cases on each API level.",
+          "CodeQL, Kotlin formatting, repository/gateway contracts, 35 GitHub download tests and 207 marketplace tests passed."
+        ],
+        "repairs": [
+          "Keep verify_live on remote facades, remove repeated wording and preserve the existing under-1000 estimated-token schema gate.",
+          "Declare LIVE/LOCAL provenance explicitly in synthetic coverage fixtures and retain missing-provenance and cached-evidence rejection assertions.",
+          "Give the mutation guard regression a valid head SHA so it verifies rejection before backend dispatch."
+        ]
       }
     },
     "live_acceptance": {
@@ -168,6 +193,22 @@
       "status": "PASSED",
       "tests": 3,
       "scope": "Source-extracted production request/deletion methods and full cache/journal/scheduler classes with Ktor MockEngine; not a full Android compilation."
+    },
+    "github_ci_regressions_host": {
+      "status": "PASSED",
+      "tests": 11,
+      "scope": "Real ProgressiveToolCatalog, GitHub facade definitions, GitHubEvidencePolicy, task continuity, excerpt/renderer implementations, AgentContractVersion and production UTF-8 estimator; unrelated Android/backend boundaries isolated.",
+      "before": {
+        "reproduced_failures": 2,
+        "ordinary_schema_utf8_bytes": 3525,
+        "ordinary_schema_estimated_tokens": 1175
+      },
+      "after": {
+        "ordinary_schema_utf8_bytes": 2991,
+        "ordinary_schema_estimated_tokens": 997,
+        "unchanged_schema_gate": "below 1000 estimated tokens"
+      },
+      "negative_cases": "Missing provenance and CACHED receipts remain incomplete; valid-head mutation, authorization and budget guards refuse inappropriate live verification before backend dispatch."
     }
   },
   "publication": {
@@ -176,7 +217,7 @@
     "target": "main",
     "pull_request": 806,
     "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/806",
-    "previously_published_head": "75ca83ae3cb0ad373390c098d01271292329609e",
+    "previously_published_head": "2ea2e8b9ff14b0ea74fe72bc26858fbeb2bcbf55",
     "release_requested": false
   },
   "review": [

@@ -60,6 +60,7 @@ class GitHubLiveVerificationTest {
             put("action", "comment")
             put("pull_number", 7)
             put("body", "fixture")
+            put("expected_head_sha", "a".repeat(40))
             put("verify_live", true)
         }
         val result = tool.execute("write", request)

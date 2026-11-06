@@ -603,11 +603,10 @@ internal class GitHubOperationTool(
                 put("enum", JsonArray(names.map(::JsonPrimitive)))
             }
             val properties = linkedMapOf("owner" to field("string"), "repo" to field("string"), "commit_sha" to field("string"), "view_cursor" to field("string"))
-            if (operation in setOf("github_context", "github_search", "github_read", "github_pr", "github_ci", "github_issue", "github_release")) {
-                properties["verify_live"] = buildJsonObject {
-                    put("type", "boolean")
-                    put("description", "For read-only integration verification, bypass local HTTP response reuse once. Does not authorize writes or expand the tool budget.")
-                }
+            // Snapshot-backed search/read do not qualify remote transport. Keep
+            // the cache-bypass control on remote facades without repeated prose.
+            if (operation in setOf("github_context", "github_pr", "github_ci", "github_issue", "github_release")) {
+                properties["verify_live"] = field("boolean")
             }
             when (operation) {
                 "github_context" -> {
@@ -881,9 +880,9 @@ internal class GitHubOperationTool(
             }
             if (operation in setOf("github_context", "github_ci", "github_pr", "github_read")) properties["response_detail"] = choice("compact", "full")
             val description = when (operation) {
-                "github_context" -> "Inspect repo, commits and checks; changes needs base_sha. full adds metadata."
+                "github_context" -> "Repo/commits/checks; changes needs base_sha. full adds metadata."
                 "github_search" -> "Search pinned code/paths. literal=text; paths/patterns=* glob. Check coverage."
-                "github_read" -> "Read pinned ranges (1-based, <=2000 lines) or evidence_id. Find paths first; replay saved pages with view_cursor only."
+                "github_read" -> "Read pinned ranges (1-based, <=2000 lines) or evidence_id. Find paths first; saved pages: view_cursor only."
                 "github_stage_patch" -> "Stage an exact replacement with target_file, search_snippet and replacement_snippet, or SHA-checked edits. Reads the pinned blob and rejects ambiguous anchors. Returns immutable version/stage_id and preserves publication receipts. Supply restore_stage_id alone to select a saved local patch at the same branch/base. Commit on a permitted working branch using its current expected_head_sha."
                 "github_commit" -> "Create a working branch, commit a validated stage_id, or delete_branch with expected_head_sha after dependency inspection. Deletion blocks selected/default/protected branches, unmerged commits, open PRs and active runs. GitHub deletion is not an atomic SHA lease."
                 "github_write" -> "Every files item requires a repository-relative path (for example app/src/main/kotlin/.../MainActivity.kt), never an absolute path or directory. Stage up to 20 UTF-8 file creations, replacements or deletions for exact user approval and one atomic commit on a working branch. Supply expected_head_sha and expected_blob_sha for existing files. Replacements require content; deletions require delete=true and no content. Never write to the default branch."

@@ -88,7 +88,7 @@ fun RepositoryGraphStatusMap(
     var capturedMap by remember(context) { mutableStateOf<JsonObject?>(null) }
     var selectedNode by remember(context) { mutableStateOf<JsonObject?>(null) }
     LaunchedEffect(context, state.busy, state.operation, state.result) {
-        if (!state.busy && state.operation == "status" && state.result != null && !architectureRequested) {
+        if (!state.busy && state.operation == "status" && state.result != null && (!architectureRequested || capturedMap == null)) {
             architectureRequested = true
             if (state.result?.get("status") != JsonPrimitive("NOT_INDEXED")) model.request("architecture")
         } else if (!state.busy && state.operation == "architecture" && state.result != null) {
@@ -320,6 +320,7 @@ internal fun GraphMiniMap(nodes: List<JsonObject>, edges: List<JsonObject>, onSe
     val secondary = MaterialTheme.colorScheme.secondary
     val outline = MaterialTheme.colorScheme.outlineVariant
     val foreground = MaterialTheme.colorScheme.onSurface
+    val onPrimary = MaterialTheme.colorScheme.onPrimary
     val labels = nodes.map { it.text("name", it.text("qualified", it.text("id"))).substringAfterLast('.').take(13) }
     val ids = nodes.map { it.text("id") }
     Canvas(
@@ -330,7 +331,9 @@ internal fun GraphMiniMap(nodes: List<JsonObject>, edges: List<JsonObject>, onSe
                 detectTapGestures { position ->
                     if (nodes.isEmpty()) return@detectTapGestures
                     val selected = nodes.indices.minByOrNull { i ->
-                        val angle = 2 * Math.PI * i / nodes.size.coerceAtLeast(1) - Math.PI / 2
+                        val ringCount = if (nodes.size > 12) if (i >= 12) nodes.size - 12 else 12 else nodes.size.coerceAtLeast(1)
+                        val slot = if (nodes.size > 12 && i >= 12) i - 12 else i
+                        val angle = 2 * Math.PI * slot / ringCount - Math.PI / 2
                         val ring = if (nodes.size > 12 && i >= 12) 0.44f else if (nodes.size > 6) 0.34f else 0.30f
                         val point = Offset(
                             size.width / 2f + cos(angle).toFloat() * size.width * ring,
@@ -343,7 +346,9 @@ internal fun GraphMiniMap(nodes: List<JsonObject>, edges: List<JsonObject>, onSe
             }
     ) {
         val points = nodes.indices.map { i ->
-            val angle = 2 * Math.PI * i / nodes.size.coerceAtLeast(1) - Math.PI / 2
+            val ringCount = if (nodes.size > 12) if (i >= 12) nodes.size - 12 else 12 else nodes.size.coerceAtLeast(1)
+            val slot = if (nodes.size > 12 && i >= 12) i - 12 else i
+            val angle = 2 * Math.PI * slot / ringCount - Math.PI / 2
             val ring = if (nodes.size > 12 && i >= 12) 0.44f else if (nodes.size > 6) 0.34f else 0.30f
             Offset(
                 size.width / 2 + cos(angle).toFloat() * size.width * ring,
@@ -378,7 +383,7 @@ internal fun GraphMiniMap(nodes: List<JsonObject>, edges: List<JsonObject>, onSe
                 textSize = 10.dp.toPx()
                 isFakeBoldText = true
             }
-            canvas.nativeCanvas.drawText("REPO", center.x, center.y + 4.dp.toPx(), paint.apply { color = android.graphics.Color.WHITE })
+            canvas.nativeCanvas.drawText("REPO", center.x, center.y + 4.dp.toPx(), paint.apply { color = onPrimary.toArgb() })
             paint.color = foreground.toArgb()
             points.forEachIndexed { i, point ->
                 canvas.nativeCanvas.drawText(labels[i], point.x, point.y + 35.dp.toPx(), paint)

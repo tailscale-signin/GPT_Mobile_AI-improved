@@ -94,7 +94,7 @@ class StagedChatDebugExportTest {
         assertTrue(chooser.flags and android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION != 0)
         assertNotNull(chooser.clipData)
         assertEquals(uri, chooser.clipData!!.getItemAt(0).uri)
-        val send = chooser.getParcelableExtra(android.content.Intent.EXTRA_INTENT) as android.content.Intent
+        val send = requireNotNull(chooser.getParcelableExtra<android.content.Intent>(android.content.Intent.EXTRA_INTENT))
         assertEquals(android.content.Intent.ACTION_SEND, send.action)
         assertEquals("application/zip", send.type)
         assertEquals(uri, send.getParcelableExtra(android.content.Intent.EXTRA_STREAM))
@@ -103,9 +103,11 @@ class StagedChatDebugExportTest {
     }
 
     @Test fun chooserRejectsFileUrisToPreventUnsafeFileExposure() {
-        assertTrue(runCatching {
-            chatExportChooser(context, android.net.Uri.parse("file:///private/diagnostics.zip"), "diagnostics.zip", "application/zip")
-        }.isFailure)
+        assertTrue(
+            runCatching {
+                chatExportChooser(context, android.net.Uri.parse("file:///private/diagnostics.zip"), "diagnostics.zip", "application/zip")
+            }.isFailure
+        )
     }
 
     @Test fun failedConversationStillExportsLogsProfilesAndToolReceiptsWithoutCredentials() = runBlocking {

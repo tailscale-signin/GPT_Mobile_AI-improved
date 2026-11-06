@@ -12,10 +12,13 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.Card
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -30,7 +33,13 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalUriHandler
@@ -47,11 +56,112 @@ import dev.chungjungsoo.gptmobile.presentation.common.glassBackdrop
 import kotlin.math.cos
 import kotlin.math.sin
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.put
+
+
+/**
+ * The Status tab owns a visual, source-backed map. Loading the map does not
+ * authorize writes, infer live code execution or synthesize missing edges.
+ * The selected gateway remains the only graph data source.
+ */
+@Composable
+fun RepositoryGraphStatusMap(
+    context: GitHubConversationContext,
+    profile: PlatformV2?,
+    model: RepositoryGraphViewModel = hiltViewModel()
+) {
+    if (!GitHubAutonomousEngineeringPolicy.supportsSavedJobs(profile)) {
+        Surface(shape = androidx.compose.foundation.shape.RoundedCornerShape(22.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
+            Column(Modifier.fillMaxWidth().padding(18.dp)) {
+                Text("Repository network", style = MaterialTheme.typography.titleMedium)
+                Text("Select an authorized private gateway profile to explore a source-backed repository graph.", style = MaterialTheme.typography.bodySmall)
+            }
+        }
+        return
+    }
+    LaunchedEffect(context) { model.bind(context) }
+    DisposableEffect(context, model) { onDispose(model::stop) }
+    val state by model.state.collectAsStateWithLifecycle()
+    var architectureRequested by remember(context) { mutableStateOf(false) }
+    var capturedMap by remember(context) { mutableStateOf<JsonObject?>(null) }
+    var selectedNode by remember(context) { mutableStateOf<JsonObject?>(null) }
+    LaunchedEffect(context, state.busy, state.operation, state.result) {
+        if (!state.busy && state.operation == "status" && state.result != null && !architectureRequested) {
+            architectureRequested = true
+            if (state.result?.get("status") != JsonPrimitive("NOT_INDEXED")) model.request("architecture")
+        } else if (!state.busy && state.operation == "architecture" && state.result != null) {
+            capturedMap = state.result
+        }
+    }
+    val map = capturedMap
+    val sourceNodes = map?.objects("nodes").orEmpty()
+    val communities = map?.objects("communities").orEmpty()
+    // Communities are drawn as distinct bubbles when the architecture endpoint
+    // supplies community data but no symbol-level nodes.
+    val bubbles = if (sourceNodes.isNotEmpty()) sourceNodes else communities.mapIndexed { index, community ->
+        buildJsonObject {
+            put("id", community.text("id", "community-$index"))
+            put("name", community.text("name", "Subsystem ${index + 1}"))
+            put("qualified", community.text("name", "Subsystem ${index + 1}"))
+            put("kind", "community")
+        }
+    }
+    Surface(
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(24.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        modifier = Modifier.fillMaxWidth().testTag("github_status_repository_map")
+    ) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Column(Modifier.weight(1f)) {
+                    Text("Repository network", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+                    Text("${context.owner}/${context.repo} · ${context.commitSha.take(10)}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                OutlinedButton(onClick = {
+                    selectedNode = null
+                    architectureRequested = true
+                    model.request("architecture")
+                }, enabled = !state.busy) { Text("Refresh") }
+            }
+            if (state.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
+            GraphMiniMap(bubbles.take(36), map?.objects("edges").orEmpty()) { node ->
+                selectedNode = node
+                if (sourceNodes.isNotEmpty() && node.text("id").isNotBlank() && !state.busy) {
+                    model.request("node", symbol = node.text("id"))
+                }
+            }
+            if (bubbles.isEmpty()) {
+                Text(
+                    "The selected revision has no loaded graph nodes. This is a visual placeholder, not a verified dependency map.",
+                    style = MaterialTheme.typography.bodySmall
+                )
+                TextButton(onClick = {
+                    selectedNode = null
+                    capturedMap = null
+                    model.request("index")
+                }, enabled = !state.busy) { Text("Build repository index") }
+            } else {
+                Text(
+                    "${bubbles.size.coerceAtMost(36)} source-backed ${if (sourceNodes.isNotEmpty()) "symbols" else "subsystems"} · tap a bubble to inspect",
+                    style = MaterialTheme.typography.labelMedium
+                )
+            }
+            selectedNode?.let { node ->
+                Text(node.text("qualified", node.text("name")), style = MaterialTheme.typography.titleSmall)
+                Text(node.text("path", "Graph subsystem") + node.text("line").takeIf(String::isNotBlank)?.let { ":$it" }.orEmpty(), style = MaterialTheme.typography.bodySmall)
+            }
+            state.error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+            if (map?.get("stale") == JsonPrimitive(true)) Text("This graph is stale; refresh the selected branch revision.", color = MaterialTheme.colorScheme.error)
+            if (map?.get("truncated") == JsonPrimitive(true) || bubbles.size > 36) Text("A bounded selection is shown; unrendered relationships are not claimed.", style = MaterialTheme.typography.bodySmall)
+            Text("Source relationships are informational. Actual build, test and GitHub check results appear below.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
 
 /** A bounded repository explorer opened from GitHub workspace settings. */
 @Composable
@@ -208,31 +318,73 @@ fun RepositoryGraphPanel(context: GitHubConversationContext, profile: PlatformV2
 @Composable
 private fun GraphMiniMap(nodes: List<JsonObject>, edges: List<JsonObject>, onSelect: (JsonObject) -> Unit) {
     val primary = MaterialTheme.colorScheme.primary
-    val secondary = MaterialTheme.colorScheme.outlineVariant
-    val selectedIds = nodes.map { it.text("id") }
-    Box(Modifier.fillMaxWidth().height(180.dp)) {
-        Canvas(
-            Modifier.fillMaxSize().pointerInput(nodes) {
-                detectTapGestures { tap ->
-                    val nearest = nodes.indices.minByOrNull { i ->
-                        val angle = 2 * Math.PI * i / nodes.size.coerceAtLeast(1)
-                        val point = Offset(size.width / 2f + cos(angle).toFloat() * size.width * .38f, size.height / 2f + sin(angle).toFloat() * size.height * .35f)
-                        (point - tap).getDistance()
-                    }
-                    nearest?.let { onSelect(nodes[it]) }
+    val tertiary = MaterialTheme.colorScheme.tertiary
+    val secondary = MaterialTheme.colorScheme.secondary
+    val outline = MaterialTheme.colorScheme.outlineVariant
+    val foreground = MaterialTheme.colorScheme.onSurface
+    val labels = nodes.map { it.text("name", it.text("qualified", it.text("id"))).substringAfterLast('.').take(13) }
+    val ids = nodes.map { it.text("id") }
+    Canvas(
+        Modifier.fillMaxWidth().height(310.dp)
+            .testTag("github_repository_bubble_network")
+            .semantics { contentDescription = "Interactive repository network with ${nodes.size} source-backed bubbles" }
+            .pointerInput(nodes) {
+                detectTapGestures { position ->
+                    if (nodes.isEmpty()) return@detectTapGestures
+                    val selected = nodes.indices.minByOrNull { i ->
+                        val angle = 2 * Math.PI * i / nodes.size.coerceAtLeast(1) - Math.PI / 2
+                        val ring = if (nodes.size > 12 && i >= 12) 0.44f else if (nodes.size > 6) 0.34f else 0.30f
+                        val point = Offset(
+                            size.width / 2f + cos(angle).toFloat() * size.width * ring,
+                            size.height / 2f + sin(angle).toFloat() * size.height * ring
+                        )
+                        (point - position).getDistance()
+                    } ?: return@detectTapGestures
+                    onSelect(nodes[selected])
                 }
             }
-        ) {
-            val points = nodes.indices.map { i ->
-                val angle = 2 * Math.PI * i / nodes.size.coerceAtLeast(1)
-                Offset(size.width / 2 + cos(angle).toFloat() * size.width * .38f, size.height / 2 + sin(angle).toFloat() * size.height * .35f)
+    ) {
+        val points = nodes.indices.map { i ->
+            val angle = 2 * Math.PI * i / nodes.size.coerceAtLeast(1) - Math.PI / 2
+            val ring = if (nodes.size > 12 && i >= 12) 0.44f else if (nodes.size > 6) 0.34f else 0.30f
+            Offset(
+                size.width / 2 + cos(angle).toFloat() * size.width * ring,
+                size.height / 2 + sin(angle).toFloat() * size.height * ring
+            )
+        }
+        val center = Offset(size.width / 2, size.height / 2)
+        // Spokes visualize groups around the repository; only edges returned by
+        // the graph service are drawn as dependency relationships.
+        points.forEach { drawLine(outline.copy(alpha = .30f), center, it, strokeWidth = 1.dp.toPx()) }
+        edges.forEach { edge ->
+            val a = ids.indexOf(edge.text("source"))
+            val b = ids.indexOf(edge.text("target"))
+            if (a >= 0 && b >= 0) drawLine(tertiary.copy(alpha = .8f), points[a], points[b], strokeWidth = 2.dp.toPx())
+        }
+        drawCircle(primary.copy(alpha = .16f), radius = 39.dp.toPx(), center = center)
+        drawCircle(primary, radius = 23.dp.toPx(), center = center)
+        points.forEachIndexed { i, point ->
+            val color = when (nodes[i].text("kind").lowercase()) {
+                "community", "module", "package" -> tertiary
+                "class", "interface", "function", "method" -> primary
+                else -> secondary
             }
-            edges.forEach { edge ->
-                val a = selectedIds.indexOf(edge.text("source"))
-                val b = selectedIds.indexOf(edge.text("target"))
-                if (a >= 0 && b >= 0) drawLine(secondary, points[a], points[b], strokeWidth = 2.dp.toPx())
+            val radius = if (nodes.size > 22) 20.dp.toPx() else 26.dp.toPx()
+            drawCircle(color.copy(alpha = .14f), radius = radius + 6.dp.toPx(), center = point)
+            drawCircle(color.copy(alpha = .88f), radius = radius, center = point)
+        }
+        drawIntoCanvas { canvas ->
+            val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+                color = foreground.toArgb()
+                textAlign = android.graphics.Paint.Align.CENTER
+                textSize = 10.dp.toPx()
+                isFakeBoldText = true
             }
-            points.forEach { drawCircle(primary, radius = 7.dp.toPx(), center = it) }
+            canvas.nativeCanvas.drawText("REPO", center.x, center.y + 4.dp.toPx(), paint.apply { color = android.graphics.Color.WHITE })
+            paint.color = foreground.toArgb()
+            points.forEachIndexed { i, point ->
+                canvas.nativeCanvas.drawText(labels[i], point.x, point.y + 35.dp.toPx(), paint)
+            }
         }
     }
 }

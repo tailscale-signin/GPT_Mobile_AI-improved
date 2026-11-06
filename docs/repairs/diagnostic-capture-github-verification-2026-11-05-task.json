@@ -1,0 +1,242 @@
+{
+  "schema": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "1b8d57128484770d09fe026216a46603803b76f6",
+  "working_branch": "fix/diagnostic-capture-github-verification-2026-11-05",
+  "intent": "Implement bounded diagnostic capture, persistent critical evidence, independent resumable stages, honest export validation and memory telemetry; remedy source defects behind the supplied partial GitHub verification report without weakening operation authorization or evidence requirements.",
+  "state": "EXPANDED_IMPLEMENTATION_IN_PROGRESS",
+  "inputs": {
+    "partial_archive": "partial-diagnostics-6-1545ad2a-3afc-48cb-be36-c9405eb87415.zip",
+    "diagnostic_analysis_supplied_in_request": true,
+    "raw_archive_available_in_this_turn": false,
+    "github_verification_report_supplied_in_request": true,
+    "observed_commit": "1b8d57128484770d09fe026216a46603803b76f6"
+  },
+  "work_packages": [
+    {
+      "id": "critical_logs",
+      "state": "IMPLEMENTED",
+      "scope": "Bounded persistent critical ring and streaming stable log snapshots with explicit empty/disabled states"
+    },
+    {
+      "id": "staged_capture",
+      "state": "IMPLEMENTED",
+      "scope": "Single export admission, staged checkpoints, resource limits, reduced-memory retry, manifest verification and memory diagnostics"
+    },
+    {
+      "id": "capture_integration",
+      "state": "IMPLEMENTED",
+      "scope": "Paged conversation/tool data, independent research/profile stages and actionable partial-export UI"
+    },
+    {
+      "id": "github_recovery",
+      "state": "IMPLEMENTED",
+      "scope": "Graph/read/CI failure recovery, exact resource evidence and bounded continuation/checklist completion"
+    },
+    {
+      "id": "validation",
+      "state": "HOST_VALIDATED_PENDING_ANDROID_CI",
+      "scope": "Behavior regression tests, host checks and current-revision Android CI"
+    }
+  ],
+  "acceptance": {
+    "export": "An empty or failed stage cannot be reported as complete; available redacted critical evidence is packaged first and retained across failed or cancelled stages.",
+    "memory": "No export-time whole-history hydration; fixed buffers, bounded records and section limits with measured memory metadata.",
+    "privacy": "Preserve diagnostic opt-in, temporary-chat isolation and credential redaction.",
+    "github": "A listed endpoint or accepted dispatch is not a passed integration capability or test execution; preserve exact revision, run/job receipts and fixture ownership.",
+    "qualification": "Device/vendor/LAN observations remain unverified without actual execution in those environments."
+  },
+  "engineering_job_id": "eng_8f66ace2187d4ad39d303fdf2a13ec57",
+  "coverage_ledger": "docs/repairs/diagnostic-capture-github-verification-2026-11-05.md",
+  "validation": {
+    "canonical_host": {
+      "command": "bash scripts/validate-local.sh fast",
+      "result": "PASSED",
+      "tests": 317
+    },
+    "staged_capture": {
+      "result": "PASSED",
+      "tests": 24,
+      "java_heap_mib": 64,
+      "generated_history_bytes": 163840000
+    },
+    "disk_logs": {
+      "result": "PASSED",
+      "tests": 27,
+      "java_heap_mib": 64,
+      "qualification": "Production bounded queue, ring, snapshot, formatting, coalescing and privacy helpers; application-boundary doubles where required."
+    },
+    "github_focused": {
+      "result": "PASSED",
+      "tests": 46,
+      "qualification": "Production sources with explicit Android/network boundary doubles"
+    },
+    "export_ui_summary": {
+      "result": "PASSED",
+      "tests": 4
+    },
+    "offline_inspection": {
+      "result": "PASSED",
+      "tests": 11
+    },
+    "android_application": {
+      "result": "PENDING_CURRENT_BRANCH_CI"
+    },
+    "affected_device": {
+      "result": "NOT_RUN",
+      "scope": "Actual ASUS device low-memory capture and underlying original failures"
+    },
+    "bounded_source_readers": {
+      "result": "PASSED",
+      "tests": 18,
+      "java_heap_mib": 64,
+      "qualification": "Stored-value, protected-workspace and research-page production implementations; database source separately compiled against explicit Android/SQLite boundaries."
+    },
+    "export_integration": {
+      "result": "PASSED",
+      "tests": 9,
+      "qualification": "Five production adapter scenarios with explicit Android/source doubles, plus four frozen-log behavior regressions. Actual Robolectric integration tests await Android CI."
+    },
+    "journal_snapshot_bounds": {
+      "result": "PASSED",
+      "tests": 4,
+      "java_heap_mib": 64,
+      "qualification": "Actual journal source compiled; focused snapshot byte/event-cap behavior exercised with storage boundaries."
+    }
+  },
+  "publication": {
+    "authorized": true,
+    "source_sha": "57f6fd81edc627cdb5a5622716b7e9532e2d49a3",
+    "tree": "4424195fd65cd05ed5154f1f222da9528c11e265",
+    "pull_request": 804
+  },
+  "expanded_task_id": "eng_3f5c8d59f34941f8b71db458335f8366",
+  "pr_repair": {
+    "user_instruction": "Fix all PR draft branches and merge when all green",
+    "base_sha": "1b8d57128484770d09fe026216a46603803b76f6",
+    "initial_reviewed_head": "b164ceb30d00bd8235daf82f2596e74329298af8",
+    "initial_repair_head": "3ebb6fc078f2a1390fc5854a89f9de5109486965",
+    "state": "INTEGRATION_VALIDATION",
+    "open_prs_at_start": [
+      804
+    ],
+    "merge_authorized": true,
+    "code_review_repairs": [
+      "renderer variable scope and response provenance provider",
+      "exact KSP Room schema 49 export",
+      "explicit reviewed release path manifest",
+      "gateway capability fixture and isolated benchmark import",
+      "durable diagnostic context and bounded export admission",
+      "nonretryable diagnostic synchronization failures",
+      "canonical hardware evidence and unknown-outcome recovery guidance",
+      "fresh command-specific behavior-report snapshots",
+      "stop definitive engineering authorization/validation failures without repeated stage dispatch",
+      "bounded production compiler heap after measured 3 GiB exhaustion",
+      "isolated Windows child runtime environment",
+      "fully synchronous single-owner diagnostic WAL and indexed retention pruning",
+      "isolate unchanged50000event durability stress with measured Windows-specific300second test budget",
+      "complete strict selected-connection and Android JSON integration fixtures",
+      "validate GitHub origin before credential or connection persistence",
+      "synchronize diagnostic cancellation regression with actual response-body read"
+    ],
+    "local_validation": {
+      "canonical_host": {
+        "status": "PASSED",
+        "tests": 329
+      },
+      "android_focused_logic": {
+        "status": "PASSED",
+        "tests": 34,
+        "qualification": "Host logic tests do not establish full Android execution"
+      },
+      "room_48_to_49": {
+        "status": "PASSED",
+        "qualification": "SQLite layout and historical row preservation"
+      },
+      "gateway": {
+        "status": "PASSED",
+        "total": 472,
+        "passed": 471,
+        "skipped": 1,
+        "skip_reason": "No bindable LAN IPv4 in editing environment"
+      },
+      "browser_bridge": {
+        "status": "PASSED",
+        "tests": 7
+      },
+      "authentication": {
+        "status": "PASSED",
+        "tests": 25
+      },
+      "diagnostic_retry_transport_spool": {
+        "status": "PASSED",
+        "tests": 32,
+        "qualification": "Host harness executes production logic with Android boundary stubs; full Android build remains a CI gate"
+      },
+      "fresh_validation_reports": {
+        "status": "PASSED",
+        "tests": 14
+      },
+      "retained_validation_evidence": {
+        "status": "PASSED",
+        "tests": 13
+      },
+      "gateway_terminal_failures": {
+        "status": "PASSED",
+        "tests": 17
+      },
+      "gateway_windows_repairs": {
+        "status": "PASSED_LOCALLY",
+        "diagnostic_cases": 21,
+        "validation_cases": 14,
+        "v14_aggregate": 294,
+        "v14_aggregate_seconds": 44.881,
+        "qualification": "Linux real subprocess/crash/reopen tests; Windows CI still required",
+        "dedicated_stress_cases": 1,
+        "dedicated_stress_seconds": 5.948
+      },
+      "android_integration_fixture_repairs": {
+        "status": "CI_REQUIRED",
+        "cases": 5,
+        "local_checks": [
+          "ktlint",
+          "complete PR diff whitespace"
+        ],
+        "qualification": "Existing assertions preserved; Room/Robolectric execution remains an Android CI gate"
+      },
+      "repository_origin_preflight": {
+        "status": "PASSED",
+        "tests": 22,
+        "qualification": "Actual repository/origin/endpoint/DAO/entity sources; process-service and annotation boundaries stubbed; full Android CI required"
+      },
+      "diagnostic_cancellation_race": {
+        "status": "PASSED",
+        "diagnostic_suite_tests": 32,
+        "transport_class_repetitions": 100,
+        "transport_test_executions": 500,
+        "qualification": "Repeated executions are not additional unique test cases"
+      }
+    },
+    "remote_validation": "Fresh final-head CI required before merge",
+    "report": "docs/repairs/pr804-validation-repairs-2026-11-05.md",
+    "last_inspected_head": "f1adbfc275d469a83f09cd87cf9292880e584f07",
+    "observed_android_unit_run": {
+      "head": "f1adbfc275d469a83f09cd87cf9292880e584f07",
+      "run_id": 42168133500,
+      "artifact_id": 13480941128,
+      "total": 6950,
+      "passed": 6940,
+      "failed": 5,
+      "skipped": 5,
+      "skip_reason": "Separate required bounded-heap test invocations",
+      "status": "FAILURES_REPAIRED_LOCALLY_FRESH_CI_REQUIRED"
+    },
+    "observed_pr_coverage_unit_run": {
+      "head": "f1adbfc275d469a83f09cd87cf9292880e584f07",
+      "run_id": 42168133549,
+      "failed": 6,
+      "status": "FAILURES_REPAIRED_LOCALLY_FRESH_CI_REQUIRED"
+    }
+  }
+}

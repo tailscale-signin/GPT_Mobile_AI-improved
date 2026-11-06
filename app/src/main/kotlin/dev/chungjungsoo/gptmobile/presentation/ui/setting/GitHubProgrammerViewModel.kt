@@ -64,7 +64,8 @@ class GitHubProgrammerViewModel @Inject constructor(
     private val approvals: ToolApprovalManager,
     private val connections: ToolConnectionRepository,
     private val drafts: dev.chungjungsoo.gptmobile.data.github.GitHubWorkspaceDraftStore,
-    private val savedStateHandle: androidx.lifecycle.SavedStateHandle = androidx.lifecycle.SavedStateHandle()
+    private val savedStateHandle: androidx.lifecycle.SavedStateHandle = androidx.lifecycle.SavedStateHandle(),
+    private val bootstrapper: dev.chungjungsoo.gptmobile.data.github.GitHubSessionBootstrapper? = null
 ) : ViewModel() {
     private val mutable = MutableStateFlow(GitHubProgrammerState())
     val state = mutable.asStateFlow()
@@ -169,7 +170,7 @@ class GitHubProgrammerViewModel @Inject constructor(
                 // A missing or disabled selection is a setup error, never permission to
                 // switch inference to a favorite, default, or another provider.
                 val connectionUid = connection?.connectionUid
-                val configuredUid = session.profileUid ?: storedUid ?: features.githubDefaultProfileUid
+                val configuredUid = session.profileUid ?: storedUid ?: workspace?.cachedProfileUid ?: features.githubDefaultProfileUid
                 val requestedUid = session.profileUid ?: if (connectionUid != null && pinnedConnectionUid == connectionUid && pinnedProfileUid != null) pinnedProfileUid else configuredUid
                 if (connectionUid != null && requestedUid != null && (pinnedConnectionUid != connectionUid || pinnedProfileUid == null)) {
                     pinnedConnectionUid = connectionUid
@@ -215,11 +216,13 @@ class GitHubProgrammerViewModel @Inject constructor(
                     session.chatId != null -> setOfNotNull(session.chatId).filterTo(mutableSetOf()) { features.conversationGitHub[it]?.sameWorkspace(context) == true }
                     else -> features.conversationGitHub.filterValues { it.sameWorkspace(context) }.keys
                 }
-                val room = candidates.sortedDescending().firstNotNullOfOrNull { id ->
+                val preferredChat = workspace?.recentChatId?.takeIf { it in candidates }
+                val room = (listOfNotNull(preferredChat) + candidates.sortedDescending()).distinct().firstNotNullOfOrNull { id ->
                     database.agentPersistenceDao().getChatRoom(id)?.takeIf { (session.chatId == it.id || !it.isArchived) && !it.isTemporary }
                 }
                 if (session != selection.value || workspace != destination.value) return@collect
                 if (room != null && context != null) migrateComposerDraft(room, context)
+                if (context != null) bootstrapper?.rememberConversation(context, room?.id, mutable.value.draft.isNotBlank() || !room?.draftText.isNullOrBlank())
                 observeConversation(room?.id)
             }
         }

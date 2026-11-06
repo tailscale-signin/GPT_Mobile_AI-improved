@@ -95,9 +95,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.filter
-import kotlinx.coroutines.flow.merge
-import kotlinx.coroutines.flow.sample
-import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.intellij.markdown.IElementType
@@ -106,7 +103,7 @@ import org.intellij.markdown.MarkdownTokenTypes
 private const val CLIPBOARD_LABEL_CODE = "code"
 private const val STREAM_FADE_DURATION_MS = 1_000L
 private const val STREAM_FADE_TICK_MS = 50L
-private const val MARKDOWN_PREPARATION_SAMPLE_MS = 500L
+internal const val MARKDOWN_PREPARATION_SAMPLE_MS = 40L
 private const val DISPLAY_MATH_PLACEHOLDER_PREFIX = "CHAT_MATH_DISPLAY_"
 private const val DISPLAY_MATH_PLACEHOLDER_SUFFIX = "_TOKEN"
 private const val DISPLAY_MATH_PLACEHOLDER_TEST_NONCE = "test"
@@ -216,11 +213,7 @@ private fun ChatMarkdownContent(
         val requests = snapshotFlow { latestRequest.value }
         // Live deltas are rate-limited, but saved messages and final answers
         // render immediately rather than waiting for the next sample tick.
-        merge(
-            requests.filter { it.streaming && it.content.isNotBlank() }.take(1),
-            requests.filter { it.streaming }.sample(MARKDOWN_PREPARATION_SAMPLE_MS),
-            requests.filter { !it.streaming }
-        ).filter { request ->
+        requests.presentationSnapshots(MARKDOWN_PREPARATION_SAMPLE_MS, streaming = { it.streaming }, useful = { it.content.isNotBlank() }).filter { request ->
             // A sampled live delta must not supersede the final answer arriving
             // from the unsampled branch in the same composition identity.
             !request.streaming || latestRequest.value.streaming
@@ -306,7 +299,9 @@ private fun ChatMarkdownContent(
             }
             .toMap()
     }
-    val normalTextColor = MaterialTheme.colorScheme.onSurface
+    val gatewaySource = ResponseSourceAppearance.isGateway(LocalAnswerSource.current)
+    val answerForeground = if (gatewaySource) ResponseSourceAppearance.gatewayForeground(MaterialTheme.colorScheme.primary, LocalAnswerSurface.current) else proseColor
+    val normalTextColor = answerForeground ?: MaterialTheme.colorScheme.onSurface
     // One timestamp per arriving chunk, rather than one boxed Long per character.
     val arrivalSegments = remember(contentIdentity) { mutableStateListOf<Pair<Int, Long>>() }
     var arrivalLength by remember(contentIdentity) { mutableIntStateOf(0) }
@@ -342,7 +337,7 @@ private fun ChatMarkdownContent(
     val targetBg = SuggestionHighlightManager.HIGHLIGHT_TRANSLUCENT_BG
 
     val sourceLinkRanges = rendered.sourceLinkRanges
-    val annotator = remember(sourceLinkRanges, memoryRanges, rendered.profileIndex, provenance, wording, proseColor, inlineMathByPlaceholder, highlightSentence, highlightProgress, normalTextColor, interactionOwner, renderedDigest) {
+    val annotator = remember(sourceLinkRanges, memoryRanges, rendered.profileIndex, provenance, wording, answerForeground, gatewaySource, inlineMathByPlaceholder, highlightSentence, highlightProgress, normalTextColor, interactionOwner, renderedDigest) {
         markdownAnnotator { source, child ->
             val text = source.substring(child.startOffset, child.endOffset)
             val hasMath = containsInlineMathPlaceholder(text)
@@ -354,11 +349,13 @@ private fun ChatMarkdownContent(
 
             val memorySpans = memoryRanges.filter { it.first < child.endOffset && it.last >= child.startOffset }
             val profileSpans = profileIndex.overlapping(child.startOffset, child.endOffset)
-            if (!hasSentenceHighlight && streamVisibleText != null && (proseColor != null || profileSpans.isNotEmpty())) {
+            if (!hasSentenceHighlight && streamVisibleText != null && (answerForeground != null || profileSpans.isNotEmpty())) {
                 appendTextWithInlineMath(this, streamVisibleText, inlineMathByPlaceholder) { from, to, outputStart ->
                     val startOffset = child.startOffset + from
                     val endOffset = child.startOffset + to
-                    proseColor?.let { addStyle(SpanStyle(color = it), outputStart, outputStart + to - from) }
+                    if (sourceLinkRanges.none { it.first < endOffset && it.last >= startOffset }) {
+                        answerForeground?.let { addStyle(SpanStyle(color = it), outputStart, outputStart + to - from) }
+                    }
                     profileSpans.forEach { span ->
                         val start = maxOf(startOffset, span.start)
                         val end = minOf(endOffset, span.end)
@@ -366,7 +363,7 @@ private fun ChatMarkdownContent(
                         if (start < end) {
                             val from = outputStart + start - startOffset
                             val to = outputStart + end - startOffset
-                            if (color != null && span.profileUids.size == 1) addStyle(SpanStyle(color = color), from, to)
+                            if (!gatewaySource && color != null && span.profileUids.size == 1) addStyle(SpanStyle(color = color), from, to)
                             // Keep existing citation/URL links in charge of their own tap targets.
                             if (wording != null && sourceLinkRanges.none { it.first < child.endOffset && it.last >= child.startOffset }) {
                                 addLink(
@@ -670,6 +667,7 @@ private fun ChatMarkdownContent(
                         Text(
                             dev.chungjungsoo.gptmobile.data.conversation.ConversationSubject.withoutMetadata(content),
                             style = answerBodyStyle(),
+                            color = normalTextColor,
                             modifier = Modifier.drawWithContent {
                                 drawContent()
                                 if (content.isNotBlank()) onContentDrawn?.invoke()
@@ -692,7 +690,7 @@ private fun ChatMarkdownContent(
                             inlineContent = markdownInlineContent(inlineContent),
                             annotator = annotator,
                             components = components,
-                            typography = chatMarkdownTypography(),
+                            typography = chatMarkdownTypography(answerForeground),
                             animations = animations,
                             modifier = modifier.layout { measurable, constraints ->
                                 val measured = CombinedOperationTrace.measure("text_measure", layoutOwner) { measurable.measure(constraints) }
@@ -1007,26 +1005,26 @@ private fun answerBodyStyle(): TextStyle {
 }
 
 @Composable
-private fun chatMarkdownTypography() = run {
+private fun chatMarkdownTypography(proseColor: Color? = null) = run {
     val typography = MaterialTheme.typography
-    val body = answerBodyStyle()
+    val body = answerBodyStyle().let { if (proseColor != null) it.copy(color = proseColor) else it }
     val colors = MaterialTheme.colorScheme
     val localStyle = androidx.compose.material3.LocalTextStyle.current
     // Resolve composable defaults before entering remember's non-composable calculation.
     val resolved = markdownTypography(
-        h1 = typography.headlineMedium,
-        h2 = typography.headlineSmall,
-        h3 = typography.titleLarge,
-        h4 = typography.titleMedium,
-        h5 = typography.titleSmall,
-        h6 = typography.labelLarge,
+        h1 = typography.headlineMedium.copy(color = proseColor ?: Color.Unspecified),
+        h2 = typography.headlineSmall.copy(color = proseColor ?: Color.Unspecified),
+        h3 = typography.titleLarge.copy(color = proseColor ?: Color.Unspecified),
+        h4 = typography.titleMedium.copy(color = proseColor ?: Color.Unspecified),
+        h5 = typography.titleSmall.copy(color = proseColor ?: Color.Unspecified),
+        h6 = typography.labelLarge.copy(color = proseColor ?: Color.Unspecified),
         text = body,
         paragraph = body,
         ordered = body,
         bullet = body,
         list = body
     )
-    remember(typography, body, colors, localStyle) { resolved }
+    remember(typography, body, colors, localStyle, proseColor) { resolved }
 }
 
 @Composable

@@ -6,6 +6,7 @@ import dev.chungjungsoo.gptmobile.data.localruntime.LocalInferencePhase
 import dev.chungjungsoo.gptmobile.data.rag.RecalledFactRef
 
 sealed class ApiState {
+    data class ResponseSourceCaptured(val source: dev.chungjungsoo.gptmobile.data.database.entity.ResponseSource) : ApiState()
     data class ResearchReplacement(val previousDigest: String, val text: String, val acknowledgement: kotlinx.coroutines.CompletableDeferred<Boolean> = kotlinx.coroutines.CompletableDeferred()) : ApiState()
 
     /** Internal ownership handoff; the editor waits for durable compare-and-swap acknowledgement. */

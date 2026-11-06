@@ -1,7 +1,8 @@
 package dev.chungjungsoo.gptmobile.data.diagnostics
 
 /** One cursor per capture source, with an export-wide duplicate set. */
-internal class DiagnosticCaptureCursor(private val source: String, private val seen: MutableSet<String>) {
+internal class DiagnosticCaptureCursor(private val source: String, private val remember: (String) -> Boolean) {
+    constructor(source: String, seen: MutableSet<String>) : this(source, seen::add)
     data class Record(val identity: String, val parent: String?, val sequence: Int, val duplicate: Boolean)
     private var parent: String? = null
     private var sequence = 0
@@ -16,7 +17,7 @@ internal class DiagnosticCaptureCursor(private val source: String, private val s
             sequence = SEQUENCE.find(line)?.groupValues?.get(1)?.toIntOrNull() ?: (sequence + 1)
         }
         val identity = if (root) requireNotNull(parent) else "${parent ?: source}:$sequence"
-        return Record(identity, parent.takeUnless { root }, sequence, !seen.add(identity))
+        return Record(identity, parent.takeUnless { root }, sequence, !remember(identity))
     }
 
     private companion object {

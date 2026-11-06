@@ -15,6 +15,8 @@ import dev.chungjungsoo.gptmobile.data.security.SecretVault
 import java.security.MessageDigest
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.asContextElement
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -44,6 +46,16 @@ data class GitHubWorkspaceState(
     val connection: ToolConnection? = null,
     val login: String = "",
     val busy: Boolean = false,
+    val uiReady: Boolean = false,
+    val authRefresh: Boolean = false,
+    val repositoryRefresh: Boolean = false,
+    val composerReadiness: dev.chungjungsoo.gptmobile.data.github.GitHubComposerReadiness = dev.chungjungsoo.gptmobile.data.github.GitHubComposerReadiness.NOT_READY,
+    val graphReadiness: dev.chungjungsoo.gptmobile.data.github.GitHubOptionalReadiness = dev.chungjungsoo.gptmobile.data.github.GitHubOptionalReadiness.NOT_REQUESTED,
+    val backgroundJobState: dev.chungjungsoo.gptmobile.data.github.GitHubBackgroundJobState = dev.chungjungsoo.gptmobile.data.github.GitHubBackgroundJobState.IDLE,
+    val sessionEpoch: Long = 0,
+    val repositoryId: String? = null,
+    val cachedProfileUid: String? = null,
+    val recentChatId: Int? = null,
     val error: String? = null,
     val notice: String? = null,
     val appAuthorization: Boolean = false,
@@ -104,7 +116,8 @@ class GitHubWorkspaceViewModel @Inject constructor(
     private val drafts: dev.chungjungsoo.gptmobile.data.github.GitHubWorkspaceDraftStore,
     private val settings: dev.chungjungsoo.gptmobile.data.repository.SettingRepository,
     private val repositoryState: dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore? = null,
-    private val gitHubPublicAuth: dev.chungjungsoo.gptmobile.data.github.GitHubPublicAuthCoordinator? = null
+    private val gitHubPublicAuth: dev.chungjungsoo.gptmobile.data.github.GitHubPublicAuthCoordinator? = null,
+    private val bootstrapper: dev.chungjungsoo.gptmobile.data.github.GitHubSessionBootstrapper? = null
 ) : ViewModel() {
     private val _state = MutableStateFlow(GitHubWorkspaceState())
     val state = _state.asStateFlow()
@@ -112,6 +125,22 @@ class GitHubWorkspaceViewModel @Inject constructor(
     private var tool: GitHubTool? = null
     private var credentialDigest: ByteArray? = null
     private var authorizationIdentity: String? = null
+    private val sessionEpoch = dev.chungjungsoo.gptmobile.data.github.GitHubSessionEpoch()
+    private val workEpoch = ThreadLocal<Long?>()
+    private var refreshJob: Job? = null
+
+    private fun currentSession(): Boolean = workEpoch.get()?.let(sessionEpoch::accepts) != false
+    private fun checkSession() {
+        if (!currentSession()) throw CancellationException("GitHub workspace session changed")
+    }
+    private inline fun updateState(update: (GitHubWorkspaceState) -> GitHubWorkspaceState) {
+        _state.update { if (currentSession()) update(it) else it }
+    }
+    private fun supersedeRefresh(): Long {
+        refreshJob?.cancel()
+        refreshJob = null
+        return sessionEpoch.next()
+    }
 
     @kotlinx.serialization.Serializable
     private data class Draft(val selection: GitHubRepositoryContext?, val baseSha: String, val directory: String, val file: JsonObject?, val staged: List<GitHubStagedFile>, val edits: Map<String, String>, val reviewBaseline: String = "", val patchStage: JsonObject? = null) {
@@ -153,7 +182,7 @@ class GitHubWorkspaceViewModel @Inject constructor(
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (_: Exception) {
-                    _state.update { it.copy(error = "Workspace edits could not be saved for recovery. Keep this screen open and retry.") }
+                    updateState { it.copy(error = "Workspace edits could not be saved for recovery. Keep this screen open and retry.") }
                 }
             }
     }
@@ -162,11 +191,12 @@ class GitHubWorkspaceViewModel @Inject constructor(
     }
 
     fun editDraft(path: String, content: String, original: String) {
-        _state.update { state -> state.copy(editorDrafts = if (content == (state.staged.firstOrNull { it.path == path }?.content ?: original)) state.editorDrafts - path else state.editorDrafts + (path to content)) }
+        updateState { state -> state.copy(editorDrafts = if (content == (state.staged.firstOrNull { it.path == path }?.content ?: original)) state.editorDrafts - path else state.editorDrafts + (path to content)) }
     }
 
     fun open(connection: ToolConnection, initialContext: dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext? = null) {
         if (_state.value.busy) return
+        val epoch = supersedeRefresh()
         client = null
         tool = null
         credentialDigest = null
@@ -177,24 +207,36 @@ class GitHubWorkspaceViewModel @Inject constructor(
         _state.value = GitHubWorkspaceState(
             connection = connection,
             selection = requestedContext?.repository,
-            headSha = requestedContext?.commitSha.orEmpty()
+            headSha = requestedContext?.commitSha.orEmpty(),
+            sessionEpoch = epoch
         )
-        work {
+        refreshWork(auth = true) {
             // Restore the local scope before any network or credential refresh. Cached
             // context is display-only until the transport revalidates the repository.
             val recovered = draftWrites.withLock { drafts.read(connection.connectionUid)?.let { Json.decodeFromString(Draft.serializer(), it) } }
+            checkSession()
+            val cached = bootstrapper?.read(connection.connectionUid)
+            checkSession()
             pendingRecovery = recovered
             draftRestorationPending = false
             val requested = requestedContext?.repository
             require(requested == null || recovered?.dirty != true || recovered.selection == requested) {
                 "Saved edits belong to another branch. Open GitHub mode from the main menu to save or discard them before opening this chat."
             }
-            val previousSelection = requested ?: recovered?.selection ?: store.get(connection.connectionUid)
+            val previousSelection = requested ?: recovered?.selection ?: cached?.repository ?: store.get(connection.connectionUid)
             val cachedDraft = recovered?.takeIf { it.selection == previousSelection }
-            _state.update {
+            updateState {
                 it.copy(
                     selection = previousSelection,
-                    headSha = requestedContext?.commitSha ?: cachedDraft?.baseSha.orEmpty(),
+                    headSha = requestedContext?.commitSha ?: cachedDraft?.baseSha ?: cached?.observedHeadSha.takeIf { cached?.repository == previousSelection }.orEmpty(),
+                    observedAt = requestedContext?.observedAtMillis ?: cached?.headObservedAtMillis,
+                    uiReady = true,
+                    login = cached?.accountLogin.orEmpty(),
+                    repositoryId = cached?.repositoryId.takeIf { cached?.repository == previousSelection },
+                    defaultBranch = cached?.defaultBranch.takeIf { cached?.repository == previousSelection }.orEmpty(),
+                    cachedProfileUid = requestedContext?.mainProfileUid ?: cached?.profileUid,
+                    recentChatId = cached?.recentChatId.takeIf { cached?.repository == previousSelection },
+                    composerReadiness = dev.chungjungsoo.gptmobile.data.github.GitHubComposerReadiness.REFRESH_REQUIRED,
                     setupRequired = previousSelection == null,
                     directory = cachedDraft?.directory.orEmpty(),
                     file = cachedDraft?.file,
@@ -208,8 +250,9 @@ class GitHubWorkspaceViewModel @Inject constructor(
             val current = connections.getConnection(connection.connectionUid) ?: error("Connection was removed.")
             require(current.type == ToolConnectionType.GITHUB) { "This connection is no longer a GitHub connection. Reopen GitHub mode with a GitHub connection." }
             val appAuthorization = current.authType == "OAUTH" && gitHubPublicAuth?.connectedAccount(current.connectionUid) != null
-            _state.update { it.copy(connection = current, appAuthorization = appAuthorization) }
+            updateState { it.copy(connection = current, appAuthorization = appAuthorization) }
             refreshTransport(current)
+            updateState { it.copy(authRefresh = false, repositoryRefresh = true) }
             if (previousSelection != null) {
                 if (appAuthorization) {
                     // Permission metadata is required before enabling writes, but the
@@ -219,7 +262,7 @@ class GitHubWorkspaceViewModel @Inject constructor(
                         it["account"]?.jsonObject?.text("login").equals(previousSelection.owner, true) &&
                             (it["suspended_at"] == null || it["suspended_at"] == kotlinx.serialization.json.JsonNull)
                     }
-                    _state.update { it.copy(installationId = installation?.text("id")) }
+                    updateState { it.copy(installationId = installation?.text("id")) }
                 }
                 // A saved repository can be revalidated directly. Account inventories,
                 // branch menus, commit history and indexing are loaded only when opened.
@@ -232,14 +275,14 @@ class GitHubWorkspaceViewModel @Inject constructor(
 
     fun completeSetup() {
         val current = _state.value
-        if (current.busy || current.error != null || current.selection == null || current.headSha.isBlank()) return
+        if (current.busy || current.composerReadiness != dev.chungjungsoo.gptmobile.data.github.GitHubComposerReadiness.READY || current.selection == null || current.headSha.isBlank()) return
         current.connection?.let { store.set(it.connectionUid, current.selection) }
-        _state.update { it.copy(setupRequired = false) }
+        updateState { it.copy(setupRequired = false) }
     }
 
     private suspend fun loadRepositoryChoices() {
         val account = api("get_account").jsonObject
-        _state.update { it.copy(login = account.text("login")) }
+        updateState { it.copy(login = account.text("login")) }
         if (_state.value.appAuthorization) {
             loadInstallations(1)
             val current = _state.value
@@ -247,20 +290,21 @@ class GitHubWorkspaceViewModel @Inject constructor(
                 ?: current.installations.firstOrNull { it["account"]?.jsonObject?.text("login").equals(current.selection?.owner, true) }
                 ?: current.installations.singleOrNull()
             val id = installation?.takeIf { it["suspended_at"] == null || it["suspended_at"] == kotlinx.serialization.json.JsonNull }?.text("id")
-            _state.update { it.copy(installationId = id) }
+            updateState { it.copy(installationId = id) }
         }
         loadRepositories(1)
-        _state.update { it.copy(repositoryChoicesLoaded = true) }
+        updateState { it.copy(repositoryChoicesLoaded = true) }
     }
 
     fun close(onSaved: () -> Unit = {}) {
         if (_state.value.busy) return
+        supersedeRefresh()
         // A failed restore may leave another branch's draft protected on disk.
         // Never replace that draft with the unrelated conversation's cached scope.
         val recovery = pendingRecovery
         val pending = draft(_state.value)?.takeIf { recovery == null || it.second.selection == recovery.selection && it.second.baseSha == recovery.baseSha }
             ?.let { PendingDraft(draftSequence.incrementAndGet(), it.first, it.second) }
-        _state.update { it.copy(busy = true) }
+        updateState { it.copy(busy = true) }
         viewModelScope.launch {
             try {
                 if (pending != null) kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { persist(pending) }
@@ -273,23 +317,23 @@ class GitHubWorkspaceViewModel @Inject constructor(
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
-                _state.update { it.copy(busy = false, error = "The latest draft could not be saved. Keep the workspace open and retry.") }
+                updateState { it.copy(busy = false, error = "The latest draft could not be saved. Keep the workspace open and retry.") }
             }
         }
     }
 
-    fun clearError() = _state.update { it.copy(error = null) }
+    fun clearError() = updateState { it.copy(error = null) }
     fun unstage(path: String) {
         if (_state.value.busy) return
-        _state.update { it.copy(staged = it.staged.filterNot { file -> file.path == path }) }
+        updateState { it.copy(staged = it.staged.filterNot { file -> file.path == path }) }
     }
-    fun discard() = _state.update { it.copy(staged = emptyList(), editorDrafts = emptyMap(), patchStage = null) }
+    fun discard() = updateState { it.copy(staged = emptyList(), editorDrafts = emptyMap(), patchStage = null) }
     fun discardSavedRecovery() = work {
         if (pendingRecovery?.dirty != true || _state.value.recoveryRepository == null) return@work
         val connection = requireNotNull(_state.value.connection)
         draftWrites.withLock { drafts.write(connection.connectionUid, Json.encodeToString(Draft.serializer(), Draft(null, "", "", null, emptyList(), emptyMap()))) }
         pendingRecovery = null
-        _state.update { it.copy(recoveryRepository = null, notice = "Saved edits discarded.") }
+        updateState { it.copy(recoveryRepository = null, notice = "Saved edits discarded.") }
     }
     fun moreRepositories() = work { loadRepositories(_state.value.repositoryPage + 1) }
 
@@ -298,7 +342,7 @@ class GitHubWorkspaceViewModel @Inject constructor(
     private suspend fun loadInstallations(page: Int) {
         val result = api("list_installations", buildJsonObject { put("page", page) }).jsonObject
         val items = result["items"]?.jsonArray.orEmpty().map { it.jsonObject }
-        _state.update { it.copy(installations = if (page == 1) items else (it.installations + items).distinctBy { installation -> installation.text("id") }, installationPage = page, moreInstallations = result.flag("has_more")) }
+        updateState { it.copy(installations = if (page == 1) items else (it.installations + items).distinctBy { installation -> installation.text("id") }, installationPage = page, moreInstallations = result.flag("has_more")) }
     }
 
     fun selectInstallation(id: String) = work {
@@ -325,7 +369,7 @@ class GitHubWorkspaceViewModel @Inject constructor(
             }
         ).jsonObject
         val items = result["items"]?.jsonArray.orEmpty().map { it.jsonObject }
-        _state.update { it.copy(repositories = if (page == 1) items else (it.repositories + items).distinctBy { repo -> repo.text("full_name") }, repositoryPage = page, moreRepositories = result.flag("has_more")) }
+        updateState { it.copy(repositories = if (page == 1) items else (it.repositories + items).distinctBy { repo -> repo.text("full_name") }, repositoryPage = page, moreRepositories = result.flag("has_more")) }
     }
 
     fun selectRepository(owner: String, repo: String) = work {
@@ -351,16 +395,15 @@ class GitHubWorkspaceViewModel @Inject constructor(
         val selected = GitHubRepositoryContext(owner, repo, preferredRef ?: recoveredRef ?: default)
         val appCanWrite = !current.appAuthorization || current.installations.firstOrNull { it.text("id") == current.installationId }?.get("permissions")?.jsonObject?.text("contents") == "write"
         val canWrite = appCanWrite && metadata["permissions"]?.jsonObject?.flag("push") == true && !metadata.flag("archived") && current.connection?.toolPolicy != "READ_ONLY"
-        _state.update { it.copy(selection = selected, defaultBranch = default, canWrite = canWrite, branches = emptyList(), branchesLoaded = false, file = null, staged = emptyList(), editorDrafts = emptyMap(), pullRequests = emptyList(), pullsLoaded = false, pullPage = 1, morePullRequests = false, commits = emptyList(), commitDetail = null, activityUpdatedAt = null, pullDetail = null, directory = "", headSha = if (restoring) current.headSha else "", entries = emptyList(), snapshot = null, indexStatus = null, searchResult = null, ciDigest = null, patchStage = null, changedFiles = null, reviewBaseline = "", activityLoaded = false, directoryLoaded = false, pullPackage = null) }
+        updateState { it.copy(selection = selected, repositoryId = metadata.text("id").takeIf(String::isNotBlank), defaultBranch = default, canWrite = canWrite, branches = emptyList(), branchesLoaded = false, file = null, staged = emptyList(), editorDrafts = emptyMap(), pullRequests = emptyList(), pullsLoaded = false, pullPage = 1, morePullRequests = false, commits = emptyList(), commitDetail = null, activityUpdatedAt = null, pullDetail = null, directory = "", headSha = if (restoring) current.headSha else "", entries = emptyList(), snapshot = null, indexStatus = null, searchResult = null, ciDigest = null, patchStage = null, changedFiles = null, reviewBaseline = "", activityLoaded = false, directoryLoaded = false, pullPackage = null) }
         var refreshed = false
         try {
             loadHeadAndDirectory()
             refreshed = true
-            if (current.setupRequired) loadBranches(1)
         } finally {
-            recovery?.takeIf { it.selection?.fullName.equals(selected.fullName, true) && it.selection?.ref == selected.ref }?.let { draft ->
+            recovery?.takeIf { currentSession() && it.selection?.fullName.equals(selected.fullName, true) && it.selection?.ref == selected.ref }?.let { draft ->
                 val changed = refreshed && draft.dirty && _state.value.headSha != draft.baseSha
-                _state.update { currentState ->
+                updateState { currentState ->
                     currentState.copy(
                         headSha = if (draft.dirty) draft.baseSha else currentState.headSha,
                         directory = draft.directory,
@@ -380,7 +423,9 @@ class GitHubWorkspaceViewModel @Inject constructor(
                 }
             }
             // Keep the saved draft protected if transport failed before resolving the head.
-            if (refreshed) pendingRecovery = null else _state.update { it.copy(canWrite = false) }
+            if (currentSession()) {
+                if (refreshed) pendingRecovery = null else updateState { it.copy(canWrite = false) }
+            }
         }
     }
 
@@ -388,12 +433,12 @@ class GitHubWorkspaceViewModel @Inject constructor(
     private suspend fun loadBranches(page: Int) {
         val result = api("list_branches", buildJsonObject { put("page", page) }).jsonObject
         val branches = result["items"]?.jsonArray.orEmpty().map { it.jsonObject.text("name") }
-        _state.update { it.copy(branches = if (page == 1) branches else (it.branches + branches).distinct(), branchPage = page, moreBranches = result.flag("has_more"), branchesLoaded = true) }
+        updateState { it.copy(branches = if (page == 1) branches else (it.branches + branches).distinct(), branchPage = page, moreBranches = result.flag("has_more"), branchesLoaded = true) }
     }
 
     fun selectBranch(branch: String, programmerChatId: Int? = null) = work {
         require(_state.value.staged.isEmpty() && _state.value.editorDrafts.isEmpty() && _state.value.patchStage == null) { "Commit or discard staged edits before switching branches." }
-        _state.update { it.copy(selection = it.selection?.copy(ref = branch), directory = "", file = null, entries = emptyList(), headSha = "", commits = emptyList(), commitDetail = null, activityUpdatedAt = null, snapshot = null, indexStatus = null, searchResult = null, ciDigest = null, changedFiles = null, activityLoaded = false, directoryLoaded = false, pullPackage = null) }
+        updateState { it.copy(selection = it.selection?.copy(ref = branch), directory = "", file = null, entries = emptyList(), headSha = "", commits = emptyList(), commitDetail = null, activityUpdatedAt = null, snapshot = null, indexStatus = null, searchResult = null, ciDigest = null, changedFiles = null, activityLoaded = false, directoryLoaded = false, pullPackage = null) }
         loadHeadAndDirectory()
         syncProgrammerBranch(programmerChatId)
     }
@@ -420,7 +465,7 @@ class GitHubWorkspaceViewModel @Inject constructor(
 
     fun acceptPublishedCommit(sha: String) {
         require(sha.matches(Regex("[a-fA-F0-9]{40}")))
-        _state.update { it.copy(headSha = sha, snapshot = null, commits = emptyList(), observedAt = System.currentTimeMillis(), activityLoaded = false, directoryLoaded = false, pullsLoaded = false, ciDigest = null) }
+        updateState { it.copy(headSha = sha, snapshot = null, commits = emptyList(), observedAt = System.currentTimeMillis(), activityLoaded = false, directoryLoaded = false, pullsLoaded = false, ciDigest = null) }
     }
 
     private suspend fun loadHeadAndDirectory() {
@@ -433,10 +478,20 @@ class GitHubWorkspaceViewModel @Inject constructor(
             }
         ).jsonObject
         val sha = result.text("commit_sha")
-        check(sha.isNotBlank()) { "Missing branch head." }
+        check(sha.matches(Regex("[a-fA-F0-9]{40}"))) { "Missing or invalid branch head." }
         // Publish the resolved head immediately. Optional commit history belongs to
         // Status and must not block opening the conversation.
-        _state.update { it.copy(headSha = sha, file = null, snapshot = result["snapshot"] as? JsonObject, indexStatus = result["index"] as? JsonObject, observedAt = System.currentTimeMillis(), directoryLoaded = false, activityLoaded = false, pullsLoaded = false, searchResult = null, ciDigest = null, changedFiles = null, pullPackage = null, pullDetail = null) }
+        updateState { it.copy(headSha = sha, uiReady = true, composerReadiness = dev.chungjungsoo.gptmobile.data.github.GitHubComposerReadiness.READY, file = null, snapshot = result["snapshot"] as? JsonObject, indexStatus = result["index"] as? JsonObject, observedAt = System.currentTimeMillis(), directoryLoaded = false, activityLoaded = false, pullsLoaded = false, searchResult = null, ciDigest = null, changedFiles = null, pullPackage = null, pullDetail = null) }
+        checkSession()
+        val saved = _state.value
+        saved.connection?.let { connection ->
+            bootstrapper?.rememberRepository(
+                dev.chungjungsoo.gptmobile.data.github.GitHubSessionSnapshot(
+                    connection.connectionUid, authorizationIdentity, saved.login, saved.repositoryId, selected,
+                    saved.defaultBranch, sha, saved.observedAt, hasRecoverableDraft = saved.staged.isNotEmpty() || saved.editorDrafts.isNotEmpty() || pendingRecovery?.dirty == true
+                )
+            )
+        }
     }
 
     fun onSectionVisible(section: Int) {
@@ -444,10 +499,6 @@ class GitHubWorkspaceViewModel @Inject constructor(
         when {
             section == 0 && !_state.value.directoryLoaded -> browse(_state.value.directory)
             section == 2 && !_state.value.pullsLoaded -> loadPullRequests()
-            section == 5 && (!_state.value.repositoryChoicesLoaded || !_state.value.branchesLoaded) -> work {
-                if (!_state.value.repositoryChoicesLoaded) loadRepositoryChoices()
-                if (!_state.value.branchesLoaded) loadBranches(1)
-            }
         }
     }
 
@@ -462,7 +513,7 @@ class GitHubWorkspaceViewModel @Inject constructor(
                 put("ref", _state.value.headSha)
             }
         ).jsonObject
-        _state.update { it.copy(directory = path, directoryLoaded = true, directoryPage = page, moreEntries = result.flag("has_more"), entries = ((if (page == 1) emptyList() else it.entries) + result["entries"]?.jsonArray.orEmpty().map { entry -> entry.jsonObject }).distinctBy { entry -> entry.text("path") }.sortedWith(compareBy<JsonObject> { entry -> entry.text("type") != "dir" }.thenBy { entry -> entry.text("name") }), file = null, notice = if (result.flag("directory_limit_reached")) "GitHub limited this directory to 1,000 entries." else it.notice) }
+        updateState { it.copy(directory = path, directoryLoaded = true, directoryPage = page, moreEntries = result.flag("has_more"), entries = ((if (page == 1) emptyList() else it.entries) + result["entries"]?.jsonArray.orEmpty().map { entry -> entry.jsonObject }).distinctBy { entry -> entry.text("path") }.sortedWith(compareBy<JsonObject> { entry -> entry.text("type") != "dir" }.thenBy { entry -> entry.text("name") }), file = null, notice = if (result.flag("directory_limit_reached")) "GitHub limited this directory to 1,000 entries." else it.notice) }
     }
 
     fun readFile(path: String) = work {
@@ -475,7 +526,7 @@ class GitHubWorkspaceViewModel @Inject constructor(
             }
         ).jsonObject
         val file = result["items"]?.jsonArray?.firstOrNull()?.jsonObject ?: error("File evidence is unavailable.")
-        _state.update { it.copy(file = JsonObject(file + ("evidence_id" to result.getValue("evidence_id"))), directory = path.substringBeforeLast('/', ""), directoryLoaded = true) }
+        updateState { it.copy(file = JsonObject(file + ("evidence_id" to result.getValue("evidence_id"))), directory = path.substringBeforeLast('/', ""), directoryLoaded = true) }
     }
 
     fun moreFileRange() = work {
@@ -483,20 +534,20 @@ class GitHubWorkspaceViewModel @Inject constructor(
         val continuation = previous["continuation"] as? JsonObject ?: return@work
         val result = api("read_ranges", continuation).jsonObject
         val file = result["items"]?.jsonArray?.firstOrNull()?.jsonObject ?: error("File range is unavailable.")
-        _state.update { it.copy(file = JsonObject(file + ("evidence_id" to result.getValue("evidence_id")))) }
+        updateState { it.copy(file = JsonObject(file + ("evidence_id" to result.getValue("evidence_id")))) }
     }
 
     fun stage(path: String, original: String, content: String): Boolean {
         if (_state.value.file?.flag("complete_file") != true || _state.value.file?.text("path") != path || _state.value.patchStage != null) {
-            _state.update { it.copy(error = "Only a complete file may be replaced. Use an exact patch for a source excerpt.") }
+            updateState { it.copy(error = "Only a complete file may be replaced. Use an exact patch for a source excerpt.") }
             return false
         }
         if (content.toByteArray().size > 256_000) {
-            _state.update { it.copy(error = "File exceeds the text budget.") }
+            updateState { it.copy(error = "File exceeds the text budget.") }
             return false
         }
         var accepted = false
-        _state.update { state ->
+        updateState { state ->
             val existing = state.staged.firstOrNull { it.path == path }
             val actualOriginal = existing?.original ?: original
             val remaining = state.staged.filterNot { it.path == path }
@@ -514,12 +565,12 @@ class GitHubWorkspaceViewModel @Inject constructor(
     fun useInChats() {
         val state = _state.value
         state.connection?.let { store.set(it.connectionUid, state.selection) }
-        _state.update { it.copy(notice = "${it.selection?.fullName} @ ${it.selection?.ref} is now the default for this GitHub connection in chats.") }
+        updateState { it.copy(notice = "${it.selection?.fullName} @ ${it.selection?.ref} is now the default for this GitHub connection in chats.") }
     }
 
     fun clearChatContext() {
         _state.value.connection?.let { store.set(it.connectionUid, null) }
-        _state.update { it.copy(notice = "Default GitHub repository context cleared.") }
+        updateState { it.copy(notice = "Default GitHub repository context cleared.") }
     }
 
     fun createBranch(name: String, expectedHead: String = _state.value.headSha, programmerChatId: Int? = null) = work {
@@ -534,7 +585,7 @@ class GitHubWorkspaceViewModel @Inject constructor(
                 put("expected_head_sha", state.headSha)
             }
         )
-        _state.update { it.copy(selection = it.selection?.copy(ref = name.trim()), notice = "Working branch created.", directory = "") }
+        updateState { it.copy(selection = it.selection?.copy(ref = name.trim()), notice = "Working branch created.", directory = "") }
         loadBranches(1)
         loadHeadAndDirectory()
         syncProgrammerBranch(programmerChatId)
@@ -564,7 +615,7 @@ class GitHubWorkspaceViewModel @Inject constructor(
                 )
             }
         ).jsonObject
-        _state.update { it.copy(staged = emptyList(), editorDrafts = emptyMap(), headSha = result.text("sha"), file = null, notice = "Committed ${state.staged.size} file(s) to ${state.selection?.ref}.") }
+        updateState { it.copy(staged = emptyList(), editorDrafts = emptyMap(), headSha = result.text("sha"), file = null, notice = "Committed ${state.staged.size} file(s) to ${state.selection?.ref}.") }
         browseInternal(state.directory)
         loadCommits(1)
     }
@@ -583,24 +634,24 @@ class GitHubWorkspaceViewModel @Inject constructor(
             }
         )
         val url = Json.parseToJsonElement(result).jsonObject.text("html_url")
-        _state.update { it.copy(notice = "Draft pull request created: $url") }
+        updateState { it.copy(notice = "Draft pull request created: $url") }
         loadPullRequestsInternal(1)
     }
 
     fun refreshActivity() = work { loadActivityInternal() }
     fun moreCommits() = work { loadCommits(_state.value.commitPage + 1) }
-    fun closeCommit() = _state.update { it.copy(commitDetail = null) }
+    fun closeCommit() = updateState { it.copy(commitDetail = null) }
 
     private suspend fun loadActivityInternal() {
         loadCommits(1)
         loadPullRequestsInternal(1)
-        _state.update { it.copy(activityUpdatedAt = System.currentTimeMillis(), activityLoaded = true) }
+        updateState { it.copy(activityUpdatedAt = System.currentTimeMillis(), activityLoaded = true) }
     }
 
     private suspend fun loadCommits(page: Int) {
         val result = api("list_commits", buildJsonObject { put("page", page) }).jsonObject
         val rows = result["items"]?.jsonArray.orEmpty().map { it.jsonObject }
-        _state.update { it.copy(commits = if (page == 1) rows else (it.commits + rows).distinctBy { row -> row.text("sha") }, commitPage = page, moreCommits = result.flag("has_more")) }
+        updateState { it.copy(commits = if (page == 1) rows else (it.commits + rows).distinctBy { row -> row.text("sha") }, commitPage = page, moreCommits = result.flag("has_more")) }
     }
 
     fun inspectCommit(sha: String) = work {
@@ -615,7 +666,7 @@ class GitHubWorkspaceViewModel @Inject constructor(
             }
             if (result.flag("files_truncated")) appendLine("\nMore changed files may be available on GitHub.")
         }
-        _state.update { it.copy(commitDetail = detail) }
+        updateState { it.copy(commitDetail = detail) }
     }
 
     private suspend fun enrichPullRequests(rows: List<JsonObject>): List<JsonObject> {
@@ -658,7 +709,7 @@ class GitHubWorkspaceViewModel @Inject constructor(
     private suspend fun loadPullRequestsInternal(page: Int) {
         val response = api("list_open_pull_requests", buildJsonObject { put("page", page) }).jsonObject
         val result = response["items"]?.jsonArray.orEmpty().map { it.jsonObject }
-        _state.update { it.copy(pullRequests = if (page == 1) result else (it.pullRequests + result).distinctBy { pr -> pr.text("number") }, pullPage = page, pullsLoaded = true, morePullRequests = response.flag("has_more"), pullDetail = null) }
+        updateState { it.copy(pullRequests = if (page == 1) result else (it.pullRequests + result).distinctBy { pr -> pr.text("number") }, pullPage = page, pullsLoaded = true, morePullRequests = response.flag("has_more"), pullDetail = null) }
     }
 
     fun inspectPullRequest(number: Int, page: Int = 1) = work {
@@ -690,13 +741,13 @@ class GitHubWorkspaceViewModel @Inject constructor(
             }
             appendLine("\nChecks: ${packet["checks"]}")
         }
-        _state.update { it.copy(pullPackage = packet, pullDetail = detail) }
+        updateState { it.copy(pullPackage = packet, pullDetail = detail) }
     }
 
     fun refreshVisibleChecks() = work {
         val rows = _state.value.pullRequests
         val enriched = enrichPullRequests(rows.take(5))
-        _state.update { it.copy(pullRequests = enriched + rows.drop(5)) }
+        updateState { it.copy(pullRequests = enriched + rows.drop(5)) }
     }
 
     fun searchRevision(query: String, mode: String = "literal", continuation: Boolean = false) = work {
@@ -709,13 +760,13 @@ class GitHubWorkspaceViewModel @Inject constructor(
                 put("commit_sha", _state.value.headSha)
             }
         ).jsonObject
-        _state.update { it.copy(searchResult = result) }
+        updateState { it.copy(searchResult = result) }
         val index = api("index_status", buildJsonObject { put("commit_sha", _state.value.headSha) }).jsonObject
-        _state.update { it.copy(indexStatus = index) }
+        updateState { it.copy(indexStatus = index) }
     }
     fun explainFailedCi() = work {
         val result = api("ci_failure_digest").jsonObject
-        _state.update { it.copy(ciDigest = result) }
+        updateState { it.copy(ciDigest = result) }
     }
 
     fun prepareCodeIndex() = work {
@@ -730,7 +781,7 @@ class GitHubWorkspaceViewModel @Inject constructor(
                 next?.let { put("index_cursor", it) }
             }
         ).jsonObject
-        _state.update {
+        updateState {
             it.copy(
                 indexStatus = result,
                 notice = when {
@@ -742,7 +793,7 @@ class GitHubWorkspaceViewModel @Inject constructor(
         }
     }
     fun markReviewed() {
-        _state.update { it.copy(reviewBaseline = it.headSha, changedFiles = null, notice = "Review baseline saved at ${it.headSha.take(8)}.") }
+        updateState { it.copy(reviewBaseline = it.headSha, changedFiles = null, notice = "Review baseline saved at ${it.headSha.take(8)}.") }
     }
     fun changesSinceReview(next: Boolean = false) = work {
         val state = _state.value
@@ -755,7 +806,7 @@ class GitHubWorkspaceViewModel @Inject constructor(
                 put("commit_sha", state.headSha)
             }
         ).jsonObject
-        _state.update { it.copy(changedFiles = result) }
+        updateState { it.copy(changedFiles = result) }
     }
     fun stageExactPatch(oldText: String, newText: String) = work {
         val state = _state.value
@@ -781,7 +832,7 @@ class GitHubWorkspaceViewModel @Inject constructor(
                 )
             }
         ).jsonObject
-        _state.update { it.copy(patchStage = staged, notice = "Exact patch prepared. Review its preview in Changes before committing.") }
+        updateState { it.copy(patchStage = staged, notice = "Exact patch prepared. Review its preview in Changes before committing.") }
     }
     fun commitExactPatch(message: String) = work {
         val state = _state.value
@@ -797,26 +848,62 @@ class GitHubWorkspaceViewModel @Inject constructor(
                 put("message", message)
             }
         )
-        _state.update { it.copy(patchStage = null, notice = "Reviewed patch committed.") }
+        updateState { it.copy(patchStage = null, notice = "Reviewed patch committed.") }
         loadHeadAndDirectory()
+    }
+
+    /** Optional display refreshes never hold the composer or conversation shell hostage. */
+    private fun refreshWork(auth: Boolean = false, block: suspend () -> Unit) {
+        if (_state.value.busy || refreshJob?.isActive == true) return
+        val epoch = sessionEpoch.current()
+        updateState { it.copy(authRefresh = auth, repositoryRefresh = !auth, backgroundJobState = dev.chungjungsoo.gptmobile.data.github.GitHubBackgroundJobState.REFRESHING, error = null) }
+        refreshJob = viewModelScope.launch(workEpoch.asContextElement(epoch)) {
+            try {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { block() }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                updateState {
+                    it.copy(
+                        error = failure.message ?: "GitHub refresh failed.",
+                        canWrite = if (auth) false else it.canWrite,
+                        composerReadiness = if (auth) dev.chungjungsoo.gptmobile.data.github.GitHubComposerReadiness.UNAVAILABLE else it.composerReadiness
+                    )
+                }
+            } finally {
+                updateState { it.copy(authRefresh = false, repositoryRefresh = false, backgroundJobState = dev.chungjungsoo.gptmobile.data.github.GitHubBackgroundJobState.IDLE) }
+            }
+        }
     }
 
     private fun work(block: suspend () -> Unit) {
         if (_state.value.busy) return
-        _state.update { it.copy(busy = true, error = null) }
-        viewModelScope.launch {
+        val epoch = supersedeRefresh()
+        updateState { it.copy(busy = true, authRefresh = false, repositoryRefresh = false, sessionEpoch = epoch, backgroundJobState = dev.chungjungsoo.gptmobile.data.github.GitHubBackgroundJobState.WRITING, error = null) }
+        viewModelScope.launch(workEpoch.asContextElement(epoch)) {
             try {
                 kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { block() }
-                val metrics = client?.execute("efficiency", buildJsonObject {}) as? JsonObject
-                _state.update { it.copy(efficiency = metrics) }
-            } catch (error: CancellationException) {
-                throw error
-            } catch (error: Exception) {
-                _state.update { it.copy(error = error.message ?: "GitHub request failed.") }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                updateState { it.copy(error = failure.message ?: "GitHub request failed.") }
             } finally {
-                _state.update { it.copy(busy = false) }
+                updateState { it.copy(busy = false, backgroundJobState = dev.chungjungsoo.gptmobile.data.github.GitHubBackgroundJobState.IDLE) }
             }
         }
+    }
+
+    fun onRepositoryPickerOpened() {
+        if (!_state.value.repositoryChoicesLoaded) refreshWork { loadRepositoryChoices() }
+    }
+
+    fun onBranchPickerOpened() {
+        if (!_state.value.branchesLoaded && _state.value.selection != null) refreshWork { loadBranches(1) }
+    }
+
+    fun refreshOptionalMetrics() = refreshWork {
+        val metrics = api("efficiency") as? JsonObject
+        updateState { it.copy(efficiency = metrics) }
     }
 
     private fun arguments(extra: JsonObject): JsonObject = buildJsonObject {
@@ -829,6 +916,7 @@ class GitHubWorkspaceViewModel @Inject constructor(
     }
 
     private suspend fun requireActiveConnection(mutation: Boolean) {
+        checkSession()
         val opened = requireNotNull(_state.value.connection) { "Reopen the GitHub workspace before continuing." }
         val current = connections.getConnection(opened.connectionUid) ?: error("This GitHub connection was removed. Reopen the workspace with an available connection.")
         check(current.type == ToolConnectionType.GITHUB && current.type == opened.type) { "This connection is no longer a GitHub connection. Reopen the workspace before continuing." }
@@ -853,13 +941,16 @@ class GitHubWorkspaceViewModel @Inject constructor(
             }
         }
         require(token.isNotBlank()) { "Reconnect GitHub before continuing." }
+        checkSession()
         val digest = MessageDigest.getInstance("SHA-256").digest(token.encodeToByteArray())
         val identity = gitHubPublicAuth?.durableIdentity(current.connectionUid) ?: dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore.digest(token)
+        checkSession()
         check(authorizationIdentity == null || authorizationIdentity == identity) { "GitHub account changed. Reopen the workspace to review the new account; staged edits remain retained." }
         authorizationIdentity = identity
         if (client != null && credentialDigest?.let { MessageDigest.isEqual(it, digest) } == true && _state.value.connection?.toolPolicy == current.toolPolicy && _state.value.connection?.approvedReadTools == current.approvedReadTools) return
         val features = settings.getFeatureSettings()
         val legacy = gitHubPublicAuth?.legacyCredentialIdentities(current.connectionUid).orEmpty()
+        checkSession()
         val provider: (suspend () -> String)? = gitHubPublicAuth?.let { auth ->
             {
                 val live = requireNotNull(connections.getConnection(current.connectionUid)) { "GitHub connection removed" }
@@ -869,15 +960,18 @@ class GitHubWorkspaceViewModel @Inject constructor(
                 fresh
             }
         }
-        client = GitHubWorkspaceClient(token, conditionalReads = features.githubConditionalReads, blobCache = features.githubBlobCache, freshnessSeconds = features.pluginExecution[dev.chungjungsoo.gptmobile.data.model.ToolPluginId.GITHUB]?.githubCacheSeconds ?: 15, connectionUid = current.connectionUid, conversationId = "workspace", taskId = "workspace:${current.connectionUid}", stateStore = repositoryState, requestPriority = 10, durableIdentity = identity, legacyCredentialIdentities = legacy, credentialProvider = provider)
-        tool = GitHubTool(token, featureSettings = features, connectionUid = current.connectionUid, conversationId = "workspace", taskId = "workspace:${current.connectionUid}", stateStore = repositoryState, durableIdentity = identity, legacyCredentialIdentities = legacy, credentialProvider = provider)
+        client = GitHubWorkspaceClient(token, conditionalReads = features.githubConditionalReads, blobCache = features.githubBlobCache, freshnessSeconds = features.pluginExecution[dev.chungjungsoo.gptmobile.data.model.ToolPluginId.GITHUB]?.githubCacheSeconds ?: 15, connectionUid = current.connectionUid, conversationId = "workspace", taskId = "workspace:${current.connectionUid}", stateStore = repositoryState, requestPriority = 10, durableIdentity = identity, legacyCredentialIdentities = legacy, credentialProvider = provider, apiOrigins = dev.chungjungsoo.gptmobile.data.github.GitHubApiOrigins.fromEndpoint(current.endpointUrl))
+        tool = GitHubTool(token, featureSettings = features, connectionUid = current.connectionUid, conversationId = "workspace", taskId = "workspace:${current.connectionUid}", stateStore = repositoryState, durableIdentity = identity, legacyCredentialIdentities = legacy, credentialProvider = provider, apiOrigins = dev.chungjungsoo.gptmobile.data.github.GitHubApiOrigins.fromEndpoint(current.endpointUrl))
         credentialDigest = digest
-        _state.update { it.copy(connection = current) }
+        updateState { it.copy(connection = current) }
     }
 
     private suspend fun api(action: String, extra: JsonObject = buildJsonObject {}): kotlinx.serialization.json.JsonElement {
         requireActiveConnection(mutation = action !in GitHubWorkspaceClient.readActions)
-        return requireNotNull(client).execute(action, arguments(extra))
+        checkSession()
+        val result = requireNotNull(client).execute(action, arguments(extra))
+        checkSession()
+        return result
     }
 
     private suspend fun toolRequest(action: String, extra: JsonObject): String {
@@ -889,6 +983,7 @@ class GitHubWorkspaceViewModel @Inject constructor(
                 put("action", action)
             }
         )
+        checkSession()
         val text = when (val content = result.content) {
             is ToolResultContent.Text -> content.text
             is ToolResultContent.Json -> content.value.toString()

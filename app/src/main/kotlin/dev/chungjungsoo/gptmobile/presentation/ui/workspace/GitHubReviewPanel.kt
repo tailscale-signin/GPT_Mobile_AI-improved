@@ -108,14 +108,14 @@ class GitHubReviewViewModel @Inject constructor(private val connections: ToolCon
     }
     private suspend fun client(uid: String): GitHubWorkspaceClient {
         val connection = requireNotNull(connections.getConnection(uid)) { "Select a GitHub connection." }
-        gitHubPublicAuth?.let { return GitHubWorkspaceClient(it.accessToken(connection), freshnessSeconds = 0) }
+        gitHubPublicAuth?.let { return GitHubWorkspaceClient(it.accessToken(connection), freshnessSeconds = 0, apiOrigins = dev.chungjungsoo.gptmobile.data.github.GitHubApiOrigins.fromEndpoint(connection.endpointUrl)) }
         val bytes = connection.secretRef?.let { vault.read(it) }
         val token = try {
             bytes?.decodeToString().orEmpty()
         } finally {
             bytes?.fill(0)
         }
-        return GitHubWorkspaceClient(token, freshnessSeconds = 0)
+        return GitHubWorkspaceClient(token, freshnessSeconds = 0, apiOrigins = dev.chungjungsoo.gptmobile.data.github.GitHubApiOrigins.fromEndpoint(connection.endpointUrl))
     }
     private fun arguments(review: GitHubReview, extra: JsonObject = JsonObject(emptyMap())) = buildJsonObject {
         put("owner", review.owner)

@@ -110,18 +110,20 @@ class Admission:
             if not principal.local_admin:
                 return await deny("local_admin_required")
         engineering_path = path.startswith("/gateway/engineering/")
+        diagnostics_path = path in {"/gateway/debug/events", "/gateway/debug/export"}
+        diagnostics_write = path == "/gateway/debug/events" and scope["method"] == "POST"
         if engineering_path and not principal.local_admin and "engineering" not in principal.scopes:
             return await deny("engineering_scope_required")
         if self.config.mode in {"trusted_proxy", "open_network"} and not principal.local_admin:
             public_reads = {"/models", "/gateway/capabilities", "/gateway/ready", "/gateway/live", "/gateway/v13", "/gateway/v14", "/gateway/v15", "/gateway/connections", "/gateway/tools", "/gateway/session", "/gateway/dashboard"}
             job_path = path == "/gateway/jobs" or path.startswith("/gateway/jobs/")
             if scope["method"] in {"GET", "HEAD"}:
-                if path not in public_reads and not job_path and not engineering_path:
+                if path not in public_reads and not job_path and not engineering_path and not diagnostics_path:
                     return await deny("remote_surface_not_admitted")
-            elif not engineering_path and path != "/chat/completions" and not (job_path and path.endswith("/cancel") and scope["method"] == "POST"):
+            elif not engineering_path and not diagnostics_write and path != "/chat/completions" and not (job_path and path.endswith("/cancel") and scope["method"] == "POST"):
                 return await deny("local_admin_required")
         required = "engineering" if engineering_path and not principal.local_admin else "jobs" if path.startswith("/gateway/jobs") else "tools" if path.startswith(("/gateway/tools", "/gateway/mcp", "/tools")) else "chat"
-        if required not in principal.scopes:
+        if required not in principal.scopes and not (diagnostics_path and "diagnostics" in principal.scopes):
             return await deny("scope_not_granted")
         # The retained runtime can select PC tools automatically. A limited user
         # cannot use chat until a separately tested tool-free runtime is available.

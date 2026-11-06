@@ -48,21 +48,13 @@ internal fun gitHubActivityLines(timeline: List<AssistantTimelineItem>, task: St
     }
 }
 
-/** Count displayed text lines, preserving a leading summary in the recent window. */
-internal fun gitHubVisibleActivityLines(lines: List<AssistantTimelineItem>, compact: Boolean, lineCounts: List<Int> = lines.map { it.content.lines().size }): List<AssistantTimelineItem> {
-    require(lineCounts.size == lines.size)
-    if (!compact || lineCounts.sum() <= 20) return lines
-    var start = lines.lastIndex
-    var count = lineCounts.last()
-    while (start > 0 && count + lineCounts[start - 1] <= 20) {
-        start--
-        count += lineCounts[start]
-    }
+/** Count entries, independently of line wrapping or font size, retaining summary context. */
+internal fun gitHubVisibleActivityLines(lines: List<AssistantTimelineItem>, compact: Boolean, entryLimit: Int = 20): List<AssistantTimelineItem> {
+    require(entryLimit >= 2)
+    if (!compact || lines.size <= entryLimit) return lines
+    val start = lines.size - entryLimit
     if (lines[start].statusSummary) return lines.drop(start)
     val summaryIndex = lines.take(start).indexOfLast { it.statusSummary }
     if (summaryIndex < 0) return lines.drop(start)
-    while (start < lines.lastIndex && count + lineCounts[summaryIndex] > 20) {
-        count -= lineCounts[start++]
-    }
-    return listOf(lines[summaryIndex]) + lines.drop(start)
+    return listOf(lines[summaryIndex]) + lines.takeLast(entryLimit - 1)
 }

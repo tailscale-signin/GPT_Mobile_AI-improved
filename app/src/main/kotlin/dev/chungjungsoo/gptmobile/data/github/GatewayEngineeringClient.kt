@@ -52,6 +52,15 @@ class GatewayEngineeringClient internal constructor(private val http: HttpClient
     }.execute { response ->
         GatewayClientDiagnostics.observe(config, response.status.value) { response.headers[it] }
         if (path == "capabilities" && response.status.value in setOf(404, 501)) throw UnsupportedEngineeringGateway()
+        val payload = response.boundedMetadata(if (path == "capabilities") 128 * 1024 else 2_000_000)
+        if (!response.status.isSuccess()) {
+            val error = runCatching { json.parseToJsonElement(payload) as? JsonObject }.getOrNull()
+            val detail = error?.get("error") as? JsonObject ?: error?.get("detail") as? JsonObject ?: error
+            val code = detail?.get("code")?.jsonPrimitive?.content
+            if (code != null && code.matches(Regex("(?:EXECUTION|SELECTED_ONLY|INFERENCE)_[A-Z0-9_]{1,80}"))) {
+                throw GatewayExecutionRejected(code, response.status.value)
+            }
+        }
         check(response.status.isSuccess()) {
             when (response.status.value) {
                 401, 403 -> "Gateway engineering access is not authorized. Check the gateway connection and engineering scope."
@@ -61,7 +70,7 @@ class GatewayEngineeringClient internal constructor(private val http: HttpClient
                 else -> "Gateway engineering request failed (HTTP ${response.status.value}). The job may still be running; reconnect to check."
             }
         }
-        response.boundedMetadata(if (path == "capabilities") 128 * 1024 else 2_000_000)
+        payload
     }
 
     suspend fun capabilities(config: ProviderRequestConfig): GatewayEngineeringCapabilities =
@@ -89,6 +98,21 @@ class GatewayEngineeringClient internal constructor(private val http: HttpClient
         if (requireReady) capability.unavailableReason()?.let { error(it) }
         if (!requireReady && capability.readiness?.savedResults == false) error("The engineering journal is unavailable. Restore the selected gateway storage to retrieve its saved jobs.")
         return requireNotNull(capability.principalId)
+    }
+
+    suspend fun prepareBinding(config: ProviderRequestConfig, selection: GatewayExecutionSelection): GatewayExecutionAdmission {
+        val payload = buildJsonObject { put("selection", json.encodeToJsonElement(GatewayExecutionSelection.serializer(), selection)) }
+        val result = json.decodeFromString<GatewayExecutionAdmission>(request(config, "bindings", payload.toString()))
+        result.verify(selection)
+        return result
+    }
+
+    suspend fun bindingCapabilities(config: ProviderRequestConfig, selection: GatewayExecutionSelection, bindingId: String): GatewayExecutionAdmission {
+        require(bindingId.matches(Regex("bind_[a-f0-9]{32}")))
+        return json.decodeFromString<GatewayExecutionAdmission>(request(config, "bindings/$bindingId/capabilities")).also {
+            it.verify(selection)
+            check(it.bindingId == bindingId) { "The gateway execution binding changed." }
+        }
     }
 
     suspend fun requireGraphReady(config: ProviderRequestConfig): String {
@@ -165,3 +189,8 @@ class GatewayEngineeringClient internal constructor(private val http: HttpClient
 }
 
 private class UnsupportedEngineeringGateway : IllegalStateException("This inference endpoint does not expose engineering jobs. Select an engineering gateway endpoint; ordinary chat remains available.")
+
+class GatewayExecutionRejected(val code: String, val httpStatus: Int) :
+    IllegalStateException(
+        "The selected execution profile could not be verified ($code). Saved work is retained; review the selected profile and gateway status."
+    )

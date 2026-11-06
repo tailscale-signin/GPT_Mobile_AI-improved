@@ -93,7 +93,7 @@ class GitHubCheckWatchRepository @Inject constructor(
         val profile = settings.fetchPlatformV2s().firstOrNull { it.uid == watch.profileUid }
         val features = settings.getFeatureSettings()
         require(profile != null && profile.enabled && !profile.disableAllTools && !profile.disableRemoteTools && features.isToolPluginEnabledForProfile(watch.profileUid, ToolPluginId.GITHUB) && features.isToolPluginEnabledForProfile(watch.profileUid, ToolPluginId.connection(watch.connectionUid))) { "GitHub access for this profile is disabled." }
-        return apiFactory.create { auth.accessToken(requireNotNull(connections.getConnection(watch.connectionUid))) }
+        return apiFactory.createForEndpoint(connection.endpointUrl) { auth.accessToken(connection) }
     }
 
     internal suspend fun subscribe(connectionUid: String, profileUid: String, chatId: Int, args: JsonObject): JsonObject = withContext(Dispatchers.IO) {

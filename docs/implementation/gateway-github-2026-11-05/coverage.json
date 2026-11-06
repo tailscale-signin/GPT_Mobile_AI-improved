@@ -1,0 +1,1614 @@
+{
+  "schemaVersion": 1,
+  "sourceBaseline": "1b8d57128484770d09fe026216a46603803b76f6",
+  "workingBranch": "fix/diagnostic-capture-github-verification-2026-11-05",
+  "specification": {
+    "title": "GPT Mobile AI Gateway and GitHub Implementation Design",
+    "date": "2026-11-05",
+    "pages": 57,
+    "items": 50,
+    "requirements": 83
+  },
+  "publication": {
+    "pullRequest": 804,
+    "status": "DRAFT",
+    "lastPublishedSourceSha": "3ebb6fc078f2a1390fc5854a89f9de5109486965"
+  },
+  "qualificationPolicy": "Code and mapped tests do not establish execution. Passed acceptance requires suitable observed evidence at the tested source revision. Missing device, deployment, model and long-run measurements remain NOT_QUALIFIED.",
+  "items": [
+    {
+      "id": "P01",
+      "title": "Use one selected AI profile for every model invocation",
+      "requirements": [
+        "REQ-PROFILE-ONLY",
+        "REQ-REVIEW-OVERRIDE"
+      ],
+      "implementation": "IMPLEMENTED",
+      "qualification": "NOT_QUALIFIED",
+      "files": [
+        "gateway/v14/execution_binding.py",
+        "gateway/v14/inference_execution.py",
+        "gateway/v14/engineering_backend.py",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayExecutionSelection.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayEngineeringRepository.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/SelectedProfileRoute.kt"
+      ],
+      "tests": [
+        "gateway/tests/test_gateway_selected_execution.py",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayExecutionSelectionTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/SelectedProfileRouteTest.kt"
+      ],
+      "evidence": [
+        "SOURCE_REVIEW: Every bound engineering model dispatch revalidates the selected profile, model, endpoint and connection before the physical request, including retries; the independent reviewer role does not select another model.",
+        "SOURCE_REVIEW: Android persists the selection and admission with the original route, and validates the returned binding against that selection."
+      ],
+      "remaining": [
+        "Run the selected-profile A / conflicting reviewer B acceptance on deployed Android and the selected runtime, including repair, restart, cancellation and final response. Unit fixtures do not establish live routing."
+      ]
+    },
+    {
+      "id": "P02",
+      "title": "Show requested configuration and observed execution separately",
+      "requirements": [
+        "REQ-RUNTIME-RECEIPT",
+        "REQ-INSPECTOR"
+      ],
+      "implementation": "IMPLEMENTED",
+      "qualification": "NOT_QUALIFIED",
+      "files": [
+        "gateway/v14/inference_execution.py",
+        "gateway/v14/execution_binding.py",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GatewayRecoveryPresentation.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GatewayEngineeringPanel.kt"
+      ],
+      "tests": [
+        "gateway/tests/test_gateway_selected_execution.py",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GatewayRecoveryPresentationTest.kt"
+      ],
+      "evidence": [
+        "SOURCE_REVIEW: Execution receipts separate requested and provider-reported model identities, backend build, binding, owner epoch, template/revision observations, hardware metadata and measured usage; missing or contradictory identity cannot justify dependent writes.",
+        "SOURCE_REVIEW: The repaired recovery inspector reads the canonical hardware receipt and labels provider-reported observations; requested settings, unrecognized evidence and explicit NOT_MEASURED status do not become measured hardware."
+      ],
+      "remaining": [
+        "Qualify receipts against actual provider observations; CPU/GPU/NPU use and model weights must remain unmeasured when the runtime does not attest them."
+      ]
+    },
+    {
+      "id": "P03",
+      "title": "Fence capability and recovery state when profile identity changes",
+      "requirements": [
+        "REQ-IDENTITY-EPOCH"
+      ],
+      "implementation": "IMPLEMENTED",
+      "qualification": "NOT_QUALIFIED",
+      "files": [
+        "gateway/v14/execution_binding.py",
+        "gateway/v14/inference_capabilities.py",
+        "gateway/v14/inference_execution.py",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayClientDiagnostics.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayControlNegotiation.kt"
+      ],
+      "tests": [
+        "gateway/tests/test_gateway_selected_execution.py",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayClientDiagnosticsTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayControlNegotiationTest.kt"
+      ],
+      "evidence": [
+        "SOURCE_REVIEW: Bindings persist installation and connection identities while observations carry a separate boot identity. Revocation, changed configured route, known model revision and template changes fail validation.",
+        "SOURCE_REVIEW: Queued work and every retry revalidate authorization and binding before dispatch; client diagnostic identity includes route and credential generations."
+      ],
+      "remaining": [
+        "Run same-URL model replacement and live restart/credential-rotation cases against runtimes that expose authoritative model revision and template metadata; unavailable metadata cannot prove identity continuity."
+      ]
+    },
+    {
+      "id": "P04",
+      "title": "Preflight the capabilities required by the selected request",
+      "requirements": [
+        "REQ-CAP-PREFLIGHT"
+      ],
+      "implementation": "PARTIAL",
+      "qualification": "NOT_QUALIFIED",
+      "files": [
+        "gateway/v14/inference_capabilities.py",
+        "gateway/v14/inference_budget.py",
+        "gateway/v14/execution_binding.py",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayControlNegotiation.kt"
+      ],
+      "tests": [
+        "gateway/tests/test_gateway_selected_execution.py",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayCapabilityDiscoveryTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayControlNegotiationTest.kt"
+      ],
+      "evidence": [
+        "SOURCE_REVIEW: Selected-model preflight checks configured provider route, model presence, observed context, loaded Ollama state, output budget and local-only routing. Unsupported selected paths fail without substitution.",
+        "SOURCE_REVIEW: JSON_OBJECT is included in the capability set without a per-model execution probe; reasoning parameters are preserved without equivalent proof of runtime support."
+      ],
+      "remaining": [
+        "Qualify or conservatively gate JSON/object, tool, vision and reasoning capabilities per selected adapter/model instead of interpreting static adapter support as observed readiness.",
+        "Exercise unsupported-capability requests against real selected runtimes and verify zero alternate-route traffic."
+      ]
+    },
+    {
+      "id": "G01",
+      "title": "Refactor gateway composition behind versioned service contracts",
+      "requirements": [
+        "REQ-GATEWAY-REWIRE",
+        "REQ-SINGLE-OWNER"
+      ],
+      "implementation": "IMPLEMENTED",
+      "qualification": "NOT_QUALIFIED",
+      "files": [
+        "gateway/gateway_v14.py",
+        "gateway/v14/service.py",
+        "gateway/v14/contracts.py",
+        "gateway/v14/state_lock.py",
+        "gateway/v14/jobs.py",
+        "gateway/v14/engineering.py",
+        "gateway/contracts/v15/capabilities.json"
+      ],
+      "tests": [
+        "gateway/tests/test_gateway_v14_contracts.py",
+        "gateway/tests/test_gateway_v14_state_lock.py",
+        "gateway/tests/test_gateway_v14_upgrade.py",
+        "gateway/tests/test_gateway_v14_http.py"
+      ],
+      "evidence": [
+        "SOURCE_REVIEW: Gateway composition exposes versioned contracts and separate service modules for jobs, bindings, admission, diagnostics, artifacts and operation receipts.",
+        "SOURCE_REVIEW: State-root locking and durable job leases fence process ownership; migration and contract fixtures cover compatibility boundaries."
+      ],
+      "remaining": [
+        "Complete deployment upgrade/rollback and concurrent-process qualification on the supported desktop installation. Module boundaries and fixtures alone do not prove an operational rollout."
+      ]
+    },
+    {
+      "id": "G02",
+      "title": "Separate supported features, liveness and actual readiness",
+      "requirements": [
+        "REQ-READINESS",
+        "REQ-CAP-VERSION"
+      ],
+      "implementation": "IMPLEMENTED",
+      "qualification": "NOT_QUALIFIED",
+      "files": [
+        "gateway/v14/readiness.py",
+        "gateway/v14/health.py",
+        "gateway/v14/diagnostic_events.py",
+        "gateway/v14/service.py",
+        "gateway/contracts/v15/capabilities.json"
+      ],
+      "tests": [
+        "gateway/tests/test_gateway_v14_component_readiness.py",
+        "gateway/tests/test_gateway_v14_readiness.py",
+        "gateway/tests/test_gateway_v14_diagnostic_events.py"
+      ],
+      "evidence": [
+        "SOURCE_REVIEW: Readiness reports process, selected model, GitHub auth, graph, MCP, capacity, diagnostic storage and journal state independently; supported transport declarations do not imply successful inference.",
+        "SOURCE_REVIEW: Diagnostic storage remains unobserved until an actual operation succeeds or fails, and missing runtime observations are preserved as unknown."
+      ],
+      "remaining": [
+        "Exercise the component matrix against a running deployment, including model loading, missing model, permission loss, saturated capacity and failed journal storage."
+      ]
+    },
+    {
+      "id": "G03",
+      "title": "Repair graph prerequisite reporting and read-only degraded operation",
+      "requirements": [
+        "REQ-GRAPH",
+        "REQ-GRAPH-DEGRADED"
+      ],
+      "implementation": "IMPLEMENTED",
+      "qualification": "NOT_QUALIFIED",
+      "files": [
+        "gateway/v14/engineering_routes.py",
+        "gateway/v14/code_graph/service.py",
+        "gateway/v14/code_graph/tools.py",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayGraphRepository.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/RepositoryGraphTool.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubGraphStatusFallback.kt"
+      ],
+      "tests": [
+        "gateway/tests/test_gateway_v14_code_graph.py",
+        "gateway/tests/test_gateway_v14_engineering_http.py",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayGraphTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/RepositoryGraphFallbackTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubGraphStatusFallbackTest.kt"
+      ],
+      "evidence": [
+        "SOURCE_REVIEW: Missing GitHub graph prerequisites return an explicit nonretryable prerequisite response, separately from service/storage unavailability.",
+        "SOURCE_REVIEW: Read-only fallback revalidates the actual native-read grant and route; graph authorization is not reused as a grant for another operation."
+      ],
+      "remaining": [
+        "Qualify authorized degraded reads, missing graph credentials and changing permissions against a real private repository."
+      ]
+    },
+    {
+      "id": "G04",
+      "title": "Qualify listener and endpoint connectivity independently",
+      "requirements": [
+        "REQ-ENDPOINT-SUPERVISOR",
+        "REQ-NETWORK-SETUP"
+      ],
+      "implementation": "PARTIAL",
+      "qualification": "NOT_QUALIFIED",
+      "files": [
+        "gateway/desktop/configuration.py",
+        "gateway/desktop/manager.py",
+        "gateway/desktop/firewall.py",
+        "gateway/v14/config.py",
+        "gateway/v14/health.py"
+      ],
+      "tests": [
+        "gateway/tests/test_gateway_network.py",
+        "gateway/tests/test_gateway_desktop.py",
+        "gateway/tests/test_gateway_v14_http.py"
+      ],
+      "evidence": [
+        "SOURCE_REVIEW: Desktop configuration, supervisor and firewall helpers expose listener and endpoint configuration independently of model health.",
+        "SOURCE_REVIEW: The host suite exercises configuration and local listener behavior; the sandbox cannot establish phone-to-PC LAN reachability."
+      ],
+      "remaining": [
+        "Collect real phone and PC listener/interface/firewall/URL evidence for supported LAN and overlay-network paths, including sleep/wake and changed network interfaces.",
+        "Keep a successful local listener probe separate from remote client connectivity."
+      ]
+    },
+    {
+      "id": "G05",
+      "title": "Preserve streamed work across disconnect and cancel",
+      "requirements": [
+        "REQ-STREAM-RECOVERY"
+      ],
+      "implementation": "IMPLEMENTED",
+      "qualification": "NOT_QUALIFIED",
+      "files": [
+        "gateway/gateway_v13_transport.py",
+        "gateway/v14/jobs.py",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayAPIImpl.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayResultRecovery.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayRecoveryPoller.kt"
+      ],
+      "tests": [
+        "gateway/tests/test_gateway_v14_jobs.py",
+        "gateway/tests/test_gateway_v14_events.py",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayRecoveryContractTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayResultRecoveryTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayCancellationSemanticsTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayRecoveryPollerTest.kt"
+      ],
+      "evidence": [
+        "SOURCE_REVIEW: Transport recovery resumes the retained job and cursor or polls its result; a disconnect does not imply a fresh logical submission.",
+        "SOURCE_REVIEW: Cancellation, terminal-result recovery and missing-event boundaries have explicit contracts and retained state."
+      ],
+      "remaining": [
+        "Run mobile network interruption, process death and cancellation races against live streamed jobs; verify no duplicate physical submission or lost terminal content."
+      ]
+    },
+    {
+      "id": "M01",
+      "title": "Negotiate MCP protocol and transport explicitly",
+      "requirements": [
+        "REQ-MCP-PROTOCOL"
+      ],
+      "implementation": "IMPLEMENTED",
+      "qualification": "NOT_QUALIFIED",
+      "files": [
+        "gateway/v14/mcp_protocol.py",
+        "gateway/v14/mcp.py",
+        "gateway/contracts/v15/capabilities.json",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/ModernMcpTransport.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/McpClientManager.kt"
+      ],
+      "tests": [
+        "gateway/tests/test_gateway_v14_stability.py",
+        "gateway/tests/test_gateway_v14_contracts.py",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/ModernMcpTransportTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/McpInteractionContractTest.kt"
+      ],
+      "evidence": [
+        "SOURCE_REVIEW: Modern and legacy stdio adapters negotiate explicitly; automatic legacy fallback is restricted to explicit unsupported discovery responses.",
+        "SOURCE_REVIEW: Streamable HTTP and unimplemented continuation capabilities are not advertised by the gateway fixture. Authentication and timeouts are not interpreted as protocol downgrade permission."
+      ],
+      "remaining": [
+        "Run interoperability against supported external MCP server versions and transports; local fixtures do not certify every vendor implementation."
+      ]
+    },
+    {
+      "id": "M02",
+      "title": "Make tool discovery state truthful and generation-aware",
+      "requirements": [
+        "REQ-CATALOG-PENDING",
+        "REQ-REMOTE-TOOL-MISSING",
+        "REQ-TOOL-EXECUTION-READINESS"
+      ],
+      "implementation": "PARTIAL",
+      "qualification": "NOT_QUALIFIED",
+      "files": [
+        "gateway/v14/catalog.py",
+        "gateway/v14/mcp.py",
+        "gateway/v14/readiness.py",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/McpCatalogStore.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/McpCatalogueAvailability.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/McpCatalogOmissions.kt"
+      ],
+      "tests": [
+        "gateway/tests/test_gateway_v14_catalog_readiness.py",
+        "gateway/tests/test_gateway_v14_component_readiness.py",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/McpCatalogueExecutionSafetyTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/McpCatalogOmissionsTest.kt"
+      ],
+      "evidence": [
+        "SOURCE_REVIEW: Discovery is bounded and singleflight, with pending/stale/error states; tools/list success no longer claims a successful tool call.",
+        "SOURCE_REVIEW: Gateway execution verification records the last executionTool per connection. The cache identity is based on connection configuration and does not fully represent each tool and same-configuration server restart generation."
+      ],
+      "remaining": [
+        "Fence successful execution readiness by tool identity and server generation, and expire it after relevant permission/protocol/server changes.",
+        "Qualify missing/renamed remote tools and stale catalogs with real servers, preserving saved tool selection without claiming unavailable tools are runnable."
+      ]
+    },
+    {
+      "id": "M03",
+      "title": "Handle broken pipes, subprocess loss and tool timeouts safely",
+      "requirements": [
+        "REQ-MCP-BROKEN-PIPE",
+        "REQ-MCP-TIMEOUT"
+      ],
+      "implementation": "IMPLEMENTED",
+      "qualification": "NOT_QUALIFIED",
+      "files": [
+        "gateway/v14/mcp.py",
+        "gateway/v14/mcp_protocol.py",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/McpStreamDeadline.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/McpReadRecovery.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/McpClientManager.kt"
+      ],
+      "tests": [
+        "gateway/tests/test_gateway_v14_stability.py",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/McpStreamDeadlineTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/McpInterruptedReadTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/McpReadRecoveryTest.kt"
+      ],
+      "evidence": [
+        "SOURCE_REVIEW: Subprocess, pipe, stdout and request deadlines are bounded; cancellation can release a silent child without waiting for an unbounded response.",
+        "SOURCE_REVIEW: Dispatch outcome distinguishes a safe read recovery from an uncertain mutation; a broken response stream is not proof that a mutation was not executed."
+      ],
+      "remaining": [
+        "Exercise real server crashes and long-running tool cancellation on supported desktop platforms; fixture coverage does not qualify external process behavior."
+      ]
+    },
+    {
+      "id": "M04",
+      "title": "Classify DNS, auth, validation and privacy failures without retry loops",
+      "requirements": [
+        "REQ-DNS-CLASSIFICATION",
+        "REQ-NONRETRYABLE"
+      ],
+      "implementation": "IMPLEMENTED",
+      "qualification": "NOT_QUALIFIED",
+      "files": [
+        "gateway/v14/mcp_protocol.py",
+        "gateway/v14/batch.py",
+        "gateway/v14/engineering.py",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubFailurePolicy.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubReadRetry.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubPersonalContextIsolation.kt"
+      ],
+      "tests": [
+        "gateway/tests/test_gateway_v14_stability.py",
+        "gateway/tests/test_gateway_v14_batch.py",
+        "gateway/tests/test_gateway_v14_engineering.py",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRateLimitManagerTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubFailureSummaryTest.kt"
+      ],
+      "evidence": [
+        "SOURCE_REVIEW: Transport classifiers distinguish DNS, broken pipe, timeout and cancellation. GitHub client policy separates rate-limit responses from denied authentication/SSO/permission failures.",
+        "SOURCE_REVIEW: The repaired engineering supervisor moves definitive HTTP client denials, permission/validation errors and interruptions to retained NEEDS_INPUT after one stage attempt. Unknown mutation reconciliation retains precedence and transient failures retain their bounded policy."
+      ],
+      "remaining": [
+        "Verify provider-specific denial, rate-limit, privacy and DNS failures with live endpoint evidence, including correct classification of provider responses not represented by fixtures."
+      ]
+    },
+    {
+      "id": "D01",
+      "title": "Keep an efficient 5,000-event local debug ring",
+      "requirements": [
+        "REQ-DEBUG-LOCAL-5000"
+      ],
+      "implementation": "IMPLEMENTED",
+      "qualification": "NOT_QUALIFIED",
+      "files": [
+        "gateway/v14/debug.py",
+        "gateway/v14/diagnostic_events.py",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/AppLogRecorder.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/BoundedDiagnosticLogStore.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/BoundedDiagnosticPendingQueue.kt"
+      ],
+      "tests": [
+        "gateway/tests/test_gateway_v14_debug.py",
+        "gateway/tests/test_gateway_v14_diagnostic_events.py",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/BoundedDiagnosticLoggingTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/BoundedDiagnosticPendingQueueTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/StagedDiagnosticCaptureHeapTest.kt",
+        "gateway/tests/test_gateway_diagnostic_stress.py"
+      ],
+      "evidence": [
+        "SOURCE_REVIEW: Both capture paths bound retained events and record drops; gateway capture retains at most 5,000 combined events and bounded individual event payloads.",
+        "SOURCE_REVIEW: Disabled capture avoids active collection and the writer/spool paths bound pending work; tests include overflow, restart and storage failure fixtures."
+      ],
+      "remaining": [
+        "Measure enabled/disabled heap, CPU and frame effects on the target phone and PC during a sustained 5,000-event workload."
+      ]
+    },
+    {
+      "id": "D02",
+      "title": "Exchange correlated Android and gateway diagnostic events in both directions",
+      "requirements": [
+        "REQ-BIDIRECTIONAL-DEBUG",
+        "REQ-FAILURE-ATTRIBUTION"
+      ],
+      "implementation": "IMPLEMENTED",
+      "qualification": "NOT_QUALIFIED",
+      "files": [
+        "gateway/v14/diagnostic_events.py",
+        "gateway/v14/debug.py",
+        "gateway/v14/engineering.py",
+        "gateway/v14/inference_execution.py",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayDiagnosticEvent.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayDiagnosticSpool.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayDiagnosticSync.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayDiagnosticBridge.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayDiagnosticRetryGate.kt"
+      ],
+      "tests": [
+        "gateway/tests/test_gateway_v14_diagnostic_events.py",
+        "gateway/tests/test_gateway_selected_execution.py",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayDiagnosticSpoolTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayDiagnosticTransportTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayDiagnosticRetryGateTest.kt",
+        "gateway/tests/test_gateway_diagnostic_stress.py"
+      ],
+      "evidence": [
+        "SOURCE_REVIEW: Bidirectional batches use bounded payloads, durable monotonic source sequences, explicit acknowledgments, duplicate suppression and reported drop ranges.",
+        "SOURCE_REVIEW: Background engineering capture stores opaque trace/session context and revalidates current owner, authorization and expiry before restoring it; retry gating protects retained Android spool work."
+      ],
+      "remaining": [
+        "Complete Android integration and exact-candidate CI for the repair, then qualify connection loss, process restart, expiry and authorization revocation on a phone and PC."
+      ]
+    },
+    {
+      "id": "D03",
+      "title": "Normalize error taxonomy and incident grouping",
+      "requirements": [
+        "REQ-ERROR-TAXONOMY",
+        "REQ-INCIDENT-DEDUP"
+      ],
+      "implementation": "IMPLEMENTED",
+      "qualification": "NOT_QUALIFIED",
+      "files": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/DiagnosticClassification.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/DiagnosticIncidentTracker.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/DiagnosticPrivacy.kt",
+        "gateway/v14/mcp_protocol.py",
+        "gateway/v14/diagnostic_events.py"
+      ],
+      "tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/DiagnosticIncidentTrackerTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/DiagnosticIncidentClassificationTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/DiagnosticExecutionReceiptTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/DiagnosticPrivacyTest.kt",
+        "gateway/tests/test_gateway_v14_diagnostic_events.py"
+      ],
+      "evidence": [
+        "SOURCE_REVIEW: Structured categories and incident keys group repeated failures while retaining occurrence counts and source identity.",
+        "SOURCE_REVIEW: Gateway metadata is allowlisted and failure origin distinguishes precheck rejection, uncertain dispatch and observed execution failures."
+      ],
+      "remaining": [
+        "Validate cross-source incident grouping on real correlated failures; a shared time window or repeated message alone must not establish a common cause."
+      ]
+    },
+    {
+      "id": "D04",
+      "title": "Export a privacy-preserving integrity and coverage bundle",
+      "requirements": [
+        "REQ-EXPORT",
+        "REQ-REDACTION",
+        "REQ-VENDOR-AVAILABILITY"
+      ],
+      "implementation": "IMPLEMENTED",
+      "qualification": "NOT_QUALIFIED",
+      "files": [
+        "gateway/v14/diagnostic_events.py",
+        "gateway/v14/debug.py",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/CorrelatedDiagnosticExport.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/StagedDiagnosticCapture.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/DiagnosticPrivacy.kt"
+      ],
+      "tests": [
+        "gateway/tests/test_gateway_v14_diagnostic_events.py",
+        "gateway/tests/test_gateway_v14_debug.py",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/CorrelatedDiagnosticExportTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/StagedDiagnosticCaptureTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/DiagnosticPrivacyTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/AppLogRedactionTest.kt"
+      ],
+      "evidence": [
+        "SOURCE_REVIEW: Exports include component hashes, counts, coverage/drop information and explicit unavailable vendor evidence, while filtering credentials and private payloads.",
+        "SOURCE_REVIEW: Gateway full exports are admitted one at a time; capture ownership, authorization and expiry still apply to export access."
+      ],
+      "remaining": [
+        "Verify a real combined phone/PC export with an independent hash/count check and representative secret fixtures; measure memory on target hardware."
+      ]
+    },
+    {
+      "id": "D05",
+      "title": "Build a unified diagnostics command center",
+      "requirements": [
+        "REQ-COMMAND-CENTER",
+        "REQ-PERFORMANCE-CORRELATION"
+      ],
+      "implementation": "PARTIAL",
+      "qualification": "NOT_QUALIFIED",
+      "files": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GatewayDiagnosticPanel.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubGatewayStatusViewModel.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/FrameTimingRecorder.kt",
+        "gateway/v14/activity.py",
+        "gateway/desktop/dashboard.py"
+      ],
+      "tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/DiagnosticClockReconciliationTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/FrameDurationHistogramTest.kt",
+        "gateway/tests/test_gateway_v14_diagnostic_events.py",
+        "gateway/tests/test_gateway_desktop.py"
+      ],
+      "evidence": [
+        "SOURCE_REVIEW: The Android panel pages retained events, filters trace/error observations and shows capture coverage and unavailable vendor evidence; the desktop dashboard exposes gateway activity.",
+        "SOURCE_REVIEW: API success, task completion and model completion remain explicitly Not measured in the panel. These surfaces do not yet provide the full unified metric and evidence-navigation command center."
+      ],
+      "remaining": [
+        "Complete actionable cross-source metrics, evidence navigation and trace correlation without treating unmeasured counters as zeros.",
+        "Qualify the complete failure/performance investigation flow using a real combined capture."
+      ]
+    },
+    {
+      "id": "H01",
+      "title": "Complete first-run GitHub connection onboarding",
+      "requirements": [
+        "REQ-GITHUB-WELCOME",
+        "REQ-GITHUB-AUTH-UX"
+      ],
+      "implementation": "IMPLEMENTED",
+      "qualification": "NOT_QUALIFIED",
+      "files": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubSetupWelcome.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubConnectionSetupScreen.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubPublicAuthCoordinator.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubPublicAuthClient.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubApiOrigins.kt",
+        "authentication/ticket_broker.py",
+        "authentication/app.py"
+      ],
+      "tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubSetupWelcomeTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubConnectionSetupTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubPublicAuthCoordinatorTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubPublicAuthClientTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubApiOriginsTest.kt",
+        "authentication/test_ticket_broker.py",
+        "authentication/test_app.py"
+      ],
+      "evidence": [
+        "SOURCE_REVIEW: Onboarding explains account, repository and AI setup with supported public and enterprise connection paths.",
+        "SOURCE_REVIEW: The broker uses short-lived one-use callback tickets rather than callback credentials; origin policy separates public and enterprise endpoints."
+      ],
+      "remaining": [
+        "Deploy and qualify the broker/callback against the signed Android package and certificate, including browser return, expiry, reuse, cancellation and refresh. Fixtures do not prove production sign-in."
+      ]
+    },
+    {
+      "id": "H02",
+      "title": "Guide repository, branch, permissions and profile selection",
+      "requirements": [
+        "REQ-REPO-SETUP",
+        "REQ-SETUP-READINESS"
+      ],
+      "implementation": "PARTIAL",
+      "qualification": "NOT_QUALIFIED",
+      "files": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubWorkspaceViewModel.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubWorkspaceScreen.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSessionBootstrapper.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayExecutionSelection.kt"
+      ],
+      "tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubWorkspaceAdmissionTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSessionSnapshotTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayExecutionSelectionTest.kt"
+      ],
+      "evidence": [
+        "SOURCE_REVIEW: Workspace state retains repository, branch, profile and account selection, and admission rechecks current authorization and selected execution binding.",
+        "SOURCE_REVIEW: The setup displays repository/App permissions and gates opening chat on current repository head and profile selection. Its graphReadiness field remains at its declared NOT_REQUESTED state; the full separate model/tools/graph setup-readiness presentation is not wired through this workspace state."
+      ],
+      "remaining": [
+        "Verify all required setup steps and resumable partial setup against public and enterprise repositories, restricted Actions/write permissions, empty repositories and unavailable selected runtimes."
+      ]
+    },
+    {
+      "id": "H03",
+      "title": "Keep GitHub Workshop out of global app Settings",
+      "requirements": [
+        "REQ-REMOVE-WORKSHOP"
+      ],
+      "implementation": "EXISTING",
+      "qualification": "NOT_QUALIFIED",
+      "files": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/SettingScreen.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/SettingsSearchRegistry.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubSetupWelcome.kt"
+      ],
+      "tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/SettingsSearchRegistryTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubSetupWelcomeTest.kt"
+      ],
+      "evidence": [
+        "SOURCE_REVIEW: The inspected global Settings surface and search entries do not expose the GitHub Workshop shortcut. This absence is existing behavior, not a newly removed control.",
+        "SOURCE_REVIEW: GitHub connection/setup remains available from its workspace flow."
+      ],
+      "remaining": [
+        "Confirm the rendered settings and navigation on the signed candidate, including alternate layouts and localized search."
+      ]
+    },
+    {
+      "id": "H04",
+      "title": "Open GitHub mode without blocking on remote inventory",
+      "requirements": [
+        "REQ-FAST-GITHUB-LOAD"
+      ],
+      "implementation": "IMPLEMENTED",
+      "qualification": "NOT_QUALIFIED",
+      "files": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSessionBootstrapper.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubWorkspaceViewModel.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubWorkspaceScreen.kt"
+      ],
+      "tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSessionSnapshotTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubWorkspaceAdmissionTest.kt",
+        "scripts/tests/test_gateway_github_performance.py"
+      ],
+      "evidence": [
+        "SOURCE_REVIEW: A local display-only snapshot restores shell/draft context before remote inventory; separate refresh state prevents optional inventories from blocking the shell.",
+        "SOURCE_REVIEW: Mutation admission still requires current account/route/permission evidence and stale asynchronous UI generations are rejected."
+      ],
+      "remaining": [
+        "Measure cold, warm and restored entry on the target phone with at least the required navigation trials; cached data must not grant stale write permission.",
+        "The target first-content/composer timings are acceptance thresholds, not observed improvements in this ledger."
+      ]
+    },
+    {
+      "id": "H05",
+      "title": "Consolidate GitHub API reads, pagination and freshness",
+      "requirements": [
+        "REQ-GITHUB-CACHE",
+        "REQ-GITHUB-API-UX"
+      ],
+      "implementation": "IMPLEMENTED",
+      "qualification": "NOT_QUALIFIED",
+      "files": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSessionCaches.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubResponseCache.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRequestScheduler.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRateLimitManager.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubWorkspaceClient.kt",
+        "gateway/v14/github.py"
+      ],
+      "tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSessionCachesTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCachePolicyTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSchedulerAndPaginationTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubWorkspaceClientTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRequestSchedulerStressTest.kt",
+        "gateway/tests/test_gateway_v14_github.py"
+      ],
+      "evidence": [
+        "SOURCE_REVIEW: Shared session cache/scheduler/rate-limit state is credential-, host- and account-scoped, with pagination and bounded coordinated reads.",
+        "SOURCE_REVIEW: Reconnect and verified identity changes isolate cached state; write authorization is not inferred from display cache freshness."
+      ],
+      "remaining": [
+        "Measure request reduction, cancellation and recovery with real rate-limit headers and large inventories across account/enterprise-host switches."
+      ]
+    },
+    {
+      "id": "L01",
+      "title": "Schedule local inference with bounded capacity and interactive priority",
+      "requirements": [
+        "REQ-LOCAL-STABILITY"
+      ],
+      "implementation": "PARTIAL",
+      "qualification": "NOT_QUALIFIED",
+      "files": [
+        "gateway/v14/inference_scheduler.py",
+        "gateway/v14/inference_execution.py",
+        "gateway/v14/service.py"
+      ],
+      "tests": [
+        "gateway/tests/test_gateway_selected_execution.py",
+        "gateway/tests/test_gateway_v14_stability.py"
+      ],
+      "evidence": [
+        "SOURCE_REVIEW: Inference admission bounds slots, queued requests, bytes and tokens, and prioritizes interactive work with bounded background aging; queued cancellation precedes dispatch.",
+        "SOURCE_REVIEW: The scheduler accepts measured memory reservations, but current bound model requests do not provide a measured per-request memory reservation. Active generation is not preempted."
+      ],
+      "remaining": [
+        "Connect measured runtime/model memory requirements and available-memory observations before claiming memory-aware scheduling.",
+        "Qualify interactive latency, background progress and crash resistance on supported PC/runtime/model combinations under load."
+      ]
+    },
+    {
+      "id": "L02",
+      "title": "Choose inference batching using measured per-runtime tuning",
+      "requirements": [
+        "REQ-OPTIMAL-GATEWAY-BATCHING"
+      ],
+      "implementation": "PARTIAL",
+      "qualification": "NOT_QUALIFIED",
+      "files": [
+        "gateway/benchmark_selected_model.py",
+        "gateway/v14/inference_scheduler.py",
+        "gateway/v14/inference_capabilities.py"
+      ],
+      "tests": [
+        "gateway/tests/test_gateway_selected_model_benchmark.py",
+        "gateway/tests/test_gateway_selected_execution.py"
+      ],
+      "evidence": [
+        "SOURCE_REVIEW: The benchmark holds the selected model and route fixed, records timing/usage and distinguishes requested runtime settings from observed settings.",
+        "SOURCE_REVIEW: The harness is measurement-only; it does not automatically select, persist or revalidate an optimal per-runtime batching configuration."
+      ],
+      "remaining": [
+        "Collect repeatable per-runtime measurements and define a qualified tuning selection/persistence policy with bounded rollback.",
+        "Do not equate read-tool batching, higher concurrency or declared settings with measured inference throughput, TTFT or memory improvements."
+      ]
+    },
+    {
+      "id": "L03",
+      "title": "Budget tokens and preserve capacity for completion",
+      "requirements": [
+        "REQ-PROVIDER-CEILINGS",
+        "REQ-COMPLETION-RESERVE"
+      ],
+      "implementation": "IMPLEMENTED",
+      "qualification": "NOT_QUALIFIED",
+      "files": [
+        "gateway/v14/inference_budget.py",
+        "gateway/v14/inference_capabilities.py",
+        "gateway/v14/inference_execution.py",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubStageBudget.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubExecutionLimits.kt"
+      ],
+      "tests": [
+        "gateway/tests/test_gateway_selected_execution.py",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubExecutionLimitsTest.kt"
+      ],
+      "evidence": [
+        "SOURCE_REVIEW: Admission uses observed context and declared output ceilings, preserves explicit output limits, and reserves finalization, verification, recovery and safety capacity.",
+        "SOURCE_REVIEW: Token counts distinguish a selected backend tokenizer from a conservative bound; compaction retains artifact identities rather than silently dropping required evidence."
+      ],
+      "remaining": [
+        "Qualify context and completion boundary behavior with real selected tokenizers and providers, including errors in provider-reported limits and long final answers."
+      ]
+    },
+    {
+      "id": "L04",
+      "title": "Preserve and tune dependency-aware read-tool batching",
+      "requirements": [
+        "REQ-READ-BATCH"
+      ],
+      "implementation": "EXISTING",
+      "qualification": "NOT_QUALIFIED",
+      "files": [
+        "gateway/v14/batch.py",
+        "gateway/v14/github.py",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GatewayEfficiency.kt"
+      ],
+      "tests": [
+        "gateway/tests/test_gateway_v14_batch.py",
+        "gateway/tests/test_gateway_v14_github.py",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GatewayEfficiencyTest.kt"
+      ],
+      "evidence": [
+        "SOURCE_REVIEW: Existing dependency-aware batches bound parallel read work, preserve receipts and isolate principal/owner context; mutations are not admitted as parallel reads.",
+        "SOURCE_REVIEW: Read concurrency and retry controls are separate from local inference admission and do not prove model batching efficiency."
+      ],
+      "remaining": [
+        "Measure representative dependency graphs, rate limits and contention before selecting workload-specific concurrency; retain exact owner/privacy boundaries."
+      ]
+    },
+    {
+      "id": "A01",
+      "title": "Store large tool results as durable referenced artifacts",
+      "requirements": [
+        "REQ-RETAINED-RESULT-CAPACITY",
+        "REQ-RESULT-PAGING"
+      ],
+      "implementation": "IMPLEMENTED",
+      "qualification": "NOT_QUALIFIED",
+      "files": [
+        "gateway/v14/engineering_artifacts.py",
+        "gateway/v14/engineering_crypto.py",
+        "gateway/v14/engineering.py",
+        "gateway/v14/evidence.py",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSavedViewStore.kt"
+      ],
+      "tests": [
+        "gateway/tests/test_gateway_engineering_retention.py",
+        "gateway/tests/test_gateway_v14_evidence.py",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubSavedViewRecoveryTest.kt"
+      ],
+      "evidence": [
+        "SOURCE_REVIEW: Large engineering checkpoint fields and raw model/evidence payloads use encrypted content-addressed artifact references, bounded pages and integrity hashes.",
+        "SOURCE_REVIEW: Artifact persistence and pins are transactional and principal/job scoped; page retrieval verifies chunk identity and exposes continuation metadata."
+      ],
+      "remaining": [
+        "Exercise large real tool outputs, power-loss recovery and quota exhaustion on the deployment filesystem; stored artifact references do not certify all consumers avoid large materialization."
+      ]
+    },
+    {
+      "id": "A02",
+      "title": "Compact task memory and load only relevant schemas",
+      "requirements": [
+        "REQ-STRUCTURED-COMPACTION",
+        "REQ-PROGRESSIVE-SCHEMAS"
+      ],
+      "implementation": "PARTIAL",
+      "qualification": "NOT_QUALIFIED",
+      "files": [
+        "gateway/v14/inference_budget.py",
+        "gateway/v14/engineering_memory.py",
+        "gateway/v14/engineering_artifacts.py",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProgressiveToolCatalog.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubTaskContinuity.kt"
+      ],
+      "tests": [
+        "gateway/tests/test_gateway_selected_execution.py",
+        "gateway/tests/test_gateway_v14_engineering_memory.py",
+        "gateway/tests/test_gateway_engineering_retention.py",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProgressiveToolCatalogTest.kt"
+      ],
+      "evidence": [
+        "SOURCE_REVIEW: Model evidence views compact oversized material into retained references and progressive tool catalogs bound schema exposure.",
+        "SOURCE_REVIEW: This establishes bounded summaries and retrieval, but does not establish every stage-specific compaction contract or a measured safe prompt-reuse mechanism."
+      ],
+      "remaining": [
+        "Qualify lossless retrieval of omitted evidence across long planning/repair/review sequences, and complete any remaining stage-specific structured compaction contracts.",
+        "Measure prompt/cache effects only on the exact selected model and binding."
+      ]
+    },
+    {
+      "id": "A03",
+      "title": "Keep searchable evidence and memory private and access-scoped",
+      "requirements": [
+        "REQ-LOCAL-FIRST-MEMORY",
+        "REQ-PRIVACY-BOUNDARY"
+      ],
+      "implementation": "IMPLEMENTED",
+      "qualification": "NOT_QUALIFIED",
+      "files": [
+        "gateway/v14/engineering_memory.py",
+        "gateway/v14/engineering_crypto.py",
+        "gateway/v14/execution_binding.py",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEngineeringMemoryPolicy.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubPersonalContextIsolation.kt"
+      ],
+      "tests": [
+        "gateway/tests/test_gateway_v14_engineering_memory.py",
+        "gateway/tests/test_gateway_selected_execution.py",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubPersonalContextIsolationTest.kt"
+      ],
+      "evidence": [
+        "SOURCE_REVIEW: Local memory is encrypted and scoped by principal, actor, permission, repository, branch and execution binding with bounded lexical retrieval.",
+        "SOURCE_REVIEW: Strict selected-profile execution does not introduce a separate embedding model; local-only routing and personal-context guards preserve the selected privacy boundary."
+      ],
+      "remaining": [
+        "Perform deployment access-revocation and privacy traffic observation, including stale memory after identity changes and all configured external services."
+      ]
+    },
+    {
+      "id": "A04",
+      "title": "Bound artifact lifecycle without discarding active evidence",
+      "requirements": [
+        "REQ-ARTIFACT-LIFECYCLE",
+        "REQ-LARGE-SAVED-ANSWER"
+      ],
+      "implementation": "PARTIAL",
+      "qualification": "NOT_QUALIFIED",
+      "files": [
+        "gateway/v14/engineering_artifacts.py",
+        "gateway/v14/engineering_report.py",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSavedViewStore.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AnswerSegmentChain.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/BoundedAssistantDocument.kt"
+      ],
+      "tests": [
+        "gateway/tests/test_gateway_engineering_retention.py",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/AnswerSegmentChainTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubSavedViewRecoveryTest.kt"
+      ],
+      "evidence": [
+        "SOURCE_REVIEW: Active artifacts have quota enforcement and pins, and large saved answers support ordered retained segments and paged display.",
+        "SOURCE_REVIEW: The inspected artifact service does not implement the full archival, unpin and garbage-collection lifecycle; quota rejection is not an archival policy."
+      ],
+      "remaining": [
+        "Implement or separately scope archival/unpin/garbage collection with active-evidence preservation and recoverable low-space outcomes.",
+        "Qualify large-answer restore and storage growth over extended use."
+      ]
+    },
+    {
+      "id": "J01",
+      "title": "Unify durable task stages and checkpoints",
+      "requirements": [
+        "REQ-TASK-INCOMPLETE",
+        "REQ-STATE-MACHINE"
+      ],
+      "implementation": "PARTIAL",
+      "qualification": "NOT_QUALIFIED",
+      "files": [
+        "gateway/v14/engineering.py",
+        "gateway/v14/engineering_backend.py",
+        "gateway/v14/engineering_artifacts.py",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubEngineeringStateMachine.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubEngineeringRoom.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubEngineeringRecoveryService.kt"
+      ],
+      "tests": [
+        "gateway/tests/test_gateway_v14_engineering.py",
+        "gateway/tests/test_gateway_engineering_retention.py",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubEngineeringStateMachineTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubEngineeringRecoveryTest.kt"
+      ],
+      "evidence": [
+        "SOURCE_REVIEW: Durable stages, checkpoint artifacts, ownership leases and retained blocked work permit server-side recovery without replaying a complete request.",
+        "SOURCE_REVIEW: The gateway state machine does not yet cover the full publication and resulting-main workflow lifecycle; its merge verification checks PR facts rather than post-merge publication evidence."
+      ],
+      "remaining": [
+        "Complete or explicitly hand off post-merge validation/publication stages with durable evidence before claiming the full specification lifecycle.",
+        "Qualify restart and process loss at each stage with real provider/repository work."
+      ]
+    },
+    {
+      "id": "J02",
+      "title": "Reconcile uncertain mutations through one operation ledger",
+      "requirements": [
+        "REQ-UNKNOWN-OUTCOME"
+      ],
+      "implementation": "IMPLEMENTED",
+      "qualification": "NOT_QUALIFIED",
+      "files": [
+        "gateway/v14/engineering_operations.py",
+        "gateway/v14/engineering_backend.py",
+        "gateway/v14/engineering.py",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubExecutionLedger.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubDispatchAccounting.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCommitReconciliation.kt"
+      ],
+      "tests": [
+        "gateway/tests/test_gateway_engineering_retention.py",
+        "gateway/tests/test_gateway_v14_engineering.py",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubExecutionLedgerTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubDispatchReceiptTest.kt"
+      ],
+      "evidence": [
+        "SOURCE_REVIEW: Physical mutation identity binds job revision, method, route and body, with PREPARED, DISPATCHED, COMPLETED and UNKNOWN outcomes and fenced ownership.",
+        "SOURCE_REVIEW: Known completed operations return retained receipts; an uncertain dispatched operation blocks blind replay and requires reconciliation."
+      ],
+      "remaining": [
+        "Qualify lost responses for branch/ref updates, PR creation and merge against real remote state, including recovery after host restart."
+      ]
+    },
+    {
+      "id": "J03",
+      "title": "Bound repair and retry by cause, progress and remaining budget",
+      "requirements": [
+        "REQ-STAGE-RETRIES"
+      ],
+      "implementation": "IMPLEMENTED",
+      "qualification": "NOT_QUALIFIED",
+      "files": [
+        "gateway/v14/engineering.py",
+        "gateway/v14/inference_execution.py",
+        "gateway/v14/inference_budget.py",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubExecutionLimits.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubReadRetry.kt"
+      ],
+      "tests": [
+        "gateway/tests/test_gateway_v14_engineering.py",
+        "gateway/tests/test_gateway_selected_execution.py",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubExecutionLimitsTest.kt"
+      ],
+      "evidence": [
+        "SOURCE_REVIEW: Repair iterations, physical inference attempts, duration and stall budgets are bounded and selected execution is revalidated before retry.",
+        "SOURCE_REVIEW: Definitive auth, permission, input-validation and interruption failures now pause after the initial attempt; repeated polling cannot dispatch them again. Uncertain mutations preserve their receipt and reconcile before any repeat write."
+      ],
+      "remaining": [
+        "Qualify repair progress, transient recovery and finalization reserves against cost/time bounds on long real tasks."
+      ]
+    },
+    {
+      "id": "J04",
+      "title": "Distinguish approval from verification and retain blocked work",
+      "requirements": [
+        "REQ-REVIEW-INPUT"
+      ],
+      "implementation": "IMPLEMENTED",
+      "qualification": "NOT_QUALIFIED",
+      "files": [
+        "gateway/v14/engineering.py",
+        "gateway/v14/evidence.py",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubChatDecisions.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubReviewCheckpoint.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubEngineeringAuthorization.kt"
+      ],
+      "tests": [
+        "gateway/tests/test_gateway_v14_engineering.py",
+        "gateway/tests/test_gateway_v14_evidence.py",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubEngineeringAuthorizationTest.kt"
+      ],
+      "evidence": [
+        "SOURCE_REVIEW: Merge approval binds actor, policy and revision; changing work invalidates stale approval rather than treating it as verification.",
+        "SOURCE_REVIEW: Blocked tasks retain progress and evidence, while required checks and semantic receipts are evaluated independently of the approval decision."
+      ],
+      "remaining": [
+        "Qualify approval expiry, actor/permission changes and resumed blocked tasks through the real Android and GitHub workflow."
+      ]
+    },
+    {
+      "id": "V01",
+      "title": "Verify each requirement using typed evidence",
+      "requirements": [
+        "REQ-EVIDENCE-REQUIRED",
+        "REQ-SEMANTIC-VERIFICATION"
+      ],
+      "implementation": "PARTIAL",
+      "qualification": "NOT_QUALIFIED",
+      "files": [
+        "gateway/v14/evidence.py",
+        "gateway/v14/engineering_validation.py",
+        "gateway/v14/engineering_report.py",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRequestCompletion.kt"
+      ],
+      "tests": [
+        "gateway/tests/test_gateway_v14_evidence.py",
+        "gateway/tests/test_gateway_v14_validation.py",
+        "gateway/tests/test_gateway_engineering_retention.py",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRequestCompletionTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptanceLedgerTest.kt"
+      ],
+      "evidence": [
+        "SOURCE_REVIEW: Gateway acceptance receipts bind typed requirement/case evidence, source revision, repository, branch and execution binding; contradictions prevent completion.",
+        "SOURCE_REVIEW: Validation removes declared safe report files before each mapped command and snapshots only that command's fresh bounded output. Missing, skipped or failed mapped evidence prevents PASSED even if the command exits zero. Android completion still accepts some workflow-name evidence without equivalent per-case semantics."
+      ],
+      "remaining": [
+        "Extend equivalent per-requirement semantic evidence to remaining client completion paths; broad workflow success must not substitute for product acceptance.",
+        "Qualify the approved validation policy against the actual repository test commands and container image; fresh file provenance alone does not prove a test case covers the intended behavior."
+      ]
+    },
+    {
+      "id": "V02",
+      "title": "Track the full PR and required-check lifecycle",
+      "requirements": [
+        "REQ-PR-LIFECYCLE",
+        "REQ-EXACT-HEAD-CI"
+      ],
+      "implementation": "IMPLEMENTED",
+      "qualification": "NOT_QUALIFIED",
+      "files": [
+        "gateway/v14/engineering_backend.py",
+        "gateway/v14/actions.py",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubEngineeringCiPolicy.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubEngineeringCiReceiptGateway.kt",
+        "scripts/release_evidence.py",
+        "scripts/await_release_checks.py"
+      ],
+      "tests": [
+        "gateway/tests/test_gateway_v14_engineering_backend.py",
+        "gateway/tests/test_gateway_v14_actions.py",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubEngineeringCiPolicyTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubEngineeringCiReceiptGatewayTest.kt",
+        "scripts/tests/test_release_evidence.py"
+      ],
+      "evidence": [
+        "SOURCE_REVIEW: PR policy evaluation binds current head/base and named required checks, distinguishes pending/failed/skipped outcomes and refuses missing exact-head evidence.",
+        "SOURCE_REVIEW: The release helper follows applicable workflow evidence rather than assuming a successful historical run qualifies a later revision."
+      ],
+      "remaining": [
+        "Read actual branch/ruleset requirements and all applicable final-head runs immediately before merge, including runs created by changing draft status."
+      ]
+    },
+    {
+      "id": "V03",
+      "title": "Generate final status from the evidence ledger",
+      "requirements": [
+        "REQ-FINAL-EVIDENCE-REPORT"
+      ],
+      "implementation": "IMPLEMENTED",
+      "qualification": "NOT_QUALIFIED",
+      "files": [
+        "gateway/v14/engineering_report.py",
+        "gateway/v14/evidence.py",
+        "gateway/v14/engineering.py",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRequestCompletion.kt"
+      ],
+      "tests": [
+        "gateway/tests/test_gateway_engineering_retention.py",
+        "gateway/tests/test_gateway_v14_evidence.py",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRequestCompletionTest.kt"
+      ],
+      "evidence": [
+        "SOURCE_REVIEW: The gateway final report derives requirement status, evidence counts, source identities, artifacts and blocked reasons from retained ledgers.",
+        "SOURCE_REVIEW: Missing measurements and incomplete requirements remain explicit; successful transport and a generated final answer are not independent acceptance evidence."
+      ],
+      "remaining": [
+        "Verify final reports for real partial, blocked and completed tasks, and ensure all client presentation preserves ledger qualifications."
+      ]
+    },
+    {
+      "id": "V04",
+      "title": "Verify merge and publication against the resulting main commit",
+      "requirements": [
+        "REQ-MERGE-PUBLISH"
+      ],
+      "implementation": "PARTIAL",
+      "qualification": "NOT_QUALIFIED",
+      "files": [
+        "gateway/v14/engineering_backend.py",
+        "gateway/v14/engineering_report.py",
+        "scripts/release_evidence.py",
+        "scripts/await_release_checks.py",
+        "scripts/verify_published_release.py",
+        "scripts/verify_release_identity.py",
+        ".github/workflows/post-merge-validation.yml",
+        ".github/workflows/release-build.yml"
+      ],
+      "tests": [
+        "gateway/tests/test_gateway_v14_engineering_backend.py",
+        "scripts/tests/test_release_evidence.py",
+        "scripts/tests/test_release_identity.py",
+        "scripts/tests/test_release_rollback.py"
+      ],
+      "evidence": [
+        "SOURCE_REVIEW: Repository release tooling checks resulting commit identity, applicable workflows and published assets separately from PR checks.",
+        "SOURCE_REVIEW: The autonomous gateway VERIFY phase currently verifies PR merge facts and merge SHA; it does not itself wait for resulting-main workflows or establish release publication."
+      ],
+      "remaining": [
+        "Integrate the resulting-main workflow and publication evidence with durable task completion, or expose the separate required handoff explicitly.",
+        "For this repair, root must verify actual merge SHA and applicable post-merge jobs; no new release version or publication is implied by this ledger."
+      ]
+    },
+    {
+      "id": "U01",
+      "title": "Profile and remove main-thread work causing stalls",
+      "requirements": [
+        "REQ-SEVERE-STALLS",
+        "REQ-RUNTIME-PAUSES"
+      ],
+      "implementation": "PARTIAL",
+      "qualification": "NOT_QUALIFIED",
+      "files": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/FrameTimingRecorder.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/DatabaseOperationTiming.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/DiagnosticClockReconciliation.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/BoundedAssistantDocument.kt",
+        "scripts/qualify_gateway_github_performance.py"
+      ],
+      "tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/FrameDurationHistogramTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/DiagnosticClockReconciliationTest.kt",
+        "scripts/tests/test_gateway_github_performance.py"
+      ],
+      "evidence": [
+        "SOURCE_REVIEW: Frame instrumentation records actual/fallback deadlines, frame percentiles, long stalls, refresh rate, workload context and related memory/GC observations; document preparation is moved off the UI thread.",
+        "SOURCE_REVIEW: These signals enable investigation but no reference-device trace establishes the cause or elimination of the reported severe stalls."
+      ],
+      "remaining": [
+        "Capture comparable before/after Android traces under the original workload and attribute each severe stall to observed main-thread work before claiming it fixed."
+      ]
+    },
+    {
+      "id": "U02",
+      "title": "Render chat, progress and logs as bounded lazy state",
+      "requirements": [
+        "REQ-LAZY-CHAT",
+        "REQ-RECOMPOSITION",
+        "REQ-LAZY-LOGS"
+      ],
+      "implementation": "PARTIAL",
+      "qualification": "NOT_QUALIFIED",
+      "files": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/BoundedAssistantDocument.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatScreen.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatBubble.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/AssistantChronologicalContent.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/AppLogProjection.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/AppLogPanel.kt"
+      ],
+      "tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/AppLogProjectionTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/PresentationSnapshotsTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/AnswerSegmentChainTest.kt"
+      ],
+      "evidence": [
+        "SOURCE_REVIEW: Paged assistant documents use bounded caches, stable visible content and bounded fetch concurrency; logs derive a bounded filtered projection.",
+        "SOURCE_REVIEW: Inline long-document snapshots still retain the full inline text and scan frame structure. Full-chat memory/recomposition bounds are not established by paging one retained representation."
+      ],
+      "remaining": [
+        "Measure large-history heap and recomposition while streaming, scrolling, filtering logs and restoring large answers; complete remaining whole-document materialization limits where measurements identify them."
+      ]
+    },
+    {
+      "id": "U03",
+      "title": "Decouple lossless streaming from smooth presentation",
+      "requirements": [
+        "REQ-STREAM-JITTER",
+        "REQ-EXISTING-CHAT-MOTION"
+      ],
+      "implementation": "IMPLEMENTED",
+      "qualification": "NOT_QUALIFIED",
+      "files": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/PresentationSnapshots.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/BoundedAssistantDocument.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubPromptAnchor.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubChatProgress.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AnswerSegmentChain.kt"
+      ],
+      "tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/PresentationSnapshotsTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubPromptAnchorTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatMarkdownStreamingFadeTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/util/StreamPresentationPolicyTest.kt",
+        "app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubPromptMotionInstrumentedTest.kt"
+      ],
+      "evidence": [
+        "SOURCE_REVIEW: Presentation coalesces current snapshots at a bounded interval while flushing first useful and terminal content, independently of lossless underlying persistence.",
+        "SOURCE_REVIEW: Prompt anchoring and existing animation policy have explicit timing contracts; answer segments preserve ordered committed content."
+      ],
+      "remaining": [
+        "Execute motion acceptance and physical frame measurements under real bursty streaming, including cancellation and terminal flush; unit timing does not establish smooth rendering."
+      ]
+    },
+    {
+      "id": "U04",
+      "title": "Theme-colour gateway-generated answer text using persisted provenance",
+      "requirements": [
+        "REQ-GATEWAY-THEME"
+      ],
+      "implementation": "IMPLEMENTED",
+      "qualification": "NOT_QUALIFIED",
+      "files": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/database/entity/ResponseSource.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AnswerSegmentChain.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ResponseSourceAppearance.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/AssistantChronologicalContent.kt",
+        "app/schemas/dev.chungjungsoo.gptmobile.data.database.ChatDatabaseV2/49.json"
+      ],
+      "tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/database/entity/ResponseSourceTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/AnswerSegmentChainTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ResponseSourceAppearanceTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/database/ChatDatabaseV2MigrationsTest.kt"
+      ],
+      "evidence": [
+        "SOURCE_REVIEW: Gateway provenance is persisted per answer segment and drives a theme-derived accessible accent; unknown historical sources remain unknown rather than being inferred.",
+        "SOURCE_REVIEW: Room schema 49 adds nullable provenance, and renderer scope was repaired so prepared content remains inside its composition provider."
+      ],
+      "remaining": [
+        "Pass final integrated Android compilation/migration checks and visually qualify light/dark/dynamic themes, mixed-source answers and restored historical conversations."
+      ]
+    },
+    {
+      "id": "U05",
+      "title": "Investigate GPU timestamp anomalies as a separate evidence problem",
+      "requirements": [
+        "REQ-GPU-CLOCK"
+      ],
+      "implementation": "INVESTIGATION_REQUIRED",
+      "qualification": "NOT_QUALIFIED",
+      "files": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/DiagnosticClockReconciliation.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/FrameTimingRecorder.kt",
+        "scripts/qualify_gateway_github_performance.py"
+      ],
+      "tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/DiagnosticClockReconciliationTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/FrameDurationHistogramTest.kt",
+        "scripts/tests/test_gateway_github_performance.py"
+      ],
+      "evidence": [
+        "SOURCE_REVIEW: Clock reconciliation separates source monotonic duration from wall-clock observations and reports unavailable vendor evidence.",
+        "SOURCE_REVIEW: No captured vendor GPU timeline or driver evidence in this repair establishes the cause of the reported GPU timestamp anomaly."
+      ],
+      "remaining": [
+        "Collect platform/vendor trace evidence with device, OS, driver and workload identity; determine whether the anomaly is clock-domain mismatch, missing data or an actual graphics fault.",
+        "Do not infer GPU/NPU execution or a driver fix from UI frame timing."
+      ]
+    },
+    {
+      "id": "W01",
+      "title": "Reconcile WorkManager generations before treating warnings as bugs",
+      "requirements": [
+        "REQ-WORKSPEC",
+        "REQ-WORK-GENERATION"
+      ],
+      "implementation": "PARTIAL",
+      "qualification": "NOT_QUALIFIED",
+      "files": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayEngineeringSyncWorker.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayEngineeringRepository.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayObservationPolicy.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubEngineeringCiWorker.kt"
+      ],
+      "tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayObservationPolicyTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubEngineeringCiPollingTest.kt"
+      ],
+      "evidence": [
+        "SOURCE_REVIEW: Periodic observation uses unique KEEP work and records observer generation, WorkID and attempt; observation has bounded slices and retries.",
+        "SOURCE_REVIEW: This does not yet establish comprehensive current-versus-superseded WorkSpec reconciliation or prove the original missing-work warning is harmless."
+      ],
+      "remaining": [
+        "Correlate live WorkManager database/generation/owner evidence through enqueue, cancellation, app upgrade and process death; distinguish an obsolete warning from missing active work."
+      ]
+    },
+    {
+      "id": "W02",
+      "title": "Separate UI, foreground work and durable server execution",
+      "requirements": [
+        "REQ-BACKGROUND-OWNERSHIP",
+        "REQ-BACKGROUND-RESTORE"
+      ],
+      "implementation": "IMPLEMENTED",
+      "qualification": "NOT_QUALIFIED",
+      "files": [
+        "gateway/v14/engineering.py",
+        "gateway/v14/engineering_routes.py",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayEngineeringSyncWorker.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayEngineeringRepository.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayObservationPolicy.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubEngineeringRecoveryService.kt"
+      ],
+      "tests": [
+        "gateway/tests/test_gateway_v14_engineering.py",
+        "gateway/tests/test_gateway_v14_engineering_http.py",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayObservationPolicyTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubEngineeringRecoveryTest.kt"
+      ],
+      "evidence": [
+        "SOURCE_REVIEW: The gateway owns durable execution and leases; UI and WorkManager paths observe retained jobs without taking server execution ownership.",
+        "SOURCE_REVIEW: Saved bindings permit bounded recovery on the original route, and observer exhaustion retains the checkpoint instead of restarting the task."
+      ],
+      "remaining": [
+        "Qualify real Android background restrictions, force-stop, process death, app restart and PC restart without duplicate execution or a lost recovery surface."
+      ]
+    },
+    {
+      "id": "W03",
+      "title": "Expose a recovery dashboard with exact blocked reasons",
+      "requirements": [
+        "REQ-RECOVERY-DASHBOARD"
+      ],
+      "implementation": "IMPLEMENTED",
+      "qualification": "NOT_QUALIFIED",
+      "files": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GatewayRecoveryPresentation.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GatewayEngineeringPanel.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayEngineeringRepository.kt",
+        "gateway/v14/engineering_report.py"
+      ],
+      "tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GatewayRecoveryPresentationTest.kt",
+        "gateway/tests/test_gateway_v14_engineering_http.py",
+        "gateway/tests/test_gateway_engineering_retention.py"
+      ],
+      "evidence": [
+        "SOURCE_REVIEW: Recovery presentation exposes stage, exact reason, selected/requested/observed identity, retained output and bounded reconcile/cancel actions.",
+        "SOURCE_REVIEW: The repaired guidance recognizes emitted UNKNOWN_OUTCOME reasons and directs reconciliation before retrying a write. Hardware display accepts only labeled provider observations from the canonical receipt."
+      ],
+      "remaining": [
+        "Qualify the rendered recovery flow for retained uncertain writes, privacy blocks, permission loss and budget exhaustion, including navigating to the retained evidence."
+      ]
+    },
+    {
+      "id": "Q01",
+      "title": "Qualify complete API and engineering workflows with behavioral evidence",
+      "requirements": [
+        "REQ-END-TO-END-TESTS"
+      ],
+      "implementation": "PARTIAL",
+      "qualification": "NOT_QUALIFIED",
+      "files": [
+        "gateway/check_gateway.py",
+        "scripts/validate-local.sh",
+        ".github/workflows/pr-validation.yml",
+        ".github/workflows/gateway-stability.yml",
+        "gateway/v14/engineering_validation.py"
+      ],
+      "tests": [
+        "gateway/tests/test_gateway_selected_execution.py",
+        "gateway/tests/test_gateway_engineering_retention.py",
+        "gateway/tests/test_gateway_v14_engineering_http.py",
+        "gateway/tests/test_gateway_v14_diagnostic_events.py",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubEngineeringControllerIntegrationTest.kt",
+        "app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubPromptMotionInstrumentedTest.kt",
+        "gateway/tests/test_gateway_diagnostic_stress.py"
+      ],
+      "evidence": [
+        "SOURCE_REVIEW: Host suites exercise selected dispatch, retained mutations, diagnostics, contract/readiness, recovery and HTTP behavior with deterministic boundaries.",
+        "SOURCE_REVIEW: Local gateway validation was reported successful for the integration worktree, but it is not the complete final-head CI or live Android/PC/provider workflow matrix."
+      ],
+      "remaining": [
+        "Run all applicable workflows on the final pushed head and required emulator acceptance; retain exact revision and run evidence.",
+        "Complete separately qualified live end-to-end cases where deterministic mocks cannot establish the actual external behavior."
+      ]
+    },
+    {
+      "id": "Q02",
+      "title": "Establish reproducible performance baselines and regression gates",
+      "requirements": [
+        "REQ-PERFORMANCE-BENCHMARKS"
+      ],
+      "implementation": "PARTIAL",
+      "qualification": "NOT_QUALIFIED",
+      "files": [
+        "scripts/qualify_gateway_github_performance.py",
+        "gateway/benchmark_selected_model.py",
+        "macrobenchmark/src/main/kotlin/dev/chungjungsoo/gptmobile/benchmark/AppPerformanceBenchmark.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/FrameTimingRecorder.kt"
+      ],
+      "tests": [
+        "scripts/tests/test_gateway_github_performance.py",
+        "gateway/tests/test_gateway_selected_model_benchmark.py",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/FrameDurationHistogramTest.kt"
+      ],
+      "evidence": [
+        "SOURCE_REVIEW: Qualification tooling requires source/APK/device identity, workload conditions, sufficient navigation trials and real frame deadlines before evaluating thresholds.",
+        "SOURCE_REVIEW: Selected-model benchmarking separates requested settings from observations and reports missing measurements; no real comparative baseline is supplied by fixture reports."
+      ],
+      "remaining": [
+        "Collect reproducible reference-device and PC/runtime baselines with thermal/network/debug settings and sufficient samples, then compare the candidate.",
+        "Navigation, jank, inference throughput, TTFT, memory and GPU execution remain unqualified until the corresponding measurement is observed."
+      ]
+    },
+    {
+      "id": "Q03",
+      "title": "Test long-run recovery, schema upgrades and staged rollout",
+      "requirements": [
+        "REQ-LONG-RUN-QUALIFICATION",
+        "REQ-ROLLOUT-GATES"
+      ],
+      "implementation": "PARTIAL",
+      "qualification": "NOT_QUALIFIED",
+      "files": [
+        "gateway/check_gateway.py",
+        "gateway/v14/state_lock.py",
+        "gateway/v14/engineering_artifacts.py",
+        "scripts/release_evidence.py",
+        "scripts/verify_release_identity.py",
+        ".github/workflows/post-merge-validation.yml"
+      ],
+      "tests": [
+        "gateway/tests/test_gateway_v14_stability.py",
+        "gateway/tests/test_gateway_v14_upgrade.py",
+        "gateway/tests/test_gateway_v14_engineering.py",
+        "gateway/tests/test_gateway_engineering_retention.py",
+        "scripts/tests/test_release_rollback.py",
+        "gateway/tests/test_gateway_diagnostic_stress.py"
+      ],
+      "evidence": [
+        "SOURCE_REVIEW: Fault, restart, ownership, migration and rollback fixtures cover bounded recovery contracts and release identity checks.",
+        "SOURCE_REVIEW: No three-, six- or twelve-hour real workload evidence, device soak or deployment rollout record is provided by this repair."
+      ],
+      "remaining": [
+        "Run the required long-duration workloads with recorded queue, memory, storage, diagnostics and recovery evidence on supported deployments.",
+        "Qualify backup/rollback and staged rollout on the exact candidate while preserving active tasks and pinned evidence."
+      ]
+    }
+  ],
+  "implementationStates": {
+    "IMPLEMENTED": "The mapped source contains the described code contract; this is not a claim that every acceptance scenario has executed or passed.",
+    "EXISTING": "Relevant behavior was already present and is retained; do not count it as newly delivered by this PR.",
+    "PARTIAL": "Mapped code exists, but a concrete implementation, integration, measurement or qualification obligation remains as stated in the row.",
+    "INVESTIGATION_REQUIRED": "Instrumentation exists, but evidence needed to diagnose and establish the requested result has not been collected."
+  },
+  "sourceAudit": {
+    "date": "2026-11-06",
+    "publishedBaseSha": "3ebb6fc078f2a1390fc5854a89f9de5109486965",
+    "scope": "PR #804 repair integration worktree; final pushed-head workflow results are tracked separately in the repair report.",
+    "report": "docs/repairs/pr804-validation-repairs-2026-11-05.md",
+    "testMappingPolicy": "The tests arrays identify relevant executable source and do not assert execution. SOURCE_REVIEW evidence is static review. Aggregate local results below apply only to the recorded integration scope and do not qualify live hardware, deployment or long-run acceptance.",
+    "implementationCounts": {
+      "EXISTING": 2,
+      "IMPLEMENTED": 29,
+      "INVESTIGATION_REQUIRED": 1,
+      "PARTIAL": 18
+    },
+    "qualificationCounts": {
+      "NOT_QUALIFIED": 50
+    }
+  },
+  "validationEvidence": [
+    {
+      "id": "LOCAL_RELEASE_HELPERS",
+      "status": "PASSED",
+      "scope": "Release helper code inspected for the initial repair; no final-candidate workflow claim.",
+      "command": "python -m unittest discover -s scripts/tests -p 'test_release*.py' -v",
+      "testsPassed": 28
+    },
+    {
+      "id": "LOCAL_QUALIFICATION_HELPERS",
+      "status": "PASSED",
+      "scope": "Validator fixtures only, not observed device performance or deployed authentication.",
+      "commands": [
+        "python -m unittest discover -s scripts/tests -p 'test_gateway_github_performance.py' -v",
+        "python -m unittest discover -s scripts/tests -p 'test_github_auth_qualification.py' -v"
+      ],
+      "testsPassed": 5
+    },
+    {
+      "id": "LOCAL_ANDROID_PRODUCTION_HELPERS",
+      "status": "PASSED",
+      "scope": "Root and Android agents reported isolated host execution of actual production helpers for the integration worktree. This is not full Android compilation, instrumentation or device acceptance.",
+      "uiAndRecoveryTestsPassed": 34,
+      "diagnosticTransportTestsPassed": 32,
+      "report": "docs/repairs/pr804-validation-repairs-2026-11-05.md"
+    },
+    {
+      "id": "LOCAL_FRESH_VALIDATION_REPORTS",
+      "status": "PASSED",
+      "scope": "Gateway agent and root reported final focused validation and retention/evidence tests after the fresh-report and isolated Windows child-environment repairs. Includes a real temporary Git archive, tracked/patched stale reports, fresh identical regenerated bytes, per-command snapshot isolation, missing/failed/skipped evidence and an actual isolated asyncio/socket child. No live Docker deployment qualification is implied.",
+      "validationTestsPassed": 14,
+      "retentionAndEvidenceTestsPassed": 13,
+      "files": [
+        "gateway/tests/test_gateway_v14_validation.py",
+        "gateway/tests/test_gateway_engineering_retention.py",
+        "gateway/tests/test_gateway_v14_evidence.py"
+      ]
+    },
+    {
+      "id": "LOCAL_ENGINEERING_TERMINAL_FAILURES",
+      "status": "PASSED",
+      "scope": "Android agent reported focused gateway engineering suite after cause-specific terminal-failure repair. Tests observe physical PLAN/CI dispatch counts, repeated polling, retained unknown mutations and no replay; no live provider qualification is implied.",
+      "testsPassed": 17,
+      "files": [
+        "gateway/tests/test_gateway_v14_engineering.py"
+      ]
+    },
+    {
+      "id": "LOCAL_GATEWAY_INTEGRATION",
+      "status": "PASSED_WITH_ENVIRONMENT_SKIP",
+      "scope": "Root and gateway agent reported successful final gateway/check_gateway.py after all integration repairs. Ordinary suites retain 120-second bounds; the unchanged 50,000-event FULL-durability restart/eviction test is explicitly included exactly once as a dedicated suite with a 300-second bound and five progress checkpoints. The recorded timings are from the local integration executor, not Windows CI or a physical-device performance qualification. Final-head CI remains a separate gate.",
+      "command": "python gateway/check_gateway.py",
+      "pythonTestsPassed": 471,
+      "pythonTestsSkipped": 1,
+      "skip": "Existing sandbox LAN-interface limitation",
+      "v14AggregateTestsPassed": 294,
+      "browserTestsPassed": 7,
+      "authenticationTestsPassed": 25,
+      "countingNote": "The 472 Python cases (471 passed and one skipped) cover gateway modules only. The v14 aggregate and dedicated diagnostic stress results are included in that total. Authentication (25 passed) and browser (7 passed) are separate runs, not components of the 472 gateway Python cases.",
+      "v14AggregateElapsedSeconds": 44.881,
+      "diagnosticStressTestsPassed": 1,
+      "diagnosticStressElapsedSeconds": 5.948,
+      "diagnosticStressEvents": 50000,
+      "diagnosticStressBatchCommits": 782
+    },
+    {
+      "id": "LOCAL_WORKFLOW_REPAIR",
+      "status": "PASSED",
+      "scope": "CI policy and helper tests plus syntax validation of the four changed workflow files. These checks do not execute Gradle or establish final-candidate CI success.",
+      "commands": [
+        "python scripts/check_ci_policy.py",
+        "PYTHONPATH=scripts python -m unittest discover -s scripts/tests -p 'test_ci_modernization.py' -v"
+      ],
+      "testsPassed": 13,
+      "yamlFilesParsed": 4,
+      "shellBlocksSyntaxChecked": 71
+    }
+  ]
+}

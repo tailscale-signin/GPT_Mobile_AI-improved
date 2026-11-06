@@ -185,7 +185,7 @@ extensions.configure<ApplicationExtension> {
         require(githubCallbackHost.length <= 253 && githubCallbackHost.split('.').all { it.matches(Regex("[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?")) }) { "Invalid GitHub verified callback host." }
         require(githubBrokerUri == null || !githubCallbackHost.endsWith(".invalid")) { "Configure a project-owned verified HTTPS callback host before enabling public sign-in." }
         buildConfigField("String", "GITHUB_AUTH_BROKER_ORIGIN", "\"$githubBroker\"")
-        buildConfigField("String", "GITHUB_AUTH_CALLBACK_URI", "\"https://$githubCallbackHost/oauth/github/callback\"")
+        buildConfigField("String", "GITHUB_AUTH_CALLBACK_URI", "\"https://$githubCallbackHost/oauth/github/complete\"")
         manifestPlaceholders["githubAuthCallbackHost"] = githubCallbackHost
         manifestPlaceholders["githubPublicAuthEnabled"] = githubBroker.isNotBlank().toString()
         // App owner confirmed LLM7 integration approval on 2026-09-26.

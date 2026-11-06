@@ -87,6 +87,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
@@ -426,6 +427,7 @@ private fun ChatScreenContent(
     val enabledPlatformLookup = remember(appAllPlatforms) { appAllPlatforms.associateBy { it.uid } }
     val enabledProfileUids = remember(appEnabledPlatforms) { appEnabledPlatforms.mapTo(mutableSetOf()) { it.uid } }
     val canUseChat = activePlatformUids.isNotEmpty() && activePlatformUids.all { it in enabledProfileUids }
+    val gitHubCompositionTiming = dev.chungjungsoo.gptmobile.presentation.ui.setting.LocalGitHubCompositionTiming.current
     val isIdle = loadingStates.all { it == ChatViewModel.LoadingState.Idle }
     androidx.compose.runtime.DisposableEffect(Unit) {
         val release = dev.chungjungsoo.gptmobile.data.diagnostics.FrameTimingRecorder.screen("Chat")
@@ -437,21 +439,20 @@ private fun ChatScreenContent(
     var observedPromptKey by rememberSaveable(chatRoom.id) { mutableStateOf<String?>(null) }
     var promptTrackingReady by rememberSaveable(chatRoom.id) { mutableStateOf(false) }
     var anchoredPromptKey by rememberSaveable(chatRoom.id) { mutableStateOf<String?>(null) }
-    var promptAttached by rememberSaveable(chatRoom.id) { mutableStateOf(true) }
+    var githubScrollMode by rememberSaveable(chatRoom.id) { mutableStateOf(if (hasTargetMessage) GitHubScrollMode.USER_HISTORY else GitHubScrollMode.FOLLOW_BOTTOM) }
+    var githubGestureActive by remember(chatRoom.id) { mutableStateOf(false) }
     var promptAnchorRevision by remember(chatRoom.id) { mutableIntStateOf(0) }
-    var githubBottomFollow by rememberSaveable(chatRoom.id) { mutableStateOf(false) }
-    var promptPositioning by remember(chatRoom.id) { mutableStateOf(false) }
-    val promptMotionGeneration = remember(chatRoom.id) { java.util.concurrent.atomic.AtomicInteger() }
     val promptDensity = LocalDensity.current
-    val promptAnchor = remember(chatRoom.id, promptDensity.density) { GitHubPromptAnchor(with(promptDensity) { 64.dp.toPx() }, with(promptDensity) { 32.dp.toPx() }).apply { if (!promptAttached) detach() } }
-    val githubPromptMode = chatToolConfig.github != null && anchoredPromptKey != null
+    val touchSlop = androidx.compose.ui.platform.LocalViewConfiguration.current.touchSlop
+    val promptAnchor = remember(chatRoom.id, touchSlop) { GitHubPromptAnchor(touchSlop, touchSlop, githubScrollMode) }
+    val githubPromptMode = chatToolConfig.github != null
     LaunchedEffect(isLoaded, newestPromptKey, chatToolConfig.github != null) {
         if (!isLoaded) return@LaunchedEffect
         if (chatToolConfig.github != null && promptTrackingReady && newestPromptKey != null && newestPromptKey != observedPromptKey) {
             anchoredPromptKey = newestPromptKey
-            promptAttached = true
             promptAnchor.attach()
-            githubBottomFollow = false
+            githubScrollMode = promptAnchor.mode
+            githubGestureActive = false
             promptAnchorRevision++
             isFollowingBottom = false
             isHoldingEntryCenter = false
@@ -563,8 +564,8 @@ private fun ChatScreenContent(
         if (index >= firstVisibleTurn) {
             if (githubPromptMode) {
                 promptAnchor.detach()
-                promptAttached = false
-                githubBottomFollow = false
+                githubScrollMode = promptAnchor.mode
+                githubGestureActive = false
                 isFollowingBottom = false
             }
             snapshotFlow { listState.layoutInfo.totalItemsCount }.first { it >= visibleTurnCount + historyHeaderCount }
@@ -573,7 +574,27 @@ private fun ChatScreenContent(
         pendingJumpKey = null
     }
     if (showExportOptions) {
-        ChatExportDialog(onDismiss = { showExportOptions = false }, debugMode = debugMode, includeUserMessages = chatToolConfig.github != null) { format ->
+        val diagnosticNotice by chatViewModel.diagnosticExportNotice.collectAsStateWithLifecycle()
+        var resumableCapture by remember { mutableStateOf(false) }
+        LaunchedEffect(chatRoom.id, diagnosticNotice) { resumableCapture = chatViewModel.hasResumableDiagnosticCapture() }
+        ChatExportDialog(
+            onDismiss = { showExportOptions = false },
+            debugMode = debugMode,
+            includeUserMessages = chatToolConfig.github != null,
+            diagnosticNotice = diagnosticNotice,
+            onReducedDebugExport = {
+                showExportOptions = false
+                scope.launch { exportChat(context, chatViewModel, ChatExportFormat.DEBUG, reducedMemory = true) }
+            },
+            onResumeDebugExport = if (resumableCapture) {
+                {
+                    showExportOptions = false
+                    scope.launch { exportChat(context, chatViewModel, ChatExportFormat.DEBUG, resume = true) }
+                }
+            } else {
+                null
+            }
+        ) { format ->
             showExportOptions = false
             scope.launch { exportChat(context, chatViewModel, format) }
         }
@@ -620,7 +641,7 @@ private fun ChatScreenContent(
     }
 
     LaunchedEffect(entryPositioned, isHoldingEntryCenter, hasTargetAssistant) {
-        if (!entryPositioned || !isHoldingEntryCenter || !hasTargetAssistant) return@LaunchedEffect
+        if (githubPromptMode || !entryPositioned || !isHoldingEntryCenter || !hasTargetAssistant) return@LaunchedEffect
         val targetTurn = groupedMessages.assistantMessages.indexOfFirst { responses -> responses.any { it.id == chatViewModel.targetMessageId } }
         val itemIndex = targetTurn - firstVisibleTurn + historyHeaderCount
         // The composer can shrink after entering a combined profile. Keep the
@@ -685,84 +706,59 @@ private fun ChatScreenContent(
         }
     }
 
-    LaunchedEffect(anchoredPromptKey, promptAnchorRevision, entryPositioned, latestTurnItem, githubPromptMode) {
-        val motionGeneration = promptMotionGeneration.incrementAndGet()
-        if (githubPromptMode && entryPositioned && promptAttached && !githubBottomFollow && !isModelTabPositionLocked && anchoredPromptKey == newestPromptKey) {
-            promptPositioning = true
-            try {
-                listState.animateToGitHubPrompt(
-                    latestTurnItem,
-                    isUserDragging = { isUserDragging },
-                    shouldAnchor = { promptAttached && !githubBottomFollow && !isModelTabPositionLocked && anchoredPromptKey == newestPromptKey }
-                )
-            } finally {
-                if (promptMotionGeneration.get() == motionGeneration) promptPositioning = false
-            }
-        } else {
-            promptPositioning = false
-        }
-    }
     val promptModeState by androidx.compose.runtime.rememberUpdatedState(githubPromptMode)
-    val promptItemState by androidx.compose.runtime.rememberUpdatedState(latestTurnItem)
-    val promptConnection = remember(listState, promptAnchor, minimumFlingVelocity) {
+    val nearBottomDistance = with(promptDensity) { 48.dp.toPx() }
+    val farBottomDistance = with(promptDensity) { 96.dp.toPx() }
+    fun endPromptGesture(cancelled: Boolean = false) {
+        promptAnchor.endGesture(listState.gitHubDistanceToBottom(), nearBottomDistance, farBottomDistance, cancelled)
+        githubScrollMode = promptAnchor.mode
+        githubGestureActive = false
+        promptAnchorRevision++
+        if (githubScrollMode == GitHubScrollMode.PIN_PROMPT && anchoredPromptKey == null) anchoredPromptKey = newestPromptKey
+    }
+    val latestEndPromptGesture by androidx.compose.runtime.rememberUpdatedState(::endPromptGesture)
+    val promptConnection = remember(listState, promptAnchor) {
         object : NestedScrollConnection {
-            private var movingTowardBottom = false
-
             override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-                if (!promptModeState) return Offset.Zero
-                val item = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == promptItemState }
-                val distance = item?.offset?.let { -it.toFloat() } ?: if (listState.firstVisibleItemIndex > promptItemState) Float.MAX_VALUE else 0f
-                if (source == NestedScrollSource.UserInput && available.y != 0f) {
-                    movingTowardBottom = available.y < 0f
-                    if (available.y > 0f) githubBottomFollow = false
-                }
-                val movement = promptAnchor.move(available.y, distance, source == NestedScrollSource.UserInput)
-                promptAttached = promptAnchor.attached
-                if (movement.reattach) {
-                    isFollowingBottom = false
-                    githubBottomFollow = false
-                    promptAnchorRevision++
-                }
-                return Offset(0f, movement.consumed)
-            }
-
-            override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
-                if (promptModeState && movingTowardBottom && (consumed.y < 0f || available.y < 0f) && !promptPositioning && !listState.canScrollForward) {
-                    githubBottomFollow = true
-                    promptAnchor.attach()
-                    promptAttached = true
-                }
+                if (!promptModeState || source != NestedScrollSource.UserInput || available.y == 0f) return Offset.Zero
+                // Cancel automatic movement immediately, before the list consumes this drag.
+                if (!promptAnchor.dragging) promptAnchor.beginGesture()
+                githubGestureActive = true
+                promptAnchor.move(available.y, 0f, userInput = true, nowMillis = android.os.SystemClock.elapsedRealtime())
+                githubScrollMode = promptAnchor.mode
                 return Offset.Zero
             }
 
             override suspend fun onPreFling(available: androidx.compose.ui.unit.Velocity): androidx.compose.ui.unit.Velocity {
-                if (!promptModeState) return androidx.compose.ui.unit.Velocity.Zero
-                val movement = promptAnchor.fling(available.y, minimumFlingVelocity)
-                promptAttached = promptAnchor.attached
-                if (movement.reattach) {
-                    isFollowingBottom = false
-                    githubBottomFollow = false
-                    promptAnchorRevision++
-                }
-                return androidx.compose.ui.unit.Velocity(0f, movement.consumed)
+                if (promptModeState && promptAnchor.dragging) latestEndPromptGesture(false)
+                return androidx.compose.ui.unit.Velocity.Zero
             }
         }
     }
 
+    GitHubScrollMotion(
+        listState = listState,
+        enabled = githubPromptMode && entryPositioned && !isModelTabPositionLocked,
+        mode = githubScrollMode,
+        dragging = githubGestureActive || isUserDragging,
+        promptKey = anchoredPromptKey ?: newestPromptKey,
+        promptItem = latestTurnItem,
+        revision = promptAnchorRevision,
+        fontScale = promptDensity.fontScale,
+        animate = featureSettings.responseAnimation
+    )
     ChatBottomAutoScroller(
         listState = listState,
-        animate = chatToolConfig.github != null || !isIdle,
-        githubMotion = chatToolConfig.github != null,
-        isEnabled = !promptPositioning &&
-            (if (githubPromptMode) githubBottomFollow else featureSettings.smoothStreaming) &&
+        animate = !isIdle,
+        isEnabled = !githubPromptMode &&
+            featureSettings.smoothStreaming &&
             entryPositioned &&
             !isModelTabPositionLocked &&
             shouldAutoScrollToBottom(
-                isFollowing = if (githubPromptMode) githubBottomFollow else isFollowingBottom,
+                isFollowing = isFollowingBottom,
                 isUserDragging = isUserDragging,
                 isScrollInProgress = listState.isScrollInProgress,
-                isScrollingAway = listState.lastScrolledBackward,
-                followIntentIsExplicit = githubPromptMode
+                isScrollingAway = listState.lastScrolledBackward
             )
     )
 
@@ -830,10 +826,19 @@ private fun ChatScreenContent(
                         awaitEachGesture {
                             awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
                             responseBoundary.beginGesture()
-                            promptAnchor.beginGesture()
-                            do {
-                                val event = awaitPointerEvent(PointerEventPass.Initial)
-                            } while (event.changes.any { it.pressed })
+                            if (promptModeState) {
+                                promptAnchor.beginGesture()
+                                githubGestureActive = true
+                            }
+                            var released = false
+                            try {
+                                do {
+                                    val event = awaitPointerEvent(PointerEventPass.Initial)
+                                } while (event.changes.any { it.pressed })
+                                released = true
+                            } finally {
+                                if (promptModeState && promptAnchor.dragging) latestEndPromptGesture(!released)
+                            }
                         }
                     }
                     .chatMessageBackdrop(
@@ -1037,7 +1042,7 @@ private fun ChatScreenContent(
                 }
             }
 
-            if (githubPromptMode && (!promptAttached || !githubBottomFollow && listState.canScrollForward) || !githubPromptMode && !isFollowingBottom && listState.canScrollForward) {
+            if (githubPromptMode && (githubScrollMode != GitHubScrollMode.FOLLOW_BOTTOM || listState.canScrollForward) || !githubPromptMode && !isFollowingBottom && listState.canScrollForward) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -1049,9 +1054,10 @@ private fun ChatScreenContent(
                         isHoldingEntryCenter = false
                         isModelTabPositionLocked = false
                         if (githubPromptMode) {
-                            promptAnchor.attach()
-                            promptAttached = true
-                            githubBottomFollow = true
+                            promptAnchor.followBottom()
+                            githubScrollMode = promptAnchor.mode
+                            githubGestureActive = false
+                            promptAnchorRevision++
                         } else {
                             scope.launch {
                                 listState.scrollToItem((listState.layoutInfo.totalItemsCount - 1).coerceAtLeast(0))
@@ -1068,6 +1074,10 @@ private fun ChatScreenContent(
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
                     .onSizeChanged { composerHeightPx = it.height }
+                    .drawWithContent {
+                        drawContent()
+                        if (isLoaded && canUseChat) gitHubCompositionTiming?.let { it.trace.composerReady(it.cached) }
+                    }
             ) {
                 Column(Modifier.navigationBarsPadding()) {
                     chatToolConfig.research?.takeIf { showResearchPanels }?.let { selection ->
@@ -1796,7 +1806,7 @@ internal fun ChatMessagePair(
                     locationToolEvents = provenanceToolEvents,
                     sourceToolEvents = provenanceToolEvents,
                     sourceProfilesByRun = agentRunsById.mapValues { it.value.profileUid },
-                    contentIdentity = "$messageIndex:$selectedPlatformUid:${selectedRunId.orEmpty()}:${selectedAssistantMessage?.activeRevisionIndex}:${selectedSource?.originalDocument?.digest.orEmpty()}",
+                    contentIdentity = "${selectedAssistantMessage?.id ?: "turn:$messageIndex"}:$selectedPlatformUid:${selectedRunId.orEmpty()}:${selectedAssistantMessage?.activeRevisionIndex}:${selectedSource?.originalDocument?.digest.orEmpty()}",
                     revisionIndexLabel = selectedAssistantMessage?.takeIf { !isSourceResponse && it.revisions.isNotEmpty() }?.let { assistantMessage ->
                         val totalRevisions = assistantMessage.revisions.size + 1
                         if (assistantMessage.activeRevisionIndex == ACTIVE_REVISION_LATEST) {
@@ -2127,13 +2137,13 @@ fun ChatDropdownMenu(
     }
 }
 
-private suspend fun exportChat(context: Context, chatViewModel: ChatViewModel, format: ChatExportFormat) {
+private suspend fun exportChat(context: Context, chatViewModel: ChatViewModel, format: ChatExportFormat, reducedMemory: Boolean = false, resume: Boolean = false) {
     try {
         if (format == ChatExportFormat.DEBUG) {
             Toast.makeText(context, "Preparing detailed conversation diagnostics…", Toast.LENGTH_SHORT).show()
         }
         val file = if (format == ChatExportFormat.DEBUG) {
-            withContext(Dispatchers.IO) { chatViewModel.exportDebugFile(context.getExternalFilesDir(null) ?: context.filesDir) }
+            withContext(Dispatchers.IO) { chatViewModel.exportDebugFile(context.getExternalFilesDir(null) ?: context.filesDir, reducedMemory, resume) }
         } else {
             val (fileName, fileContent) = chatViewModel.exportChat(format)
             if (fileContent.isBlank()) {
@@ -2152,8 +2162,8 @@ private suspend fun exportChat(context: Context, chatViewModel: ChatViewModel, f
                 }
             }
         }
-        if (file.name.startsWith("partial-diagnostics-")) {
-            Toast.makeText(context, "Memory is low. Sharing partial diagnostics with recent logs; full conversation history was omitted.", Toast.LENGTH_LONG).show()
+        if (format == ChatExportFormat.DEBUG) {
+            chatViewModel.diagnosticExportNotice.value?.let { Toast.makeText(context, it, Toast.LENGTH_LONG).show() }
         }
         val uri = withContext(Dispatchers.IO) { getUriForFile(context, "${context.packageName}.fileprovider", file) }
         val shareIntent = Intent(Intent.ACTION_SEND).apply {
@@ -2171,6 +2181,8 @@ private suspend fun exportChat(context: Context, chatViewModel: ChatViewModel, f
         context.startActivity(chooser)
     } catch (e: kotlinx.coroutines.CancellationException) {
         throw e
+    } catch (_: dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticExportBusy) {
+        Toast.makeText(context, "Another diagnostic export is running. Wait for it to finish, then retry.", Toast.LENGTH_LONG).show()
     } catch (_: dev.chungjungsoo.gptmobile.data.diagnostics.JavaHeapWorkDeferred) {
         Toast.makeText(context, "Not enough memory to export yet. Stop generation or reopen the chat, then try again.", Toast.LENGTH_LONG).show()
     } catch (e: Exception) {

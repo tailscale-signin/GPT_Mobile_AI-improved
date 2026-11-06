@@ -45,8 +45,15 @@ class GitHubEngineeringController @Inject constructor(
             bytes?.fill(0)
         }
     }
-    private fun api(uid: String) = apiFactory.create { credential(uid) }
-    private fun gateway(uid: String) = GitHubEngineeringCiHttpGateway({ credential(uid) }, api(uid))
+    private suspend fun api(uid: String): GitHubEngineeringApi {
+        val selected = requireNotNull(connections.getConnection(uid)) { "GitHub connection removed" }
+        return apiFactory.createForEndpoint(selected.endpointUrl) {
+            val live = requireNotNull(connections.getConnection(uid))
+            check(live.endpointUrl == selected.endpointUrl && live.authType == selected.authType && live.toolPolicy == selected.toolPolicy) { "GitHub authorization changed. Reload the task." }
+            credential(uid)
+        }
+    }
+    private suspend fun gateway(uid: String) = GitHubEngineeringCiHttpGateway({ credential(uid) }, api(uid))
     private suspend fun actor(api: GitHubEngineeringApi): String = JSONObject(api.request("/user")).getLong("id").also { require(it > 0) }.toString()
     private fun root(task: EngineeringTaskRow) = GitHubEngineeringApi.root(task.repositoryOwner, task.repositoryName)
     private suspend fun head(api: GitHubEngineeringApi, task: EngineeringTaskRow) = JSONObject(api.request("${root(task)}/git/ref/heads/${GitHubEngineeringApi.segment(task.workingBranch)}")).getJSONObject("object").getString("sha")

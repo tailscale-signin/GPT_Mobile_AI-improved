@@ -16,7 +16,8 @@ internal class DiagnosticCoalescer(private val now: () -> Long = { System.nanoTi
         val previous = groups[key]
         if (previous == null) {
             val overflow = if (groups.size >= 128) groups.remove(groups.keys.first())?.let(::summary) else null
-            groups[key] = Group(tag, message, level, at)
+            val sample = if (message.length > 512) message.take(512) + " · coalescedSampleTruncated=true" else message
+            groups[key] = Group(tag, sample, level, at)
             return listOfNotNull(overflow, Triple(tag, message, level))
         }
         previous.suppressed++

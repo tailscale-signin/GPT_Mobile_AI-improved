@@ -76,12 +76,14 @@ service.install(runtime)
 activity = ActivityTracker(os.getenv("GATEWAY_ACTIVITY_STATE"))
 activity.install_tools(runtime)
 engineering = EngineeringService(EngineeringStore(runtime), GitHubEngineeringBackend(runtime))
+runtime.gateway_engineering = engineering
 engineering.authorized = lambda job: principal_authorized(config, job['principal'], device_store)
 engineering.backend.cancelled = lambda job_id: (engineering.store.get(job_id) or {}).get('state') == 'CANCELLED'
 from v14.code_graph.tools import install_graph_tool
 install_graph_tool(runtime, engineering, lambda principal: principal_authorized(config, principal, device_store))
 debug_log = DebugLogStore(os.getenv("GATEWAY_DEBUG_LOG") or str(Path(runtime.GATEWAY_JOB_DB_PATH).with_name("gateway-debug.jsonl")),
                           enabled=os.getenv("GATEWAY_DEBUG_MODE", "false").lower() == "true")
+runtime.gateway_debug = debug_log
 app = FastAPI(title="Private Gateway 15", version=VERSION, lifespan=debug_lifecycle(debug_log, engineering.lifecycle(service.lifespan(runtime, config.shutdown_grace))),
               docs_url="/gateway/docs", openapi_url="/gateway/openapi.json")
 app.add_middleware(LoadGuard, config=config, state=service)
@@ -202,17 +204,19 @@ def capabilities():
             raise ValueError('Invalid build provenance')
         build.update(packaged_build)
     result = runtime.gateway_capabilities()
+    diagnostic_snapshot = debug_log.snapshot()
     result.update({"gatewayVersion": VERSION, "contractVersion": 1,
                    "build": build,
-                   "accepted_request_headers": ["X-Gateway-Job-ID", "X-Gateway-Performance-Profile", "X-Gateway-Slot-Pinning", "X-Gateway-Slot-Count", "X-Gateway-Cache-Prompt", "X-Gateway-Cache-Reuse", "X-Gateway-Reasoning-Effort", "X-Gateway-Tool-Optimization", "X-Gateway-Tool-Surface-Limit", "X-Gateway-Stable-Tool-Surface", "X-Gateway-Intermediate-Max-Tokens", "X-Gateway-Soft-Synthesis-Round", "X-Gateway-Result-Char-Limit", "X-Gateway-Delegated-Worker", "X-Gateway-Allow-Local-Tools", "X-Gateway-Request-Role", "X-Gateway-Attempt-ID", "X-Gateway-Client-Diagnostics"],
+                   "accepted_request_headers": ["X-Gateway-Job-ID", "X-Gateway-Performance-Profile", "X-Gateway-Slot-Pinning", "X-Gateway-Slot-Count", "X-Gateway-Cache-Prompt", "X-Gateway-Cache-Reuse", "X-Gateway-Reasoning-Effort", "X-Gateway-Tool-Optimization", "X-Gateway-Tool-Surface-Limit", "X-Gateway-Stable-Tool-Surface", "X-Gateway-Intermediate-Max-Tokens", "X-Gateway-Soft-Synthesis-Round", "X-Gateway-Result-Char-Limit", "X-Gateway-Delegated-Worker", "X-Gateway-Allow-Local-Tools", "X-Gateway-Request-Role", "X-Gateway-Attempt-ID", "X-Gateway-Client-Diagnostics", "X-Gateway-Diagnostic-Session", "X-Gateway-Diagnostic-Started", "traceparent"],
                    "auth": {"mode": config.mode, "apiKeyRequired": False, "legacyBearerEnabled": config.legacy_bearer},
                    "desktop": {"managed": bool(config.management_token), "maintenanceProtocol": 1,
                                "stateSchema": 1, "updateAuthority": "local-manager", "idleUpdates": True},
                    "identityScope": "shared-network" if config.mode == "open_network" else "user" if config.mode == "trusted_proxy" else "local-machine",
-                   "diagnostics": {"protocolVersion": 1, "clientMetadata": True, "retainedLineLimit": 5000, "debugEnabled": debug_log.enabled},
+                   "diagnostics": {key: diagnostic_snapshot.get(key) for key in ("protocolVersion", "clientMetadata", "bidirectionalEvents", "retainedLineLimit", "recordByteLimit", "debugEnabled", "storageReady", "storageChecked")},
                    "instanceId": service.instance_id,
                    "memory": {"authority": "client", "protocolVersion": 1, "workspaceAdapterEnabled": False},
-                   "supportedMcpEras": ["legacy"], "eventVersions": [runtime.GATEWAY_PROGRESS_PROTOCOL],
+                   "supportedMcpEras": ["legacy", "2026-07-28"], "eventVersions": [runtime.GATEWAY_PROGRESS_PROTOCOL],
+                   "mcpTransportAdapters": {"stdio": ["legacy", "2026-07-28"], "streamableHttp": [], "continuationCapabilities": []},
                    "contracts": {
                        "gatewayProgress": [runtime.GATEWAY_PROGRESS_PROTOCOL],
                        "gatewayDashboard": ["gptmobile.gateway.dashboard.v1"],
@@ -220,7 +224,7 @@ def capabilities():
                    },
                    "features": dict(result["features"], keyFreePrivateAccess=config.mode != "open_network", keyFreeNetworkAccess=config.mode == "open_network", deterministicSearch=True,
                                     structuredSearch=True, terminalStateProtection=True, memory_novelty_filter=False, structuredEvidence=False, mcpFacade=False,
-                                    modernMcp=False, clientMemoryAuthority=True, packageValidation=True,
+                                    modernMcp=True, clientMemoryAuthority=True, packageValidation=True,
                                     validatedToolArguments=True, githubClientOwnedFastPath=True,
                                     githubImmutableReadCache=True, githubPerformanceMetrics=True, intelligentToolBatch=True, mobileDashboard=True,
                                     batchDependencies=True, batchDurableReceipts=True, durableEngineeringJobs=True,
@@ -308,7 +312,8 @@ def doctor():
         backend = "unreachable"
     return {"version": VERSION, "manifest": "valid", "sourceCommit": manifest["sourceCommit"],
             "bindMode": config.mode, "apiKeyRequired": False, "memoryAuthority": "client",
-            "mcpFacade": "disabled", "modernMcp": "not-certified", "backend": backend,
+            "mcpFacade": "disabled", "modernMcp": "stdio-adapter", "backend": backend,
+            "mcpTransportAdapters": capabilities()['mcpTransportAdapters'],
             "loadedModules": {"launcher": str(Path(__file__).with_name("gateway.py")), "composition": __file__, "runtime": runtime.__file__},
             "dependencies": {name: importlib.metadata.version(name) for name in ("fastapi", "uvicorn", "requests", "httpx")},
             "stability": diagnostics(runtime, service),

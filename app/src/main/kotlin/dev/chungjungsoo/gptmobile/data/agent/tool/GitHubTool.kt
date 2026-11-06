@@ -63,17 +63,19 @@ class GitHubTool(
     private val durableIdentity: String = dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore.digest(apiToken),
     private val legacyCredentialIdentities: List<String> = emptyList(),
     private val credentialProvider: (suspend () -> String)? = null,
-    private val graphQuery: (suspend (JsonObject) -> JsonObject)? = null
+    private val graphQuery: (suspend (JsonObject) -> JsonObject)? = null,
+    private val apiOrigins: dev.chungjungsoo.gptmobile.data.github.GitHubApiOrigins = dev.chungjungsoo.gptmobile.data.github.GitHubApiOrigins.GITHUB_COM
 ) : AgentTool {
 
-    private val authenticationRejected = if (httpClient === defaultHttpClient) dev.chungjungsoo.gptmobile.data.github.GitHubSessionCaches.authenticationForCredential(apiToken) else java.util.concurrent.atomic.AtomicBoolean()
-    private val rateLimits = if (httpClient === defaultHttpClient) dev.chungjungsoo.gptmobile.data.github.GitHubSessionCaches.rateLimitsForCredential(apiToken) else dev.chungjungsoo.gptmobile.data.github.GitHubRateLimitManager()
+    private val BASE_URL get() = apiOrigins.rest
+    private val authenticationRejected = if (httpClient === defaultHttpClient) dev.chungjungsoo.gptmobile.data.github.GitHubSessionCaches.authenticationForCredential(apiToken, apiOrigins.hostIdentity) else java.util.concurrent.atomic.AtomicBoolean()
+    private val rateLimits = if (httpClient === defaultHttpClient) dev.chungjungsoo.gptmobile.data.github.GitHubSessionCaches.rateLimitsForCredential(apiToken, apiOrigins.hostIdentity) else dev.chungjungsoo.gptmobile.data.github.GitHubRateLimitManager()
     private val operationBlocks by lazy { if (persistentState && stateStore != null) stateStore else dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore() }
     private val operationBlockScope by lazy { "github-operation-blocks:" + dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore.digest("$durableIdentity|$connectionUid|$conversationId") }
     internal val hasCredential get() = apiToken.isNotBlank()
     internal val hasRepositoryContext get() = repositoryContext != null
-    private val scheduler = if (httpClient === defaultHttpClient) dev.chungjungsoo.gptmobile.data.github.GitHubSessionCaches.schedulerForCredential(apiToken) else dev.chungjungsoo.gptmobile.data.github.GitHubRequestScheduler()
-    private val responseCache = if (httpClient === defaultHttpClient) dev.chungjungsoo.gptmobile.data.github.GitHubSessionCaches.forCredential(apiToken) else dev.chungjungsoo.gptmobile.data.github.GitHubResponseCache()
+    private val scheduler = if (httpClient === defaultHttpClient) dev.chungjungsoo.gptmobile.data.github.GitHubSessionCaches.schedulerForCredential(apiToken, apiOrigins.hostIdentity) else dev.chungjungsoo.gptmobile.data.github.GitHubRequestScheduler()
+    private val responseCache = if (httpClient === defaultHttpClient) dev.chungjungsoo.gptmobile.data.github.GitHubSessionCaches.forCredential(apiToken, apiOrigins.hostIdentity) else dev.chungjungsoo.gptmobile.data.github.GitHubResponseCache()
     private val workspaceClient by lazy {
         GitHubWorkspaceClient(
             apiToken, httpClient, rateLimits = rateLimits, authenticationRejected = authenticationRejected,
@@ -81,7 +83,7 @@ class GitHubTool(
             conditionalReads = featureSettings.githubConditionalReads, blobCache = featureSettings.githubBlobCache,
             freshnessSeconds = featureSettings.pluginExecution[dev.chungjungsoo.gptmobile.data.model.ToolPluginId.GITHUB]?.githubCacheSeconds ?: 15,
             connectionUid = connectionUid, conversationId = conversationId, taskId = taskId, persistentState = persistentState, stateStore = stateStore, scheduler = scheduler, engineeringPrepare = engineeringPrepare,
-            durableIdentity = durableIdentity, legacyCredentialIdentities = legacyCredentialIdentities, credentialProvider = credentialProvider
+            durableIdentity = durableIdentity, legacyCredentialIdentities = legacyCredentialIdentities, credentialProvider = credentialProvider, apiOrigins = apiOrigins
         )
     }
     internal suspend fun normalizeOperationRepository(arguments: JsonObject): JsonObject {
@@ -121,13 +123,16 @@ class GitHubTool(
         }
     }
 
-    internal fun graphTool(): AgentTool? = graphQuery?.let { query ->
+    internal fun graphTool(nativeStatus: (suspend (String) -> AgentToolResult)? = null): AgentTool? = graphQuery?.let { query ->
         val suffix = modelToolName.removePrefix("github").takeIf { it.startsWith("__") }.orEmpty()
-        RepositoryGraphTool("repository_graph$suffix", query)
+        RepositoryGraphTool(
+            "repository_graph$suffix",
+            nativeStatus = nativeStatus,
+            query = query
+        )
     }
 
     companion object {
-        private const val BASE_URL = "https://api.github.com"
         private const val MAX_OUTPUT_CHARS = 32_000
         private val MUTATING_ACTIONS = GitHubWorkspaceClient.writeActions + setOf(
             "create_branch",
@@ -512,7 +517,13 @@ class GitHubTool(
                 val blocked = if (blockable) operationBlocks.read(operationBlockScope, key)?.takeIf { it["discovery_revision"] == discovery } else null
                 if (blocked != null) return@withContext accounting.finish(AgentToolResult(callId, ToolResultContent.Json(blocked), true, errorCode = "GITHUB_OPERATION_BLOCKED", dispatched = false), true)
                 val observed = accounting.finish(executeTracked(callId, arguments), action in MUTATING_ACTIONS)
-                val result = observed.copy(executionReceipt = JsonObject(observed.executionReceipt.orEmpty() + ("incident_id" to JsonPrimitive(incidentId(callId)))))
+                val resource = buildJsonObject {
+                    listOf("owner", "repo", "ref", "branch", "commit_sha", "head_sha", "expected_head_sha", "workflow_id", "run_id", "job_id", "run_attempt", "page", "per_page", "index_cursor").forEach { field ->
+                        (if (field in setOf("owner", "repo")) identity[field] else arguments[field])?.let { put(field, it) }
+                    }
+                    selected?.ref?.takeIf { it.isNotBlank() }?.let { put("selected_ref", it) }
+                }
+                val result = observed.copy(executionReceipt = JsonObject(observed.executionReceipt.orEmpty() + mapOf("incident_id" to JsonPrimitive(incidentId(callId)), "resource_context" to resource)))
                 if (action == "list_workflows" && !result.isError && (arguments["page"]?.jsonPrimitive?.intOrNull ?: 1) == 1) {
                     val payload = dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.element(result.content) as? JsonObject
                     payload?.get("workflows")?.let { inventory ->
@@ -949,9 +960,9 @@ class GitHubTool(
         val response = getGitHubApi("$BASE_URL/repos/${GitHubWorkspaceClient.segment(owner)}/${GitHubWorkspaceClient.segment(repo)}/actions/$route?$query")
         val text = response.bodyAsText()
         if (!response.status.isSuccess()) {
-            return errorResult(callId, "GitHub API returned HTTP ${response.status.value}: ${truncate(text, 500)}")
+            return classifyGitHubHttpFailure(callId, "list_workflow_runs", arguments, response, text)
         }
-        val json = jsonParser.parseToJsonElement(text).jsonObject
+        val json = dev.chungjungsoo.gptmobile.data.github.GitHubWorkflowEvidence.objectPayload(text)
         val runs = json["workflow_runs"]?.jsonArray ?: JsonArray(emptyList())
         val total = json["total_count"]?.jsonPrimitive?.intOrNull
         val searchLimit = if (filters.isNotEmpty()) 1000 else Int.MAX_VALUE
@@ -1005,9 +1016,8 @@ class GitHubTool(
             val response = getGitHubApi("$base/jobs/$jobId")
             val text = response.bodyAsText()
             if (!response.status.isSuccess()) return classifyGitHubHttpFailure(callId, action, arguments, response, text)
-            val job = jsonParser.parseToJsonElement(text).jsonObject
-            arguments["run_id"]?.let { require(job["run_id"] == it) { "Job belongs to another workflow run; rediscover jobs using run_id." } }
-            arguments["expected_head_sha"]?.let { require(job["head_sha"] == it) { "CI evidence belongs to a different commit; refresh the job head." } }
+            val job = dev.chungjungsoo.gptmobile.data.github.GitHubWorkflowEvidence.objectPayload(text)
+            dev.chungjungsoo.gptmobile.data.github.GitHubWorkflowEvidence.validateJob(job, arguments)
             if (job["status"] != JsonPrimitive("completed")) {
                 return successResult(
                     callId,
@@ -1022,7 +1032,7 @@ class GitHubTool(
                     }.toString()
                 )
             }
-            val log = dev.chungjungsoo.gptmobile.data.github.GitHubCiLogReader(httpClient, apiToken, scheduler, responseCache, authenticationRejected = authenticationRejected)
+            val log = dev.chungjungsoo.gptmobile.data.github.GitHubCiLogReader(httpClient, apiToken, scheduler, responseCache, authenticationRejected = authenticationRejected, apiOrigins = apiOrigins)
                 .read("/repos/$owner/$repo/actions/jobs/$jobId/logs", immutable = true)
             val safe = dev.chungjungsoo.gptmobile.data.diagnostics.redactLogMessage(log.text).let { if (apiToken.isNotBlank()) it.replace(apiToken, "[REDACTED]") else it }
             val page = dev.chungjungsoo.gptmobile.data.github.GitHubCiLogPage.render(log.copy(text = safe), arguments)
@@ -1086,9 +1096,8 @@ class GitHubTool(
                     )
                 )
             }
-            runObservation = jsonParser.parseToJsonElement(runText).jsonObject
-            require(runObservation["id"]?.jsonPrimitive?.content?.toLongOrNull() == runId) { "GitHub returned a different workflow run." }
-            arguments["expected_head_sha"]?.let { require(runObservation["head_sha"] == it) { "Workflow run belongs to another commit. Refresh the exact head before reading jobs." } }
+            runObservation = dev.chungjungsoo.gptmobile.data.github.GitHubWorkflowEvidence.objectPayload(runText)
+            dev.chungjungsoo.gptmobile.data.github.GitHubWorkflowEvidence.validateRun(runObservation, arguments)
         }
         val path = when (action) {
             "list_workflows" -> "/workflows$pagination"
@@ -1146,14 +1155,12 @@ class GitHubTool(
         val text = response.bodyAsText()
         return if (response.status.isSuccess()) {
             if (action == "get_workflow_run") {
-                val run = jsonParser.parseToJsonElement(text).jsonObject
-                require(run["id"]?.jsonPrimitive?.content?.toLongOrNull() == positiveId("run_id")) { "GitHub returned another workflow run." }
-                arguments["expected_head_sha"]?.let { require(run["head_sha"] == it) { "Workflow run belongs to another commit. Refresh exact-head CI evidence." } }
+                val run = dev.chungjungsoo.gptmobile.data.github.GitHubWorkflowEvidence.objectPayload(text)
+                dev.chungjungsoo.gptmobile.data.github.GitHubWorkflowEvidence.validateRun(run, arguments)
             }
             if (action == "get_workflow_job") {
-                val job = jsonParser.parseToJsonElement(text).jsonObject
-                arguments["run_id"]?.let { require(job["run_id"] == it) { "Job belongs to another workflow run; rediscover jobs using run_id." } }
-                arguments["expected_head_sha"]?.let { require(job["head_sha"] == it) { "CI evidence belongs to a different commit; refresh the job head." } }
+                val job = dev.chungjungsoo.gptmobile.data.github.GitHubWorkflowEvidence.objectPayload(text)
+                dev.chungjungsoo.gptmobile.data.github.GitHubWorkflowEvidence.validateJob(job, arguments)
             }
             val payload = compactWorkflowPayload(action, text, page, perPage, arguments)
             val scoped = if (action == "list_workflow_jobs" && runObservation != null) {
@@ -1684,12 +1691,27 @@ class GitHubTool(
         if (throwable is dev.chungjungsoo.gptmobile.data.github.GitHubHeaderLookupFailure) {
             return AgentToolResult(callId, ToolResultContent.Json(throwable.details), true, errorCode = throwable.code, dispatched = true)
         }
+        if (throwable is dev.chungjungsoo.gptmobile.data.github.GitHubResponseTooLarge) {
+            return AgentToolResult(callId, ToolResultContent.Text(detail), true, errorCode = "GITHUB_RESPONSE_TOO_LARGE")
+        }
+        if (throwable is kotlinx.serialization.SerializationException) {
+            return AgentToolResult(callId, ToolResultContent.Text("GitHub returned a response that could not be decoded. Retain the resource and HTTP receipt; an accepted write must be reconciled before another mutation."), true, errorCode = "GITHUB_UNEXPECTED_RESPONSE")
+        }
+        if (throwable is javax.net.ssl.SSLException) {
+            return AgentToolResult(callId, ToolResultContent.Text("GitHub TLS verification failed. Check the connection's certificate configuration; this failure is not automatically retried."), true, errorCode = "GITHUB_TLS_FAILURE")
+        }
+        if (throwable is dev.chungjungsoo.gptmobile.data.github.GitHubRequestRejected) {
+            val recordedCode = detail.substringBefore(" · ")
+            val code = recordedCode.takeIf { it in dev.chungjungsoo.gptmobile.data.github.GitHubFailurePolicy.codes }
+                ?: dev.chungjungsoo.gptmobile.data.github.GitHubFailurePolicy.classify(throwable.status)
+            return AgentToolResult(callId, ToolResultContent.Text(detail), true, errorCode = code)
+        }
         if (throwable is java.io.IOException) {
             val uncertain = action in MUTATING_ACTIONS
             return AgentToolResult(callId, ToolResultContent.Text(if (uncertain) "GitHub connection interrupted. The write outcome is uncertain; reconcile the saved remote ref/tree or receipt before retrying." else "GitHub connection interrupted after bounded read retries. Retry this read when the connection recovers."), true, errorCode = if (throwable is dev.chungjungsoo.gptmobile.data.github.GitHubReadRetry.HttpFailure) "GITHUB_TRANSIENT_SERVER" else "GITHUB_TRANSIENT_NETWORK", dispatched = true)
         }
         val normalized = detail.substringBefore(" · ")
-        if (normalized in setOf("GITHUB_PRIMARY_RATE_LIMITED", "GITHUB_SECONDARY_RATE_LIMITED", "GITHUB_ENDPOINT_PERMISSION_REQUIRED", "GITHUB_FORBIDDEN_UNKNOWN", "GITHUB_VALIDATION_FAILED", "GITHUB_AUTHENTICATION_REQUIRED", "GITHUB_SSO_REQUIRED", "GITHUB_NOT_FOUND")) {
+        if (normalized in dev.chungjungsoo.gptmobile.data.github.GitHubFailurePolicy.codes || normalized in setOf("GITHUB_AUTHENTICATION_REQUIRED", "GITHUB_NOT_FOUND")) {
             return AgentToolResult(callId, ToolResultContent.Text(detail), true, errorCode = normalized)
         }
         if (throwable is dev.chungjungsoo.gptmobile.data.github.GitHubRequestScheduler.Capacity) {
@@ -1741,7 +1763,7 @@ class GitHubTool(
         if (detail.contains("HTTP 404", ignoreCase = true) || detail.contains("Not Found", ignoreCase = true)) {
             return errorResult(callId, notFoundMessage(action, arguments, detail))
         }
-        return errorResult(callId, "GitHub request failed: $detail")
+        return AgentToolResult(callId, ToolResultContent.Text("GitHub operation $action failed: $detail. Inspect the retained resource and request receipt before retrying."), true, errorCode = "GITHUB_OPERATION_FAILED")
     }
 
     private suspend fun classifyGitHubHttpFailure(
@@ -1894,6 +1916,7 @@ class GitHubTool(
     }
 
     private suspend fun writeGitHubApi(url: String, method: HttpMethod, body: JsonObject): GitHubBoundedResponse {
+        require(apiOrigins.acceptsApiUrl(url)) { "GitHub API origin changed." }
         refreshCredential()
         return scheduler.execute(null) {
             try {
@@ -1923,8 +1946,9 @@ class GitHubTool(
     }
 
     private suspend fun getGitHubApi(url: String): GitHubBoundedResponse = dev.chungjungsoo.gptmobile.data.github.GitHubReadRetry.run {
+        require(apiOrigins.acceptsApiUrl(url)) { "GitHub API origin changed." }
         refreshCredential()
-        scheduler.execute(null) {
+        scheduler.execute("$url:$durableIdentity:${dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore.digest(apiToken)}") {
             check(!authenticationRejected.get()) { "GitHub authentication was rejected (HTTP 401). Reconnect the GitHub account before retrying any operation." }
             rateLimits.requireAvailable(if (url.contains("/search/")) "search" else "core")
             scheduler.recordRequest()

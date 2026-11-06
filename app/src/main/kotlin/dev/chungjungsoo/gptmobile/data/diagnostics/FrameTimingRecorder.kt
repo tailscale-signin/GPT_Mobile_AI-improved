@@ -72,12 +72,18 @@ internal object FrameTimingRecorder {
         val histogram = FrameDurationHistogram()
         var lastReportMs = SystemClock.elapsedRealtime()
         val effects = FrameEffectsObservation(FrameEffectPressure.guard, lastReportMs)
-        val frameBudgetNs = (1_000_000_000.0 / (activity.display?.refreshRate ?: 60f)).toLong()
+        val display = activity.display
+        val frameBudgetNs = (1_000_000_000.0 / (display?.refreshRate ?: 60f)).toLong()
+        var previousMemory: DiagnosticExportMemory? = null
+        var minimumDeadlineNs = Long.MAX_VALUE
+        var maximumDeadlineNs = 0L
+        var fallbackDeadlines = 0
         // A WeakHashMap value must not capture its Activity key through the callback.
         val activityName = activity.javaClass.simpleName
         val listener = Window.OnFrameMetricsAvailableListener { _, metrics, lost ->
             val duration = metrics.getMetric(FrameMetrics.TOTAL_DURATION).coerceAtLeast(0)
-            val deadline = metrics.getMetric(FrameMetrics.DEADLINE).takeIf { it > 0 } ?: frameBudgetNs
+            val observedDeadline = metrics.getMetric(FrameMetrics.DEADLINE).takeIf { it > 0 }
+            val deadline = observedDeadline ?: frameBudgetNs
             val nowMs = SystemClock.elapsedRealtime()
             // First draws are expected to include startup work. Keep them in the raw
             // report below without treating them as interactive rendering pressure.
@@ -86,20 +92,36 @@ internal object FrameTimingRecorder {
             }
             updateEffectRecovery()
             frames++
+            minimumDeadlineNs = minOf(minimumDeadlineNs, deadline)
+            maximumDeadlineNs = maxOf(maximumDeadlineNs, deadline)
+            if (observedDeadline == null) fallbackDeadlines++
             histogram.add(duration)
             if (duration > deadline) slow++
             dropped += lost
             totalNs += duration
             maximumNs = maxOf(maximumNs, duration)
             if (frames >= 120 && nowMs - lastReportMs >= 5000) {
+                val windowMs = nowMs - lastReportMs
                 lastReportMs = nowMs
-                if (AppLogRecorder.enabled.value) AppLogRecorder.record("Rendering", "FRAME_TIMING · frames=$frames · jankFrames=$slow · droppedSamples=$dropped · averageMs=${totalNs / frames / 1_000_000.0} · maxMs=${maximumNs / 1_000_000.0} · p95UpperMs=${histogram.percentileUpperMs(95)} · p99UpperMs=${histogram.percentileUpperMs(99)} · stallsOver100Ms=${histogram.stallsOver100Ms} · percentileOverflow=${histogram.overflow} · frameBudgetMs=${frameBudgetNs / 1_000_000.0} · screen=${screens.maxByOrNull { it.key }?.value ?: activityName} · graphicsEffects=${RenderingEffectDiagnostics.snapshot()} · operation=${JavaHeapWorkGate.activeOperations} · javaHeapUsedBytes=${Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory()} · javaHeapMaxBytes=${Runtime.getRuntime().maxMemory()} · activeRuns=${runPhases.entries.joinToString { "${it.key}:${it.value}" }}")
+                if (AppLogRecorder.enabled.value) {
+                    val memory = AndroidDiagnosticExportMemory.sample()
+                    val gcCount = previousMemory?.gcCount?.let { before -> memory.gcCount?.minus(before)?.takeIf { it >= 0 } }
+                    val gcDurationMs = previousMemory?.gcTimeMillis?.let { before -> memory.gcTimeMillis?.minus(before)?.takeIf { it >= 0 } }
+                    val refreshRateMillihz = display?.refreshRate?.takeIf { it.isFinite() && it > 0 }?.let { (it * 1000).toLong() }
+                    AppLogRecorder.record("Rendering", "FRAME_TIMING · frames=$frames · jankFrames=$slow · droppedSamples=$dropped · windowMs=$windowMs · averageMs=${totalNs / frames / 1_000_000.0} · maxMs=${maximumNs / 1_000_000.0} · p50UpperMs=${histogram.percentileUpperMs(50)} · p95UpperMs=${histogram.percentileUpperMs(95)} · p99UpperMs=${histogram.percentileUpperMs(99)} · stallsOver100Ms=${histogram.stallsOver100Ms} · stallsOver500Ms=${histogram.stallsOver500Ms} · percentileOverflow=${histogram.overflow} · frameBudgetMs=${frameBudgetNs / 1_000_000.0} · minimumDeadlineNs=$minimumDeadlineNs · maximumDeadlineNs=$maximumDeadlineNs · fallbackDeadlines=$fallbackDeadlines · refreshRateMillihz=${refreshRateMillihz ?: "unavailable"} · screen=${screens.maxByOrNull { it.key }?.value ?: activityName} · graphicsEffects=${RenderingEffectDiagnostics.snapshot()} · operation=${JavaHeapWorkGate.activeOperations} · javaHeapUsedBytes=${memory.javaUsedBytes} · javaHeapMaxBytes=${memory.javaMaxBytes} · nativeHeapBytes=${memory.nativeAllocatedBytes ?: "unavailable"} · gcCount=${gcCount ?: "unavailable"} · gcDurationMs=${gcDurationMs ?: "unavailable"} · gcCountersApproximate=true · activeRuns=${runPhases.entries.joinToString { "${it.key}:${it.value}" }}")
+                    previousMemory = memory
+                } else {
+                    previousMemory = null
+                }
                 histogram.clear()
                 frames = 0
                 slow = 0
                 dropped = 0
                 totalNs = 0
                 maximumNs = 0
+                minimumDeadlineNs = Long.MAX_VALUE
+                maximumDeadlineNs = 0
+                fallbackDeadlines = 0
             }
         }
         listeners[activity] = ObservedWindow(listener, effects)

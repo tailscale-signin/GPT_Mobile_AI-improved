@@ -4,6 +4,8 @@ import os
 import sys
 from pathlib import Path
 
+STRESS_SUITE = 'test_gateway_diagnostic_stress.py'
+
 
 def run_suite(root, pattern, timeout=120):
     # Print the blocked test and all Python thread stacks before the hard
@@ -22,7 +24,8 @@ def run_suite(root, pattern, timeout=120):
         print(f'{pattern}: FAILED (suite exceeded {timeout}s)', flush=True)
         print(output, flush=True)
         return False
-    summary = [line for line in result.stdout.splitlines() if line.startswith(('Ran ', 'OK', 'FAILED'))]
+    summary = [line for line in result.stdout.splitlines()
+               if line.startswith(('Ran ', 'OK', 'FAILED')) or 'Durable diagnostic stress:' in line]
     print(pattern + ': ' + '; '.join(summary), flush=True)
     if result.returncode:
         print(result.stdout, flush=True)
@@ -34,10 +37,15 @@ def main():
     sys.stderr.reconfigure(encoding='utf-8')
     root = Path(__file__).resolve().parent
     failures = []
-    suites = [p.name for p in sorted((root / 'tests').glob('test_gateway_*.py')) if not p.name.startswith('test_gateway_v14')]
+    suites = [p.name for p in sorted((root / 'tests').glob('test_gateway_*.py'))
+              if not p.name.startswith('test_gateway_v14') and p.name != STRESS_SUITE]
     suites.append('test_gateway_v14*.py')
+    suites.append(STRESS_SUITE)
     for pattern in suites:
-        if not run_suite(root, pattern):
+        # Fifty thousand durable events require 782 FULL-sync batch commits.
+        # Windows flush latency exceeded the former shared 120s budget; isolate
+        # this unchanged workload and keep every ordinary group at 120 seconds.
+        if not run_suite(root, pattern, timeout=300 if pattern == STRESS_SUITE else 120):
             failures.append(pattern)
     result = subprocess.run(['node', '--test', str(root / 'tests/test_gateway_browser_bridge.mjs')], timeout=30)
     if result.returncode:

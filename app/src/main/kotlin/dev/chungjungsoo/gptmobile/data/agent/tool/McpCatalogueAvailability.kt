@@ -5,9 +5,12 @@ data class McpCatalogueAvailability(
     val schemaKnown: Boolean,
     val authorized: Boolean?,
     val connectionHealthy: Boolean,
+    /** Admission only: a usable catalogue is not a successful tool execution. */
     val executionAvailable: Boolean,
     val refreshing: Boolean,
-    val observedAtMonotonicMs: Long?
+    val observedAtMonotonicMs: Long?,
+    val executionVerified: Boolean? = null,
+    val executionObservedAtMs: Long? = null
 )
 
 /** Emitted only by local catalogue checks before any tools/call request is made. */

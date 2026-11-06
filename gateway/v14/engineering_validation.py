@@ -10,6 +10,88 @@ import tarfile
 import tempfile
 import threading
 import time
+import xml.etree.ElementTree as ET
+
+
+def _report_path(checkout, relative):
+    """A report names one file in the disposable checkout, never a linked target."""
+    root = Path(checkout).resolve()
+    if (not isinstance(relative, str) or not relative or Path(relative).is_absolute() or '\\' in relative
+            or any(part in {'', '.', '..', '.git'} for part in relative.split('/'))):
+        raise ValueError('Unsafe acceptance report path')
+    path = root
+    for part in relative.split('/'):
+        path /= part
+        # Reject symlink ancestors even when they point back inside the checkout:
+        # removing the declared output must never remove another named file.
+        if path.is_symlink() or (hasattr(path, 'is_junction') and path.is_junction()):
+            raise ValueError('Acceptance report cannot traverse a filesystem link')
+    if not path.resolve().is_relative_to(root):
+        raise ValueError('Acceptance report escaped the isolated checkout')
+    return path
+
+
+def prepare_behavior_reports(coverage, checkout):
+    """Invalidate declared outputs before their command, including tracked reports."""
+    for relative in sorted({item['report_path'] for item in coverage}):
+        path = _report_path(checkout, relative)
+        if path.exists() and not path.is_file():
+            raise ValueError('Acceptance report output must be a regular file')
+        # Unlink only this declared file; never recursively remove report directories.
+        path.unlink(missing_ok=True)
+
+
+def capture_behavior_reports(coverage, checkout):
+    """Snapshot the mapped cases immediately after the command has stopped.
+
+    Later commands may overwrite or reuse a report path. Their output must not
+    change the evidence already attributed to an earlier command.
+    """
+    wanted = {}
+    for item in coverage:
+        wanted.setdefault(item['report_path'], set()).add(item['case_id'])
+    reports = {}
+    for relative, names in wanted.items():
+        try:
+            path = _report_path(checkout, relative)
+            if not path.is_file() or path.stat().st_size > 1024 * 1024:
+                raise ValueError('Report unavailable')
+            with path.open('rb') as stream:
+                raw = stream.read(1024 * 1024 + 1)
+            if len(raw) > 1024 * 1024 or b'<!DOCTYPE' in raw.upper() or b'<!ENTITY' in raw.upper():
+                raise ValueError('Unsafe report')
+            document = ET.fromstring(raw)
+            cases = {}
+            for node in document.iter('testcase'):
+                name = '.'.join(part for part in (node.get('classname', ''), node.get('name', '')) if part)
+                if name not in names:
+                    continue
+                status = 'FAILED' if node.find('failure') is not None or node.find('error') is not None else 'SKIPPED' if node.find('skipped') is not None else 'PASSED'
+                cases[name] = 'UNAVAILABLE' if name in cases else status
+            reports[relative] = {'cases': cases, 'sha256': hashlib.sha256(raw).hexdigest()}
+        except (OSError, ValueError, ET.ParseError):
+            reports[relative] = {'cases': {}, 'sha256': None}
+    return reports
+
+
+def behavior_receipts(coverage, results, source_sha, image):
+    """Only a mapped command's fresh report snapshot can verify its behavior cases."""
+    evidence = []
+    for item in coverage:
+        if item['command_index'] >= len(results):
+            continue
+        observed = results[item['command_index']]
+        key = item['report_path']
+        report = observed.get('report_snapshots', {}).get(key, {})
+        status = report.get('cases', {}).get(item['case_id'], 'UNAVAILABLE')
+        if observed['exit_code'] != 0 and status == 'PASSED':
+            status = 'FAILED'
+        evidence.append({'requirement_id': item['requirement_id'], 'kind': 'behavior_test', 'name': item['case_id'],
+            'scope': 'behavior', 'status': status, 'observed_at_ms': int(time.time() * 1000), 'image': image,
+            'report_sha256': report.get('sha256'), 'test_case': item['case_id'], 'report_path': key,
+            'command_sha256': hashlib.sha256(json.dumps(observed['command']).encode()).hexdigest(),
+            'output_sha256': observed['output_sha256'], 'exit_code': observed['exit_code'], 'source_sha': source_sha})
+    return evidence
 
 
 def patch_identity(head, changes):
@@ -21,8 +103,13 @@ def run_bounded(argv, cwd, timeout, maximum=4 * 1024 * 1024, destination=None):
     output = bytearray()
     total = 0
     digest = hashlib.sha256()
+    environment = {'PATH': os.defpath, 'HOME': str(cwd), 'LANG': 'C.UTF-8'}
+    # Windows needs SystemRoot to initialize runtime DLLs, including Winsock.
+    # Keep the environment otherwise isolated from host credentials and hooks.
+    if os.name == 'nt' and os.environ.get('SystemRoot'):
+        environment['SystemRoot'] = os.environ['SystemRoot']
     process = subprocess.Popen(argv, cwd=cwd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                               env={'PATH': os.defpath, 'HOME': str(cwd), 'LANG': 'C.UTF-8'})
+                               env=environment)
     # Windows selectors accept sockets, not subprocess pipes. A bounded reader
     # also lets the deadline run while the child is silent or emits no newline.
     blocks = queue.Queue(maxsize=2)
@@ -106,6 +193,14 @@ def validate(job, changes):
         raise ValueError('Validation image must be pinned by digest')
     if not isinstance(commands, list) or not 1 <= len(commands) <= 10 or any(not isinstance(command, list) or not command or len(command) > 32 or any(not isinstance(arg, str) or not arg or len(arg) > 1024 or '\0' in arg for arg in command) for command in commands):
         raise ValueError('Validation commands must be a bounded host-approved argv list')
+    coverage = policy.get('acceptance_map', [])
+    if not isinstance(coverage, list) or len(coverage) > 256:
+        raise ValueError('Host acceptance coverage exceeds its bound')
+    for item in coverage:
+        if not isinstance(item, dict) or set(item) != {'requirement_id', 'case_id', 'command_index', 'scope', 'report_path'} or item['scope'] != 'behavior' or type(item['command_index']) is not int or not 0 <= item['command_index'] < len(commands) or any(not isinstance(item[key], str) or not 1 <= len(item[key]) <= 200 for key in ('requirement_id', 'case_id', 'report_path')):
+            raise ValueError('Host acceptance coverage must identify an exact behavior case and approved command')
+        if Path(item['report_path']).is_absolute() or any(part in {'', '.', '..', '.git'} for part in item['report_path'].split('/')) or '\\' in item['report_path']:
+            raise ValueError('Acceptance report must be a bounded checkout-relative path')
     head = job['data']['head_sha']
     if not re.fullmatch('[a-f0-9]{40}', head):
         raise ValueError('Validation needs an exact source revision')
@@ -145,6 +240,8 @@ def validate(job, changes):
         for path in [checkout, *checkout.rglob('*')]:
             path.chmod(0o777 if path.is_dir() or path.stat().st_mode & 0o111 else 0o666)
         for index, command in enumerate(commands):
+            command_coverage = [item for item in coverage if item['command_index'] == index]
+            prepare_behavior_reports(command_coverage, checkout)
             cidfile = root / ('container-' + str(index))
             argv = ['docker', 'run', '--rm', '--pull=never', '--cidfile=' + str(cidfile), '--network=none', '--cap-drop=ALL',
                     '--security-opt=no-new-privileges', '--read-only', '--pids-limit=128', '--memory=2g', '--cpus=2', '--user=65534:65534',
@@ -152,13 +249,17 @@ def validate(job, changes):
                     '--workdir=/workspace', '--env=HOME=/tmp', image, *command]
             try:
                 result = run_bounded(argv, root, timeout)
-                results.append(dict(result, command=command))
             finally:
                 if cidfile.exists():
                     container = cidfile.read_text().strip()
                     if re.fullmatch('[a-f0-9]{64}', container):
                         subprocess.run(['docker', 'rm', '-f', container], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=15, check=False)
+            results.append(dict(result, command=command, report_snapshots=capture_behavior_reports(command_coverage, checkout)))
             if result['exit_code'] != 0:
                 break
-    return {'status': 'PASSED' if len(results) == len(commands) and all(item['exit_code'] == 0 for item in results) else 'FAILED',
-            'patch_identity': identity, 'source_sha': head, 'image': image, 'commands': results, 'network': 'disabled', 'device_tested': False}
+        evidence = behavior_receipts(coverage, results, head, image)
+    passed = (len(results) == len(commands) and all(item['exit_code'] == 0 for item in results)
+              and len(evidence) == len(coverage) and all(item['status'] == 'PASSED' for item in evidence))
+    return {'status': 'PASSED' if passed else 'FAILED',
+            'patch_identity': identity, 'source_sha': head, 'image': image, 'commands': results, 'network': 'disabled', 'device_tested': False,
+            'requirement_evidence': evidence}

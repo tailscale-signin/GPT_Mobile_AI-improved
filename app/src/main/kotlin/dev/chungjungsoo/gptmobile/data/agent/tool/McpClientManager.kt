@@ -63,7 +63,9 @@ data class McpConnectionHealth(
     val availableToolCount: Int? = null,
     val connectionHealth: dev.chungjungsoo.gptmobile.data.network.ConnectionHealth = dev.chungjungsoo.gptmobile.data.network.ConnectionHealth.UNKNOWN,
     val failedStage: String? = null,
-    val toolReadiness: McpToolReadiness = McpToolReadiness.NOT_DISCOVERED
+    val toolReadiness: McpToolReadiness = McpToolReadiness.NOT_DISCOVERED,
+    val executionVerified: Boolean? = null,
+    val executionObservedAtMs: Long? = null
 ) {
     val toolsReady: Boolean get() = state == McpConnectionHealthState.CONNECTED && toolReadiness == McpToolReadiness.READY
 }
@@ -184,7 +186,7 @@ class McpClientManager internal constructor(
         val healthy = sameConfiguration && recentResponse && state.state == McpConnectionHealthState.CONNECTED
         val validated = validatedCatalogues[config.connectionUid]
         val discovered = validated != null && validated.first == key && snapshot?.value == validated.second
-        return McpCatalogueAvailability(snapshot != null, authorized.takeIf { sameConfiguration }, healthy, snapshot != null && healthy && authorized == true && discovered, catalogueProducers.containsKey(key), snapshot?.observedAt)
+        return McpCatalogueAvailability(snapshot != null, authorized.takeIf { sameConfiguration }, healthy, snapshot != null && healthy && authorized == true && discovered, catalogueProducers.containsKey(key), snapshot?.observedAt, state.executionVerified.takeIf { sameConfiguration }, state.executionObservedAtMs.takeIf { sameConfiguration })
     }
 
     fun clearReadinessCache(cancelProducers: Boolean = true) {
@@ -423,6 +425,11 @@ class McpClientManager internal constructor(
                 }
             outcome = if (result.isError == true) dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolOutcome.FAILURE else dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolOutcome.SUCCESS
             if (result.isError == true) {
+                healthOrder.publish(observation) {
+                    _health.update { current ->
+                        current + (config.connectionUid to (current[config.connectionUid] ?: McpConnectionHealth()).copy(executionVerified = false, executionObservedAtMs = nowMs()))
+                    }
+                }
                 val failure = result.toString()
                 if (isMcpCredentialFailure(failure)) {
                     providerCooldowns[config.connectionUid] = key to Long.MAX_VALUE
@@ -431,7 +438,7 @@ class McpClientManager internal constructor(
                     recordQuota(failure)
                 }
             }
-            if (result.isError != true) recordSuccess(config.connectionUid, observation = observation)
+            if (result.isError != true) recordSuccess(config.connectionUid, observation = observation, executionVerified = true)
             mediaStore?.materialize(result) ?: result
         } catch (cancelled: CancellationException) {
             outcome = dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolOutcome.CANCELED
@@ -537,7 +544,8 @@ class McpClientManager internal constructor(
         latencyMs: Long? = null,
         availableToolCount: Int? = null,
         observation: McpHealthObservationOrder.Token,
-        discoveredTools: List<Tool>? = null
+        discoveredTools: List<Tool>? = null,
+        executionVerified: Boolean? = null
     ) = healthOrder.publish(observation) {
         // Catalog/transport success cannot clear an authorization or quota block for this credential.
         val cooldown = providerCooldowns[connectionUid]
@@ -564,6 +572,8 @@ class McpClientManager internal constructor(
                 previous.copy(
                     state = McpConnectionHealthState.CONNECTED,
                     lastSuccessAtMs = now,
+                    executionVerified = executionVerified ?: previous.executionVerified,
+                    executionObservedAtMs = if (executionVerified != null) now else previous.executionObservedAtMs,
                     latencyMs = latencyMs ?: previous.latencyMs,
                     consecutiveFailures = 0,
                     nextRetryAtMs = null,
@@ -611,6 +621,8 @@ class McpClientManager internal constructor(
                     else -> stage
                 }
                 updated = previous.copy(
+                    executionVerified = if (stage == "execution") false else previous.executionVerified,
+                    executionObservedAtMs = if (stage == "execution") nowMs() else previous.executionObservedAtMs,
                     state = when {
                         authenticationRequired -> McpConnectionHealthState.AUTHENTICATION_REQUIRED
                         error is McpCatalogueTimeoutException -> McpConnectionHealthState.DEGRADED

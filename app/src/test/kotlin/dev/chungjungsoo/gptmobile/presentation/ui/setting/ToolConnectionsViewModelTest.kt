@@ -70,6 +70,7 @@ class ToolConnectionsViewModelTest {
         }
         every { auth.canAuthorize(any()) } returns true
         coEvery { auth.pendingConnectionUid() } returns null
+        coEvery { auth.canResumeAuthorization() } returns false
         coEvery { auth.connectedAccount(any()) } returns null
         coEvery { auth.begin(any()) } returns "https://github.com/login/oauth/authorize?client_id=public-project"
         val model = ToolConnectionsViewModel(dao, FakeSecretVault(), mockk(relaxed = true), mockk(relaxed = true), settings, gitHubPublicAuth = auth)
@@ -118,10 +119,11 @@ class ToolConnectionsViewModelTest {
         dao.upsertConnection(connection)
         val auth = mockk<dev.chungjungsoo.gptmobile.data.github.GitHubPublicAuthCoordinator>()
         val account = dev.chungjungsoo.gptmobile.data.github.GitHubPublicAuthCoordinator.Account("1", "coder")
-        val callback = "https://auth.example.org/oauth/github/callback?code=private-code&state=private-state"
+        val callback = "https://auth.example.org/oauth/github/complete?ticket=opaque-one-use-ticket&attempt=bound-attempt"
         var pending: String? = null
         var connected = false
         coEvery { auth.pendingConnectionUid() } answers { pending }
+        coEvery { auth.canResumeAuthorization() } returns false
         coEvery { auth.connectedAccount("github") } answers { if (connected) account else null }
         every { auth.canAuthorize(connection) } returns true
         every { auth.acceptsCallback(callback) } returns true
@@ -146,6 +148,32 @@ class ToolConnectionsViewModelTest {
             val completed = withTimeout(5000) { model.uiState.first { it.gitHubAccounts["github"] == account && !it.isOAuthBusy } }
             assertEquals(null, completed.gitHubPublicSignInUid)
             coVerify(exactly = 1) { auth.complete(callback) }
+        } finally {
+            model.viewModelScope.cancel()
+        }
+    }
+
+    @Test fun retainedAuthorizationTicketCanFinishWithoutStartingAnotherBrowserAttempt() = runBlocking {
+        val dao = FakeToolConnectionDao()
+        dao.upsertConnection(ToolConnection("github", "GitHub", "github", "GITHUB", null, "OAUTH", null, null))
+        val auth = mockk<dev.chungjungsoo.gptmobile.data.github.GitHubPublicAuthCoordinator>()
+        val account = dev.chungjungsoo.gptmobile.data.github.GitHubPublicAuthCoordinator.Account("1", "coder")
+        var connected = false
+        coEvery { auth.pendingConnectionUid() } answers { if (connected) null else "github" }
+        coEvery { auth.canResumeAuthorization() } answers { !connected }
+        coEvery { auth.connectedAccount("github") } answers { account.takeIf { connected } }
+        coEvery { auth.resumePendingAuthorization() } coAnswers {
+            connected = true
+            account
+        }
+        val model = ToolConnectionsViewModel(dao, FakeSecretVault(), mockk(relaxed = true), mockk(relaxed = true), fakeSettingRepository(), gitHubPublicAuth = auth)
+        try {
+            withTimeout(5000) { model.uiState.first { it.gitHubAuthorizationResumable } }
+            model.resumeGitHubAuthorization()
+            withTimeout(5000) { model.uiState.first { it.gitHubAccounts["github"] == account && !it.isOAuthBusy } }
+            coVerify(exactly = 1) { auth.resumePendingAuthorization() }
+            coVerify(exactly = 0) { auth.begin(any()) }
+            assertFalse(model.uiState.value.gitHubAuthorizationResumable)
         } finally {
             model.viewModelScope.cancel()
         }

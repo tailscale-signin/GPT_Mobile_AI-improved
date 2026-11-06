@@ -24,8 +24,20 @@ internal fun redactDiagnosticPayload(message: String): String = message.lineSequ
 }
 
 internal fun diagnosticMessageForStorage(message: String): String {
-    val safe = redactLogMessage(message)
-    return if (safe.length > 7800) safe.take(7800) + " · truncatedAtSource=true · originalLength=${message.length} · retainedLength=7800" else safe
+    // Redact complete lines only. Cutting a raw header/key/token in half before redaction
+    // could expose a secret fragment; running every regex over a huge input exhausts heap.
+    val source = if (message.length <= 16 * 1024) {
+        message
+    } else {
+        val boundary = message.lastIndexOf('\n', 16 * 1024 - 1)
+        if (boundary >= 0) message.substring(0, boundary) else "[oversized diagnostic message omitted]"
+    }
+    val safe = redactLogMessage(source)
+    if (source !== message || safe.length > 7800) {
+        val retained = safe.take(7800)
+        return "$retained · truncatedAtSource=true · originalLength=${message.length} · retainedLength=${retained.length}"
+    }
+    return safe
 }
 
 internal fun redactLogMessage(message: String): String {

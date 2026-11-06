@@ -7,8 +7,10 @@ when the AI model runs on the phone.
 ## Implementation status
 
 The broker implements a confidential authorization-code exchange with S256 PKCE,
-durable ten-minute single-use state, HTTPS/origin checks, request size and rate
-limits, bounded upstream calls, and no credential journaling. It does not register
+durable ten-minute state, HTTPS/origin checks, request size and rate limits,
+bounded upstream calls, a broker-only callback, and two-minute opaque return
+tickets. Codes, tickets and completed outcomes are encrypted at rest; no raw
+credentials or callback query strings are written to logs. It does not register
 a GitHub App, deploy a domain, or publish Android verified-link configuration.
 The Android bridge implements Custom Tabs, strict app-link and state validation,
 encrypted pending transactions, account binding, serialized refresh rotation and
@@ -36,7 +38,8 @@ manager, not a committed `.env` file:
 | --- | --- |
 | `GITHUB_APP_CLIENT_ID` | Registered public client ID |
 | `GITHUB_APP_CLIENT_SECRET` | Confidential secret, server only |
-| `GITHUB_APP_CALLBACK_URL` | Exact registered Android HTTPS app-link callback |
+| `GITHUB_APP_CALLBACK_URL` | Broker-only HTTPS URL ending in `/oauth/github/callback` |
+| `GITHUB_ANDROID_APP_LINK_URL` | Verified Android HTTPS URL ending in `/oauth/github/complete`; defaults to the broker origin with this path |
 | `GITHUB_AUTH_PUBLIC_URL` | Public HTTPS broker origin |
 | `GITHUB_AUTH_STATE_DB` | Persistent private SQLite file |
 
@@ -48,7 +51,9 @@ Place an HTTPS reverse proxy in front. Forward the original HTTPS scheme and hos
 only through a specifically trusted local proxy. Do not publicly expose this
 loopback listener or trust arbitrary forwarded headers. Disable request-body,
 response-body and query logging at the proxy and any observability integrations.
-The broker itself accepts secrets only in JSON POST bodies and sends `no-store`.
+Android sends secrets only in bounded JSON POST bodies. GitHub sends its code
+to the broker callback; that query must never be logged. Every response is
+`no-store` with `no-referrer`.
 
 Rotate the client secret in the host's secret manager, restart the service and
 verify `/health/ready`. Existing pending transactions expire after ten minutes;
@@ -57,37 +62,53 @@ retains the Android device-flow path. No gateway runtime files are modified.
 
 ## Client contract
 
-1. Generate a fresh random 43–128 character verifier on Android. Encrypt it in
-   `SecretVault` with the selected connection/account and callback configuration.
-2. POST `{"codeChallenge":"<base64url SHA-256 verifier>"}` to
-   `/v1/github/oauth/start`. Store returned `state`, `redirectUri` and expiry in the
-   same encrypted transaction. Open only the validated GitHub authorization URL
-   in a Custom Tab.
-3. Accept only the exact registered, verified HTTPS callback. Reject duplicate
-   query keys, mismatched/expired state and unexpected callback paths. Cancellation
-   or denied consent deletes the pending verifier. Never log callback URLs.
-4. POST `state`, `codeVerifier` and `code` to `/v1/github/oauth/exchange`. The server
-   binds the verifier to the original challenge and consumes state atomically
-   before exchanging the code. A timeout requires a new sign-in, not code replay.
-5. Encrypt the returned credentials, verify `/user` account identity and bind
-   repository selection to that account. Do not resume writes until the original
-   operation and immutable approval have been reconciled.
+1. Android generates an S256 verifier, a random client-session ID and a digest of
+   the selected connection. It stores the pending transaction in `SecretVault`.
+2. POST `codeChallenge`, `clientSessionId` and `accountIntent` to
+   `/v2/github/oauth/start`. Store the returned state and expiry. The authorization
+   URL sends GitHub to the **broker callback**, not an Android activity.
+3. GitHub redirects to `/oauth/github/callback`. The broker validates state and
+   creates a bound, opaque ticket. Its redirect to `/oauth/github/complete` carries
+   only `state` and `ticket`. Duplicate query keys, wrong paths and expired state
+   fail before any exchange.
+4. Android saves the opaque ticket before POSTing `state`, `ticket`,
+   `codeVerifier`, `clientSessionId` and `accountIntent` to
+   `/v2/github/oauth/redeem`. The broker atomically claims the exchange. A completed
+   result is encrypted and committed before acknowledgment; a lost response can
+   be redeemed again by the same bound client without another GitHub code exchange.
+5. If the broker loses the upstream response after dispatch, it returns
+   `RECONCILIATION_REQUIRED`; it never exchanges that code again. Android retains
+   useful pending state and offers explicit recovery/reconnection. After a verified
+   outcome, it saves credentials and the observed `/user` identity before clearing
+   the pending ticket. Refresh uncertainty still requires reconnecting.
 
-For the Android build, configure `GITHUB_AUTH_BROKER_ORIGIN`, the registered
-`GITHUB_OAUTH_CLIENT_ID`, and `GITHUB_AUTH_CALLBACK_HOST` as project build properties.
-The callback is `https://<host>/oauth/github/callback`; it must exactly match the
-registered URL. Neither a client secret nor a GitHub App private key belongs in
-Android build properties. Omitting the broker origin disables the public callback
-activity and retains the existing device-flow option.
+The v1 endpoints remain available for existing exchange/refresh clients. The new
+Android flow does not resume a v1 callback transaction: it clears obsolete pending
+state and starts the separated callback contract. Existing saved account,
+repository, branch, draft and profile state are retained. Rotating the server
+secret invalidates pending encrypted outcomes; complete or expire pending sign-ins
+before rotation, or reconnect afterward.
 
-Publish `/.well-known/assetlinks.json` on the callback host with the real Android
-application ID and release signing certificate fingerprint. Test verified-link
-routing on a clean installation; a custom scheme alone does not meet this contract.
+For Android builds, configure `GITHUB_AUTH_BROKER_ORIGIN`, the registered
+`GITHUB_OAUTH_CLIENT_ID`, and `GITHUB_AUTH_CALLBACK_HOST`. The app captures only
+`https://<host>/oauth/github/complete`. The broker-only `/oauth/github/callback`
+**must not** match its intent filter. Neither the client secret nor an App private
+key belongs in the APK. Missing broker configuration disables this code flow and
+retains the existing device-flow alternative; enterprise API connections use their
+explicit HTTPS origin and Advanced credentials.
+
+Publish `/.well-known/assetlinks.json` on the Android return host with the actual
+application ID and release signing certificate SHA-256. Verify the packaged APK,
+not source defaults, using `scripts/qualify_github_auth.py`. The checker validates
+its extracted manifest, installed package link-verification evidence and the
+server's Digital Asset Links document. A correct document alone does not prove a
+successful account sign-in; clean-install consent, process-death recovery and
+organization authorization remain device acceptance scenarios.
 
 ## Verification
 
-Run `python -m unittest authentication.test_github_broker` and, in the pinned ASGI
-environment, `python -m unittest authentication.test_app`. Tests cover concurrency,
+In the pinned ASGI environment, run
+`python -m unittest authentication.test_github_broker authentication.test_app authentication.test_ticket_broker`. Tests cover concurrency,
 restart, expiry, wrong verifiers, replay, uncertain exchange, redaction, hostile
 origins, HTTPS, request limits and rate limiting. Live app registration, consent,
 refresh rotation, organization SSO, passkeys and device acceptance remain separate

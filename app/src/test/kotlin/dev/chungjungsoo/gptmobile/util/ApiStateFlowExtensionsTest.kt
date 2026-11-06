@@ -18,6 +18,39 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ApiStateFlowExtensionsTest {
+    @Test fun sourceReceiptsPreserveMixedTransportAndTerminalTail() = runBlocking {
+        val gateway = dev.chungjungsoo.gptmobile.data.database.entity.ResponseSource(dev.chungjungsoo.gptmobile.data.database.entity.ResponseTransport.GATEWAY, profileUid = "gateway-profile")
+        val direct = dev.chungjungsoo.gptmobile.data.database.entity.ResponseSource(dev.chungjungsoo.gptmobile.data.database.entity.ResponseTransport.DIRECT, profileUid = "direct-profile")
+        var timeline = emptyList<AssistantTimelineItem>()
+        var content = ""
+        flowOf(
+            ApiState.ResponseSourceCaptured(gateway),
+            ApiState.Success("gateway "),
+            ApiState.ResponseSourceCaptured(direct),
+            ApiState.Success("direct tail"),
+            ApiState.TokenUsage(1, 2, 3),
+            ApiState.Error("interrupted")
+        ).collectApiStateUpdates(onUpdate = { text, _, items ->
+            content = text
+            timeline = items
+        })
+        assertEquals("gateway direct tail", content)
+        assertEquals(listOf(gateway, direct), timeline.filter { it.type == AssistantTimelineItemType.TEXT }.map { it.responseSource })
+        assertEquals(direct, timeline.last { it.generation != null }.generation?.responseSource)
+    }
+
+    @Test fun recoveredPrefixKeepsItsOriginalSourceWhenContinuationChangesTransport() = runBlocking {
+        val gateway = dev.chungjungsoo.gptmobile.data.database.entity.ResponseSource(dev.chungjungsoo.gptmobile.data.database.entity.ResponseTransport.GATEWAY)
+        val direct = dev.chungjungsoo.gptmobile.data.database.entity.ResponseSource(dev.chungjungsoo.gptmobile.data.database.entity.ResponseTransport.DIRECT)
+        val restored = listOf(AssistantTimelineItem(AssistantTimelineItemType.TEXT, "saved prefix", responseSource = gateway))
+        var timeline = emptyList<AssistantTimelineItem>()
+        flowOf(ApiState.ResponseSourceCaptured(direct), ApiState.Success("saved "), ApiState.Success("prefix new tail"), ApiState.Done)
+            .collectApiStateUpdates(onUpdate = { _, _, items -> timeline = items }, restoredTimeline = restored)
+        val text = timeline.filter { it.type == AssistantTimelineItemType.TEXT }
+        assertEquals(listOf("saved prefix", " new tail"), text.map { it.content })
+        assertEquals(listOf(gateway, direct), text.map { it.responseSource })
+    }
+
     @Test fun githubCountersUpdateOnePersistedRowWithoutGrowingTheTimeline() = runBlocking {
         var timeline = emptyList<AssistantTimelineItem>()
         flowOf(
@@ -451,17 +484,16 @@ class ApiStateFlowExtensionsTest {
     }
 
     @Test
-    fun `collectApiStateUpdates honors 120Hz high refresh frame interval`() = runBlocking {
+    fun `collectApiStateUpdates starts high refresh presentation at a bounded cadence`() = runBlocking {
         val updates = mutableListOf<String>()
         var currentTimeNanos = 0L
 
         flow {
             emit(ApiState.Success("Frame 1"))
-            // At t = 4ms, should not publish if interval is 8ms
-            currentTimeNanos = 4_000_000L
+            // A partial frame remains buffered until the presentation budget expires.
+            currentTimeNanos = 16_000_000L
             emit(ApiState.Success(" (still 1)"))
-            // At t = 8.5ms, threshold exceeded -> should publish
-            currentTimeNanos = 8_500_000L
+            currentTimeNanos = 34_000_000L
             emit(ApiState.Success(" + Frame 2"))
             emit(ApiState.Done)
         }.collectApiStateUpdates(

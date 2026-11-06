@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Inspect a frozen v2 JSON or v3 diagnostic ZIP without a network or model runtime.
+"""Inspect legacy conversation or bounded staged diagnostics without a model runtime.
 
 This replays retained committed segments only. Missing provider deltas or reducer
 events are reported as unavailable, never synthesized from the saved answer.
@@ -7,6 +7,7 @@ events are reported as unavailable, never synthesized from the saved answer.
 from __future__ import annotations
 
 import argparse
+import codecs
 import hashlib
 import json
 import re
@@ -15,6 +16,68 @@ import zipfile
 
 MAX_BYTES = 64 * 1024 * 1024
 FILES = {"manifest.json", "conversation.json", "events.jsonl", "context-manifests.json", "provenance.json"}
+STAGED_SCHEMA = "gptmobile.staged-diagnostics.v1"
+
+
+def load_staged_snapshot(archive: zipfile.ZipFile, manifest: dict) -> dict:
+    """Validate staged captures without retaining their potentially large record bodies."""
+    stages = manifest.get("stages")
+    if not isinstance(stages, list) or not 1 <= len(stages) <= 32:
+        raise ValueError("Invalid diagnostic stage inventory")
+    names = set()
+    identities = set()
+    useful = 0
+    for stage in stages:
+        if not isinstance(stage, dict):
+            raise ValueError("Invalid diagnostic stage record")
+        name = stage.get("fileName", "")
+        identity = stage.get("id", "")
+        if (not isinstance(name, str) or not isinstance(identity, str)
+                or not re.fullmatch(r"[a-z][a-z0-9_.-]{0,95}", name) or name == "manifest.json" or name in names
+                or not re.fullmatch(r"[a-z][a-z0-9_]{0,63}", identity) or identity in identities):
+            raise ValueError("Invalid or duplicate diagnostic stage")
+        names.add(name)
+        identities.add(identity)
+        counts = [stage.get(key) for key in ("bytes", "records", "evidenceRecords")]
+        if any(type(value) is not int or value < 0 for value in counts) or counts[2] > counts[1]:
+            raise ValueError("Invalid diagnostic record counts")
+        status = stage.get("status")
+        if status not in {"COMPLETED", "EMPTY", "PARTIAL", "FAILED"}:
+            raise ValueError("Invalid diagnostic stage status")
+        if status == "COMPLETED" and counts[1] == 0:
+            raise ValueError("Empty diagnostics cannot be complete")
+        if status == "EMPTY" and (counts[2] != 0 or not stage.get("omissionReason")):
+            raise ValueError("Empty stage must explain missing evidence")
+        sha = hashlib.sha256()
+        decoder = codecs.getincrementaldecoder("utf-8")("strict")
+        byte_count = record_count = 0
+        last_byte = None
+        with archive.open(name) as stream:
+            while block := stream.read(8192):
+                byte_count += len(block)
+                if byte_count > counts[0] or byte_count > MAX_BYTES:
+                    raise ValueError("Diagnostic stage exceeds declared byte limit")
+                sha.update(block)
+                decoder.decode(block)
+                record_count += block.count(b"\n")
+                last_byte = block[-1]
+            decoder.decode(b"", final=True)
+        if (byte_count != counts[0] or record_count != counts[1] or sha.hexdigest() != stage.get("sha256")
+                or byte_count and last_byte != 10):
+            raise ValueError("Diagnostic stage digest, bytes or records mismatch")
+        useful += counts[2]
+    if set(archive.namelist()) != names | {"manifest.json"}:
+        raise ValueError("Unexpected or missing diagnostic stage")
+    complete = all(stage["status"] in {"COMPLETED", "EMPTY"} for stage in stages)
+    critical = any(stage.get("critical") is True and stage["evidenceRecords"] > 0 for stage in stages)
+    empty_critical = any(stage.get("critical") is True and stage["evidenceRecords"] == 0 for stage in stages)
+    if (manifest.get("usefulRecords") != useful or manifest.get("capturedFully") is not False
+            or manifest.get("captureCompleted") is not complete
+            or manifest.get("criticalEvidenceAvailable") is not critical
+            or manifest.get("emptyCriticalEvidence") is not empty_critical
+            or manifest.get("retryRecommended") is not (not complete or empty_critical or useful == 0)):
+        raise ValueError("Diagnostic completeness claims disagree with stage evidence")
+    return manifest
 
 
 def digest(text: str) -> str:
@@ -30,10 +93,23 @@ def load_snapshot(path: Path) -> dict:
         with zipfile.ZipFile(path) as archive:
             infos = archive.infolist()
             names = [entry.filename for entry in infos]
-            if set(names) != FILES or len(names) != len(FILES):
-                raise ValueError("Unexpected, missing or duplicate bundle entry")
+            if len(names) != len(set(names)) or "manifest.json" not in names:
+                raise ValueError("Missing manifest or duplicate bundle entry")
             if sum(entry.file_size for entry in infos) > MAX_BYTES:
                 raise ValueError("Expanded bundle exceeds the inspection memory limit")
+            if archive.getinfo("manifest.json").file_size > 256 * 1024:
+                raise ValueError("Diagnostic manifest exceeds the inspection limit")
+            with archive.open("manifest.json") as stream:
+                manifest_bytes = stream.read(256 * 1024 + 1)
+            if len(manifest_bytes) > 256 * 1024:
+                raise ValueError("Diagnostic manifest exceeds the inspection limit")
+            manifest = json.loads(manifest_bytes)
+            if not isinstance(manifest, dict):
+                raise ValueError("Invalid diagnostic manifest")
+            if manifest.get("schema") == STAGED_SCHEMA:
+                return load_staged_snapshot(archive, manifest)
+            if set(names) != FILES or len(names) != len(FILES):
+                raise ValueError("Unexpected, missing or duplicate bundle entry")
             parts = {}
             remaining = MAX_BYTES
             for entry in infos:
@@ -65,6 +141,19 @@ def load_snapshot(path: Path) -> dict:
 
 
 def inspect_snapshot(root: dict) -> dict:
+    if root.get("schema") == STAGED_SCHEMA:
+        return {
+            "schema": "gptmobile.offline-staged-inspection.v1",
+            "result": "partial" if root["retryRecommended"] else "retained-stages-verified",
+            "captureCompleted": root["captureCompleted"],
+            "capturedFully": False,
+            "criticalEvidenceAvailable": root["criticalEvidenceAvailable"],
+            "usefulRecords": root["usefulRecords"],
+            "providerDeltaReplay": "unavailable",
+            "reducerReplay": "unavailable",
+            "stages": root["stages"],
+            "scope": "Byte, record and digest validation of retained independent stages; no inference that application tasks or tests passed.",
+        }
     journal = root.get("runJournal", {})
     events = journal.get("events", [])
     streams = {}

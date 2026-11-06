@@ -354,7 +354,7 @@ interface AgentPersistenceDao :
         val message = run?.let { rawRecoveryMessage(it.assistantMessageId) }
         if (message?.currentRunId == runId && message.combinedManifest != null) {
             val complete = dev.chungjungsoo.gptmobile.data.agent.CombinedDocuments.resolve(this, message)
-            return dev.chungjungsoo.gptmobile.data.agent.AnswerSegmentChain.append(emptyList(), runId, message.ownershipFence, complete.content)
+            return dev.chungjungsoo.gptmobile.data.agent.AnswerSegmentChain.append(emptyList(), runId, message.ownershipFence, complete.content, complete.timeline)
         }
         return rawAnswerSegments(runId)
     }
@@ -448,7 +448,7 @@ interface AgentPersistenceDao :
     suspend fun preserveCombinedPrefix(message: MessageV2) {
         val runId = message.currentRunId ?: return
         if (!runId.startsWith("combined-synthesis:") || message.combinedManifest != null) return
-        val additions = dev.chungjungsoo.gptmobile.data.agent.AnswerSegmentChain.append(answerSegments(runId), runId, message.ownershipFence, message.content)
+        val additions = dev.chungjungsoo.gptmobile.data.agent.AnswerSegmentChain.append(answerSegments(runId), runId, message.ownershipFence, message.content, message.timeline)
         if (additions.isNotEmpty()) insertAnswerSegments(additions)
     }
 

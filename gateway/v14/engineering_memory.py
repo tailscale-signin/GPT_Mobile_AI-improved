@@ -16,7 +16,7 @@ def scope(job):
     if actor is None:
         return None
     return hashlib.sha256(canonical([job['principal'], actor, job['data'].get('permission_scope'), job['request']['repository'].lower(), job['request']['branch'],
-                                    job['request'].get('profile_id', job['request']['model'])]).encode()).hexdigest()
+                                    job['request'].get('profile_id', job['request']['model']), job['request'].get('execution_binding_id')]).encode()).hexdigest()
 
 
 def requirements(objective, acceptance):
@@ -88,7 +88,8 @@ class EngineeringMemory:
         rows = self.store.tx(read)
         terms = set(re.findall(r'\w{3,}', query.lower()))
         candidates = sorted(rows, key=lambda row: len(terms & set(re.findall(r'\w{3,}', canonical(row[1]).lower()))), reverse=True)[:24]
-        scores = self.semantic_scores(query, candidates) if job['request'].get('memory_mode', 'HYBRID') == 'HYBRID' else None
+        strict = job.get('execution_binding', {}).get('routing_policy') == 'SELECTED_ONLY'
+        scores = self.semantic_scores(query, candidates) if not strict and job['request'].get('memory_mode', 'HYBRID') == 'HYBRID' else None
         if scores is not None:
             candidates.sort(key=lambda row: scores.get(row[0], 0), reverse=True)
         selected, length = [], 0

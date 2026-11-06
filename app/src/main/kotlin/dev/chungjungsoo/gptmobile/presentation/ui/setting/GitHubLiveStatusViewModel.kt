@@ -103,7 +103,7 @@ internal class GitHubLiveStatusViewModel @Inject constructor(
                 val current = requireNotNull(connections.getConnection(connection.connectionUid))
                 require(current.type == "GITHUB" && current.endpointUrl == connection.endpointUrl)
                 val token = auth.accessToken(current)
-                val api = factory.create { auth.accessToken(requireNotNull(connections.getConnection(connection.connectionUid))) }
+                val api = factory.createForEndpoint(current.endpointUrl) { auth.accessToken(current) }
                 val root = GitHubEngineeringApi.root(selection.owner, selection.repo)
                 suspend fun read(path: String) = withContext(Dispatchers.Default) { Json.parseToJsonElement(api.request(path)) as JsonObject }
                 val sha = if (filter == "CURRENT") read("$root/commits/${GitHubWorkspaceClient.segment(selection.ref)}").text("sha") else ""
@@ -213,11 +213,11 @@ internal class GitHubLiveStatusViewModel @Inject constructor(
             val current = requireNotNull(connections.getConnection(connection.connectionUid))
             require(current.toolPolicy != "READ_ONLY") { "This connection is read only." }
             val token = auth.accessToken(current)
-            val api = factory.create { auth.accessToken(requireNotNull(connections.getConnection(connection.connectionUid))) }
+            val api = factory.createForEndpoint(current.endpointUrl) { auth.accessToken(current) }
             val run = Json.parseToJsonElement(api.request("${GitHubEngineeringApi.root(selection.owner, selection.repo)}/actions/runs/${row.runId}")) as JsonObject
             require(run.text("head_sha") == row.headSha && run.text("run_attempt").toIntOrNull() == row.attempt) { "The run changed. Refresh and review the current attempt." }
             val identity = auth.durableIdentity(current.connectionUid)
-            val result = GitHubTool(token, connectionUid = current.connectionUid, conversationId = "status", taskId = "run:${row.runId}:${row.attempt}", stateStore = repositoryState, durableIdentity = identity, legacyCredentialIdentities = auth.legacyCredentialIdentities(current.connectionUid), credentialProvider = {
+            val result = GitHubTool(token, apiOrigins = dev.chungjungsoo.gptmobile.data.github.GitHubApiOrigins.fromEndpoint(current.endpointUrl), connectionUid = current.connectionUid, conversationId = "status", taskId = "run:${row.runId}:${row.attempt}", stateStore = repositoryState, durableIdentity = identity, legacyCredentialIdentities = auth.legacyCredentialIdentities(current.connectionUid), credentialProvider = {
                 val live = requireNotNull(connections.getConnection(current.connectionUid))
                 require(live.endpointUrl == current.endpointUrl && live.authType == current.authType && live.toolPolicy == current.toolPolicy) { "GitHub authorization changed" }
                 auth.accessToken(live).also { require(auth.durableIdentity(live.connectionUid) == identity) }

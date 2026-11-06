@@ -18,7 +18,7 @@ class CatalogCache:
         with self.lock:
             if not keys:
                 return {'toolsReady': None, 'toolsState': 'NOT_CONFIGURED', 'toolConnectionCount': 0,
-                        'toolCount': 0}
+                        'toolCount': 0, 'schemaReady': None, 'executionVerified': None}
             snapshots = [(self.cache.get(key), self.health.get(key, {})) for key in keys]
             count = sum(len(cached[1]) for cached, _ in snapshots if cached)
             if any(health.get('executionAvailable') is False for _, health in snapshots):
@@ -31,8 +31,11 @@ class CatalogCache:
                 ready, state = True, 'READY'
             else:
                 ready, state = None, 'NOT_MEASURED'
+            observed = [health.get('executionVerified') for _, health in snapshots]
+            execution = False if False in observed else True if all(value is True for value in observed) else None
+            schema_ready = all(cached and time.monotonic() - cached[0] <= self.ttl and health.get('connectionHealthy') is True for cached, health in snapshots)
             return {'toolsReady': ready, 'toolsState': state, 'toolConnectionCount': len(keys),
-                    'toolCount': count}
+                    'toolCount': count, 'schemaReady': schema_ready, 'executionVerified': execution}
 
     def get(self,force=False):
         config=self.runtime.load_mcp_config();keys={name:self.key(name,cfg) for name,cfg in config.items()}
@@ -96,7 +99,12 @@ class CatalogCache:
                 current=self.runtime.load_mcp_config().get(name)
                 if cancel.is_set() or current is None or self.key(name,current)!=key: return
                 self.cache[key]=(time.monotonic(),definitions,metadata)
-                self.health[key]={'authorized':True,'schemaKnown':True,'connectionHealthy':True,'executionAvailable':True,'retryAt':0}
+                previous = self.health.get(key, {})
+                self.health[key]={'authorized':True,'schemaKnown':True,'connectionHealthy':True,
+                                  'executionAvailable': previous.get('executionAvailable'),
+                                  'executionVerified': previous.get('executionVerified'),
+                                  'executionObservedAt': previous.get('executionObservedAt'),
+                                  'executionTool': previous.get('executionTool'), 'retryAt':0}
         except Exception as error:
             with self.lock:
                 if not cancel.is_set():
@@ -107,6 +115,15 @@ class CatalogCache:
             with self.lock:
                 if self.flights.get(key,(None,None))[0] is event: self.flights.pop(key,None)
             event.set()
+
+    def observe_execution(self, name, config, tool, succeeded):
+        key = self.key(name, config)
+        with self.lock:
+            if self.runtime.load_mcp_config().get(name) != config:
+                return
+            self.health.setdefault(key, {}).update(executionAvailable=bool(succeeded), executionVerified=bool(succeeded),
+                                                    executionObservedAt=int(time.time() * 1000),
+                                                    executionTool=str(tool or '')[:128])
 
 def install_catalog_cache(runtime):
     cache=CatalogCache(runtime);runtime.gateway_catalogue=cache;runtime.get_all_mcp_tools=cache.get

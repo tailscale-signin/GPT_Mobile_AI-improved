@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 
 from v14.engineering import public_job, validate_request
 from v14.engineering_diagnostics import diagnostic_job
+from v14.execution_binding import ExecutionBindingError
 
 
 def install_engineering_routes(app, service):
@@ -34,6 +35,9 @@ def install_engineering_routes(app, service):
     async def execute(action):
         try:
             return await action()
+        except ExecutionBindingError as error:
+            return JSONResponse({'error': {'code': error.code, 'message': str(error),
+                                           'retryable': error.retryable, 'routeSubstituted': False}}, status_code=error.status)
         except PermissionError:
             return JSONResponse({'error': {'code': 'engineering_scope_required'}}, status_code=403)
         except (ValueError, KeyError, TypeError):
@@ -52,7 +56,30 @@ def install_engineering_routes(app, service):
                     'principal_id': owner,
                     'repair_attempts': 5, 'explicit_merge_approval': True, 'approval_ttl_seconds': 1800,
                     'notifications': 'android_background_sync', 'batch_reads': True,
-                    'code_graph': {'schema_version': 1, 'enabled': readiness['graph_ready'], 'incremental': True, 'source_level_only': True}}
+                    'execution_binding_protocol': 1, 'routing_policy': 'SELECTED_ONLY',
+                    'execution_owner': 'GATEWAY', 'retry_owner': 'GATEWAY',
+                    'code_graph': {'schema_version': 1, 'supported': True,
+                                   'configured': readiness.get('checks', {}).get('host_github_connection') == 'configured',
+                                   'enabled': readiness['graph_ready'], 'incremental': True, 'source_level_only': True}}
+        return await execute(run)
+
+    @app.post('/gateway/engineering/bindings')
+    @app.post('/v1/gateway/engineering/bindings')
+    async def prepare_binding(request: Request):
+        async def run():
+            owner = principal(request)
+            payload = await body(request)
+            if set(payload) != {'selection'}:
+                raise ExecutionBindingError('EXECUTION_SELECTION_INVALID', 'A selected profile snapshot is required.', 400)
+            return await asyncio.to_thread(service.prepare_binding, owner, payload['selection'],
+                                           gateway_endpoint=str(request.base_url).rstrip('/'))
+        return await execute(run)
+
+    @app.get('/gateway/engineering/bindings/{binding_id}/capabilities')
+    @app.get('/v1/gateway/engineering/bindings/{binding_id}/capabilities')
+    async def bound_capabilities(binding_id: str, request: Request):
+        async def run():
+            return await asyncio.to_thread(service.binding_capabilities, principal(request), binding_id)
         return await execute(run)
 
     @app.post('/gateway/engineering/diagnostics/jobs')
@@ -100,7 +127,11 @@ def install_engineering_routes(app, service):
             owner = principal(request)
             readiness = await asyncio.to_thread(service.readiness)
             if not readiness['graph_ready']:
-                return JSONResponse({'error': {'code': 'graph_connection_required'}, 'readiness': readiness}, status_code=503)
+                missing_connection = readiness.get('checks', {}).get('host_github_connection') == 'missing'
+                return JSONResponse({'error': {'code': 'graph_connection_required', 'retryable': not missing_connection,
+                                               'reason': 'HOST_GITHUB_CONNECTION_REQUIRED' if missing_connection else 'GRAPH_STORAGE_OR_SERVICE_UNAVAILABLE'},
+                                     'supported': True, 'configured': not missing_connection, 'readiness': readiness},
+                                    status_code=412 if missing_connection else 503)
             payload = await body(request)
             return await asyncio.to_thread(service.graph.execute, owner, payload)
         return await execute(run)
@@ -118,6 +149,7 @@ def install_engineering_routes(app, service):
                     return JSONResponse(public_job(existing), status_code=200)
             if not readiness['ready']:
                 return JSONResponse({'error': {'code': 'engineering_connection_required', 'message': 'Check durable storage, the gateway host GitHub connection and the engineering worker before starting an autonomous job.'}, 'readiness': readiness}, status_code=503)
+            await asyncio.to_thread(service.validate_submission, owner, payload)
             job = await asyncio.to_thread(service.store.create, owner, payload)
             service.wake.set()
             return JSONResponse(public_job(job), status_code=202)
@@ -146,6 +178,22 @@ def install_engineering_routes(app, service):
             page = updates[:200]
             return dict(public_job(row), updates=page, has_more_updates=more,
                         next_revision=page[-1]['revision'] if more else row['revision'])
+        return await execute(run)
+
+    @app.get('/gateway/engineering/jobs/{job_id}/artifacts/{artifact_id}')
+    @app.get('/v1/gateway/engineering/jobs/{job_id}/artifacts/{artifact_id}')
+    async def artifact(job_id: str, artifact_id: str, request: Request):
+        async def run():
+            offset = int(request.query_params.get('offset', '0'))
+            length = int(request.query_params.get('length', '65536'))
+            return await asyncio.to_thread(service.artifact_page, principal(request), job_id, artifact_id, offset, length)
+        return await execute(run)
+
+    @app.get('/gateway/engineering/jobs/{job_id}/operations')
+    @app.get('/v1/gateway/engineering/jobs/{job_id}/operations')
+    async def operations(job_id: str, request: Request):
+        async def run():
+            return await asyncio.to_thread(service.operation_page, principal(request), job_id, int(request.query_params.get('after', '0')))
         return await execute(run)
 
     @app.post('/gateway/engineering/jobs/{job_id}/{action}')

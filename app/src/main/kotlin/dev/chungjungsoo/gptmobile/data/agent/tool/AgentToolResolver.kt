@@ -97,7 +97,8 @@ class AgentToolResolver @Inject constructor(
     private val gitHubCheckWatches: dev.chungjungsoo.gptmobile.data.github.GitHubCheckWatchRepository? = null,
     private val gitHubDecisions: dev.chungjungsoo.gptmobile.data.github.GitHubChatDecisions? = null,
     private val gitHubDecisionNotifications: dev.chungjungsoo.gptmobile.data.github.GitHubDecisionNotifications? = null,
-    private val repositoryGraphs: dev.chungjungsoo.gptmobile.data.github.GatewayGraphRepository? = null
+    private val repositoryGraphs: dev.chungjungsoo.gptmobile.data.github.GatewayGraphRepository? = null,
+    private val toolApprovals: dev.chungjungsoo.gptmobile.data.permissions.ToolApprovalManager? = null
 ) {
     suspend fun warmSelectedCatalogues(profileUid: String, limit: Int = 4) {
         val features = settingRepository.getFeatureSettings()
@@ -295,7 +296,10 @@ class AgentToolResolver @Inject constructor(
         // Expand native contracts before telemetry replaces the concrete backend
         // with ObservedTool. Otherwise the model only gets the hidden legacy tool.
         val hasGitHubRepositoryContext = hasSelectedGitHubRepository(resolved)
-        val expandedGitHub = expandNativeGitHubTools(resolved)
+        val nativeGraphFallbacks = java.util.concurrent.atomic.AtomicReference<List<ResolvedAgentTool>>(emptyList())
+        val expandedGitHub = expandNativeGitHubTools(resolved) { base, nativeName, callId ->
+            executeNativeGraphStatus(base, nativeName, callId, nativeGraphFallbacks.get())
+        }
         resolved.clear()
         resolved.addAll(expandedGitHub)
         if (statistics != null) {
@@ -401,6 +405,9 @@ class AgentToolResolver @Inject constructor(
         }
 
         val finalized = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { finalizeResolvedTools(resolved, profileUid, platform, featureSettings, bindings, chatToolConfig, freeProfile, disableRemote, disableLocal, onConnectionError, chatId = userMessage?.chatId, consentPlatform = consentPlatform, personalContext = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.permissions.PersonalDataContext]) }
+        // Only expose native fallbacks that survived the same filtering and data
+        // provenance wrappers as model-visible native operations.
+        nativeGraphFallbacks.set(finalized.filter { it.nativeGitHub && it.realToolName == "github_context" })
         val catalogTask = githubCatalogTask(profileUid, scopedGitHubMessage(userMessage, chatToolConfig?.github), hasGitHubRepositoryContext)
         val coldBindings = if (cachedCataloguesOnly && allowRemoteMcp && userMessage != null) {
             bindings.filter { binding ->
@@ -1197,19 +1204,36 @@ class AgentToolResolver @Inject constructor(
         )
     }
 
-    private fun expandNativeGitHubTools(tools: List<ResolvedAgentTool>): List<ResolvedAgentTool> = tools.flatMap { base ->
+    private fun expandNativeGitHubTools(tools: List<ResolvedAgentTool>, nativeStatus: suspend (ResolvedAgentTool, String, String) -> AgentToolResult): List<ResolvedAgentTool> = tools.flatMap { base ->
         val github = base.tool as? GitHubTool
         if (github == null) {
             listOf(base)
         } else {
-            listOf(base) + github.operations().map { operation ->
+            val operations = github.operations()
+            val nativeName = operations.first { it.operation == "github_context" }.definition.name
+            listOf(base) + operations.map { operation ->
                 base.copy(tool = operation, realToolName = operation.operation, modelToolName = operation.definition.name, shareableReadOnly = operation.operation in setOf("github_read", "github_search"))
             } + listOfNotNull(
-                github.graphTool()?.let { graph ->
+                github.graphTool { callId -> nativeStatus(base, nativeName, callId) }?.let { graph ->
                     base.copy(tool = graph, realToolName = "repository_graph", modelToolName = graph.definition.name, shareableReadOnly = false, nativeGitHub = true)
                 }
             )
         }
+    }
+
+    private suspend fun executeNativeGraphStatus(base: ResolvedAgentTool, nativeName: String, callId: String, candidates: List<ResolvedAgentTool>): AgentToolResult {
+        val native = candidates.singleOrNull { it.connectionUid == base.connectionUid && it.modelToolName == nativeName }
+            ?: return GitHubGraphStatusFallback.denied(callId)
+        val runId = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.agent.ToolRunContext]?.runId
+            ?: return GitHubGraphStatusFallback.denied(callId)
+        val connection = native.connectionUid ?: return GitHubGraphStatusFallback.denied(callId)
+        val approvals = toolApprovals ?: return GitHubGraphStatusFallback.denied(callId)
+        return GitHubGraphStatusFallback(
+            nativeStatus = native.tool,
+            canExecute = { native.canReuseResult?.invoke() == true },
+            authorize = { id, args -> approvals.authorizeOrThrow(connection, runId, id, native.realToolName, args, native.tool.definition.inputSchema) },
+            finished = { id, success -> approvals.finish(runId, id, success) }
+        ).execute(callId)
     }
 
     private suspend fun resolveGitHub(connection: ToolConnection?, profileUid: String, userMessage: MessageV2?, workspaceContext: dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext? = null): ResolvedAgentTool {
@@ -1273,6 +1297,7 @@ class AgentToolResolver @Inject constructor(
         }
         val tool = GitHubTool(
             apiToken = token,
+            apiOrigins = dev.chungjungsoo.gptmobile.data.github.GitHubApiOrigins.fromEndpoint(actualConnection?.endpointUrl),
             durableIdentity = durableIdentity,
             legacyCredentialIdentities = if (!authorizationFailed && actualConnection != null) gitHubPublicAuth?.legacyCredentialIdentities(actualConnection.connectionUid).orEmpty() else emptyList(),
             credentialProvider = credentialProvider,

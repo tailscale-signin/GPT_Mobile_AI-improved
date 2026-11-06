@@ -315,8 +315,11 @@ class GitHubWorkspaceAdmissionTest {
         coEvery { client.execute("list_branches", any()) } returns Json.parseToJsonElement("""{"items":[{"name":"main"}],"has_more":false}""")
         invokeSuspending("selectRepositoryInternal", "owner", "repo", "main", false)
         assertTrue(state.value.setupRequired)
-        assertTrue(state.value.branchesLoaded)
-        org.junit.Assert.assertEquals(listOf("main"), state.value.branches)
+        assertFalse(state.value.branchesLoaded)
+        org.junit.Assert.assertEquals("main", state.value.defaultBranch)
+        org.junit.Assert.assertEquals(dev.chungjungsoo.gptmobile.data.github.GitHubComposerReadiness.READY, state.value.composerReadiness)
+        coVerify(exactly = 0) { client.execute("list_branches", any()) }
+        coVerify(exactly = 0) { client.execute("efficiency", any()) }
     }
 
     private fun authorize(): GitHubWorkspaceClient {

@@ -34,7 +34,7 @@ class CatalogReadinessTest(unittest.TestCase):
     def test_no_configured_tool_is_explicit_and_not_a_failure(self):
         self.config.clear()
         self.assertEqual({'toolsReady': None, 'toolsState': 'NOT_CONFIGURED',
-                          'toolConnectionCount': 0, 'toolCount': 0}, self.cache.readiness())
+                          'toolConnectionCount': 0, 'toolCount': 0, 'schemaReady': None, 'executionVerified': None}, self.cache.readiness())
 
     def test_gateway_health_never_pretends_a_generation_was_measured(self):
         response = SimpleNamespace(status_code=200, close=lambda: None)

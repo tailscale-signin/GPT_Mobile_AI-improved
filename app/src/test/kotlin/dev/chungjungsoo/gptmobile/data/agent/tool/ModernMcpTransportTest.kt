@@ -65,7 +65,7 @@ class ModernMcpTransportTest {
         }
     }
 
-    @Test fun postOnlyServerWithoutDiscoverExtensionDoesNotAttemptLegacyGetSse() = runBlocking {
+    @Test fun unclassifiedBadRequestDoesNotAdvertiseModernSupportOrDowngrade() = runBlocking {
         val methods = mutableListOf<String>()
         HttpClient(
             MockEngine { request ->
@@ -95,8 +95,8 @@ class ModernMcpTransportTest {
             }
         ).use { client ->
             val manager = McpClientManager(client, modern = ModernMcpTransport(client))
-            assertEquals(listOf("echo"), manager.listTools(config).map { it.name })
-            assertEquals(listOf("server/discover", "tools/list", "tools/list"), methods)
+            assertTrue(runCatching { manager.listTools(config) }.isFailure)
+            assertEquals(listOf("server/discover"), methods)
             assertFalse("GET" in methods)
             manager.closeAll()
         }
@@ -142,7 +142,7 @@ class ModernMcpTransportTest {
         }
     }
 
-    @Test fun missingDiscoveryVersionsUseStandardInitialization() = runBlocking {
+    @Test fun missingDiscoveryVersionsAreRejectedWithoutAHandshake() = runBlocking {
         val methods = mutableListOf<String>()
         HttpClient(
             MockEngine { request ->
@@ -170,8 +170,8 @@ class ModernMcpTransportTest {
         ).use { client ->
             val manager = McpClientManager(client, modern = ModernMcpTransport(client))
             try {
-                assertEquals(listOf("echo"), manager.listTools(config).map { it.name })
-                assertEquals(listOf("server/discover", "initialize", "notifications/initialized", "tools/list"), methods)
+                assertTrue(runCatching { manager.listTools(config) }.isFailure)
+                assertEquals(listOf("server/discover"), methods)
             } finally {
                 manager.closeAll()
             }
@@ -231,9 +231,9 @@ class ModernMcpTransportTest {
         }
     }
 
-    @Test fun legacyProbeFallsBackButModernHeaderErrorsDoNot() = runBlocking {
+    @Test fun arbitraryBadRequestsAndModernHeaderErrorsNeverDowngrade() = runBlocking {
         HttpClient(MockEngine { respond("legacy session missing", HttpStatusCode.BadRequest) }).use { client ->
-            assertFalse(ModernMcpTransport(client).supports(config))
+            assertTrue(runCatching { ModernMcpTransport(client).supports(config) }.exceptionOrNull() is ModernMcpError)
         }
         HttpClient(MockEngine { respond("""{"error":{"code":-32020,"message":"Header mismatch"}}""", HttpStatusCode.BadRequest) }).use { client ->
             assertTrue(runCatching { ModernMcpTransport(client).supports(config) }.exceptionOrNull() is ModernMcpError)

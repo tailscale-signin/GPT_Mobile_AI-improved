@@ -1,6 +1,5 @@
 package dev.chungjungsoo.gptmobile.data.github
 
-import java.util.Base64
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -143,26 +142,18 @@ internal class GitHubRepositorySession(
         val sha = item.s("sha")
         require(sha.sha()) { "Blob identity is unavailable." }
         store.read(blobScope(context), "blob:$sha")?.let { return it }
-        require((item["size"]?.jsonPrimitive?.longOrNull ?: 0) <= MAX_BLOB_BYTES) { "Blob exceeds the 2 MiB ingestion budget." }
+        GitHubBlobContent.checkSize(item["size"]?.jsonPrimitive?.longOrNull ?: 0)
         val response = request("${root(context.owner, context.repo)}/git/blobs/$sha").jsonObject
         require(response.s("sha").isBlank() || response.s("sha") == sha) { "Returned blob identity differs from the selected tree." }
-        val bytes = when (response.s("encoding")) {
-            "base64" -> {
-                require(response.s("content").length <= MAX_BLOB_BYTES * 2)
-                Base64.getMimeDecoder().decode(response.s("content"))
-            }
-            "utf-8", "utf8", "" -> response.s("content").encodeToByteArray()
-            else -> error("Unsupported blob encoding.")
-        }
-        require(bytes.size <= MAX_BLOB_BYTES && bytes.none { it == 0.toByte() }) { "Only bounded UTF-8 text blobs can be ingested." }
-        val text = bytes.decodeToString(throwOnInvalidSequence = true)
+        val decoded = GitHubBlobContent.decode(response.s("encoding"), response.s("content"))
+        val text = decoded.content
         // Cached ingestion can resume on Main when invoked from the workspace UI.
         // Hashing and lexical indexing a 2 MiB blob belongs on a CPU dispatcher.
         val result = withContext(Dispatchers.Default) {
             buildJsonObject {
                 put("sha", sha)
                 put("content", text)
-                put("bytes", bytes.size)
+                put("bytes", decoded.bytes)
                 put("content_hash", GitHubRepositoryStateStore.digest(text))
                 put("index", GitHubLocalIndex.build(text))
             }
@@ -333,7 +324,7 @@ internal class GitHubRepositorySession(
 
     private suspend fun workflowCatalog(context: GitHubTaskSnapshot, args: JsonObject): JsonObject {
         val tree = tree(context)
-        val requestedWorkflow = args.s("workflow_id")
+        val requestedWorkflow = args.s("workflow_id").takeIf { it.isNotBlank() }?.let(::normalizeGitHubWorkflowSelector).orEmpty()
         val selectedPath = if (requestedWorkflow.toLongOrNull() != null) {
             request("${root(context.owner, context.repo)}/actions/workflows/${GitHubWorkspaceClient.segment(requestedWorkflow)}").jsonObject.s("path")
                 .also { require(it.startsWith(".github/workflows/")) { "Workflow metadata has no repository definition path." } }
@@ -352,16 +343,8 @@ internal class GitHubRepositorySession(
         val rows = selected.map { file ->
             val key = "workflow-metadata-v1:${file.s("sha")}"
             val retained = store.read(blobScope(context), key)
-            val metadata = retained ?: try {
-                val source = blob(context, file).s("content")
-                withContext(Dispatchers.Default) { GitHubWorkflowMetadata.parse(source) }.also { store.write(blobScope(context), key, it) }
-            } catch (cancelled: kotlinx.coroutines.CancellationException) {
-                throw cancelled
-            } catch (invalid: IllegalArgumentException) {
-                buildJsonObject {
-                    put("metadata_available", false)
-                    put("reason", "Definition exceeds supported metadata limits; inspect its source.")
-                }
+            val metadata = retained ?: GitHubWorkflowDefinitionCapture.capture { blob(context, file).s("content") }.also {
+                if (it["metadata_available"] != JsonPrimitive(false)) store.write(blobScope(context), key, it)
             }
             buildJsonObject {
                 put("path", file.s("path"))
@@ -369,6 +352,16 @@ internal class GitHubRepositorySession(
                 put("blob_sha", file.s("sha"))
                 put("cache_hit", retained != null)
                 put("definition", metadata)
+                if (metadata["metadata_available"] == JsonPrimitive(false)) {
+                    put(
+                        "recovery",
+                        buildJsonObject {
+                            put("action", "workflow_catalog")
+                            put("workflow_id", file.s("path").substringAfterLast('/'))
+                            put("commit_sha", context.commitSha)
+                        }
+                    )
+                }
             }
         }
         val next = cursor + selected.size
@@ -376,6 +369,10 @@ internal class GitHubRepositorySession(
             put("commit_sha", context.commitSha)
             put("workflows", JsonArray(rows))
             put("total_count", workflows.size)
+            put("captured_definition_count", rows.count { it["definition"]?.jsonObject?.get("metadata_available") != JsonPrimitive(false) })
+            put("unavailable_definition_count", rows.count { it["definition"]?.jsonObject?.get("metadata_available") == JsonPrimitive(false) })
+            put("page_complete", rows.all { it["definition"]?.jsonObject?.get("metadata_available") != JsonPrimitive(false) })
+            put("observed_at_ms", System.currentTimeMillis())
             put("inventory_scope", "workflow_files_at_commit")
             put("tree_complete", tree["truncated"]?.jsonPrimitive?.booleanOrNull != true)
             put("has_more", next < workflows.size)

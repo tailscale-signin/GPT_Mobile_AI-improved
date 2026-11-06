@@ -38,15 +38,17 @@ class GitHubActivityLinesTest {
         assertEquals(listOf("Summary", "Reading websites"), existing.map { it.content })
     }
 
-    @Test fun historyThresholdCountsRenderedLinesAndRetainsSummary() {
-        val lines = listOf(line("Summary", true)) + (1..19).map { line("Step $it") }
+    @Test fun historyThresholdCountsTwentyEntriesIndependentlyOfWrappingAndRetainsSummary() {
+        val lines = listOf(line("Summary\nwith\nseveral\nlines", true)) + (1..19).map { line("Step $it") }
         assertEquals(lines, gitHubVisibleActivityLines(lines, true))
-        val wrapped = listOf(4) + List(19) { 1 }
-        val visible = gitHubVisibleActivityLines(lines, true, wrapped)
+        val history = lines + (20..49).map { line("Step $it") }
+        val visible = gitHubVisibleActivityLines(history, true)
         assertTrue(visible.first().statusSummary)
-        assertTrue(visible.size < lines.size)
+        assertEquals(20, visible.size)
         assertEquals(20, gitHubVisibleActivityLines(lines + line("Step 20"), true).size)
-        assertEquals("Step 19", visible.last().content)
+        assertEquals("Step 49", visible.last().content)
+        assertEquals(40, gitHubVisibleActivityLines(history, true, entryLimit = 40).size)
+        assertEquals(history, gitHubVisibleActivityLines(history, true, entryLimit = 60))
     }
 
     @Test fun repeatedCountsReplaceTheSamePublicLineAndSummaryDoesNotRecur() {

@@ -63,6 +63,7 @@ class EngineeringHTTPTests(unittest.TestCase):
 
     def setUp(self):
         fixtures.DurableEngineeringTests.setUp(self)
+        fixtures.DurableEngineeringTests.admit(self, 'tailnet:owner')
         self.backend.available = lambda: True
         self.store.tx(lambda db: db.execute('SELECT 1'))
         self.service.thread = SimpleNamespace(is_alive=lambda: True)
@@ -147,7 +148,10 @@ class EngineeringHTTPTests(unittest.TestCase):
         self.assertEqual('missing', missing['readiness']['checks']['host_github_connection'])
         self.assertTrue(missing['readiness']['saved_results'])
         with patch.object(self.service.graph, 'execute') as graph:
-            self.assertEqual(503, self.client.post('/gateway/engineering/graph', json={'action': 'status'}, headers=self.headers).status_code)
+            response = self.client.post('/gateway/engineering/graph', json={'action': 'status'}, headers=self.headers)
+            self.assertEqual(412, response.status_code)
+            self.assertFalse(response.json()['error']['retryable'])
+            self.assertEqual('HOST_GITHUB_CONNECTION_REQUIRED', response.json()['error']['reason'])
             graph.assert_not_called()
         self.backend.available = lambda: True
         self.service.thread = None

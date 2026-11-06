@@ -6,6 +6,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.CombinedModelResponse
 import dev.chungjungsoo.gptmobile.data.database.entity.ContributionDisposition
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.database.entity.containsLocalOnlyMemory
+import dev.chungjungsoo.gptmobile.data.database.entity.uniformResponseSource
 import dev.chungjungsoo.gptmobile.data.research.delivery.ResearchReportValidity
 import dev.chungjungsoo.gptmobile.data.research.researchHash
 import dev.chungjungsoo.gptmobile.util.isAssistantErrorMessage
@@ -82,7 +83,8 @@ internal fun combinedSynthesisInputs(
             claimExtractionVersion = original?.claimExtractionVersion ?: 2,
             latestAttemptId = selection.latestAttemptId,
             bestUsableAttemptId = selection.bestUsableAttemptId,
-            selectedContributionAttemptId = original?.attemptId ?: message.currentRunId
+            selectedContributionAttemptId = original?.attemptId ?: message.currentRunId,
+            responseSource = original?.responseSource ?: sourceTimeline.uniformResponseSource()
         )
     }
     if (sources.isEmpty() || requireComplete && sources.size != responses.size) return null

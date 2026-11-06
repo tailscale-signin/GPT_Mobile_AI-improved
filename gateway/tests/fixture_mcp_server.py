@@ -14,13 +14,26 @@ def send(message):
 for line in sys.stdin:
     request = json.loads(line)
     method = request.get('method')
-    if method == 'initialize':
+    if method == 'server/discover':
+        if mode.startswith('modern_v2'):
+            assert request['params']['_meta']['io.modelcontextprotocol/protocolVersion'] == '2026-07-28'
+            send({'jsonrpc': '2.0', 'id': request['id'], 'result': {'resultType': 'complete', 'supportedVersions': ['2026-07-28'], 'capabilities': {'tools': {}}, '_meta': {'io.modelcontextprotocol/serverInfo': {'name': 'fixture', 'version': '2'}}}})
+        else:
+            send({'jsonrpc': '2.0', 'id': request['id'], 'error': {'code': -32601, 'message': 'Method not found'}})
+    elif method == 'initialize':
+        assert not mode.startswith('modern_v2')
         send({'jsonrpc': '2.0', 'id': request['id'], 'result': {
             'protocolVersion': '2026-07-28' if mode == 'modern' else '2024-11-05',
             'capabilities': {'tools': {}}, 'serverInfo': {'name': 'fixture', 'version': '1'}}})
     elif method == 'tools/list':
         send({'jsonrpc': '2.0', 'id': request['id'], 'result': {'tools': []}})
     elif method == 'tools/call':
+        if mode.startswith('modern_v2'):
+            assert request['params']['_meta']['io.modelcontextprotocol/protocolVersion'] == '2026-07-28'
+            assert request['params']['_meta']['io.modelcontextprotocol/clientCapabilities'] == {}
+        if mode == 'modern_v2_input':
+            send({'jsonrpc': '2.0', 'id': request['id'], 'result': {'resultType': 'input_required', 'inputRequests': {}}})
+            continue
         if mode == 'crash':
             with Path(sys.argv[2]).open('a') as count:
                 count.write('executed\n')

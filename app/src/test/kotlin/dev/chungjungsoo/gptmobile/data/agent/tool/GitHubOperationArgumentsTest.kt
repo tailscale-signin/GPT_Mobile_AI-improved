@@ -23,4 +23,11 @@ class GitHubOperationArgumentsTest {
         assertTrue(GitHubOperationArguments.errors("github_read", args("""{"ranges":[{"path":"README.md","start_line":1,"end_line":4000}]}""")).any { "2001..4000" in it })
         assertTrue(GitHubOperationArguments.errors("github_read", args("""{"ranges":[{"path":"README.md","start_line":1,"end_line":2000},{"path":"README.md","start_line":2001,"end_line":4000}]}""")).isEmpty())
     }
+
+    @Test fun malformedWorkflowSelectorIsRejectedBeforeDispatch() {
+        for (selector in listOf("0", "-1", "999999999999999999999999", "../ci.yml", "")) {
+            assertTrue(GitHubOperationArguments.errors("github_ci", args("""{"action":"definitions","workflow_id":"$selector"}""")).any { "workflow_id" in it })
+        }
+        assertTrue(GitHubOperationArguments.errors("github_ci", args("""{"action":"definitions","workflow_id":".github/workflows/ci.yml"}""")).isEmpty())
+    }
 }

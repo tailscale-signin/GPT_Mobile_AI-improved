@@ -2,6 +2,12 @@ package dev.chungjungsoo.gptmobile.data.github
 
 /** Classification describes evidence; it never grants permission to replay a mutation. */
 internal object GitHubFailurePolicy {
+    val codes = setOf(
+        "AUTH_REQUIRED", "GITHUB_PRIMARY_RATE_LIMITED", "GITHUB_SECONDARY_RATE_LIMITED", "GITHUB_SSO_REQUIRED",
+        "GITHUB_BRANCH_RULES_BLOCKED", "GITHUB_ENDPOINT_PERMISSION_REQUIRED", "GITHUB_FORBIDDEN_UNKNOWN",
+        "GITHUB_NOT_FOUND_OR_INACCESSIBLE", "GITHUB_CONFLICT", "GITHUB_VALIDATION_FAILED", "GITHUB_TRANSIENT_SERVER", "GITHUB_HTTP_ERROR"
+    )
+
     fun classify(status: Int, message: String = "", remaining: String? = null, retryAfter: String? = null, sso: String? = null): String = when {
         status == 401 -> "AUTH_REQUIRED"
         status in setOf(403, 429) && remaining == "0" -> "GITHUB_PRIMARY_RATE_LIMITED"

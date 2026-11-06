@@ -88,15 +88,22 @@ jobs:
       - name: Provision verified Robolectric runtimes
         timeout-minutes: 10
         run: python3 scripts/provision_robolectric_sdks.py
-      # Release KSP processor state before compiling in the same 3 GiB heap
-      # ceiling, then release compiler state before starting test workers.
+      # Run 42164047441 exhausted the 3 GiB compile heap. Release KSP/KAPT
+      # before the bounded 4 GiB production compile, then release compiler state
+      # before compiling and running tests with the unchanged default bounds.
       - name: Generate production sources in a separate process
         timeout-minutes: 10
         shell: bash
         run: |
           set -o pipefail
           chmod +x gradlew
-          python3 scripts/gradle_retry.py --timeout-seconds 540 -- :app:kspDebugKotlin --no-daemon --max-workers=1 --console=plain 2>&1 | tee audit-ksp.log
+          python3 scripts/gradle_retry.py --timeout-seconds 540 -- :app:kspDebugKotlin :app:kaptDebugKotlin --no-daemon --max-workers=1 --console=plain 2>&1 | tee audit-ksp.log
+      - name: Compile production sources in a separate process
+        timeout-minutes: 20
+        shell: bash
+        run: |
+          set -o pipefail
+          python3 scripts/gradle_retry.py --timeout-seconds 1140 -- :app:compileDebugKotlin :app:compileDebugJavaWithJavac --no-daemon --max-workers=1 --console=plain '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8' 2>&1 | tee audit-production-compile.log
       - name: Compile unit tests in a separate process
         timeout-minutes: 20
         shell: bash
@@ -118,6 +125,7 @@ jobs:
           name: audit-unit-results-${{ github.run_attempt }}
           path: |
             audit-ksp.log
+            audit-production-compile.log
             audit-unit-compile.log
             audit-unit.log
             app/build/test-results/testDebugUnitTest

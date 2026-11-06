@@ -740,6 +740,71 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
         }
     }
 
+    /** Export immutable research pages individually; never reassemble a whole evidence corpus. */
+    internal suspend fun streamDiagnosticRecords(
+        chatId: Int,
+        maximumBytes: Int,
+        beforeRead: suspend () -> Unit,
+        consume: suspend (JsonObject) -> Unit,
+        omitted: (String) -> Unit
+    ) = withContext(Dispatchers.IO) {
+        require(chatId > 0 && maximumBytes in 4096..512 * 1024)
+        lock.withReadLock {
+            if (chatId in deletedChats) {
+                omitted("RESEARCH_CONVERSATION_DELETED")
+                return@withReadLock
+            }
+            val live = mutable.value.values.filter { it.chatId == chatId }.associateBy { it.runId }.toMutableMap()
+            val pages = ResearchDiagnosticPages(
+                directory,
+                maximumBytes,
+                beforeRead,
+                read = { file, limit ->
+                    ResearchAtomicFiles.locked(file) {
+                        AtomicFile(file).openRead().use { input ->
+                            if (input.channel.size() !in 1..limit.toLong()) {
+                                throw ResearchDiagnosticPageFailure("RESEARCH_PAGE_UNAVAILABLE_OR_OVER_BUDGET")
+                            }
+                            readResearchDiagnosticPage(input, limit)
+                        }
+                    }
+                },
+                consume = consume,
+                omitted = omitted
+            )
+            // DirectoryStream avoids building a list of every retained page/session on a low heap.
+            if (directory.isDirectory) {
+                java.nio.file.Files.newDirectoryStream(directory.toPath(), "*.json").use { paths ->
+                    for (path in paths) {
+                        beforeRead()
+                        val entry = sessionIndex.metadata(path.toFile())
+                        if (entry == null) {
+                            omitted("RESEARCH_SESSION_METADATA_UNAVAILABLE")
+                            continue
+                        }
+                        if (entry.chatId != chatId) continue
+                        live.remove(entry.runId)
+                        pages.session(entry.file, chatId, entry.runId, entry.authority)
+                    }
+                }
+            }
+            for (session in live.values) {
+                beforeRead()
+                // A live-only session is explicitly missing; serializing it could rebuild
+                // the entire corpus that caused the original heap failure.
+                omitted("RESEARCH_SESSION_NOT_YET_PERSISTED")
+                consume(
+                    buildJsonObject {
+                        put("kind", "live_session_metadata")
+                        put("runId", session.runId)
+                        put("updatedAt", session.snapshot.updatedAt)
+                        put("reason", "RESEARCH_SESSION_NOT_YET_PERSISTED")
+                    }
+                )
+            }
+        }
+    }
+
     suspend fun deleteChat(chatId: Int) = withContext(Dispatchers.IO) {
         featureDatabase?.let { database ->
             database.withTransaction {

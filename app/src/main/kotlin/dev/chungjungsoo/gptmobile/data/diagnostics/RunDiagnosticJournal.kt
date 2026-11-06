@@ -318,8 +318,10 @@ internal class RunDiagnosticJournal(
         }.onFailure { failed = true }
     }
 
-    /** Read on an IO worker. Frozen stream watermarks exclude subsequent samples. */
-    suspend fun snapshot(runIds: Set<String>): RunJournalSnapshot {
+    /** Read on an IO worker. Frozen watermarks exclude later samples; byteLimit bounds retained event JSON as well as decrypted batches. */
+    suspend fun snapshot(runIds: Set<String>, byteLimit: Long = maxSnapshotBytes, eventLimit: Int = maxSnapshotEvents): RunJournalSnapshot {
+        val boundedBytes = byteLimit.coerceIn(1, maxSnapshotBytes)
+        val boundedEvents = eventLimit.coerceIn(1, maxSnapshotEvents)
         val (watermarks, queued) = synchronized(lock) {
             runIds.associate { "$sessionId:$it" to (sequences[it] ?: 0L) } to (pending + inFlight).filter { it.runId in runIds }
         }
@@ -330,7 +332,11 @@ internal class RunDiagnosticJournal(
             val prefixes = runIds.map { "journal-${identity(it)}-" }
             for (reference in vault.references().filter { ref -> prefixes.any(ref::startsWith) }.sortedByDescending { it.split('-').getOrNull(2)?.toLongOrNull() ?: 0L }) {
                 try {
-                    if (snapshotBytes >= maxSnapshotBytes || events.size >= maxSnapshotEvents) {
+                    if (snapshotBytes >= boundedBytes || events.size >= boundedEvents) {
+                        missing++
+                        continue
+                    }
+                    if (vault.storedSize(reference)?.let { it > boundedBytes - snapshotBytes } == true) {
                         missing++
                         continue
                     }
@@ -340,7 +346,7 @@ internal class RunDiagnosticJournal(
                     } else {
                         try {
                             snapshotBytes += bytes.size
-                            if (snapshotBytes > maxSnapshotBytes) {
+                            if (snapshotBytes > boundedBytes) {
                                 missing++
                             } else {
                                 events += json.decodeFromString<List<RunDiagnosticEvent>>(bytes.decodeToString())
@@ -361,8 +367,19 @@ internal class RunDiagnosticJournal(
             missing++
         }
         val candidates = (events + queued).distinctBy { it.eventId }.filter { it.runId in runIds && synchronized(lock) { it.runId !in privateRuns } && it.sequence <= (watermarks[it.streamId] ?: Long.MAX_VALUE) }.sortedWith(compareBy<RunDiagnosticEvent> { it.capturedAtMillis }.thenBy { it.streamId }.thenBy { it.sequence })
-        // Include queued events in the same cap and keep the newest evidence.
-        val retained = candidates.takeLast(maxSnapshotEvents)
+        // Include queued/in-flight events in both caps and keep the newest evidence.
+        // Serialize one bounded event at a time; never materialize the entire event array.
+        val retained = ArrayList<RunDiagnosticEvent>(minOf(candidates.size, boundedEvents))
+        var retainedBytes = 2L // JSON array brackets.
+        for (event in candidates.asReversed()) {
+            if (retained.size >= boundedEvents) break
+            val eventBytes = json.encodeToString(event).toByteArray(Charsets.UTF_8).size.toLong()
+            val required = eventBytes + if (retained.isEmpty()) 0 else 1
+            if (retainedBytes + required > boundedBytes) continue
+            retained += event
+            retainedBytes += required
+        }
+        retained.reverse()
         val frozen = retained.groupBy { it.streamId }.mapValues { (_, rows) -> rows.maxOf { it.sequence } } + watermarks
         return RunJournalSnapshot(
             events = retained,

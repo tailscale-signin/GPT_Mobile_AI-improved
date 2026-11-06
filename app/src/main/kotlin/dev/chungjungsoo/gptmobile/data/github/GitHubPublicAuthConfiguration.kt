@@ -29,7 +29,7 @@ internal data class GitHubPublicAuthConfiguration(val clientId: String, val brok
         }
         if (pairs.map { it.first }.distinct().size != pairs.size) return false
         val params = pairs.toMap()
-        params["client_id"] == clientId && params["redirect_uri"] == callbackUri && params["code_challenge_method"] == "S256"
+        params["client_id"] == clientId && params["redirect_uri"] == "${brokerOrigin.trimEnd('/')}/oauth/github/callback" && params["code_challenge_method"] == "S256"
     }.getOrDefault(false)
 
     companion object {

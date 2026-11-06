@@ -2,8 +2,12 @@ package dev.chungjungsoo.gptmobile.data.agent.tool
 
 import android.app.Application
 import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkStore
+import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection
+import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionAuthType
+import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionType
 import dev.chungjungsoo.gptmobile.data.repository.ToolConnectionRepository
 import dev.chungjungsoo.gptmobile.data.security.SecretVault
+import io.mockk.coEvery
 import io.mockk.mockk
 import java.security.MessageDigest
 import kotlinx.coroutines.CancellationException
@@ -132,7 +136,20 @@ class GitHubEngineeringControllerIntegrationTest {
             }
             override fun cancel(taskId: String) = Unit
         }
-        fun createController() = GitHubEngineeringController(context, mockk<ToolConnectionRepository>(), mockk<SecretVault>(), factory, mockk<BenchmarkStore>(), queue)
+        val connection = ToolConnection(
+            connectionUid = "connection",
+            name = "GitHub fixture",
+            alias = "github-fixture",
+            type = ToolConnectionType.GITHUB,
+            endpointUrl = "https://api.github.com",
+            authType = ToolConnectionAuthType.BEARER,
+            secretRef = null,
+            oauthClientId = null
+        )
+        val connections = mockk<ToolConnectionRepository> {
+            coEvery { getConnection(connection.connectionUid) } returns connection
+        }
+        fun createController() = GitHubEngineeringController(context, connections, mockk<SecretVault>(), factory, mockk<BenchmarkStore>(), queue)
         var controller = createController()
         val taskId = controller.prepare("connection", "owner", "repo", "fix/workflow", base, listOf(EngineeringFilePatch("A.kt", "before", if (delete) "" else "after", delete)), "Fix")
         suspend fun state() = controller.recent().single { it.taskId == taskId }.state

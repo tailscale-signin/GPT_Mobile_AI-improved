@@ -48,8 +48,8 @@ data class GitHubRepositoryContext(val owner: String, val repo: String, val ref:
 class GitHubWorkspaceClient(
     private var token: String,
     private val client: HttpClient = sharedClient,
-    private val responseCache: GitHubResponseCache = if (client === sharedClient) GitHubSessionCaches.forCredential(token) else GitHubResponseCache(),
-    private val rateLimits: GitHubRateLimitManager = if (client === sharedClient) GitHubSessionCaches.rateLimitsForCredential(token) else GitHubRateLimitManager(),
+    responseCache: GitHubResponseCache? = null,
+    rateLimits: GitHubRateLimitManager? = null,
     private val conditionalReads: Boolean = true,
     private val blobCache: Boolean = true,
     private val freshnessSeconds: Int = 15,
@@ -58,17 +58,22 @@ class GitHubWorkspaceClient(
     private val taskId: String = "",
     private val persistentState: Boolean = true,
     stateStore: GitHubRepositoryStateStore? = null,
-    private val scheduler: GitHubRequestScheduler = if (client === sharedClient) GitHubSessionCaches.schedulerForCredential(token) else GitHubRequestScheduler(),
+    scheduler: GitHubRequestScheduler? = null,
     private val requestPriority: Int = 0,
-    private val authenticationRejected: java.util.concurrent.atomic.AtomicBoolean = if (client === sharedClient) GitHubSessionCaches.authenticationForCredential(token) else java.util.concurrent.atomic.AtomicBoolean(),
+    authenticationRejected: java.util.concurrent.atomic.AtomicBoolean? = null,
     private val engineeringPrepare: (suspend (String, JsonObject) -> JsonObject)? = null,
     private val durableIdentity: String = GitHubRepositoryStateStore.digest(token),
     private val legacyCredentialIdentities: List<String> = emptyList(),
-    private val credentialProvider: (suspend () -> String)? = null
+    private val credentialProvider: (suspend () -> String)? = null,
+    private val apiOrigins: GitHubApiOrigins = GitHubApiOrigins.GITHUB_COM
 ) {
+    private val responseCache = responseCache ?: if (client === sharedClient) GitHubSessionCaches.forCredential(token, apiOrigins.hostIdentity) else GitHubResponseCache()
+    private val rateLimits = rateLimits ?: if (client === sharedClient) GitHubSessionCaches.rateLimitsForCredential(token, apiOrigins.hostIdentity) else GitHubRateLimitManager()
+    private val scheduler = scheduler ?: if (client === sharedClient) GitHubSessionCaches.schedulerForCredential(token, apiOrigins.hostIdentity) else GitHubRequestScheduler()
+    private val authenticationRejected = authenticationRejected ?: if (client === sharedClient) GitHubSessionCaches.authenticationForCredential(token, apiOrigins.hostIdentity) else java.util.concurrent.atomic.AtomicBoolean()
+
     companion object {
         const val API_VERSION = "2026-03-10"
-        private const val API_ROOT = "https://api.github.com"
 
         private val sharedClient by lazy {
             HttpClient(OkHttp) {
@@ -112,7 +117,7 @@ class GitHubWorkspaceClient(
         }
     }
 
-    private val repositoryState = if (persistentState) stateStore ?: if (client === sharedClient) GitHubSessionCaches.stateForCredential(token) else GitHubRepositoryStateStore() else GitHubRepositoryStateStore()
+    private val repositoryState = if (persistentState) stateStore ?: if (client === sharedClient) GitHubSessionCaches.stateForCredential(token, apiOrigins.hostIdentity) else GitHubRepositoryStateStore() else GitHubRepositoryStateStore()
     private val repositorySession by lazy {
         GitHubRepositorySession(
             durableIdentity,
@@ -418,10 +423,10 @@ class GitHubWorkspaceClient(
         require(result["type"]?.jsonPrimitive?.content == "file") { "Only regular text files can be opened." }
         require(result["encoding"]?.jsonPrimitive?.content == "base64") { "File is too large for this workspace. Read a smaller file." }
         val sha = result["sha"]?.jsonPrimitive?.content.orEmpty()
-        val content = (if (blobCache) responseCache.getDecodedBlob(sha) else null) ?: run {
+        val content = (if (blobCache) responseCache.getDecodedBlob("${apiOrigins.rest}:$durableIdentity:$root:$sha") else null) ?: run {
             val bytes = Base64.getMimeDecoder().decode(result["content"]?.jsonPrimitive?.content.orEmpty())
             require(bytes.size <= 2 * 1024 * 1024 && bytes.none { it == 0.toByte() }) { "Workspace supports UTF-8 ingestion up to 2 MiB." }
-            bytes.decodeToString(throwOnInvalidSequence = true).also { if (blobCache) responseCache.putDecodedBlob(sha, it) }
+            bytes.decodeToString(throwOnInvalidSequence = true).also { if (blobCache) responseCache.putDecodedBlob("${apiOrigins.rest}:$durableIdentity:$root:$sha", it) }
         }
         val lines = content.split('\n')
         val start = startField.ifBlank { "1" }.toInt()
@@ -1002,7 +1007,7 @@ class GitHubWorkspaceClient(
                     ?: error("comment_id is required.")
                 require(body.isNotBlank() && body.length <= 10_000) { "A reply body of 1–10,000 characters is required." }
                 val comment = request("$root/pulls/comments/$commentId").jsonObject
-                val expectedUrl = "$API_ROOT$root/pulls/$number"
+                val expectedUrl = "${apiOrigins.rest}$root/pulls/$number"
                 val commentUrl = comment["pull_request_url"]?.jsonPrimitive?.content.orEmpty()
                 require(commentUrl == expectedUrl) { "The review comment does not belong to the selected pull request." }
                 request(
@@ -1645,7 +1650,7 @@ class GitHubWorkspaceClient(
         val expectedHead = args["expected_head_sha"]?.jsonPrimitive?.content.orEmpty()
         val head = run?.get("head_sha")?.jsonPrimitive?.content.orEmpty().ifBlank { resolvedJob["head_sha"]?.jsonPrimitive?.content.orEmpty() }
         require(expectedHead.isBlank() || expectedHead == head) { "CI evidence belongs to a different commit." }
-        val log = GitHubCiLogReader(client, token, scheduler, responseCache, requestPriority, authenticationRejected).read("$root/actions/jobs/$resolvedJobId/logs", resolvedJob["status"]?.jsonPrimitive?.content == "completed")
+        val log = GitHubCiLogReader(client, token, scheduler, responseCache, requestPriority, authenticationRejected, apiOrigins).read("$root/actions/jobs/$resolvedJobId/logs", resolvedJob["status"]?.jsonPrimitive?.content == "completed")
         val safeLog = dev.chungjungsoo.gptmobile.data.diagnostics.redactLogMessage(log.text).let { if (token.isNotBlank()) it.replace(token, "[REDACTED]") else it }
         val lines = safeLog.split('\n')
         val failure = Regex("error|failed|failure|exception|fatal|traceback|exit code", RegexOption.IGNORE_CASE)
@@ -1768,7 +1773,7 @@ class GitHubWorkspaceClient(
             scheduler.recordRequest()
             val readOnlyQuery = !query.trimStart().startsWith("mutation")
             if (readOnlyQuery) GitHubDispatchAccounting.started(false)
-            val response = client.githubRequest("https://api.github.com/graphql") {
+            val response = client.githubRequest(apiOrigins.graphQl) {
                 method = HttpMethod.Post
                 header(HttpHeaders.Accept, "application/vnd.github+json")
                 header(HttpHeaders.UserAgent, "GPT-Mobile-App")
@@ -1846,7 +1851,7 @@ class GitHubWorkspaceClient(
         refreshCredential()
         if (authenticated || method != HttpMethod.Get) require(token.isNotBlank()) { "A GitHub credential is required." }
         check(!authenticationRejected.get()) { "GitHub authentication was rejected (HTTP 401). Reconnect the GitHub account before retrying any operation." }
-        val cacheKey = "${method.value}:$path"
+        val cacheKey = "${apiOrigins.rest}:$durableIdentity:${GitHubRepositoryStateStore.digest(token)}:${method.value}:$path"
         val cacheable = conditionalReads && method == HttpMethod.Get && path != "/rate_limit"
         val cached = if (cacheable) responseCache.get(cacheKey) else null
         // Mutable branch heads and permission checks are always revalidated.
@@ -1861,7 +1866,7 @@ class GitHubWorkspaceClient(
             return cached.value
         }
         return GitHubReadRetry.run(readOnly = method == HttpMethod.Get) {
-            scheduler.execute(if (method == HttpMethod.Get && immutablePath(path)) cacheKey else null, priority = requestPriority) {
+            scheduler.execute(if (method == HttpMethod.Get) cacheKey else null, priority = requestPriority) {
                 try {
                     check(!authenticationRejected.get()) { "GitHub authentication was rejected (HTTP 401). Reconnect the GitHub account before retrying any operation." }
                     if (path != "/rate_limit") rateLimits.requireAvailable(if (path.startsWith("/search/")) "search" else "core")
@@ -1872,7 +1877,7 @@ class GitHubWorkspaceClient(
                 scheduler.recordRequest()
                 if (method != HttpMethod.Get) GitHubMutationAttempts.dispatched()
                 GitHubDispatchAccounting.started(method != HttpMethod.Get)
-                val response = client.githubRequest("https://api.github.com$path") {
+                var response = client.githubRequest("${apiOrigins.rest}$path") {
                     this.method = method
                     header(HttpHeaders.Accept, "application/vnd.github+json")
                     header(HttpHeaders.UserAgent, "GPT-Mobile-App")
@@ -1886,6 +1891,22 @@ class GitHubWorkspaceClient(
                 }
                 GitHubDispatchAccounting.responded(method != HttpMethod.Get, response.status.value)
                 rateLimits.record(response.headers, response.status.value)
+                if (response.status.value == 304 && cached == null && method == HttpMethod.Get) {
+                    // A validator without its body is unusable. One unconditional
+                    // read recovers an evicted body; a repeated 304 is an error.
+                    rateLimits.requireAvailable(if (path.startsWith("/search/")) "search" else "core")
+                    scheduler.recordRequest()
+                    GitHubDispatchAccounting.started(false)
+                    response = client.githubRequest("${apiOrigins.rest}$path") {
+                        header(HttpHeaders.Accept, "application/vnd.github+json")
+                        header(HttpHeaders.UserAgent, "GPT-Mobile-App")
+                        header("X-GitHub-Api-Version", API_VERSION)
+                        if (token.isNotBlank()) header(HttpHeaders.Authorization, "Bearer $token")
+                    }
+                    GitHubDispatchAccounting.responded(false, response.status.value)
+                    rateLimits.record(response.headers, response.status.value)
+                    check(response.status.value != 304) { "GITHUB_CACHE_BODY_MISSING: unconditional revalidation returned no body." }
+                }
                 if (response.status.value == 304 && cached != null) {
                     responseCache.put(cacheKey, cached.etag, cached.value)
                     scheduler.recordCacheHit()

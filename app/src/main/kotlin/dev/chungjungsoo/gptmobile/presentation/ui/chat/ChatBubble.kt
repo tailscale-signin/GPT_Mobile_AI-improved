@@ -439,6 +439,7 @@ fun OpponentChatBubble(
                         outputTrace = agentRun?.let { dev.chungjungsoo.gptmobile.data.diagnostics.OutputTraceOwner(it.runId, it.ownershipFence, "0", it.assistantMessageId, it.profileUid) },
                         animateResponse = debugSettings.responseAnimation, timeline = contentTimeline,
                         proseColor = profileColorIdentity?.let { ProfileAttributionPalette.foreground(it, bubbleColor.compositeOver(MaterialTheme.colorScheme.background)) },
+                        responseSurface = bubbleColor.compositeOver(MaterialTheme.colorScheme.background),
                         toolEvents = processToolEvents,
                         fallbackText = text,
                         fallbackThoughts = visibleThoughts,

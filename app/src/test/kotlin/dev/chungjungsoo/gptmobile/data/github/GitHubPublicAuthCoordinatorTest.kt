@@ -39,7 +39,7 @@ class GitHubPublicAuthCoordinatorTest {
         val vault = MemoryVault()
         val repository = mockk<ToolConnectionRepository>()
         val origin = "https://auth.example.org"
-        val callback = "$origin/oauth/github/callback"
+        val callback = "$origin/oauth/github/complete"
         val state = "s".repeat(43)
         val config = GitHubPublicAuthConfiguration("Iv1.project", origin, callback)
         var connection = ToolConnection("github", "GitHub", "github", "GITHUB", null, "OAUTH", null, null)
@@ -50,21 +50,25 @@ class GitHubPublicAuthCoordinatorTest {
         var token = "ghu_first"
         var expiresIn = 28800
         var uncertainRefresh = false
+        var lostRedemptionResponse = false
         val http = HttpClient(
             MockEngine { request ->
                 val response = when {
                     request.url.encodedPath.endsWith("/start") -> {
                         val verifier = java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(ByteArray(32))
-                        val params = mapOf("client_id" to config.clientId, "redirect_uri" to callback, "state" to state, "code_challenge" to GitHubPublicAuthClient.challenge(verifier), "code_challenge_method" to "S256", "scope" to "offline_access")
+                        val params = mapOf("client_id" to config.clientId, "redirect_uri" to "$origin/oauth/github/callback", "state" to state, "code_challenge" to GitHubPublicAuthClient.challenge(verifier), "code_challenge_method" to "S256", "scope" to "offline_access")
                         buildJsonObject {
                             put("state", state)
                             put("expiresIn", 600)
-                            put("redirectUri", callback)
+                            put("redirectUri", "$origin/oauth/github/callback")
+                            put("appLinkUri", callback)
+                            put("protocolVersion", 2)
                             put("authorizationUrl", "https://github.com/login/oauth/authorize?" + params.entries.joinToString("&") { URLEncoder.encode(it.key, "UTF-8") + "=" + URLEncoder.encode(it.value, "UTF-8") })
                         }.toString()
                     }
-                    request.url.encodedPath.endsWith("/exchange") -> {
+                    request.url.encodedPath.endsWith("/redeem") -> {
                         exchanges++
+                        if (lostRedemptionResponse) throw IOException("Redemption response lost")
                         """{"access_token":"$token","refresh_token":"ghr_first","token_type":"bearer","expires_in":$expiresIn,"refresh_token_expires_in":15897600}"""
                     }
                     request.url.encodedPath.endsWith("/refresh") -> {
@@ -99,7 +103,7 @@ class GitHubPublicAuthCoordinatorTest {
         fun coordinator(configuration: GitHubPublicAuthConfiguration = config) = GitHubPublicAuthCoordinator(repository, vault, configuration, { now }, { GitHubPublicAuthClient(http, origin, callback, config.clientId, { now }, { ByteArray(it) }) }, { access ->
             GitHubPublicAuthCoordinator.Account(if (access == "ghu_second_account") "2" else "1", "coder")
         }, { clientId, refreshToken -> GitHubDeviceAuthClient(http, wallMillis = { now }).refresh(clientId, refreshToken) })
-        fun validCallback() = "$callback?state=$state&code=private-code"
+        fun validCallback() = "$callback?state=$state&ticket=${"t".repeat(43)}"
         override fun close() {
             http.close()
             GitHubSessionCaches.credentialReconnected("ghu_first")
@@ -225,13 +229,31 @@ class GitHubPublicAuthCoordinatorTest {
         }
     }
 
+    @Test fun lostTicketResponseSurvivesRestartAndResumesTheSameBinding() = runBlocking {
+        Fixture().use { f ->
+            val first = f.coordinator()
+            first.begin("github")
+            f.lostRedemptionResponse = true
+            assertTrue(runCatching { first.complete(f.validCallback()) }.isFailure)
+            assertTrue(first.canResumeAuthorization())
+            val pending = f.vault.read(GitHubPublicAuthCoordinator.PENDING_REFERENCE)!!
+            assertFalse(pending.decodeToString().contains("private-code"))
+            f.lostRedemptionResponse = false
+            val restarted = f.coordinator()
+            assertTrue(restarted.canResumeAuthorization())
+            assertEquals("1", restarted.resumePendingAuthorization().id)
+            assertFalse(restarted.canResumeAuthorization())
+            assertEquals(2, f.exchanges) // two ticket requests; broker test proves one GitHub exchange
+        }
+    }
+
     @Test fun wrongStateCannotConsumeThePendingTransactionAndDenialDoesNotExchange() = runBlocking {
         Fixture().use { f ->
             val coordinator = f.coordinator()
             coordinator.begin("github")
-            assertTrue(runCatching { coordinator.complete("${f.callback}?state=wrong&code=private-code") }.isFailure)
+            assertTrue(runCatching { coordinator.complete("${f.callback}?state=wrong&ticket=${"t".repeat(43)}") }.isFailure)
             assertTrue(f.vault.read(GitHubPublicAuthCoordinator.PENDING_REFERENCE) != null)
-            assertTrue(runCatching { coordinator.complete("${f.callback}?state=${f.state}&error=access_denied") }.isFailure)
+            assertTrue(runCatching { coordinator.complete("${f.callback}?state=${f.state}&error=authorization_declined") }.isFailure)
             assertEquals(null, f.vault.read(GitHubPublicAuthCoordinator.PENDING_REFERENCE))
             assertEquals(0, f.exchanges)
         }

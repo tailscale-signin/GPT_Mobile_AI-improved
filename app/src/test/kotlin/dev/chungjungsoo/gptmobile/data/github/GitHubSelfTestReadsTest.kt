@@ -79,4 +79,17 @@ class GitHubSelfTestReadsTest {
         assertEquals(JsonPrimitive(2), GitHubSelfTestReads.next(tools, listOf(jobs, failed(1)))?.arguments?.get("job_id"))
         assertEquals(null, GitHubSelfTestReads.next(tools, listOf(jobs, failed(1), failed(2))))
     }
+
+    @Test fun runAndJobReadsCarryTheObservedRevisionConstraint() {
+        val sha = "a".repeat(40)
+        val status = json("""{"trusted":true,"success":true,"tool":"github_context","arguments":{"action":"status"},"result":{"commit_sha":"$sha","ref":"main"}}""")
+        val runs = json("""{"trusted":true,"success":true,"tool":"github_ci","arguments":{"action":"runs"},"result":{"workflow_runs":[{"id":7,"head_sha":"$sha","status":"completed","conclusion":"success"}]}}""")
+        val jobs = json("""{"trusted":true,"success":true,"tool":"github_ci","arguments":{"action":"jobs"},"result":{"jobs":[{"id":9,"run_id":7,"status":"completed","conclusion":"success"}]}}""")
+        for (action in listOf("run", "status", "jobs", "artifacts", "job", "logs")) {
+            val next = requireNotNull(GitHubSelfTestReads.next(listOf(tool("github_ci", action)), listOf(status, runs, jobs).filterNot { action == "jobs" && it == jobs }))
+            assertEquals(action, JsonPrimitive(sha), next.arguments["expected_head_sha"])
+            assertEquals(action, JsonPrimitive(7), next.arguments["run_id"])
+        }
+        assertEquals(JsonPrimitive("main"), GitHubSelfTestReads.next(listOf(tool("github_context", "branch")), listOf(status))?.arguments?.get("branch"))
+    }
 }

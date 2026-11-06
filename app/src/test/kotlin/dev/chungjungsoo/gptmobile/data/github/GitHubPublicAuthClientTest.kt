@@ -20,17 +20,19 @@ import org.junit.Test
 
 class GitHubPublicAuthClientTest {
     private val origin = "https://auth.example.org"
-    private val callback = "$origin/oauth/github/callback"
+    private val callback = "$origin/oauth/github/complete"
     private val state = "s".repeat(43)
     private val verifier = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
     private val challenge = GitHubPublicAuthClient.challenge(verifier)
     private fun encoded(value: String) = URLEncoder.encode(value, "UTF-8")
     private fun startResponse(host: String = "github.com"): String {
-        val params = mapOf("client_id" to "Iv1.project", "redirect_uri" to callback, "state" to state, "code_challenge" to challenge, "code_challenge_method" to "S256", "scope" to "offline_access")
+        val params = mapOf("client_id" to "Iv1.project", "redirect_uri" to "$origin/oauth/github/callback", "state" to state, "code_challenge" to challenge, "code_challenge_method" to "S256", "scope" to "offline_access")
         val uri = "https://$host/login/oauth/authorize?" + params.entries.joinToString("&") { encoded(it.key) + "=" + encoded(it.value) }
         return buildJsonObject {
             put("state", state)
-            put("redirectUri", callback)
+            put("redirectUri", "$origin/oauth/github/callback")
+            put("appLinkUri", callback)
+            put("protocolVersion", 2)
             put("expiresIn", 600)
             put("authorizationUrl", uri)
         }.toString()
@@ -52,6 +54,9 @@ class GitHubPublicAuthClientTest {
                 } else {
                     assertEquals(verifier, value.getValue("codeVerifier").jsonPrimitive.content)
                     assertEquals(state, value.getValue("state").jsonPrimitive.content)
+                    assertEquals("t".repeat(43), value.getValue("ticket").jsonPrimitive.content)
+                    assertFalse("code" in value)
+                    assertEquals(verifier, value.getValue("clientSessionId").jsonPrimitive.content)
                     respond("""{"access_token":"ghu_private","refresh_token":"ghr_private","token_type":"bearer","expires_in":28800,"refresh_token_expires_in":15897600}""", headers = headersOf(HttpHeaders.ContentType, "application/json"))
                 }
             }
@@ -61,7 +66,7 @@ class GitHubPublicAuthClientTest {
                 val start = client.begin("account-connection")
                 assertFalse(start.toString().contains(state))
                 assertFalse(start.pending.toString().contains(verifier))
-                val token = client.complete(start.pending, "$callback?code=private-code&state=$state")
+                val token = client.complete(start.pending, "$callback?ticket=${"t".repeat(43)}&state=$state")
                 assertEquals("ghu_private", token.accessToken)
                 assertEquals(28_801_000L, token.expiresAt)
                 assertFalse(token.toString().contains("ghu_private"))
@@ -132,7 +137,7 @@ class GitHubPublicAuthClientTest {
         try {
             GitHubPublicAuthClient(successful, origin, callback, "Iv1.project", { 1000 }, { ByteArray(it) }).use { client ->
                 val pending = client.begin("connection").pending
-                val failure = runCatching { client.complete(pending, "$callback?state=$state&error=access_denied&error_description=secret-upstream-body") }.exceptionOrNull()
+                val failure = runCatching { client.complete(pending, "$callback?state=$state&error=authorization_declined") }.exceptionOrNull()
                 assertTrue(failure?.message.orEmpty().contains("declined"))
                 assertFalse(failure?.message.orEmpty().contains("secret-upstream-body"))
             }

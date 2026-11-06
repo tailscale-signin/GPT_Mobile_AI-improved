@@ -114,7 +114,7 @@
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="https" android:host="${githubAuthCallbackHost}" android:path="/oauth/github/callback" />
+                <data android:scheme="https" android:host="${githubAuthCallbackHost}" android:path="/oauth/github/complete" />
             </intent-filter>
         </activity>
         <activity android:name=".presentation.ui.setting.McpMediaActivity" android:exported="false" />

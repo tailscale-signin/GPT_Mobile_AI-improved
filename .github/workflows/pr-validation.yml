@@ -69,8 +69,24 @@ jobs:
         timeout-minutes: 10
         run: python3 scripts/provision_robolectric_sdks.py
 
-      # Cold compilation consumed about 15 minutes of the old 25-minute test
-      # deadline. Bound compilation separately so the complete suite can finish.
+      # Release KSP/KAPT/compiler graphs between phases. Run 42144027027
+      # exhausted the bounded 3 GiB heap when generating and compiling together.
+      - name: Generate unit-test production sources
+        timeout-minutes: 15
+        shell: bash
+        run: |
+          set -o pipefail
+          python3 scripts/gradle_retry.py -- :app:kspDebugKotlin :app:kaptDebugKotlin --no-daemon --console=plain --max-workers=1 2>&1 | tee unit-generation.log
+
+      - name: Compile unit-test production sources
+        timeout-minutes: 25
+        shell: bash
+        run: |
+          set -o pipefail
+          # Run 42164047298 exhausted 3 GiB even after separate KSP/KAPT.
+          # The same revision compiled in CodeQL's bounded 4 GiB process.
+          python3 scripts/gradle_retry.py -- :app:compileDebugKotlin :app:compileDebugJavaWithJavac --no-daemon --console=plain --max-workers=1 '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8' 2>&1 | tee unit-production.log
+
       - name: Compile unit tests in a separate process
         timeout-minutes: 25
         shell: bash
@@ -105,7 +121,7 @@ jobs:
         if: always()
         run: python3 scripts/check_room_schemas.py
 
-      - name: Verify recovery and exports with a 256 MiB Java heap
+      - name: Verify recovery and exports with constrained Java heaps
         id: heap_recovery
         timeout-minutes: 10
         shell: bash
@@ -115,6 +131,8 @@ jobs:
             --tests '*ResearchSessionStoreHeapTest' --tests '*StreamingDebugBundleTest' \
             --tests '*BenchmarkStreamingExportHeapTest' \
             --tests '*BenchmarkColdStreamingExportHeapTest' 2>&1 | tee heap.log
+          python3 scripts/gradle_retry.py -- -I scripts/heap-stress.init.gradle :app:testDebugUnitTest --no-daemon \
+            -Pgptmobile.diagnosticHeapStress=true --tests '*StagedDiagnosticCaptureHeapTest' 2>&1 | tee -a heap.log
 
       - name: Publish Test Results
         uses: mikepenz/action-junit-report@a9170d5795813c01ab4901ffb045b52bab4ab09d # v6.5.0
@@ -171,7 +189,7 @@ jobs:
 
       - name: Collect structured failure diagnostics
         if: always()
-        run: python3 scripts/collect_ci_diagnostics.py unit-compile.log test.log lint.log heap.log apk.log
+        run: python3 scripts/collect_ci_diagnostics.py unit-generation.log unit-production.log unit-compile.log test.log lint.log heap.log apk.log
 
       - name: Upload validation logs
         if: always()
@@ -181,6 +199,8 @@ jobs:
           name: pr-validation-logs
           path: |
             ci-diagnostics.json
+            unit-generation.log
+            unit-production.log
             unit-compile.log
             test.log
             heap.log
@@ -188,6 +208,7 @@ jobs:
             apk.log
             apk-size-report.json
             app/build/test-results/heapRecovery/*.xml
+            app/build/test-results/diagnosticHeapRecovery/*.xml
             app/build/reports/reliability-ui/*.png
             build/reports/profile/*-metrics.json
             build/reports/configuration-cache-verification/*.log
@@ -208,7 +229,7 @@ jobs:
             echo "| Validation | Result |"
             echo "| --- | --- |"
             printf '| Unit tests and coverage | %s |\n' "${UNIT_TEST_OUTCOME:-not run}"
-            printf '| 256 MiB recovery and export gate | %s |\n' "${HEAP_RECOVERY_OUTCOME:-not run}"
+            printf '| 256 MiB recovery and 64 MiB diagnostic export gates | %s |\n' "${HEAP_RECOVERY_OUTCOME:-not run}"
             printf '| APK build and runtime verification | %s |\n' "${REVIEW_APK_OUTCOME:-not run}"
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -228,21 +249,21 @@ jobs:
           sudo timeout --kill-after=15s 180s apt-get "${apt_options[@]}" update
           sudo env DEBIAN_FRONTEND=noninteractive timeout --kill-after=15s 180s apt-get "${apt_options[@]}" install --no-install-recommends -y glslc libvulkan-dev spirv-headers
 
-      # Cold lint otherwise retains KSP and compiler state in one 3 GiB JVM.
-      # Keep the same heap/worker bounds and release each phase before lint.
+      # Release KSP/KAPT before cold compilation, and compilation before lint.
+      # Only compilation needs the observed 4 GiB bound; lint keeps its defaults.
       - name: Generate production sources before lint in a separate process
         timeout-minutes: 10
         shell: bash
         run: |
           set -o pipefail
-          python3 scripts/gradle_retry.py --timeout-seconds 540 -- :app:kspDebugKotlin --no-daemon --max-workers=1 --console=plain 2>&1 | tee lint-ksp.log
+          python3 scripts/gradle_retry.py --timeout-seconds 540 -- :app:kspDebugKotlin :app:kaptDebugKotlin --no-daemon --max-workers=1 --console=plain 2>&1 | tee lint-ksp.log
 
       - name: Compile production sources before lint in a separate process
         timeout-minutes: 20
         shell: bash
         run: |
           set -o pipefail
-          python3 scripts/gradle_retry.py --timeout-seconds 1140 -- :app:compileDebugKotlin :app:compileDebugJavaWithJavac --no-daemon --max-workers=1 --console=plain 2>&1 | tee lint-compile.log
+          python3 scripts/gradle_retry.py --timeout-seconds 1140 -- :app:compileDebugKotlin :app:compileDebugJavaWithJavac --no-daemon --max-workers=1 --console=plain '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8' 2>&1 | tee lint-compile.log
 
       - name: Run Android Lint
         id: android_lint
@@ -318,7 +339,7 @@ jobs:
           python3 -m pip install --require-hashes -r gateway/requirements.txt
           python3 -m py_compile gateway/gateway*.py
           python3 gateway/check_gateway.py
-          python3 -m unittest authentication.test_github_broker authentication.test_app
+          python3 -m unittest authentication.test_github_broker authentication.test_app authentication.test_ticket_broker
 
   format:
     name: Changed Kotlin formatting

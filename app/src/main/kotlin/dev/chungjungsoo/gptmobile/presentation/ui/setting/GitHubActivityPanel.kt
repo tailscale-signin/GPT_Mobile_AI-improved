@@ -53,7 +53,7 @@ internal class GitHubActivityViewModel @Inject constructor(private val workspace
     fun load(connection: ToolConnection, selection: GitHubRepositoryContext, chatId: Int) = viewModelScope.launch(Dispatchers.IO) {
         try {
             val token = auth.accessToken(connection)
-            GitHubWorkspaceClient(token).execute(
+            GitHubWorkspaceClient(token, apiOrigins = dev.chungjungsoo.gptmobile.data.github.GitHubApiOrigins.fromEndpoint(connection.endpointUrl)).execute(
                 "get_repository",
                 buildJsonObject {
                     put("owner", selection.owner)

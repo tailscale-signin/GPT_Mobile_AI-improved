@@ -14,10 +14,20 @@ class FrameDurationHistogramTest {
         assertEquals(10, histogram.percentileUpperMs(95))
         assertEquals(155, histogram.percentileUpperMs(99))
         assertEquals(5, histogram.stallsOver100Ms)
+        assertEquals(1, histogram.stallsOver500Ms)
         assertTrue(histogram.overflow)
         histogram.clear()
         assertEquals(0, histogram.percentileUpperMs(99))
         assertEquals(0, histogram.stallsOver100Ms)
+        assertEquals(0, histogram.stallsOver500Ms)
         assertFalse(histogram.overflow)
+    }
+
+    @Test fun severeStallThresholdUsesTheActualDurationInsteadOfTheQuantileBucket() {
+        val histogram = FrameDurationHistogram()
+        histogram.add(500_000_000)
+        assertEquals(0, histogram.stallsOver500Ms)
+        histogram.add(500_000_001)
+        assertEquals(1, histogram.stallsOver500Ms)
     }
 }

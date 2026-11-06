@@ -752,7 +752,7 @@ class AgentRunCoordinator @Inject constructor(
         var firstVisibleOutput = false
         AppLogRecorder.record("Agent", "RUN_EXECUTION_STARTED · runId=${request.runId} · chatId=${request.chatId} · phase=PREPARATION · providerDispatched=unknown")
         var assistantMessage = request.assistantMessage
-        val recoveryMarkers = request.assistantMessage.timeline.filter { it.recovery?.generationId == request.runId || it.combinedTurn != null || it.writerIdentity != null }
+        val recoveryMarkers = request.assistantMessage.timeline.filter { it.recovery?.generationId == request.runId || it.combinedTurn != null || it.writerIdentity != null || it.generation?.responseSource != null }
         var committedPrefix = request.assistantMessage.content.takeIf { request.runId.startsWith("combined-synthesis:") }.orEmpty()
         var lastCheckpointAt = 0L
         var firstAnswerCheckpoint = false
@@ -827,6 +827,7 @@ class AgentRunCoordinator @Inject constructor(
                     )
                 }
                 val outcome = response.flowOn(researchLifecycle ?: kotlin.coroutines.EmptyCoroutineContext).collectApiStateUpdates(
+                    restoredTimeline = request.assistantMessage.timeline,
                     onUpdate = { content, thoughts, timeline ->
                         if (!firstVisibleOutput && content.isNotBlank()) {
                             firstVisibleOutput = true

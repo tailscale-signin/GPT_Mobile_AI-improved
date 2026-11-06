@@ -114,14 +114,27 @@ jobs:
           sudo env DEBIAN_FRONTEND=noninteractive timeout --kill-after=15s 180s apt-get "${apt_options[@]}" install --no-install-recommends -y glslc libvulkan-dev spirv-headers
       - name: Validate Android resources
         run: python3 scripts/check_android_resources.py
-      # Match PR validation's bounded processes: release compiler state before
-      # tests or lint, and retain the repository's one-worker and 3 GiB ceilings.
+      # Release KSP/KAPT and compiler state between phases. Run 42164047485
+      # exhausted 3 GiB; only cold production compilation uses 4 GiB, matching
+      # the successful CodeQL build of the same revision. Keep one worker.
       - name: Generate release validation sources in a separate process
         timeout-minutes: 10
-        run: python3 scripts/gradle_retry.py --timeout-seconds 540 -- :app:kspDebugKotlin --no-daemon --max-workers=1 --console=plain
+        shell: bash
+        run: |
+          set -o pipefail
+          python3 scripts/gradle_retry.py --timeout-seconds 540 -- :app:kspDebugKotlin :app:kaptDebugKotlin --no-daemon --max-workers=1 --console=plain 2>&1 | tee release-validation-generation.log
+      - name: Compile release validation production sources in a separate process
+        timeout-minutes: 20
+        shell: bash
+        run: |
+          set -o pipefail
+          python3 scripts/gradle_retry.py --timeout-seconds 1140 -- :app:compileDebugKotlin :app:compileDebugJavaWithJavac --no-daemon --max-workers=1 --console=plain '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8' 2>&1 | tee release-validation-production.log
       - name: Compile release validation tests in a separate process
         timeout-minutes: 25
-        run: python3 scripts/gradle_retry.py -- :app:compileDebugUnitTestKotlin :app:compileDebugUnitTestJavaWithJavac --no-daemon --max-workers=1 --console=plain
+        shell: bash
+        run: |
+          set -o pipefail
+          python3 scripts/gradle_retry.py -- :app:compileDebugUnitTestKotlin :app:compileDebugUnitTestJavaWithJavac --no-daemon --max-workers=1 --console=plain 2>&1 | tee release-validation-unit-compile.log
       - name: Run release validation unit tests
         timeout-minutes: 25
         run: python3 scripts/gradle_retry.py -- :app:testDebugUnitTest --no-daemon --max-workers=1 --console=plain
@@ -132,10 +145,16 @@ jobs:
       # A cold lint run otherwise retains KSP and compiler state in the same JVM.
       - name: Generate release sources in a separate process
         timeout-minutes: 10
-        run: python3 scripts/gradle_retry.py --timeout-seconds 540 -- :app:kspReleaseKotlin --no-daemon --max-workers=1 --console=plain
+        shell: bash
+        run: |
+          set -o pipefail
+          python3 scripts/gradle_retry.py --timeout-seconds 540 -- :app:kspReleaseKotlin :app:kaptReleaseKotlin --no-daemon --max-workers=1 --console=plain 2>&1 | tee release-generation.log
       - name: Compile release sources in a separate process
         timeout-minutes: 20
-        run: python3 scripts/gradle_retry.py --timeout-seconds 1140 -- :app:compileReleaseKotlin :app:compileReleaseJavaWithJavac --no-daemon --max-workers=1 --console=plain
+        shell: bash
+        run: |
+          set -o pipefail
+          python3 scripts/gradle_retry.py --timeout-seconds 1140 -- :app:compileReleaseKotlin :app:compileReleaseJavaWithJavac --no-daemon --max-workers=1 --console=plain '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8' 2>&1 | tee release-production.log
       - name: Verify release compatibility and lint
         timeout-minutes: 45
         run: python3 scripts/gradle_retry.py -- :app:checkReleaseAarMetadata :app:lintRelease --no-daemon --max-workers=1 --console=plain
@@ -145,6 +164,8 @@ jobs:
           retention-days: 14
           name: release-validation-${{ github.sha }}
           path: |
+            release-*.log
+            app/build/test-results/testDebugUnitTest/
             app/build/reports/tests/
             app/build/reports/lint-results-*
   build:
@@ -210,6 +231,7 @@ jobs:
         env:
           EXPECTED_CERT_SHA256: ${{ vars.RELEASE_CERT_SHA256 }}
           GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.validate.outputs.tag }}
         run: |
           set -euo pipefail
           APKSIGNER="$ANDROID_HOME/build-tools/37.0.0/apksigner"
@@ -275,7 +297,7 @@ jobs:
           test "$BUNDLE_CERT" = "$EXPECTED_CERT_SHA256" || { echo 'Bundle certificate continuity check failed'; exit 1; }
           curl --fail --location --retry 3 --output "$RUNNER_TEMP/bundletool.jar" https://github.com/google/bundletool/releases/download/1.18.3/bundletool-all-1.18.3.jar
           echo "a099cfa1543f55593bc2ed16a70a7c67fe54b1747bb7301f37fdfd6d91028e29  $RUNNER_TEMP/bundletool.jar" | sha256sum --check --strict
-          BUNDLETOOL_JAR="$RUNNER_TEMP/bundletool.jar" python3 scripts/verify_release_identity.py release-artifacts "$GITHUB_SHA"
+          EXPECTED_CERT_SHA256="$EXPECTED_CERT_SHA256" BUNDLETOOL_JAR="$RUNNER_TEMP/bundletool.jar" python3 scripts/verify_release_identity.py release-artifacts "$GITHUB_SHA"
           (cd release-artifacts && sha256sum *.apk *.aab provenance.json > SHA256SUMS.txt)
       - uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26 # v4.1.0
         with:
@@ -297,8 +319,24 @@ jobs:
           if [[ "$PRERELEASE" == true ]]; then FLAGS+=(--prerelease); fi
           NOTES=()
           if [[ -f RELEASE_NOTES.md ]]; then NOTES+=(--notes-file RELEASE_NOTES.md); else NOTES+=(--generate-notes); fi
-          gh release create "$TAG" release-artifacts/* --target "$GITHUB_SHA" --title "$TAG" --draft "${FLAGS[@]}" "${NOTES[@]}"
-          gh release edit "$TAG" --draft=false
+          # A lost response may have created the draft. Reconcile its tag and
+          # downloaded assets before continuing; never replay the creation.
+          if ! gh release create "$TAG" release-artifacts/* --target "$GITHUB_SHA" --title "$TAG" --draft "${FLAGS[@]}" "${NOTES[@]}"; then
+            python3 scripts/verify_published_release.py --repository "$GITHUB_REPOSITORY" --artifacts release-artifacts --output build/reports/release-upload.json
+          fi
+          python3 scripts/verify_published_release.py --repository "$GITHUB_REPOSITORY" --artifacts release-artifacts --output build/reports/release-upload.json
+          if ! gh release edit "$TAG" --draft=false; then
+            python3 scripts/verify_published_release.py --repository "$GITHUB_REPOSITORY" --artifacts release-artifacts --published --output build/reports/release-publication.json
+          fi
+          python3 scripts/verify_published_release.py --repository "$GITHUB_REPOSITORY" --artifacts release-artifacts --published --output build/reports/release-publication.json
+      - name: Retain exact release and publication receipts
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          retention-days: 14
+          name: release-evidence-${{ github.sha }}
+          path: build/reports/release-*.json
+          if-no-files-found: ignore
       - name: Remove signing material
         if: always()
         run: |

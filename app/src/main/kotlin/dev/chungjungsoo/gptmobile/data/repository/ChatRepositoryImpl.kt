@@ -5396,7 +5396,18 @@ class ChatRepositoryImpl(
                         )
                     }
 
-                    is ProviderEvent.GatewayMetadataCaptured -> providerEvent.metadata.jobId?.let { agentRunDao.bindGatewayJob(runId, it, platform.apiUrl) }
+                    is ProviderEvent.GatewayMetadataCaptured -> {
+                        emit(
+                            ApiState.ResponseSourceCaptured(
+                                dev.chungjungsoo.gptmobile.data.database.entity.ResponseSource(
+                                    transport = dev.chungjungsoo.gptmobile.data.database.entity.ResponseTransport.GATEWAY,
+                                    profileUid = platform.uid,
+                                    modelId = platform.model
+                                )
+                            )
+                        )
+                        providerEvent.metadata.jobId?.let { agentRunDao.bindGatewayJob(runId, it, platform.apiUrl) }
+                    }
                     is ProviderEvent.GatewayProgressUpdate -> {
                         gatewayTelemetrySeen = true
                         val gatewayToolEvent = trace.gateway(providerEvent.progress)

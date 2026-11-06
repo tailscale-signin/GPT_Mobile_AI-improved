@@ -140,7 +140,7 @@ class ToolConnectionsViewModel @Inject constructor(
         refresh()
     }
 
-    fun refresh() {
+    fun refresh(probeHealth: Boolean = false) {
         _uiState.update { it.copy(errorMessage = null) }
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             runCatching {
@@ -154,13 +154,14 @@ class ToolConnectionsViewModel @Inject constructor(
                         throw cancelled
                     } catch (_: Exception) { /* One unreadable receipt cannot hide healthy connections. */ }
                 }
-                Triple(connections, features, accounts to gitHubPublicAuth?.pendingConnectionUid())
+                Triple(connections, features, Triple(accounts, gitHubPublicAuth?.pendingConnectionUid(), gitHubPublicAuth?.canResumeAuthorization() == true))
             }.onSuccess { (connections, features, github) ->
                 _uiState.update { state ->
                     state.copy(
                         connections = connections,
                         gitHubAccounts = github.first,
                         gitHubPublicSignInUid = github.second,
+                        gitHubAuthorizationResumable = github.third,
                         pluginStates = features.toolPluginStates,
                         remoteMcpEnabled = features.remoteMcpConnections,
                         connectionHealth = state.connectionHealth.filterKeys { uid ->
@@ -168,7 +169,7 @@ class ToolConnectionsViewModel @Inject constructor(
                         }
                     )
                 }
-                if (features.remoteMcpConnections) {
+                if (probeHealth && features.remoteMcpConnections) {
                     probeConnections(connections)
                 }
             }.onFailure(::showError)
@@ -422,14 +423,18 @@ class ToolConnectionsViewModel @Inject constructor(
                                     ToolConnectionHealth(
                                         status = ToolConnectionHealthStatus.LIMITED,
                                         toolCount = 0,
-                                        message = "Connected, but the server advertised no tools.",
+                                        message = "No tools advertised; tool execution not measured.",
                                         checkedAt = System.currentTimeMillis()
                                     )
                                 } else {
                                     ToolConnectionHealth(
                                         status = ToolConnectionHealthStatus.ONLINE,
                                         toolCount = tools.size,
-                                        message = "Online",
+                                        message = "Schema discovery ready. Tool execution: " + when (mcpClientManager.healthSnapshot(connection.connectionUid).executionVerified) {
+                                            true -> "Observed success"
+                                            false -> "Observed failure"
+                                            null -> "Not measured"
+                                        },
                                         checkedAt = System.currentTimeMillis()
                                     )
                                 }
@@ -537,10 +542,37 @@ class ToolConnectionsViewModel @Inject constructor(
         }
     }
 
+    fun resumeGitHubAuthorization() {
+        if (oauthStartJob?.isActive == true || _uiState.value.isOAuthBusy) return
+        val auth = gitHubPublicAuth ?: return
+        oauthStartJob = viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            _uiState.update { it.copy(isOAuthBusy = true, errorMessage = null) }
+            try {
+                val connectionUid = requireNotNull(auth.pendingConnectionUid()) { "No pending GitHub sign-in remains." }
+                auth.resumePendingAuthorization()
+                revokeToolGrants(connectionUid)
+                refresh()
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                showError(failure)
+            } finally {
+                val resumable = try {
+                    auth.canResumeAuthorization()
+                } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    false
+                }
+                _uiState.update { it.copy(isOAuthBusy = false, gitHubAuthorizationResumable = resumable) }
+            }
+        }
+    }
+
     fun cancelGitHubSignIn() {
         gitHubSetupJob?.cancel()
         oauthStartJob?.cancel()
-        _uiState.update { it.copy(gitHubSignIn = null, gitHubPublicSignInUid = null, isOAuthBusy = false) }
+        _uiState.update { it.copy(gitHubSignIn = null, gitHubPublicSignInUid = null, gitHubAuthorizationResumable = false, isOAuthBusy = false) }
         viewModelScope.launch {
             try {
                 gitHubPublicAuth?.cancel()
@@ -645,7 +677,14 @@ class ToolConnectionsViewModel @Inject constructor(
                     } catch (_: Exception) {
                         null
                     }
-                    _uiState.update { it.copy(isOAuthBusy = false, gitHubPublicSignInUid = pending) }
+                    val resumable = try {
+                        publicAuth.canResumeAuthorization()
+                    } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                        throw cancelled
+                    } catch (_: Exception) {
+                        false
+                    }
+                    _uiState.update { it.copy(isOAuthBusy = false, gitHubPublicSignInUid = pending, gitHubAuthorizationResumable = resumable) }
                 }
             }
             return
@@ -680,6 +719,7 @@ class ToolConnectionsViewModel @Inject constructor(
     data class ToolConnectionsUiState(
         val connections: List<ToolConnection> = emptyList(),
         val gitHubAccounts: Map<String, dev.chungjungsoo.gptmobile.data.github.GitHubPublicAuthCoordinator.Account> = emptyMap(),
+        val gitHubAuthorizationResumable: Boolean = false,
         val gitHubPublicSignInUid: String? = null,
         val pluginStates: Map<String, Boolean> = emptyMap(),
         val remoteMcpEnabled: Boolean = true,

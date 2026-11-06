@@ -6,6 +6,8 @@ internal class FrameDurationHistogram {
     private var total = 0
     var stallsOver100Ms = 0
         private set
+    var stallsOver500Ms = 0
+        private set
     val overflow: Boolean get() = counts.last() > 0
 
     fun add(nanos: Long) {
@@ -13,6 +15,7 @@ internal class FrameDurationHistogram {
         counts[(value / 5_000_000L).coerceAtMost(200).toInt()]++
         total++
         if (value > 100_000_000L) stallsOver100Ms++
+        if (value > 500_000_000L) stallsOver500Ms++
     }
 
     fun percentileUpperMs(percent: Int): Int {
@@ -31,5 +34,6 @@ internal class FrameDurationHistogram {
         counts.fill(0)
         total = 0
         stallsOver100Ms = 0
+        stallsOver500Ms = 0
     }
 }

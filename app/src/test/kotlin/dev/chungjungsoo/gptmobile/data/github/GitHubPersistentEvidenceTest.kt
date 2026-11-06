@@ -291,6 +291,73 @@ class GitHubPersistentEvidenceTest {
         assertEquals(5, blobReads)
     }
 
+    @Test fun workflowDefinitionOmissionKeepsIndependentRowsAndCanBeRecovered() = runTest {
+        var blobReads = 0
+        var missing = true
+        val entries = (1..3).map { item(".github/workflows/build$it.yml", sha(it), 80) }
+        val client = session(GitHubRepositoryStateStore(), request = { path ->
+            when {
+                "/commits/" in path -> commit(head, headTree)
+                "/git/trees/" in path -> tree(entries)
+                else -> {
+                    blobReads++
+                    if (path.substringAfterLast('/') == sha(2) && missing) throw java.io.IOException("connection interrupted")
+                    blob(path.substringAfterLast('/'), "name: Build\non: [push]\njobs:\n  test:\n    runs-on: ubuntu-latest")
+                }
+            }
+        })
+        val partial = client.execute("workflow_catalog", "owner", "repo", args()).jsonObject
+        assertEquals(JsonPrimitive(2), partial["captured_definition_count"])
+        assertEquals(JsonPrimitive(1), partial["unavailable_definition_count"])
+        assertEquals(JsonPrimitive(false), partial["page_complete"])
+        val omitted = partial.getValue("workflows").jsonArray[1].jsonObject
+        assertEquals(JsonPrimitive("GITHUB_TRANSIENT_NETWORK"), omitted.getValue("definition").jsonObject["error_code"])
+        missing = false
+        val recovered = client.execute("workflow_catalog", "owner", "repo", omitted.getValue("recovery").jsonObject).jsonObject
+        assertEquals(JsonPrimitive(true), recovered["page_complete"])
+        assertEquals(1, recovered.getValue("workflows").jsonArray.size)
+        assertEquals(4, blobReads)
+    }
+
+    @Test fun malformedAndOversizedWorkflowBlobsKeepValidNeighborsAndAreNotCachedAsSuccess() = runTest {
+        for (kind in listOf("oversized", "binary", "base64")) {
+            var invalidReads = 0
+            val store = GitHubRepositoryStateStore()
+            val client = session(store, request = { path ->
+                when {
+                    "/commits/" in path -> commit(head, headTree)
+                    "/git/trees/" in path -> tree((1..3).map { item(".github/workflows/build$it.yml", sha(it), if (it == 2 && kind == "oversized") 2 * 1024 * 1024 + 1 else 80) })
+                    path.endsWith("/git/blobs/${sha(2)}") -> {
+                        invalidReads++
+                        if (kind == "binary") {
+                            blob(sha(2), "binary\u0000content")
+                        } else {
+                            buildJsonObject {
+                                put("sha", sha(2))
+                                put("encoding", "base64")
+                                put("content", "a")
+                            }
+                        }
+                    }
+                    else -> blob(path.substringAfterLast('/'), "name: Build\non: [push]\njobs: {}")
+                }
+            })
+            repeat(2) {
+                val page = client.execute("workflow_catalog", "owner", "repo", args()).jsonObject
+                assertEquals(JsonPrimitive(2), page["captured_definition_count"])
+                assertEquals(JsonPrimitive(1), page["unavailable_definition_count"])
+                assertEquals(JsonPrimitive(false), page["page_complete"])
+                val rows = page.getValue("workflows").jsonArray
+                assertEquals(JsonPrimitive(true), rows.first().jsonObject.getValue("definition").jsonObject["metadata_available"])
+                assertEquals(JsonPrimitive(true), rows.last().jsonObject.getValue("definition").jsonObject["metadata_available"])
+                val invalid = rows[1].jsonObject
+                assertEquals(JsonPrimitive(false), invalid["cache_hit"])
+                assertEquals(JsonPrimitive(if (kind == "oversized") "GITHUB_BLOB_CONTENT_LIMIT" else "GITHUB_BLOB_CONTENT_INVALID"), invalid.getValue("definition").jsonObject["error_code"])
+            }
+            assertEquals(if (kind == "oversized") 0 else 2, invalidReads)
+        }
+    }
+
     @Test fun filteredSearchCachesPagesAndRestartsChangedContinuationIdentity() = runTest {
         var fetched = 0
         val entries = (0 until 7).map { item("src/File$it.kt", sha(it + 1), 30) } + item("src/Other.py", sha(99), 30)

@@ -9,6 +9,8 @@ import time
 import requests
 
 from gateway_v13_runtime import GatewayContractError, consume_sse, validate_completion_tools, visible_answer_text
+from v14.inference_execution import before_physical_dispatch, observe_physical_response, selected_dispatch_headers
+from v14.debug import diagnostic_trace_headers
 
 
 def _nonnegative_int(value):
@@ -106,6 +108,7 @@ def post_chat(
     progress,
     finish_grace_seconds=2.0,
     terminal_grace_seconds=None,
+    headers=None,
 ):
     """One model round, at most one repair, and one shared deadline/output allowance.
 
@@ -130,7 +133,7 @@ def post_chat(
     for attempt in range(2):
         response, data = _post_once(
             session, url, request, connect_timeout, idle_timeout, deadline_at,
-            cancelled, progress, finish_grace_seconds,
+            cancelled, progress, finish_grace_seconds, headers,
         )
         if response is not None:
             return response
@@ -175,7 +178,7 @@ def post_chat(
     raise AssertionError("Unreachable completion state")
 
 
-def _post_once(session, url, request, connect_timeout, idle_timeout, deadline_at, cancelled, progress, finish_grace_seconds):
+def _post_once(session, url, request, connect_timeout, idle_timeout, deadline_at, cancelled, progress, finish_grace_seconds, headers=None):
     if cancelled():
         raise InterruptedError("Model request cancelled before sending.")
     remaining = deadline_at - time.monotonic()
@@ -223,7 +226,9 @@ def _post_once(session, url, request, connect_timeout, idle_timeout, deadline_at
             last_progress, last_size = now, size
 
     try:
-        response = session.post(url, json=request, stream=True, timeout=(connect, idle))
+        before_physical_dispatch(url, request)
+        dispatch_headers = {**(headers or {}), **diagnostic_trace_headers(), **selected_dispatch_headers()}
+        response = session.post(url, json=request, stream=True, timeout=(connect, idle), headers=dispatch_headers, allow_redirects=False)
         watcher = threading.Thread(target=watch, daemon=True, name="gateway-backend-deadline")
         watcher.start()
         if response.status_code != 200:
@@ -251,6 +256,7 @@ def _post_once(session, url, request, connect_timeout, idle_timeout, deadline_at
         data["gateway_timing"] = {"backend_first_output_ms": backend_first_output_ms,
                                   "backend_completion_ms": round((time.monotonic() - started) * 1000, 3),
                                   "first_user_visible_text_ms": None}
+        observe_physical_response(data, response)
         return None, data
     except Exception as exc:
         if stopped.is_set() or cancelled():

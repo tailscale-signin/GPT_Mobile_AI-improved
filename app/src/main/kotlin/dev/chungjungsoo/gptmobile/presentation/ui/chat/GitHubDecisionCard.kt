@@ -99,20 +99,15 @@ internal fun GitHubDecisionCard(decision: GitHubChatDecision, waiting: Boolean, 
 internal fun GitHubLiveProgressCard(timeline: List<dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem>, task: String = "", events: List<dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent> = emptyList(), expanded: Boolean = false) {
     val search = remember(events) { gitHubSearchActivity(events) }
     val lines = remember(timeline, task, search != null) { gitHubActivityLines(timeline, task, searchActive = search != null) }
-    androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal = 28.dp, vertical = 8.dp)) {
-        val measurer = androidx.compose.ui.text.rememberTextMeasurer()
-        val density = androidx.compose.ui.platform.LocalDensity.current
-        val summaryStyle = MaterialTheme.typography.titleSmall
-        val width = with(density) { maxWidth.roundToPx() }.coerceAtLeast(1)
-        val lineCounts = remember(lines, width, summaryStyle, density.fontScale, measurer) {
-            lines.map { item ->
-                if (!item.statusSummary) 1 else measurer.measure(item.content, style = summaryStyle, constraints = androidx.compose.ui.unit.Constraints(maxWidth = width), maxLines = 4).lineCount
-            }
-        }
-        val visibleLines = gitHubVisibleActivityLines(lines, !expanded, lineCounts)
+    var visibleEntries by remember(task, expanded) { androidx.compose.runtime.mutableIntStateOf(20) }
+    Column(Modifier.fillMaxWidth().padding(horizontal = 28.dp, vertical = 8.dp)) {
+        val visibleLines = gitHubVisibleActivityLines(lines, compact = true, entryLimit = visibleEntries)
         val latestPreview = visibleLines.lastIndex.takeIf { it >= 0 && !visibleLines[it].statusSummary } ?: -1
         val motion = rememberGitHubProgressMotion(latestPreview >= 0)
         Column(Modifier.fillMaxWidth().testTag("github_live_activity"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (visibleLines.size < lines.size) {
+                TextButton(onClick = { visibleEntries = (visibleEntries + 20).coerceAtMost(lines.size) }, modifier = Modifier.testTag("github_activity_show_earlier")) { Text("Show earlier activity") }
+            }
             visibleLines.forEachIndexed { index, item ->
                 androidx.compose.runtime.key(item.progressId ?: item.content, item.statusSummary) {
                     if (item.statusSummary) {

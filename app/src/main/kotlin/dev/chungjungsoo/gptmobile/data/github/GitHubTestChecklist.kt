@@ -109,6 +109,16 @@ internal object GitHubTestChecklist {
                             }
                         } == true
                 }
+            val definitionPage = page.text("tool").substringBefore("__") == "github_ci" && args.text("action") == "definitions" && "index_cursor" in args
+            val definitionPagesRead = observations.count {
+                it.text("tool") == page.text("tool") &&
+                    (it["arguments"] as? JsonObject)?.let { prior ->
+                        prior.text("action") == "definitions" && "index_cursor" in prior && prior["commit_sha"] == args["commit_sha"]
+                    } == true
+            }
+            // Source definitions are a small, independently bounded inventory. A
+            // sampled run-history page must not strand an issued definition page.
+            if (definitionPage && (exhaustive || definitionPagesRead < 31)) return call(page.text("tool"), args)
             val required = "view_cursor" in args || issueDependency
             // A missing issue dependency must not trigger unbounded remote inventory traversal.
             // Preserve local view fragments, but cap sampled remote pages for ordinary tests.
@@ -124,6 +134,7 @@ internal object GitHubTestChecklist {
     fun nextCall(task: String, tools: List<AgentToolDefinition>, receipts: Map<String, JsonObject>): ProviderEvent.ToolCall? {
         if (!integration(task) || tools.isEmpty()) return null
         val observations = trusted(receipts)
+        continuation(task, tools, receipts, localOnly = true)?.let { return it }
         val watch = tools.firstOrNull { it.name.substringBefore("__") == "github_watch_checks" }
         val selectedHead = observations.asReversed().firstNotNullOfOrNull { receipt ->
             if (!matches(receipt, capabilities.first()) || receipt["success"] != JsonPrimitive(true)) null else data(receipt)?.get("commit_sha")
@@ -143,7 +154,6 @@ internal object GitHubTestChecklist {
                 }
             }
         }
-        continuation(task, tools, receipts, localOnly = true)?.let { return it }
         for (capability in capabilities.filter { it.automatic }) {
             if (observations.any { matches(it, capability) }) continue
             val tool = tools.firstOrNull { it.name.substringBefore("__") == capability.tool } ?: continue
@@ -154,8 +164,8 @@ internal object GitHubTestChecklist {
             }
             val arguments = buildJsonObject {
                 put("action", capability.action)
-                if (capability.action in setOf("branches", "workflows", "list", "commits", "runs")) put("per_page", 5)
-                if (capability.action in setOf("checks", "commits") && head != null) put("commit_sha", head)
+                if (capability.action in setOf("branches", "workflows", "list", "commits", "runs")) put("per_page", if (capability.action == "workflows" || GitHubChecklistScope.exhaustive(task)) 100 else 30)
+                if ((capability.action in setOf("checks", "commits") || capability.action == "runs" && !GitHubChecklistScope.exhaustive(task)) && head != null) put("commit_sha", head)
                 if (capability.action == "list") put("state", "all")
             }
             if (dev.chungjungsoo.gptmobile.data.agent.ToolArgumentValidator.errors(arguments, tool.inputSchema).isNotEmpty()) continue
@@ -363,7 +373,7 @@ internal object GitHubTestChecklist {
         put("capabilities", capabilities)
         put("acceptance_ledger", GitHubAcceptanceLedger.snapshot(capabilities = capabilities, requestDigest = GitHubEvidenceBook.digest(task)))
         put("coverage_source", if (tools.isEmpty()) "BASELINE_CATALOG" else "AUTHORIZED_TOOL_ACTION_SCHEMAS")
-        put("pagination_policy", "Consume all issued local fragments; at most two remote inventory samples, or eight while locating an issue dependency, unless complete inventory is explicitly requested; restore retained pages locally before one bounded read-only source recovery")
+        put("pagination_policy", "Consume all issued local fragments before watches or remote reads; up to 32 definition pages per revision independently of two remote inventory samples, or eight while locating an issue dependency, unless complete inventory is explicitly requested; restore retained pages locally before one bounded read-only source recovery")
         put("acceptance", JsonArray(listOf("Each requested capability has a result or explicit untested/blocker reason", "Every claim cites matching branch/PR/SHA receipts", "Required local and remote pages consumed or pending", "Application test results bound to newly executed runs at tested SHA", "Coverage, measured score or limitation, failures and solutions retained", "Authorized isolated write fixtures verified and cleaned up").map(::JsonPrimitive)))
         put("pending_pages", JsonArray(pendingPages(receipts)))
         put("fixtures", GitHubSelfTestFixtures.checkpoint(receipts))
@@ -403,7 +413,7 @@ internal object GitHubTestChecklist {
         val trusted = trusted(receipts)
         fun filters(receipt: JsonObject): JsonObject {
             val args = receipt["arguments"] as? JsonObject
-            val selected = args.orEmpty().filterKeys { it in setOf("state", "ref", "branch", "commit_sha", "workflow_id", "head", "base", "per_page") }
+            val selected = args.orEmpty().filterKeys { it in setOf("state", "ref", "branch", "commit_sha", "head_sha", "workflow_id", "head", "base", "per_page", "actor", "event", "created", "status") }
             val pageSize = args?.get("per_page") ?: data(receipt)?.get("per_page")
             return JsonObject(if (pageSize == null) selected else selected + ("per_page" to pageSize))
         }

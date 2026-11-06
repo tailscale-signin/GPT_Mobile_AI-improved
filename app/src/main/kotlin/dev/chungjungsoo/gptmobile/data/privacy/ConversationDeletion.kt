@@ -20,6 +20,7 @@ class ConversationDeletion @Inject constructor(private val database: ChatDatabas
         dev.chungjungsoo.gptmobile.data.repository.CombinedSettingsSaveJournal.withExclusiveMutation {
             val files = mutableSetOf<String>()
             rooms.forEach {
+                dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticCaptureStorage.deleteChat(context, it.id)
                 settings?.prepareConversationCombinedDeletion(it.id)
                 combinedBudgetStore?.deleteConversation(it.id)
             }

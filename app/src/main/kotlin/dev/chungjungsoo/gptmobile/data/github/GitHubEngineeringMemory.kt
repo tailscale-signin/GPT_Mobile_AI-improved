@@ -27,7 +27,7 @@ class GitHubEngineeringMemory @Inject constructor(
         if (refreshAuthorization) {
             val token = if (connection.secretRef != null) authentication.accessToken(connection) else ""
             // Authorization reads are always fresh, including anonymous access after disconnect.
-            GitHubWorkspaceClient(token, conditionalReads = false).execute(
+            GitHubWorkspaceClient(token, conditionalReads = false, apiOrigins = GitHubApiOrigins.fromEndpoint(connection.endpointUrl)).execute(
                 "get_repository",
                 buildJsonObject {
                     put("owner", context.owner)

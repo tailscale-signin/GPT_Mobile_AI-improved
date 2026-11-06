@@ -87,6 +87,27 @@ class StagedChatDebugExportTest {
         unmockkAll()
     }
 
+    @Test fun androidChooserGrantsOnlySelectedRecipientAccessToContentArchive() {
+        val uri = android.net.Uri.parse("content://dev.chungjungsoo.gptmobile.fileprovider/diagnostic_exports/evidence.zip")
+        val chooser = chatExportChooser(context, uri, "evidence.zip", "application/zip")
+        assertEquals(android.content.Intent.ACTION_CHOOSER, chooser.action)
+        assertTrue(chooser.flags and android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION != 0)
+        assertNotNull(chooser.clipData)
+        assertEquals(uri, chooser.clipData!!.getItemAt(0).uri)
+        val send = chooser.getParcelableExtra(android.content.Intent.EXTRA_INTENT) as android.content.Intent
+        assertEquals(android.content.Intent.ACTION_SEND, send.action)
+        assertEquals("application/zip", send.type)
+        assertEquals(uri, send.getParcelableExtra(android.content.Intent.EXTRA_STREAM))
+        assertEquals(uri, send.clipData!!.getItemAt(0).uri)
+        assertTrue(send.flags and android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION != 0)
+    }
+
+    @Test fun chooserRejectsFileUrisToPreventUnsafeFileExposure() {
+        assertTrue(runCatching {
+            chatExportChooser(context, android.net.Uri.parse("file:///private/diagnostics.zip"), "diagnostics.zip", "application/zip")
+        }.isFailure)
+    }
+
     @Test fun failedConversationStillExportsLogsProfilesAndToolReceiptsWithoutCredentials() = runBlocking {
         readSection = { section, before, consume ->
             before()

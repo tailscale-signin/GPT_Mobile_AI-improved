@@ -95,15 +95,22 @@ jobs:
         timeout-minutes: 10
         run: python3 scripts/provision_robolectric_sdks.py
 
-      # KSP and Kotlin compilation otherwise retain processor state in one
-      # 3 GiB JVM. A fresh bounded process releases that state before compiling.
+      # Release KSP/KAPT before production compilation, then release the compiler
+      # before compiling and running tests. Run 42164047415 exhausted 3 GiB.
       - name: Generate production sources in a separate process
         timeout-minutes: 10
         shell: bash
         run: |
           set -o pipefail
           chmod +x gradlew
-          python3 scripts/gradle_retry.py --timeout-seconds 540 -- :app:kspDebugKotlin --no-daemon --max-workers=1 --console=plain 2>&1 | tee marketplace-ksp.log
+          python3 scripts/gradle_retry.py --timeout-seconds 540 -- :app:kspDebugKotlin :app:kaptDebugKotlin --no-daemon --max-workers=1 --console=plain 2>&1 | tee marketplace-ksp.log
+
+      - name: Compile production sources in a separate process
+        timeout-minutes: 20
+        shell: bash
+        run: |
+          set -o pipefail
+          python3 scripts/gradle_retry.py --timeout-seconds 1140 -- :app:compileDebugKotlin :app:compileDebugJavaWithJavac --no-daemon --max-workers=1 --console=plain '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8' 2>&1 | tee marketplace-production-compile.log
 
       - name: Compile unit tests in a separate process
         timeout-minutes: 20

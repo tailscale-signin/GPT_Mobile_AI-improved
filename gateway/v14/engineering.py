@@ -18,6 +18,7 @@ from v14.inference_capabilities import InferenceCapabilities
 from v14.inference_scheduler import install_scheduler
 from v14.engineering_artifacts import EngineeringArtifacts
 from v14.engineering_operations import EngineeringOperations
+from v14.debug import capture_context_snapshot, execution_diagnostic_context
 
 PHASES = ('PLAN', 'READ', 'IMPLEMENT', 'REVIEW', 'COMMIT', 'OPEN_PR', 'CI', 'PROMOTE', 'MERGE_READY', 'MERGE', 'VERIFY', 'COMPLETED')
 PAUSED = {'MERGE_READY', 'NEEDS_INPUT', 'COMPLETED', 'CANCELLED'}
@@ -179,6 +180,9 @@ class EngineeringStore:
                'updated_at': now, 'steps': 0, 'milestones': [], 'repairs': {}, 'patches': [], 'stalls': 0,
                'message': 'Queued for repository inspection', 'data': {}, 'approval': None,
                'execution_binding': binding}
+        capture = capture_context_snapshot(principal, self.runtime)
+        if capture is not None:
+            job['diagnostic_capture'] = capture
         def insert(db):
             old = db.execute('SELECT data,state,revision,request_digest FROM engineering_jobs WHERE principal=? AND request_id=?', (principal, request['request_id'])).fetchone()
             if old:
@@ -534,6 +538,11 @@ class EngineeringService:
         if not claimed:
             return
         job, lease, recovering = claimed
+        with execution_diagnostic_context(job.get('diagnostic_capture'), self.store.runtime, job['principal'],
+                                          lambda: self.authorized(job)):
+            self._tick_claimed(job, lease, recovering)
+
+    def _tick_claimed(self, job, lease, recovering):
         phase, output, delay = job['state'], {}, 0
         try:
             self.artifacts.restore_stage(job)
@@ -641,6 +650,8 @@ class EngineeringService:
             output = {'error_type': type(error).__name__}
             if isinstance(error, ExecutionBindingError):
                 output.update(error_code=error.code, dispatched=getattr(error, 'dispatched', False))
+            http_status = getattr(getattr(error, 'response', None), 'status_code', None)
+            http_status = http_status if type(http_status) is int else None
             transient = retry_delay(error, 0) is not None
             job['connection_retries'] = job.get('connection_retries', 0) + 1 if transient else 0
             if not transient:
@@ -668,6 +679,29 @@ class EngineeringService:
                 phase = 'NEEDS_INPUT'
                 job['message'] = str(error)
                 job['data']['blocked_reason'] = {'code': error.code, 'retryable': False, 'binding_id': job['request'].get('execution_binding_id')}
+            elif (isinstance(error, (PermissionError, ValueError, TypeError, InterruptedError)) or
+                  not transient and http_status is not None and 400 <= http_status < 500):
+                # Definitive authorization/contract failures cannot be repaired by
+                # polling the same stage. Mutation reconciliation above retains
+                # precedence: a validation failure never erases a dispatch receipt.
+                status = http_status
+                if status == 401:
+                    code, instruction = 'ENGINEERING_AUTHENTICATION_REQUIRED', 'Restore the host connection authentication'
+                elif status == 403 or isinstance(error, PermissionError):
+                    code, instruction = 'ENGINEERING_ACCESS_DENIED', 'Review execution authority and repository access'
+                elif isinstance(error, InterruptedError):
+                    code, instruction = 'ENGINEERING_EXECUTION_INTERRUPTED', 'Review cancellation, privacy and execution limits'
+                else:
+                    code, instruction = 'ENGINEERING_VALIDATION_REJECTED', 'Review the rejected stage inputs and retained evidence'
+                phase = 'NEEDS_INPUT'
+                job['message'] = instruction + ' before explicitly resuming. Confirmed work is retained; this failure will not retry automatically.'
+                reason = {'code': code, 'retryable': False, 'binding_id': job['request'].get('execution_binding_id')}
+                if status is not None:
+                    reason['http_status'] = status
+                job['data']['blocked_reason'] = reason
+                output.update(error_code=code, retryable=False)
+                if status is not None:
+                    output['http_status'] = status
             else:
                 phase = 'NEEDS_INPUT' if job['stalls'] >= 3 or job['connection_retries'] >= 12 else job['state']
                 delay = min(300, 5 * 2 ** min(6, max(job['stalls'], job['connection_retries'])))

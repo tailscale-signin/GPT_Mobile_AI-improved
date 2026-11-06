@@ -13,8 +13,8 @@ import java.io.File
 import java.io.IOException
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicLong
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -31,15 +31,17 @@ import kotlinx.serialization.json.put
 
 /** Existing GatewayClientDiagnostics owns this bounded IO bridge; no raw AppLogEntry crosses the wire. */
 internal object GatewayDiagnosticBridge {
-    private data class Route(
-        var config: ProviderRequestConfig,
-        var spool: GatewayDiagnosticSpool? = null,
-        var protocol: Int? = null,
-        var gatewayEnabled: Boolean = false,
-        var retryAt: Long = 0,
-        var failures: Int = 0,
-        var error: String? = null
-    )
+    private class Route(@Volatile var config: ProviderRequestConfig) {
+        @Volatile var spool: GatewayDiagnosticSpool? = null
+
+        @Volatile var protocol: Int? = null
+
+        @Volatile var gatewayEnabled = false
+        val synchronization = GatewayDiagnosticRetryGate()
+        val storage = GatewayDiagnosticRetryGate()
+        val dropped = AtomicLong()
+    }
+    private data class Exchange(val route: String, val job: Job)
     private data class Pending(val route: String, val occurredAt: Long, val fields: JsonObject)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val lock = Any()
@@ -47,7 +49,6 @@ internal object GatewayDiagnosticBridge {
     private val privacyEpoch = AtomicLong()
     private val routes = linkedMapOf<String, Route>()
     private val queue = Channel<Pending>(256)
-    private val dropped = AtomicLong()
     private val boot = UUID.randomUUID().toString().replace("-", "")
     private val mutableStatus = MutableStateFlow(GatewayDiagnosticStatus())
     val status = mutableStatus.asStateFlow()
@@ -58,7 +59,7 @@ internal object GatewayDiagnosticBridge {
 
     @Volatile private var activeAt = 0L
 
-    @Volatile private var exchange: Job? = null
+    @Volatile private var exchange: Exchange? = null
     private val http by lazy {
         HttpClient(OkHttp) {
             followRedirects = false
@@ -91,68 +92,66 @@ internal object GatewayDiagnosticBridge {
                 val epoch = privacyEpoch.get()
                 for ((key, route) in selected) {
                     if (!allowed) break
-                    try {
-                        synchronized(storageLock) {
-                            if (epoch == privacyEpoch.get() && allowed) {
-                                var spool = route.spool
-                                if (spool == null) {
-                                    spool = GatewayDiagnosticSpool(File(root, "$key/capture.jsonl"), boot)
-                                    synchronized(lock) { route.spool = spool }
+                    val events = pending.filter { it.route == key }.map { it.occurredAt to it.fields }
+                    if (route.spool == null || events.isNotEmpty() || route.dropped.get() > 0) {
+                        var retained = false
+                        route.storage.run({ allowed && epoch == privacyEpoch.get() && knownRoute(key, route) }) { permitted ->
+                            try {
+                                synchronized(storageLock) {
+                                    if (permitted()) {
+                                        val spool = route.spool ?: GatewayDiagnosticSpool(File(root, "$key/capture.jsonl"), boot).also { route.spool = it }
+                                        val losses = route.dropped.getAndSet(0)
+                                        try {
+                                            if (events.isNotEmpty() || losses > 0) spool.append(events, losses)
+                                            retained = true
+                                        } catch (failure: Exception) {
+                                            route.dropped.addAndGet(losses)
+                                            throw failure
+                                        }
+                                    }
                                 }
-                                val events = pending.filter { it.route == key }.map { it.occurredAt to it.fields }
-                                val losses = if (key == active) dropped.getAndSet(0) else 0
-                                if (events.isNotEmpty() || losses > 0) spool.append(events, losses)
+                            } catch (failure: IOException) {
+                                throw failure as? DiagnosticSyncFailure ?: DiagnosticSyncFailure("DEBUG_STORAGE_UNAVAILABLE")
                             }
                         }
-                    } catch (_: IOException) {
-                        route.error = "DEBUG_STORAGE_UNAVAILABLE"
+                        if (!retained) route.dropped.addAndGet(events.size.toLong())
                     }
                 }
-                val route = synchronized(lock) { routes[active] }
+                val key = active
+                val route = synchronized(lock) { routes[key] }
                 val spool = route?.spool
-                if (route != null && spool != null) {
-                    if (allowed && route.protocol == 2 && route.gatewayEnabled && System.currentTimeMillis() >= route.retryAt && exchange?.isActive != true) {
-                        exchange = launch {
-                            try {
-                                val config = synchronized(lock) { route.config }
-                                val permitted = { allowed && epoch == privacyEpoch.get() }
-                                GatewayDiagnosticSync(spool, GatewayDiagnosticHttpTransport(http, config, permitted), permitted) { change ->
+                if (key != null && route != null) {
+                    if (spool != null &&
+                        allowed &&
+                        route.protocol == 2 &&
+                        route.gatewayEnabled &&
+                        route.storage.snapshot().state == GatewayDiagnosticRetryState.READY &&
+                        route.synchronization.snapshot().state == GatewayDiagnosticRetryState.READY &&
+                        exchange?.job?.isActive != true
+                    ) {
+                        val job = launch(start = CoroutineStart.LAZY) {
+                            route.synchronization.run({ allowed && epoch == privacyEpoch.get() && active == key && knownRoute(key, route) }) { permitted ->
+                                GatewayDiagnosticSync(spool, GatewayDiagnosticHttpTransport(http, route.config, permitted), permitted) { change ->
                                     synchronized(storageLock) { if (permitted()) change() }
                                 }.once()
-                                route.error = null
-                                route.failures = 0
-                            } catch (cancelled: CancellationException) {
-                                throw cancelled
-                            } catch (failure: Exception) {
-                                route.error = (failure as? DiagnosticSyncFailure)?.code ?: "DIAGNOSTIC_TRANSPORT_FAILURE"
-                                route.failures = (route.failures + 1).coerceAtMost(5)
-                                route.retryAt = System.currentTimeMillis() + (1000L shl route.failures).coerceAtMost(30_000)
                             }
                         }
+                        exchange = Exchange(key, job)
+                        job.start()
                     }
-                    if (allowed) {
-                        val snapshot = spool.status()
-                        mutableStatus.value = snapshot.copy(
-                            protocolVersion = route.protocol,
-                            routeDigest = active,
-                            captureState = when {
-                                route.protocol != 2 -> "protocol_unavailable"
-                                !route.gatewayEnabled -> "gateway_disabled"
-                                route.error != null -> "offline_or_blocked"
-                                else -> "recording"
-                            },
-                            storageError = route.error ?: snapshot.storageError
-                        )
-                    }
+                    if (allowed) mutableStatus.value = routeStatus(key, route)
                 }
             }
         }
     }
 
+    private fun knownRoute(key: String, route: Route): Boolean = synchronized(lock) { routes[key] === route }
+
     fun remember(config: ProviderRequestConfig, protocol: Int? = null, gatewayEnabled: Boolean? = null) {
         if (!allowed || directory == null) return
         val key = GatewayClientDiagnostics.routeIdentity(config)
-        synchronized(lock) {
+        val previous = synchronized(lock) {
+            if (!allowed) return
             val route = routes[key]
             if (route == null && routes.size >= 8) {
                 mutableStatus.value = GatewayDiagnosticStatus(captureState = "route_limit", storageError = "DIAGNOSTIC_ROUTE_LIMIT")
@@ -162,9 +161,31 @@ internal object GatewayDiagnosticBridge {
             current.config = config
             if (protocol != null) current.protocol = protocol
             if (gatewayEnabled != null) current.gatewayEnabled = gatewayEnabled
+            val oldExchange = exchange.takeIf { active != key }
+            if (active != key) routes[active]?.synchronization?.pause()
             active = key
             activeAt = System.currentTimeMillis()
+            oldExchange
         }
+        previous?.job?.cancel()
+    }
+
+    /** An explicit refresh applies only to this authenticated route and retains the durable capture. */
+    fun refresh(config: ProviderRequestConfig) {
+        if (!allowed) return
+        val key = GatewayClientDiagnostics.routeIdentity(config)
+        val previous = synchronized(lock) {
+            if (!allowed) return
+            val route = routes[key] ?: return
+            route.config = config
+            route.synchronization.refresh(true)
+            route.storage.refresh(true)
+            if (active != key) routes[active]?.synchronization?.pause()
+            active = key
+            activeAt = System.currentTimeMillis()
+            exchange
+        }
+        previous?.job?.cancel()
     }
 
     fun sessionHeaders(config: ProviderRequestConfig): Map<String, String> {
@@ -176,8 +197,8 @@ internal object GatewayDiagnosticBridge {
     fun event(config: ProviderRequestConfig, fields: JsonObject, occurredAt: Long = System.currentTimeMillis()) {
         if (!allowed || directory == null) return
         val key = GatewayClientDiagnostics.routeIdentity(config)
-        if (synchronized(lock) { key !in routes }) return
-        if (!queue.trySend(Pending(key, occurredAt, GatewayDiagnosticEvent.fields(fields))).isSuccess) dropped.incrementAndGet()
+        val route = synchronized(lock) { routes[key] } ?: return
+        if (!queue.trySend(Pending(key, occurredAt, GatewayDiagnosticEvent.fields(fields))).isSuccess) route.dropped.incrementAndGet()
     }
 
     /** Called by AppLogRecorder's IO consumer, after its private-scope check. Only enum metadata is queued. */
@@ -244,7 +265,14 @@ internal object GatewayDiagnosticBridge {
 
     fun pause() {
         privacyEpoch.incrementAndGet()
-        exchange?.cancel()
+        val previous = synchronized(lock) {
+            routes.values.forEach {
+                it.synchronization.pause()
+                it.storage.pause()
+            }
+            exchange
+        }
+        previous?.job?.cancel()
         while (queue.tryReceive().isSuccess) Unit
         publishPaused()
     }
@@ -256,17 +284,37 @@ internal object GatewayDiagnosticBridge {
     suspend fun statusFor(config: ProviderRequestConfig): GatewayDiagnosticStatus = withContext(Dispatchers.IO) {
         val key = GatewayClientDiagnostics.routeIdentity(config)
         val route = synchronized(lock) { routes[key] }
-        val snapshot = route?.spool?.status() ?: GatewayDiagnosticStatus(captureState = if (allowed) "not_observed" else "disabled")
-        snapshot.copy(
+        if (route == null) {
+            GatewayDiagnosticStatus(
+                routeDigest = key,
+                captureState = when {
+                    AppLogRecorder.privateSessionActive -> "private_session"
+                    !LocalDiagnosticsPolicy.enabled -> "disabled"
+                    else -> "protocol_unavailable"
+                }
+            )
+        } else {
+            routeStatus(key, route)
+        }
+    }
+
+    private fun routeStatus(key: String, route: Route): GatewayDiagnosticStatus {
+        val snapshot = route.spool?.status() ?: GatewayDiagnosticStatus(captureState = "not_observed")
+        val storage = route.storage.snapshot()
+        val synchronization = route.synchronization.snapshot()
+        val failure = storage.error ?: synchronization.error ?: snapshot.storageError
+        return snapshot.copy(
             routeDigest = key,
-            protocolVersion = route?.protocol,
-            storageError = route?.error ?: snapshot.storageError,
+            protocolVersion = route.protocol,
+            storageError = failure,
             captureState = when {
                 AppLogRecorder.privateSessionActive -> "private_session"
                 !LocalDiagnosticsPolicy.enabled -> "disabled"
-                route?.protocol != 2 -> "protocol_unavailable"
+                storage.state == GatewayDiagnosticRetryState.BLOCKED || synchronization.state == GatewayDiagnosticRetryState.BLOCKED -> "sync_blocked"
+                storage.state == GatewayDiagnosticRetryState.EXHAUSTED || synchronization.state == GatewayDiagnosticRetryState.EXHAUSTED -> "retry_exhausted"
+                route.protocol != 2 -> "protocol_unavailable"
                 !route.gatewayEnabled -> "gateway_disabled"
-                route.error != null -> "offline_or_blocked"
+                failure != null -> "retry_wait"
                 else -> snapshot.captureState
             }
         )

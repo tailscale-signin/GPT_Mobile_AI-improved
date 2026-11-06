@@ -29,6 +29,7 @@ internal object GatewayClientDiagnostics {
     fun appEvent(entry: dev.chungjungsoo.gptmobile.data.diagnostics.AppLogEntry) = GatewayDiagnosticBridge.appEvent(entry)
     fun pause() = GatewayDiagnosticBridge.pause()
     fun clear() = GatewayDiagnosticBridge.clear()
+    fun refreshDiagnostics(config: ProviderRequestConfig) = GatewayDiagnosticBridge.refresh(config)
     suspend fun diagnosticStatusFor(config: ProviderRequestConfig) = GatewayDiagnosticBridge.statusFor(config)
     suspend fun diagnosticPage(config: ProviderRequestConfig? = null, offset: Int = 0, failuresOnly: Boolean = true, traceId: String? = null, stages: Set<String> = emptySet()) = GatewayDiagnosticBridge.page(config, offset, failuresOnly, traceId, stages)
     suspend fun exportDiagnostics(destination: java.io.File, config: ProviderRequestConfig? = null) = GatewayDiagnosticBridge.export(config, destination)

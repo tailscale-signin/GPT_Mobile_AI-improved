@@ -10,8 +10,8 @@ import io.ktor.client.request.parameter
 import io.ktor.client.request.prepareGet
 import io.ktor.client.request.preparePost
 import io.ktor.client.request.setBody
-import java.io.IOException
 import kotlinx.coroutines.CancellationException
+import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -20,8 +20,6 @@ internal interface GatewayDiagnosticTransport {
     suspend fun post(batch: JsonObject): JsonObject
     suspend fun read(session: String, after: Long, excludeOrigin: String): JsonObject
 }
-
-internal class DiagnosticSyncFailure(val code: String) : IOException(code)
 
 /** One bounded page per turn. Failed/uncertain uploads are replayed with exactly the same identities. */
 internal class GatewayDiagnosticSync(
@@ -38,7 +36,7 @@ internal class GatewayDiagnosticSync(
             val receipt = transport.post(batch)
             // A privacy/clear transition must not recreate deleted capture storage.
             if (!allowed()) return
-            commit { if (allowed()) spool.acknowledge(receipt) }
+            commit { if (allowed()) spool.acknowledge(receipt, batch) }
         }
         if (!allowed()) return
         val page = transport.read(spool.sessionId, spool.cursor, spool.originId)
@@ -73,7 +71,7 @@ internal class GatewayDiagnosticHttpTransport(
             setBody(content)
         }.execute { response ->
             if (response.status.value !in 200..299) throw DiagnosticSyncFailure(responseCode(response.status.value))
-            Json.parseToJsonElement(response.boundedMetadata(128 * 1024)) as? JsonObject ?: throw DiagnosticSyncFailure("INVALID_DIAGNOSTIC_ACK")
+            decode(response, "INVALID_DIAGNOSTIC_ACK")
         }
     }
 
@@ -94,7 +92,24 @@ internal class GatewayDiagnosticHttpTransport(
             }
         }.execute { response ->
             if (response.status.value !in 200..299) throw DiagnosticSyncFailure(responseCode(response.status.value))
-            Json.parseToJsonElement(response.boundedMetadata(128 * 1024)) as? JsonObject ?: throw DiagnosticSyncFailure("INVALID_DIAGNOSTIC_PAGE")
+            decode(response, "INVALID_DIAGNOSTIC_PAGE")
+        }
+    }
+
+    private suspend fun decode(response: io.ktor.client.statement.HttpResponse, invalidCode: String): JsonObject {
+        checkAllowed()
+        val body = try {
+            response.boundedMetadata(128 * 1024)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: IllegalStateException) {
+            throw DiagnosticSyncFailure("DIAGNOSTIC_RESPONSE_LIMIT")
+        }
+        checkAllowed()
+        return try {
+            Json.parseToJsonElement(body) as? JsonObject ?: throw DiagnosticSyncFailure(invalidCode)
+        } catch (_: SerializationException) {
+            throw DiagnosticSyncFailure(invalidCode)
         }
     }
 
@@ -107,8 +122,12 @@ internal class GatewayDiagnosticHttpTransport(
         403 -> "DIAGNOSTIC_ACCESS_DENIED"
         404, 405 -> "DIAGNOSTIC_SOURCE_UNAVAILABLE"
         409 -> "DIAGNOSTIC_CAPTURE_BLOCKED"
+        410 -> "DIAGNOSTIC_CAPTURE_EXPIRED"
         429 -> "DIAGNOSTIC_BACKPRESSURE"
         503, 507 -> "DEBUG_STORAGE_UNAVAILABLE"
-        else -> "DIAGNOSTIC_TRANSPORT_FAILURE"
+        408, 500, 502, 504 -> "DIAGNOSTIC_TRANSPORT_FAILURE"
+        in 300..399 -> "DIAGNOSTIC_REDIRECT_REJECTED"
+        in 400..499 -> "DIAGNOSTIC_REQUEST_REJECTED"
+        else -> "DIAGNOSTIC_PROTOCOL_FAILURE"
     }
 }

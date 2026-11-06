@@ -110,6 +110,7 @@ class GatewayDiagnosticSpoolTest {
         spool = spool()
         assertEquals(oldSession, spool.sessionId)
         val gap = (spool.batch()["gaps"] as JsonArray).single() as JsonObject
+        assertEquals(spool.originId, gap.diagnosticText("origin_device_pseudonym"))
         assertEquals(1L, gap.diagnosticLong("first"))
         assertEquals(1L, gap.diagnosticLong("last"))
         val (manifest, events) = export(spool)

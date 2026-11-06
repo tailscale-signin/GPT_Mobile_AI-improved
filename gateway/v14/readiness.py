@@ -16,6 +16,7 @@ def observations(runtime, service, backend, journal):
     tools = catalogue.readiness() if catalogue else {}
     debug = getattr(runtime, 'gateway_debug', None)
     diagnostic = debug.snapshot() if debug else {}
+    diagnostic_ready = diagnostic.get('storageReady') if diagnostic.get('debugEnabled') else False
     available = max(0, service.get('maxWorkers', 0) - service.get('activeWorkers', 0))
     model_ready = backend.get('generationReady')
     if backend.get('modelAvailable') is False:
@@ -44,8 +45,8 @@ def observations(runtime, service, backend, journal):
                                      configured=True, ready=not service['draining'] and available > 0,
                                      availableWorkers=available, maximumWorkers=service.get('maxWorkers'),
                                      executionOwner='GATEWAY', retryOwner='GATEWAY'),
-        'diagnostics': component('DISABLED' if not diagnostic.get('debugEnabled') else 'READY' if diagnostic.get('storageReady') else 'STORAGE_UNAVAILABLE',
-                                 configured=debug is not None, ready=bool(diagnostic.get('debugEnabled') and diagnostic.get('storageReady')),
+        'diagnostics': component('DISABLED' if not diagnostic.get('debugEnabled') else 'NOT_MEASURED' if diagnostic_ready is None else 'READY' if diagnostic_ready else 'STORAGE_UNAVAILABLE',
+                                 configured=debug is not None, ready=diagnostic_ready,
                                  evidence='capture_and_storage_state', **diagnostic),
         'durableStorage': component(journal.upper(), configured=journal != 'disabled', ready=journal == 'ready')}
     scheduler = getattr(runtime, 'gateway_inference_scheduler', None)

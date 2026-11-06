@@ -8,6 +8,7 @@ import sys
 import tempfile
 import threading
 from concurrent.futures import ThreadPoolExecutor
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 import zipfile
@@ -16,7 +17,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 from v14.config import Config
-from v14.debug import DebugLogStore, DebugMiddleware, install_routes, diagnostic_trace_headers
+from v14.debug import (DebugLogStore, DebugMiddleware, install_routes, diagnostic_trace_headers,
+                       capture_context_snapshot, execution_diagnostic_context, diagnostic_execution_event,
+                       current_diagnostic_capture, current_diagnostic_trace)
 from v14.diagnostic_events import (DiagnosticSessionJournal, DiagnosticProtocolError, event_identity,
                                   MAX_EVENTS, MAX_EVENT_BYTES, MAX_CAPTURE_SECONDS, sanitize_event, trace_context)
 from v14.identity import Admission
@@ -276,6 +279,125 @@ class DiagnosticProtocolHTTPTests(unittest.TestCase):
         context = trace_context('00-' + '1' * 32 + '-' + '2' * 16 + '-01')
         self.assertEqual('1' * 32, context['trace_id'])
         self.assertEqual('2' * 16, context['parent_span_id'])
+
+
+class DiagnosticExecutionContextTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.now = NOW
+        self.store = DebugLogStore(Path(self.temp.name) / 'debug.jsonl', True, lambda: self.now)
+        self.addCleanup(self.store.stop)
+        self.runtime = SimpleNamespace(gateway_debug=self.store)
+
+    def snapshot(self, owner='paired-owner'):
+        capture = current_diagnostic_capture.set({'session': SESSION, 'started': NOW * 1000,
+            'request_state': {'principal': SimpleNamespace(id=owner)}, 'untrusted': 'private-secret'})
+        trace = current_diagnostic_trace.set({'trace_id': '1' * 32, 'span_id': '2' * 16})
+        try:
+            return capture_context_snapshot('paired-owner', self.runtime)
+        finally:
+            current_diagnostic_trace.reset(trace)
+            current_diagnostic_capture.reset(capture)
+
+    def test_durable_snapshot_keeps_only_admitted_identity_and_worker_context_is_restored(self):
+        snapshot = self.snapshot()
+        self.assertEqual({'schema_version', 'session_id', 'capture_started_at_utc', 'principal_digest', 'trace_id', 'parent_span_id'}, set(snapshot))
+        self.assertNotIn('private-secret', json.dumps(snapshot))
+        self.assertIsNone(self.snapshot('other-owner'))
+
+        def execute():
+            self.assertIsNone(current_diagnostic_capture.get())
+            with execution_diagnostic_context(snapshot, self.runtime, 'paired-owner', lambda: True):
+                self.assertTrue(diagnostic_execution_event(self.runtime, 'paired-owner', 'MODEL_EXECUTION', state='DISPATCHED', dispatched=True))
+            self.assertIsNone(current_diagnostic_capture.get())
+            self.assertIsNone(current_diagnostic_trace.get())
+            self.assertFalse(diagnostic_execution_event(self.runtime, 'paired-owner', 'MODEL_EXECUTION', state='DISPATCHED', dispatched=True))
+
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            pool.submit(execute).result(timeout=5)
+        self.store.flush()
+        _, rows, _ = unpack(self.store.export_session('paired-owner', SESSION))
+        self.assertEqual(1, len(rows))
+        self.assertEqual('1' * 32, rows[0]['trace_id'])
+        self.assertEqual('2' * 16, rows[0]['parent_span_id'])
+        self.assertNotEqual('2' * 16, rows[0]['span_id'])
+        self.assertEqual('operation_dispatch', rows[0]['stage'])
+        self.assertEqual('model', rows[0]['category'])
+
+    def test_capture_rechecks_revocation_disable_and_expiry_before_each_event(self):
+        snapshot = self.snapshot()
+        allowed = [True]
+        with execution_diagnostic_context(snapshot, self.runtime, 'paired-owner', lambda: allowed[0]):
+            allowed[0] = False
+            self.assertFalse(diagnostic_execution_event(self.runtime, 'paired-owner', 'MODEL_EXECUTION'))
+            allowed[0] = True
+            self.store.set_enabled(False)
+            self.assertFalse(diagnostic_execution_event(self.runtime, 'paired-owner', 'MODEL_EXECUTION'))
+            self.store.set_enabled(True)
+            self.now += MAX_CAPTURE_SECONDS + 1
+            self.assertFalse(diagnostic_execution_event(self.runtime, 'paired-owner', 'MODEL_EXECUTION'))
+        for snapshot_value, owner in ((snapshot, 'paired-owner'), (snapshot, 'other-owner'), (None, 'paired-owner')):
+            with execution_diagnostic_context(snapshot_value, self.runtime, owner, lambda: True):
+                self.assertIsNone(current_diagnostic_capture.get())
+                self.assertEqual({}, diagnostic_trace_headers())
+        self.assertEqual(0, self.store.event_queue.qsize())
+        self.assertEqual({}, self.store.origin_sequences)
+
+    def test_execution_error_taxonomy_keeps_failed_prechecks_and_uncertain_dispatch(self):
+        with execution_diagnostic_context(self.snapshot(), self.runtime, 'paired-owner', lambda: True):
+            diagnostic_execution_event(self.runtime, 'paired-owner', 'MODEL_EXECUTION', state='PRECHECK_REJECTED',
+                dispatched=False, error_code='EXECUTION_PARAMETERS_CHANGED', bounded_attributes={'model_digest': 'a' * 64})
+            diagnostic_execution_event(self.runtime, 'paired-owner', 'GITHUB_OPERATION', state='UNKNOWN_OUTCOME',
+                dispatched=True, error_code='TimeoutError', operation_id='operation_' + 'b' * 40)
+        self.store.flush()
+        _, rows, _ = unpack(self.store.export_session('paired-owner', SESSION))
+        self.assertEqual(['error', 'error'], [row['severity'] for row in rows])
+        self.assertEqual(['PRECHECK_REJECTED', 'DISPATCH_UNCERTAIN'], [row['error_code'] for row in rows])
+        self.assertEqual(['not_dispatched', 'unknown'], [row['dispatch_state'] for row in rows])
+        self.assertEqual('reconcile', rows[1]['retry_class'])
+        self.assertEqual(['model', 'tool'], [row['category'] for row in rows])
+        self.assertEqual('a' * 64, rows[0]['bounded_attributes']['model_digest'])
+
+    def test_storage_readiness_requires_an_observed_storage_operation(self):
+        snapshot = self.store.snapshot()
+        self.assertFalse(snapshot['storageChecked'])
+        self.assertIsNone(snapshot['storageReady'])
+        self.store.ingest('paired-owner', batch([event(1)])).result(timeout=5)
+        self.assertTrue(self.store.snapshot()['storageChecked'])
+        self.assertTrue(self.store.snapshot()['storageReady'])
+        self.store.journal.db.set_authorizer(lambda action, table, *_:
+            sqlite3.SQLITE_DENY if action == sqlite3.SQLITE_INSERT and table == 'events' else sqlite3.SQLITE_OK)
+        with self.assertRaises(DiagnosticProtocolError):
+            self.store.ingest('paired-owner', batch([event(2)])).result(timeout=5)
+        self.assertFalse(self.store.snapshot()['storageReady'])
+        self.store.journal.db.set_authorizer(None)
+        self.store.ingest('paired-owner', batch([event(2)])).result(timeout=5)
+        self.assertTrue(self.store.snapshot()['storageReady'])
+
+    def test_overlapping_full_exports_are_rejected_before_allocating_a_second_snapshot(self):
+        self.store.ingest('paired-owner', batch([event(1)])).result(timeout=5)
+        entered, release = threading.Event(), threading.Event()
+        original = self.store.journal.export
+
+        def blocked(*args):
+            entered.set()
+            self.assertTrue(release.wait(5))
+            return original(*args)
+
+        with patch.object(self.store.journal, 'export', side_effect=blocked), ThreadPoolExecutor(max_workers=1) as pool:
+            first = pool.submit(self.store.export_session, 'paired-owner', SESSION)
+            self.assertTrue(entered.wait(5))
+            try:
+                with self.assertRaises(DiagnosticProtocolError) as busy:
+                    self.store.export_session('paired-owner', SESSION)
+                self.assertEqual('DIAGNOSTIC_EXPORT_BUSY', busy.exception.code)
+                self.assertEqual(429, busy.exception.status)
+            finally:
+                release.set()
+            _, rows, _ = unpack(first.result(timeout=5))
+            self.assertEqual(1, len(rows))
+        self.assertEqual(1, len(unpack(self.store.export_session('paired-owner', SESSION))[1]))
 
 
 if __name__ == '__main__':

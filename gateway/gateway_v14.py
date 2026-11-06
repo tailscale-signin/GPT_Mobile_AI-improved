@@ -312,7 +312,8 @@ def doctor():
         backend = "unreachable"
     return {"version": VERSION, "manifest": "valid", "sourceCommit": manifest["sourceCommit"],
             "bindMode": config.mode, "apiKeyRequired": False, "memoryAuthority": "client",
-            "mcpFacade": "disabled", "modernMcp": "not-certified", "backend": backend,
+            "mcpFacade": "disabled", "modernMcp": "stdio-adapter", "backend": backend,
+            "mcpTransportAdapters": capabilities()['mcpTransportAdapters'],
             "loadedModules": {"launcher": str(Path(__file__).with_name("gateway.py")), "composition": __file__, "runtime": runtime.__file__},
             "dependencies": {name: importlib.metadata.version(name) for name in ("fastapi", "uvicorn", "requests", "httpx")},
             "stability": diagnostics(runtime, service),

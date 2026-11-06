@@ -7,7 +7,10 @@ import io.ktor.client.engine.mock.respond
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.content.TextContent
+import io.ktor.utils.io.ByteChannel
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -108,6 +111,36 @@ class GatewayDiagnosticTransportTest {
         assertEquals(1, requests)
     }
 
+    @Test fun cancellationDuringResponseReadPropagatesWithoutBecomingAProtocolFailure() = runTest {
+        val stream = ByteChannel(autoFlush = true)
+        val dispatched = CompletableDeferred<Unit>()
+        val gate = GatewayDiagnosticRetryGate { 0L }
+        var requests = 0
+        http(
+            MockEngine {
+                requests++
+                dispatched.complete(Unit)
+                respond(stream, HttpStatusCode.OK)
+            }
+        ).use { client ->
+            val result = async {
+                try {
+                    gate.run({ true }) { allowed -> GatewayDiagnosticHttpTransport(client, config, allowed).post(batch()) }
+                    false
+                } catch (_: CancellationException) {
+                    true
+                }
+            }
+            dispatched.await()
+            stream.cancel(CancellationException("Capture cancelled while reading"))
+            assertTrue(result.await())
+        }
+        assertEquals(1, requests)
+        assertEquals(GatewayDiagnosticRetryState.READY, gate.snapshot().state)
+        assertNull(gate.snapshot().error)
+        assertEquals(0, gate.snapshot().failures)
+    }
+
     @Test fun oversizedUploadAndDownloadAreRejectedBeforeUnboundedJsonHydration() = runTest {
         var requests = 0
         http(
@@ -128,7 +161,9 @@ class GatewayDiagnosticTransportTest {
             try {
                 transport.read("a".repeat(32), 0, "b".repeat(32))
                 fail("Expected bounded response")
-            } catch (_: IllegalStateException) { }
+            } catch (failure: DiagnosticSyncFailure) {
+                assertEquals("DIAGNOSTIC_RESPONSE_LIMIT", failure.code)
+            }
         }
         assertEquals(1, requests)
     }

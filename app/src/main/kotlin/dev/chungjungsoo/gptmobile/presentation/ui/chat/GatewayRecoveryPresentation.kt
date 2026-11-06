@@ -25,7 +25,7 @@ internal fun gatewayRecoveryPresentation(binding: GatewayEngineeringBinding): Ga
     val next = when {
         job == null && !canReconcile -> "The saved request has no verified execution binding. Keep its evidence and explicitly select a profile before starting new work."
         job == null -> "Reconcile this saved request using its original route and request identity before considering another submission."
-        reason?.contains("UNCERTAIN", true) == true || reason?.contains("UNKNOWN_WRITE", true) == true -> "Inspect the retained operation receipt and reconcile the remote result before retrying a write."
+        reason?.contains("UNCERTAIN", true) == true || reason?.contains("UNKNOWN_WRITE", true) == true || reason?.contains("UNKNOWN_OUTCOME", true) == true -> "Inspect the retained operation receipt and reconcile the remote result before retrying a write."
         reason?.contains("PRIVACY", true) == true -> "Review the privacy decision for this retained job. Its saved output remains available."
         reason?.contains("BUDGET", true) == true || reason?.contains("CAPACITY", true) == true -> "Review the exhausted budget or unavailable capacity. The selected model and route remain unchanged."
         reason?.contains("AUTH", true) == true || reason?.contains("CONNECTION", true) == true -> "Repair the original connection, then check this saved job without submitting it again."
@@ -42,11 +42,24 @@ internal fun gatewayRecoveryPresentation(binding: GatewayEngineeringBinding): Ga
         requestedModel = job?.executionBinding?.string("requested_model_id") ?: binding.request.model,
         observedModel = job?.latestExecutionReceipt?.string("observed_model_id") ?: "Not measured",
         executionIdentity = identity,
-        hardware = job?.latestExecutionReceipt?.get("observed_hardware")?.toString()?.takeIf { it != "null" } ?: "Not measured",
+        hardware = hardwareEvidence(job?.latestExecutionReceipt),
         nextAction = next,
         canReconcileRequest = canReconcile,
         canCancel = job != null && !job.terminal
     )
+}
+
+private fun hardwareEvidence(receipt: JsonObject?): String {
+    val hardware = (receipt?.get("hardware") ?: receipt?.get("observed_hardware")) as? JsonObject ?: return "Not measured"
+    if (hardware.string("status") == "NOT_MEASURED") return "Not measured"
+    val labels = mapOf("accelerator" to "Accelerator", "offloaded_layers" to "Offloaded layers", "model_file_digest" to "Model file digest", "memory" to "Memory")
+    return labels.mapNotNull { (key, label) ->
+        val observation = hardware[key] as? JsonObject ?: return@mapNotNull null
+        if (observation.string("origin") != "PROVIDER_REPORTED") return@mapNotNull null
+        val value = observation["value"] ?: return@mapNotNull null
+        val text = if (value is JsonPrimitive) value.content else value.toString()
+        text.takeIf { it.isNotBlank() && it != "null" }?.let { "$label: ${it.take(256)} (provider reported)" }
+    }.joinToString(" · ").ifEmpty { "Not measured" }
 }
 
 private fun JsonObject.string(key: String): String? = (get(key) as? JsonPrimitive)?.content?.takeIf { it.isNotBlank() && it != "null" }

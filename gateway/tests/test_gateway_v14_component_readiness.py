@@ -30,6 +30,13 @@ class IndependentReadinessTest(unittest.TestCase):
         self.assertFalse(result['selectedModel']['automaticSubstitution'])
         self.assertTrue(result['diagnostics']['ready'])
 
+    def test_unobserved_diagnostic_storage_is_unknown_until_io_has_been_checked(self):
+        runtime = self.runtime()
+        runtime.gateway_debug.snapshot = lambda: {'debugEnabled': True, 'storageChecked': False, 'storageReady': None}
+        result = observations(runtime, {'draining': False, 'maxWorkers': 1, 'activeWorkers': 0}, {}, 'ready')
+        self.assertEqual('NOT_MEASURED', result['diagnostics']['state'])
+        self.assertIsNone(result['diagnostics']['ready'])
+
     def test_catalogue_success_does_not_establish_execution_success(self):
         config = {'server': {'command': 'fixture'}}
         runtime = SimpleNamespace(load_mcp_config=lambda: config, mcp_tool_metadata={},

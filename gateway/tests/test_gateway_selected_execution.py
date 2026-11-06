@@ -7,6 +7,7 @@ import tempfile
 import threading
 import time
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from types import SimpleNamespace
@@ -21,6 +22,7 @@ from v14.engineering_backend import GitHubEngineeringBackend
 from v14.execution_binding import ExecutionBindingError
 from v14.inference_budget import fit_engineering_payload, plan_tokens
 from v14.inference_scheduler import FairInferenceScheduler
+from v14.debug import DebugLogStore, current_diagnostic_capture, current_diagnostic_trace
 
 
 def selected(endpoint, model='A'):
@@ -35,6 +37,7 @@ def selected(endpoint, model='A'):
 class SelectedExecutionTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
+        self.debug_stores = []
         self.calls, self.answer_model, self.empty_once = [], 'A', False
         fixture = self
         class Handler(BaseHTTPRequestHandler):
@@ -110,6 +113,8 @@ class SelectedExecutionTests(unittest.TestCase):
         self.server.shutdown()
         self.server.server_close()
         self.thread.join(2)
+        for store in self.debug_stores:
+            store.stop()
         self.temp.cleanup()
 
     def test_actual_outbound_requests_keep_A_for_all_roles_repair_and_restart(self):
@@ -152,6 +157,54 @@ class SelectedExecutionTests(unittest.TestCase):
         self.assertEqual('EXECUTION_CONFIGURATION_CHANGED', errors[0].code)
         self.assertEqual([], self.calls)
         self.assertEqual(0, self.service.scheduler.snapshot()['active'])
+
+    def test_supervisor_model_events_keep_the_submitted_capture_after_request_and_restart(self):
+        path = Path(self.temp.name) / 'debug.jsonl'
+        debug = DebugLogStore(path, enabled=True)
+        self.debug_stores.append(debug)
+        self.runtime.gateway_debug = debug
+        session, trace_id, parent_span = 'd' * 32, 'e' * 32, 'f' * 16
+        capture = current_diagnostic_capture.set({'session': session, 'started': int(time.time() * 1000),
+            'request_state': {'principal': SimpleNamespace(id='owner')}})
+        trace = current_diagnostic_trace.set({'trace_id': trace_id, 'span_id': parent_span})
+        try:
+            submitted = self.store.create('owner', dict(self.request, request_id='captured-job'))
+        finally:
+            current_diagnostic_trace.reset(trace)
+            current_diagnostic_capture.reset(capture)
+        self.assertEqual(session, submitted['diagnostic_capture']['session_id'])
+
+        def model_stage(backend):
+            return lambda job, phase: {'plan': backend.model(job, 'planner', {'files': []})}
+
+        self.backend.step = model_stage(self.backend)
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            pool.submit(self.service.tick, submitted['id']).result(timeout=8)
+        debug.flush()
+        debug.stop()
+
+        restarted_debug = DebugLogStore(path, enabled=True)
+        self.debug_stores.append(restarted_debug)
+        runtime = self.runtime_for('boot-two')
+        runtime.gateway_debug = restarted_debug
+        store, backend, service = self.service_for(runtime)
+        backend.step = model_stage(backend)
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            pool.submit(service.tick, submitted['id']).result(timeout=8)
+        restarted_debug.flush()
+        saved = store.get(submitted['id'])
+        self.assertEqual('IMPLEMENT', saved['state'], saved['message'])
+        self.assertEqual(2, len(self.calls))
+        rows = restarted_debug.journal.read('owner', session)['events']
+        self.assertEqual(4, len(rows))
+        self.assertEqual({trace_id}, {row['trace_id'] for row in rows})
+        self.assertEqual({parent_span}, {row['parent_span_id'] for row in rows})
+        self.assertEqual({'model'}, {row['category'] for row in rows})
+        self.assertTrue(all('model_digest' in row['bounded_attributes'] for row in rows))
+        self.assertEqual(2, len({row['span_id'] for row in rows}))
+        self.assertEqual(2, len({row['origin_boot_id'] for row in rows}))
+        self.assertTrue(all(call['headers'].get('traceparent', '').split('-')[1:2] == [trace_id] for call in self.calls))
+        self.assertIsNone(current_diagnostic_capture.get())
 
     @staticmethod
     def capture_error(errors, callback):

@@ -197,8 +197,10 @@ class DiagnosticSessionJournal:
         self.lock = threading.RLock()
         self.db = None
         self.storage_error = None
+        self.storage_checked = False
 
     def _connection(self):
+        self.storage_checked = True
         if self.db is not None:
             return self.db
         self.path.parent.mkdir(parents=True, exist_ok=True)

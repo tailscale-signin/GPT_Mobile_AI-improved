@@ -192,6 +192,93 @@ class DurableEngineeringTests(unittest.TestCase):
             self.service.tick(job['id'])
         self.assertEqual('NEEDS_INPUT', self.store.get(job['id'])['state'])
 
+    def test_definitive_http_failures_pause_without_repeating_the_backend_request(self):
+        for phase in ('PLAN', 'CI'):
+            for status in (400, 401, 403, 404, 409, 422):
+                with self.subTest(phase=phase, status=status):
+                    self.request['request_id'] = f'blocked-{phase}-{status}'
+                    job = self.store.create('owner', self.request)
+                    claimed, lease, _ = self.store.claim(job['id'])
+                    claimed['data']['retained_evidence'] = 'confirmed-before-failure'
+                    self.store.complete(claimed, lease, phase, {})
+                    calls = []
+                    def fail(*args):
+                        calls.append(phase)
+                        response = requests.Response()
+                        response.status_code = status
+                        response.url = 'https://private.invalid/?token=secret'
+                        raise requests.HTTPError('private upstream detail', response=response)
+                    self.backend.step = fail
+                    self.backend.inspect = fail
+                    self.service.tick(job['id'])
+                    current = self.store.get(job['id'])
+                    self.assertEqual('NEEDS_INPUT', current['state'])
+                    self.assertEqual('confirmed-before-failure', current['data']['retained_evidence'])
+                    self.assertFalse(current['data']['blocked_reason']['retryable'])
+                    self.assertEqual(status, current['data']['blocked_reason']['http_status'])
+                    expected = ('ENGINEERING_AUTHENTICATION_REQUIRED' if status == 401 else
+                                'ENGINEERING_ACCESS_DENIED' if status == 403 else 'ENGINEERING_VALIDATION_REJECTED')
+                    self.assertEqual(expected, current['data']['blocked_reason']['code'])
+                    for _ in range(5):
+                        self.time += 600
+                        self.assertNotIn(job['id'], self.store.due())
+                        self.service.tick(job['id'])
+                    self.assertEqual([phase], calls)
+                    self.assertNotIn('secret', str(self.store.get(job['id'])))
+                    self.assertNotIn('private upstream detail', str(self.store.get(job['id'])))
+
+    def test_permission_validation_and_interruption_pause_after_one_stage_attempt(self):
+        for error in (PermissionError('private authority'), ValueError('invalid immutable contract'),
+                      TypeError('invalid selected input shape'), InterruptedError('private capture revoked')):
+            with self.subTest(error=type(error).__name__):
+                self.request['request_id'] = type(error).__name__
+                job = self.store.create('owner', self.request)
+                calls = []
+                def fail(*args):
+                    calls.append('PLAN')
+                    raise error
+                self.backend.step = fail
+                self.service.tick(job['id'])
+                self.assertEqual('NEEDS_INPUT', self.store.get(job['id'])['state'])
+                for _ in range(5):
+                    self.time += 600
+                    self.assertNotIn(job['id'], self.store.due())
+                    self.service.tick(job['id'])
+                self.assertEqual(['PLAN'], calls)
+                self.assertFalse(self.store.get(job['id'])['data']['blocked_reason']['retryable'])
+
+    def test_validation_failure_after_dispatch_preserves_unknown_outcome_and_never_replays_write(self):
+        job = self.store.create('owner', self.request)
+        for _ in range(4):
+            self.service.tick(job['id'])
+        self.assertEqual('COMMIT', self.store.get(job['id'])['state'])
+        self.backend.physical_operation_journal = True
+        writes = []
+        def fail(claimed, phase):
+            self.assertEqual('COMMIT', phase)
+            claimed['data']['execution_integrity'] = 'VERIFIED'
+            operation = self.service.operations.prepare(claimed, 'PATCH', '/repos/owner/repo/git/refs/heads/feature/job', {'sha': 'a' * 40})
+            self.service.operations.dispatch(claimed, operation)
+            writes.append(operation['operation_id'])
+            error = ValueError('Unparseable reply after physical dispatch')
+            self.service.operations.failed(claimed, operation, error)
+            raise error
+        self.backend.step = fail
+        self.service.tick(job['id'])
+        current = self.store.get(job['id'])
+        self.assertEqual('NEEDS_INPUT', current['state'])
+        self.assertEqual('UNKNOWN_OUTCOME', current['data']['latest_operation']['state'])
+        self.assertTrue(current['data']['latest_operation']['dispatched'])
+        self.assertIn('reconcile', current['message'].lower())
+        self.assertNotIn('blocked_reason', current['data'])
+        for _ in range(5):
+            self.time += 600
+            self.assertNotIn(job['id'], self.store.due())
+            self.service.tick(job['id'])
+        self.assertEqual(1, len(writes))
+        self.assertEqual(1, self.backend.calls.count('reconcile:COMMIT'))
+        self.assertEqual('UNKNOWN_OUTCOME', self.store.get(job['id'])['data']['latest_operation']['state'])
+
     def test_stale_prompt_is_retired_and_unchanged_ci_polls_do_not_duplicate_updates(self):
         job = self.ready()
         self.backend.evidence['checks_passed'] = False

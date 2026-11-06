@@ -85,7 +85,7 @@ internal class GatewayDiagnosticSpool(
 
     @Synchronized fun append(events: List<Pair<Long, JsonObject>>, queueDropped: Long = 0) = mutate { next ->
         checkCapture(next)
-        if (bootId !in next.sequences && next.sequences.size >= 16) throw IOException("DIAGNOSTIC_SOURCE_LIMIT")
+        if (bootId !in next.sequences && next.sequences.size >= 16) throw DiagnosticSyncFailure("DIAGNOSTIC_SOURCE_LIMIT")
         next.queueDropped += queueDropped.coerceAtLeast(0)
         events.forEach { (occurredAt, fields) ->
             val sequence = (next.sequences[bootId] ?: 0) + 1
@@ -103,6 +103,7 @@ internal class GatewayDiagnosticSpool(
     @Synchronized fun batch(): JsonObject {
         checkCapture(state)
         val pendingGaps = state.gaps.filter { (it.diagnosticLong("last") ?: 0) > (state.acknowledged[it.diagnosticText("origin_boot_id")] ?: 0) }.take(32)
+            .map { JsonObject(it + ("origin_device_pseudonym" to JsonPrimitive(state.origin))) }
         val selected = mutableListOf<JsonObject>()
         var bytes = JsonArray(pendingGaps).toString().toByteArray().size + 512
         for (line in state.rows) {
@@ -124,16 +125,28 @@ internal class GatewayDiagnosticSpool(
         }
     }
 
-    @Synchronized fun acknowledge(receipt: JsonObject) = mutate { next ->
-        if (receipt.diagnosticLong("schema_version") != 2L || receipt.diagnosticText("session_id") != next.session || receipt.diagnosticText("storage_state") != "committed") throw IOException("INVALID_DIAGNOSTIC_ACK")
-        val watermarks = receipt["watermarks"] as? JsonArray ?: throw IOException("INVALID_DIAGNOSTIC_ACK")
-        if (watermarks.size > 16) throw IOException("INVALID_DIAGNOSTIC_ACK")
-        watermarks.filterIsInstance<JsonObject>().forEach { watermark ->
-            if (watermark.diagnosticText("origin_device_pseudonym") != next.origin) return@forEach
-            val boot = watermark.diagnosticText("origin_boot_id") ?: throw IOException("INVALID_DIAGNOSTIC_ACK")
-            val maximum = next.sequences[boot] ?: throw IOException("INVALID_DIAGNOSTIC_ACK")
-            val accounted = watermark.diagnosticLong("accounted_through")?.takeIf { it in 0..maximum } ?: throw IOException("INVALID_DIAGNOSTIC_ACK")
-            next.acknowledged[boot] = maxOf(next.acknowledged[boot] ?: 0, accounted)
+    @Synchronized fun acknowledge(receipt: JsonObject, submitted: JsonObject? = null) = mutate { next ->
+        if (receipt.diagnosticLong("schema_version") != 2L || receipt.diagnosticText("session_id") != next.session || receipt.diagnosticText("storage_state") != "committed") throw DiagnosticSyncFailure("INVALID_DIAGNOSTIC_ACK")
+        val watermarks = receipt["watermarks"] as? JsonArray ?: throw DiagnosticSyncFailure("INVALID_DIAGNOSTIC_ACK")
+        if (watermarks.size > 16) throw DiagnosticSyncFailure("INVALID_DIAGNOSTIC_ACK")
+        val received = linkedSetOf<String>()
+        var advanced = false
+        watermarks.forEach { raw ->
+            val watermark = raw as? JsonObject ?: throw DiagnosticSyncFailure("INVALID_DIAGNOSTIC_ACK")
+            if (watermark.diagnosticText("origin_device_pseudonym") != next.origin) throw DiagnosticSyncFailure("INVALID_DIAGNOSTIC_ACK")
+            val boot = watermark.diagnosticText("origin_boot_id") ?: throw DiagnosticSyncFailure("INVALID_DIAGNOSTIC_ACK")
+            if (!received.add(boot)) throw DiagnosticSyncFailure("INVALID_DIAGNOSTIC_ACK")
+            val maximum = next.sequences[boot] ?: throw DiagnosticSyncFailure("INVALID_DIAGNOSTIC_ACK")
+            val accounted = watermark.diagnosticLong("accounted_through")?.takeIf { it in 0..maximum } ?: throw DiagnosticSyncFailure("INVALID_DIAGNOSTIC_ACK")
+            val previous = next.acknowledged[boot] ?: 0
+            if (accounted > previous) advanced = true
+            next.acknowledged[boot] = maxOf(previous, accounted)
+        }
+        if (submitted != null) {
+            val expected = listOf("events", "gaps").flatMap { name ->
+                (submitted[name] as? JsonArray).orEmpty().mapNotNull { (it as? JsonObject)?.diagnosticText("origin_boot_id") }
+            }.toSet()
+            if (!received.containsAll(expected) || expected.isNotEmpty() && !advanced) throw DiagnosticSyncFailure("INVALID_DIAGNOSTIC_ACK")
         }
         // Rejections are counts of observed responses, not a claim of independent defects.
         next.rejected += (receipt["rejected"] as? JsonArray)?.size ?: 0
@@ -141,30 +154,29 @@ internal class GatewayDiagnosticSpool(
     }
 
     @Synchronized fun importPage(page: JsonObject) = mutate { next ->
-        if (page.diagnosticLong("schema_version") != 2L || page.diagnosticText("session_id") != next.session) throw IOException("INVALID_DIAGNOSTIC_PAGE")
-        val cursor = page.diagnosticLong("next_cursor") ?: throw IOException("INVALID_DIAGNOSTIC_CURSOR")
-        if (cursor <= next.remoteCursor) return@mutate // A repeated/out-of-order page can never resurrect evicted rows.
-        val maximum = page.diagnosticLong("last_ingest_sequence") ?: throw IOException("INVALID_DIAGNOSTIC_CURSOR")
-        if (cursor > maximum) throw IOException("INVALID_DIAGNOSTIC_CURSOR")
-        val rows = page["events"] as? JsonArray ?: throw IOException("INVALID_DIAGNOSTIC_PAGE")
-        if (rows.size > GatewayDiagnosticEvent.MAX_BATCH_EVENTS) throw IOException("DIAGNOSTIC_BATCH_LIMIT")
-        var priorCursor = next.remoteCursor
+        if (page.diagnosticLong("schema_version") != 2L || page.diagnosticText("session_id") != next.session) throw DiagnosticSyncFailure("INVALID_DIAGNOSTIC_PAGE")
+        val cursor = page.diagnosticLong("next_cursor")?.takeIf { it in 0..(1L shl 53) } ?: throw DiagnosticSyncFailure("INVALID_DIAGNOSTIC_CURSOR")
+        val maximum = page.diagnosticLong("last_ingest_sequence")?.takeIf { it in 0..(1L shl 53) } ?: throw DiagnosticSyncFailure("INVALID_DIAGNOSTIC_CURSOR")
+        if (cursor > maximum) throw DiagnosticSyncFailure("INVALID_DIAGNOSTIC_CURSOR")
+        val rows = page["events"] as? JsonArray ?: throw DiagnosticSyncFailure("INVALID_DIAGNOSTIC_PAGE")
+        if (rows.size > GatewayDiagnosticEvent.MAX_BATCH_EVENTS) throw DiagnosticSyncFailure("DIAGNOSTIC_BATCH_LIMIT")
+        var priorCursor = 0L
         val existing = next.rows.mapNotNull { GatewayDiagnosticEvent.parse(it)?.diagnosticText("event_id") }.toMutableSet()
         rows.forEach { raw ->
-            val event = (raw as? JsonObject)?.let(GatewayDiagnosticEvent::sanitize) ?: throw IOException("INVALID_DIAGNOSTIC_EVENT")
-            val receivedCursor = event.diagnosticLong("gateway_ingest_sequence") ?: throw IOException("INVALID_DIAGNOSTIC_CURSOR")
-            if (receivedCursor <= next.remoteCursor) return@forEach
-            if (receivedCursor <= priorCursor || receivedCursor > cursor) throw IOException("INVALID_DIAGNOSTIC_CURSOR")
+            val event = (raw as? JsonObject)?.let(GatewayDiagnosticEvent::sanitize) ?: throw DiagnosticSyncFailure("INVALID_DIAGNOSTIC_EVENT")
+            val receivedCursor = event.diagnosticLong("gateway_ingest_sequence") ?: throw DiagnosticSyncFailure("INVALID_DIAGNOSTIC_CURSOR")
+            if (receivedCursor <= priorCursor || receivedCursor > cursor) throw DiagnosticSyncFailure("INVALID_DIAGNOSTIC_CURSOR")
             priorCursor = receivedCursor
+            if (receivedCursor <= next.remoteCursor) return@forEach
             if (event.diagnosticText("origin_device_pseudonym") == next.origin) return@forEach
             if (existing.add(event.diagnosticText("event_id")!!)) next.rows += event.toString()
             trim(next)
         }
         val gap = page["cursor_gap"] as? JsonObject
         if (gap != null) {
-            val first = gap.diagnosticLong("first") ?: throw IOException("INVALID_DIAGNOSTIC_GAP")
-            val last = gap.diagnosticLong("last") ?: throw IOException("INVALID_DIAGNOSTIC_GAP")
-            if (first < 1 || last < first || last > maximum) throw IOException("INVALID_DIAGNOSTIC_GAP")
+            val first = gap.diagnosticLong("first") ?: throw DiagnosticSyncFailure("INVALID_DIAGNOSTIC_GAP")
+            val last = gap.diagnosticLong("last") ?: throw DiagnosticSyncFailure("INVALID_DIAGNOSTIC_GAP")
+            if (first < 1 || last < first || last > maximum) throw DiagnosticSyncFailure("INVALID_DIAGNOSTIC_GAP")
             val previous = next.remoteGaps.lastOrNull()
             if (previous != null && (previous.diagnosticLong("last") ?: 0) + 1 >= first) {
                 next.remoteGaps[next.remoteGaps.lastIndex] = buildJsonObject {
@@ -173,7 +185,7 @@ internal class GatewayDiagnosticSpool(
                     put("reason", "EVICTED")
                 }
             } else {
-                if (next.remoteGaps.size >= 256) throw IOException("DIAGNOSTIC_GAP_LIMIT")
+                if (next.remoteGaps.size >= 256) throw DiagnosticSyncFailure("DIAGNOSTIC_GAP_LIMIT")
                 next.remoteGaps += buildJsonObject {
                     put("first", first)
                     put("last", last)
@@ -181,8 +193,11 @@ internal class GatewayDiagnosticSpool(
                 }
             }
         }
-        next.remoteCursor = cursor
-        next.lastSync = now()
+        // A repeated/out-of-order page can never resurrect evicted rows or regress the cursor.
+        if (cursor > next.remoteCursor) {
+            next.remoteCursor = cursor
+            next.lastSync = now()
+        }
     }
 
     @Synchronized fun status(): GatewayDiagnosticStatus {
@@ -324,7 +339,7 @@ internal class GatewayDiagnosticSpool(
         if (previous?.diagnosticText("origin_boot_id") == boot && previous.diagnosticText("reason") == reason && previous.diagnosticLong("last") == first - 1) {
             next.gaps[next.gaps.lastIndex] = JsonObject(previous + ("last" to JsonPrimitive(last)))
         } else {
-            if (next.gaps.size >= 256) throw IOException("DIAGNOSTIC_GAP_LIMIT")
+            if (next.gaps.size >= 256) throw DiagnosticSyncFailure("DIAGNOSTIC_GAP_LIMIT")
             next.gaps += buildJsonObject {
                 put("origin_device_pseudonym", next.origin)
                 put("origin_boot_id", boot)
@@ -336,19 +351,23 @@ internal class GatewayDiagnosticSpool(
     }
 
     private fun checkCapture(next: State) {
-        if (now() - next.created > GatewayDiagnosticEvent.CAPTURE_DURATION_MILLIS || next.created > now() + 300_000) throw IOException("DIAGNOSTIC_CAPTURE_EXPIRED")
+        if (now() - next.created > GatewayDiagnosticEvent.CAPTURE_DURATION_MILLIS || next.created > now() + 300_000) throw DiagnosticSyncFailure("DIAGNOSTIC_CAPTURE_EXPIRED")
     }
 
     private fun mutate(change: (State) -> Unit) {
         val next = state.detached()
+        // A rejected ACK/page is a protocol failure, not a recoverable disk fault.
+        // Validate the detached generation before any persistent state can change.
+        change(next)
         try {
-            change(next)
             persist(next)
             state = next
             storageError = null
-        } catch (failure: IOException) {
+        } catch (failure: DiagnosticSyncFailure) {
+            throw failure
+        } catch (_: IOException) {
             storageError = "DEBUG_STORAGE_UNAVAILABLE"
-            throw IOException(storageError)
+            throw DiagnosticSyncFailure("DEBUG_STORAGE_UNAVAILABLE")
         }
     }
 
@@ -368,43 +387,43 @@ internal class GatewayDiagnosticSpool(
             put("remote_cursor", next.remoteCursor)
             put("last_sync", next.lastSync)
         }.toString()
-        if (header.toByteArray().size > 128 * 1024) throw IOException("DIAGNOSTIC_METADATA_LIMIT")
+        if (header.toByteArray().size > 128 * 1024) throw DiagnosticSyncFailure("DIAGNOSTIC_METADATA_LIMIT")
         write(file, header, next.rows)
     }
 
     private fun load(): State {
-        if (file.length() > GatewayDiagnosticEvent.MAX_EVENTS * GatewayDiagnosticEvent.MAX_RECORD_BYTES.toLong() + 128 * 1024) throw IOException("DIAGNOSTIC_SPOOL_CORRUPT")
+        if (file.length() > GatewayDiagnosticEvent.MAX_EVENTS * GatewayDiagnosticEvent.MAX_RECORD_BYTES.toLong() + 128 * 1024) throw DiagnosticSyncFailure("DIAGNOSTIC_SPOOL_CORRUPT")
         BufferedInputStream(file.inputStream()).use { input ->
-            val header = boundedDiagnosticLine(input, 128 * 1024)?.let { runCatching { Json.parseToJsonElement(it) as? JsonObject }.getOrNull() } ?: throw IOException("DIAGNOSTIC_SPOOL_CORRUPT")
-            val session = header.diagnosticText("session_id")?.takeIf(GatewayDiagnosticEvent.hex32::matches) ?: throw IOException("DIAGNOSTIC_SPOOL_CORRUPT")
-            val origin = header.diagnosticText("origin")?.takeIf(GatewayDiagnosticEvent.hex32::matches) ?: throw IOException("DIAGNOSTIC_SPOOL_CORRUPT")
-            val created = header.diagnosticLong("created") ?: throw IOException("DIAGNOSTIC_SPOOL_CORRUPT")
+            val header = boundedDiagnosticLine(input, 128 * 1024)?.let { runCatching { Json.parseToJsonElement(it) as? JsonObject }.getOrNull() } ?: throw DiagnosticSyncFailure("DIAGNOSTIC_SPOOL_CORRUPT")
+            val session = header.diagnosticText("session_id")?.takeIf(GatewayDiagnosticEvent.hex32::matches) ?: throw DiagnosticSyncFailure("DIAGNOSTIC_SPOOL_CORRUPT")
+            val origin = header.diagnosticText("origin")?.takeIf(GatewayDiagnosticEvent.hex32::matches) ?: throw DiagnosticSyncFailure("DIAGNOSTIC_SPOOL_CORRUPT")
+            val created = header.diagnosticLong("created") ?: throw DiagnosticSyncFailure("DIAGNOSTIC_SPOOL_CORRUPT")
             val result = State(session, origin, created)
             fun counters(name: String, target: MutableMap<String, Long>) {
-                val values = header[name] as? JsonObject ?: throw IOException("DIAGNOSTIC_SPOOL_CORRUPT")
-                if (values.size > 16) throw IOException("DIAGNOSTIC_SOURCE_LIMIT")
+                val values = header[name] as? JsonObject ?: throw DiagnosticSyncFailure("DIAGNOSTIC_SPOOL_CORRUPT")
+                if (values.size > 16) throw DiagnosticSyncFailure("DIAGNOSTIC_SOURCE_LIMIT")
                 values.forEach { (key, _) ->
-                    if (!GatewayDiagnosticEvent.hex32.matches(key)) throw IOException("DIAGNOSTIC_SPOOL_CORRUPT")
-                    target[key] = values.diagnosticLong(key)?.takeIf { it in 0..(1L shl 53) } ?: throw IOException("DIAGNOSTIC_SPOOL_CORRUPT")
+                    if (!GatewayDiagnosticEvent.hex32.matches(key)) throw DiagnosticSyncFailure("DIAGNOSTIC_SPOOL_CORRUPT")
+                    target[key] = values.diagnosticLong(key)?.takeIf { it in 0..(1L shl 53) } ?: throw DiagnosticSyncFailure("DIAGNOSTIC_SPOOL_CORRUPT")
                 }
             }
             counters("sequences", result.sequences)
             counters("acknowledged", result.acknowledged)
             listOf("gaps" to result.gaps, "remote_gaps" to result.remoteGaps).forEach { (name, target) ->
-                val gaps = header[name] as? JsonArray ?: throw IOException("DIAGNOSTIC_SPOOL_CORRUPT")
-                if (gaps.size > 256) throw IOException("DIAGNOSTIC_GAP_LIMIT")
+                val gaps = header[name] as? JsonArray ?: throw DiagnosticSyncFailure("DIAGNOSTIC_SPOOL_CORRUPT")
+                if (gaps.size > 256) throw DiagnosticSyncFailure("DIAGNOSTIC_GAP_LIMIT")
                 gaps.forEach { raw ->
-                    val item = raw as? JsonObject ?: throw IOException("DIAGNOSTIC_SPOOL_CORRUPT")
-                    val first = item.diagnosticLong("first") ?: throw IOException("DIAGNOSTIC_SPOOL_CORRUPT")
-                    val last = item.diagnosticLong("last") ?: throw IOException("DIAGNOSTIC_SPOOL_CORRUPT")
-                    val reason = item.diagnosticText("reason")?.takeIf { it in setOf("OFFLINE_EVICTED", "QUEUE_FULL", "RECORD_REJECTED", "STORAGE_UNAVAILABLE", "CAPTURE_INTERRUPTED", "EVICTED") } ?: throw IOException("DIAGNOSTIC_SPOOL_CORRUPT")
-                    if (first < 1 || last < first) throw IOException("DIAGNOSTIC_SPOOL_CORRUPT")
+                    val item = raw as? JsonObject ?: throw DiagnosticSyncFailure("DIAGNOSTIC_SPOOL_CORRUPT")
+                    val first = item.diagnosticLong("first") ?: throw DiagnosticSyncFailure("DIAGNOSTIC_SPOOL_CORRUPT")
+                    val last = item.diagnosticLong("last") ?: throw DiagnosticSyncFailure("DIAGNOSTIC_SPOOL_CORRUPT")
+                    val reason = item.diagnosticText("reason")?.takeIf { it in setOf("OFFLINE_EVICTED", "QUEUE_FULL", "RECORD_REJECTED", "STORAGE_UNAVAILABLE", "CAPTURE_INTERRUPTED", "EVICTED") } ?: throw DiagnosticSyncFailure("DIAGNOSTIC_SPOOL_CORRUPT")
+                    if (first < 1 || last < first) throw DiagnosticSyncFailure("DIAGNOSTIC_SPOOL_CORRUPT")
                     target += buildJsonObject {
                         put("first", first)
                         put("last", last)
                         put("reason", reason)
                         if (name == "gaps") {
-                            val boot = item.diagnosticText("origin_boot_id")?.takeIf(GatewayDiagnosticEvent.hex32::matches) ?: throw IOException("DIAGNOSTIC_SPOOL_CORRUPT")
+                            val boot = item.diagnosticText("origin_boot_id")?.takeIf(GatewayDiagnosticEvent.hex32::matches) ?: throw DiagnosticSyncFailure("DIAGNOSTIC_SPOOL_CORRUPT")
                             put("origin_device_pseudonym", origin)
                             put("origin_boot_id", boot)
                         }
@@ -423,7 +442,7 @@ internal class GatewayDiagnosticSpool(
                 if (event == null || !identities.add(event.diagnosticText("event_id")!!)) {
                     result.rejected++
                 } else {
-                    if (result.rows.size >= GatewayDiagnosticEvent.MAX_EVENTS) throw IOException("DIAGNOSTIC_SPOOL_CORRUPT")
+                    if (result.rows.size >= GatewayDiagnosticEvent.MAX_EVENTS) throw DiagnosticSyncFailure("DIAGNOSTIC_SPOOL_CORRUPT")
                     result.rows += event.toString()
                 }
             }

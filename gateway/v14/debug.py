@@ -10,7 +10,7 @@ import time
 import uuid
 from collections import deque
 from concurrent.futures import Future
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, contextmanager
 from contextvars import ContextVar
 from queue import Queue, Empty, Full
 
@@ -35,32 +35,88 @@ def diagnostic_trace_headers():
     return {'traceparent': f"00-{context['trace_id']}-{context['span_id']}-01"} if context else {}
 
 
+def capture_context_snapshot(principal, runtime):
+    """Retain only the admitted capture's opaque causal identifiers for a durable job."""
+    store = getattr(runtime, 'gateway_debug', None)
+    capture, trace = current_diagnostic_capture.get(), current_diagnostic_trace.get()
+    if store is None or not store.enabled or not isinstance(capture, dict) or not isinstance(trace, dict):
+        return None
+    admitted = capture.get('request_state', {}).get('principal')
+    session, started = capture.get('session'), capture.get('started')
+    if (getattr(admitted, 'id', None) != principal or not isinstance(session, str) or not HEX32.fullmatch(session)
+            or type(started) is not int or not -300000 <= store.now() * 1000 - started <= MAX_CAPTURE_SECONDS * 1000
+            or trace_context(f"00-{trace.get('trace_id', '')}-{trace.get('span_id', '')}-01") is None):
+        return None
+    return {'schema_version': 2, 'session_id': session, 'capture_started_at_utc': started,
+            'principal_digest': digest(principal), 'trace_id': trace['trace_id'], 'parent_span_id': trace['span_id']}
+
+
+@contextmanager
+def execution_diagnostic_context(snapshot, runtime, principal, authorized):
+    """Resume a submitted capture on a worker under current authorization and expiry.
+
+    A missing, disabled, expired or revoked capture never creates a replacement
+    association. Each stage owns a fresh span and restores its caller's context.
+    """
+    store = getattr(runtime, 'gateway_debug', None)
+    capture, trace = None, None
+    if isinstance(snapshot, dict) and store is not None and callable(authorized):
+        session, started = snapshot.get('session_id'), snapshot.get('capture_started_at_utc')
+        trace = trace_context(f"00-{snapshot.get('trace_id', '')}-{snapshot.get('parent_span_id', '')}-01")
+        try:
+            permitted = store.enabled and authorized() is True
+        except Exception:
+            permitted = False
+        if (permitted and type(snapshot.get('schema_version')) is int and snapshot['schema_version'] == 2
+                and isinstance(session, str) and HEX32.fullmatch(session) and type(started) is int
+                and -300000 <= store.now() * 1000 - started <= MAX_CAPTURE_SECONDS * 1000
+                and snapshot.get('principal_digest') == digest(principal) and trace is not None):
+            capture = {'session': session, 'started': started, 'principal': principal, 'authorized': authorized}
+    capture_marker = current_diagnostic_capture.set(capture)
+    trace_marker = current_diagnostic_trace.set(trace if capture is not None else None)
+    try:
+        yield
+    finally:
+        current_diagnostic_trace.reset(trace_marker)
+        current_diagnostic_capture.reset(capture_marker)
+
+
 def diagnostic_execution_event(runtime, principal, stage, binding_id=None, job_id=None, state=None,
                                error_code=None, dispatched=None, local_duration_ms=None, bounded_attributes=None,
                                operation_id=None, request_id=None):
     """Best-effort metadata from actual model/effect receipt transitions, never execution authority.
 
-    Background tasks inherit the submitting request's context. Restored jobs without
-    such context intentionally have no fabricated capture association.
+    Durable workers re-enter their admitted capture explicitly. Jobs without a
+    saved capture have no fabricated association with the worker's other tasks.
     """
     store = getattr(runtime, 'gateway_debug', None)
     capture = current_diagnostic_capture.get()
     trace = current_diagnostic_trace.get() or {}
     if store is None or capture is None:
         return False
-    admitted = capture['request_state'].get('principal')
-    if admitted is None or admitted.id != principal:
+    admitted = capture.get('request_state', {}).get('principal')
+    owner = getattr(admitted, 'id', None) or capture.get('principal')
+    if (owner != principal or not store.enabled or type(capture.get('started')) is not int
+            or not -300000 <= store.now() * 1000 - capture['started'] <= MAX_CAPTURE_SECONDS * 1000):
+        return False
+    try:
+        if callable(capture.get('authorized')) and capture['authorized']() is not True:
+            return False
+    except Exception:
         return False
     dispatch = ('not_dispatched' if dispatched is False or state == 'PREPARED' else
                 'unknown' if state == 'UNKNOWN_OUTCOME' else 'response_received' if state == 'COMPLETED' else
                 'dispatched' if dispatched is True or state == 'DISPATCHED' else 'unknown')
-    failed = state in {'FAILED', 'UNKNOWN_OUTCOME', 'REJECTED', 'BLOCKED'}
-    code = error_code or ('DISPATCH_UNCERTAIN' if state == 'UNKNOWN_OUTCOME' else
-                          'PRECHECK_REJECTED' if failed and dispatch == 'not_dispatched' else 'UNKNOWN_CAUSE' if failed else 'NONE')
+    failed = state in {'FAILED', 'UNKNOWN_OUTCOME', 'REJECTED', 'BLOCKED', 'PRECHECK_REJECTED', 'IDENTITY_MISMATCH'}
+    code = ('DISPATCH_UNCERTAIN' if state == 'UNKNOWN_OUTCOME' else
+            'PRECHECK_REJECTED' if state == 'PRECHECK_REJECTED' or failed and dispatch == 'not_dispatched' else
+            error_code or ('UNKNOWN_CAUSE' if failed else 'NONE'))
+    category = 'model' if stage == 'MODEL_EXECUTION' or stage.startswith('model') or stage in {'prefill', 'decode'} else 'tool'
+    stage = 'operation_dispatch' if stage in {'MODEL_EXECUTION', 'GITHUB_OPERATION'} else stage
     try:
         store.record_event(principal, capture['session'], capture['started'], stage=stage,
                            binding_id=binding_id, job_id=job_id, operation_id=operation_id, request_id=request_id,
-                           severity='error' if failed else 'info', error_code=code, category='model' if stage.startswith('model') or stage in {'prefill', 'decode'} else 'tool',
+                           severity='error' if failed else 'info', error_code=code, category=category,
                            dispatch_state=dispatch, retry_class='reconcile' if state == 'UNKNOWN_OUTCOME' else 'unknown',
                            local_duration_ms=local_duration_ms, bounded_attributes=bounded_attributes or {}, **trace)
         return True
@@ -147,6 +203,7 @@ class DebugLogStore:
         self.now = now
         self.lock = threading.RLock()
         self.flush_lock = threading.Lock()
+        self.export_lock = threading.Lock()
         self.records = deque(maxlen=MAX_LINES)
         self.sequence = 0
         self.pending = threading.Event()
@@ -234,18 +291,21 @@ class DebugLogStore:
     def snapshot(self):
         with self.lock:
             return {'schemaVersion': 1, 'enabled': self.enabled, 'retainedLines': len(self.records),
-                    'lineLimit': MAX_LINES, 'lastSequence': self.sequence, 'storageError': self.write_error,
+                    'lineLimit': MAX_LINES, 'lastSequence': self.sequence,
                     'content': 'sanitized_transport_metadata', 'protocolVersion': 2, 'clientMetadata': True,
                     'bidirectionalEvents': True, 'recordByteLimit': MAX_LINE_BYTES,
                     'retainedLineLimit': MAX_LINES, 'debugEnabled': self.enabled,
-                    'storageReady': self.write_error is None and self.journal.storage_error is None and self.event_error is None,
+                    'storageChecked': self.journal.storage_checked,
+                    'storageReady': (self.write_error is None and self.journal.storage_error is None and self.event_error is None)
+                                    if self.journal.storage_checked else None,
                     'storageError': self.write_error or self.journal.storage_error or self.event_error, 'queueDropped': self.queue_dropped,
                     'sessionDurationLimitSeconds': MAX_CAPTURE_SECONDS}
 
     def record_event(self, principal, session, capture_started, **fields):
         """Non-blocking producer; the existing background writer commits all v2 events."""
         with self.lock:
-            if not self.enabled or not isinstance(session, str) or not HEX32.fullmatch(session) or type(capture_started) is not int:
+            if (not self.enabled or not isinstance(session, str) or not HEX32.fullmatch(session) or type(capture_started) is not int
+                    or not -300000 <= self.now() * 1000 - capture_started <= MAX_CAPTURE_SECONDS * 1000):
                 return
             key = principal, session, capture_started
             self.origin_sequences = {item: value for item, value in self.origin_sequences.items()
@@ -330,6 +390,16 @@ class DebugLogStore:
         with self.lock:
             records = list(self.records)
         return encode_records(records)
+
+    def export_session(self, principal, session):
+        # A retained capture is bounded, but concurrent full exports multiply its
+        # peak memory. Reject excess exports without blocking the event writer.
+        if not self.export_lock.acquire(blocking=False):
+            raise DiagnosticProtocolError('DIAGNOSTIC_EXPORT_BUSY', 429)
+        try:
+            return self.journal.export(principal, session)
+        finally:
+            self.export_lock.release()
 
     def flush(self):
         # Snapshot while holding the writer lock prevents an older flush overwriting a newer one.
@@ -527,7 +597,7 @@ def install_routes(app, store):
     @app.get('/gateway/debug/export')
     async def export_session(request: Request, session_id: str):
         try:
-            result = await asyncio.to_thread(store.journal.export, principal(request), session_id)
+            result = await asyncio.to_thread(store.export_session, principal(request), session_id)
             return Response(result, media_type='application/zip', headers={
                 'Content-Disposition': 'attachment; filename="gateway-debug-session.zip"', 'Cache-Control': 'no-store'})
         except DiagnosticProtocolError as failure:

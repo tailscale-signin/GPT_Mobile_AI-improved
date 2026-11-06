@@ -12,7 +12,7 @@ from test_gateway_selected_execution import SelectedExecutionTests
 from v14.execution_binding import ExecutionBindingError
 from v14.engineering_artifacts import EngineeringArtifacts
 from v14.engineering_report import build_report
-from v14.engineering_validation import behavior_receipts, run_bounded
+from v14.engineering_validation import behavior_receipts, capture_behavior_reports, prepare_behavior_reports, run_bounded
 from v14.evidence import completion_gate
 
 
@@ -110,10 +110,12 @@ class RetentionTests(unittest.TestCase):
             "sys.exit(0 if result.wasSuccessful() else 1)\n"
         )
         command = [sys.executable, '-c', script]
-        result = dict(run_bounded(command, directory, 20), command=command)
-        self.assertEqual(0, result['exit_code'], result['output_tail'])
         mapping = [{'requirement_id': 'budget', 'case_id': case_id, 'command_index': 0, 'scope': 'behavior', 'report_path': 'behavior.xml'}]
-        receipts = behavior_receipts(mapping, [result], directory, 'a' * 40, 'host-fixture-not-container-qualification')
+        prepare_behavior_reports(mapping, directory)
+        result = dict(run_bounded(command, directory, 20), command=command,
+                      report_snapshots=capture_behavior_reports(mapping, directory))
+        self.assertEqual(0, result['exit_code'], result['output_tail'])
+        receipts = behavior_receipts(mapping, [result], 'a' * 40, 'host-fixture-not-container-qualification')
         self.assertEqual('PASSED', receipts[0]['status'])
         self.job['request']['acceptance'] = [{'id': 'budget', 'paths': ['budget.py'], 'checks': ['behavior-suite'], 'evidence': [{'kind': 'behavior_test', 'name': case_id}]}]
         self.job['data']['head_sha'] = 'a' * 40
@@ -128,9 +130,11 @@ class RetentionTests(unittest.TestCase):
         self.assertFalse(completion_gate(self.job, readiness)['passed'])
         self.assertEqual({'BEHAVIOR_VERIFIED': 1}, build_report(self.job, 'NEEDS_INPUT', verified)['requirement_counts'])
         (directory / 'behavior.xml').write_text(f'<testsuite><testcase classname="BudgetAndSchedulerTests" name="{test_name}"><skipped/></testcase></testsuite>')
-        self.assertEqual('SKIPPED', behavior_receipts(mapping, [result], directory, 'a' * 40, 'fixture')[0]['status'])
+        self.assertEqual('PASSED', behavior_receipts(mapping, [result], 'a' * 40, 'fixture')[0]['status'])
         (directory / 'behavior.xml').write_text('<testsuite><testcase classname="Unrelated" name="build"/></testsuite>')
-        self.assertEqual('UNAVAILABLE', behavior_receipts(mapping, [result], directory, 'a' * 40, 'fixture')[0]['status'])
+        self.assertEqual('PASSED', behavior_receipts(mapping, [result], 'a' * 40, 'fixture')[0]['status'])
+        unbound = {key: value for key, value in result.items() if key != 'report_snapshots'}
+        self.assertEqual('UNAVAILABLE', behavior_receipts(mapping, [unbound], 'a' * 40, 'fixture')[0]['status'])
 
     def test_failed_behavior_cannot_be_hidden_by_another_passing_receipt(self):
         self.job['request']['acceptance'] = [{'id': 'feature', 'paths': ['feature'], 'checks': ['suite']}]

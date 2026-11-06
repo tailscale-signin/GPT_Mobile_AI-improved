@@ -111,5 +111,76 @@
     "tree": "4424195fd65cd05ed5154f1f222da9528c11e265",
     "pull_request": 804
   },
-  "expanded_task_id": "eng_3f5c8d59f34941f8b71db458335f8366"
+  "expanded_task_id": "eng_3f5c8d59f34941f8b71db458335f8366",
+  "pr_repair": {
+    "user_instruction": "Fix all PR draft branches and merge when all green",
+    "base_sha": "1b8d57128484770d09fe026216a46603803b76f6",
+    "initial_reviewed_head": "b164ceb30d00bd8235daf82f2596e74329298af8",
+    "initial_repair_head": "3ebb6fc078f2a1390fc5854a89f9de5109486965",
+    "state": "INTEGRATION_VALIDATION",
+    "open_prs_at_start": [
+      804
+    ],
+    "merge_authorized": true,
+    "code_review_repairs": [
+      "renderer variable scope and response provenance provider",
+      "exact KSP Room schema 49 export",
+      "explicit reviewed release path manifest",
+      "gateway capability fixture and isolated benchmark import",
+      "durable diagnostic context and bounded export admission",
+      "nonretryable diagnostic synchronization failures",
+      "canonical hardware evidence and unknown-outcome recovery guidance",
+      "fresh command-specific behavior-report snapshots",
+      "stop definitive engineering authorization/validation failures without repeated stage dispatch"
+    ],
+    "local_validation": {
+      "canonical_host": {
+        "status": "PASSED",
+        "tests": 329
+      },
+      "android_focused_logic": {
+        "status": "PASSED",
+        "tests": 34,
+        "qualification": "Host logic tests do not establish full Android execution"
+      },
+      "room_48_to_49": {
+        "status": "PASSED",
+        "qualification": "SQLite layout and historical row preservation"
+      },
+      "gateway": {
+        "status": "PASSED",
+        "total": 469,
+        "passed": 468,
+        "skipped": 1,
+        "skip_reason": "No bindable LAN IPv4 in editing environment"
+      },
+      "browser_bridge": {
+        "status": "PASSED",
+        "tests": 7
+      },
+      "authentication": {
+        "status": "PASSED",
+        "tests": 25
+      },
+      "diagnostic_retry_transport_spool": {
+        "status": "PASSED",
+        "tests": 32,
+        "qualification": "Host harness executes production logic with Android boundary stubs; full Android build remains a CI gate"
+      },
+      "fresh_validation_reports": {
+        "status": "PASSED",
+        "tests": 13
+      },
+      "retained_validation_evidence": {
+        "status": "PASSED",
+        "tests": 13
+      },
+      "gateway_terminal_failures": {
+        "status": "PASSED",
+        "tests": 17
+      }
+    },
+    "remote_validation": "Fresh final-head CI required before merge",
+    "report": "docs/repairs/pr804-validation-repairs-2026-11-05.md"
+  }
 }

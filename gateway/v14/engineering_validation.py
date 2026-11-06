@@ -13,41 +13,82 @@ import time
 import xml.etree.ElementTree as ET
 
 
-def behavior_receipts(coverage, results, checkout, source_sha, image):
-    """Only exact executed JUnit cases from a host-approved report verify behavior."""
-    evidence = []
-    reports = {}
+def _report_path(checkout, relative):
+    """A report names one file in the disposable checkout, never a linked target."""
     root = Path(checkout).resolve()
+    if (not isinstance(relative, str) or not relative or Path(relative).is_absolute() or '\\' in relative
+            or any(part in {'', '.', '..', '.git'} for part in relative.split('/'))):
+        raise ValueError('Unsafe acceptance report path')
+    path = root
+    for part in relative.split('/'):
+        path /= part
+        # Reject symlink ancestors even when they point back inside the checkout:
+        # removing the declared output must never remove another named file.
+        if path.is_symlink() or (hasattr(path, 'is_junction') and path.is_junction()):
+            raise ValueError('Acceptance report cannot traverse a filesystem link')
+    if not path.resolve().is_relative_to(root):
+        raise ValueError('Acceptance report escaped the isolated checkout')
+    return path
+
+
+def prepare_behavior_reports(coverage, checkout):
+    """Invalidate declared outputs before their command, including tracked reports."""
+    for relative in sorted({item['report_path'] for item in coverage}):
+        path = _report_path(checkout, relative)
+        if path.exists() and not path.is_file():
+            raise ValueError('Acceptance report output must be a regular file')
+        # Unlink only this declared file; never recursively remove report directories.
+        path.unlink(missing_ok=True)
+
+
+def capture_behavior_reports(coverage, checkout):
+    """Snapshot the mapped cases immediately after the command has stopped.
+
+    Later commands may overwrite or reuse a report path. Their output must not
+    change the evidence already attributed to an earlier command.
+    """
+    wanted = {}
+    for item in coverage:
+        wanted.setdefault(item['report_path'], set()).add(item['case_id'])
+    reports = {}
+    for relative, names in wanted.items():
+        try:
+            path = _report_path(checkout, relative)
+            if not path.is_file() or path.stat().st_size > 1024 * 1024:
+                raise ValueError('Report unavailable')
+            with path.open('rb') as stream:
+                raw = stream.read(1024 * 1024 + 1)
+            if len(raw) > 1024 * 1024 or b'<!DOCTYPE' in raw.upper() or b'<!ENTITY' in raw.upper():
+                raise ValueError('Unsafe report')
+            document = ET.fromstring(raw)
+            cases = {}
+            for node in document.iter('testcase'):
+                name = '.'.join(part for part in (node.get('classname', ''), node.get('name', '')) if part)
+                if name not in names:
+                    continue
+                status = 'FAILED' if node.find('failure') is not None or node.find('error') is not None else 'SKIPPED' if node.find('skipped') is not None else 'PASSED'
+                cases[name] = 'UNAVAILABLE' if name in cases else status
+            reports[relative] = {'cases': cases, 'sha256': hashlib.sha256(raw).hexdigest()}
+        except (OSError, ValueError, ET.ParseError):
+            reports[relative] = {'cases': {}, 'sha256': None}
+    return reports
+
+
+def behavior_receipts(coverage, results, source_sha, image):
+    """Only a mapped command's fresh report snapshot can verify its behavior cases."""
+    evidence = []
     for item in coverage:
         if item['command_index'] >= len(results):
             continue
         observed = results[item['command_index']]
         key = item['report_path']
-        if key not in reports:
-            path = root / key
-            try:
-                if path.is_symlink() or not path.resolve().is_relative_to(root) or not path.is_file() or path.stat().st_size > 1024 * 1024:
-                    raise ValueError('Report unavailable')
-                with path.open('rb') as stream:
-                    raw = stream.read(1024 * 1024 + 1)
-                if len(raw) > 1024 * 1024 or b'<!DOCTYPE' in raw.upper() or b'<!ENTITY' in raw.upper():
-                    raise ValueError('Unsafe report')
-                document = ET.fromstring(raw)
-                cases = {}
-                for node in document.iter('testcase'):
-                    name = '.'.join(part for part in (node.get('classname', ''), node.get('name', '')) if part)
-                    status = 'FAILED' if node.find('failure') is not None or node.find('error') is not None else 'SKIPPED' if node.find('skipped') is not None else 'PASSED'
-                    cases[name] = 'UNAVAILABLE' if name in cases else status
-                reports[key] = cases, hashlib.sha256(raw).hexdigest()
-            except (OSError, ValueError, ET.ParseError):
-                reports[key] = {}, None
-        cases, report_sha = reports[key]
-        status = cases.get(item['case_id'], 'UNAVAILABLE')
+        report = observed.get('report_snapshots', {}).get(key, {})
+        status = report.get('cases', {}).get(item['case_id'], 'UNAVAILABLE')
         if observed['exit_code'] != 0 and status == 'PASSED':
             status = 'FAILED'
         evidence.append({'requirement_id': item['requirement_id'], 'kind': 'behavior_test', 'name': item['case_id'],
             'scope': 'behavior', 'status': status, 'observed_at_ms': int(time.time() * 1000), 'image': image,
-            'report_sha256': report_sha, 'test_case': item['case_id'], 'report_path': key,
+            'report_sha256': report.get('sha256'), 'test_case': item['case_id'], 'report_path': key,
             'command_sha256': hashlib.sha256(json.dumps(observed['command']).encode()).hexdigest(),
             'output_sha256': observed['output_sha256'], 'exit_code': observed['exit_code'], 'source_sha': source_sha})
     return evidence
@@ -194,6 +235,8 @@ def validate(job, changes):
         for path in [checkout, *checkout.rglob('*')]:
             path.chmod(0o777 if path.is_dir() or path.stat().st_mode & 0o111 else 0o666)
         for index, command in enumerate(commands):
+            command_coverage = [item for item in coverage if item['command_index'] == index]
+            prepare_behavior_reports(command_coverage, checkout)
             cidfile = root / ('container-' + str(index))
             argv = ['docker', 'run', '--rm', '--pull=never', '--cidfile=' + str(cidfile), '--network=none', '--cap-drop=ALL',
                     '--security-opt=no-new-privileges', '--read-only', '--pids-limit=128', '--memory=2g', '--cpus=2', '--user=65534:65534',
@@ -201,15 +244,17 @@ def validate(job, changes):
                     '--workdir=/workspace', '--env=HOME=/tmp', image, *command]
             try:
                 result = run_bounded(argv, root, timeout)
-                results.append(dict(result, command=command))
             finally:
                 if cidfile.exists():
                     container = cidfile.read_text().strip()
                     if re.fullmatch('[a-f0-9]{64}', container):
                         subprocess.run(['docker', 'rm', '-f', container], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=15, check=False)
+            results.append(dict(result, command=command, report_snapshots=capture_behavior_reports(command_coverage, checkout)))
             if result['exit_code'] != 0:
                 break
-        evidence = behavior_receipts(coverage, results, checkout, head, image)
-    return {'status': 'PASSED' if len(results) == len(commands) and all(item['exit_code'] == 0 for item in results) else 'FAILED',
+        evidence = behavior_receipts(coverage, results, head, image)
+    passed = (len(results) == len(commands) and all(item['exit_code'] == 0 for item in results)
+              and len(evidence) == len(coverage) and all(item['status'] == 'PASSED' for item in evidence))
+    return {'status': 'PASSED' if passed else 'FAILED',
             'patch_identity': identity, 'source_sha': head, 'image': image, 'commands': results, 'network': 'disabled', 'device_tested': False,
             'requirement_evidence': evidence}

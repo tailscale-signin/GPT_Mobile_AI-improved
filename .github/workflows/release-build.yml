@@ -114,14 +114,27 @@ jobs:
           sudo env DEBIAN_FRONTEND=noninteractive timeout --kill-after=15s 180s apt-get "${apt_options[@]}" install --no-install-recommends -y glslc libvulkan-dev spirv-headers
       - name: Validate Android resources
         run: python3 scripts/check_android_resources.py
-      # Match PR validation's bounded processes: release compiler state before
-      # tests or lint, and retain the repository's one-worker and 3 GiB ceilings.
+      # Release KSP/KAPT and compiler state between phases. Run 42164047485
+      # exhausted 3 GiB; only cold production compilation uses 4 GiB, matching
+      # the successful CodeQL build of the same revision. Keep one worker.
       - name: Generate release validation sources in a separate process
         timeout-minutes: 10
-        run: python3 scripts/gradle_retry.py --timeout-seconds 540 -- :app:kspDebugKotlin --no-daemon --max-workers=1 --console=plain
+        shell: bash
+        run: |
+          set -o pipefail
+          python3 scripts/gradle_retry.py --timeout-seconds 540 -- :app:kspDebugKotlin :app:kaptDebugKotlin --no-daemon --max-workers=1 --console=plain 2>&1 | tee release-validation-generation.log
+      - name: Compile release validation production sources in a separate process
+        timeout-minutes: 20
+        shell: bash
+        run: |
+          set -o pipefail
+          python3 scripts/gradle_retry.py --timeout-seconds 1140 -- :app:compileDebugKotlin :app:compileDebugJavaWithJavac --no-daemon --max-workers=1 --console=plain '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8' 2>&1 | tee release-validation-production.log
       - name: Compile release validation tests in a separate process
         timeout-minutes: 25
-        run: python3 scripts/gradle_retry.py -- :app:compileDebugUnitTestKotlin :app:compileDebugUnitTestJavaWithJavac --no-daemon --max-workers=1 --console=plain
+        shell: bash
+        run: |
+          set -o pipefail
+          python3 scripts/gradle_retry.py -- :app:compileDebugUnitTestKotlin :app:compileDebugUnitTestJavaWithJavac --no-daemon --max-workers=1 --console=plain 2>&1 | tee release-validation-unit-compile.log
       - name: Run release validation unit tests
         timeout-minutes: 25
         run: python3 scripts/gradle_retry.py -- :app:testDebugUnitTest --no-daemon --max-workers=1 --console=plain
@@ -132,10 +145,16 @@ jobs:
       # A cold lint run otherwise retains KSP and compiler state in the same JVM.
       - name: Generate release sources in a separate process
         timeout-minutes: 10
-        run: python3 scripts/gradle_retry.py --timeout-seconds 540 -- :app:kspReleaseKotlin --no-daemon --max-workers=1 --console=plain
+        shell: bash
+        run: |
+          set -o pipefail
+          python3 scripts/gradle_retry.py --timeout-seconds 540 -- :app:kspReleaseKotlin :app:kaptReleaseKotlin --no-daemon --max-workers=1 --console=plain 2>&1 | tee release-generation.log
       - name: Compile release sources in a separate process
         timeout-minutes: 20
-        run: python3 scripts/gradle_retry.py --timeout-seconds 1140 -- :app:compileReleaseKotlin :app:compileReleaseJavaWithJavac --no-daemon --max-workers=1 --console=plain
+        shell: bash
+        run: |
+          set -o pipefail
+          python3 scripts/gradle_retry.py --timeout-seconds 1140 -- :app:compileReleaseKotlin :app:compileReleaseJavaWithJavac --no-daemon --max-workers=1 --console=plain '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8' 2>&1 | tee release-production.log
       - name: Verify release compatibility and lint
         timeout-minutes: 45
         run: python3 scripts/gradle_retry.py -- :app:checkReleaseAarMetadata :app:lintRelease --no-daemon --max-workers=1 --console=plain
@@ -145,6 +164,8 @@ jobs:
           retention-days: 14
           name: release-validation-${{ github.sha }}
           path: |
+            release-*.log
+            app/build/test-results/testDebugUnitTest/
             app/build/reports/tests/
             app/build/reports/lint-results-*
   build:

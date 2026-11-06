@@ -91,7 +91,9 @@ class BoundModelInvocation:
             binding_id=self.binding['binding_id'], job_id=self.job['id'], state=self.current['state'],
             error_code=self.current.get('error_code'), dispatched=self.current['dispatched'],
             local_duration_ms=max(0, int((time.monotonic() - self.started) * 1000)),
-            bounded_attributes={'model_hash': fingerprint(self.binding['requested_model_id']), 'endpoint_hash': self.binding['backend_endpoint_identity']})
+            bounded_attributes={'model_digest': fingerprint(self.binding['requested_model_id']),
+                                'endpoint_digest': self.binding['backend_endpoint_identity'],
+                                'capability_digest': self.capability['capability_revision']})
 
     def before_dispatch(self, url, payload):
         self.current = self.new_receipt()

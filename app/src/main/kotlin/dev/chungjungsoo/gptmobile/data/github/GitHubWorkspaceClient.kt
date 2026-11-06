@@ -1449,7 +1449,8 @@ class GitHubWorkspaceClient(
                             require(it is JsonObject) { "inputs must be an object." }
                             put("inputs", it)
                         }
-                    }
+                    },
+                    authenticated = true
                 )
                 val dispatchedRunId = (dispatchResponse as? JsonObject)?.get("workflow_run_id")?.jsonPrimitive?.content?.toLongOrNull()?.takeIf { it > 0 }
                 if (dispatchedRunId != null) {

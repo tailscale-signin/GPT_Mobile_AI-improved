@@ -42,6 +42,18 @@ class ToolConnectionRepository internal constructor(
         credential: ByteArray? = null,
         clearCredential: Boolean = false
     ) {
+        // Endpoint protection can write query values to the vault, so validate
+        // GitHub credential replacements before either persistence boundary.
+        val gitHubHost = if (credential != null && connection.type == ToolConnectionType.GITHUB) {
+            try {
+                dev.chungjungsoo.gptmobile.data.github.GitHubApiOrigins.fromEndpoint(connection.endpointUrl).hostIdentity
+            } catch (error: Exception) {
+                credential.fill(0)
+                throw error
+            }
+        } else {
+            null
+        }
         dev.chungjungsoo.gptmobile.data.readiness.ReadinessInvalidation.advance()
         val protected = EndpointSecrets.protect(connection, secretVault)
         require(!(credential != null && clearCredential)) { "Credential replacement and clear are mutually exclusive." }
@@ -60,7 +72,7 @@ class ToolConnectionRepository internal constructor(
                 toolConnectionDao.upsertConnection(protected.copy(secretRef = previousSecretRef))
             }
 
-            else -> replaceCredential(protected, credential, previousSecretRef)
+            else -> replaceCredential(protected, credential, previousSecretRef, gitHubHost)
         }
         if (previous?.type == ToolConnectionType.GITHUB && protected.type != ToolConnectionType.GITHUB) secretVault.delete(dev.chungjungsoo.gptmobile.data.github.GitHubPublicAuthCoordinator.sessionReference(connection.connectionUid))
         if (previous != null && dev.chungjungsoo.gptmobile.data.crawl.CrawlerCompanionGrant.recognizes(previous) && (previous.endpointUrl != protected.endpointUrl || previous.alias != protected.alias)) secretVault.delete(dev.chungjungsoo.gptmobile.data.crawl.CrawlerCompanionGrant.reference(previous))
@@ -137,7 +149,8 @@ class ToolConnectionRepository internal constructor(
     private suspend fun replaceCredential(
         connection: ToolConnection,
         credential: ByteArray,
-        previousSecretRef: String?
+        previousSecretRef: String?,
+        gitHubHost: String?
     ) {
         val secretRef = connectionSecretRef(connection.connectionUid)
         var previousBytes: ByteArray? = null
@@ -149,9 +162,9 @@ class ToolConnectionRepository internal constructor(
                 if (previousSecretRef != null && previousSecretRef != secretRef) {
                     secretVault.delete(previousSecretRef)
                 }
-                if (connection.type == ToolConnectionType.GITHUB) {
+                if (gitHubHost != null) {
                     secretVault.delete(dev.chungjungsoo.gptmobile.data.github.GitHubPublicAuthCoordinator.sessionReference(connection.connectionUid))
-                    dev.chungjungsoo.gptmobile.data.github.GitHubSessionCaches.credentialReconnected(credential.toString(StandardCharsets.UTF_8), dev.chungjungsoo.gptmobile.data.github.GitHubApiOrigins.fromEndpoint(connection.endpointUrl).hostIdentity)
+                    dev.chungjungsoo.gptmobile.data.github.GitHubSessionCaches.credentialReconnected(credential.toString(StandardCharsets.UTF_8), gitHubHost)
                 }
             } catch (error: Exception) {
                 restoreCredential(secretRef, previousSecretRef, previousBytes)

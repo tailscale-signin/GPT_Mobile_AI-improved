@@ -427,7 +427,8 @@
         "gateway/tests/test_gateway_v14_diagnostic_events.py",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/BoundedDiagnosticLoggingTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/BoundedDiagnosticPendingQueueTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/StagedDiagnosticCaptureHeapTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/StagedDiagnosticCaptureHeapTest.kt",
+        "gateway/tests/test_gateway_diagnostic_stress.py"
       ],
       "evidence": [
         "SOURCE_REVIEW: Both capture paths bound retained events and record drops; gateway capture retains at most 5,000 combined events and bounded individual event payloads.",
@@ -462,7 +463,8 @@
         "gateway/tests/test_gateway_selected_execution.py",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayDiagnosticSpoolTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayDiagnosticTransportTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayDiagnosticRetryGateTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayDiagnosticRetryGateTest.kt",
+        "gateway/tests/test_gateway_diagnostic_stress.py"
       ],
       "evidence": [
         "SOURCE_REVIEW: Bidirectional batches use bounded payloads, durable monotonic source sequences, explicit acknowledgments, duplicate suppression and reported drop ranges.",
@@ -1434,7 +1436,8 @@
         "gateway/tests/test_gateway_v14_engineering_http.py",
         "gateway/tests/test_gateway_v14_diagnostic_events.py",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubEngineeringControllerIntegrationTest.kt",
-        "app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubPromptMotionInstrumentedTest.kt"
+        "app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubPromptMotionInstrumentedTest.kt",
+        "gateway/tests/test_gateway_diagnostic_stress.py"
       ],
       "evidence": [
         "SOURCE_REVIEW: Host suites exercise selected dispatch, retained mutations, diagnostics, contract/readiness, recovery and HTTP behavior with deterministic boundaries.",
@@ -1495,7 +1498,8 @@
         "gateway/tests/test_gateway_v14_upgrade.py",
         "gateway/tests/test_gateway_v14_engineering.py",
         "gateway/tests/test_gateway_engineering_retention.py",
-        "scripts/tests/test_release_rollback.py"
+        "scripts/tests/test_release_rollback.py",
+        "gateway/tests/test_gateway_diagnostic_stress.py"
       ],
       "evidence": [
         "SOURCE_REVIEW: Fault, restart, ownership, migration and rollback fixtures cover bounded recovery contracts and release identity checks.",
@@ -1579,15 +1583,20 @@
     {
       "id": "LOCAL_GATEWAY_INTEGRATION",
       "status": "PASSED_WITH_ENVIRONMENT_SKIP",
-      "scope": "Root reported successful final gateway/check_gateway.py after all gateway integration repairs, including fresh validation reports, terminal-failure classification, isolated Windows child environment and durable diagnostic journal transactions. This is integration-worktree evidence before final publication; final-head CI remains a separate gate.",
+      "scope": "Root and gateway agent reported successful final gateway/check_gateway.py after all integration repairs. Ordinary suites retain 120-second bounds; the unchanged 50,000-event FULL-durability restart/eviction test is explicitly included exactly once as a dedicated suite with a 300-second bound and five progress checkpoints. The recorded timings are from the local integration executor, not Windows CI or a physical-device performance qualification. Final-head CI remains a separate gate.",
       "command": "python gateway/check_gateway.py",
       "pythonTestsPassed": 471,
       "pythonTestsSkipped": 1,
       "skip": "Existing sandbox LAN-interface limitation",
-      "v14AggregateTestsPassed": 295,
+      "v14AggregateTestsPassed": 294,
       "browserTestsPassed": 7,
       "authenticationTestsPassed": 25,
-      "countingNote": "v14 aggregate and authentication counts are component results and must not be added to the Python total."
+      "countingNote": "The 472 Python cases (471 passed and one skipped) cover gateway modules only. The v14 aggregate and dedicated diagnostic stress results are included in that total. Authentication (25 passed) and browser (7 passed) are separate runs, not components of the 472 gateway Python cases.",
+      "v14AggregateElapsedSeconds": 44.881,
+      "diagnosticStressTestsPassed": 1,
+      "diagnosticStressElapsedSeconds": 5.948,
+      "diagnosticStressEvents": 50000,
+      "diagnosticStressBatchCommits": 782
     },
     {
       "id": "LOCAL_WORKFLOW_REPAIR",

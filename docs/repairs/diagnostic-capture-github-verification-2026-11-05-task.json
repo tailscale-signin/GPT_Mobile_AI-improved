@@ -134,7 +134,11 @@
       "stop definitive engineering authorization/validation failures without repeated stage dispatch",
       "bounded production compiler heap after measured 3 GiB exhaustion",
       "isolated Windows child runtime environment",
-      "fully synchronous single-owner diagnostic WAL and indexed retention pruning"
+      "fully synchronous single-owner diagnostic WAL and indexed retention pruning",
+      "isolate unchanged50000event durability stress with measured Windows-specific300second test budget",
+      "complete strict selected-connection and Android JSON integration fixtures",
+      "validate GitHub origin before credential or connection persistence",
+      "synchronize diagnostic cancellation regression with actual response-body read"
     ],
     "local_validation": {
       "canonical_host": {
@@ -184,15 +188,55 @@
       },
       "gateway_windows_repairs": {
         "status": "PASSED_LOCALLY",
-        "diagnostic_cases": 22,
+        "diagnostic_cases": 21,
         "validation_cases": 14,
-        "v14_aggregate": 295,
-        "v14_aggregate_seconds": 51.96,
-        "qualification": "Linux real subprocess/crash/reopen tests; Windows CI still required"
+        "v14_aggregate": 294,
+        "v14_aggregate_seconds": 44.881,
+        "qualification": "Linux real subprocess/crash/reopen tests; Windows CI still required",
+        "dedicated_stress_cases": 1,
+        "dedicated_stress_seconds": 5.948
+      },
+      "android_integration_fixture_repairs": {
+        "status": "CI_REQUIRED",
+        "cases": 5,
+        "local_checks": [
+          "ktlint",
+          "complete PR diff whitespace"
+        ],
+        "qualification": "Existing assertions preserved; Room/Robolectric execution remains an Android CI gate"
+      },
+      "repository_origin_preflight": {
+        "status": "PASSED",
+        "tests": 22,
+        "qualification": "Actual repository/origin/endpoint/DAO/entity sources; process-service and annotation boundaries stubbed; full Android CI required"
+      },
+      "diagnostic_cancellation_race": {
+        "status": "PASSED",
+        "diagnostic_suite_tests": 32,
+        "transport_class_repetitions": 100,
+        "transport_test_executions": 500,
+        "qualification": "Repeated executions are not additional unique test cases"
       }
     },
     "remote_validation": "Fresh final-head CI required before merge",
     "report": "docs/repairs/pr804-validation-repairs-2026-11-05.md",
-    "last_inspected_head": "43b343365e37ff83a5d7c2f60f5b1d754ad8cc07"
+    "last_inspected_head": "f1adbfc275d469a83f09cd87cf9292880e584f07",
+    "observed_android_unit_run": {
+      "head": "f1adbfc275d469a83f09cd87cf9292880e584f07",
+      "run_id": 42168133500,
+      "artifact_id": 13480941128,
+      "total": 6950,
+      "passed": 6940,
+      "failed": 5,
+      "skipped": 5,
+      "skip_reason": "Separate required bounded-heap test invocations",
+      "status": "FAILURES_REPAIRED_LOCALLY_FRESH_CI_REQUIRED"
+    },
+    "observed_pr_coverage_unit_run": {
+      "head": "f1adbfc275d469a83f09cd87cf9292880e584f07",
+      "run_id": 42168133549,
+      "failed": 6,
+      "status": "FAILURES_REPAIRED_LOCALLY_FRESH_CI_REQUIRED"
+    }
   }
 }

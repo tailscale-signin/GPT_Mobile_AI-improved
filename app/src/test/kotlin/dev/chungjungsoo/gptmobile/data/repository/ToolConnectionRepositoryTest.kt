@@ -74,7 +74,11 @@ class ToolConnectionRepositoryTest {
         val dao = FakeToolConnectionDao(events = events)
         val vault = ConnectionFakeSecretVault(events = events)
         val repository = ToolConnectionRepository(dao, vault)
-        val connection = testConnection("github").copy(type = "GITHUB", authType = "OAUTH")
+        val connection = testConnection("github").copy(
+            type = ToolConnectionType.GITHUB,
+            authType = ToolConnectionAuthType.OAUTH,
+            endpointUrl = "https://api.github.com"
+        )
         repository.upsertConnection(connection, credential = "ghu_access".encodeToByteArray())
         val session = dev.chungjungsoo.gptmobile.data.github.GitHubPublicAuthCoordinator.sessionReference("github")
         val binding = dev.chungjungsoo.gptmobile.data.github.GitHubPublicAuthCoordinator.bindingReference("github")
@@ -91,6 +95,40 @@ class ToolConnectionRepositoryTest {
         assertEquals("dao.delete:github", events.first())
         assertNull(vault.values[binding])
         assertNull(dao.connections["github"])
+    }
+
+    @Test
+    fun `invalid GitHub origin preserves an existing connection and all vault records`() = runBlocking {
+        verifyInvalidGitHubOriginIsRejectedBeforeMutation(existing = true)
+    }
+
+    @Test
+    fun `invalid GitHub origin cannot create a connection or retain credential bytes`() = runBlocking {
+        verifyInvalidGitHubOriginIsRejectedBeforeMutation(existing = false)
+    }
+
+    @Test
+    fun `invalid legacy GitHub origin can still disconnect and retain its account binding`() = runBlocking {
+        val dao = FakeToolConnectionDao()
+        val vault = ConnectionFakeSecretVault()
+        val repository = ToolConnectionRepository(dao, vault)
+        val connection = testConnection("github", secretRef = "connection_github").copy(
+            type = ToolConnectionType.GITHUB,
+            authType = ToolConnectionAuthType.OAUTH
+        )
+        val session = dev.chungjungsoo.gptmobile.data.github.GitHubPublicAuthCoordinator.sessionReference("github")
+        val binding = dev.chungjungsoo.gptmobile.data.github.GitHubPublicAuthCoordinator.bindingReference("github")
+        dao.connections["github"] = connection
+        vault.values["connection_github"] = "old-access".encodeToByteArray()
+        vault.values[session] = "old-refresh".encodeToByteArray()
+        vault.values[binding] = "verified-account".encodeToByteArray()
+
+        repository.upsertConnection(connection, clearCredential = true)
+
+        assertEquals(connection.copy(secretRef = null), dao.connections["github"])
+        assertNull(vault.values["connection_github"])
+        assertNull(vault.values[session])
+        assertEquals("verified-account", vault.values[binding]!!.decodeToString())
     }
 
     @Test
@@ -384,6 +422,38 @@ class ToolConnectionRepositoryTest {
         val bindings = repository.listBindingsWithConnections("profile-1")
 
         assertEquals(listOf(null, "MCP Server"), bindings.map { it.connection?.name })
+    }
+
+    private suspend fun verifyInvalidGitHubOriginIsRejectedBeforeMutation(existing: Boolean) {
+        val dao = FakeToolConnectionDao()
+        val vault = ConnectionFakeSecretVault()
+        val repository = ToolConnectionRepository(dao, vault)
+        val connection = testConnection("github").copy(
+            type = ToolConnectionType.GITHUB,
+            authType = ToolConnectionAuthType.OAUTH,
+            endpointUrl = "https://api.github.com"
+        )
+        if (existing) {
+            repository.upsertConnection(connection, credential = "old-access".encodeToByteArray())
+            vault.values[dev.chungjungsoo.gptmobile.data.github.GitHubPublicAuthCoordinator.sessionReference("github")] = "old-refresh".encodeToByteArray()
+            vault.values[dev.chungjungsoo.gptmobile.data.github.GitHubPublicAuthCoordinator.bindingReference("github")] = "verified-account".encodeToByteArray()
+        }
+        val originalConnections = dao.connections.toMap()
+        val originalSecrets = vault.values.mapValues { it.value.toList() }
+        for (endpoint in listOf("https://github.example/mcp", "https://api.github.com?token=endpoint-fixture")) {
+            val credential = "replacement-access".encodeToByteArray()
+            val failure = runCatching {
+                repository.upsertConnection(
+                    connection.copy(name = "Rejected replacement", endpointUrl = endpoint),
+                    credential = credential
+                )
+            }.exceptionOrNull()
+
+            assertTrue(failure is IllegalArgumentException)
+            assertEquals(originalConnections, dao.connections)
+            assertEquals(originalSecrets, vault.values.mapValues { it.value.toList() })
+            assertTrue(credential.all { it == 0.toByte() })
+        }
     }
 
     private fun testConnection(

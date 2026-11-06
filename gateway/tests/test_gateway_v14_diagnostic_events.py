@@ -76,18 +76,6 @@ class DiagnosticJournalTests(unittest.TestCase):
         self.assertFalse(manifest['complete'])
         self.assertFalse(manifest['vendor_log_available'])
 
-    def test_50000_events_restart_and_digest_expiry_never_resurrect_evicted_replay(self):
-        self.append(1, 50000)
-        self.store.close()
-        self.store = DiagnosticSessionJournal(self.path, now=lambda: NOW)
-        receipt = self.store.ingest('paired-owner', batch([event(1)]))
-        self.assertEqual([], receipt['committed_event_ids'])
-        self.assertEqual([{'event_id': event(1)['event_id'], 'content_verified': False}], receipt['already_accounted'])
-        manifest, rows, _ = unpack(self.store.export('paired-owner', SESSION))
-        self.assertEqual(45000, manifest['evicted_count'])
-        self.assertEqual(45001, rows[0]['origin_sequence'])
-        self.assertEqual(50000, manifest['sources'][0]['accounted_through'])
-
     def test_acknowledged_wal_commit_survives_process_exit_and_uncommitted_watermark_does_not(self):
         script = (
             'import json,os,sys\n'

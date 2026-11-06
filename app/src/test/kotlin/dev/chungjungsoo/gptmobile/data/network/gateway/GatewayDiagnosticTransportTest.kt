@@ -8,6 +8,7 @@ import io.ktor.client.plugins.HttpTimeout
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.content.TextContent
 import io.ktor.utils.io.ByteChannel
+import io.ktor.utils.io.ByteReadChannel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
@@ -113,14 +114,19 @@ class GatewayDiagnosticTransportTest {
 
     @Test fun cancellationDuringResponseReadPropagatesWithoutBecomingAProtocolFailure() = runTest {
         val stream = ByteChannel(autoFlush = true)
-        val dispatched = CompletableDeferred<Unit>()
+        val reading = CompletableDeferred<Unit>()
+        val responseBody = object : ByteReadChannel by stream {
+            override suspend fun awaitContent(min: Int): Boolean {
+                reading.complete(Unit)
+                return stream.awaitContent(min)
+            }
+        }
         val gate = GatewayDiagnosticRetryGate { 0L }
         var requests = 0
         http(
             MockEngine {
                 requests++
-                dispatched.complete(Unit)
-                respond(stream, HttpStatusCode.OK)
+                respond(responseBody, HttpStatusCode.OK)
             }
         ).use { client ->
             val result = async {
@@ -131,9 +137,10 @@ class GatewayDiagnosticTransportTest {
                     true
                 }
             }
-            dispatched.await()
+            reading.await()
             stream.cancel(CancellationException("Capture cancelled while reading"))
-            assertTrue(result.await())
+            val cancellationEscaped = result.await()
+            assertTrue("Cancellation must propagate without changing retry state: ${gate.snapshot()}", cancellationEscaped)
         }
         assertEquals(1, requests)
         assertEquals(GatewayDiagnosticRetryState.READY, gate.snapshot().state)

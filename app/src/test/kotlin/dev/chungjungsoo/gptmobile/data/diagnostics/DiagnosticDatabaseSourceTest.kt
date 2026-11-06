@@ -160,7 +160,7 @@ class DiagnosticDatabaseSourceTest {
         assertEquals(154, timeline.size)
         assertTrue(timeline.any { it["eventId"]?.jsonPrimitive?.content == "tool_events:event-152" })
         assertTrue(omissions.isEmpty())
-        val context = RuntimeEnvironment.getApplication<Application>()
+        val context = RuntimeEnvironment.getApplication()
         val destination = File(context.cacheDir, "all-receipt-export").apply { mkdirs() }
         try {
             val exported = writeStagedChatDiagnostics(context, destination, ChatRoomV2(id = chat, title = "Selected"), emptyList(), ChatMcpToolConfig(), AppFeatureSettings(), "", emptyList(), source, null, false, false) {}
@@ -187,7 +187,7 @@ class DiagnosticDatabaseSourceTest {
             MessageV2(chatId = chat, content = escaped, platformType = null),
             MessageV2(chatId = chat, content = "x".repeat(1_048_577), platformType = null)
         )
-        val context = RuntimeEnvironment.getApplication<Application>()
+        val context = RuntimeEnvironment.getApplication()
         val destination = File(context.cacheDir, "large-message-export").apply { mkdirs() }
         try {
             val result = writeStagedChatDiagnostics(context, destination, ChatRoomV2(id = chat, title = "Chunk verification"), emptyList(), ChatMcpToolConfig(), AppFeatureSettings(), "", emptyList(), source, null, false, false) {}

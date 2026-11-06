@@ -133,6 +133,15 @@
           "Project the response inside the existing error boundary; invalid response remains unverified.",
           "Pass the actual dispatchPreparation tool budget callback through streamPrimaryAnswer to GitHubVerifiedSession."
         ]
+      },
+      "second_attempt": {
+        "head_sha": "75ca83ae3cb0ad373390c098d01271292329609e",
+        "job_id": 127926329821,
+        "production_compile": "PASSED",
+        "unit_test_compile": "FAILED",
+        "tests_executed": false,
+        "failure": "Two Room/export fixtures supplied a type argument to the installed non-generic Robolectric RuntimeEnvironment.getApplication API.",
+        "repair": "Remove both unnecessary type arguments while retaining real Room-to-staged-export integration coverage."
       }
     },
     "live_acceptance": {
@@ -167,7 +176,7 @@
     "target": "main",
     "pull_request": 806,
     "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/806",
-    "previously_published_head": "4fda7af258138bedd9afd07d798a425c1764e9ed",
+    "previously_published_head": "75ca83ae3cb0ad373390c098d01271292329609e",
     "release_requested": false
   },
   "review": [

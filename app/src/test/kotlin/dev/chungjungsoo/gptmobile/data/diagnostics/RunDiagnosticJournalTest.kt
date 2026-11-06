@@ -273,6 +273,24 @@ class RunDiagnosticJournalTest {
         assertEquals(2L, snapshot.missingSequences)
     }
 
+    @Test fun callerSnapshotLimitsIncludeQueuedEventsAndExposeOmittedEvidence() = runTest {
+        val vault = MemoryVault()
+        val journal = RunDiagnosticJournal(vault, backgroundScope).apply {
+            enabled = true
+            setRunPrivacy("run", false)
+        }
+        repeat(4) { journal.record("run", RunDiagnosticKind.REQUEST_SERIALIZED) }
+        runCurrent()
+        journal.record("run", RunDiagnosticKind.RUN_TERMINAL, successful = true)
+        val limited = journal.snapshot(setOf("run"), byteLimit = 64L * 1024, eventLimit = 2)
+        assertEquals(listOf(4L, 5L), limited.events.map { it.sequence })
+        assertEquals(3L, limited.missingSequences)
+        val empty = journal.snapshot(setOf("run"), byteLimit = 1, eventLimit = 10)
+        assertTrue(empty.events.isEmpty())
+        assertTrue(empty.missingBatches > 0)
+        assertEquals(5L, empty.missingSequences)
+    }
+
     private class MemoryVault(val gate: CompletableDeferred<Unit>? = null, val failWrites: Boolean = false) : SecretVault {
         val rows = linkedMapOf<String, ByteArray>()
         override suspend fun put(secretRef: String, secret: ByteArray) {

@@ -211,6 +211,47 @@ class WorkspaceRepository @Inject constructor(val database: ChatDatabaseV2, priv
         }
     }
 
+    /** Diagnostic-only bounded hydration; the caller has already measured this row in SQLite. */
+    internal suspend fun diagnosticPayload(
+        chatId: Int,
+        recordId: String,
+        kind: String,
+        storedPayload: String,
+        maximumBytes: Int,
+        beforeRead: suspend () -> Unit,
+        omitted: (String) -> Unit
+    ): WorkspaceDiagnosticPayload {
+        if (kind !in setOf("context", "github_evidence", "synthesis_checkpoint", "github_engineering_memory")) {
+            return WorkspaceDiagnosticPayload(false)
+        }
+        if (storedPayload.length > maximumBytes || dev.chungjungsoo.gptmobile.data.diagnostics.diagnosticJsonShapeFailure(storedPayload) != null) {
+            return WorkspaceDiagnosticPayload(true, omissionReason = "PROTECTED_METADATA_LIMIT")
+        }
+        val metadata = try {
+            Json.parseToJsonElement(storedPayload) as? kotlinx.serialization.json.JsonObject
+        } catch (_: IllegalArgumentException) {
+            null
+        } ?: return WorkspaceDiagnosticPayload(false)
+        return readWorkspaceDiagnosticPayload(
+            chatId,
+            metadata,
+            maximumBytes,
+            beforeRead,
+            authorized = {
+                database.openHelper.readableDatabase.query(
+                    androidx.sqlite.db.SimpleSQLiteQuery(
+                        "SELECT EXISTS(SELECT 1 FROM workspace_records w JOIN chats_v2 c ON c.chat_id = w.chatId " +
+                            "WHERE w.id = ? AND w.chatId = ? AND w.kind = ? AND w.payload = ? AND c.is_temporary = 0)",
+                        arrayOf<Any?>(recordId, chatId, kind, storedPayload)
+                    )
+                ).use { it.moveToFirst() && it.getInt(0) == 1 }
+            },
+            storedSize = vault::storedSize,
+            read = vault::read,
+            omitted = omitted
+        )
+    }
+
     suspend fun readReceipt(entry: WorkspaceRecord): ContextReceipt {
         val metadata = json.decodeFromString<ContextReceipt>(entry.payload)
         val bytes = metadata.protectedReference?.let { vault.read(it) } ?: return metadata

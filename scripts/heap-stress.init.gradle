@@ -1,10 +1,19 @@
-// Explicit constrained-JVM regression gate; run only the heap/export test classes.
+// Explicit constrained-JVM regression gates; run only the selected heap/export test classes.
+// The staged diagnostic core uses a smaller JVM without loading Robolectric's Android runtime.
+def diagnosticCaptureGate = gradle.startParameter.projectProperties['gptmobile.diagnosticHeapStress'] == 'true'
+def gateHeap = diagnosticCaptureGate ? '64m' : '256m'
+def gateReport = diagnosticCaptureGate ? 'diagnosticHeapRecovery' : 'heapRecovery'
+def gateIncludes = ['**/ResearchSessionStoreHeapTest.class', '**/StreamingDebugBundleTest.class', '**/BenchmarkStreamingExportHeapTest.class', '**/BenchmarkColdStreamingExportHeapTest.class']
+if (diagnosticCaptureGate) {
+    gateIncludes = ['**/StagedDiagnosticCaptureHeapTest.class']
+}
 allprojects {
     tasks.withType(Test).configureEach {
-        maxHeapSize = '256m'
+        maxHeapSize = gateHeap
         maxParallelForks = 1
         forkEvery = 1
         systemProperty 'gptmobile.heapStress', 'true'
+        systemProperty 'gptmobile.diagnosticHeapStress', diagnosticCaptureGate.toString()
     }
 }
 
@@ -14,16 +23,17 @@ gradle.projectsEvaluated {
     gradle.rootProject.allprojects { gateProject ->
         gateProject.tasks.withType(Test).each { gateTest ->
             // Reassert after AGP's normal-suite defaults, just like the report paths.
-            gateTest.maxHeapSize = '256m'
+            gateTest.maxHeapSize = gateHeap
             gateTest.maxParallelForks = 1
             gateTest.forkEvery = 1
             gateTest.systemProperty 'gptmobile.heapStress', 'true'
+            gateTest.systemProperty 'gptmobile.diagnosticHeapStress', diagnosticCaptureGate.toString()
             // Restrict class scanning as well as --tests filtering: otherwise
             // forkEvery=1 starts a JVM for every unrelated test class first.
-            gateTest.setIncludes(['**/ResearchSessionStoreHeapTest.class', '**/StreamingDebugBundleTest.class', '**/BenchmarkStreamingExportHeapTest.class', '**/BenchmarkColdStreamingExportHeapTest.class'] as Set)
-            gateTest.reports.junitXml.outputLocation.set(gateProject.layout.buildDirectory.dir('test-results/heapRecovery'))
-            gateTest.reports.html.outputLocation.set(gateProject.layout.buildDirectory.dir('reports/tests/heapRecovery'))
-            gateTest.binaryResultsDirectory.set(gateProject.layout.buildDirectory.dir('test-results/heapRecovery/binary'))
+            gateTest.setIncludes(gateIncludes as Set)
+            gateTest.reports.junitXml.outputLocation.set(gateProject.layout.buildDirectory.dir("test-results/$gateReport"))
+            gateTest.reports.html.outputLocation.set(gateProject.layout.buildDirectory.dir("reports/tests/$gateReport"))
+            gateTest.binaryResultsDirectory.set(gateProject.layout.buildDirectory.dir("test-results/$gateReport/binary"))
         }
     }
 }

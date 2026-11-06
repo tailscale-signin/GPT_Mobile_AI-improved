@@ -28,7 +28,15 @@ import dev.chungjungsoo.gptmobile.presentation.common.SettingsHelpIcon
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 
 @Composable
-internal fun ChatExportDialog(onDismiss: () -> Unit, debugMode: Boolean = false, includeUserMessages: Boolean = false, onExport: (ChatExportFormat) -> Unit) {
+internal fun ChatExportDialog(
+    onDismiss: () -> Unit,
+    debugMode: Boolean = false,
+    includeUserMessages: Boolean = false,
+    diagnosticNotice: String? = null,
+    onReducedDebugExport: (() -> Unit)? = null,
+    onResumeDebugExport: (() -> Unit)? = null,
+    onExport: (ChatExportFormat) -> Unit
+) {
     AlertDialog(
         onDismissRequest = onDismiss,
         icon = { Icon(Icons.Rounded.FileDownload, null, tint = MaterialTheme.colorScheme.primary) },
@@ -51,13 +59,32 @@ internal fun ChatExportDialog(onDismiss: () -> Unit, debugMode: Boolean = false,
                     if (includeUserMessages) "Includes your messages and selected AI replies with headings, tables, links and code. System prompts, thinking and tool activity are excluded." else "Saves the original response formatting in a .md file. Open it in a Markdown editor to render headings, tables, source links, and code blocks. Exports the selected response revisions without prompts, thinking, or tool activity."
                 ) { onExport(ChatExportFormat.MARKDOWN) }
                 if (debugMode) {
+                    diagnosticNotice?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
                     ExportFormatCard(
                         "Debug export",
                         ".debug.zip",
-                        "All conversation records and diagnostic evidence",
+                        "Conversation records and diagnostic evidence",
                         Icons.Rounded.Description,
-                        "Includes prompts, all stored responses and revisions, thinking, original Combined contributions, run and request IDs, tool arguments/results, context receipts, queued prompts, settings and research evidence. Credentials are redacted. Attachment contents and unrecorded network payloads are not included. The file contains private conversation data. Active responses are a snapshot taken during export."
+                        "Captures stored conversation, tool, research, profile and log records in independent sections. The manifest reports exact record counts, capture times, memory measurements and any omissions. Oversized records and unavailable sources are reported explicitly. Credentials are redacted; the file can contain private conversation data."
                     ) { onExport(ChatExportFormat.DEBUG) }
+                    onReducedDebugExport?.let { reduced ->
+                        ExportFormatCard(
+                            "Low-memory diagnostics",
+                            ".zip",
+                            "Preserve critical logs with smaller capture limits",
+                            Icons.Rounded.Description,
+                            "Uses smaller record and section limits. Every omitted record or section is listed in the manifest. This is useful when a full capture cannot finish."
+                        ) { reduced() }
+                    }
+                    onResumeDebugExport?.let { resume ->
+                        ExportFormatCard(
+                            "Resume diagnostic capture",
+                            ".zip",
+                            "Keep verified sections and retry unfinished sections",
+                            Icons.Rounded.Description,
+                            "Reuses intact completed sections from the last unfinished capture and retries missing sections. Each section keeps its own capture timestamp because the conversation may have changed."
+                        ) { resume() }
+                    }
                 }
             }
         },

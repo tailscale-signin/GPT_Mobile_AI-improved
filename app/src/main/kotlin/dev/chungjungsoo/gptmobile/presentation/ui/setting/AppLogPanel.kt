@@ -97,7 +97,7 @@ internal fun AppLogPanel(entriesOverride: List<AppLogEntry>? = null) {
                     Switch(enabled, AppLogRecorder::setEnabled)
                 }
                 Text("Capture app events, errors, model requests, tools, network headers and Android logs for this app.", style = MaterialTheme.typography.bodyMedium)
-                Text("Logs stay on this device until you share them. Credentials are redacted. Provider error details may include request content; successful HTTP bodies are excluded. Review the export before sharing. The latest 2 MB is retained.", style = MaterialTheme.typography.bodySmall)
+                Text("Logs stay on this device until you share them. Credentials are redacted. Provider error details may include request content; successful HTTP bodies are excluded. Review the export before sharing. Up to 2 MiB of recent logs and a separate 256 KiB of critical events are retained.", style = MaterialTheme.typography.bodySmall)
             }
         }
         error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
@@ -139,11 +139,13 @@ internal fun AppLogPanel(entriesOverride: List<AppLogEntry>? = null) {
                         )
                     } catch (cancelled: CancellationException) {
                         throw cancelled
+                    } catch (_: dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticExportBusy) {
+                        Toast.makeText(context, "A diagnostic export is already running. Try again when it finishes.", Toast.LENGTH_SHORT).show()
                     } catch (_: Exception) {
                         Toast.makeText(context, "Unable to export logs", Toast.LENGTH_SHORT).show()
                     }
                 }
-            }) { Text("Export full logs") }
+            }) { Text("Export retained logs") }
             TextButton(onClick = {
                 frozen = null
                 AppLogRecorder.clear()

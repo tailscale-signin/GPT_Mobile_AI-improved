@@ -1,0 +1,108 @@
+{
+  "schema": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "1b8d57128484770d09fe026216a46603803b76f6",
+  "working_branch": "fix/diagnostic-capture-github-verification-2026-11-05",
+  "intent": "Implement bounded diagnostic capture, persistent critical evidence, independent resumable stages, honest export validation and memory telemetry; remedy source defects behind the supplied partial GitHub verification report without weakening operation authorization or evidence requirements.",
+  "state": "IMPLEMENTED_HOST_VALIDATED",
+  "inputs": {
+    "partial_archive": "partial-diagnostics-6-1545ad2a-3afc-48cb-be36-c9405eb87415.zip",
+    "diagnostic_analysis_supplied_in_request": true,
+    "raw_archive_available_in_this_turn": false,
+    "github_verification_report_supplied_in_request": true,
+    "observed_commit": "1b8d57128484770d09fe026216a46603803b76f6"
+  },
+  "work_packages": [
+    {
+      "id": "critical_logs",
+      "state": "IMPLEMENTED",
+      "scope": "Bounded persistent critical ring and streaming stable log snapshots with explicit empty/disabled states"
+    },
+    {
+      "id": "staged_capture",
+      "state": "IMPLEMENTED",
+      "scope": "Single export admission, staged checkpoints, resource limits, reduced-memory retry, manifest verification and memory diagnostics"
+    },
+    {
+      "id": "capture_integration",
+      "state": "IMPLEMENTED",
+      "scope": "Paged conversation/tool data, independent research/profile stages and actionable partial-export UI"
+    },
+    {
+      "id": "github_recovery",
+      "state": "IMPLEMENTED",
+      "scope": "Graph/read/CI failure recovery, exact resource evidence and bounded continuation/checklist completion"
+    },
+    {
+      "id": "validation",
+      "state": "HOST_VALIDATED_PENDING_ANDROID_CI",
+      "scope": "Behavior regression tests, host checks and current-revision Android CI"
+    }
+  ],
+  "acceptance": {
+    "export": "An empty or failed stage cannot be reported as complete; available redacted critical evidence is packaged first and retained across failed or cancelled stages.",
+    "memory": "No export-time whole-history hydration; fixed buffers, bounded records and section limits with measured memory metadata.",
+    "privacy": "Preserve diagnostic opt-in, temporary-chat isolation and credential redaction.",
+    "github": "A listed endpoint or accepted dispatch is not a passed integration capability or test execution; preserve exact revision, run/job receipts and fixture ownership.",
+    "qualification": "Device/vendor/LAN observations remain unverified without actual execution in those environments."
+  },
+  "engineering_job_id": "eng_8f66ace2187d4ad39d303fdf2a13ec57",
+  "coverage_ledger": "docs/repairs/diagnostic-capture-github-verification-2026-11-05.md",
+  "validation": {
+    "canonical_host": {
+      "command": "bash scripts/validate-local.sh fast",
+      "result": "PASSED",
+      "tests": 317
+    },
+    "staged_capture": {
+      "result": "PASSED",
+      "tests": 24,
+      "java_heap_mib": 64,
+      "generated_history_bytes": 163840000
+    },
+    "disk_logs": {
+      "result": "PASSED",
+      "tests": 27,
+      "java_heap_mib": 64,
+      "qualification": "Production bounded queue, ring, snapshot, formatting, coalescing and privacy helpers; application-boundary doubles where required."
+    },
+    "github_focused": {
+      "result": "PASSED",
+      "tests": 46,
+      "qualification": "Production sources with explicit Android/network boundary doubles"
+    },
+    "export_ui_summary": {
+      "result": "PASSED",
+      "tests": 4
+    },
+    "offline_inspection": {
+      "result": "PASSED",
+      "tests": 11
+    },
+    "android_application": {
+      "result": "PENDING_CURRENT_BRANCH_CI"
+    },
+    "affected_device": {
+      "result": "NOT_RUN",
+      "scope": "Actual ASUS device low-memory capture and underlying original failures"
+    },
+    "bounded_source_readers": {
+      "result": "PASSED",
+      "tests": 18,
+      "java_heap_mib": 64,
+      "qualification": "Stored-value, protected-workspace and research-page production implementations; database source separately compiled against explicit Android/SQLite boundaries."
+    },
+    "export_integration": {
+      "result": "PASSED",
+      "tests": 9,
+      "qualification": "Five production adapter scenarios with explicit Android/source doubles, plus four frozen-log behavior regressions. Actual Robolectric integration tests await Android CI."
+    },
+    "journal_snapshot_bounds": {
+      "result": "PASSED",
+      "tests": 4,
+      "java_heap_mib": 64,
+      "qualification": "Actual journal source compiled; focused snapshot byte/event-cap behavior exercised with storage boundaries."
+    }
+  }
+}

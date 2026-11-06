@@ -121,7 +121,8 @@ class ChatViewModel @Inject constructor(
     private val researchDatabase: dev.chungjungsoo.gptmobile.data.research.feature.ResearchDatabase? = null,
     private val combinedCollectionDecisions: dev.chungjungsoo.gptmobile.data.agent.CombinedCollectionDecisionStore? = null,
     private val gitHubDecisions: dev.chungjungsoo.gptmobile.data.github.GitHubChatDecisions? = null,
-    private val gitHubDecisionNotifications: dev.chungjungsoo.gptmobile.data.github.GitHubDecisionNotifications? = null
+    private val gitHubDecisionNotifications: dev.chungjungsoo.gptmobile.data.github.GitHubDecisionNotifications? = null,
+    private val diagnosticDatabase: dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticDatabaseSource? = null
 ) : ViewModel() {
     private val diagnosticPrivacyOwner = java.util.UUID.randomUUID().toString()
     private val visibleHistoryTurns = MutableStateFlow(if (savedStateHandle.get<Int>("targetMessageId") != null) Int.MAX_VALUE else 40)
@@ -2448,90 +2449,45 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-    suspend fun exportDebugFile(directory: java.io.File): java.io.File = try {
-        exportFullDebugFile(directory)
-    } catch (_: dev.chungjungsoo.gptmobile.data.diagnostics.JavaHeapWorkDeferred) {
-        // Do not hydrate all tool receipts or message revisions on a nearly full heap.
-        // A clearly labelled partial bundle still lets the user report the failure.
-        dev.chungjungsoo.gptmobile.data.diagnostics.JavaHeapWorkGate.run("compact-debug-export", minimumHeadroomBytes = 2L * 1024 * 1024) {
-            check(debugMode.value) { "Enable Debug mode to export diagnostic conversation data." }
-            val credentials = _platformsInApp.value.mapNotNull { it.token }
-            withContext(Dispatchers.IO) {
-                CompactDebugBundle.write(
-                    directory,
-                    _chatRoom.value.id,
-                    dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.entries.value.asSequence().map { entry ->
-                        val redacted = dev.chungjungsoo.gptmobile.data.diagnostics.redactChatDebugData(
-                            kotlinx.serialization.json.JsonPrimitive(entry.line()),
-                            credentials
-                        )
-                        (redacted as kotlinx.serialization.json.JsonPrimitive).content
-                    }
-                )
-            }
-        }
+    private val _diagnosticExportNotice = MutableStateFlow<String?>(null)
+    val diagnosticExportNotice = _diagnosticExportNotice.asStateFlow()
+
+    suspend fun hasResumableDiagnosticCapture(): Boolean = withContext(Dispatchers.IO) {
+        val room = _chatRoom.value
+        !room.isTemporary &&
+            dev.chungjungsoo.gptmobile.data.diagnostics.StagedDiagnosticCapture.findResumableSession(
+                dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticCaptureStorage.directory(context, room.id),
+                diagnosticCaptureIdentity(room.id)
+            ) != null
     }
 
-    private suspend fun exportFullDebugFile(directory: java.io.File): java.io.File = dev.chungjungsoo.gptmobile.data.diagnostics.JavaHeapWorkGate.run("debug-export") {
+    suspend fun exportDebugFile(directory: java.io.File, reducedMemory: Boolean = false, resume: Boolean = false): java.io.File = withContext(Dispatchers.IO) {
         check(debugMode.value) { "Enable Debug mode to export diagnostic conversation data." }
         val room = _chatRoom.value
-        val visible = persistableMessages(_groupedMessages.value)
-        val allProfiles = _platformsInApp.value.toList()
-        val tools = _chatToolConfig.value
-        val features = featureSettings.value
-        val draft = question.text.toString()
-        val live = agentRunCoordinator.streamMessages.value.values.filter { it.chatId == room.id }.toList()
-        val baseRecords = chatRepository.fetchDebugRecords(room.id)
-        val records = kotlinx.serialization.json.JsonObject(
-            baseRecords + mapOf(
-                "researchLifecycle" to (researchSessionStore?.featureDiagnostics(room.id) ?: kotlinx.serialization.json.JsonObject(emptyMap())),
-                "researchProfileStatistics" to kotlinx.serialization.json.Json { encodeDefaults = true }.encodeToJsonElement(kotlinx.serialization.serializer<Map<String, List<dev.chungjungsoo.gptmobile.data.research.ResearchProfileStatistics>>>(), researchProfileStatistics.value),
-                "researchStatisticsScope" to kotlinx.serialization.json.JsonPrimitive("Selected chat; retained stage telemetry. Missing legacy correlation stays unknown, and serialized request preparation alone is not transmission.")
-            )
-        )
-        val messages = withContext(Dispatchers.IO) {
-            chatRepository.fetchMessagesV2(room.id).associateBy { it.id }.toMutableMap().apply {
-                visible.filter { it.id > 0 }.forEach { put(it.id, chatRepository.resolveCombinedMessage(it)) }
-                live.filter { it.id > 0 }.forEach { put(it.id, chatRepository.resolveCombinedMessage(it)) }
-            }.values.toList().plus(visible.filter { it.id <= 0 }).sortedWith(compareBy<MessageV2> { it.createdAt }.thenBy { it.id })
-        }
-        val dependencyIds = buildSet {
-            addAll(enabledPlatformsInChat)
-            messages.forEach { message ->
-                message.platformType?.let(::add)
-                (message.combinedSources + message.revisions.flatMap { it.combinedSources }).forEach { add(it.platformUid) }
-                (message.timeline + message.revisions.flatMap { it.timeline }).mapNotNull { it.assistDiagnostic?.profileUid }.forEach(::add)
-            }
-            (records["invocations"] as? kotlinx.serialization.json.JsonArray).orEmpty().forEach { row ->
-                ((row as? kotlinx.serialization.json.JsonObject)?.get("profileUid") as? kotlinx.serialization.json.JsonPrimitive)?.content?.let(::add)
-            }
-            features.localAssistPolicy.profileUid?.let(::add)
-        }
-        val profiles = allProfiles.filter { it.uid in dependencyIds }
-        withContext(Dispatchers.IO) {
-            check(directory.mkdirs() || directory.isDirectory)
-            val json = kotlinx.serialization.json.Json { encodeDefaults = true }
-            val safeTitle = room.title.replace(Regex("[^\\p{L}\\p{N}._ -]"), "_").take(80)
-            val destination = java.io.File(directory, "export_${safeTitle}_${System.currentTimeMillis()}.zip")
-            val conversation = java.io.File.createTempFile("debug-conversation-", ".json", directory)
-            val staging = java.io.File.createTempFile("debug-bundle-", ".partial", directory)
-            try {
-                conversation.bufferedWriter().use { writer ->
-                    writeChatDebugExport(
-                        room, messages, profiles, tools, features, draft, records, emptyList(), json,
-                        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.entries.value, writer,
-                        researchStream = { consume -> researchSessionStore?.streamChat(room.id, consume) }
-                    )
+        val source = checkNotNull(diagnosticDatabase) { "Diagnostic database is unavailable." }
+        val memory = dev.chungjungsoo.gptmobile.data.diagnostics.AndroidDiagnosticExportMemory.sample()
+        val reduced = reducedMemory || memory.javaHeadroomBytes < maxOf(8L * 1024 * 1024, memory.javaMaxBytes / 16)
+        val result = writeStagedChatDiagnostics(
+            context = context,
+            destinationDirectory = directory,
+            room = room,
+            profiles = _platformsInApp.value.toList(),
+            tools = _chatToolConfig.value,
+            features = featureSettings.value,
+            draft = question.text.toString(),
+            liveMessages = agentRunCoordinator.streamMessages.value.values.filter { it.chatId == room.id },
+            database = source,
+            research = researchSessionStore,
+            reducedMemory = reduced,
+            resume = resume,
+            stillAuthorized = {
+                if (!debugMode.value || _chatRoom.value.id != room.id || _chatRoom.value.isTemporary != room.isTemporary) {
+                    throw CancellationException("Diagnostic capture context changed.")
                 }
-                StreamingDebugBundle.write(conversation, staging)
-                StreamingDebugBundle.verify(staging)
-                check(staging.renameTo(destination)) { "Unable to publish the completed export" }
-                destination
-            } finally {
-                conversation.delete()
-                staging.delete()
             }
-        }
+        )
+        _diagnosticExportNotice.value = diagnosticExportSummary(result.manifest)
+        result.file
     }
 
     suspend fun exportChat(format: ChatExportFormat = ChatExportFormat.MARKDOWN): Pair<String, String> {

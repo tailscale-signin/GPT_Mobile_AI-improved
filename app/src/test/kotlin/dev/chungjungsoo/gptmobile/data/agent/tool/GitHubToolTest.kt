@@ -910,4 +910,42 @@ class GitHubToolTest {
             client.close()
         }
     }
+
+    @Test fun workflowRunHttpFailureRetainsSpecificCodeAndRequestedResource() = runTest {
+        HttpClient(MockEngine { respond("""{"message":"Resource not accessible by integration"}""", HttpStatusCode.Forbidden) }).use { http ->
+            val result = GitHubTool("token", http).execute(
+                "runs",
+                buildJsonObject {
+                    put("action", "list_workflow_runs")
+                    put("owner", "o")
+                    put("repo", "r")
+                    put("head_sha", "a".repeat(40))
+                    put("workflow_id", "ci.yml")
+                }
+            )
+            assertTrue(result.isError)
+            assertEquals("GITHUB_ENDPOINT_PERMISSION_REQUIRED", result.errorCode)
+            assertEquals("ci.yml", result.executionReceipt?.get("resource_context")?.jsonObject?.get("workflow_id")?.jsonPrimitive?.content)
+            assertEquals("a".repeat(40), result.executionReceipt?.get("resource_context")?.jsonObject?.get("head_sha")?.jsonPrimitive?.content)
+        }
+    }
+
+    @Test fun malformedCiResponseIsNotMisreportedAsInvalidArguments() = runTest {
+        for (payload in listOf("[]", "{broken")) {
+            HttpClient(MockEngine { respond(payload) }).use { http ->
+                val result = GitHubTool("token", http).execute(
+                    "run",
+                    buildJsonObject {
+                        put("action", "get_workflow_run")
+                        put("owner", "o")
+                        put("repo", "r")
+                        put("run_id", 7)
+                    }
+                )
+                assertTrue(result.isError)
+                assertEquals("GITHUB_UNEXPECTED_RESPONSE", result.errorCode)
+                assertTrue(result.dispatched)
+            }
+        }
+    }
 }

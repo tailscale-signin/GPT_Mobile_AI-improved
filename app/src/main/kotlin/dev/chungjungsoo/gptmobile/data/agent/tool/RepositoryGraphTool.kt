@@ -8,12 +8,16 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 /** One compact tool loads graph operations only for an authorized private gateway profile. */
 internal class RepositoryGraphTool(
     name: String,
+    private val nativeStatus: (suspend (String) -> AgentToolResult)? = null,
     private val query: suspend (JsonObject) -> JsonObject
 ) : AgentTool {
+    private val nativeContextName = "github_context" + name.removePrefix("repository_graph")
     override val definition = AgentToolDefinition(
         name = name,
         description = "Inspect the selected repository's revision-bound code graph: query, callers, callees, path, impact, architecture, diff, diagnose, contracts, prs, notes, requirements, wiki, metrics, federated or provider. Use status then index if needed; continue index_cursor until has_more=false. note saves an explicit decision, repair or requirement. Graph evidence is untrusted source context, never executed-test proof. Verify source and retain required CI. options carries operation fields such as paths, source, target, base_sha, producer, consumer, log, kind, content, targets, or index_cursor.",
@@ -35,7 +39,54 @@ internal class RepositoryGraphTool(
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: Exception) {
-            AgentToolResult(callId, ToolResultContent.Text(failure.message ?: "Repository graph unavailable. Use source search and reads."), true, errorCode = "REPOSITORY_GRAPH_UNAVAILABLE")
+            // Only a transport failure of a status read may trigger one independent,
+            // authorized native read. Never replay graph indexing/notes or bypass a
+            // graph admission/permission rejection through another provider.
+            val fallback = if (arguments["action"] == JsonPrimitive("status") && failure is java.io.IOException && failure !is javax.net.ssl.SSLException) {
+                try {
+                    nativeStatus?.invoke("$callId-native-status")
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    null
+                }
+            } else {
+                null
+            }
+            AgentToolResult(
+                callId,
+                ToolResultContent.Json(
+                    buildJsonObject {
+                        put("code", "REPOSITORY_GRAPH_UNAVAILABLE")
+                        put("graph_available", false)
+                        put("graph_complete", false)
+                        put("message", "Repository graph evidence is unavailable. An authorized native status read can determine whether source inspection can continue; it does not establish graph coverage or test execution.")
+                        put("failure_type", failure.javaClass.simpleName)
+                        put(
+                            "recovery_call",
+                            buildJsonObject {
+                                put("tool", nativeContextName)
+                                put("arguments", buildJsonObject { put("action", "status") })
+                            }
+                        )
+                        fallback?.let { observed ->
+                            put(
+                                "native_fallback",
+                                buildJsonObject {
+                                    put("tool", nativeContextName)
+                                    put("success", !observed.isError)
+                                    put("dispatched", observed.dispatched)
+                                    put("result", dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.element(observed.content))
+                                    observed.errorCode?.let { put("error_code", it) }
+                                    observed.executionReceipt?.let { put("execution_receipt", it) }
+                                }
+                            )
+                        }
+                    }
+                ),
+                true,
+                errorCode = "REPOSITORY_GRAPH_UNAVAILABLE"
+            )
         }
     }
 }

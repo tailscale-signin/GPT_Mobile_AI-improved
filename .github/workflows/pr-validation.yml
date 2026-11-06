@@ -105,7 +105,7 @@ jobs:
         if: always()
         run: python3 scripts/check_room_schemas.py
 
-      - name: Verify recovery and exports with a 256 MiB Java heap
+      - name: Verify recovery and exports with constrained Java heaps
         id: heap_recovery
         timeout-minutes: 10
         shell: bash
@@ -115,6 +115,8 @@ jobs:
             --tests '*ResearchSessionStoreHeapTest' --tests '*StreamingDebugBundleTest' \
             --tests '*BenchmarkStreamingExportHeapTest' \
             --tests '*BenchmarkColdStreamingExportHeapTest' 2>&1 | tee heap.log
+          python3 scripts/gradle_retry.py -- -I scripts/heap-stress.init.gradle :app:testDebugUnitTest --no-daemon \
+            -Pgptmobile.diagnosticHeapStress=true --tests '*StagedDiagnosticCaptureHeapTest' 2>&1 | tee -a heap.log
 
       - name: Publish Test Results
         uses: mikepenz/action-junit-report@a9170d5795813c01ab4901ffb045b52bab4ab09d # v6.5.0
@@ -188,6 +190,7 @@ jobs:
             apk.log
             apk-size-report.json
             app/build/test-results/heapRecovery/*.xml
+            app/build/test-results/diagnosticHeapRecovery/*.xml
             app/build/reports/reliability-ui/*.png
             build/reports/profile/*-metrics.json
             build/reports/configuration-cache-verification/*.log
@@ -208,7 +211,7 @@ jobs:
             echo "| Validation | Result |"
             echo "| --- | --- |"
             printf '| Unit tests and coverage | %s |\n' "${UNIT_TEST_OUTCOME:-not run}"
-            printf '| 256 MiB recovery and export gate | %s |\n' "${HEAP_RECOVERY_OUTCOME:-not run}"
+            printf '| 256 MiB recovery and 64 MiB diagnostic export gates | %s |\n' "${HEAP_RECOVERY_OUTCOME:-not run}"
             printf '| APK build and runtime verification | %s |\n' "${REVIEW_APK_OUTCOME:-not run}"
           } >> "$GITHUB_STEP_SUMMARY"
 

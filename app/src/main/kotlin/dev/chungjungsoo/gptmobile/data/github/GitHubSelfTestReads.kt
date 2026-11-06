@@ -25,7 +25,7 @@ internal object GitHubSelfTestReads {
         }
         val status = roots("github_context", "status").firstOrNull()
         val sha = (status?.get("commit_sha") as? JsonPrimitive)?.takeIf { it.content.matches(Regex("[a-fA-F0-9]{40}")) }
-        val branch = status?.get("branch")
+        val branch = status?.get("branch") ?: status?.get("ref")
         val run = records("github_ci", "runs", "workflow_runs").filter { it["head_sha"] == sha && sha != null }.firstOrNull { it.text("status") == "completed" && it.text("conclusion") !in setOf("skipped", "neutral") }
             ?: records("github_ci", "runs", "workflow_runs").firstOrNull { it["head_sha"] == sha && sha != null }
         val runId = run?.get("id")
@@ -87,12 +87,12 @@ internal object GitHubSelfTestReads {
             // from the pinned source tree instead of assuming the first live ID exists there.
             if (sha != null) recipe("github_ci", "definitions", "commit_sha" to sha)
             run?.get("id")?.let { id ->
-                listOf("run", "status", "jobs", "artifacts").forEach { recipe("github_ci", it, "run_id" to id) }
-                if (run.text("status") == "completed" && run.text("conclusion") in setOf("failure", "timed_out")) recipe("github_ci", "failure", "run_id" to id)
+                listOf("run", "status", "jobs", "artifacts").forEach { recipe("github_ci", it, "run_id" to id, "expected_head_sha" to sha) }
+                if (run.text("status") == "completed" && run.text("conclusion") in setOf("failure", "timed_out")) recipe("github_ci", "failure", "run_id" to id, "expected_head_sha" to sha)
             }
             job?.get("id")?.let { id ->
-                recipe("github_ci", "job", "job_id" to id)
-                recipe("github_ci", "logs", "job_id" to id, "start_line" to JsonPrimitive(1), "end_line" to JsonPrimitive(40))
+                recipe("github_ci", "job", "job_id" to id, "run_id" to job["run_id"], "expected_head_sha" to sha?.takeIf { runId != null && job["run_id"] == runId })
+                recipe("github_ci", "logs", "job_id" to id, "run_id" to job["run_id"], "expected_head_sha" to sha?.takeIf { runId != null && job["run_id"] == runId }, "start_line" to JsonPrimitive(1), "end_line" to JsonPrimitive(40))
             }
             pr?.get("number")?.let { id -> listOf("headers", "context", "comments", "reviews").forEach { recipe("github_pr", it, "pull_number" to id) } }
             issue?.get("number")?.let { id -> listOf("headers", "context", "comments", "history").forEach { recipe("github_issue", it, "issue_number" to id) } }

@@ -573,7 +573,27 @@ private fun ChatScreenContent(
         pendingJumpKey = null
     }
     if (showExportOptions) {
-        ChatExportDialog(onDismiss = { showExportOptions = false }, debugMode = debugMode, includeUserMessages = chatToolConfig.github != null) { format ->
+        val diagnosticNotice by chatViewModel.diagnosticExportNotice.collectAsStateWithLifecycle()
+        var resumableCapture by remember { mutableStateOf(false) }
+        LaunchedEffect(chatRoom.id, diagnosticNotice) { resumableCapture = chatViewModel.hasResumableDiagnosticCapture() }
+        ChatExportDialog(
+            onDismiss = { showExportOptions = false },
+            debugMode = debugMode,
+            includeUserMessages = chatToolConfig.github != null,
+            diagnosticNotice = diagnosticNotice,
+            onReducedDebugExport = {
+                showExportOptions = false
+                scope.launch { exportChat(context, chatViewModel, ChatExportFormat.DEBUG, reducedMemory = true) }
+            },
+            onResumeDebugExport = if (resumableCapture) {
+                {
+                    showExportOptions = false
+                    scope.launch { exportChat(context, chatViewModel, ChatExportFormat.DEBUG, resume = true) }
+                }
+            } else {
+                null
+            }
+        ) { format ->
             showExportOptions = false
             scope.launch { exportChat(context, chatViewModel, format) }
         }
@@ -2127,13 +2147,13 @@ fun ChatDropdownMenu(
     }
 }
 
-private suspend fun exportChat(context: Context, chatViewModel: ChatViewModel, format: ChatExportFormat) {
+private suspend fun exportChat(context: Context, chatViewModel: ChatViewModel, format: ChatExportFormat, reducedMemory: Boolean = false, resume: Boolean = false) {
     try {
         if (format == ChatExportFormat.DEBUG) {
             Toast.makeText(context, "Preparing detailed conversation diagnostics…", Toast.LENGTH_SHORT).show()
         }
         val file = if (format == ChatExportFormat.DEBUG) {
-            withContext(Dispatchers.IO) { chatViewModel.exportDebugFile(context.getExternalFilesDir(null) ?: context.filesDir) }
+            withContext(Dispatchers.IO) { chatViewModel.exportDebugFile(context.getExternalFilesDir(null) ?: context.filesDir, reducedMemory, resume) }
         } else {
             val (fileName, fileContent) = chatViewModel.exportChat(format)
             if (fileContent.isBlank()) {
@@ -2152,8 +2172,8 @@ private suspend fun exportChat(context: Context, chatViewModel: ChatViewModel, f
                 }
             }
         }
-        if (file.name.startsWith("partial-diagnostics-")) {
-            Toast.makeText(context, "Memory is low. Sharing partial diagnostics with recent logs; full conversation history was omitted.", Toast.LENGTH_LONG).show()
+        if (format == ChatExportFormat.DEBUG) {
+            chatViewModel.diagnosticExportNotice.value?.let { Toast.makeText(context, it, Toast.LENGTH_LONG).show() }
         }
         val uri = withContext(Dispatchers.IO) { getUriForFile(context, "${context.packageName}.fileprovider", file) }
         val shareIntent = Intent(Intent.ACTION_SEND).apply {
@@ -2171,6 +2191,8 @@ private suspend fun exportChat(context: Context, chatViewModel: ChatViewModel, f
         context.startActivity(chooser)
     } catch (e: kotlinx.coroutines.CancellationException) {
         throw e
+    } catch (_: dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticExportBusy) {
+        Toast.makeText(context, "Another diagnostic export is running. Wait for it to finish, then retry.", Toast.LENGTH_LONG).show()
     } catch (_: dev.chungjungsoo.gptmobile.data.diagnostics.JavaHeapWorkDeferred) {
         Toast.makeText(context, "Not enough memory to export yet. Stop generation or reopen the chat, then try again.", Toast.LENGTH_LONG).show()
     } catch (e: Exception) {

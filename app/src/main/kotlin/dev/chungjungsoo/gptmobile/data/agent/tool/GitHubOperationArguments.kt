@@ -96,7 +96,11 @@ internal object GitHubOperationArguments {
                 positive("run_id")
                 positive("job_id")
                 (args["workflow_id"] as? JsonPrimitive)?.let { id ->
-                    if (!id.isString && id.content.toLongOrNull()?.let { it > 0 } != true) errors += "workflow_id must be a positive integer or a discovered workflow filename"
+                    if ((!id.isString && id.content.toLongOrNull()?.let { it > 0 } != true) ||
+                        runCatching { dev.chungjungsoo.gptmobile.data.github.normalizeGitHubWorkflowSelector(id.content) }.isFailure
+                    ) {
+                        errors += "workflow_id must be a positive integer or a discovered workflow filename"
+                    }
                 }
                 when (text("action")) {
                     "run", "artifacts", "rerun", "rerun_failed_jobs", "rerun_all", "cancel" -> required("run_id")

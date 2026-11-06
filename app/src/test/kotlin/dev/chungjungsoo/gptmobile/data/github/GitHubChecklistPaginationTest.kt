@@ -94,4 +94,42 @@ class GitHubChecklistPaginationTest {
         val success = JsonObject(failed() + ("success" to JsonPrimitive(true)))
         assertTrue(GitHubTestChecklist.pendingPages(mapOf("source" to source(), "read" to success)).isEmpty())
     }
+
+    @Test fun defaultRunInventoryIsPinnedAndWorkflowInventoryUsesFullPage() {
+        val sha = "a".repeat(40)
+        val records = mapOf("status" to json("""{"trusted":true,"success":true,"tool":"github_context","arguments":{"action":"status"},"result":{"commit_sha":"$sha"}}"""))
+        val ci = AgentToolDefinition("github_ci", "Runs", json("""{"properties":{"action":{"const":"runs"}}}"""))
+        val selected = requireNotNull(GitHubTestChecklist.nextCall("test all tools", listOf(ci), records))
+        assertEquals(JsonPrimitive(sha), selected.arguments["commit_sha"])
+        assertEquals(JsonPrimitive(30), selected.arguments["per_page"])
+        val history = requireNotNull(GitHubTestChecklist.nextCall("test all tools and all runs", listOf(ci), records))
+        assertFalse(history.arguments.containsKey("commit_sha"))
+        assertEquals(JsonPrimitive(100), history.arguments["per_page"])
+        val workflowTool = AgentToolDefinition("github_ci", "Workflows", json("""{"properties":{"action":{"const":"workflows"}}}"""))
+        assertEquals(JsonPrimitive(100), GitHubTestChecklist.nextCall("test all tools", listOf(workflowTool), records)?.arguments?.get("per_page"))
+    }
+
+    @Test fun issuedDefinitionContinuationSurvivesUnrelatedHistoryBudget() {
+        val sha = "a".repeat(40)
+        val remote = json("""{"tool":"github_ci","arguments":{"action":"definitions","commit_sha":"$sha","index_cursor":4}}""")
+        val records = linkedMapOf("source" to json("""{"trusted":true,"success":true,"tool":"github_ci","arguments":{"action":"definitions","commit_sha":"$sha"},"result":{"local_page_complete":true,"continuation_call":$remote}}"""))
+        repeat(8) { i -> records["runs$i"] = json("""{"trusted":true,"success":true,"tool":"github_ci","arguments":{"action":"runs","page":${i + 2}},"result":{}}""") }
+        val ci = AgentToolDefinition("github_ci", "Definitions", json("""{"properties":{"action":{"const":"definitions"}}}"""))
+        assertEquals(remote["arguments"], GitHubTestChecklist.nextCall("test all tools", listOf(ci), records)?.arguments)
+        // Finite source-catalog traversal still leaves a truthful pending checkpoint.
+        repeat(31) { i -> records["definition$i"] = json("""{"trusted":true,"success":true,"tool":"github_ci","arguments":{"action":"definitions","commit_sha":"$sha","index_cursor":${(i + 2) * 4}},"result":{}}""") }
+        assertEquals(null, GitHubTestChecklist.nextCall("test all tools", listOf(ci), records))
+        assertEquals(listOf(remote), GitHubTestChecklist.pendingPages(records))
+    }
+
+    @Test fun localFragmentsFinishBeforePendingCheckWatch() {
+        val sha = "a".repeat(40)
+        val records = mapOf(
+            "source" to source(),
+            "status" to json("""{"trusted":true,"success":true,"tool":"github_context","arguments":{"action":"status"},"result":{"commit_sha":"$sha"}}"""),
+            "runs" to json("""{"trusted":true,"success":true,"tool":"github_ci","arguments":{"action":"runs"},"result":{"workflow_runs":[{"id":7,"head_sha":"$sha","status":"in_progress"}]}}""")
+        )
+        val watch = AgentToolDefinition("github_watch_checks", "Watch", json("""{"type":"object"}"""))
+        assertEquals(page["arguments"], GitHubTestChecklist.nextCall("test all tools", tools + watch, records)?.arguments)
+    }
 }

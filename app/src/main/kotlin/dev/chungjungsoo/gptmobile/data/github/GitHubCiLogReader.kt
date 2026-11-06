@@ -18,8 +18,10 @@ internal class GitHubCiLogReader(private val client: HttpClient, private val tok
         require(path.startsWith("/") && !path.startsWith("//")) { "Use a relative GitHub API log path." }
         val cacheKey = "ci-log:${apiOrigins.rest}:${GitHubRepositoryStateStore.digest(token)}:$path"
         check(!authenticationRejected.get()) { "GitHub authentication was rejected (HTTP 401). Reconnect the GitHub account before retrying any operation." }
-        if (immutable) {
+        val forceLive = kotlinx.coroutines.currentCoroutineContext()[GitHubDispatchAccounting]?.forceLiveReads == true
+        if (immutable && !forceLive) {
             cache.getDecodedBlob(cacheKey)?.let {
+                GitHubDispatchAccounting.cached(0L, immutable = true)
                 scheduler.recordCacheHit()
                 return Log(it, it.encodeToByteArray().size, true)
             }
@@ -39,7 +41,7 @@ internal class GitHubCiLogReader(private val client: HttpClient, private val tok
                     val host = target.host.lowercase()
                     require(apiRequest || host.endsWith(".githubusercontent.com") || host.endsWith(".blob.core.windows.net") || host.endsWith(".amazonaws.com")) { "CI log redirect is outside GitHub artifact storage." }
                     scheduler.recordRequest()
-                    GitHubDispatchAccounting.started(mutation = false)
+                    val observationId = GitHubDispatchAccounting.started(mutation = false)
                     val hopResult = network.prepareGet(url) {
                         header(HttpHeaders.UserAgent, "GPT-Mobile-App")
                         if (apiRequest) {
@@ -48,7 +50,7 @@ internal class GitHubCiLogReader(private val client: HttpClient, private val tok
                             if (token.isNotBlank()) header(HttpHeaders.Authorization, "Bearer $token")
                         }
                     }.execute responseBlock@{ response ->
-                        GitHubDispatchAccounting.responded(mutation = false, status = response.status.value)
+                        GitHubDispatchAccounting.responded(mutation = false, status = response.status.value, requestId = observationId, serverRequestId = response.headers["X-GitHub-Request-Id"])
                         val channel = response.bodyAsChannel()
                         try {
                             if (response.status.value in setOf(301, 302, 303, 307, 308)) {

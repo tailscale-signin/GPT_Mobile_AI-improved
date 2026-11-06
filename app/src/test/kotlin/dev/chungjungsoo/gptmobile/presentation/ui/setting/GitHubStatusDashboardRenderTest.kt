@@ -17,12 +17,14 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.captureToImage
+import androidx.compose.ui.test.click
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextMeasurer
 import androidx.compose.ui.unit.Constraints
@@ -41,6 +43,7 @@ import dev.chungjungsoo.gptmobile.data.network.gateway.dashboardFixture
 import dev.chungjungsoo.gptmobile.data.network.gateway.gatewayDashboardTarget
 import dev.chungjungsoo.gptmobile.data.network.gateway.parseGatewayDashboard
 import dev.chungjungsoo.gptmobile.presentation.theme.GPTMobileTheme
+import dev.chungjungsoo.gptmobile.presentation.ui.chat.GraphMiniMap
 import java.io.File
 import java.time.LocalDate
 import kotlinx.serialization.json.Json
@@ -48,6 +51,7 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -69,6 +73,29 @@ class GitHubStatusDashboardRenderTest {
     @Test fun lightDashboardKeepsMeasuredStatusAndActionsVisible() = render("status-light", 392, 1f, ThemeMode.LIGHT)
 
     @Test fun compactDarkDashboardKeepsUnknownValuesAndDeviceActionsReadable() = render("status-dark-compact-large", 320, 1.4f, ThemeMode.DARK)
+
+    @Test fun realThemeNetworkVisualRendersAndBubbleTapSelectsExactSourceNode() {
+        val nodes = listOf(
+            Json.parseToJsonElement("""{"id":"app","name":"Application","qualified":"Application","kind":"class"}""") as JsonObject,
+            Json.parseToJsonElement("""{"id":"gateway","name":"Gateway","qualified":"Gateway","kind":"community"}""") as JsonObject,
+            Json.parseToJsonElement("""{"id":"tests","name":"Tests","qualified":"Tests","kind":"method"}""") as JsonObject
+        )
+        val edges = listOf(Json.parseToJsonElement("""{"source":"app","target":"gateway","relation":"calls"}""") as JsonObject)
+        var selected = ""
+        compose.setContent {
+            GPTMobileTheme(themeMode = ThemeMode.DARK) {
+                Surface {
+                    GraphMiniMap(nodes, edges) { selected = it["id"]?.jsonPrimitive?.content.orEmpty() }
+                }
+            }
+        }
+        compose.onNodeWithTag("github_repository_bubble_network").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Interactive repository network with 3 source-backed bubbles").assertIsDisplayed()
+        compose.onNodeWithTag("github_repository_bubble_network").performTouchInput {
+            click(percentOffset(.5f, .2f))
+        }
+        compose.runOnIdle { assertEquals("app", selected) }
+    }
 
     private fun render(name: String, width: Int, fontScale: Float, theme: ThemeMode) {
         val now = 100_000L
@@ -114,7 +141,7 @@ class GitHubStatusDashboardRenderTest {
         compose.onNodeWithText("Checks need attention").assertIsDisplayed()
         compose.onNodeWithContentDescription("Refresh repository status").performClick()
         compose.onNodeWithContentDescription("Refresh gateway").performScrollTo().performClick()
-        compose.onNodeWithText("Live").assertIsDisplayed()
+        compose.onNodeWithText("Connected").assertIsDisplayed()
         compose.onNodeWithText("Not measured", useUnmergedTree = true).performScrollTo().assertIsDisplayed()
         val unknownNode = compose.onNodeWithText("Not measured", useUnmergedTree = true).fetchSemanticsNode()
         compose.runOnIdle {

@@ -1,13 +1,18 @@
 package dev.chungjungsoo.gptmobile.data.github
 
+import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
+import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool
 import dev.chungjungsoo.gptmobile.data.permissions.GitHubAuthorizationBoundary
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
 import io.ktor.http.HttpMethod
+import io.ktor.http.headersOf
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -116,7 +121,7 @@ class GitHubToolCompletenessTest {
 
     @Test fun branchDeletionRequiresCompleteDependenciesAndFreshHead() = runTest {
         val sha = "a".repeat(40)
-        for (obstacle in listOf("none", "rules", "pulls", "runs", "unmerged", "moved")) {
+        for (obstacle in listOf("none", "rules", "pulls", "runs", "unmerged", "moved", "recreated")) {
             var deletes = 0
             val http = HttpClient(
                 MockEngine { request ->
@@ -133,6 +138,7 @@ class GitHubToolCompletenessTest {
                         path.endsWith("/actions/runs") -> if (obstacle == "runs") """{"total_count":1}""" else """{"total_count":0}"""
                         path.endsWith("/commits/main") -> """{"sha":"${"b".repeat(40)}"}"""
                         "/compare/" in path -> if (obstacle == "unmerged") """{"status":"diverged"}""" else """{"status":"behind"}"""
+                        "/git/matching-refs/" in path -> if (obstacle == "recreated") """[{"ref":"refs/heads/topic","object":{"sha":"$sha"}}]""" else """[{"ref":"refs/heads/topic-child"}]"""
                         "/git/ref/" in path -> """{"object":{"sha":"${if (obstacle == "moved") "c".repeat(40) else sha}"}}"""
                         else -> error(path)
                     }
@@ -141,11 +147,40 @@ class GitHubToolCompletenessTest {
             )
             try {
                 val outcome = runCatching { GitHubWorkspaceClient("token", http).execute("delete_branch", args("branch" to "topic", "expected_head_sha" to sha)) }
-                assertEquals(obstacle, obstacle == "none", outcome.isSuccess)
-                assertEquals(obstacle, if (obstacle == "none") 1 else 0, deletes)
+                val accepted = obstacle in setOf("none", "recreated")
+                assertEquals(obstacle, accepted, outcome.isSuccess)
+                assertEquals(obstacle, if (accepted) 1 else 0, deletes)
+                if (accepted) assertEquals(JsonPrimitive(obstacle == "none"), outcome.getOrThrow().jsonObject["absence_verified"])
             } finally {
                 http.close()
             }
+        }
+    }
+
+    @Test fun oneLiveVerificationReadBypassesAnOtherwiseFreshCache() = runTest {
+        var requests = 0
+        val http = HttpClient(
+            MockEngine {
+                requests++
+                respond("[]", headers = headersOf("ETag", "branches-v1"))
+            }
+        )
+        try {
+            val client = GitHubWorkspaceClient("token", http, responseCache = GitHubResponseCache(), freshnessSeconds = 120)
+            suspend fun observed(force: Boolean): kotlinx.serialization.json.JsonObject {
+                val accounting = GitHubDispatchAccounting(forceLiveReads = force)
+                withContext(accounting) { client.execute("list_branches", args()) }
+                return requireNotNull(accounting.finish(AgentToolResult("read", ToolResultContent.Text("[]"), false), false).executionReceipt)
+            }
+            assertEquals(JsonPrimitive(1), observed(false)["read_requests"])
+            assertEquals(JsonPrimitive(1), observed(false)["cached_read_observations"])
+            assertEquals(1, requests)
+            assertEquals(JsonPrimitive(1), observed(true)["read_requests"])
+            assertEquals(2, requests)
+            assertEquals(JsonPrimitive(1), observed(false)["cached_read_observations"])
+            assertEquals(2, requests)
+        } finally {
+            http.close()
         }
     }
 
@@ -207,7 +242,7 @@ class GitHubToolCompletenessTest {
                 when (path) {
                     "/repos/o/r/git/ref/tags/v1" -> """{"object":{"type":"tag","sha":"annotation"}}"""
                     "/repos/o/r/git/tags/annotation" -> """{"message":"Release notes","object":{"type":"commit","sha":"pinned"}}"""
-                    "/repos/o/r/commits/pinned" -> """{"sha":"pinned"}"""
+                    "/repos/o/r/commits/pinned?per_page=30&page=1" -> """{"sha":"pinned"}"""
                     "/repos/o/r/releases/tags/v1" -> """{"tag_name":"v1","body":"Release notes"}"""
                     else -> error("Unexpected mutable lookup: $path")
                 }
@@ -216,5 +251,39 @@ class GitHubToolCompletenessTest {
         val result = client.execute("tag_context", "/repos/o/r", args("tag_name" to "v1"), 1)
         assertEquals("pinned", result["commit"]!!.jsonObject["sha"]!!.jsonPrimitive.content)
         assertEquals("Release notes", result["annotation"]!!.jsonObject["message"]!!.jsonPrimitive.content)
+    }
+
+    @Test fun tagInspectionBoundsCommitPatchesAndRetainsAnExactFileContinuation() = runTest {
+        val sha = "a".repeat(40)
+        val commit = buildJsonObject {
+            put("sha", sha)
+            put(
+                "files",
+                kotlinx.serialization.json.JsonArray(
+                    (1..30).map { index ->
+                        buildJsonObject {
+                            put("filename", "file$index.kt")
+                            put("status", "modified")
+                            put("patch", "x".repeat(100_000))
+                        }
+                    }
+                )
+            )
+        }
+        val client = GitHubInspection { path ->
+            when (path) {
+                "/repos/o/r/git/ref/tags/v1" -> Json.parseToJsonElement("""{"ref":"refs/tags/v1","object":{"type":"commit","sha":"$sha"}}""")
+                "/repos/o/r/commits/$sha?per_page=30&page=1" -> commit
+                "/repos/o/r/releases/tags/v1" -> Json.parseToJsonElement("""{"tag_name":"v1"}""")
+                else -> error("Unexpected request: $path")
+            }
+        }
+        val result = client.execute("tag_context", "/repos/o/r", args("tag_name" to "v1"), 1)
+        assertTrue(result.toString().encodeToByteArray().size < 10_000)
+        val detail = result.getValue("commit").jsonObject
+        assertEquals(kotlinx.serialization.json.JsonPrimitive(false), detail["patches_included"])
+        assertEquals(kotlinx.serialization.json.JsonPrimitive(sha), detail.getValue("continuation").jsonObject["commit_sha"])
+        assertEquals(kotlinx.serialization.json.JsonPrimitive(2), detail.getValue("continuation").jsonObject["page"])
+        assertEquals(30, detail.getValue("files").jsonArray.size)
     }
 }

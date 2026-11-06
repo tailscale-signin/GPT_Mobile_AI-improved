@@ -71,6 +71,7 @@ class GitHubWorkspaceClient(
     private val rateLimits = rateLimits ?: if (client === sharedClient) GitHubSessionCaches.rateLimitsForCredential(token, apiOrigins.hostIdentity) else GitHubRateLimitManager()
     private val scheduler = scheduler ?: if (client === sharedClient) GitHubSessionCaches.schedulerForCredential(token, apiOrigins.hostIdentity) else GitHubRequestScheduler()
     private val authenticationRejected = authenticationRejected ?: if (client === sharedClient) GitHubSessionCaches.authenticationForCredential(token, apiOrigins.hostIdentity) else java.util.concurrent.atomic.AtomicBoolean()
+    private val refAvailability = if (client === sharedClient) GitHubSessionCaches.refsForCredential(token, apiOrigins.hostIdentity) else GitHubRefAvailability()
 
     companion object {
         const val API_VERSION = "2026-03-10"
@@ -137,8 +138,8 @@ class GitHubWorkspaceClient(
     }
     suspend fun taskSnapshot(): GitHubTaskSnapshot? = repositorySession.snapshot()
     suspend fun taskContext(): GitHubRepositoryContext? = repositorySession.context()
-    internal suspend fun trackExecution(action: String, arguments: JsonObject, block: suspend () -> JsonElement): JsonObject =
-        executionJournal.run(action, arguments, block = block).jsonObject
+    internal suspend fun trackExecution(action: String, arguments: JsonObject, reconcile: (suspend () -> JsonElement?)? = null, block: suspend () -> JsonElement): JsonObject =
+        executionJournal.run(action, arguments, reconcile = reconcile, block = block).jsonObject
 
     private data class ReleaseDispatchReceipt(val root: String, val workflowId: String, val sourceSha: String, val tagName: String, val correlationId: String)
 
@@ -155,6 +156,7 @@ class GitHubWorkspaceClient(
         if (refreshed != token) {
             token = refreshed
             responseCache.clear()
+            refAvailability.clear()
             authenticationRejected.set(false)
         }
     }
@@ -165,7 +167,7 @@ class GitHubWorkspaceClient(
             try {
                 executeInvocation(action, args)
             } catch (failure: Exception) {
-                if (attempts.uncertainOrAccepted && (failure is GitHubRequestScheduler.AdmissionRejected || failure is GitHubRequestRejected || failure is GitHubRequestCircuit.Open)) {
+                if (attempts.uncertainOrAccepted && (failure is GitHubRequestScheduler.AdmissionRejected || failure is GitHubRequestRejected || failure is GitHubRequestCircuit.Open || failure is GitHubReadValidation)) {
                     throw GitHubExecutionBlocked(
                         buildJsonObject {
                             put("status", "RECONCILE_REQUIRED")
@@ -223,6 +225,13 @@ class GitHubWorkspaceClient(
             "Invalid repository owner or name."
         }
         val root = "/repos/${segment(owner)}/${segment(repo)}"
+        if (action == "resolve_context" && args["refresh"] == JsonPrimitive(true)) {
+            val selectedRef = field("commit_sha").ifBlank { field("ref").ifBlank { field("branch").ifBlank { repositorySession.context()?.ref.orEmpty() } } }
+            if (selectedRef.isNotBlank()) refAvailability.revalidate(root, selectedRef)
+        }
+        if (action == "get_branch_head" && args["refresh"] == JsonPrimitive(true)) {
+            refAvailability.revalidateBranch(root, required("branch"))
+        }
         if (action in setOf("pr_headers", "issue_headers")) {
             val pullRequest = action == "pr_headers"
             val number = required(if (pullRequest) "pull_number" else "issue_number").toInt().also { require(it > 0) }
@@ -765,6 +774,7 @@ class GitHubWorkspaceClient(
         }
         return buildJsonObject {
             put("pull_request", project(pr, "number", "title", "state", "draft", "merged", "mergeable", "mergeable_state", "html_url", "changed_files", "additions", "deletions", "head", "base"))
+            (pr["body"] as? JsonPrimitive)?.takeIf { it.isString }?.let { put("body_sha256", GitHubRepositoryStateStore.digest(it.content)) }
             health?.let { put("merge_health", json.encodeToJsonElement(GitHubPullRequestHealth.serializer(), it)) }
             put("expected_head", head)
             put("files_total", total)
@@ -934,20 +944,68 @@ class GitHubWorkspaceClient(
         require(Regex("[a-fA-F0-9]{40}").matches(expected)) { "Read the current PR head and supply expected_head_sha." }
         val pr = request("$root/pulls/$number").jsonObject
         check(pr["head"]?.jsonObject?.get("sha")?.jsonPrimitive?.content == expected) { "Pull request head changed. Refresh before continuing." }
-        check(pr["state"]?.jsonPrimitive?.content == "open") { "Pull request is no longer open." }
+        args["expected_base_sha"]?.let { check(pr["base"]?.jsonObject?.get("sha") == it) { "Pull request base changed. Refresh before continuing." } }
+        if (action != "update_pull_request") check(pr["state"]?.jsonPrimitive?.content == "open") { "Pull request is no longer open." }
         val body = args["body"]?.jsonPrimitive?.content.orEmpty()
         val result = when (action) {
             "update_pull_request" -> request(
                 "$root/pulls/$number",
                 HttpMethod.Patch,
                 buildJsonObject {
-                    listOf("title", "body", "base").forEach { key -> args[key]?.let { put(key, it) } }
+                    listOf("title", "body", "base", "state").forEach { key -> args[key]?.let { put(key, it) } }
+                    require(args.keys.any { it in setOf("title", "body", "base", "state") }) { "Supply title, body, base or state for a PR update." }
+                    args["state"]?.let { require(it.jsonPrimitive.content in setOf("open", "closed")) { "PR state must be open or closed." } }
                 }
             )
             "mark_ready_for_review" -> graphQl(
                 "mutation Ready(\$id: ID!) { markPullRequestReadyForReview(input: {pullRequestId: \$id}) { pullRequest { number isDraft url } } }",
-                buildJsonObject { put("id", requireNotNull(pr["node_id"])) }
-            ).also { check(it["errors"]?.jsonArray.isNullOrEmpty()) { "GitHub did not confirm ready-for-review." } }
+                buildJsonObject { put("id", requireNotNull(pr["node_id"])) },
+                reconcile = {
+                    val observed = request("$root/pulls/$number").jsonObject
+                    if (observed["number"] == JsonPrimitive(number) &&
+                        observed["node_id"] == pr["node_id"] &&
+                        observed["draft"] == JsonPrimitive(false) &&
+                        observed["state"] == JsonPrimitive("open") &&
+                        observed["head"]?.jsonObject?.get("sha") == JsonPrimitive(expected)
+                    ) {
+                        buildJsonObject {
+                            put("reconciled", true)
+                            put("verification", "REMOTE_PR_READY_AT_EXPECTED_HEAD")
+                            put("repository", root.removePrefix("/repos/"))
+                            put("pull_number", number)
+                            put("node_id", observed.getValue("node_id"))
+                            put("state", "open")
+                            put("head_sha", expected)
+                            put("draft", false)
+                        }
+                    } else {
+                        null
+                    }
+                }
+            ).let { mutation ->
+                val observed = request("$root/pulls/$number").jsonObject
+                check(
+                    observed["number"] == JsonPrimitive(number) &&
+                        observed["node_id"] == pr["node_id"] &&
+                        observed["state"] == JsonPrimitive("open") &&
+                        observed["draft"] == JsonPrimitive(false) &&
+                        observed["head"]?.jsonObject?.get("sha") == JsonPrimitive(expected)
+                ) {
+                    "GitHub did not confirm the expected pull request is ready at the selected head. Inspect remote state; do not repeat the mutation."
+                }
+                JsonObject(
+                    mutation + buildJsonObject {
+                        put("remote_state_verified", true)
+                        put("verification", "REMOTE_PR_READY_AT_EXPECTED_HEAD")
+                        put("repository", root.removePrefix("/repos/"))
+                        put("pull_number", number)
+                        put("node_id", observed.getValue("node_id"))
+                        put("state", "open")
+                        put("head_sha", expected)
+                        put("draft", false)
+                    }
+                )
+            }
             "submit_pull_request_review" -> {
                 val event = args["event"]?.jsonPrimitive?.content.orEmpty().ifBlank { "COMMENT" }
                 require(event in setOf("APPROVE", "REQUEST_CHANGES", "COMMENT")) { "event must be APPROVE, REQUEST_CHANGES or COMMENT." }
@@ -1172,7 +1230,7 @@ class GitHubWorkspaceClient(
             put("sha", receipt.getValue("sha"))
             put("force", false)
         }
-        executionJournal.acceptRemoteProof("http.PATCH", requestIdentity(path, body), receipt)
+        acceptHttpRemoteProof(path, HttpMethod.Patch, body, receipt)
         return receipt
     }
 
@@ -1201,8 +1259,14 @@ class GitHubWorkspaceClient(
         require(ref["object"]?.jsonObject?.get("sha")?.jsonPrimitive?.content == expected) { "Branch moved; refresh before deletion." }
         request("$root/git/refs/heads/${segment(branch)}", HttpMethod.Delete)
         responseCache.invalidateMutable(root)
+        // A 204 acknowledges the request. Only a fresh matching-ref listing
+        // verifies the fixture is absent; a concurrent recreation remains visible.
+        val remaining = request("$root/git/matching-refs/heads/${segment(branch)}").jsonArray
+        val absent = remaining.none { it.jsonObject["ref"]?.jsonPrimitive?.content == "refs/heads/$branch" }
         return buildJsonObject {
             put("deleted", true)
+            put("absence_verified", absent)
+            put("verification_status", if (absent) "VERIFIED_ABSENT" else "REF_STILL_PRESENT")
             put("branch", branch)
             put("observed_head_sha", expected)
             put("default_head_sha", defaultSha)
@@ -1369,7 +1433,13 @@ class GitHubWorkspaceClient(
                 val dispatchTime = java.time.Instant.now().toString()
                 val correlationId = java.util.UUID.randomUUID().toString()
                 val versionPreflight = validateReleaseVersionHint(root, sourceSha, tagName)
-                val dispatchResponse = request(
+                // The outer publish_release execution journal is the durable per-operation
+                // fence. Dispatching through the generic payload-only HTTP fence
+                // would return the previous run for a *different*, explicitly
+                // authorized execution_id using identical workflow inputs.
+                // Never retry a lost acknowledgement: the outer journal keeps
+                // that execution uncertain until remote reconciliation.
+                val dispatchResponse = requestUntracked(
                     "$root/actions/workflows/${segment(workflowId)}/dispatches",
                     HttpMethod.Post,
                     buildJsonObject {
@@ -1379,7 +1449,8 @@ class GitHubWorkspaceClient(
                             require(it is JsonObject) { "inputs must be an object." }
                             put("inputs", it)
                         }
-                    }
+                    },
+                    authenticated = true
                 )
                 val dispatchedRunId = (dispatchResponse as? JsonObject)?.get("workflow_run_id")?.jsonPrimitive?.content?.toLongOrNull()?.takeIf { it > 0 }
                 if (dispatchedRunId != null) {
@@ -1583,7 +1654,7 @@ class GitHubWorkspaceClient(
         put(
             "assets",
             buildJsonArray {
-                assets.take(30).forEach { asset ->
+                assets.forEach { asset ->
                     add(project(asset.jsonObject, "id", "name", "content_type", "state", "size", "digest", "download_count", "created_at", "updated_at", "browser_download_url"))
                 }
             }
@@ -1760,19 +1831,44 @@ class GitHubWorkspaceClient(
         if (items.size == perPage) put("next_page", page + 1)
     }
 
-    private suspend fun graphQl(query: String, variables: JsonObject): JsonObject {
+    private suspend fun graphQl(query: String, variables: JsonObject, reconcile: (suspend () -> JsonElement?)? = null): JsonObject {
         if (query == gitHubPullRequestHealthQuery && "cursor" !in variables) {
             return collectGitHubHealth { cursor -> graphQl(query, JsonObject(variables + ("cursor" to (cursor?.let(::JsonPrimitive) ?: JsonNull)))) }
         }
+        if (query.trimStart().startsWith("mutation")) {
+            // Only mutation inputs define the publication claim. A changed selected ref,
+            // call ID or head precondition cannot authorize replay of an uncertain POST.
+            val identity = buildJsonObject {
+                put("path", "/graphql")
+                put("query", query)
+                put("variables", variables)
+            }
+            responseCache.invalidateMutable()
+            val result = executionJournal.run("graphql.mutation", identity, reconcile = reconcile, singleHttpRequest = true) {
+                graphQlRequest(query, variables)
+            }.jsonObject
+            if (result["execution"]?.jsonObject?.get("status")?.jsonPrimitive?.content != "COMPLETED") throw GitHubExecutionBlocked(result)
+            return result
+        }
+        return graphQlRequest(query, variables)
+    }
+
+    private suspend fun graphQlRequest(query: String, variables: JsonObject): JsonObject {
         refreshCredential()
         require(token.isNotBlank()) { "A GitHub credential is required for GraphQL." }
-        check(!authenticationRejected.get()) { "GitHub authentication was rejected (HTTP 401). Reconnect the GitHub account before retrying any operation." }
+        if (authenticationRejected.get()) throw GitHubRequestRejected(0, "GitHub authentication was rejected (HTTP 401). Reconnect before retrying; no GraphQL request was dispatched.")
         return scheduler.execute(priority = requestPriority) {
-            check(!authenticationRejected.get()) { "GitHub authentication was rejected (HTTP 401). Reconnect the GitHub account before retrying any operation." }
-            rateLimits.requireAvailable("graphql")
-            scheduler.recordRequest()
             val readOnlyQuery = !query.trimStart().startsWith("mutation")
-            if (readOnlyQuery) GitHubDispatchAccounting.started(false)
+            try {
+                check(!authenticationRejected.get()) { "GitHub authentication was rejected (HTTP 401). Reconnect the GitHub account before retrying any operation." }
+                rateLimits.requireAvailable("graphql")
+            } catch (rejected: IllegalStateException) {
+                if (!readOnlyQuery) throw GitHubRequestRejected(0, rejected.message ?: "GraphQL admission failed before dispatch")
+                throw rejected
+            }
+            scheduler.recordRequest()
+            if (!readOnlyQuery) GitHubMutationAttempts.dispatched()
+            val observationId = GitHubDispatchAccounting.started(!readOnlyQuery)
             val response = client.githubRequest(apiOrigins.graphQl) {
                 method = HttpMethod.Post
                 header(HttpHeaders.Accept, "application/vnd.github+json")
@@ -1787,7 +1883,8 @@ class GitHubWorkspaceClient(
                     }.toString()
                 )
             }
-            if (readOnlyQuery) GitHubDispatchAccounting.responded(false, response.status.value)
+            GitHubDispatchAccounting.responded(!readOnlyQuery, response.status.value, observationId, response.headers["X-GitHub-Request-Id"])
+            if (!readOnlyQuery && response.status.value in 400..499 && response.status.value != 408) GitHubMutationAttempts.rejected()
             rateLimits.record(response.headers, response.status.value)
             val text = response.bodyAsText()
             if (response.status.value == 401) {
@@ -1798,6 +1895,9 @@ class GitHubWorkspaceClient(
                 val githubMessage = runCatching {
                     json.parseToJsonElement(text).jsonObject["message"]?.jsonPrimitive?.content
                 }.getOrNull()
+                if (!readOnlyQuery && response.status.value in 400..499 && response.status.value != 408) {
+                    throw GitHubRequestRejected(response.status.value, "GitHub GraphQL rejected the mutation (HTTP ${response.status.value}). Correct authorization or arguments before another attempt.")
+                }
                 error(
                     "GitHub GraphQL HTTP ${response.status.value}" +
                         githubMessage?.let { " · message=$it" }.orEmpty() + ". " +
@@ -1811,7 +1911,12 @@ class GitHubWorkspaceClient(
                 )
             }
             scheduler.recordBytes(text.encodeToByteArray().size.toLong())
-            json.parseToJsonElement(text).jsonObject
+            json.parseToJsonElement(text).jsonObject.also { payload ->
+                // GraphQL may return HTTP 200 with partial mutation data and errors.
+                // Preserve the publication fence; neither a parse failure nor partial data
+                // authorizes replaying a mutation after its response was observed.
+                if (!readOnlyQuery) check(payload["errors"]?.jsonArray.isNullOrEmpty()) { "GraphQL mutation outcome is not fully confirmed; reconcile remote state before retrying." }
+            }
         }
     }
 
@@ -1823,23 +1928,154 @@ class GitHubWorkspaceClient(
     ): JsonElement {
         if (method == HttpMethod.Get) return requestUntracked(path, method, body, authenticated)
         require(token.isNotBlank()) { "A GitHub credential is required." }
-        val identity = requestIdentity(path, body)
-        val result = executionJournal.run("http.${method.value}", identity, singleHttpRequest = true) { requestUntracked(path, method, body, authenticated) }.jsonObject
+        val action = "http.${method.value}"
+        val identity = requestIdentity(path, method, body)
+        val legacy = legacyRequestIdentity(path, body)
+        val legacyClaim = hasRetainedRequestClaim(action, legacy)
+        if (!legacyClaim && !hasRetainedRequestClaim(action, identity)) requirePayloadIdentityScope()
+        val result = executionJournal.run(action, identity, singleHttpRequest = true) {
+            if (legacyClaim) {
+                // Bind an already retained receipt to the new payload fence without
+                // dispatching again. Future presentation/context variants share it.
+                val retained = executionJournal.run(action, legacy, singleHttpRequest = true) {
+                    error("A retained legacy HTTP claim cannot dispatch another mutation.")
+                }.jsonObject
+                if (retained["execution"]?.jsonObject?.get("status")?.jsonPrimitive?.content != "COMPLETED") {
+                    throw GitHubExecutionBlocked(retained)
+                }
+                retained
+            } else {
+                requestUntracked(path, method, body, authenticated)
+            }
+        }.jsonObject
         if (result["execution"]?.jsonObject?.get("status")?.jsonPrimitive?.content != "COMPLETED") {
             throw GitHubExecutionBlocked(result)
         }
         return result
     }
 
-    private suspend fun requestIdentity(path: String, body: JsonObject?): JsonObject {
+    private fun requestIdentity(path: String, method: HttpMethod, body: JsonObject?): JsonObject = buildJsonObject {
+        put("method", method.value)
+        put("path", path)
+        // Preconditions still run before dispatch. They and presentation/context
+        // arguments cannot authorize repeating an uncertain, identical HTTP write.
+        body?.let { put("body", it) }
+    }
+
+    private suspend fun legacyRequestIdentity(path: String, body: JsonObject?): JsonObject {
         val invocation = currentCoroutineContext()[Invocation]?.identity.orEmpty()
         return buildJsonObject {
             put("path", path)
-            // Two identical HTTP bodies with newly reviewed preconditions are
-            // different executions. The whole invocation is hashed, never logged.
             put("invocation", invocation)
             body?.let { put("body", it) }
         }
+    }
+
+    private fun requestScopes(): List<String> = (listOf(executionScope) + legacyCredentialIdentities.map { listOf(it, connectionUid, conversationId, taskId).joinToString(":") }).distinct()
+
+    private suspend fun hasRetainedRequestClaim(action: String, identity: JsonObject): Boolean {
+        for (scope in requestScopes()) {
+            val id = GitHubRepositoryStateStore.digest("$scope|$action|${GitHubExecutionJournal.canonical(identity)}")
+            val retained = repositoryState.read(scope, "execution:$id") ?: continue
+            if (retained["status"]?.jsonPrimitive?.content != "REJECTED") return true
+        }
+        return false
+    }
+
+    private suspend fun acceptHttpRemoteProof(path: String, method: HttpMethod, body: JsonObject?, receipt: JsonObject) {
+        val action = "http.${method.value}"
+        val identities = listOf(requestIdentity(path, method, body), legacyRequestIdentity(path, body))
+        for (scope in requestScopes()) {
+            val retained = GitHubExecutionJournal(repositoryState, scope)
+            for (identity in identities) retained.acceptRemoteProof(action, identity, receipt)
+        }
+    }
+
+    private fun payloadIdentityMarkerKey(scope: String) = "execution:" + GitHubRepositoryStateStore.digest("$scope|http.payload-identity|v2")
+
+    private fun JsonObject.isPayloadIdentityScope(): Boolean = this["payload_identity_version"] == JsonPrimitive(2) && this["status"] == JsonPrimitive("COMPLETED")
+
+    private suspend fun payloadIdentityScopeRecovered(scope: String, marker: JsonObject): Boolean {
+        if (marker.isPayloadIdentityScope()) return true
+        val ids = marker["legacy_execution_ids"] as? JsonArray ?: return false
+        if (ids.isEmpty() || ids.size > 32) return false
+        for (value in ids) {
+            val id = (value as? JsonPrimitive)?.takeIf { it.isString }?.content?.takeIf { it.matches(Regex("[a-f0-9]{64}")) } ?: return false
+            val receipt = repositoryState.read(scope, "execution:$id") ?: return false
+            if (receipt["status"] != JsonPrimitive("COMPLETED") || "result" !in receipt) return false
+        }
+        val recovered = repositoryState.update(scope, payloadIdentityMarkerKey(scope)) { current ->
+            if (current != marker) {
+                checkNotNull(current) { "The retained legacy HTTP identity marker disappeared." }
+            } else {
+                JsonObject(marker + mapOf("payload_identity_version" to JsonPrimitive(2), "status" to JsonPrimitive("COMPLETED"), "legacy_receipts_reconciled" to JsonPrimitive(true)))
+            }
+        }
+        return recovered.isPayloadIdentityScope()
+    }
+
+    private fun legacyHttpScopeBlocked() = GitHubExecutionBlocked(
+        buildJsonObject {
+            put("schema", "github.execution.v1")
+            put("status", "RECONCILE_REQUIRED")
+            put("code", "GITHUB_LEGACY_HTTP_IDENTITY_UNRESOLVED")
+            put("dispatched", false)
+            put("message", "This retained task has an unresolved HTTP write from the earlier request-identity format. Changing arguments cannot authorize another write. Reopen the original saved request or use read-only remote checks to reconcile it; start a newly authorized task for new changes. Missing legacy context is not evidence that every historical write was reconciled.")
+        }
+    )
+
+    /** The old format did not retain payload identities; never infer them from changed arguments. */
+    private suspend fun requirePayloadIdentityScope() {
+        for (scope in requestScopes()) {
+            val markerKey = payloadIdentityMarkerKey(scope)
+            val marker = repositoryState.read(scope, markerKey)
+            if (marker != null) {
+                if (!payloadIdentityScopeRecovered(scope, marker)) throw legacyHttpScopeBlocked()
+                continue
+            }
+            val context = repositoryState.read(scope, "execution-context")
+            val rows = context?.get("executions") as? JsonArray
+            val unreadable = context != null && rows == null || context == null && repositoryState.contains(scope, "execution-context")
+            val unresolved = mutableListOf<JsonElement>()
+            for (value in rows.orEmpty()) {
+                val row = value as? JsonObject
+                if (row == null) {
+                    unresolved += value
+                    continue
+                }
+                if ((row["action"] as? JsonPrimitive)?.content !in setOf("http.POST", "http.PUT", "http.PATCH", "http.DELETE")) continue
+                val id = (row["execution_id"] as? JsonPrimitive)?.takeIf { it.isString && it.content.matches(Regex("[a-f0-9]{64}")) }?.content
+                val receipt = id?.let { repositoryState.read(scope, "execution:$it") }
+                // Context is an inventory hint. Its cached COMPLETED status cannot
+                // override a protected fence whose receipt body is missing/corrupt.
+                val settled = receipt?.get("status") == JsonPrimitive("REJECTED") ||
+                    receipt?.get("status") == JsonPrimitive("COMPLETED") &&
+                    "result" in receipt
+                if (!settled) unresolved += row
+            }
+            if (unreadable || unresolved.isNotEmpty()) {
+                val ids = unresolved.mapNotNull { (it as? JsonObject)?.get("execution_id") as? JsonPrimitive }
+                    .takeIf { !unreadable && it.size == unresolved.size && it.all { id -> id.isString && id.content.matches(Regex("[a-f0-9]{64}")) } }
+                val retained = repositoryState.update(scope, markerKey) { previous ->
+                    previous ?: buildJsonObject {
+                        put("payload_identity_version", 1)
+                        put("status", "RECONCILE_REQUIRED")
+                        put("reason", "LEGACY_HTTP_IDENTITY_UNRESOLVED")
+                        put("legacy_execution_ids", JsonArray(ids.orEmpty()))
+                    }
+                }
+                // A concurrent new-format request may already have initialized this
+                // scope. Otherwise cache pruning cannot erase its ambiguity latch.
+                if (!retained.isPayloadIdentityScope()) throw legacyHttpScopeBlocked()
+            }
+        }
+        val marker = repositoryState.update(executionScope, payloadIdentityMarkerKey(executionScope)) { previous ->
+            previous ?: buildJsonObject {
+                put("payload_identity_version", 2)
+                put("status", "COMPLETED")
+            }
+        }
+        if (!marker.isPayloadIdentityScope()) throw legacyHttpScopeBlocked()
     }
 
     private suspend fun requestUntracked(
@@ -1851,9 +2087,11 @@ class GitHubWorkspaceClient(
         refreshCredential()
         if (authenticated || method != HttpMethod.Get) require(token.isNotBlank()) { "A GitHub credential is required." }
         check(!authenticationRejected.get()) { "GitHub authentication was rejected (HTTP 401). Reconnect the GitHub account before retrying any operation." }
+        if (method == HttpMethod.Get) refAvailability.requireAvailable(path)
         val cacheKey = "${apiOrigins.rest}:$durableIdentity:${GitHubRepositoryStateStore.digest(token)}:${method.value}:$path"
         val cacheable = conditionalReads && method == HttpMethod.Get && path != "/rate_limit"
-        val cached = if (cacheable) responseCache.get(cacheKey) else null
+        val forceLive = kotlinx.coroutines.currentCoroutineContext()[GitHubDispatchAccounting]?.forceLiveReads == true
+        val cached = if (cacheable && !forceLive) responseCache.get(cacheKey) else null
         // Mutable branch heads and permission checks are always revalidated.
         val freshList = path.startsWith("/user/repos") || path.startsWith("/user/installations") || path.matches(Regex("/repos/[^/]+/[^/]+/(?:branches|contents)(?:[?].*)?"))
         if (cached != null && freshList && System.currentTimeMillis() - cached.storedAtMillis < freshnessSeconds.coerceIn(0, 120) * 1000L) {
@@ -1876,7 +2114,7 @@ class GitHubWorkspaceClient(
                 }
                 scheduler.recordRequest()
                 if (method != HttpMethod.Get) GitHubMutationAttempts.dispatched()
-                GitHubDispatchAccounting.started(method != HttpMethod.Get)
+                val observationId = GitHubDispatchAccounting.started(method != HttpMethod.Get)
                 var response = client.githubRequest("${apiOrigins.rest}$path") {
                     this.method = method
                     header(HttpHeaders.Accept, "application/vnd.github+json")
@@ -1889,21 +2127,21 @@ class GitHubWorkspaceClient(
                         setBody(body.toString())
                     }
                 }
-                GitHubDispatchAccounting.responded(method != HttpMethod.Get, response.status.value)
+                GitHubDispatchAccounting.responded(method != HttpMethod.Get, response.status.value, observationId, response.headers["X-GitHub-Request-Id"])
                 rateLimits.record(response.headers, response.status.value)
                 if (response.status.value == 304 && cached == null && method == HttpMethod.Get) {
                     // A validator without its body is unusable. One unconditional
                     // read recovers an evicted body; a repeated 304 is an error.
                     rateLimits.requireAvailable(if (path.startsWith("/search/")) "search" else "core")
                     scheduler.recordRequest()
-                    GitHubDispatchAccounting.started(false)
+                    val recoveryObservationId = GitHubDispatchAccounting.started(false)
                     response = client.githubRequest("${apiOrigins.rest}$path") {
                         header(HttpHeaders.Accept, "application/vnd.github+json")
                         header(HttpHeaders.UserAgent, "GPT-Mobile-App")
                         header("X-GitHub-Api-Version", API_VERSION)
                         if (token.isNotBlank()) header(HttpHeaders.Authorization, "Bearer $token")
                     }
-                    GitHubDispatchAccounting.responded(false, response.status.value)
+                    GitHubDispatchAccounting.responded(false, response.status.value, recoveryObservationId, response.headers["X-GitHub-Request-Id"])
                     rateLimits.record(response.headers, response.status.value)
                     check(response.status.value != 304) { "GITHUB_CACHE_BODY_MISSING: unconditional revalidation returned no body." }
                 }
@@ -1925,10 +2163,12 @@ class GitHubWorkspaceClient(
                     val githubMessage = runCatching {
                         json.parseToJsonElement(text).jsonObject["message"]?.jsonPrimitive?.content
                     }.getOrNull()?.takeIf { it.isNotBlank() }
+                    if (method == HttpMethod.Get) refAvailability.failed(path, response.status.value, githubMessage.orEmpty())
                     val category = GitHubFailurePolicy.classify(response.status.value, githubMessage.orEmpty(), response.headers["X-RateLimit-Remaining"], response.headers["Retry-After"], response.headers["X-GitHub-SSO"])
                     if (category == "GITHUB_SECONDARY_RATE_LIMITED") rateLimits.cooldown(GitHubReadRetry.retryAfterMillis(response.headers["Retry-After"])?.let { it / 1000 + if (it % 1000 == 0L) 0 else 1 } ?: 60)
                     val details = buildList {
                         githubMessage?.let { add("message=$it") }
+                        GitHubFailurePolicy.validationDetails(text).takeIf { it.isNotEmpty() }?.let { add("validation=$it") }
                         response.headers["X-RateLimit-Remaining"]?.let { add("rateLimitRemaining=$it") }
                         response.headers["Retry-After"]?.let { add("retryAfter=$it") }
                         response.headers["X-OAuth-Scopes"]?.takeIf { it.isNotBlank() }?.let { add("oauthScopes=$it") }
@@ -1942,7 +2182,7 @@ class GitHubWorkspaceClient(
                             (if (details.isBlank()) ". " else " · $details. ") +
                             (
                                 if (response.status.value == 403 && path.contains("/actions/") && response.headers["X-RateLimit-Remaining"] != "0") {
-                                    "Actions endpoint denied access. Check the GitHub App installation repository access and Actions: write permission, or the token workflow scope; also verify organization SSO and repository rules. Repository can_push alone does not grant Actions API access. "
+                                    "Actions endpoint denied access. Check the GitHub App installation repository access and Actions: ${if (method == HttpMethod.Get) "read" else "write"} permission; also verify organization SSO and repository rules. Repository can_push alone does not grant Actions API access. "
                                 } else {
                                     ""
                                 }
@@ -1952,11 +2192,13 @@ class GitHubWorkspaceClient(
                                 response.headers["Retry-After"],
                                 response.headers["X-RateLimit-Reset"],
                                 githubMessage,
-                                response.headers["X-RateLimit-Remaining"]
+                                response.headers["X-RateLimit-Remaining"],
+                                method != HttpMethod.Get
                             )
                     )
                 }
                 val parsed = if (text.isBlank()) JsonObject(emptyMap()) else json.parseToJsonElement(text)
+                if (method == HttpMethod.Get) refAvailability.succeeded(path)
                 if (method != HttpMethod.Get) responseCache.invalidateMutable(path.substringBefore("/git/").substringBefore("/pulls/").substringBefore("/releases"))
                 if (cacheable) responseCache.put(cacheKey, response.headers[HttpHeaders.ETag], parsed, immutablePath(path))
                 parsed
@@ -1971,9 +2213,10 @@ class GitHubWorkspaceClient(
         retryAfter: String?,
         reset: String?,
         githubMessage: String? = null,
-        rateLimitRemaining: String? = null
+        rateLimitRemaining: String? = null,
+        mutation: Boolean = false
     ): String = when {
-        status == 401 -> "Reconnect the GitHub API plugin."
+        status == 401 -> GitHubFailurePolicy.recoveryHint("AUTH_REQUIRED")
         status == 429 || (status == 403 && rateLimitRemaining == "0") ->
             "GitHub rate limiting blocked this request. Retry after: ${retryAfter ?: reset ?: "not supplied"}."
         status == 403 && githubMessage?.contains("saml", ignoreCase = true) == true ->
@@ -1983,15 +2226,16 @@ class GitHubWorkspaceClient(
                 githubMessage?.contains("workflow", ignoreCase = true) == true ||
                     githubMessage?.contains("actions", ignoreCase = true) == true
                 ) ->
-            "This operation needs GitHub Actions or workflow write permission. Update the GitHub App installation permissions or token scope; repository push permission is insufficient."
+            "This endpoint needs GitHub Actions ${if (mutation) "write" else "read"} permission. Check installation permissions and repository access; repository push permission is insufficient."
         status == 403 && githubMessage?.contains("resource not accessible", ignoreCase = true) == true ->
-            "The credential or GitHub App installation cannot perform this API operation. Check the plugin's repository access and required write permission."
+            GitHubFailurePolicy.recoveryHint("GITHUB_ENDPOINT_PERMISSION_REQUIRED")
         status == 403 && githubMessage?.contains("protected branch", ignoreCase = true) == true ->
             "Branch protection blocked this write. Create or use a working branch allowed by repository rules."
         status == 403 ->
             "GitHub denied this operation. Do not infer a read-only token from HTTP 403 alone; inspect write_capabilities and the GitHub message before choosing a recovery path."
-        status == 404 -> "Check repository access, branch and path."
-        status == 409 || status == 422 -> "Refresh the branch and review the change before retrying."
+        status == 404 -> GitHubFailurePolicy.recoveryHint("GITHUB_NOT_FOUND_OR_INACCESSIBLE")
+        status == 409 -> GitHubFailurePolicy.recoveryHint("GITHUB_CONFLICT")
+        status == 422 -> GitHubFailurePolicy.recoveryHint("GITHUB_VALIDATION_FAILED")
         else -> "Try again later."
     }
 }

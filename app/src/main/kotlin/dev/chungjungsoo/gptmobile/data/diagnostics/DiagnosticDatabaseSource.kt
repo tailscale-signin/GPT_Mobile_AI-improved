@@ -36,13 +36,15 @@ class DiagnosticDatabaseSource @Inject constructor(
         maximumCharacters: Int,
         beforeRead: suspend () -> Unit,
         consume: suspend (JsonObject) -> Unit,
-        omitted: (String) -> Unit
+        omitted: (String) -> Unit,
+        maximumSourceBytes: Int = maximumCharacters,
+        metadata: suspend (JsonObject) -> Unit = {}
     ) = withContext(Dispatchers.IO) {
-        require(chatId > 0 && maximumCharacters in 1024..1_048_576)
+        require(chatId > 0 && maximumCharacters in 1024..1_048_576 && maximumSourceBytes in maximumCharacters..1_048_576)
         val source = if (section == "research_database") researchDatabase.openHelper.readableDatabase else database.openHelper.readableDatabase
         for (table in tables(section)) {
             try {
-                captureTable(source, table, chatId, maximumCharacters, beforeRead, consume, omitted)
+                captureTable(source, table, chatId, maximumSourceBytes, beforeRead, consume, omitted, metadata)
             } catch (_: SQLException) {
                 omitted("DIAGNOSTIC_TABLE_READ_FAILED")
                 consume(
@@ -63,26 +65,45 @@ class DiagnosticDatabaseSource @Inject constructor(
         maximumCharacters: Int,
         beforeRead: suspend () -> Unit,
         consume: suspend (JsonObject) -> Unit,
-        omitted: (String) -> Unit
+        omitted: (String) -> Unit,
+        metadata: suspend (JsonObject) -> Unit
     ) {
+        var omissionCount = 0L
+        fun recordOmission(reason: String) {
+            omissionCount++
+            omitted(reason)
+        }
+        val startedAt = System.currentTimeMillis()
         beforeRead()
-        val columns = database.query("PRAGMA table_info(${table.name})").use { cursor ->
+        val schemaColumns = database.query("PRAGMA table_info(${table.name})").use { cursor ->
             buildList { while (cursor.moveToNext()) add(cursor.getString(cursor.getColumnIndexOrThrow("name"))) }
         }
-        if (columns.isEmpty()) {
-            omitted("DIAGNOSTIC_TABLE_UNAVAILABLE")
+        val columns = table.columns ?: schemaColumns
+        if (columns.isEmpty() || !schemaColumns.containsAll(columns)) {
+            recordOmission("DIAGNOSTIC_TABLE_UNAVAILABLE")
             return
         }
         // Table/column identifiers come only from the static allow-list and SQLite schema.
         check(columns.all { it.matches(Regex("[A-Za-z_][A-Za-z_0-9]*")) })
         // SQLite's length(TEXT) counts code points. Measure UTF-8 bytes before a CursorWindow
         // hydrates the row; otherwise non-ASCII text can overrun the same nominal limit.
+        val selectedColumns = columns.joinToString { "t.\"$it\"" } + if (table.parentRunColumn == null) {
+            ""
+        } else {
+            ", (SELECT substr(status, 1, 64) FROM agent_runs parent WHERE parent.run_id = t.\"${table.parentRunColumn}\") AS parentRunStatus"
+        }
         val rowLength = columns.joinToString(" + ") { "COALESCE(length(CAST(t.\"$it\" AS BLOB)), 0)" }
         val where = table.where.replace(":chatId", chatId.toString())
         val highWatermark = database.query("SELECT COALESCE(MAX(t.rowid), 0) FROM ${table.name} t WHERE $where").use { cursor ->
             check(cursor.moveToFirst())
             cursor.getLong(0)
         }
+        val expectedRows = database.query("SELECT COUNT(*) FROM ${table.name} t WHERE ($where) AND t.rowid <= $highWatermark").use { cursor ->
+            check(cursor.moveToFirst())
+            cursor.getLong(0)
+        }
+        var inspectedRows = 0L
+        var emittedRows = 0L
         var after = Long.MIN_VALUE
         while (true) {
             currentCoroutineContext().ensureActive()
@@ -97,8 +118,9 @@ class DiagnosticDatabaseSource @Inject constructor(
             for ((rowId, sourceBytes) in page) {
                 beforeRead()
                 after = rowId
+                inspectedRows++
                 if (sourceBytes > maximumCharacters) {
-                    omitted("RECORD_BYTE_LIMIT")
+                    recordOmission("RECORD_BYTE_LIMIT")
                     consume(
                         buildJsonObject {
                             put("table", table.name)
@@ -112,9 +134,9 @@ class DiagnosticDatabaseSource @Inject constructor(
                     continue
                 }
                 // Recheck the bound in this query too: a live generation may update the row.
-                val projector = DiagnosticValueProjector(maximumCharacters, omitted)
+                val projector = DiagnosticValueProjector(maximumCharacters, ::recordOmission)
                 val fields = database.query(
-                    SimpleSQLiteQuery("SELECT t.* FROM ${table.name} t WHERE t.rowid = ? AND ($where) AND ($rowLength) <= ?", arrayOf<Any?>(rowId, maximumCharacters))
+                    SimpleSQLiteQuery("SELECT $selectedColumns FROM ${table.name} t WHERE t.rowid = ? AND ($where) AND ($rowLength) <= ?", arrayOf<Any?>(rowId, maximumCharacters))
                 ).use { cursor ->
                     if (!cursor.moveToFirst()) {
                         null
@@ -125,14 +147,14 @@ class DiagnosticDatabaseSource @Inject constructor(
                                 if (table.name == "workspace_records" && key == "payload") {
                                     put(key, JsonPrimitive(cursor.getString(index)))
                                 } else {
-                                    put(key, cell(cursor, index, projector, omitted))
+                                    put(key, cell(cursor, index, projector, ::recordOmission))
                                 }
                             }
                         }
                     }
                 }
                 if (fields == null) {
-                    omitted("SOURCE_CHANGED_DURING_CAPTURE")
+                    recordOmission("SOURCE_CHANGED_DURING_CAPTURE")
                     continue
                 }
                 // Protected receipts are expanded only after the bounded row cursor is closed.
@@ -145,7 +167,7 @@ class DiagnosticDatabaseSource @Inject constructor(
                         storedPayload,
                         maximumCharacters,
                         beforeRead,
-                        omitted
+                        ::recordOmission
                     )
                     val payload = if (!protected.protected) {
                         projector.text(storedPayload)
@@ -153,7 +175,7 @@ class DiagnosticDatabaseSource @Inject constructor(
                         projector.element(protected.payload)
                     } else {
                         val reason = protected.omissionReason ?: "PROTECTED_PAYLOAD_UNAVAILABLE"
-                        omitted(reason)
+                        recordOmission(reason)
                         buildJsonObject {
                             put("availability", "omitted")
                             put("reason", reason)
@@ -171,8 +193,36 @@ class DiagnosticDatabaseSource @Inject constructor(
                         put("fields", projectedFields)
                     }
                 )
+                emittedRows++
             }
         }
+        if (inspectedRows != expectedRows) recordOmission("DATABASE_ROW_COUNT_CHANGED")
+        metadata(
+            buildJsonObject {
+                put("kind", "database_capture_coverage")
+                put("table", table.name)
+                put(
+                    "availability",
+                    if (expectedRows == 0L) {
+                        "EMPTY"
+                    } else if (emittedRows == expectedRows && omissionCount == 0L) {
+                        "AVAILABLE"
+                    } else {
+                        "PARTIAL"
+                    }
+                )
+                put("tableHighWatermark", highWatermark)
+                put("expectedRows", expectedRows)
+                put("inspectedRows", inspectedRows)
+                put("emittedRows", emittedRows)
+                put("omittedValuesOrRows", omissionCount)
+                put("pageSize", 16)
+                put("rowLimit", kotlinx.serialization.json.JsonNull)
+                put("startedAtMillis", startedAt)
+                put("completedAtMillis", System.currentTimeMillis())
+                put("consistency", "Frozen row-id boundary; values observed during this table capture. Changes and resumed stages are not a transaction snapshot.")
+            }
+        )
     }
 
     private fun cell(cursor: Cursor, index: Int, projector: DiagnosticValueProjector, omitted: (String) -> Unit): JsonElement = when (cursor.getType(index)) {
@@ -186,16 +236,23 @@ class DiagnosticDatabaseSource @Inject constructor(
         else -> projector.text(cursor.getString(index))
     }
 
-    private data class Table(val name: String, val where: String)
+    private data class Table(val name: String, val where: String, val columns: List<String>? = null, val parentRunColumn: String? = null)
 
     private fun tables(section: String): List<Table> {
         val runs = "SELECT run_id FROM agent_runs WHERE chat_id = :chatId"
+        val invocationScope = "t.parentRunId IN ($runs) OR (t.turnKey LIKE CAST(:chatId AS TEXT) || ':%' AND NOT EXISTS (SELECT 1 FROM agent_runs ar WHERE ar.run_id = t.parentRunId AND ar.chat_id != :chatId))"
         val researchWorks = "SELECT workId FROM research_save_receipts WHERE chatId = :chatId UNION SELECT workId FROM research_jobs WHERE chatId = :chatId"
         return when (section) {
+            "run_index" -> listOf(Table("agent_runs", "t.chat_id = :chatId", listOf("run_id")))
+            "timeline" -> listOf(
+                Table("agent_runs", "t.chat_id = :chatId", listOf("run_id", "status", "created_at", "started_at", "completed_at")),
+                Table("tool_events", "t.run_id IN ($runs)", listOf("event_id", "run_id", "call_id", "sequence", "status", "started_at", "completed_at"), "run_id"),
+                Table("model_invocations", invocationScope, listOf("id", "parentRunId", "status", "startedAt", "durationMs"), "parentRunId")
+            )
             "conversation" -> listOf(Table("messages_v2", "t.chat_id = :chatId"))
             "tool_receipts" -> listOf(Table("tool_events", "t.run_id IN ($runs)"))
             "runs" -> listOf(Table("agent_runs", "t.chat_id = :chatId"), Table("run_policy_snapshots", "t.chatId = :chatId"), Table("agent_run_policy_refs", "t.chatId = :chatId"))
-            "invocations" -> listOf(Table("model_invocations", "t.parentRunId IN ($runs) OR (t.turnKey LIKE CAST(:chatId AS TEXT) || ':%' AND NOT EXISTS (SELECT 1 FROM agent_runs ar WHERE ar.run_id = t.parentRunId AND ar.chat_id != :chatId))"))
+            "invocations" -> listOf(Table("model_invocations", invocationScope))
             "workspace" -> listOf(Table("workspace_records", "t.chatId = :chatId"), Table("pending_prompts", "t.chatId = :chatId"))
             "answer_segments" -> listOf(Table("answer_segments", "t.runId IN ($runs)"))
             "combined_documents" -> listOf(

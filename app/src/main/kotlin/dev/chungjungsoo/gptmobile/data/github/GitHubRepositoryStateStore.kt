@@ -39,15 +39,20 @@ data class GitHubTaskSnapshot(
 
 /** Encrypted cache bodies and separate hashed publication fences; temporary sessions stay in memory. */
 @Singleton
-class GitHubRepositoryStateStore private constructor(private val directory: File?, private val vault: SecretVault?, private val publicationClaimLimit: Int = MAX_PUBLICATION_CLAIMS) {
-    @Inject constructor(@ApplicationContext context: Context, vault: SecretVault) : this(File(context.noBackupFilesDir, "github-repository-state"), vault)
-    constructor(directory: File? = null, publicationClaimLimit: Int = MAX_PUBLICATION_CLAIMS) : this(directory, null, publicationClaimLimit)
+class GitHubRepositoryStateStore private constructor(private val directoryProvider: () -> File?, private val vault: SecretVault?, private val publicationClaimLimit: Int = MAX_PUBLICATION_CLAIMS, private val protectedCapacityBytes: Long = MAX_PROTECTED_BYTES) {
+    @Inject constructor(@ApplicationContext context: Context, vault: SecretVault) : this({ File(context.noBackupFilesDir, "github-repository-state") }, vault)
+    constructor(directory: File? = null, publicationClaimLimit: Int = MAX_PUBLICATION_CLAIMS, protectedCapacityBytes: Long = MAX_PROTECTED_BYTES) : this({ directory }, null, publicationClaimLimit, protectedCapacityBytes)
     init {
         require(publicationClaimLimit > 0)
+        require(protectedCapacityBytes in MAX_PROTECTED_RECORD_BYTES.toLong()..MAX_PROTECTED_BYTES)
     }
     private val mutex = Mutex()
+    private val directory: File? by lazy(directoryProvider)
     private val values = LinkedHashMap<String, JsonObject>(16, 0.75f, true)
     private var memoryCharacters = 0
+    private val protectedValues = linkedMapOf<String, JsonObject>()
+    private val reservations = mutableSetOf<String>()
+    private var legacyReceiptsMigrated = false
 
     // Publication fences are authority, not cache. A pruned receipt must never
     // turn the same execution into a new write. Markers contain only hashed IDs.
@@ -61,7 +66,7 @@ class GitHubRepositoryStateStore private constructor(private val directory: File
     suspend fun contains(scope: String, key: String): Boolean = withContext(Dispatchers.IO) {
         mutex.withLock {
             val identity = "$scope:$key"
-            values.containsKey(identity) || directory?.let { File(it, digest(identity) + ".record") }?.let { it.isFile && it.length() in 1..MAX_RECORD_BYTES.toLong() } == true || claimCheckpoint(identity, key) != null
+            protectedValues.containsKey(identity) || protectedFile(identity)?.isFile == true || values.containsKey(identity) || directory?.let { File(it, digest(identity) + ".record") }?.let { it.isFile && it.length() in 1..MAX_RECORD_BYTES.toLong() } == true || claimCheckpoint(identity, key) != null
         }
     }
 
@@ -94,7 +99,14 @@ class GitHubRepositoryStateStore private constructor(private val directory: File
     }
 
     private suspend fun readLocked(scope: String, key: String): JsonObject? {
+        migrateLegacyReceipts()
         val identity = "$scope:$key"
+        protectedValues[identity]?.let { return it }
+        val protected = protectedFile(identity)?.takeIf { it.isFile }
+        if (protected != null) {
+            if (protected.length() !in 1..MAX_PROTECTED_RECORD_BYTES.toLong()) return claimCheckpoint(identity, key)
+            return runCatching { json.parseToJsonElement(crypt(identity, protected.readBytes(), false).decodeToString()) as? JsonObject }.getOrNull() ?: claimCheckpoint(identity, key)
+        }
         values[identity]?.let { return it }
         val file = directory?.let { File(it, digest(identity) + ".record") } ?: return claimCheckpoint(identity, key)
         if (!file.isFile || file.length() > MAX_RECORD_BYTES) return claimCheckpoint(identity, key)
@@ -106,10 +118,23 @@ class GitHubRepositoryStateStore private constructor(private val directory: File
     }
 
     private suspend fun writeLocked(scope: String, key: String, value: JsonObject) {
+        migrateLegacyReceipts()
         val identity = "$scope:$key"
         val plain = value.toString().encodeToByteArray()
         require(plain.size <= MAX_RECORD_BYTES - 28) { "GitHub state record exceeds its byte budget." }
+        if (CLAIM_KEY.matches(key)) {
+            writeProtectedLocked(identity, key, value, plain)
+            return
+        }
         retainPublicationClaim(identity, key)
+        val (protectedBytes, protectedCount) = protectedUsage()
+        if (protectedBytes + plain.size + 28 > MAX_DISK_BYTES || protectedCount >= MAX_RECORDS) {
+            // Read caches can be session-only when the durable tier is full.
+            // containsRetainedBody still reports false, so saved-view receipts
+            // cannot claim persistence that did not happen.
+            remember(identity, value)
+            return
+        }
         directory?.let { dir ->
             check(dir.isDirectory || dir.mkdirs())
             val target = File(dir, digest(identity) + ".record")
@@ -118,32 +143,132 @@ class GitHubRepositoryStateStore private constructor(private val directory: File
                 temp.outputStream().use {
                     it.write(crypt(identity, plain, true))
                     it.flush()
+                    it.fd.sync()
                 }
                 check(temp.renameTo(target)) { "Could not atomically retain GitHub task state." }
             } finally {
                 temp.delete()
             }
-            val records = dir.listFiles { f -> f.extension == "record" }.orEmpty().sortedBy { it.lastModified() }
-            var total = records.sumOf { it.length() }
-            var count = records.size
-            for (record in records) {
-                if (total <= MAX_DISK_BYTES && count <= MAX_RECORDS) break
-                if (record == target) continue
-                val size = record.length()
-                if (record.delete()) {
-                    total -= size
-                    count--
-                }
-            }
+            pruneCachedRecords(target)
         }
         remember(identity, value)
     }
 
-    suspend fun remove(scope: String, key: String) = mutex.withLock {
-        val identity = "$scope:$key"
-        memoryCharacters -= values.remove(identity)?.toString()?.length ?: 0
-        directory?.let { File(it, digest(identity) + ".record").delete() }
-        Unit
+    suspend fun remove(scope: String, key: String) = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            require(!CLAIM_KEY.matches(key)) { "Execution receipts require explicit app-data erasure; cache cleanup cannot remove them." }
+            val identity = "$scope:$key"
+            memoryCharacters -= values.remove(identity)?.toString()?.length ?: 0
+            directory?.let { File(it, digest(identity) + ".record").delete() }
+            Unit
+        }
+    }
+
+    private fun protectedFile(identity: String): File? = directory?.let { File(File(it, "execution-receipts"), digest(identity) + ".record") }
+
+    /** Reservations are installed before the publication fence and before any HTTP dispatch. */
+    private suspend fun writeProtectedLocked(identity: String, key: String, value: JsonObject, plain: ByteArray) {
+        require(plain.size + 28 <= MAX_PROTECTED_RECORD_BYTES) { "GITHUB_RECEIPT_CAPACITY: critical receipt exceeds its reserved allowance; reconcile the existing claim." }
+        val target = protectedFile(identity)
+        val running = value["status"] in setOf(kotlinx.serialization.json.JsonPrimitive("RUNNING"), kotlinx.serialization.json.JsonPrimitive("RECONCILE_REQUIRED"))
+        val reservation = target?.let { File(it.parentFile, it.nameWithoutExtension + ".reserved") }
+        val wasReserved = if (reservation == null) identity in reservations else reservation.isFile
+        val priorBytes = target?.takeIf { it.isFile }?.length() ?: protectedValues[identity]?.toString()?.encodeToByteArray()?.size?.toLong()?.plus(28) ?: 0
+        val priorCharge = maxOf(priorBytes, if (wasReserved) MAX_PROTECTED_RECORD_BYTES.toLong() else 0)
+        val nextCharge = if (running) MAX_PROTECTED_RECORD_BYTES.toLong() else plain.size + 28L
+        val (used, count) = protectedUsage()
+        check((used - priorCharge + nextCharge <= protectedCapacityBytes || priorCharge > 0 && nextCharge <= priorCharge) && (priorCharge > 0 || count < MAX_RECORDS)) {
+            "GITHUB_RECEIPT_CAPACITY: durable critical-receipt capacity reached. Existing write receipts remain available; no new write was dispatched."
+        }
+        if (target == null) {
+            retainPublicationClaim(identity, key)
+            if (running) reservations += identity else reservations -= identity
+            protectedValues[identity] = value
+            return
+        }
+        val dir = requireNotNull(target.parentFile)
+        check(dir.isDirectory || dir.mkdirs())
+        if (running && !wasReserved) {
+            java.io.FileOutputStream(requireNotNull(reservation)).use { it.fd.sync() }
+            java.nio.channels.FileChannel.open(dir.toPath(), java.nio.file.StandardOpenOption.READ).use { it.force(true) }
+        }
+        pruneCachedRecords()
+        // A full protected tier cannot issue a claim and cannot evict another
+        // mutation's result. Completed rows release unused reserved bytes.
+        retainPublicationClaim(identity, key)
+        val temp = File.createTempFile("receipt-", ".tmp", dir)
+        try {
+            java.io.FileOutputStream(temp).use {
+                it.write(crypt(identity, plain, true))
+                it.fd.sync()
+            }
+            check(temp.renameTo(target)) { "Could not atomically retain critical GitHub receipt." }
+            java.nio.channels.FileChannel.open(dir.toPath(), java.nio.file.StandardOpenOption.READ).use { it.force(true) }
+            if (!running) reservation?.delete()
+            pruneCachedRecords()
+        } finally {
+            temp.delete()
+        }
+    }
+
+    private fun pruneCachedRecords(keep: File? = null) {
+        val dir = directory ?: return
+        val (protectedBytes, protectedCount) = protectedUsage()
+        val records = dir.listFiles { file -> file.extension == "record" }.orEmpty().sortedBy { it.lastModified() }
+        var total = records.sumOf { it.length() }
+        var count = records.size
+        for (record in records) {
+            if (total <= MAX_DISK_BYTES - protectedBytes && count <= MAX_RECORDS - protectedCount) break
+            if (record == keep) continue
+            val size = record.length()
+            if (record.delete()) {
+                total -= size
+                count--
+            }
+        }
+    }
+
+    private fun protectedUsage(): Pair<Long, Int> {
+        val dir = directory?.let { File(it, "execution-receipts") }
+        if (dir == null) {
+            val ids = protectedValues.keys + reservations
+            return ids.sumOf { id ->
+                maxOf(protectedValues[id]?.toString()?.encodeToByteArray()?.size?.toLong()?.plus(28) ?: 0, if (id in reservations) MAX_PROTECTED_RECORD_BYTES.toLong() else 0)
+            } to ids.size
+        }
+        val files = dir.listFiles { file -> file.extension in setOf("record", "reserved") }.orEmpty().groupBy { it.nameWithoutExtension }
+        return files.values.sumOf { group ->
+            maxOf(group.filter { it.extension == "record" }.sumOf { it.length() }, if (group.any { it.extension == "reserved" }) MAX_PROTECTED_RECORD_BYTES.toLong() else 0)
+        } to files.size
+    }
+
+    /** Upgrade old encrypted execution bodies before ordinary cache pruning can reach them. */
+    private fun migrateLegacyReceipts() {
+        if (legacyReceiptsMigrated) return
+        val dir = directory
+        if (dir != null) {
+            val claims = File(dir, "publication-claims")
+            val protected = File(dir, "execution-receipts")
+            val records = dir.listFiles { file -> file.name.matches(Regex("[a-f0-9]{64}[.]record")) }.orEmpty()
+            for ((prefix, group) in records.groupBy { it.name.take(2) }) {
+                // At most one archive prefix is decoded at a time. Encrypted
+                // bodies move unchanged; their identity/AAD remains identical.
+                val archived = archivedClaims(claims, prefix)
+                for (record in group) {
+                    val id = record.nameWithoutExtension
+                    if (!File(claims, "$id.claim").isFile && id !in archived) continue
+                    check(protected.isDirectory || protected.mkdirs())
+                    val target = File(protected, record.name)
+                    check(record.length() <= MAX_PROTECTED_RECORD_BYTES) { "Legacy GitHub critical receipt exceeds its recovery bound; preserve it for reconciliation." }
+                    if (!target.exists()) check(record.renameTo(target)) { "Could not protect the legacy GitHub execution receipt." }
+                }
+            }
+            if (protected.isDirectory) {
+                java.nio.channels.FileChannel.open(protected.toPath(), java.nio.file.StandardOpenOption.READ).use { it.force(true) }
+                java.nio.channels.FileChannel.open(dir.toPath(), java.nio.file.StandardOpenOption.READ).use { it.force(true) }
+            }
+        }
+        legacyReceiptsMigrated = true
     }
 
     /** Cache cleanup removes bodies, never authority. Only explicit app-data erasure removes fences. */
@@ -223,6 +348,9 @@ class GitHubRepositoryStateStore private constructor(private val directory: File
                 put("archived", dir?.listFiles { it.extension == "archive" }?.sumOf { archivedClaims(dir, it.nameWithoutExtension).size } ?: 0)
                 put("automatic_safe_compaction", directory != null)
                 put("deduplication_preserved", true)
+                put("critical_receipt_bytes", protectedUsage().first)
+                put("critical_receipt_capacity_bytes", protectedCapacityBytes)
+                put("critical_receipts_evictable", false)
             }
         }
     }
@@ -262,6 +390,8 @@ class GitHubRepositoryStateStore private constructor(private val directory: File
         const val MAX_DISK_BYTES = 48L * 1024 * 1024
         const val MAX_RECORDS = 1536
         const val MAX_PUBLICATION_CLAIMS = 16_384
+        const val MAX_PROTECTED_BYTES = 16L * 1024 * 1024
+        const val MAX_PROTECTED_RECORD_BYTES = 160 * 1024
         private val CLAIM_KEY = Regex("execution:[a-f0-9]{64}")
         private const val KEY = "github-repository-state-v1"
         fun digest(value: String): String = MessageDigest.getInstance("SHA-256").digest(value.encodeToByteArray()).joinToString("") { "%02x".format(it) }

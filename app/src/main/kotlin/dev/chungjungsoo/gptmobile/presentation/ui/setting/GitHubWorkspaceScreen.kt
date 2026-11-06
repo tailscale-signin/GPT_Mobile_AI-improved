@@ -576,13 +576,33 @@ fun GitHubWorkspaceScreen(
                                 2 -> {
                                     var taskDetailsOpen by rememberSaveable(state.selection?.fullName, visibleProgrammer.chatId) { mutableStateOf(false) }
                                     var allPullsOpen by rememberSaveable(state.selection?.fullName) { mutableStateOf(false) }
+                                    val statusProfile = visibleProgrammer.profiles.singleOrNull {
+                                        it.uid == (commandContext?.mainProfileUid ?: state.cachedProfileUid ?: initialProfileUid)
+                                    }
+                                    // Status is bound to the actually loaded revision, even before
+                                    // a chat exists; gateway admission rechecks selected permissions.
+                                    val mapContext = state.selection?.takeIf {
+                                        state.headSha.matches(Regex("[a-fA-F0-9]{40}"))
+                                    }?.let { selected ->
+                                        statusProfile?.let { selectedProfile ->
+                                            dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext(
+                                                connectionUid = connection.connectionUid,
+                                                owner = selected.owner,
+                                                repo = selected.repo,
+                                                ref = selected.ref,
+                                                commitSha = state.headSha,
+                                                mainProfileUid = selectedProfile.uid
+                                            )
+                                        }
+                                    }
                                     GitHubRepositoryStatusPanel(
                                         connection,
                                         requireNotNull(state.selection),
                                         state.pullRequests,
                                         viewModel::loadPullRequests,
                                         chatId = visibleProgrammer.chatId,
-                                        profile = visibleProgrammer.profiles.singleOrNull { it.uid == commandContext?.mainProfileUid }
+                                        profile = statusProfile,
+                                        graphContext = mapContext
                                     )
                                     OutlinedButton(onClick = { taskDetailsOpen = !taskDetailsOpen }, modifier = Modifier.fillMaxWidth()) {
                                         Text(if (taskDetailsOpen) "Hide task details" else "Task details")

@@ -2,13 +2,24 @@ package dev.chungjungsoo.gptmobile.data.diagnostics
 
 /** Count repetitive noise without dropping original incidents or logging raw credentials. */
 internal class DiagnosticCoalescer(private val now: () -> Long = { System.nanoTime() / 1_000_000 }) {
-    private data class Group(val tag: String, val sample: String, val level: String, var at: Long, var suppressed: Int = 0)
+    private data class Group(
+        val tag: String,
+        val sample: String,
+        val level: String,
+        var at: Long,
+        var suppressed: Int = 0,
+        var firstSuppressedAt: Long? = null,
+        var lastSuppressedAt: Long? = null,
+        val maxima: MutableMap<String, Long> = mutableMapOf()
+    )
     private val groups = linkedMapOf<String, Group>()
+    private val replayMetrics = Regex("(?:^|[ ·])(?<metric>rawTokens|replayTokens|compactionUs)=(?<value>[0-9]+)")
 
     @Synchronized fun accept(tag: String, message: String, level: String): List<Triple<String, String, String>> {
         val key = when {
             level in setOf("E", "F") -> null
             tag == "ToolCatalog" && "PERSONAL_DATA_LOCAL_ONLY" in message -> "privacy-local-only"
+            tag == "Agent" && level == "I" && message.startsWith("PRIMARY_REPLAY_COMPACTED ·") -> "primary-replay-compacted"
             tag == "Android" && listOf("OpenGLRenderer", "libEGL", "BufferQueue", "Feedback manager requires a model with a single signature").any(message::contains) -> message.take(240)
             else -> null
         } ?: return listOf(Triple(tag, message, level))
@@ -21,14 +32,27 @@ internal class DiagnosticCoalescer(private val now: () -> Long = { System.nanoTi
             return listOfNotNull(overflow, Triple(tag, message, level))
         }
         previous.suppressed++
+        if (previous.firstSuppressedAt == null) previous.firstSuppressedAt = at
+        previous.lastSuppressedAt = at
+        if (key == "primary-replay-compacted") {
+            replayMetrics.findAll(message).forEach { match ->
+                val name = match.groups["metric"]?.value ?: return@forEach
+                val value = match.groups["value"]?.value?.toLongOrNull() ?: return@forEach
+                previous.maxima[name] = maxOf(previous.maxima[name] ?: 0, value)
+            }
+        }
         if (at - previous.at < 15_000) return emptyList()
         previous.at = at
         return listOfNotNull(summary(previous))
     }
     private fun summary(group: Group): Triple<String, String, String>? {
         if (group.suppressed == 0) return null
-        val line = "Repeated diagnostic count=${group.suppressed} · sample=${group.sample}"
+        val peaks = group.maxima.entries.joinToString("") { (name, value) -> " · max_$name=$value" }
+        val line = "Repeated diagnostic count=${group.suppressed} · firstMonotonicMs=${group.firstSuppressedAt} · lastMonotonicMs=${group.lastSuppressedAt}$peaks · sample=${group.sample}"
         group.suppressed = 0
+        group.firstSuppressedAt = null
+        group.lastSuppressedAt = null
+        group.maxima.clear()
         return Triple(group.tag, line, group.level)
     }
 

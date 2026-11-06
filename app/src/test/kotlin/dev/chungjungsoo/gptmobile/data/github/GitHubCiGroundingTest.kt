@@ -197,10 +197,11 @@ class GitHubCiGroundingTest {
         val input = json("""{"action":"dispatch_workflow","owner":"o","repo":"r","workflow_id":"build.yml","ref":"topic","expected_head_sha":"${"a".repeat(40)}"}""")
         try {
             val tool = GitHubTool("same-token", http, stateStore = store)
-            assertEquals("GITHUB_NOT_FOUND_OR_HIDDEN", tool.execute("hidden", input).errorCode)
+            assertEquals("GITHUB_NOT_FOUND_OR_INACCESSIBLE", tool.execute("hidden", input).errorCode)
             val observed = reads
             assertEquals("GITHUB_OPERATION_BLOCKED", tool.execute("same", input).errorCode)
             assertEquals(observed, reads)
+            assertEquals(0, writes)
             visible = true
             assertFalse(tool.execute("inspect", json("""{"action":"list_workflows","owner":"o","repo":"r"}""")).isError)
             assertFalse(tool.execute("corrected-state", input).isError)

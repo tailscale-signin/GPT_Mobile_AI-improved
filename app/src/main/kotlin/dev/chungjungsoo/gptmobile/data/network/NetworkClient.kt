@@ -29,6 +29,10 @@ import okhttp3.ConnectionPool
 class NetworkClient @Inject constructor(
     private val httpEngine: HttpClientEngineFactory<*>
 ) {
+    private val idleConnectionPool = ConnectionPool(32, 10, TimeUnit.MINUTES)
+
+    /** A failed safe read may discard stale idle sockets without cancelling active streams. */
+    internal fun evictIdleConnections() = idleConnectionPool.evictAll()
 
     private val client by lazy {
         HttpClient(httpEngine) {
@@ -62,7 +66,7 @@ class NetworkClient @Inject constructor(
                         writeTimeout(5, TimeUnit.MINUTES)
                         callTimeout(0, TimeUnit.MILLISECONDS)
                         pingInterval(30, TimeUnit.SECONDS)
-                        connectionPool(ConnectionPool(32, 10, TimeUnit.MINUTES))
+                        connectionPool(idleConnectionPool)
                     }
                 }
             }

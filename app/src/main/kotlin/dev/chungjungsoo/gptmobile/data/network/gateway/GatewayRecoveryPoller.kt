@@ -11,6 +11,7 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
@@ -22,7 +23,8 @@ internal class GatewayRecoveryPoller(
     private val intervalMillis: Long = 60_000L,
     private val onFailure: (Exception) -> Unit = {}
 ) {
-    private val routeAvailable = MutableStateFlow(false)
+    private val mutableRouteAvailable = MutableStateFlow(false)
+    val routeAvailable = mutableRouteAvailable.asStateFlow()
     private val wakeups = Channel<Unit>(Channel.CONFLATED)
 
     init {
@@ -37,7 +39,7 @@ internal class GatewayRecoveryPoller(
     }
 
     fun routeChanged(available: Boolean) {
-        routeAvailable.value = available
+        mutableRouteAvailable.value = available
         if (available) wake()
     }
 

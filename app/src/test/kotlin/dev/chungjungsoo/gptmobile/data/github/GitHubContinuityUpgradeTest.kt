@@ -26,6 +26,8 @@ class GitHubContinuityUpgradeTest {
         fun receipt(action: String) = buildJsonObject {
             put("trusted", true)
             put("success", true)
+            put("dispatched", action == "branches")
+            put("evidence_origin", if (action == "branches") "LIVE" else "LOCAL")
             put("tool", "github_context")
             put("arguments", buildJsonObject { put("action", action) })
             put("result", JsonObject(emptyMap()))
@@ -37,6 +39,10 @@ class GitHubContinuityUpgradeTest {
         assertFalse(GitHubTestChecklist.apiComplete("Test all GitHub tools and Android device behavior", records, listOf(tool)))
         assertFalse(GitHubTestChecklist.apiComplete("Test all GitHub tools and fix all failures", records, listOf(tool)))
         assertFalse(GitHubTestChecklist.apiComplete("Test all GitHub tools", records - "two", listOf(tool)))
+        val withoutProvenance = records + ("two" to JsonObject(records.getValue("two") - "dispatched" - "evidence_origin"))
+        assertFalse(GitHubTestChecklist.apiComplete("Test all GitHub tools", withoutProvenance, listOf(tool)))
+        val cached = records + ("two" to JsonObject(records.getValue("two") + ("evidence_origin" to JsonPrimitive("CACHED"))))
+        assertEquals(JsonPrimitive(false), GitHubEvidencePolicy.testing(cached, 1000, 0, "Test all GitHub tools", listOf(tool)).second["completion_verified"])
     }
 
     @Test fun testAcceptanceRequiresAllJobPagesAtTheImplementedHead() {
@@ -137,17 +143,43 @@ class GitHubContinuityUpgradeTest {
         }
     }
 
-    @Test fun compactedFencesSurviveCacheEvictionAndRestart() = runTest {
+    @Test fun compactedFencesSurviveReceiptLossAndRestart() = runTest {
         val directory = Files.createTempDirectory("github-claims").toFile()
         try {
             val store = GitHubRepositoryStateStore(directory, publicationClaimLimit = 2)
             val keys = (1..7).map { "execution:" + GitHubRepositoryStateStore.digest("write-$it") }
             for (key in keys) {
                 store.write("account", key, buildJsonObject { put("status", "RUNNING") })
-                store.remove("account", key)
+                // Ordinary cache cleanup cannot remove critical receipts. Model
+                // a missing body independently to exercise the archived fence.
+                val filename = GitHubRepositoryStateStore.digest("account:$key") + ".record"
+                assertTrue(directory.resolve("execution-receipts").resolve(filename).delete())
             }
             val reopened = GitHubRepositoryStateStore(directory, publicationClaimLimit = 2)
             for (key in keys) assertEquals(JsonPrimitive("RECONCILE_REQUIRED"), reopened.read("account", key)?.get("status"))
+            assertTrue((reopened.publicationCapacity()["archived"] as JsonPrimitive).content.toInt() > 0)
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test fun cacheCleanupCannotRemoveProtectedExecutionReceipts() = runTest {
+        val directory = Files.createTempDirectory("github-protected-claims").toFile()
+        try {
+            val store = GitHubRepositoryStateStore(directory, publicationClaimLimit = 2)
+            val keys = (1..7).map { "execution:" + GitHubRepositoryStateStore.digest("write-$it") }
+            val pending = buildJsonObject { put("status", "RUNNING") }
+            for (key in keys) {
+                store.write("account", key, pending)
+                store.write("cache", key.removePrefix("execution:"), buildJsonObject { put("read", true) })
+                store.remove("cache", key.removePrefix("execution:"))
+                assertTrue(runCatching { store.remove("account", key) }.exceptionOrNull() is IllegalArgumentException)
+            }
+            val reopened = GitHubRepositoryStateStore(directory, publicationClaimLimit = 2)
+            for (key in keys) {
+                assertEquals(null, reopened.read("cache", key.removePrefix("execution:")))
+                assertEquals(pending, reopened.read("account", key))
+            }
             assertTrue((reopened.publicationCapacity()["archived"] as JsonPrimitive).content.toInt() > 0)
         } finally {
             directory.deleteRecursively()

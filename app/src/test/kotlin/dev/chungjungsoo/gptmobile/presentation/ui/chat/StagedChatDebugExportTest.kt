@@ -15,6 +15,7 @@ import dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticLogSnapshot
 import dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticLogSource
 import dev.chungjungsoo.gptmobile.data.diagnostics.LocalRuntimeIncidentHistory
 import dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics
+import dev.chungjungsoo.gptmobile.data.diagnostics.RuntimeIncidentCapture
 import dev.chungjungsoo.gptmobile.data.diagnostics.StagedDiagnosticCapture
 import dev.chungjungsoo.gptmobile.data.free.FreeProviderDiagnostics
 import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
@@ -63,7 +64,7 @@ class StagedChatDebugExportTest {
         database = mockk()
         mockkObject(AppLogRecorder, AndroidDiagnosticExportMemory, LocalRuntimeIncidentHistory, FreeProviderDiagnostics, RunDiagnostics)
         every { AndroidDiagnosticExportMemory.sample() } returns DiagnosticExportMemory(1, 256L * 1024 * 1024, 64L * 1024 * 1024, 32L * 1024 * 1024, 224L * 1024 * 1024)
-        every { LocalRuntimeIncidentHistory.snapshot() } returns emptyList()
+        every { LocalRuntimeIncidentHistory.capture() } returns RuntimeIncidentCapture("AVAILABLE", 123, emptyList(), 0)
         every { FreeProviderDiagnostics.snapshot(any()) } returns emptyList()
         every { RunDiagnostics.journal } returns null
         every { AppLogRecorder.captureForExport(any(), any()) } answers {
@@ -75,7 +76,7 @@ class StagedChatDebugExportTest {
             }
             DiagnosticLogSnapshot(sources, 123, true, 0, snapshotDirectory = directory)
         }
-        coEvery { database.capture(any(), any(), any(), any(), any(), any()) } coAnswers {
+        coEvery { database.capture(any(), any(), any(), any(), any(), any(), any(), any()) } coAnswers {
             readSection(arg(1), arg(3), arg(4))
         }
     }
@@ -84,6 +85,29 @@ class StagedChatDebugExportTest {
         DiagnosticCaptureStorage.deleteChat(context, chatId)
         destination.deleteRecursively()
         unmockkAll()
+    }
+
+    @Test fun androidChooserGrantsOnlySelectedRecipientAccessToContentArchive() {
+        val uri = android.net.Uri.parse("content://dev.chungjungsoo.gptmobile.fileprovider/diagnostic_exports/evidence.zip")
+        val chooser = chatExportChooser(context, uri, "evidence.zip", "application/zip")
+        assertEquals(android.content.Intent.ACTION_CHOOSER, chooser.action)
+        assertTrue(chooser.flags and android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION != 0)
+        assertNotNull(chooser.clipData)
+        assertEquals(uri, chooser.clipData!!.getItemAt(0).uri)
+        val send = requireNotNull(chooser.getParcelableExtra<android.content.Intent>(android.content.Intent.EXTRA_INTENT))
+        assertEquals(android.content.Intent.ACTION_SEND, send.action)
+        assertEquals("application/zip", send.type)
+        assertEquals(uri, send.getParcelableExtra(android.content.Intent.EXTRA_STREAM))
+        assertEquals(uri, send.clipData!!.getItemAt(0).uri)
+        assertTrue(send.flags and android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION != 0)
+    }
+
+    @Test fun chooserRejectsFileUrisToPreventUnsafeFileExposure() {
+        assertTrue(
+            runCatching {
+                chatExportChooser(context, android.net.Uri.parse("file:///private/diagnostics.zip"), "diagnostics.zip", "application/zip")
+            }.isFailure
+        )
     }
 
     @Test fun failedConversationStillExportsLogsProfilesAndToolReceiptsWithoutCredentials() = runBlocking {
@@ -153,6 +177,33 @@ class StagedChatDebugExportTest {
         assertTrue(runCatching { capture() }.exceptionOrNull() is CancellationException)
         assertFalse(DiagnosticCaptureStorage.directory(context, chatId).walkTopDown().any(File::isFile))
         assertFalse(destination.walkTopDown().any(File::isFile))
+    }
+
+    @Test fun adapterChunksLargeEscapedUnicodeAfterRedactionAndMarksOversizedSourceIncomplete() = runBlocking {
+        val content = "x".repeat(147_734) + "private-secret" + "\"\\\u0001😀\n".repeat(20_000)
+        readSection = { section, before, consume ->
+            before()
+            if (section == "conversation") consume(buildJsonObject { put("content", content) })
+        }
+        val result = capture()
+        val lines = archive(result).getValue("conversation.jsonl").lineSequence().filter { it.isNotBlank() }.toList()
+        val chunks = lines.map { kotlinx.serialization.json.Json.parseToJsonElement(it) as JsonObject }
+        assertTrue(chunks.size > 1)
+        assertTrue(lines.all { it.toByteArray().size <= 512 * 1024 })
+        assertFalse(lines.any { "private-secret" in it })
+        chunks.forEach { assertEquals(dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticRecordChunks.sha256((it["content"] as JsonPrimitive).content), (it["chunkSha256"] as JsonPrimitive).content) }
+        val assembled = chunks.joinToString("") { (it["content"] as JsonPrimitive).content }
+        assertEquals(dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticRecordChunks.sha256(assembled), (chunks.first()["recordSha256"] as JsonPrimitive).content)
+        val decoded = kotlinx.serialization.json.Json.parseToJsonElement(assembled) as JsonObject
+        assertEquals(content.replace("private-secret", "[redacted]"), (decoded["content"] as JsonPrimitive).content)
+        assertEquals(JsonPrimitive("COMPLETED"), stage(result, "conversation")["status"])
+        readSection = { section, before, consume ->
+            before()
+            if (section == "conversation") consume(buildJsonObject { put("content", "x".repeat(1_048_577)) })
+        }
+        val omitted = capture()
+        assertEquals(JsonPrimitive("PARTIAL"), stage(omitted, "conversation")["status"])
+        assertTrue(stage(omitted, "conversation")["omissions"].toString().contains("RECORD_CHARACTER_LIMIT"))
     }
 
     private suspend fun capture(temporary: Boolean = false, resume: Boolean = false): DiagnosticCaptureResult = writeStagedChatDiagnostics(

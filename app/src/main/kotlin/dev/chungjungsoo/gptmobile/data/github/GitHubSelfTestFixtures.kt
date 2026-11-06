@@ -16,7 +16,7 @@ internal object GitHubSelfTestFixtures {
     private fun JsonObject.text(key: String) = (get(key) as? JsonPrimitive)?.contentOrNull.orEmpty()
     private fun args(receipt: JsonObject) = receipt["arguments"] as? JsonObject
 
-    fun next(task: String, tools: List<AgentToolDefinition>, receipts: Map<String, JsonObject>): ProviderEvent.ToolCall? {
+    fun next(task: String, tools: List<AgentToolDefinition>, receipts: Map<String, JsonObject>, allowCreate: Boolean = true): ProviderEvent.ToolCall? {
         if (GitHubChecklistScope.readOnly(task) || !Regex("(?i)\\b(?:all|full|complete|writes|mutations|fixtures)\\b").containsMatchIn(task)) return null
         val observed = receipts.values.filter { it["trusted"] == JsonPrimitive(true) && it["verification_eligible"] != JsonPrimitive(false) }
         val source = observed.firstOrNull { it.text("tool").substringBefore("__") == "github_context" && args(it)?.text("action") == "status" && it["success"] == JsonPrimitive(true) } ?: return null
@@ -30,12 +30,28 @@ internal object GitHubSelfTestFixtures {
         val creation = observed.firstOrNull { it.text("tool").substringBefore("__") == "github_commit" && args(it)?.text("action") == "branch" && args(it)?.text("branch") == fixture }
         val recipes = buildList<Pair<String, JsonObject>> {
             if (creation == null) {
+                if (!allowCreate) return null
+                // Verify every cleanup operation is authorized before creating
+                // a fixture that this session might otherwise be unable to remove.
+                val cleanup = tools.firstOrNull {
+                    it.name.substringBefore("__") == "github_commit" &&
+                        ToolArgumentValidator.errors(
+                            buildJsonObject {
+                                put("action", "delete_branch")
+                                put("branch", fixture)
+                                put("expected_head_sha", sha)
+                            },
+                            it.inputSchema
+                        ).isEmpty()
+                } ?: return null
+                if (!cleanup.modelVisible) return null
                 add(
                     "github_commit" to buildJsonObject {
                         put("action", "branch")
                         put("branch", fixture)
                         put("from_branch", branch)
                         put("expected_head_sha", sha)
+                        put("select_created_branch", false)
                     }
                 )
             } else if (creation["success"] == JsonPrimitive(true) && root(creation)?.get("created") == JsonPrimitive(true) && root(creation)?.get("receipt_verified") == JsonPrimitive(true) && root(creation)?.text("head_sha") == sha) {
@@ -62,7 +78,7 @@ internal object GitHubSelfTestFixtures {
             }
         }
         for ((name, arguments) in recipes) {
-            val tool = tools.firstOrNull { it.name.substringBefore("__") == name } ?: return null
+            val tool = tools.firstOrNull { it.name.substringBefore("__") == name && it.modelVisible } ?: return null
             // A rejected or ambiguous mutation is a blocker, never permission to retry it.
             val prior = observed.lastOrNull { it.text("tool") == tool.name && args(it) == arguments }
             if (prior != null) {
@@ -118,11 +134,14 @@ internal object GitHubSelfTestFixtures {
                 eligible(cleanup) &&
                 args(cleanup)?.text("expected_head_sha") == sha &&
                 root(cleanup)?.get("deleted") == JsonPrimitive(true) &&
+                root(cleanup)?.get("absence_verified") == JsonPrimitive(true) &&
                 root(cleanup)?.text("branch") == branch &&
                 root(cleanup)?.text("observed_head_sha") == sha
             buildJsonObject {
                 put("branch", branch)
                 put("ownership_verified", owned)
+                put("final_state_verified", cleaned)
+                put("response_accepted", cleanup?.let { root(it)?.get("deleted") == JsonPrimitive(true) } ?: false)
                 put("creation_receipt", creation["receipt_id"] ?: JsonPrimitive("unknown"))
                 put(
                     "cleanup_status",

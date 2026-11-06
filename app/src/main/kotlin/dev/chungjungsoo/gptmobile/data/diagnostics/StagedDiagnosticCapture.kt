@@ -296,6 +296,16 @@ object StagedDiagnosticCapture {
                 put("id", stage.id)
                 put("fileName", stage.fileName)
                 put("status", status)
+                put("collectionCompleted", failure == null)
+                put(
+                    "availability",
+                    when {
+                        failure != null && records == 0L -> "UNAVAILABLE"
+                        failure != null || omissions.isNotEmpty() -> "PARTIAL"
+                        evidenceRecords == 0L -> "EMPTY_RETAINED"
+                        else -> "AVAILABLE"
+                    }
+                )
                 put("critical", stage.critical)
                 put("records", records)
                 put("evidenceRecords", evidenceRecords)
@@ -325,6 +335,23 @@ object StagedDiagnosticCapture {
             put("startedAtMillis", start)
             put("completedAtMillis", System.currentTimeMillis())
             put("captureCompleted", complete)
+            val completedStageCount = receipts.count { it.text("status") in setOf("COMPLETED", "EMPTY") }
+            put("captureCompletionPercent", completedStageCount * 100 / receipts.size)
+            put("captureCompletionBasis", "Stages collected without omissions divided by requested stages; this is not a claim about uncaptured application history.")
+            put(
+                "missingEvidence",
+                JsonArray(
+                    receipts.filter { it.text("status") !in setOf("COMPLETED", "EMPTY") || it["critical"] == JsonPrimitive(true) && (it.long("evidenceRecords") ?: 0) == 0L }.map { row ->
+                        buildJsonObject {
+                            put("stage", row["id"] ?: JsonNull)
+                            put("status", row["status"] ?: JsonNull)
+                            put("reason", row["omissionReason"] ?: JsonNull)
+                            put("omissions", row["omissions"] ?: JsonObject(emptyMap()))
+                        }
+                    }
+                )
+            )
+            put("snapshotConsistency", "Capture interval with per-stage timestamps and database row boundaries; independently captured or resumed sections may differ. Compare run and invocation timestamps before inferring a stuck lifecycle.")
             put("capturedFully", false)
             put("sourceCompleteness", "Retained app records only; deleted, evicted or uncaptured events and provider wire payloads are unavailable.")
             put("usefulRecords", usefulRecords)

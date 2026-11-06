@@ -10,11 +10,14 @@ import time
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import requests
 
 
 class Backend(BaseHTTPRequestHandler):
+    model_requests = 0
+
     def log_message(self, *args):
         pass
 
@@ -27,12 +30,14 @@ class Backend(BaseHTTPRequestHandler):
         self.wfile.write(content)
 
     def do_GET(self):
-        if self.path == '/':
+        path = urlsplit(self.path).path
+        if path == '/':
             return self.respond('<html><head></head><body>Local fixture</body></html>', 'text/html')
-        if self.path == '/v1/models':
-            return self.respond({'object': 'list', 'data': [{'id': 'fixture', 'meta': {'n_ctx_train': 32768}}]})
-        if self.path.startswith('/props'):
-            return self.respond({'default_generation_settings': {'n_ctx': 32768}, 'total_slots': 1})
+        if path == '/v1/models':
+            return self.respond({'object': 'list', 'data': [{'id': 'fixture', 'meta': {'n_ctx_train': 1048576}}]})
+        if path == '/props':
+            return self.respond({'model_alias': 'fixture', 'max_output_tokens': 1024,
+                                 'default_generation_settings': {'n_ctx': 32768}, 'total_slots': 1})
         self.respond({'status': 'ok'})
 
     def do_POST(self):
@@ -40,6 +45,7 @@ class Backend(BaseHTTPRequestHandler):
         if self.path == '/tokenize':
             return self.respond({'tokens': [1, 2, 3]})
         if self.path == '/v1/chat/completions':
+            type(self).model_requests += 1
             if body.get('stream'):
                 chunks = [
                     {'choices': [{'index': 0, 'delta': {'role': 'assistant', 'content': 'Live HTTP reply'}, 'finish_reason': 'stop'}]},
@@ -54,6 +60,7 @@ class Backend(BaseHTTPRequestHandler):
 class LiveHTTPTests(unittest.TestCase):
     def test_launcher_browser_admission_stream_and_saved_result_over_http(self):
         root = Path(__file__).resolve().parents[1]
+        Backend.model_requests = 0
         with tempfile.TemporaryDirectory() as temp:
             temp = Path(temp)
             config = temp / 'mcp.json'
@@ -88,6 +95,23 @@ class LiveHTTPTests(unittest.TestCase):
                             self.fail('Gateway startup deadline exceeded')
                         time.sleep(0.05)
                     self.assertEqual(requests.get(base+'/gateway/ready', timeout=4).status_code, 200)
+                    capabilities = requests.get(base+'/v1/gateway/capabilities', params={'model': 'fixture'}, timeout=4)
+                    self.assertEqual(200, capabilities.status_code, capabilities.text)
+                    limits = capabilities.json()['selectedModel']
+                    self.assertTrue(limits['limitsVerified'])
+                    self.assertEqual('fixture', limits['requestedModel'])
+                    self.assertEqual('fixture', limits['reportedModel'])
+                    self.assertEqual(32768, limits['contextTokens'])
+                    self.assertEqual(1024, limits['maxOutputTokens'])
+                    self.assertEqual('provider_reported', limits['outputLimitSource'])
+                    self.assertEqual(0, Backend.model_requests)
+                    invalid = requests.get(base+'/gateway/capabilities', params={'model': ' fixture '}, timeout=4)
+                    self.assertEqual(400, invalid.status_code)
+                    self.assertEqual('invalid_model_identifier', invalid.json()['error']['code'])
+                    absent = requests.get(base+'/gateway/capabilities', params={'model': 'another'}, timeout=4).json()['selectedModel']
+                    self.assertFalse(absent['limitsVerified'])
+                    self.assertNotIn('reportedModel', absent)
+                    self.assertEqual(0, Backend.model_requests)
                     self.assertIn('/gateway/browser-bootstrap.js', requests.get(base+'/', timeout=4).text)
                     headers = {'Origin': base}
                     self.assertEqual(requests.post(base+'/v1/chat/completions', json={}, headers=headers, timeout=4).status_code, 403)

@@ -26,6 +26,11 @@ def install_terminal_guard(runtime):
                     # Volatile birth marker: an older persisted job with unknown
                     # history must never acquire an entire-job isolation proof.
                     result['_server_isolation_new'] = True
+                if isinstance(result, dict) and runtime.GATEWAY_DURABLE_JOBS and runtime.durable_job_initialized:
+                    # register() has returned only after the strict SQLite commit.
+                    # This volatile admission proof belongs to the current worker;
+                    # restart recovery still reconciles stored outcomes, never replays.
+                    result['_durable_background_admitted'] = True
                 return result
             except Exception:
                 if previous is None:
@@ -69,6 +74,18 @@ def install_terminal_guard(runtime):
     runtime.finish_gateway_job = guarded_finish
     runtime.update_gateway_job = guarded_update
     runtime.register_gateway_job = guarded_register
+
+    def continue_disconnected(job_id):
+        if job_id is None:
+            from v14.actions import current_gateway_job_id
+            job_id = current_gateway_job_id.get()
+        with runtime.job_registry_lock:
+            job = runtime.job_registry.get(job_id)
+            return bool(runtime.GATEWAY_DURABLE_JOBS and job is not None
+                        and job.get('_durable_background_admitted') is True
+                        and job.get('status') not in TERMINAL
+                        and not (job.get('_hard_cancel_event') and job['_hard_cancel_event'].is_set()))
+    runtime.gateway_continue_disconnected = continue_disconnected
 
 
 def record_execution_isolation(runtime, job_id, client_owned):

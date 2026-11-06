@@ -98,6 +98,9 @@ class GitHubTool(
         if (repo != null && owner == null) require(selected != null && repo.equals(selected.repo, true)) { "A partial repo must match the selected repository; supply both owner and repo to select another repository." }
         return buildJsonObject {
             arguments.filterKeys { it !in setOf("owner", "repo") }.forEach { (key, value) -> put(key, value) }
+            listOf("branch", "from_branch").forEach { key ->
+                (arguments[key] as? JsonPrimitive)?.takeIf { it.isString }?.let { put(key, dev.chungjungsoo.gptmobile.data.github.normalizeGitHubBranch(it.content)) }
+            }
             (owner ?: selected?.owner)?.let { put("owner", it) }
             (repo ?: selected?.repo)?.let { put("repo", it) }
         }
@@ -367,6 +370,7 @@ class GitHubTool(
                             put("description", "Branch name for create_branch or update_file.")
                         }
                     )
+                    put("select_created_branch", buildJsonObject { put("type", "boolean") })
                     put(
                         "base",
                         buildJsonObject {
@@ -495,7 +499,7 @@ class GitHubTool(
 
     override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
         refreshCredential()
-        val accounting = dev.chungjungsoo.gptmobile.data.github.GitHubDispatchAccounting()
+        val accounting = dev.chungjungsoo.gptmobile.data.github.GitHubDispatchAccounting(forceLiveReads = arguments["verify_live"] == JsonPrimitive(true))
         return kotlinx.coroutines.withContext(accounting) {
             try {
                 val action = (arguments["action"] as? JsonPrimitive)?.content.orEmpty()
@@ -539,7 +543,7 @@ class GitHubTool(
                 if (blockable &&
                     result.isError &&
                     result.executionReceipt?.get("requires_reconciliation") == JsonPrimitive(false) &&
-                    (result.errorCode in setOf("INVALID_ARGUMENTS", "GITHUB_NOT_FOUND_OR_HIDDEN", "GITHUB_ENDPOINT_PERMISSION_REQUIRED", "AUTH_REQUIRED") || result.errorCode?.startsWith("WORKFLOW_") == true)
+                    (result.errorCode in setOf("INVALID_ARGUMENTS", "GITHUB_NOT_FOUND_OR_HIDDEN", "GITHUB_NOT_FOUND_OR_INACCESSIBLE", "GITHUB_ENDPOINT_PERMISSION_REQUIRED", "AUTH_REQUIRED") || result.errorCode?.startsWith("WORKFLOW_") == true)
                 ) {
                     operationBlocks.write(
                         operationBlockScope,
@@ -557,6 +561,7 @@ class GitHubTool(
                 }
                 result
             } catch (cancelled: CancellationException) {
+                accounting.cancelled()
                 throw cancelled
             } catch (_: Exception) {
                 accounting.finish(AgentToolResult(callId, ToolResultContent.Text("GitHub execution state is unavailable. Retain this task and inspect saved receipts before retrying an operation."), true, dispatched = false, errorCode = "GITHUB_STATE_UNAVAILABLE"), (arguments["action"] as? JsonPrimitive)?.content in MUTATING_ACTIONS)
@@ -643,19 +648,115 @@ class GitHubTool(
                 "list_pull_requests" -> handleListPullRequests(callId, arguments)
                 "list_workflow_runs" -> handleListWorkflowRuns(callId, arguments)
                 "list_workflows", "get_workflow_run", "list_workflow_jobs", "get_workflow_job", "list_workflow_artifacts", "get_job_logs", "dispatch_workflow", "rerun_workflow", "rerun_failed_jobs", "cancel_workflow" -> handleWorkflowAction(callId, action, arguments)
-                "create_branch" -> handleCreateBranch(callId, arguments)
-                "create_issue_comment" -> handleIssueComment(callId, arguments)
+                "create_branch" -> executeNativeMutation(callId, action, arguments) { handleCreateBranch(callId, arguments) }
+                "create_issue_comment" -> executeNativeMutation(callId, action, arguments) { handleIssueComment(callId, arguments) }
                 "update_file" -> {
                     require(engineeringPrepare == null) { "Use stage_patch and commit_staged_patch to submit the exact patch for persisted user approval in GitHub review." }
                     handleUpdateFile(callId, arguments)
                 }
-                "create_pull_request" -> handleCreatePullRequest(callId, arguments)
+                "create_pull_request" -> executeNativeMutation(callId, action, arguments) { handleCreatePullRequest(callId, arguments) }
                 else -> errorResult(callId, "Unknown GitHub action: '$action'.")
             }
         } catch (cancellation: CancellationException) {
             throw cancellation
         } catch (throwable: Throwable) {
             classifyGitHubFailure(callId, action, arguments, throwable)
+        }
+    }
+
+    /** Legacy native writes share the same task-scoped publication fence as workspace writes. */
+    private suspend fun executeNativeMutation(callId: String, action: String, arguments: JsonObject, block: suspend () -> AgentToolResult): AgentToolResult {
+        fun text(key: String) = (arguments[key] as? JsonPrimitive)?.content.orEmpty()
+        // Context defaults, display selectors and call IDs do not change the HTTP
+        // mutation. They must not release its publication fence after a lost reply.
+        val identity = buildJsonObject {
+            put("owner", text("owner").trim().lowercase())
+            put("repo", text("repo").trim().lowercase())
+            when (action) {
+                "create_branch" -> {
+                    put("branch", dev.chungjungsoo.gptmobile.data.github.normalizeGitHubBranch(text("branch")))
+                    put("base", dev.chungjungsoo.gptmobile.data.github.normalizeGitHubBranch(text("base").ifBlank { "main" }))
+                    put("expected_head_sha", text("expected_head_sha").lowercase())
+                }
+                "create_issue_comment" -> {
+                    put("pull_number", text("pull_number").toLongOrNull()?.toString().orEmpty())
+                    put("body", text("body"))
+                    // The head guard is checked before the first POST, but does not
+                    // change its target or body and cannot release an uncertain POST.
+                }
+                "create_pull_request" -> {
+                    put("title", text("title").trim())
+                    put("head", text("head").trim())
+                    put("base", text("base").trim().ifBlank { "main" })
+                    put("body", text("body"))
+                    put("draft", arguments["draft"] ?: JsonPrimitive(true))
+                }
+                else -> error("Unsupported native mutation fence")
+            }
+        }
+        var original: AgentToolResult? = null
+        var reconciledNow = false
+        var preDispatchFailure: Exception? = null
+        val checkpoint = try {
+            workspaceClient.trackExecution(
+                "native.$action",
+                identity,
+                reconcile = if (action == "create_branch") {
+                    {
+                        reconcileBranch(arguments)?.also { reconciledNow = true }
+                    }
+                } else {
+                    null
+                }
+            ) {
+                val result = try {
+                    block().also { original = it }
+                } catch (failure: Exception) {
+                    if (failure is CancellationException ||
+                        failure is dev.chungjungsoo.gptmobile.data.github.GitHubExecutionBlocked ||
+                        kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.github.GitHubMutationAttempts]?.uncertainOrAccepted == true
+                    ) {
+                        throw failure
+                    }
+                    // Every native write is accounted before transmission. A failed
+                    // read preflight cannot create an uncertain publication fence.
+                    preDispatchFailure = failure
+                    throw dev.chungjungsoo.gptmobile.data.github.GitHubRequestRejected(0, "Native action stopped before a mutation was dispatched")
+                }
+                if (result.isError) throw dev.chungjungsoo.gptmobile.data.github.GitHubRequestRejected(0, result.errorCode ?: "Native action did not complete")
+                dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.element(result.content)
+            }
+        } catch (rejected: dev.chungjungsoo.gptmobile.data.github.GitHubRequestRejected) {
+            return original?.takeIf { it.isError } ?: throw (preDispatchFailure ?: rejected)
+        }
+        val result = executionResult(callId, checkpoint)
+        if (reconciledNow) return result.copy(content = ToolResultContent.Json(checkpoint), sharedResult = false, dispatched = true)
+        return if (original?.content is ToolResultContent.Json && !result.isError) result.copy(content = ToolResultContent.Json(checkpoint)) else result
+    }
+
+    /** A matching exact ref settles the requested final state; absence/hidden refs never release a write fence. */
+    private suspend fun reconcileBranch(arguments: JsonObject): JsonObject? {
+        val expected = (arguments["expected_head_sha"] as? JsonPrimitive)?.content?.takeIf { it.matches(Regex("[a-fA-F0-9]{40}")) } ?: return null
+        val owner = (arguments["owner"] as? JsonPrimitive)?.content ?: return null
+        val repo = (arguments["repo"] as? JsonPrimitive)?.content ?: return null
+        val branch = dev.chungjungsoo.gptmobile.data.github.normalizeGitHubBranch((arguments["branch"] as? JsonPrimitive)?.content.orEmpty())
+        val response = getGitHubApi("$BASE_URL/repos/$owner/$repo/git/ref/heads/${GitHubWorkspaceClient.segment(branch)}")
+        if (!response.status.isSuccess()) return null
+        val ref = runCatching { jsonParser.parseToJsonElement(response.bodyAsText()).jsonObject }.getOrNull() ?: return null
+        if (ref["ref"] != JsonPrimitive("refs/heads/$branch") || (ref["object"] as? JsonObject)?.get("sha") != JsonPrimitive(expected)) return null
+        return buildJsonObject {
+            put("branch", branch)
+            put("head_sha", expected)
+            put("expected_head_sha", expected)
+            put("base_sha", expected)
+            put("reconciled", true)
+            put("already_exists", true)
+            put("created", false)
+            put("matches_requested_base", true)
+            put("remote_state_verified", true)
+            put("verification", "REMOTE_REF_AND_EXPECTED_HEAD")
+            put("receipt", ref)
+            put("message", "The exact requested branch and head were observed. The uncertain creation was not repeated; this proves final state, not who created it.")
         }
     }
 
@@ -671,7 +772,7 @@ class GitHubTool(
         val text = response.bodyAsText()
 
         if (!response.status.isSuccess()) {
-            return errorResult(callId, "GitHub API returned HTTP ${response.status.value}: ${truncate(text, 500)}")
+            return classifyGitHubHttpFailure(callId, arguments["action"]?.jsonPrimitive?.content.orEmpty(), arguments, response, text)
         }
 
         val json = jsonParser.parseToJsonElement(text).jsonObject
@@ -726,7 +827,7 @@ class GitHubTool(
         val text = response.bodyAsText()
 
         if (!response.status.isSuccess()) {
-            return errorResult(callId, "GitHub API returned HTTP ${response.status.value}: ${truncate(text, 500)}")
+            return classifyGitHubHttpFailure(callId, arguments["action"]?.jsonPrimitive?.content.orEmpty(), arguments, response, text)
         }
 
         val json = jsonParser.parseToJsonElement(text).jsonObject
@@ -771,7 +872,7 @@ class GitHubTool(
         val text = response.bodyAsText()
 
         if (!response.status.isSuccess()) {
-            return errorResult(callId, "GitHub API returned HTTP ${response.status.value}: ${truncate(text, 500)}")
+            return classifyGitHubHttpFailure(callId, arguments["action"]?.jsonPrimitive?.content.orEmpty(), arguments, response, text)
         }
 
         val json = jsonParser.parseToJsonElement(text).jsonObject
@@ -806,7 +907,7 @@ class GitHubTool(
         val text = response.bodyAsText()
 
         if (!response.status.isSuccess()) {
-            return errorResult(callId, "GitHub API returned HTTP ${response.status.value}: ${truncate(text, 500)}")
+            return classifyGitHubHttpFailure(callId, arguments["action"]?.jsonPrimitive?.content.orEmpty(), arguments, response, text)
         }
 
         val json = jsonParser.parseToJsonElement(text).jsonObject
@@ -840,7 +941,7 @@ class GitHubTool(
         )
         val text = response.bodyAsText()
         if (!response.status.isSuccess()) {
-            return errorResult(callId, "GitHub API returned HTTP ${response.status.value}: ${truncate(text, 500)}")
+            return classifyGitHubHttpFailure(callId, arguments["action"]?.jsonPrimitive?.content.orEmpty(), arguments, response, text)
         }
         val json = jsonParser.parseToJsonElement(text).jsonObject
         val summary = buildJsonObject {
@@ -879,7 +980,7 @@ class GitHubTool(
         val response = getGitHubApi("$BASE_URL/repos/$owner/$repo/pulls?state=$state&per_page=$perPage&page=$page")
         val text = response.bodyAsText()
         if (!response.status.isSuccess()) {
-            return errorResult(callId, "GitHub API returned HTTP ${response.status.value}: ${truncate(text, 500)}")
+            return classifyGitHubHttpFailure(callId, arguments["action"]?.jsonPrimitive?.content.orEmpty(), arguments, response, text)
         }
         val items = jsonParser.parseToJsonElement(text).jsonArray
         val summary = buildJsonArray {
@@ -926,7 +1027,7 @@ class GitHubTool(
         val response = getGitHubApi("$BASE_URL/repos/$owner/$repo/pulls/$number")
         val text = response.bodyAsText()
         if (!response.status.isSuccess()) {
-            return errorResult(callId, "GitHub API returned HTTP ${response.status.value}: ${truncate(text, 500)}")
+            return classifyGitHubHttpFailure(callId, arguments["action"]?.jsonPrimitive?.content.orEmpty(), arguments, response, text)
         }
         val result = jsonParser.parseToJsonElement(text).jsonObject
         val summary = buildJsonObject {
@@ -1455,6 +1556,10 @@ class GitHubTool(
                     put("expected_head_sha", existingSha)
                     put("matches_requested_base", existingSha == sha)
                     put("reconciled", existingSha == sha)
+                    put("base_sha", sha)
+                    put("remote_state_verified", existingSha == sha)
+                    put("receipt", existing)
+                    if (existingSha == sha) put("verification", "REMOTE_REF_AND_EXPECTED_HEAD")
                     put(
                         "recovery_call",
                         buildJsonObject {
@@ -1481,8 +1586,8 @@ class GitHubTool(
         requireToken()
         val owner = arguments["owner"]?.jsonPrimitive?.content?.trim().orEmpty()
         val repo = arguments["repo"]?.jsonPrimitive?.content?.trim().orEmpty()
-        val branch = arguments["branch"]?.jsonPrimitive?.content?.trim().orEmpty()
-        val base = arguments["base"]?.jsonPrimitive?.content?.trim().orEmpty().ifBlank { "main" }
+        val branch = dev.chungjungsoo.gptmobile.data.github.normalizeGitHubBranch(arguments["branch"]?.jsonPrimitive?.content.orEmpty())
+        val base = dev.chungjungsoo.gptmobile.data.github.normalizeGitHubBranch(arguments["base"]?.jsonPrimitive?.content.orEmpty().ifBlank { "main" })
         if (owner.isEmpty() || repo.isEmpty() || branch.isEmpty()) {
             return errorResult(callId, "Parameters 'owner', 'repo', and 'branch' are required.")
         }
@@ -1491,7 +1596,7 @@ class GitHubTool(
         )
         val baseText = baseResponse.bodyAsText()
         if (!baseResponse.status.isSuccess()) {
-            return errorResult(callId, "Could not resolve base branch: ${truncate(baseText, 500)}")
+            return classifyGitHubHttpFailure(callId, "create_branch", arguments, baseResponse, baseText)
         }
         val sha = jsonParser.parseToJsonElement(baseText).jsonObject["object"]?.jsonObject?.get("sha")?.jsonPrimitive?.content
             ?: return errorResult(callId, "Base branch did not return a commit SHA.")
@@ -1519,16 +1624,18 @@ class GitHubTool(
         }
         return if (response.status.isSuccess()) {
             val receipt = jsonParser.parseToJsonElement(text).jsonObject
+            val selectCreated = arguments["select_created_branch"] != JsonPrimitive(false)
             val selection = try {
                 workspaceClient.execute(
-                    "resolve_context",
+                    if (selectCreated) "resolve_context" else "get_branch_head",
                     buildJsonObject {
                         put("owner", owner)
                         put("repo", repo)
                         put("ref", branch)
+                        put("branch", branch)
                         put("refresh", true)
                     }
-                )
+                ).jsonObject
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
@@ -1544,8 +1651,19 @@ class GitHubTool(
                     put("base_sha", sha)
                     put("receipt_verified", receipt["object"]?.jsonObject?.get("sha")?.jsonPrimitive?.content == sha && receipt["ref"]?.jsonPrimitive?.content == "refs/heads/$branch")
                     put("created", true)
+                    val selected = selectCreated && selection?.get("commit_sha") == JsonPrimitive(sha) && selection?.get("ref") == JsonPrimitive(branch)
+                    val fixtureVerified = !selectCreated &&
+                        selection?.get("ref") == JsonPrimitive("refs/heads/$branch") &&
+                        (selection?.get("object") as? JsonObject)?.get("sha") == JsonPrimitive(sha)
+                    put("remote_state_verified", selected || fixtureVerified)
+                    put("context_selected", selected)
                     put("upstream_completed", true)
-                    selection?.let { put("context", it) } ?: put("context_refresh_required", true)
+                    if (selectCreated) {
+                        selection?.let { put("context", it) } ?: put("context_refresh_required", true)
+                    } else {
+                        put("selection_preserved", true)
+                        selection?.let { put("ref_observation", it) }
+                    }
                 }.toString()
             )
         } else {
@@ -1560,6 +1678,12 @@ class GitHubTool(
         val number = arguments["pull_number"]?.jsonPrimitive?.intOrNull ?: return errorResult(callId, "pull_number is required.")
         val body = arguments["body"]?.jsonPrimitive?.content.orEmpty()
         require(owner.isNotBlank() && repo.isNotBlank() && number > 0 && body.isNotBlank()) { "Repository, pull request and comment are required." }
+        arguments["expected_head_sha"]?.let { expected ->
+            val current = getGitHubApi("$BASE_URL/repos/${GitHubWorkspaceClient.segment(owner)}/${GitHubWorkspaceClient.segment(repo)}/pulls/$number")
+            if (!current.status.isSuccess()) return classifyGitHubHttpFailure(callId, "create_issue_comment", arguments, current, current.bodyAsText())
+            val pr = jsonParser.parseToJsonElement(current.bodyAsText()).jsonObject
+            check((pr["head"] as? JsonObject)?.get("sha") == expected) { "Pull request head changed. Refresh before continuing." }
+        }
         val response = writeGitHubApi("$BASE_URL/repos/${GitHubWorkspaceClient.segment(owner)}/${GitHubWorkspaceClient.segment(repo)}/issues/$number/comments", HttpMethod.Post, buildJsonObject { put("body", body) })
         val text = response.bodyAsText()
         return if (response.status.isSuccess()) successResult(callId, text) else classifyGitHubHttpFailure(callId, "create_issue_comment", arguments, response, text)
@@ -1679,6 +1803,9 @@ class GitHubTool(
     ): AgentToolResult {
         if (throwable is dev.chungjungsoo.gptmobile.data.github.GitHubExecutionBlocked) return executionResult(callId, throwable.checkpoint)
         val detail = throwable.localizedMessage ?: throwable.message ?: "Unknown error"
+        if (detail.startsWith("GITHUB_RECEIPT_CAPACITY") || detail.startsWith("GITHUB_PUBLICATION_CLAIM_CAPACITY")) {
+            return AgentToolResult(callId, ToolResultContent.Text(detail), true, errorCode = detail.substringBefore(':').substringBefore(' '), dispatched = false)
+        }
         if (throwable is dev.chungjungsoo.gptmobile.data.github.GitHubRequestScheduler.AdmissionRejected) {
             return AgentToolResult(callId, ToolResultContent.Text(detail), true, errorCode = "GITHUB_WAITING_CAPACITY", dispatched = false)
         }
@@ -1788,6 +1915,10 @@ class GitHubTool(
                 append(" · message=")
                 append(it)
             }
+            dev.chungjungsoo.gptmobile.data.github.GitHubFailurePolicy.validationDetails(body).takeIf { it.isNotEmpty() }?.let {
+                append(" · validation=")
+                append(it)
+            }
             response.headers["X-RateLimit-Remaining"]?.let {
                 append(" · rateLimitRemaining=")
                 append(it)
@@ -1806,8 +1937,10 @@ class GitHubTool(
                 response.status.value in setOf(403, 409, 422) &&
                 Regex("(?i)already running|currently running|in progress|not completed|not running|already completed|unable to cancel").containsMatchIn(githubMessage.orEmpty()) ->
                 AgentToolResult(callId, ToolResultContent.Text("CI_STATE_CHANGED · $detail. Refresh github_ci action=run with the same run_id. Do not cancel another run or blindly retry this mutation."), true, errorCode = "CI_STATE_CHANGED")
-            action == "create_pull_request" && response.status.value == 422 ->
-                AgentToolResult(callId, ToolResultContent.Text("GITHUB_PR_VALIDATION_FAILED · $detail. Inspect github_context action=branches and github_pr action=list; head/base must exist, differ and contain changes. A PR may already exist. No PR creation was confirmed. Details: ${truncate(body, 500)}"), true, errorCode = "GITHUB_PR_VALIDATION_FAILED")
+            action == "create_pull_request" && category == "GITHUB_VALIDATION_FAILED" ->
+                AgentToolResult(callId, ToolResultContent.Text("GITHUB_PR_VALIDATION_FAILED · $detail. Inspect github_context action=branches and github_pr action=list; head/base must exist, differ and contain changes. A PR may already exist. No PR creation was confirmed. Correct the request before retrying."), true, errorCode = "GITHUB_PR_VALIDATION_FAILED")
+            category in setOf("AUTH_REQUIRED", "GITHUB_VALIDATION_FAILED") ->
+                AgentToolResult(callId, ToolResultContent.Text("$detail. " + dev.chungjungsoo.gptmobile.data.github.GitHubFailurePolicy.recoveryHint(category)), true, errorCode = category)
             response.status.value == 429 ||
                 response.status.value == 403 &&
                 (response.headers["X-RateLimit-Remaining"] == "0" || githubMessage?.contains("secondary rate", ignoreCase = true) == true) ->
@@ -1824,7 +1957,7 @@ class GitHubTool(
             action in MUTATING_ACTIONS && response.status.value == 403 ->
                 errorResult(callId, writeDeniedMessage(action, arguments, detail))
             response.status.value == 404 ->
-                errorResult(callId, notFoundMessage(action, arguments, detail))
+                AgentToolResult(callId, ToolResultContent.Text(notFoundMessage(action, arguments, detail)), true, errorCode = category)
             else ->
                 AgentToolResult(callId, ToolResultContent.Text("$detail: ${truncate(body, 500)}"), true, errorCode = category)
         }
@@ -1927,7 +2060,7 @@ class GitHubTool(
             }
             scheduler.recordRequest()
             dev.chungjungsoo.gptmobile.data.github.GitHubMutationAttempts.dispatched()
-            dev.chungjungsoo.gptmobile.data.github.GitHubDispatchAccounting.started(true)
+            val observationId = dev.chungjungsoo.gptmobile.data.github.GitHubDispatchAccounting.started(true)
             httpClient.githubRequest(url) {
                 this.method = method
                 contentType(ContentType.Application.Json)
@@ -1938,7 +2071,7 @@ class GitHubTool(
                 setBody(body.toString())
             }.also {
                 if (it.status.value in 400..499 && it.status.value != 408) dev.chungjungsoo.gptmobile.data.github.GitHubMutationAttempts.rejected()
-                dev.chungjungsoo.gptmobile.data.github.GitHubDispatchAccounting.responded(true, it.status.value)
+                dev.chungjungsoo.gptmobile.data.github.GitHubDispatchAccounting.responded(true, it.status.value, observationId, it.headers["X-GitHub-Request-Id"])
                 rateLimits.record(it.headers, it.status.value)
                 if (it.status.value == 401) authenticationRejected.set(true)
             }
@@ -1952,14 +2085,14 @@ class GitHubTool(
             check(!authenticationRejected.get()) { "GitHub authentication was rejected (HTTP 401). Reconnect the GitHub account before retrying any operation." }
             rateLimits.requireAvailable(if (url.contains("/search/")) "search" else "core")
             scheduler.recordRequest()
-            dev.chungjungsoo.gptmobile.data.github.GitHubDispatchAccounting.started(false)
+            val observationId = dev.chungjungsoo.gptmobile.data.github.GitHubDispatchAccounting.started(false)
             httpClient.githubRequest(url) {
                 header(HttpHeaders.Accept, "application/vnd.github+json")
                 header(HttpHeaders.UserAgent, "GPT-Mobile-App")
                 header("X-GitHub-Api-Version", GitHubWorkspaceClient.API_VERSION)
                 if (apiToken.isNotBlank()) header(HttpHeaders.Authorization, "Bearer $apiToken")
             }.also {
-                dev.chungjungsoo.gptmobile.data.github.GitHubDispatchAccounting.responded(false, it.status.value)
+                dev.chungjungsoo.gptmobile.data.github.GitHubDispatchAccounting.responded(false, it.status.value, observationId, it.headers["X-GitHub-Request-Id"])
                 rateLimits.record(it.headers, it.status.value)
                 if (it.status.value == 401) authenticationRejected.set(true)
                 // Read the body within the retry boundary, including an interrupted HTTP/2 body.

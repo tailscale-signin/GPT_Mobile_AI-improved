@@ -53,4 +53,41 @@ class GitHubRequestCircuitTest {
         circuit.failed(replacement, IOException())
         assertEquals(5000L, (runCatching { circuit.admit() }.exceptionOrNull() as GitHubRequestCircuit.Open).retryAfterMs)
     }
+
+    @Test fun observedHttpRejectionBreaksTheTransientFailureStreakButLocalAdmissionDoesNot() {
+        val circuit = GitHubRequestCircuit(threshold = 2)
+        circuit.failed(circuit.admit(), IOException())
+        circuit.failed(circuit.admit(), GitHubRequestRejected(422, "Validation Failed"))
+        circuit.failed(circuit.admit(), IOException())
+        assertFalse(circuit.admit().probe)
+        circuit.failed(circuit.admit(), GitHubRequestRejected(0, "Local admission failed"))
+        circuit.failed(circuit.admit(), IOException())
+        assertTrue(runCatching { circuit.admit() }.exceptionOrNull() is GitHubRequestCircuit.Open)
+    }
+
+    @Test fun recoveryProbeNeedsAnObservedResponseAndTlsOrLocalValidationCannotCloseIt() {
+        var time = 10L
+        val circuit = GitHubRequestCircuit(1, 5000, now = { time })
+        circuit.failed(circuit.admit(), IOException())
+        time += 5000
+        for (failure in listOf(SSLException("certificate"), IllegalArgumentException("bad input"), GitHubRequestRejected(0, "local admission"))) {
+            val probe = circuit.admit()
+            assertTrue(probe.probe)
+            circuit.failed(probe, failure)
+            assertTrue(circuit.metrics().toString().contains("OPEN"))
+        }
+        circuit.failed(circuit.admit(), GitHubRequestRejected(403, "Permission denied"))
+        assertFalse(circuit.admit().probe)
+    }
+
+    @Test fun deterministicReadHttpFailureIsAnObservedResponseThatCanRecoverTheCircuit() {
+        var time = 0L
+        val circuit = GitHubRequestCircuit(1, 100, now = { time })
+        circuit.failed(circuit.admit(), IOException("network"))
+        time = 100
+        val probe = circuit.admit()
+        assertTrue(probe.probe)
+        circuit.failed(probe, GitHubReadRetry.HttpFailure(404, null))
+        assertFalse(circuit.admit().probe)
+    }
 }

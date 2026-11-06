@@ -51,6 +51,7 @@ class GatewayNetworkRecoveryMonitor @Inject constructor(
             }
         )
     }
+    internal val routeAvailable get() = recoveryPolling.routeAvailable
 
     @Volatile
     private var validatedNetwork: Network? = null

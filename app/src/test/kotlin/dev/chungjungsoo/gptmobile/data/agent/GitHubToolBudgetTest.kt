@@ -140,8 +140,10 @@ class GitHubToolBudgetTest {
                 tool.execute(
                     "release-$page",
                     buildJsonObject {
-                        put("action", "list")
-                        put("page", page)
+                        // Release inventories now preview long notes. Explicit
+                        // details still deliver bounded full-content pages.
+                        put("action", "detail")
+                        put("tag_name", "v$page")
                     }
                 )
             }

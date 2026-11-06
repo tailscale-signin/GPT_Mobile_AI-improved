@@ -35,9 +35,9 @@ class GitHubSessionEpoch {
 
 @Singleton
 class GitHubSessionBootstrapper @Inject constructor(private val store: GitHubWorkspaceStore) {
-    fun read(connectionUid: String): GitHubSessionSnapshot? = store.getSession(connectionUid)?.takeIf { it.connectionUid == connectionUid }
+    suspend fun read(connectionUid: String): GitHubSessionSnapshot? = store.getSession(connectionUid)?.takeIf { it.connectionUid == connectionUid }
 
-    fun rememberRepository(snapshot: GitHubSessionSnapshot) = store.updateSession(snapshot.connectionUid) { previous ->
+    suspend fun rememberRepository(snapshot: GitHubSessionSnapshot) = store.updateSession(snapshot.connectionUid) { previous ->
         val sameScope = previous != null && previous.repository == snapshot.repository && previous.accountIdentity == snapshot.accountIdentity
         snapshot.copy(
             profileUid = previous?.profileUid.takeIf { sameScope },
@@ -45,7 +45,7 @@ class GitHubSessionBootstrapper @Inject constructor(private val store: GitHubWor
         )
     }
 
-    fun rememberConversation(context: GitHubConversationContext, chatId: Int?, hasRecoverableDraft: Boolean) = store.updateSession(context.connectionUid) { previous ->
+    suspend fun rememberConversation(context: GitHubConversationContext, chatId: Int?, hasRecoverableDraft: Boolean) = store.updateSession(context.connectionUid) { previous ->
         val sameRepository = previous?.repository == context.repository
         GitHubSessionSnapshot(
             connectionUid = context.connectionUid,

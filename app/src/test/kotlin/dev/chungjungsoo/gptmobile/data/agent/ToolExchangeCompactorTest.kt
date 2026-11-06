@@ -10,6 +10,57 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ToolExchangeCompactorTest {
+    @Test fun measurementCacheDoesNotPinDiscardedOversizedBodies() {
+        val cache = ToolExchangeCompactor.RenderCache(maxCharacters = 1024, maxEntries = 256)
+        fun measureDiscarded(index: Int): java.lang.ref.WeakReference<ToolResultContent> {
+            val content = ToolResultContent.Text("discarded-$index " + "x".repeat(1024 * 1024))
+            cache.measure(content)
+            return java.lang.ref.WeakReference(content)
+        }
+        val discarded = (0 until 96).map(::measureDiscarded)
+        repeat(10) {
+            if (discarded.any { it.get() != null }) {
+                System.gc()
+                Thread.yield()
+            }
+        }
+        assertEquals("Measurements must not retain source payloads after compaction", 0, discarded.count { it.get() != null })
+        assertEquals(0, cache.retainedCharacters())
+    }
+
+    @Test fun oversizedBodiesKeepBoundedMeasurementsWithoutRetainingSerializedCopies() {
+        val cache = ToolExchangeCompactor.RenderCache(maxCharacters = 1024, maxEntries = 4)
+        val content = ToolResultContent.Json(buildJsonObject { put("evidence", "😀é evidence ".repeat(2000)) })
+        val first = cache.measure(content)
+        assertEquals(0, cache.retainedCharacters())
+        org.junit.Assert.assertSame(first, cache.measure(content))
+        val call = ProviderEvent.ToolCall("large", "read", buildJsonObject { })
+        val exchange = AgentToolExchange(listOf(call), listOf(AgentToolResult(call.callId, content, false)))
+        assertEquals(ToolExchangeCompactor.estimateTokens(listOf(exchange)), ToolExchangeCompactor.estimateTokens(listOf(exchange), cache))
+        repeat(30) { cache.measure(ToolResultContent.Text("body $it")) }
+        assertTrue(cache.retainedMeasurements() <= 4)
+        cache.clear()
+        assertEquals(0, cache.retainedMeasurements())
+    }
+
+    @Test fun cachedReplayKeepsIndependentCallsAndLatestEvidenceAcrossChangingBudgets() {
+        val cache = ToolExchangeCompactor.RenderCache()
+        val exchanges = (0 until 100).map { index ->
+            val call = ProviderEvent.ToolCall("call-$index", "read", buildJsonObject { put("path", "source/$index") })
+            AgentToolExchange(listOf(call), listOf(AgentToolResult(call.callId, ToolResultContent.Text("evidence-$index 😀 " + "x".repeat(18_000)), false)))
+        }
+        for (budget in listOf(12_000, 4096, 1024, 4096)) {
+            val cached = ToolExchangeCompactor.compact(exchanges, budget, 400, renderCache = cache)
+            val uncached = ToolExchangeCompactor.compact(exchanges, budget, 400)
+            assertEquals(uncached, cached)
+            assertTrue(ToolExchangeCompactor.estimateTokens(cached, cache) <= budget)
+            assertEquals("call-99", cached.last().results.last().callId)
+            cached.forEach { assertEquals(it.calls.map { call -> call.callId }, it.results.map { result -> result.callId }) }
+        }
+        assertTrue(cache.retainedCharacters() <= 2 * 1024 * 1024)
+        assertTrue(cache.retainedMeasurements() <= 256)
+    }
+
     @Test fun replayRenderCacheReusesImmutableBodiesWithinABoundedRunWindow() {
         val cache = ToolExchangeCompactor.RenderCache(maxCharacters = 1024, maxEntries = 4)
         val content = ToolResultContent.Json(kotlinx.serialization.json.buildJsonObject { put("value", kotlinx.serialization.json.JsonPrimitive("x".repeat(200))) })

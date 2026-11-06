@@ -247,7 +247,11 @@ class GitHubExecutionJournalTest {
                 receipt
             }.jsonObject
             val id = completed["execution"]!!.jsonObject["execution_id"]!!.jsonPrimitive.content
-            store.remove("scope", "execution:$id")
+            assertTrue("Cache removal must refuse to erase a critical receipt", runCatching { store.remove("scope", "execution:$id") }.isFailure)
+            // Simulate actual lost/corrupt storage, separately from supported
+            // cache cleanup. The independent write fence must still survive.
+            val source = java.io.File(java.io.File(directory, "execution-receipts"), GitHubRepositoryStateStore.digest("scope:execution:$id") + ".record")
+            assertTrue(source.delete())
             val restarted = GitHubRepositoryStateStore(directory)
             assertTrue(restarted.contains("scope", "execution:$id"))
             val replay = GitHubExecutionJournal(restarted, "scope").run("commit", arguments) {
@@ -304,8 +308,8 @@ class GitHubExecutionJournalTest {
             val largeBlob = buildJsonObject { put("content", "x".repeat(6 * 1024 * 1024)) }
             repeat(9) { store.write("source", "blob:$it", largeBlob) }
             val identity = GitHubRepositoryStateStore.digest("scope|commit|${GitHubExecutionJournal.canonical(arguments)}")
-            val record = java.io.File(directory, GitHubRepositoryStateStore.digest("scope:execution:$identity") + ".record")
-            assertFalse("The receipt must actually have been pruned by the disk quota", record.exists())
+            val record = java.io.File(java.io.File(directory, "execution-receipts"), GitHubRepositoryStateStore.digest("scope:execution:$identity") + ".record")
+            assertTrue("Critical receipts must remain outside the evictable display/source cache", record.exists())
             val restarted = GitHubExecutionJournal(GitHubRepositoryStateStore(directory), "scope")
             val recovered = restarted.run("commit", arguments) {
                 writes++

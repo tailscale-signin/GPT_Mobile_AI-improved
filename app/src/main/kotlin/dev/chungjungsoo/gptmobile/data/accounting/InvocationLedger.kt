@@ -277,12 +277,21 @@ class InvocationLedger @Inject constructor(
             fun retainedInputSource(): String = if (inputSource == "not_dispatched" || input != null && retainedInput() == input) inputSource else "estimated"
             fun retainedOutputSource(): String = if (outputSource == "not_dispatched" || output != null && retainedOutput() == output) outputSource else "estimated"
             fun estimatedUsage(): Boolean = input == null || output == null || !measuredUsageSource(inputSource) || !measuredUsageSource(outputSource)
+            fun usageEvidence(costConfirmed: Boolean): String = kotlinx.serialization.json.buildJsonObject {
+                put("invocation_id", kotlinx.serialization.json.JsonPrimitive(record.id))
+                put("input_reservation", kotlinx.serialization.json.JsonPrimitive(record.inputTokens))
+                put("output_reservation", kotlinx.serialization.json.JsonPrimitive(record.outputTokens))
+                put("input", inputCounter.evidence())
+                put("output", outputCounter.evidence())
+                put("final_usage_complete", kotlinx.serialization.json.JsonPrimitive(!estimatedUsage()))
+                put("cost_confirmed", kotlinx.serialization.json.JsonPrimitive(costConfirmed))
+            }.toString()
             var providerReasoningTokens: Int? = null
             var finishReason: String? = null
             var settingsConfirmed = false
             var status = "INTERRUPTED"
             var lastPublished = started
-            liveRequests.update { it + (record.id to record.copy(outputTokens = 0)) }
+            liveRequests.update { it + (record.id to record.copy(outputTokens = 0, usageEvidenceJson = usageEvidence(false))) }
             try {
                 suspend fun collectRound() {
                     session.streamRound(tools, exchanges).flowOn(dispatch + (combinedAccounting ?: kotlin.coroutines.EmptyCoroutineContext)).collect { event ->
@@ -371,6 +380,13 @@ class InvocationLedger @Inject constructor(
                                         outputTokenSource = retainedOutputSource(),
                                         finishReason = finishReason,
                                         actualRuntime = actualRuntime,
+                                        // Publish the observed terminal event before passing it
+                                        // downstream: an export can start before finally persists it.
+                                        status = if (status == "INTERRUPTED") "RUNNING" else status,
+                                        observedInputTokens = input?.toLong(),
+                                        observedOutputTokens = output?.toLong(),
+                                        usageEvidenceJson = usageEvidence(!estimatedUsage() && price != null),
+                                        costMicros = if (!estimatedUsage()) price?.cost(requireNotNull(input), requireNotNull(output)) else record.costMicros,
                                         durationMs = (now - started) / 1_000_000,
                                         firstTokenMs = first
                                     )
@@ -474,15 +490,7 @@ class InvocationLedger @Inject constructor(
                                 requestAdmissionReceipts = dispatch.receipts.toList().takeIf { it.isNotEmpty() }?.let { kotlinx.serialization.json.Json.encodeToString(it) },
                                 observedInputTokens = input?.toLong(),
                                 observedOutputTokens = output?.toLong(),
-                                usageEvidenceJson = kotlinx.serialization.json.buildJsonObject {
-                                    put("invocation_id", kotlinx.serialization.json.JsonPrimitive(record.id))
-                                    put("input_reservation", kotlinx.serialization.json.JsonPrimitive(record.inputTokens))
-                                    put("output_reservation", kotlinx.serialization.json.JsonPrimitive(record.outputTokens))
-                                    put("input", inputCounter.evidence())
-                                    put("output", outputCounter.evidence())
-                                    put("final_usage_complete", kotlinx.serialization.json.JsonPrimitive(!estimatedUsage()))
-                                    put("cost_confirmed", kotlinx.serialization.json.JsonPrimitive(entirelyUnsent || !estimatedUsage() && price != null))
-                                }.toString(),
+                                usageEvidenceJson = usageEvidence(entirelyUnsent || !estimatedUsage() && price != null),
                                 costMicros = if (entirelyUnsent) {
                                     0
                                 } else if (!estimatedUsage()) {

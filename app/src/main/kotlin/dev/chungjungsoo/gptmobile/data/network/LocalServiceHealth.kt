@@ -118,7 +118,7 @@ internal object LocalServiceHealth {
             causes.any { it is ConnectException } -> ConnectionHealth.ROUTE_UNAVAILABLE
             Regex("\\b(?:401|403)\\b").containsMatchIn(message) && ("http" in message || "unauthoriz" in message || "forbidden" in message) -> ConnectionHealth.AUTHENTICATION_FAILED
             "mcp version" in message || "initializ" in message || "handshake" in message -> ConnectionHealth.MCP_HANDSHAKE_FAILED
-            causes.any { it is java.io.EOFException } || listOf("connection abort", "connection reset", "broken pipe", "unexpected end", "socket closed").any { it in message } -> ConnectionHealth.STREAM_INTERRUPTED
+            causes.any { it is java.io.EOFException } || listOf("connection abort", "connection reset", "connection closed before response arrived", "broken pipe", "unexpected end", "socket closed").any { it in message } -> ConnectionHealth.STREAM_INTERRUPTED
             "http" in message || causes.any { it.javaClass.simpleName in setOf("ModernMcpError", "StreamableHttpError") } -> ConnectionHealth.HTTP_ERROR
             listOf("stream", "unexpected end", "connection reset", "connection abort", "broken pipe", "socket closed").any { it in message } -> ConnectionHealth.STREAM_INTERRUPTED
             else -> ConnectionHealth.UNKNOWN

@@ -3,6 +3,7 @@ package dev.chungjungsoo.gptmobile.data.agent.tool
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
+import io.ktor.client.plugins.sse.SSE
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.content.TextContent
 import io.ktor.http.headersOf
@@ -65,40 +66,44 @@ class ModernMcpTransportTest {
         }
     }
 
-    @Test fun unclassifiedBadRequestDoesNotAdvertiseModernSupportOrDowngrade() = runBlocking {
+    @Test fun legacySessionErrorSelectsOneInitializationWithoutRepeatingModernDiscovery() = runBlocking {
         val methods = mutableListOf<String>()
         HttpClient(
             MockEngine { request ->
-                if (request.method.value == "GET") {
-                    methods += "GET"
-                    return@MockEngine respond("", HttpStatusCode.MethodNotAllowed)
-                }
+                if (request.method.value == "GET") return@MockEngine respond("", HttpStatusCode.MethodNotAllowed)
                 val body = Json.parseToJsonElement((request.body as TextContent).text).jsonObject
                 val method = body.getValue("method").jsonPrimitive.content
                 methods += method
-                if (method == "server/discover") {
-                    respond("Unsupported extension", HttpStatusCode.BadRequest)
-                } else {
-                    val result = if (method == "tools/list") {
-                        obj("""{"tools":[{"name":"echo","description":"Echo","inputSchema":{"type":"object"}}]}""")
-                    } else {
-                        obj("""{"content":[{"type":"text","text":"ok"}]}""")
+                when (method) {
+                    "server/discover" -> respond("""{"error":{"code":-32000,"message":"Session required"}}""", HttpStatusCode.BadRequest, headersOf("Content-Type", "application/json"))
+                    "notifications/initialized" -> respond("", HttpStatusCode.Accepted)
+                    else -> {
+                        val result = when (method) {
+                            "initialize" -> obj("""{"protocolVersion":"2025-06-18","capabilities":{"tools":{}},"serverInfo":{"name":"legacy","version":"1"}}""")
+                            "tools/list" -> obj("""{"tools":[{"name":"echo","description":"Echo","inputSchema":{"type":"object"}}]}""")
+                            else -> error("Unexpected method $method")
+                        }
+                        respond(
+                            buildJsonObject {
+                                put("jsonrpc", "2.0")
+                                put("id", body.getValue("id"))
+                                put("result", result)
+                            }.toString(),
+                            headers = headersOf("Content-Type", "application/json")
+                        )
                     }
-                    respond(
-                        buildJsonObject {
-                            put("id", body.getValue("id"))
-                            put("result", result)
-                        }.toString(),
-                        headers = headersOf("Content-Type", "application/json")
-                    )
                 }
             }
-        ).use { client ->
+        ) { install(SSE) }.use { client ->
             val manager = McpClientManager(client, modern = ModernMcpTransport(client))
-            assertTrue(runCatching { manager.listTools(config) }.isFailure)
-            assertEquals(listOf("server/discover"), methods)
-            assertFalse("GET" in methods)
-            manager.closeAll()
+            try {
+                assertEquals(listOf("echo"), manager.listTools(config).map { it.name })
+                assertEquals(listOf("echo"), manager.listTools(config).map { it.name })
+                assertEquals(listOf("server/discover", "initialize", "notifications/initialized", "tools/list"), methods)
+                assertEquals(0, manager.healthSnapshot(config.connectionUid).consecutiveFailures)
+            } finally {
+                manager.closeAll()
+            }
         }
     }
 
@@ -142,8 +147,9 @@ class ModernMcpTransportTest {
         }
     }
 
-    @Test fun missingDiscoveryVersionsAreRejectedWithoutAHandshake() = runBlocking {
+    @Test fun missingDiscoveryVersionsPauseUntilExplicitReconnectOrConfigurationChange() = runBlocking {
         val methods = mutableListOf<String>()
+        var now = 1_000L
         HttpClient(
             MockEngine { request ->
                 if (request.method.value == "GET") return@MockEngine respond("", HttpStatusCode.MethodNotAllowed)
@@ -168,10 +174,23 @@ class ModernMcpTransportTest {
                 }
             }
         ).use { client ->
-            val manager = McpClientManager(client, modern = ModernMcpTransport(client))
+            val manager = McpClientManager(client, modern = ModernMcpTransport(client), nowMs = { now })
             try {
-                assertTrue(runCatching { manager.listTools(config) }.isFailure)
+                repeat(6) {
+                    assertTrue(runCatching { manager.listTools(config) }.exceptionOrNull() is McpProtocolConfigurationException)
+                    now += 600_000
+                    dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.networkChanged()
+                }
                 assertEquals(listOf("server/discover"), methods)
+                assertEquals(1, manager.healthSnapshot(config.connectionUid).consecutiveFailures)
+                assertEquals(Long.MAX_VALUE, manager.healthSnapshot(config.connectionUid).nextRetryAtMs)
+                assertTrue(manager.listTools(config, passiveBackoff = true).isEmpty())
+                assertTrue(runCatching { manager.listTools(config, forceRefresh = true) }.isFailure)
+                assertEquals(2, methods.size)
+                val changed = McpConnectionConfig(config.connectionUid, config.endpointUrl, false, "Bearer changed")
+                assertTrue(runCatching { manager.listTools(changed) }.isFailure)
+                assertEquals(3, methods.size)
+                assertTrue(methods.all { it == "server/discover" })
             } finally {
                 manager.closeAll()
             }
@@ -194,8 +213,8 @@ class ModernMcpTransportTest {
         }
     }
 
-    @Test fun discoveryMethodNotFoundFallsBackWithLegacyHttpStatuses() = runBlocking {
-        for (status in listOf(HttpStatusCode.OK, HttpStatusCode.BadRequest, HttpStatusCode.NotFound, HttpStatusCode.MethodNotAllowed)) {
+    @Test fun discoveryMethodNotFoundFallsBackOnlyWithLegacyHttpStatuses() = runBlocking {
+        for (status in listOf(HttpStatusCode.OK, HttpStatusCode.BadRequest)) {
             var requests = 0
             HttpClient(
                 MockEngine {
@@ -231,12 +250,56 @@ class ModernMcpTransportTest {
         }
     }
 
-    @Test fun arbitraryBadRequestsAndModernHeaderErrorsNeverDowngrade() = runBlocking {
+    @Test fun nonModernBadRequestFallsBackButModernValidationErrorsNeverDowngrade() = runBlocking {
         HttpClient(MockEngine { respond("legacy session missing", HttpStatusCode.BadRequest) }).use { client ->
-            assertTrue(runCatching { ModernMcpTransport(client).supports(config) }.exceptionOrNull() is ModernMcpError)
+            assertFalse(ModernMcpTransport(client).supports(config))
         }
-        HttpClient(MockEngine { respond("""{"error":{"code":-32020,"message":"Header mismatch"}}""", HttpStatusCode.BadRequest) }).use { client ->
-            assertTrue(runCatching { ModernMcpTransport(client).supports(config) }.exceptionOrNull() is ModernMcpError)
+        for (code in listOf(-32020, -32021, -32600, -32602, -32700)) {
+            HttpClient(MockEngine { respond("""{"error":{"code":$code,"message":"Invalid request"}}""", HttpStatusCode.BadRequest) }).use { client ->
+                assertTrue(runCatching { ModernMcpTransport(client).supports(config) }.exceptionOrNull() is McpProtocolConfigurationException)
+            }
+        }
+        HttpClient(MockEngine { respond("""{"error":{"code":-32601,"message":"Method not found"}}""", HttpStatusCode.NotFound) }).use { client ->
+            assertTrue(runCatching { ModernMcpTransport(client).supports(config) }.exceptionOrNull() is McpProtocolConfigurationException)
+        }
+    }
+
+    @Test fun versionNegotiationUsesAdvertisedAlternativesAndRejectsMalformedErrors() = runBlocking {
+        for ((data, accepted) in listOf(
+            """{"supported":["2025-06-18"],"requested":"2026-07-28"}""" to true,
+            """{"supported":[],"requested":"2026-07-28"}""" to false,
+            """{"supported":["2026-07-28"],"requested":"2026-07-28"}""" to false,
+            """{"supported":["2099-01-01"],"requested":"2026-07-28"}""" to false,
+            """{"supported":["2025-06-18"],"requested":"different"}""" to false,
+            """{"supported":["2025-06-18"]}""" to false
+        )) {
+            HttpClient(MockEngine { respond("""{"error":{"code":-32022,"message":"UnsupportedProtocolVersion","data":$data}}""", HttpStatusCode.BadRequest) }).use { client ->
+                val result = runCatching { ModernMcpTransport(client).supports(config) }
+                if (accepted) assertEquals(false, result.getOrThrow()) else assertTrue(result.exceptionOrNull() is McpProtocolConfigurationException)
+            }
+        }
+    }
+
+    @Test fun mismatchedDiscoveryErrorCannotSelectALegacyProtocol() = runBlocking {
+        HttpClient(MockEngine { respond("""{"id":"different","error":{"code":-32000,"message":"Session missing"}}""", HttpStatusCode.BadRequest) }).use { client ->
+            val failure = runCatching { ModernMcpTransport(client).supports(config) }.exceptionOrNull()
+            assertTrue(failure is McpProtocolConfigurationException)
+            assertTrue(failure?.message.orEmpty().contains("MCP_RESPONSE_ID_MISMATCH"))
+        }
+    }
+
+    @Test fun changedGoogleCredentialReprobesDiscoveryAndIsForwarded() = runBlocking {
+        val credentials = mutableListOf<String?>()
+        HttpClient(
+            MockEngine { request ->
+                credentials += request.headers["X-Goog-Api-Key"]
+                respond("legacy session missing", HttpStatusCode.BadRequest)
+            }
+        ).use { client ->
+            val transport = ModernMcpTransport(client)
+            assertFalse(transport.supports(McpConnectionConfig("google", config.endpointUrl, false, googleApiKey = "first")))
+            assertFalse(transport.supports(McpConnectionConfig("google", config.endpointUrl, false, googleApiKey = "second")))
+            assertEquals(listOf("first", "second"), credentials)
         }
     }
 
@@ -259,6 +322,101 @@ class ModernMcpTransportTest {
 
         HttpClient(MockEngine { error("remote discovery unavailable") }).use { client ->
             assertTrue(runCatching { ModernMcpTransport(client).supports(config) }.isFailure)
+        }
+    }
+
+    @Test fun rejectedLegacyInitializationIsNotRepeatedUnchanged() = runBlocking {
+        val methods = mutableListOf<String>()
+        HttpClient(
+            MockEngine { request ->
+                if (request.method.value == "GET") return@MockEngine respond("", HttpStatusCode.MethodNotAllowed)
+                val body = Json.parseToJsonElement((request.body as TextContent).text).jsonObject
+                methods += body.getValue("method").jsonPrimitive.content
+                assertEquals(config.authorizationHeader, request.headers["Authorization"])
+                respond("""{"jsonrpc":"2.0","id":null,"error":{"code":-32000,"message":"Malformed endpoint request"}}""", HttpStatusCode.BadRequest, headersOf("Content-Type", "application/json"))
+            }
+        ) { install(SSE) }.use { client ->
+            val manager = McpClientManager(client, modern = ModernMcpTransport(client))
+            try {
+                repeat(6) {
+                    val failure = runCatching { manager.listTools(config) }.exceptionOrNull()
+                    assertTrue(failure is McpProtocolConfigurationException)
+                    assertTrue(failure?.message.orEmpty().contains("MCP_INITIALIZATION_SCHEMA_INVALID"))
+                }
+                assertEquals(listOf("server/discover", "initialize"), methods)
+                assertEquals(1, manager.healthSnapshot(config.connectionUid).consecutiveFailures)
+            } finally {
+                manager.closeAll()
+            }
+        }
+    }
+
+    @Test fun malformedCataloguesNeverPublishReadinessOrRepeatDiscovery() = runBlocking {
+        for (catalogue in listOf(
+            """{}""",
+            """{"tools":{}}""",
+            """{"tools":[null]}""",
+            """{"tools":[{"name":"read"}]}""",
+            """{"tools":[{"name":"read","inputSchema":{"type":"object"}},{"name":"read","inputSchema":{"type":"object"}}]}""",
+            """{"tools":[],"nextCursor":5}"""
+        )) {
+            val methods = mutableListOf<String>()
+            HttpClient(
+                MockEngine { request ->
+                    val body = Json.parseToJsonElement((request.body as TextContent).text).jsonObject
+                    val method = body.getValue("method").jsonPrimitive.content
+                    methods += method
+                    val result = if (method == "server/discover") obj("""{"supportedVersions":["2026-07-28"],"capabilities":{"tools":{}}}""") else obj(catalogue)
+                    respond(
+                        buildJsonObject {
+                            put("id", body.getValue("id"))
+                            put("result", result)
+                        }.toString(),
+                        headers = headersOf("Content-Type", "application/json")
+                    )
+                }
+            ).use { client ->
+                val manager = McpClientManager(client, modern = ModernMcpTransport(client))
+                try {
+                    repeat(2) { assertTrue(runCatching { manager.listTools(config) }.exceptionOrNull() is McpProtocolConfigurationException) }
+                    assertEquals(listOf("server/discover", "tools/list"), methods)
+                    assertFalse(manager.catalogueAvailability(config).executionAvailable)
+                    assertEquals(null, manager.healthSnapshot(config.connectionUid).availableToolCount)
+                } finally {
+                    manager.closeAll()
+                }
+            }
+        }
+    }
+
+    @Test fun invalidToolArgumentsNeverSelectHandshakeFallbackOrRepeatTheCall() = runBlocking {
+        val methods = mutableListOf<String>()
+        HttpClient(
+            MockEngine { request ->
+                val body = Json.parseToJsonElement((request.body as TextContent).text).jsonObject
+                val method = body.getValue("method").jsonPrimitive.content
+                methods += method
+                if (method == "tools/call") {
+                    respond("""{"error":{"code":-32602,"message":"Invalid params"}}""", HttpStatusCode.BadRequest, headersOf("Content-Type", "application/json"))
+                } else {
+                    val result = if (method == "server/discover") obj("""{"supportedVersions":["2026-07-28"],"capabilities":{"tools":{}}}""") else obj("""{"tools":[{"name":"write","inputSchema":{"type":"object"}}]}""")
+                    respond(
+                        buildJsonObject {
+                            put("id", body.getValue("id"))
+                            put("result", result)
+                        }.toString(),
+                        headers = headersOf("Content-Type", "application/json")
+                    )
+                }
+            }
+        ).use { client ->
+            val manager = McpClientManager(client, modern = ModernMcpTransport(client))
+            try {
+                assertTrue(runCatching { manager.callTool(config, "write", JsonObject(emptyMap())) }.exceptionOrNull() is ModernMcpError)
+                assertEquals(listOf("server/discover", "tools/list", "tools/call"), methods)
+            } finally {
+                manager.closeAll()
+            }
         }
     }
 

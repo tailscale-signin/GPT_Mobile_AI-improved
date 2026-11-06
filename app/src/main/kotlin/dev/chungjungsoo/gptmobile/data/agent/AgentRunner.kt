@@ -191,7 +191,7 @@ class AgentRunner(
                 exchanges += exchange
             }
         }
-        replayTokens = ToolExchangeCompactor.estimateTokens(compactReplay(exchanges, limits.maxReplayTokens, limits.maxReplayResultTokens)).toLong()
+        replayTokens = ToolExchangeCompactor.estimateTokens(compactReplay(exchanges, limits.maxReplayTokens, limits.maxReplayResultTokens), replayRenderCache).toLong()
 
         while (true) {
             if (executionToolCallLimit < Int.MAX_VALUE && toolCallCount >= executionToolCallLimit && restoredCalls.isEmpty()) {
@@ -812,13 +812,14 @@ class AgentRunner(
             .filter { it.outputBudgetExhausted }
             .maxByOrNull { it.toolResultBudgetUsedBytes ?: -1 }
         val projectedExchanges = exchanges + AgentToolExchange(calls, allResults)
-        val projectedReplayTokens = ToolExchangeCompactor.estimateTokens(projectedExchanges)
+        val projectedReplayTokens = ToolExchangeCompactor.estimateTokens(projectedExchanges, replayRenderCache)
         val replayTokens = ToolExchangeCompactor.estimateTokens(
             compactReplay(
                 exchanges = projectedExchanges,
                 maxReplayTokens = limits.maxReplayTokens,
                 maxResultTokens = if (projectedReplayTokens <= limits.maxReplayTokens) limits.maxReplayTokens else limits.maxReplayResultTokens
-            )
+            ),
+            replayRenderCache
         ).toLong()
         val contextNearLimit = limits.contextTokens != Int.MAX_VALUE &&
             limits.initialContextTokens.toLong() + replayTokens + limits.finalResponseReserveTokens + 256 >= limits.contextTokens
@@ -933,7 +934,7 @@ class AgentRunner(
             retentionBudget,
             // Preserve complete evidence while it fits the retained budget.
             // Provider replay still enforces its independent, smaller allowance.
-            if (ToolExchangeCompactor.estimateTokens(observations) <= retentionBudget) retentionBudget else limits.maxReplayResultTokens.coerceIn(64, 2048)
+            if (ToolExchangeCompactor.estimateTokens(observations, replayRenderCache) <= retentionBudget) retentionBudget else limits.maxReplayResultTokens.coerceIn(64, 2048)
         )
         exchanges.clear()
         exchanges.addAll(retained)
@@ -1052,7 +1053,7 @@ class AgentRunner(
                 )
                 return@flow
             }
-            val rawReplayTokens = ToolExchangeCompactor.estimateTokens(exchanges)
+            val rawReplayTokens = ToolExchangeCompactor.estimateTokens(exchanges, replayRenderCache)
             val compactionStarted = System.nanoTime()
             val replayExchanges = compactReplay(
                 exchanges = exchanges,
@@ -1062,7 +1063,7 @@ class AgentRunner(
             )
             val originalResults = exchanges.flatMap { it.results }.associateBy { it.callId }
             deliveredCallIds = replayExchanges.flatMap { it.results }.filter { originalResults[it.callId]?.content == it.content }.mapTo(mutableSetOf()) { it.callId }
-            val compactedReplayTokens = ToolExchangeCompactor.estimateTokens(replayExchanges)
+            val compactedReplayTokens = ToolExchangeCompactor.estimateTokens(replayExchanges, replayRenderCache)
             val compactionMicros = ((System.nanoTime() - compactionStarted) / 1000).coerceAtLeast(0)
             if (rawReplayTokens > compactedReplayTokens) {
                 AppLogRecorder.record(

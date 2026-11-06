@@ -163,6 +163,64 @@ class GitHubExecutionLedgerTest {
         }
     }
 
+    @Test fun exactLiveBranchReadbackSettlesOnlyTheMatchingUncertainCreation() {
+        val head = "a".repeat(40)
+        val scope = buildJsonObject {
+            put("binding", "task")
+            put("tool", "github_commit")
+            put("repository", "o/r")
+            put("branch", "topic")
+            put("trusted", true)
+            put(
+                "arguments",
+                buildJsonObject {
+                    put("action", "branch")
+                    put("branch", "topic")
+                    put("expected_head_sha", head)
+                }
+            )
+        }
+        val uncertain = JsonObject(scope + receipt(false, true, unknown = 1))
+        val proof = JsonObject(
+            scope + receipt(true, false, "OBSERVED") + mapOf(
+                "evidence_origin" to JsonPrimitive("LIVE"),
+                "result" to buildJsonObject {
+                    put("branch", "topic")
+                    put("head_sha", head)
+                    put("base_sha", head)
+                    put("reconciled", true)
+                    put("remote_state_verified", true)
+                    put("verification", "REMOTE_REF_AND_EXPECTED_HEAD")
+                    put(
+                        "receipt",
+                        buildJsonObject {
+                            put("ref", "refs/heads/topic")
+                            put("object", buildJsonObject { put("sha", head) })
+                        }
+                    )
+                }
+            )
+        )
+        val completed = GitHubAcceptanceLedger.attach(completedVerdict())
+        val verified = GitHubExecutionLedger.attach(completed, mapOf("lost" to uncertain, "proof" to proof))
+        assertEquals(JsonPrimitive(0), verified.getValue("execution_ledger").jsonObject["unresolved_remote_outcomes"])
+        for (unrelated in listOf(
+            JsonObject(proof + ("evidence_origin" to JsonPrimitive("CACHED"))),
+            JsonObject(proof + ("binding" to JsonPrimitive("another-task"))),
+            JsonObject(
+                proof + (
+                    "result" to buildJsonObject {
+                        put("reconciled", true)
+                        put("remote_state_verified", true)
+                    }
+                    )
+            )
+        )) {
+            val rejected = GitHubExecutionLedger.attach(completed, mapOf("lost" to uncertain, "proof" to unrelated))
+            assertEquals(JsonPrimitive(1), rejected.getValue("execution_ledger").jsonObject["unresolved_remote_outcomes"])
+        }
+    }
+
     private fun completedVerdict() = buildJsonObject {
         put("task_outcome", "COMPLETED")
         put("completion_verified", true)

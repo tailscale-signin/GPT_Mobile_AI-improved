@@ -114,6 +114,22 @@ class AppPerformanceBenchmark {
         Thread.sleep(4500)
     }
 
+    @Test fun gatewayReconnectRendering() = benchmark.measureRepeated(
+        PACKAGE,
+        listOf(FrameTimingMetric()),
+        CompilationMode.Partial(BaselineProfileMode.Disable, warmupIterations = 3),
+        iterations = 8,
+        setupBlock = {
+            startActivityAndWait(fixture().putExtra("screen", "gateway-reconnect"))
+            check(device.wait(Until.hasObject(By.res("benchmark_gateway_cycle")), 10_000))
+        }
+    ) {
+        repeat(3) { index ->
+            device.findObject(By.res("benchmark_gateway_cycle")).click()
+            check(device.wait(Until.hasObject(By.text("Cycles: ${index + 1}")), 10_000))
+        }
+    }
+
     @Test fun savedCombinedTenProfiles100k() = savedCombined(10, 100_000)
 
     @Test fun savedCombinedTenProfiles1m() = savedCombined(10, 1_000_000)

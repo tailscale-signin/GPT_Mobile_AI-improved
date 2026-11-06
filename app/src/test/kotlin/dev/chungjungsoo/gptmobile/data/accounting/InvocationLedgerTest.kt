@@ -11,6 +11,7 @@ import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.toList
@@ -22,6 +23,41 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class InvocationLedgerTest {
+    @Test fun terminalDeliveryAlreadyExposesFinalLiveStatusAndSeparatelyMeasuredUsage() = runTest {
+        for (failed in listOf(false, true)) {
+            val dao = mockk<InvocationDao>(relaxed = true)
+            every { dao.recent() } returns flowOf(emptyList())
+            val database = mockk<ChatDatabaseV2>()
+            every { database.invocationDao() } returns dao
+            val ledger = InvocationLedger(database)
+            val session = object : AgentProviderSession {
+                override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flowOf(
+                    ProviderEvent.TextDelta("Retained answer"),
+                    ProviderEvent.Usage(inputTokens = 23, outputTokens = 11),
+                    if (failed) ProviderEvent.Failed("Verification transport stopped") else ProviderEvent.Completed
+                )
+            }
+            var terminalObserved = false
+            ledger.wrap(session, "run", "turn", "CUSTOM", "selected-model", "primary", 100, 500, 1000)
+                .streamRound(emptyList(), emptyList()).collect { event ->
+                    if (event is ProviderEvent.Completed || event is ProviderEvent.Failed) {
+                        terminalObserved = true
+                        val live = ledger.active.value.values.single()
+                        assertEquals(if (failed) "FAILED" else "COMPLETED", live.status)
+                        assertEquals(23L, live.observedInputTokens)
+                        assertEquals(11L, live.observedOutputTokens)
+                        val evidence = kotlinx.serialization.json.Json.parseToJsonElement(requireNotNull(live.usageEvidenceJson)).jsonObject
+                        assertEquals("100", evidence.getValue("input_reservation").jsonPrimitive.content)
+                        assertEquals("500", evidence.getValue("output_reservation").jsonPrimitive.content)
+                        assertEquals("true", evidence.getValue("final_usage_complete").jsonPrimitive.content)
+                        assertTrue(!live.estimated)
+                    }
+                }
+            assertTrue(terminalObserved)
+            assertTrue(ledger.active.value.isEmpty())
+        }
+    }
+
     @Test fun `empty visible completion is recorded as failed instead of completed`() = runTest {
         val saved = mutableListOf<ModelInvocation>()
         val dao = mockk<InvocationDao>(relaxed = true)

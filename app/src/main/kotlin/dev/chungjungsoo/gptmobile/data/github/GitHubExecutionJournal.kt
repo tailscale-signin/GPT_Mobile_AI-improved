@@ -132,19 +132,25 @@ internal class GitHubExecutionJournal(
         val attempts = GitHubMutationAttempts(currentCoroutineContext()[GitHubMutationAttempts])
         try {
             remember(row)
-            val result = withContext(attempts) { block() }
-            val retained = if (result.toString().toByteArray().size <= 128 * 1024) {
-                result
-            } else {
-                buildJsonObject {
-                    put("receipt_bounded", true)
-                    (result as? JsonObject)?.filterKeys { it in RECEIPT_KEYS }?.forEach { (key, value) ->
-                        if (value.toString().toByteArray().size <= 2048) put(key, value)
+            val (result, completed) = withContext(attempts) {
+                val result = block()
+                val retained = if (result.toString().toByteArray().size <= 128 * 1024) {
+                    result
+                } else {
+                    buildJsonObject {
+                        put("receipt_bounded", true)
+                        val projection = GitHubEvidenceProjection.result(result, 24 * 1024)
+                        if (projection is JsonObject) projection.forEach { (key, value) -> put(key, value) } else put("data", projection)
+                        put("message", "The original write completed. Only its bounded receipt is retained; inspect the remote object for additional details.")
                     }
-                    put("message", "The original write completed. Only its bounded receipt is retained; inspect the remote object for additional details.")
                 }
+                // Persist before leaving the attempt context: its prompt
+                // cancellation check can otherwise discard a returned value.
+                val completed = withContext(NonCancellable) {
+                    finish(identity, claim, "COMPLETED", retained, GitHubRepositoryStateStore.digest(canonical(result).toString()))
+                }
+                result to completed
             }
-            val completed = finish(identity, claim, "COMPLETED", retained, GitHubRepositoryStateStore.digest(canonical(result).toString()))
             return decorate(if (completed["remote_reconciled"] == JsonPrimitive(true)) completed.getValue("result") else result, completed, replayed = false)
         } catch (failure: Throwable) {
             var terminal: JsonObject? = null
@@ -280,7 +286,6 @@ internal class GitHubExecutionJournal(
     private fun metadata(row: JsonObject) = JsonObject(row.filterKeys { it != "result" })
 
     companion object {
-        private val RECEIPT_KEYS = setOf("id", "sha", "node_id", "number", "html_url", "url", "status", "stage_id", "task_id", "engineering_task_id", "expected_head_sha", "branch", "committed")
         internal fun canonical(value: JsonElement): JsonElement = when (value) {
             is JsonObject -> JsonObject(value.toSortedMap().mapValues { canonical(it.value) })
             is JsonArray -> JsonArray(value.map(::canonical))

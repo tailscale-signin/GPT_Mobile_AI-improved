@@ -45,6 +45,8 @@ class ToolExecutionBudget(
 
     fun usedCalls(): Int = calls.get()
 
+    fun remainingCalls(): Int? = if (limits.researchAcquisition && !combinedMode || executionLimit == Int.MAX_VALUE) null else (executionLimit - calls.get()).coerceAtLeast(0)
+
     fun canExecute(): Boolean = (separateResultAllowance || remainingBytes.get() > 0) && !callBudgetIsExhausted()
     fun remainingOutputBytes(): Int = if (separateResultAllowance) limits.maxToolOutputBytes.coerceAtLeast(0) else remainingBytes.get().coerceAtLeast(0)
 

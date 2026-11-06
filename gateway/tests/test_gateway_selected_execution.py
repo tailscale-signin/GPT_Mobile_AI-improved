@@ -54,7 +54,7 @@ class SelectedExecutionTests(unittest.TestCase):
 
             def do_GET(self):
                 if self.path.startswith('/v1/models'):
-                    return self.reply({'data': [{'id': 'A'}]})
+                    return self.reply({'data': [{'id': 'A', 'context_length': 1048576}]})
                 if self.path.startswith('/props'):
                     return self.reply({'model_alias': 'A', 'model_sha256': 'weights-A', 'chat_template': 'template-A',
                                        'default_generation_settings': {'n_ctx': 32768}})
@@ -82,6 +82,59 @@ class SelectedExecutionTests(unittest.TestCase):
         self.request = {'repository': 'owner/repo', 'branch': 'feature/job', 'base': 'main', 'objective': 'Repair tests',
                         'model': 'A', 'profile_id': 'profile-A', 'request_id': 'one', 'execution_binding_id': self.binding['binding_id']}
         self.job = self.store.claim(self.store.create('owner', self.request)['id'])[0]
+
+    def test_public_model_handshake_observes_loaded_allocation_without_claiming_catalog_or_output_limits(self):
+        observed = self.service.capabilities.selected_model('A')
+        self.assertTrue(observed['limitsVerified'])
+        self.assertEqual(32768, observed['contextTokens'])
+        self.assertNotEqual(1048576, observed['contextTokens'])
+        self.assertIsNone(observed['maxOutputTokens'])
+        self.assertEqual('context_capacity', observed['outputLimitSource'])
+        self.assertEqual('A', observed['requestedModel'])
+        self.assertEqual('A', observed['reportedModel'])
+        self.assertEqual('GATEWAY_OBSERVED_PROVIDER_METADATA', observed['evidenceOrigin'])
+        self.assertNotIn('tokenizer_endpoint', observed)
+        self.assertNotIn('backend_endpoint_identity', observed)
+        self.assertEqual([], self.calls)
+
+    def test_public_model_handshake_never_substitutes_a_different_catalog_model(self):
+        observed = self.service.capabilities.selected_model('B')
+        self.assertFalse(observed['limitsVerified'])
+        self.assertEqual('EXECUTION_MODEL_UNAVAILABLE', observed['failureCode'])
+        self.assertNotIn('contextTokens', observed)
+        self.assertNotIn('reportedModel', observed)
+        self.assertEqual([], self.calls)
+
+    def test_public_model_handshake_leaves_ambiguous_router_allocation_unconfirmed(self):
+        self.service.capabilities.cache.clear()
+        with patch.object(self.service.capabilities, '_json', side_effect=[
+            {'data': [{'id': 'A'}, {'id': 'B'}]},
+            {'default_generation_settings': {'n_ctx': 8192}, 'max_output_tokens': 1024},
+        ]):
+            observed = self.service.capabilities.selected_model('A')
+        self.assertFalse(observed['limitsVerified'])
+        self.assertEqual('EXECUTION_MODEL_IDENTITY_INVALID', observed['failureCode'])
+        self.assertNotIn('contextTokens', observed)
+        self.assertNotIn('reportedModel', observed)
+        self.assertEqual([], self.calls)
+
+    def test_public_model_handshake_confirms_explicit_output_limits_and_rejects_loaded_identity_mismatch(self):
+        for reported in ('A', 'different-loaded-model'):
+            self.service.capabilities.cache.clear()
+            with patch.object(self.service.capabilities, '_json', side_effect=[
+                {'data': [{'id': 'A', 'context_length': 1048576}]},
+                {'model_alias': reported, 'default_generation_settings': {'n_ctx': 8192}, 'max_output_tokens': 1024},
+            ]):
+                observed = self.service.capabilities.selected_model('A')
+            self.assertEqual(reported == 'A', observed['limitsVerified'])
+            if reported == 'A':
+                self.assertEqual(8192, observed['contextTokens'])
+                self.assertEqual(1024, observed['maxOutputTokens'])
+                self.assertEqual('provider_reported', observed['outputLimitSource'])
+            else:
+                self.assertEqual('EXECUTION_MODEL_MISMATCH', observed['failureCode'])
+                self.assertNotIn('reportedModel', observed)
+        self.assertEqual([], self.calls)
 
     def runtime_for(self, boot):
         runtime = SimpleNamespace(LLAMA_BASE=self.endpoint, gateway_instance_id=boot,

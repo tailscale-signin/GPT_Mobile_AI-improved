@@ -17,3 +17,9 @@ internal fun dashboardFixture(): JsonObject = Json.parseToJsonElement(
       "engineering":[]
     }"""
 ) as JsonObject
+
+internal fun readinessFixture(model: String, ready: Boolean = true, available: Boolean = ready): JsonObject = Json.parseToJsonElement(
+    """{"schemaVersion":1,"instanceId":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","ready":$ready,
+        "capabilities":{"generationReady":$ready,"modelAvailable":$available,"selectedModelDigest":"${dev.chungjungsoo.gptmobile.data.research.researchHash(model)}"},
+        "service":{"draining":false}}"""
+) as JsonObject

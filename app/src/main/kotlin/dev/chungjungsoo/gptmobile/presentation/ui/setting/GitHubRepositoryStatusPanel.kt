@@ -64,7 +64,7 @@ internal fun GitHubStatusLight(status: String, modifier: Modifier = Modifier) {
 }
 
 @Composable
-internal fun GitHubRepositoryStatusPanel(connection: ToolConnection, selection: GitHubRepositoryContext, pulls: List<JsonObject>, refreshPulls: () -> Unit, chatId: Int? = null, profile: PlatformV2? = null, model: GitHubLiveStatusViewModel = hiltViewModel()) {
+internal fun GitHubRepositoryStatusPanel(connection: ToolConnection, selection: GitHubRepositoryContext, pulls: List<JsonObject>, refreshPulls: () -> Unit, chatId: Int? = null, profile: PlatformV2? = null, graphContext: dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext? = null, model: GitHubLiveStatusViewModel = hiltViewModel()) {
     val state by model.state.collectAsStateWithLifecycle()
     val currentPulls by androidx.compose.runtime.rememberUpdatedState(pulls)
     val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -107,6 +107,20 @@ internal fun GitHubRepositoryStatusPanel(connection: ToolConnection, selection: 
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         GitHubRepositoryStatusSummary(selection, summary, pulls.size, profile?.name, model::refresh) { open("https://github.com/${selection.fullName}/actions") }
         profile?.let { GitHubGatewayStatusPanel(it, now) }
+        if (graphContext != null) {
+            dev.chungjungsoo.gptmobile.presentation.ui.chat.RepositoryGraphStatusMap(graphContext, profile)
+        } else {
+            Surface(
+                shape = RoundedCornerShape(22.dp),
+                color = MaterialTheme.colorScheme.surfaceContainerLow,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(Modifier.padding(18.dp)) {
+                    Text("Repository network", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+                    Text("Choose a repository, revision and private gateway AI profile to visualize its source graph.", style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        }
         state.notice?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text("Checks", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)

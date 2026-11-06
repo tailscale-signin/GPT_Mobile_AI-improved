@@ -25,7 +25,35 @@ internal object ToolExchangeCompactor {
      * Bounded in both entries and characters; never shared between chats/accounts. */
     class RenderCache(private val maxCharacters: Int = 2 * 1024 * 1024, private val maxEntries: Int = 256) {
         private val values = java.util.IdentityHashMap<ToolResultContent, String>()
+        private val collected = java.lang.ref.ReferenceQueue<ToolResultContent>()
+        private val measurements = linkedMapOf<ContentIdentity, Measurement>()
         private var characters = 0
+        init {
+            require(maxCharacters >= 0 && maxEntries > 0)
+        }
+
+        // The small digest/count must not pin an oversized body after the runner
+        // replaces it with a compacted observation. Equality remains identity-only;
+        // structural JSON/string equality would repeat the expensive body scan.
+        private class ContentIdentity(content: ToolResultContent, queue: java.lang.ref.ReferenceQueue<ToolResultContent>? = null) : java.lang.ref.WeakReference<ToolResultContent>(content, queue) {
+            private val identity = System.identityHashCode(content)
+            override fun hashCode(): Int = identity
+            override fun equals(other: Any?): Boolean = this === other || other is ContentIdentity && get()?.let { it === other.get() } == true
+        }
+
+        private fun releaseCollected() {
+            while (true) measurements.remove(collected.poll() ?: break)
+        }
+
+        internal fun measure(content: ToolResultContent): Measurement {
+            releaseCollected()
+            measurements[ContentIdentity(content)]?.let { return it }
+            val measurement = measurement(render(content))
+            if (measurements.size >= maxEntries) measurements.remove(measurements.keys.iterator().next())
+            measurements[ContentIdentity(content, collected)] = measurement
+            return measurement
+        }
+
         internal fun render(content: ToolResultContent): String {
             values[content]?.let { return it }
             val rendered = ToolExchangeCompactor.render(content)
@@ -40,10 +68,23 @@ internal object ToolExchangeCompactor {
             return rendered
         }
         internal fun retainedCharacters(): Int = characters
+        internal fun retainedMeasurements(): Int {
+            releaseCollected()
+            return measurements.size
+        }
         fun clear() {
             values.clear()
+            measurements.clear()
+            releaseCollected()
             characters = 0
         }
+    }
+
+    internal data class Measurement(val tokens: Int, val digest: String)
+
+    private fun measurement(rendered: String): Measurement {
+        val bytes = rendered.toByteArray(StandardCharsets.UTF_8)
+        return Measurement(((bytes.size.toLong() + 2) / 3).toInt(), digest(bytes))
     }
 
     fun compact(
@@ -58,16 +99,16 @@ internal object ToolExchangeCompactor {
         val hardBudget = maxReplayTokens.coerceAtLeast(1)
         val perResultBudget = maxResultTokens.coerceAtLeast(MIN_RESULT_TOKENS)
         val flattenedResults = exchanges.flatMap { it.results }
-        // Serialize each result once per projection, rather than rebuilding the complete
-        // history for fingerprinting, sizing and the final excerpt independently.
-        val renderedResults = flattenedResults.map { renderCache?.render(it.content) ?: render(it.content) }
+        // Counts and digests survive projections; render only results that receive
+        // space in this round. The cache is private to this runner and bounded.
+        val measurements = flattenedResults.map { renderCache?.measure(it.content) ?: measurement(render(it.content)) }
         var fingerprintIndex = 0
         val fingerprints = exchanges.flatMap { exchange ->
             val calls = exchange.calls.associateBy { it.callId }
             exchange.results.map { result ->
                 val call = calls[result.callId]
                 // A missing call is never deduplicated with an unrelated result.
-                fingerprint("${call?.name ?: result.callId}|${call?.arguments}|${result.isError}|${result.errorCode}|${renderedResults[fingerprintIndex++]}")
+                fingerprint("${call?.name ?: result.callId}|${call?.arguments}|${result.isError}|${result.errorCode}|${measurements[fingerprintIndex++].digest}")
             }
         }
         val lastOccurrence = fingerprints.withIndex().associate { (index, value) -> value to index }
@@ -88,7 +129,7 @@ internal object ToolExchangeCompactor {
         for (index in fingerprints.indices.reversed()) {
             val duplicate = lastOccurrence[fingerprints[index]] != index
             if (duplicate || remaining < MIN_RESULT_TOKENS) continue
-            val actualCost = ContextTokenEstimate.estimate(renderedResults[index]).coerceAtLeast(1)
+            val actualCost = measurements[index].tokens.coerceAtLeast(1)
             val allowance = minOf(perResultBudget, remaining, actualCost)
             resultBudgets[index] = allowance
             // Small successful results no longer reserve an entire 512/800-token slice.
@@ -98,9 +139,9 @@ internal object ToolExchangeCompactor {
         val compacted = exchanges.mapIndexed { exchangeIndex, exchange ->
             val compactedResults = exchange.results.map { result ->
                 val index = resultIndex++
-                val raw = renderedResults[index]
                 val duplicate = lastOccurrence[fingerprints[index]] != index
                 val maxChars = resultBudgets[index] * CHARS_PER_TOKEN
+                val raw by lazy(LazyThreadSafetyMode.NONE) { renderCache?.render(result.content) ?: render(result.content) }
                 when {
                     duplicate -> result.copy(content = ToolResultContent.Text(DUPLICATE_RESULT))
                     resultBudgets[index] == 0 -> result.copy(content = ToolResultContent.Text(OMITTED_RESULT))
@@ -120,7 +161,7 @@ internal object ToolExchangeCompactor {
         // objects accumulate. If metadata still exceeds the hard budget, retain complete
         // call/result pairs newest-first and evict older pairs. This makes maxReplayTokens
         // an actual upper bound instead of a warning threshold.
-        return if (estimateTokens(compacted) <= hardBudget) compacted else hardBound(compacted, hardBudget)
+        return if (estimateTokens(compacted, renderCache) <= hardBudget) compacted else hardBound(compacted, hardBudget, renderCache)
     }
 
     private fun recoveryPage(content: ToolResultContent): JsonObject? =
@@ -150,7 +191,7 @@ internal object ToolExchangeCompactor {
         }
     }
 
-    private fun hardBound(exchanges: List<AgentToolExchange>, hardBudget: Int): List<AgentToolExchange> {
+    private fun hardBound(exchanges: List<AgentToolExchange>, hardBudget: Int, renderCache: RenderCache?): List<AgentToolExchange> {
         var remaining = hardBudget
         val retained = mutableListOf<AgentToolExchange>()
         for (exchange in exchanges.asReversed()) {
@@ -160,13 +201,13 @@ internal object ToolExchangeCompactor {
                 val result = resultByCallId[call.callId] ?: continue
                 var keptCall = call
                 var keptResult = result
-                var cost = estimateTokens(listOf(AgentToolExchange(listOf(keptCall), listOf(keptResult))))
+                var cost = estimateTokens(listOf(AgentToolExchange(listOf(keptCall), listOf(keptResult))), renderCache)
                 if (cost > remaining) {
                     // Arguments and consumed payload are no longer needed to execute the call;
                     // preserving the id/name/result pairing is sufficient for provider replay.
                     keptCall = call.copy(arguments = buildJsonObject { })
                     keptResult = result.copy(content = ToolResultContent.Text(OMITTED_RESULT))
-                    cost = estimateTokens(listOf(AgentToolExchange(listOf(keptCall), listOf(keptResult))))
+                    cost = estimateTokens(listOf(AgentToolExchange(listOf(keptCall), listOf(keptResult))), renderCache)
                 }
                 if (cost <= remaining) {
                     keptPairs += keptCall to keptResult
@@ -183,10 +224,10 @@ internal object ToolExchangeCompactor {
         return retained.asReversed()
     }
 
-    fun estimateTokens(exchanges: List<AgentToolExchange>): Int =
+    fun estimateTokens(exchanges: List<AgentToolExchange>, renderCache: RenderCache? = null): Int =
         exchanges.sumOf { exchange ->
             exchange.calls.sumOf { ContextTokenEstimate.estimate(it.name + it.arguments.toString()).toLong() + 24 } +
-                exchange.results.sumOf { ContextTokenEstimate.estimate(render(it.content)).toLong() + 24 }
+                exchange.results.sumOf { (renderCache?.measure(it.content)?.tokens ?: ContextTokenEstimate.estimate(render(it.content))).toLong() + 24 }
         }.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
 
     private fun compactText(value: String, maxChars: Int): String {
@@ -204,9 +245,11 @@ internal object ToolExchangeCompactor {
         is ToolResultContent.ResourceLinks -> Json.encodeToString(content.links.map { it.uri })
     }
 
-    private fun fingerprint(value: String): String {
-        val bytes = MessageDigest.getInstance("SHA-256").digest(value.toByteArray(StandardCharsets.UTF_8))
-        return bytes.take(12).joinToString("") { "%02x".format(it) }
+    private fun fingerprint(value: String): String = digest(value.toByteArray(StandardCharsets.UTF_8))
+
+    private fun digest(bytes: ByteArray): String = MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { byte ->
+        val value = byte.toInt() and 0xff
+        "0123456789abcdef"[value ushr 4].toString() + "0123456789abcdef"[value and 0xf]
     }
 }
 

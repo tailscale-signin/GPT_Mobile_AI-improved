@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
 import android.Manifest
+import android.content.ClipData
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -811,7 +812,7 @@ private fun ChatScreenContent(
         val composerHeight = with(density) { composerHeightPx.toDp() }
 
         GlassBackdropBox(
-            blurEnabled = true,
+            blurEnabled = isIdle && !listState.isScrollInProgress,
             modifier = Modifier
                 .fillMaxSize()
                 .padding(bottom = innerPadding.calculateBottomPadding())
@@ -2143,7 +2144,10 @@ private suspend fun exportChat(context: Context, chatViewModel: ChatViewModel, f
             Toast.makeText(context, "Preparing detailed conversation diagnostics…", Toast.LENGTH_SHORT).show()
         }
         val file = if (format == ChatExportFormat.DEBUG) {
-            withContext(Dispatchers.IO) { chatViewModel.exportDebugFile(context.getExternalFilesDir(null) ?: context.filesDir, reducedMemory, resume) }
+            withContext(Dispatchers.IO) {
+                val output = context.getExternalFilesDir(null) ?: File(context.cacheDir, "diagnostics").apply { mkdirs() }
+                chatViewModel.exportDebugFile(output, reducedMemory, resume)
+            }
         } else {
             val (fileName, fileContent) = chatViewModel.exportChat(format)
             if (fileContent.isBlank()) {
@@ -2151,7 +2155,8 @@ private suspend fun exportChat(context: Context, chatViewModel: ChatViewModel, f
                 return
             }
             withContext(Dispatchers.IO) {
-                val destination = File(context.getExternalFilesDir(null), fileName)
+                val output = context.getExternalFilesDir(null) ?: File(context.cacheDir, "diagnostics").apply { mkdirs() }
+                val destination = File(output, fileName)
                 val staging = File(destination.parentFile, ".${destination.name}.partial")
                 try {
                     staging.writeText(fileContent)
@@ -2165,20 +2170,15 @@ private suspend fun exportChat(context: Context, chatViewModel: ChatViewModel, f
         if (format == ChatExportFormat.DEBUG) {
             chatViewModel.diagnosticExportNotice.value?.let { Toast.makeText(context, it, Toast.LENGTH_LONG).show() }
         }
-        val uri = withContext(Dispatchers.IO) { getUriForFile(context, "${context.packageName}.fileprovider", file) }
-        val shareIntent = Intent(Intent.ACTION_SEND).apply {
-            type = format.mimeType
-            putExtra(Intent.EXTRA_STREAM, uri)
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        val uri = withContext(Dispatchers.IO) {
+            check(file.isFile && file.length() > 0L) { "Export is missing or empty." }
+            val provided = getUriForFile(context, "${context.packageName}.fileprovider", file)
+            context.contentResolver.openInputStream(provided)?.use { stream ->
+                check(stream.read() != -1) { "Export provider returned an empty file." }
+            } ?: error("Export provider cannot open the file.")
+            provided
         }
-        val chooser = Intent.createChooser(shareIntent, "Share Chat Export").apply {
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
-        val resInfo = context.packageManager.queryIntentActivities(chooser, PackageManager.MATCH_DEFAULT_ONLY)
-        resInfo.forEach { res ->
-            context.grantUriPermission(res.activityInfo.packageName, uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        }
-        context.startActivity(chooser)
+        context.startActivity(chatExportChooser(context, uri, file.name, format.mimeType))
     } catch (e: kotlinx.coroutines.CancellationException) {
         throw e
     } catch (_: dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticExportBusy) {
@@ -2188,6 +2188,22 @@ private suspend fun exportChat(context: Context, chatViewModel: ChatViewModel, f
     } catch (e: Exception) {
         Log.e("ChatExport", "Failed to export chat", e)
         Toast.makeText(context, "Failed to export chat", Toast.LENGTH_SHORT).show()
+    }
+}
+
+/** Android sharesheet grants URI access only to the selected destination. */
+internal fun chatExportChooser(context: Context, uri: android.net.Uri, fileName: String, mimeType: String): Intent {
+    require(uri.scheme == "content") { "Only content-provider exports may be shared." }
+    val clip = ClipData.newUri(context.contentResolver, fileName, uri)
+    val send = Intent(Intent.ACTION_SEND).apply {
+        type = mimeType
+        putExtra(Intent.EXTRA_STREAM, uri)
+        clipData = clip
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+    return Intent.createChooser(send, "Share Chat Export").apply {
+        clipData = clip
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
     }
 }
 

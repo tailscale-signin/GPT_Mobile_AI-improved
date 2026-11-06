@@ -21,6 +21,24 @@ class GitHubInputRegressionTest {
         assertThrows(IllegalArgumentException::class.java) { normalizeGitHubRepository(null, "https://github.com.evil.org/owner/repo") }
     }
 
+    @Test fun singleRepositoryAndOwnerCannotInjectPathOrUrlComponents() {
+        for (repo in listOf("..", ".git", "a?x=1", "a%2fb", "a b", "https://github.com/a/%72")) {
+            assertThrows(repo, IllegalArgumentException::class.java) { normalizeGitHubRepository("owner", repo) }
+        }
+        for (owner in listOf("a/b", "..", "a?x", "a%2fb", "a b")) {
+            assertThrows(owner, IllegalArgumentException::class.java) { normalizeGitHubRepository(owner, "repo") }
+        }
+        assertEquals("Owner" to "my-repo", normalizeGitHubRepository(" Owner ", " https://GitHub.com/owner/my-repo.git "))
+    }
+
+    @Test fun branchNormalizationPreservesHierarchyAndRejectsAmbiguousRevisionSyntax() {
+        assertEquals("feature/topic", normalizeGitHubBranch(" refs/heads/feature/topic "))
+        assertEquals("feature/é", normalizeGitHubBranch("feature/é"))
+        for (branch in listOf("", "HEAD", "@", "-topic", "refs/tags/v1", "a..b", "a//b", "a/.b", "a.lock/b", "a@{1}", "a b", "a\\b", "a~1", "a^", "a?", "a*", "a[1]", "a/", "a.")) {
+            assertThrows(branch, IllegalArgumentException::class.java) { normalizeGitHubBranch(branch) }
+        }
+    }
+
     @Test
     fun searchQuotaSurvivesCoreResponsesAndStopsOnlyUntilReset() {
         val manager = GitHubRateLimitManager()

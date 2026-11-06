@@ -92,4 +92,12 @@ class LocalServiceHealthTest {
         assertEquals(0L, LocalServiceHealth.retryAfterMillis(local))
         assertEquals(ConnectionHealth.UNKNOWN, LocalServiceHealth.classify(cancelled))
     }
+
+    @Test fun closedBeforeResponseIsATransportFailureWithoutOverridingAuthenticationOrCancellation() {
+        val interrupted = IllegalStateException("Connection closed before response arrived")
+        assertEquals(ConnectionHealth.STREAM_INTERRUPTED, LocalServiceHealth.classify(interrupted))
+        assertEquals(ConnectionHealth.STREAM_INTERRUPTED, LocalServiceHealth.classify(IllegalStateException("gateway", interrupted)))
+        assertEquals(ConnectionHealth.AUTHENTICATION_FAILED, LocalServiceHealth.classify(IllegalStateException("HTTP 403 forbidden: connection closed before response arrived")))
+        assertEquals(ConnectionHealth.UNKNOWN, LocalServiceHealth.classify(kotlinx.coroutines.CancellationException("Connection closed before response arrived")))
+    }
 }

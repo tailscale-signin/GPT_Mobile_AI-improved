@@ -116,4 +116,32 @@ class FreeProviderReliabilityTest {
         assertTrue(FreeAiProvider.PORCHLM.isDemo)
         assertFalse(FreeAiProvider.default.isDemo)
     }
+
+    @Test fun delayedPreflightCannotRestoreForgottenChatEvidence() {
+        val file = Files.createTempDirectory("deferred-preflight").resolve("failures.json").toFile()
+        val chatId = 107613
+        val profile = dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2(
+            uid = "deferred-free-profile",
+            name = "Deferred profile",
+            apiUrl = FreeAiProvider.OPENCODE.apiUrl,
+            compatibleType = dev.chungjungsoo.gptmobile.data.model.ClientType.FREE
+        )
+        val outcome = dev.chungjungsoo.gptmobile.data.network.FreeProviderPreflight.check(profile)!!
+        val startedAt = System.currentTimeMillis()
+        FreeProviderDiagnostics.initialize(file)
+        try {
+            FreeProviderDiagnostics.recordPreflight(profile, outcome, chatId, persistent = true, startedAt = startedAt)
+            assertEquals(1, FreeProviderDiagnostics.snapshot(chatId).size)
+            FreeProviderDiagnostics.forgetChat(chatId)
+            // IO may resume only after deletion. Its event time must remain the
+            // time of rejection, rather than bypassing revocation with a new clock.
+            FreeProviderDiagnostics.recordPreflight(profile, outcome, chatId, persistent = true, startedAt = startedAt)
+            assertTrue(FreeProviderDiagnostics.snapshot(chatId).isEmpty())
+            FreeProviderDiagnostics.initialize(file)
+            assertTrue(FreeProviderDiagnostics.snapshot(chatId).isEmpty())
+        } finally {
+            FreeProviderDiagnostics.clear()
+            file.parentFile.deleteRecursively()
+        }
+    }
 }

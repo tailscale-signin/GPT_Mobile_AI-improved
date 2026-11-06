@@ -42,7 +42,15 @@ internal object GitHubOperationArguments {
         fun positive(key: String) {
             if (key in args && text(key).toLongOrNull()?.let { it > 0 } != true) errors += "$key must be a positive integer ID returned by discovery"
         }
-        for (key in listOf("commit_sha", "expected_head_sha", "head_sha", "tree_sha")) {
+        fun unused(vararg keys: String) {
+            keys.filter { it in args }.forEach { errors += "$it is not used by this action; choose the intended action or remove the field before dispatch" }
+        }
+        for (key in listOf("branch", "from_branch")) {
+            if (key in args && runCatching { dev.chungjungsoo.gptmobile.data.github.normalizeGitHubBranch(text(key)) }.isFailure) {
+                errors += "$key must be a valid branch name or refs/heads/name; do not use a tag or revision expression"
+            }
+        }
+        for (key in listOf("commit_sha", "expected_head_sha", "expected_base_sha", "head_sha", "tree_sha")) {
             if (key in args && (!text(key).matches(Regex("[a-fA-F0-9]{40}|[a-fA-F0-9]{64}")) || text(key).all { it == '0' })) {
                 errors += "$key must be a real commit/tree SHA, not a placeholder; discover the current head with github_context action=branch before retrying"
             }
@@ -71,8 +79,14 @@ internal object GitHubOperationArguments {
             }
             "github_commit" -> {
                 when (text("action")) {
-                    "branch" -> required("branch", "expected_head_sha")
-                    "delete_branch" -> required("branch", "expected_head_sha")
+                    "branch" -> {
+                        required("branch", "expected_head_sha")
+                        unused("stage_id", "message")
+                    }
+                    "delete_branch" -> {
+                        required("branch", "expected_head_sha")
+                        unused("stage_id", "message", "from_branch")
+                    }
                     else -> required("stage_id", "expected_head_sha", "branch", "message")
                 }
                 if ("expected_head_sha" in args && !text("expected_head_sha").matches(Regex("[a-fA-F0-9]{40}"))) errors += "expected_head_sha must be the current 40-character branch head"
@@ -106,8 +120,12 @@ internal object GitHubOperationArguments {
                     "run", "artifacts", "rerun", "rerun_failed_jobs", "rerun_all", "cancel" -> required("run_id")
                     "job", "logs" -> required("job_id")
                     "jobs" -> if ("run_id" !in args && "job_id" !in args) errors += "jobs requires run_id to list jobs, or job_id to inspect one job; obtain IDs from action=runs"
-                    "dispatch" -> required("workflow_id", "ref", "expected_head_sha")
+                    "dispatch" -> {
+                        required("workflow_id", "ref", "expected_head_sha")
+                        unused("run_id", "job_id", "run_attempt")
+                    }
                 }
+                if (text("action") != "dispatch") unused("inputs")
                 if ("expected_head_sha" in args && !text("expected_head_sha").matches(Regex("[a-fA-F0-9]{40}"))) errors += "expected_head_sha must be the current 40-character workflow head"
                 val start = text("start_line").ifBlank { "1" }.toLongOrNull()
                 val end = text("end_line").toLongOrNull()
@@ -118,6 +136,30 @@ internal object GitHubOperationArguments {
             "github_pr" -> {
                 positive("pull_number")
                 positive("comment_id")
+                when (text("action").ifBlank { "context" }) {
+                    "create" -> {
+                        required("title", "head", "base")
+                        unused("pull_number", "comment_id", "event", "comments", "state")
+                        if (text("head").isNotBlank() && text("head") == text("base")) errors += "head and base must differ; discover branches and existing pull requests before creating a PR"
+                    }
+                    "update" -> {
+                        required("pull_number", "expected_head_sha")
+                        if (listOf("title", "body", "base", "state").none { it in args }) errors += "update requires at least one of title, body, base or state"
+                        if ("state" in args && text("state") !in setOf("open", "closed")) errors += "state must be open or closed for an update"
+                        unused("head", "draft", "comment_id", "event", "comments")
+                    }
+                    "merge" -> {
+                        required("pull_number", "expected_head_sha")
+                        unused("title", "body", "head", "base", "state", "draft", "comment_id", "event", "comments")
+                    }
+                    "comment", "reply" -> {
+                        required("pull_number", "expected_head_sha", "body")
+                        if (text("action") == "reply") required("comment_id") else unused("comment_id")
+                        unused("title", "head", "base", "state", "draft", "event", "comments")
+                    }
+                    "review" -> required("pull_number", "expected_head_sha")
+                    "context", "headers", "comments", "reviews", "list" -> unused("title", "body", "head", "base", "draft", "comment_id", "event", "comments")
+                }
                 if (text("action") == "review") {
                     val inline = (args["comments"] as? JsonArray).orEmpty()
                     if (inline.isEmpty() && text("event") != "APPROVE" && text("body").isBlank()) {
@@ -131,14 +173,25 @@ internal object GitHubOperationArguments {
                     "headers", "context", "comments", "history" -> if (text("issue_number").isBlank()) {
                         errors += "issue_number is required; use github_issue action=list to discover an existing issue number before retrying"
                     }
-                    "create" -> required("title")
+                    "create" -> {
+                        required("title")
+                        unused("issue_number", "expected_updated_at", "state")
+                    }
                     "update" -> {
                         required("issue_number", "expected_updated_at")
                         if (text("state") == "all") errors += "state=all is only valid for listing issues"
+                        if (listOf("title", "body", "state").none { it in args }) errors += "update requires at least one of title, body or state"
                     }
                 }
             }
-            "github_release" -> positive("workflow_run_id")
+            "github_release" -> {
+                positive("workflow_run_id")
+                when (text("action")) {
+                    "detail", "tag", "create_tag", "publish" -> required("tag_name")
+                }
+                if (text("action") == "create_tag" && text("target_commitish").isBlank() && text("ref").isBlank()) errors += "create_tag requires target_commitish or ref from repository discovery"
+                if (text("action") !in setOf("publish")) unused("inputs", "release_strategy")
+            }
         }
         return errors
     }

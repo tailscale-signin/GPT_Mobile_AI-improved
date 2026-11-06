@@ -131,6 +131,32 @@ class DiagnosticJournalTests(unittest.TestCase):
         duplicate_gap = self.store.ingest('paired-owner', batch(gaps=[gap]))
         self.assertEqual(1, duplicate_gap['watermarks'][0]['lost_count'])
 
+    def test_batched_insert_preserves_in_batch_duplicate_conflict_and_restart(self):
+        identical = event(1)
+        changed = event(1, bounded_attributes={'status': 503})
+        following = event(2)
+        receipt = self.store.ingest('paired-owner', batch([identical, identical, changed, following]))
+        self.assertEqual([identical['event_id'], following['event_id']], receipt['committed_event_ids'])
+        self.assertEqual([{'event_id': identical['event_id'], 'content_verified': True}], receipt['duplicates'])
+        self.assertEqual([{'event_id': changed['event_id'], 'code': 'EVENT_ID_CONFLICT'}], receipt['rejected'])
+        self.assertEqual(2, receipt['last_ingest_sequence'])
+        self.assertEqual(2, receipt['watermarks'][0]['accounted_through'])
+        self.store.close()
+        replay = self.store.ingest('paired-owner', batch([identical]))
+        self.assertEqual([{'event_id': identical['event_id'], 'content_verified': True}], replay['duplicates'])
+        self.assertEqual(2, replay['last_ingest_sequence'])
+
+    def test_batched_insert_rolls_back_events_digests_and_watermark_on_invalid_gap(self):
+        invalid = {'origin_device_pseudonym': ORIGIN, 'origin_boot_id': BOOT,
+                   'first': 2, 'last': 2, 'reason': 'INVALID'}
+        with self.assertRaises(DiagnosticProtocolError) as rejected:
+            self.store.ingest('paired-owner', batch([event(1)], [invalid]))
+        self.assertEqual('INVALID_GAP', rejected.exception.code)
+        receipt = self.store.ingest('paired-owner', batch([event(1)]))
+        self.assertEqual([event(1)['event_id']], receipt['committed_event_ids'])
+        self.assertEqual([], receipt['duplicates'])
+        self.assertEqual(1, receipt['last_ingest_sequence'])
+
     def test_conflicting_identity_is_rejected_while_verification_digest_survives_row_eviction(self):
         self.append(1, 5001)
         changed = event(1, bounded_attributes={'status': 500})

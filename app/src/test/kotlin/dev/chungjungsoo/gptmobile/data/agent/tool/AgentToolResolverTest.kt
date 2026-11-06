@@ -356,6 +356,46 @@ class AgentToolResolverTest {
         }
     }
 
+    @Test fun localOnlyContextBlocksMcpBeforeInitialAndDeferredDiscovery() = runBlocking {
+        val local = PlatformV2(uid = "profile", name = "Local", compatibleType = ClientType.LLAMA, apiUrl = "http://127.0.0.1:8080/v1", model = "local")
+        val dao = ResolverFakeToolConnectionDao()
+        val remote = connection("private-mcp", ToolConnectionType.MCP, "https://private.example/mcp", authType = ToolConnectionAuthType.NONE)
+        dao.bind(remote, binding(local.uid, remote.connectionUid, "echo"))
+        var requests = 0
+        val http = io.ktor.client.HttpClient(
+            io.ktor.client.engine.mock.MockEngine {
+                requests++
+                error("Privacy-blocked discovery must not dispatch")
+            }
+        ) { install(io.ktor.client.plugins.sse.SSE) }
+        val manager = McpClientManager(http)
+        val resolver = resolver(dao = dao, settings = ResolverFakeSettingRepository(listOf(local)), managerOverride = manager)
+        val config = ChatMcpToolConfig(allowAllByDefault = true)
+        val message = dev.chungjungsoo.gptmobile.data.database.entity.MessageV2(id = 42, chatId = 7, content = "Use echo", platformType = null)
+        val context = dev.chungjungsoo.gptmobile.data.permissions.PersonalDataContext(7, null)
+        try {
+            kotlinx.coroutines.withContext(context) {
+                val directory = resolver.resolve(local.uid, config, message, cachedCataloguesOnly = true).single { it.dynamicTools != null }
+                context.add(listOf(dev.chungjungsoo.gptmobile.data.permissions.PersonalDataProvenance(sourceToolId = "memory", sourceProfileUid = local.uid, sourceRef = "local-source", categories = setOf(dev.chungjungsoo.gptmobile.data.permissions.PersonalDataCategory.MEMORY), localOnly = true)))
+                repeat(3) { attempt ->
+                    directory.tool.execute("discover-$attempt", buildJsonObject { put("query", "echo") })
+                }
+                resolver.warmSelectedCatalogues(local.uid)
+                val reasons = mutableListOf<String>()
+                for (cachedOnly in listOf(false, true)) {
+                    val tools = resolver.resolve(local.uid, config, message, onConnectionError = reasons::add, cachedCataloguesOnly = cachedOnly)
+                    assertFalse(tools.any { it.connectionUid == remote.connectionUid })
+                }
+                assertTrue(reasons.any { it.contains("local", ignoreCase = true) })
+                assertEquals(0, requests)
+                assertEquals(0, manager.healthSnapshot(remote.connectionUid).consecutiveFailures)
+            }
+        } finally {
+            manager.closeAll()
+            http.close()
+        }
+    }
+
     @Test
     fun `free MCP usage requires the grant for the exact profile and tool at runtime`() = runBlocking {
         McpClientManagerTest.McpFixtureServer().use { server ->
@@ -1270,11 +1310,12 @@ class AgentToolResolverTest {
         healthReader: dev.chungjungsoo.gptmobile.data.health.HealthDataReader? = null,
         healthConsent: dev.chungjungsoo.gptmobile.data.health.HealthConnectConsentStore? = null,
         gitHubState: dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore? = null,
-        statistics: dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsRepository? = null
+        statistics: dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolStatisticsRepository? = null,
+        managerOverride: McpClientManager? = null
     ): AgentToolResolver {
         val repository = ToolConnectionRepository(dao, vault)
         val networkClient = NetworkClient(CIO)
-        val manager = McpClientManager(networkClient())
+        val manager = managerOverride ?: McpClientManager(networkClient())
         return AgentToolResolver(
             toolConnectionRepository = repository,
             settingRepository = settings,

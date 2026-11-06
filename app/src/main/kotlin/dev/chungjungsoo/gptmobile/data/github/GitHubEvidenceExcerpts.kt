@@ -19,6 +19,11 @@ internal object GitHubEvidenceExcerpts {
 
     fun collect(receipt: JsonObject): Map<String, JsonObject> {
         if (receipt["success"] != JsonPrimitive(true) || receipt["trusted"] != JsonPrimitive(true)) return emptyMap()
+        if (receipt["review_projection"] == JsonPrimitive("EXACT_VALUES_WITH_DURABLE_ORIGINAL")) {
+            return (receipt["retained_excerpts"] as? JsonObject).orEmpty().mapNotNull { (key, value) ->
+                (value as? JsonObject)?.let { key to it }
+            }.toMap()
+        }
         val result = receipt["result"] ?: return emptyMap()
         val root = (result as? JsonObject)?.let { it["data"] as? JsonObject ?: it }
         val arguments = receipt["arguments"] as? JsonObject

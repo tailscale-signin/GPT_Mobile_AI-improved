@@ -276,8 +276,10 @@ class GitHubWorkspaceViewModel @Inject constructor(
     fun completeSetup() {
         val current = _state.value
         if (current.busy || current.composerReadiness != dev.chungjungsoo.gptmobile.data.github.GitHubComposerReadiness.READY || current.selection == null || current.headSha.isBlank()) return
-        current.connection?.let { store.set(it.connectionUid, current.selection) }
-        updateState { it.copy(setupRequired = false) }
+        work {
+            current.connection?.let { store.set(it.connectionUid, current.selection) }
+            updateState { it.copy(setupRequired = false) }
+        }
     }
 
     private suspend fun loadRepositoryChoices() {
@@ -562,13 +564,13 @@ class GitHubWorkspaceViewModel @Inject constructor(
         return accepted
     }
 
-    fun useInChats() {
+    fun useInChats() = work {
         val state = _state.value
         state.connection?.let { store.set(it.connectionUid, state.selection) }
         updateState { it.copy(notice = "${it.selection?.fullName} @ ${it.selection?.ref} is now the default for this GitHub connection in chats.") }
     }
 
-    fun clearChatContext() {
+    fun clearChatContext() = work {
         _state.value.connection?.let { store.set(it.connectionUid, null) }
         updateState { it.copy(notice = "Default GitHub repository context cleared.") }
     }

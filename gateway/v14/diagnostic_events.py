@@ -50,7 +50,10 @@ NUMBER_ATTRIBUTES = {'status', 'received_bytes', 'sent_bytes', 'queue_ms', 'load
                      'refresh_rate_millihz', 'gc_duration_ms', 'native_heap_bytes'}
 DIGEST_ATTRIBUTES = {'profile_digest', 'model_digest', 'endpoint_digest', 'repository_digest', 'app_revision', 'gateway_revision',
                      'capability_digest', 'runtime_config_digest', 'source_event_digest'}
-BOOL_ATTRIBUTES = {'vendor_log_available', 'source_available', 'client_metadata_accepted', 'truncation_applied'}
+BOOL_ATTRIBUTES = {'vendor_log_available', 'source_available', 'client_metadata_accepted', 'truncation_applied',
+                   'response_headers_received', 'response_headers_sent', 'response_body_completed'}
+ENUM_ATTRIBUTES = {'route': {'chat', 'models', 'readiness', 'liveness', 'capabilities', 'dashboard', 'job', 'engineering', 'other'},
+                   'method': {'GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'}}
 LOSS_REASONS = {'OFFLINE_EVICTED', 'QUEUE_FULL', 'RECORD_REJECTED', 'STORAGE_UNAVAILABLE', 'CAPTURE_INTERRUPTED'}
 
 
@@ -128,6 +131,10 @@ def sanitize_event(value, *, imported=True):
         for field in BOOL_ATTRIBUTES:
             if type(attributes.get(field)) is bool:
                 kept[field] = False if field == 'vendor_log_available' else attributes[field]
+        for field, choices in ENUM_ATTRIBUTES.items():
+            candidate = attributes.get(field)
+            if isinstance(candidate, str) and candidate in choices:
+                kept[field] = candidate
     if kept:
         result['bounded_attributes'] = kept
     # Reserve the server-owned observation/cursor fields before accepting a record.
@@ -344,8 +351,24 @@ class DiagnosticSessionJournal:
                         return sources[key]
 
                     rejected, committed, duplicate, accounted = [], [], [], []
-                    for raw in rows:
-                        key = identity(raw)
+                    # Bounded to MAX_BATCH_EVENTS; the inserts and their receipts still
+                    # commit atomically inside the same FULL-synchronous WAL transaction.
+                    pending_events, pending_verifications = [], []
+                    # Batch the digest lookup rather than doing 50,000 individual
+                    # SQLite SELECTs during a large import. Keep per-event inserts
+                    # and the transaction's FULL durability contract unchanged.
+                    identified = [(raw, identity(raw)) for raw in rows]
+                    identities = [key[3] for _, key in identified if key is not None]
+                    prior_digests = {}
+                    if identities:
+                        placeholders = ','.join('?' for _ in identities)
+                        prior_digests = {
+                            previous['event_id']: previous['digest']
+                            for previous in db.execute(
+                                f'SELECT event_id,digest FROM verification WHERE owner=? AND session=? AND event_id IN ({placeholders})',
+                                (owner, session, *identities))
+                        }
+                    for raw, key in identified:
                         if key is None:
                             rejected.append({'event_id': None, 'code': 'INVALID_EVENT_ID'})
                             capture['rejected'] += 1
@@ -360,9 +383,9 @@ class DiagnosticSessionJournal:
                             capture['rejected'] += 1
                             continue
                         verification = hashlib.sha256(encoded(item).encode()).hexdigest()
-                        prior = db.execute('SELECT digest FROM verification WHERE owner=? AND session=? AND event_id=?', (owner, session, event_id)).fetchone()
-                        if prior:
-                            if prior[0] != verification:
+                        prior = prior_digests.get(event_id)
+                        if prior is not None:
+                            if prior != verification:
                                 rejected.append({'event_id': event_id, 'code': 'EVENT_ID_CONFLICT'})
                                 capture['rejected'] += 1
                             else:
@@ -374,13 +397,21 @@ class DiagnosticSessionJournal:
                         self._account(source, sequence, sequence)
                         capture['last_ingest'] += 1
                         item.update(gateway_ingest_sequence=capture['last_ingest'], observed_at_utc=now)
-                        db.execute('INSERT INTO events VALUES(?,?,?,?,?,?,?,?)',
-                                   (owner, session, capture['last_ingest'], event_id, origin, boot, sequence, encoded(item)))
-                        db.execute('INSERT INTO verification VALUES(?,?,?,?,?)', (owner, session, event_id, verification, capture['last_ingest']))
+                        pending_events.append((owner, session, capture['last_ingest'], event_id, origin, boot, sequence, encoded(item)))
+                        pending_verifications.append((owner, session, event_id, verification, capture['last_ingest']))
+                        # A repeated ID inside this same batch must be recognized
+                        # without another database round-trip.
+                        prior_digests[event_id] = verification
                         source['highest_received'] = max(source['highest_received'], sequence)
                         source['received_count'] += 1
                         source['updated'] = now
                         committed.append(event_id)
+                    # Use SQLite's bounded executemany path rather than 128
+                    # Python-to-SQLite statement dispatches per full batch.
+                    # A failure rolls back source watermarks, rows and digests together.
+                    if pending_events:
+                        db.executemany('INSERT INTO events VALUES(?,?,?,?,?,?,?,?)', pending_events)
+                        db.executemany('INSERT INTO verification VALUES(?,?,?,?,?)', pending_verifications)
                     for gap in gaps:
                         if not isinstance(gap, dict) or gap.get('reason') not in LOSS_REASONS:
                             raise DiagnosticProtocolError('INVALID_GAP')

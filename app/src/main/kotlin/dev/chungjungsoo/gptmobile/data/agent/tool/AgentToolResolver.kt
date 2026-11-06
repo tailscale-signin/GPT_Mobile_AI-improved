@@ -104,8 +104,10 @@ class AgentToolResolver @Inject constructor(
         val features = settingRepository.getFeatureSettings()
         val profile = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid } ?: return
         if (!features.remoteMcpConnections || !profile.enabled || profile.disableAllTools || profile.disableRemoteTools) return
+        val personalContext = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.permissions.PersonalDataContext]
         val connections = toolConnectionRepository.listBindingsWithConnections(profileUid)
             .filter { it.connection?.type == ToolConnectionType.MCP && pluginEnabledForBinding(features, profileUid, it) }
+            .filter { personalContext?.externalToolRejection(profile, "${it.binding.connectionUid}:${it.binding.toolName}") == null }
             .mapNotNull { it.connection }.distinctBy { it.connectionUid }.take(limit.coerceIn(0, 64))
         coroutineScope {
             connections.map { connection ->
@@ -225,7 +227,27 @@ class AgentToolResolver @Inject constructor(
             resolved += resolveRemoteBuiltIns(profileUid, platform, featureSettings, chatToolConfig, userMessage, connections)
         }
 
+        val discoveryContext = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.permissions.PersonalDataContext]
+        val explainedDiscoveryBlocks = mutableSetOf<String>()
+        fun discoveryAllowed(binding: AgentToolBindingWithConnection): Boolean {
+            if (binding.connection?.type != ToolConnectionType.MCP || consentPlatform == null) return true
+            val id = "${binding.binding.connectionUid}:${binding.binding.toolName}"
+            val rejection = discoveryContext?.externalToolRejection(consentPlatform, id) ?: return true
+            if (explainedDiscoveryBlocks.add(id)) {
+                dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("ToolCatalog", "TOOL_AUTHORIZATION_HIDDEN · stage=before_discovery · reason=${rejection.code} · state=PRECHECK_REJECTED · dispatched=false")
+                onConnectionError("${binding.binding.toolName}: ${rejection.message.orEmpty()}")
+            }
+            if (binding.binding.connectionUid == chatToolConfig?.github?.connectionUid) throw rejection
+            return false
+        }
         val bindings = toolConnectionRepository.listBindingsWithConnections(profileUid)
+            .filter { binding ->
+                binding.connection?.type != ToolConnectionType.MCP ||
+                    allowRemoteMcp &&
+                    pluginEnabledForBinding(featureSettings, profileUid, binding) &&
+                    chatToolConfig?.isToolEnabled(listOfNotNull(binding.binding.connectionUid, binding.binding.toolName, binding.binding.connectionUid?.let { "$it:${binding.binding.toolName}" })) != false &&
+                    discoveryAllowed(binding)
+            }
             .sortedWith(compareBy<AgentToolBindingWithConnection> { it.binding.toolName }.thenBy { it.binding.connectionUid ?: "" }.thenBy { it.binding.bindingUid })
         bindings
             .filterNot { it.connection?.type == ToolConnectionType.MCP }
@@ -267,6 +289,7 @@ class AgentToolResolver @Inject constructor(
                             val outcome = when {
                                 error is McpBackoffException -> "WAITING_RECOVERY"
                                 generateSequence<Throwable>(error) { current -> current.cause?.takeUnless { cause -> cause === current } }.take(8).any { it is McpAuthenticationRequiredException } -> "AUTHENTICATION_REQUIRED"
+                                generateSequence<Throwable>(error) { current -> current.cause?.takeUnless { cause -> cause === current } }.take(8).any { it is McpProtocolConfigurationException } -> "PROTOCOL_CONFIGURATION"
                                 generateSequence<Throwable>(error) { current -> current.cause?.takeUnless { cause -> cause === current } }.take(8).any { it is McpEndpointConfigurationException } -> "ENDPOINT_CONFIGURATION"
                                 generateSequence<Throwable>(error) { current -> current.cause?.takeUnless { cause -> cause === current } }.take(8).any { it is java.io.IOException } -> "NETWORK_UNAVAILABLE"
                                 error is IllegalStateException -> "MCP_STATE_OR_CATALOG_INVALID"
@@ -277,6 +300,7 @@ class AgentToolResolver @Inject constructor(
                             val message = when (outcome) {
                                 "WAITING_RECOVERY" -> "${connection.name}: temporarily waiting for the MCP connection backoff to expire. The tool catalogue is retained and can be refreshed when recovery is available."
                                 "AUTHENTICATION_REQUIRED" -> "${connection.name}: authentication is required. Reconnect or update this server's credentials."
+                                "PROTOCOL_CONFIGURATION" -> "${connection.name}: " + generateSequence<Throwable>(error) { it.cause?.takeUnless { cause -> cause === it } }.take(8).filterIsInstance<McpProtocolConfigurationException>().first().message.orEmpty()
                                 "ENDPOINT_CONFIGURATION" -> "${connection.name}: the MCP endpoint path or server configuration is invalid. Check the configured URL and reconnect."
                                 "NETWORK_UNAVAILABLE" -> "${connection.name}: network access to this MCP server is unavailable. The saved catalogue is retained for retry after connectivity returns."
                                 "MCP_STATE_OR_CATALOG_INVALID" -> "${connection.name}: the MCP connection or tool catalogue changed during discovery. Refresh the catalogue after the connection settles."
@@ -433,7 +457,9 @@ class AgentToolResolver @Inject constructor(
             check(live.remoteMcpConnections && !current.disableAllTools && !current.disableRemoteTools) { "Remote tools are disabled." }
             val currentBindings = toolConnectionRepository.listBindingsWithConnections(profileUid)
             val words = Regex("[\\p{L}\\p{N}]+").findAll(query.lowercase(java.util.Locale.ROOT)).map { it.value }.filter { it.length > 2 }.toSet() + if (isGitHubTask(query)) setOf("github", "git") else emptySet()
-            val targets = coldBindings.filter { it in currentBindings && pluginEnabledForBinding(live, profileUid, it) }
+            // Recheck the same provenance decision before network discovery as well as
+            // before execution. Repeating a tool name cannot reveal a policy-hidden tool.
+            val targets = coldBindings.filter { it in currentBindings && pluginEnabledForBinding(live, profileUid, it) && discoveryAllowed(it) }
                 .groupBy { it.binding.connectionUid }
                 .values.filter { group -> group.first().binding.connectionUid !in attemptedConnections || group.any { it.binding.toolName in names || names.any { name -> name.endsWith("__" + it.binding.toolName) } } }
                 .sortedByDescending { group ->

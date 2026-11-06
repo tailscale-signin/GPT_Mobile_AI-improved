@@ -51,7 +51,9 @@ internal fun GitHubActivityPreview(raw: String, latest: Boolean, motion: State<F
             // text always share opacity, color and animation phase.
             .graphicsLayer {
                 alpha = opacity.value
-                compositingStrategy = CompositingStrategy.Offscreen
+                // SrcIn requires isolation only for the current gradient row.
+                // Settled history releases its offscreen buffer after fading in.
+                compositingStrategy = if (latest) CompositingStrategy.Offscreen else CompositingStrategy.Auto
             }
             .then(
                 if (latest) {

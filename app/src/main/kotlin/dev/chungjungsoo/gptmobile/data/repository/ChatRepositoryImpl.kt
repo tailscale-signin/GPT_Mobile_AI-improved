@@ -2392,6 +2392,7 @@ class ChatRepositoryImpl(
                                 budgetSettings, limits, customRunner, delegationSettings, effectiveTools, exposedTools,
                                 resolvedTools, delegatedTools, trace, traceSequences, recalled, documentContext,
                                 localResearch, processingOwnership, reservedFinalToolCalls, followUps,
+                                remainingToolCalls = toolBudget::remainingCalls,
                                 retryUndispatchedBudgetFailures = taskRecovery?.retryUndispatchedBudgetFailures == true && chatToolConfig?.combined == null,
                                 resumeToolBudget = taskRecovery?.renewsToolBudget == true && chatToolConfig?.github != null && chatToolConfig.combined == null,
                                 toolCallsAlreadyUsed = toolBudget.usedCalls().takeIf { chatToolConfig?.github != null },
@@ -3724,7 +3725,10 @@ class ChatRepositoryImpl(
         if (platform.compatibleType == ClientType.FREE) {
             dev.chungjungsoo.gptmobile.data.network.FreeProviderPreflight.check(platform)?.let { outcome ->
                 val chatId = effectiveUserMessages.lastOrNull()?.chatId
-                dev.chungjungsoo.gptmobile.data.free.FreeProviderDiagnostics.recordPreflight(platform, outcome, chatId, chatId?.let { agentPersistenceDao.getChatRoom(it)?.isTemporary == false } == true)
+                val startedAt = System.currentTimeMillis()
+                withContext(Dispatchers.IO) {
+                    dev.chungjungsoo.gptmobile.data.free.FreeProviderDiagnostics.recordPreflight(platform, outcome, chatId, chatId?.let { agentPersistenceDao.getChatRoom(it)?.isTemporary == false } == true, startedAt)
+                }
                 emit(ApiState.Error("${outcome.category.name}: ${outcome.message}"))
                 return null
             }
@@ -4319,6 +4323,7 @@ class ChatRepositoryImpl(
         processingOwnership: Int,
         reservedFinalToolCalls: Int,
         followUps: dev.chungjungsoo.gptmobile.data.queue.FollowUpInbox?,
+        remainingToolCalls: () -> Int?,
         retryUndispatchedBudgetFailures: Boolean = false,
         resumeToolBudget: Boolean = false,
         toolCallsAlreadyUsed: Int? = null,
@@ -5093,6 +5098,7 @@ class ChatRepositoryImpl(
                 delegate = reviewedSession,
                 evidence = verifiedEvidence,
                 task = githubEffectiveTask,
+                remainingToolCalls = remainingToolCalls,
                 authorizedTools = runnerTools.map { it.definition }.filter { it.modelVisible },
                 inputLimit = { (githubStageBudget("github-claim-extraction").input - dev.chungjungsoo.gptmobile.data.context.TextTokenEstimate.estimate(dev.chungjungsoo.gptmobile.data.github.GitHubEvidencePolicy.INSTRUCTION)).coerceAtLeast(0) },
                 openVerifier = { prompt ->
@@ -5118,6 +5124,7 @@ class ChatRepositoryImpl(
                     { diagnostics.run(platform.uid, "${user.chatId}:${user.id}") { send(ApiState.ProgressCheckpoint(it)) } }
                 },
                 onPublication = { report ->
+                    retainGitHubRunAcceptance(runId, report)
                     if (report["completion_verified"] == kotlinx.serialization.json.JsonPrimitive(true) || report["verification_failure"] == kotlinx.serialization.json.JsonPrimitive("GITHUB_TASK_INCOMPLETE")) {
                         // Delivered claims or identified execution gaps can advance the task. A failed
                         // extraction keeps the reviewed draft so recovery repeats only verification.
@@ -6120,6 +6127,13 @@ class ChatRepositoryImpl(
         completedAt: Long,
         terminalError: String?
     ): Boolean {
+        val acceptanceEvidence = if (status == AgentRunStatus.WAITING_REMOTE_JOB) null else readGitHubRunAcceptance(runId, message, completing = status == AgentRunStatus.COMPLETED)
+        val acceptance = acceptanceEvidence?.acceptance
+        dev.chungjungsoo.gptmobile.data.github.GitHubRunAcceptance.requireCompletion(
+            status == AgentRunStatus.COMPLETED,
+            acceptanceEvidence?.expected == true,
+            acceptance
+        )
         val committed = agentPersistenceDao.finishRunningWithMessage(message, runId, status, completedAt, terminalError)
         // A locally disconnected poll is not a terminal provider outcome. Preserve the
         // reservation and original remote job until an explicit check or cancellation.
@@ -6127,15 +6141,74 @@ class ChatRepositoryImpl(
         if (committed) {
             val failure = message.timeline.asReversed().firstNotNullOfOrNull { it.profileFailure }
                 ?: terminalError?.let { dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.classify(it) }
-            val terminal = dev.chungjungsoo.gptmobile.data.agent.AgentRunTerminalDiagnostics.from(status, failure)
-            AppLogRecorder.record("Agent", "RUN_TERMINAL · runId=$runId · status=$status · reason=${terminal.reason} · failedStage=${terminal.stage} · retryable=${failure?.retryAllowed ?: false} · dispatched=${failure?.dispatched?.toString() ?: "not_recorded"} · executionState=${terminal.executionState} · taskVerification=${terminal.taskVerification} · acceptanceEvidence=task_acceptance_ledger · causalEvidence=message:${message.id}:run_error · terminalErrorRetained=${terminalError != null} · visibleCharacters=${message.content.length} · reasoningCharacters=${message.thoughts.length} · ownershipFence=${message.ownershipFence}")
+            val terminal = dev.chungjungsoo.gptmobile.data.agent.AgentRunTerminalDiagnostics.from(status, failure, acceptance)
+            AppLogRecorder.record("Agent", "RUN_TERMINAL · runId=$runId · status=$status · reason=${terminal.reason} · failedStage=${terminal.stage} · retryable=${failure?.retryAllowed ?: false} · dispatched=${failure?.dispatched?.toString() ?: "not_recorded"} · executionState=${terminal.executionState} · taskVerification=${terminal.taskVerification} · acceptanceEvidence=${acceptance?.evidenceId ?: "unavailable"} · verifiedCriteria=${acceptance?.verifiedCriteria ?: "not_recorded"} · requiredCriteria=${acceptance?.requiredCriteria ?: "not_recorded"} · unresolvedRemoteOutcomes=${acceptance?.unresolvedOutcomes ?: "not_recorded"} · causalEvidence=message:${message.id}:run_error · terminalErrorRetained=${terminalError != null} · visibleCharacters=${message.content.length} · reasoningCharacters=${message.thoughts.length} · ownershipFence=${message.ownershipFence}")
             settleCombinedStage(runId, message, status, terminalError)
+            expectedGitHubRunAcceptance.remove(runId)
+            synchronized(temporaryGitHubRunAcceptance) { temporaryGitHubRunAcceptance.remove(dev.chungjungsoo.gptmobile.data.github.GitHubRunAcceptance.key(runId, message.ownershipFence)) }
             dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.let { journal ->
                 withContext(Dispatchers.Default) { journal.traceOutput(runId, dev.chungjungsoo.gptmobile.data.diagnostics.OutputTraceBoundary.COMMITTED, message.content, fence = message.ownershipFence) }
             }
         }
         if (committed) dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.record(runId, dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.RUN_TERMINAL, fence = message.ownershipFence, visibleBytes = message.content.toByteArray(Charsets.UTF_8).size.toLong(), successful = status == AgentRunStatus.COMPLETED)
         return committed
+    }
+
+    /** The protected receipt belongs to one run and message fence, never the latest resumed task. */
+    private val temporaryGitHubRunAcceptance = linkedMapOf<String, kotlinx.serialization.json.JsonObject>()
+    private val expectedGitHubRunAcceptance = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+
+    private suspend fun retainGitHubRunAcceptance(runId: String, report: kotlinx.serialization.json.JsonObject) {
+        // Every verified publication passes this callback. Keep the expectation
+        // even if storage subsequently fails, so commit cannot fall back to chat semantics.
+        expectedGitHubRunAcceptance.add(runId)
+        val run = checkNotNull(agentPersistenceDao.recoveryRun(runId)) { "GITHUB_ACCEPTANCE_OWNER_CHANGED: The verified run no longer exists." }
+        val owner = checkNotNull(agentPersistenceDao.recoveryMessage(run.assistantMessageId)) { "GITHUB_ACCEPTANCE_OWNER_CHANGED: The verified message no longer exists." }
+        check(owner.currentRunId == runId && owner.ownershipFence == run.ownershipFence && owner.chatId == run.chatId) {
+            "GITHUB_ACCEPTANCE_OWNER_CHANGED: The verified response no longer owns this message."
+        }
+        val value = withContext(Dispatchers.Default) {
+            dev.chungjungsoo.gptmobile.data.github.GitHubRunAcceptance.capture(report, runId, run.ownershipFence, run.chatId, run.assistantMessageId)
+        }
+        val key = dev.chungjungsoo.gptmobile.data.github.GitHubRunAcceptance.key(runId, run.ownershipFence)
+        val room = checkNotNull(agentPersistenceDao.getChatRoom(run.chatId)) { "GITHUB_ACCEPTANCE_OWNER_CHANGED: The verified conversation no longer exists." }
+        if (room.isTemporary) {
+            synchronized(temporaryGitHubRunAcceptance) {
+                check(key in temporaryGitHubRunAcceptance || temporaryGitHubRunAcceptance.size < 128) { "GITHUB_EVIDENCE_RETENTION_INCOMPLETE: Temporary run acceptance storage is full." }
+                temporaryGitHubRunAcceptance[key] = value
+            }
+            return
+        }
+        val store = checkNotNull(workspace) { "GITHUB_EVIDENCE_RETENTION_INCOMPLETE: Durable run acceptance storage is unavailable." }
+        store.saveProtectedSynthesisCheckpoint(key, run.chatId, runId, value)
+        check(store.protectedSynthesisCheckpoint(key) == value) {
+            "GITHUB_EVIDENCE_RETENTION_INCOMPLETE: The run acceptance receipt could not be retained."
+        }
+    }
+
+    private suspend fun readGitHubRunAcceptance(runId: String, message: MessageV2, completing: Boolean): dev.chungjungsoo.gptmobile.data.github.GitHubRunAcceptance.CommitEvidence = try {
+        val key = dev.chungjungsoo.gptmobile.data.github.GitHubRunAcceptance.key(runId, message.ownershipFence)
+        withContext(Dispatchers.Default) {
+            dev.chungjungsoo.gptmobile.data.github.GitHubRunAcceptance.readForCommit(
+                runId,
+                message.ownershipFence,
+                message.chatId,
+                message.id,
+                message.content,
+                expectedInMemory = runId in expectedGitHubRunAcceptance,
+                recordExists = { workspace?.dao?.get(key) != null },
+                load = {
+                    synchronized(temporaryGitHubRunAcceptance) { temporaryGitHubRunAcceptance[key] }
+                        ?: workspace?.protectedSynthesisCheckpoint(key)
+                }
+            )
+        }
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (failure: Exception) {
+        AppLogRecorder.record("Agent", "RUN_ACCEPTANCE_UNAVAILABLE · runId=$runId · reason=${failure.javaClass.simpleName}", "W")
+        if (completing) throw IllegalStateException("GITHUB_EVIDENCE_RETENTION_INCOMPLETE: The run acceptance identity or payload could not be read before completion.", failure)
+        dev.chungjungsoo.gptmobile.data.github.GitHubRunAcceptance.CommitEvidence(runId in expectedGitHubRunAcceptance, null)
     }
 
     /** Publication commits first. Budget completion may release reservations but never alters answer ownership. */

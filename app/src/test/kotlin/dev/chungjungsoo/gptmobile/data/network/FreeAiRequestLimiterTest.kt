@@ -11,6 +11,34 @@ import org.junit.Assert.assertThrows
 import org.junit.Test
 
 class FreeAiRequestLimiterTest {
+    @Test fun deferredStorageLookupKeepsQuotaAdmissionClosedUntilIoRestore() = kotlinx.coroutines.runBlocking {
+        val folder = java.nio.file.Files.createTempDirectory("deferred-quota").toFile()
+        val caller = Thread.currentThread()
+        var lookups = 0
+        try {
+            val file = java.io.File(folder, "quota.json")
+            val original = FreeAiRequestLimiter { 100_000L }
+            original.initialize(file)
+            repeat(2) { original.reserve(FreeAiProvider.OVHCLOUD, "model") }
+            val restored = FreeAiRequestLimiter { 100_000L }
+            restored.initialize({
+                org.junit.Assert.assertNotEquals(caller, Thread.currentThread())
+                lookups++
+                file
+            }, requireExplicitLoad = true)
+            assertEquals(0, lookups)
+            val pending = assertThrows(IllegalStateException::class.java) { restored.reserve(FreeAiProvider.OVHCLOUD, "model") }
+            org.junit.Assert.assertTrue(pending.message.orEmpty().contains("QUOTA_STATE_LOADING"))
+            assertEquals(0, lookups)
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { restored.loadState() }
+            assertEquals(1, lookups)
+            assertThrows(FreeAiRateLimitException::class.java) { restored.reserve(FreeAiProvider.OVHCLOUD, "model") }
+            assertEquals(1, lookups)
+        } finally {
+            folder.deleteRecursively()
+        }
+    }
+
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     @Test
     fun exhaustedOvhAllowanceRemainsAnExplicitWaitDuringItsFinalSeconds() = kotlinx.coroutines.test.runTest {

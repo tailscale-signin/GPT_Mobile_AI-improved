@@ -48,9 +48,13 @@ internal class GitHubRequestCircuit(
             failure !is SSLException &&
             (failure !is GitHubReadRetry.HttpFailure || GitHubReadRetry.transientStatus(failure.status))
         if (!transient) {
-            // Permissions, validation and TLS failures keep their own explicit diagnostics.
-            // An observed server rejection is evidence that the service is reachable.
-            if (permit.probe) succeeded(permit)
+            // Only an observed HTTP response proves reachability. Local validation,
+            // cancellation and TLS failures must neither trip nor heal the circuit.
+            if (failure is GitHubReadRetry.HttpFailure || failure is GitHubRequestRejected && failure.status in 400..499 && failure.status != 408) {
+                succeeded(permit)
+            } else if (permit.probe) {
+                probing = false
+            }
             return
         }
         failures++

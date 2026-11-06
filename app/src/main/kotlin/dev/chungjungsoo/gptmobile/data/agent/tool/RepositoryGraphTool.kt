@@ -4,8 +4,10 @@ import dev.chungjungsoo.gptmobile.data.agent.AgentTool
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
+import dev.chungjungsoo.gptmobile.data.github.GatewayGraphUnavailableException
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -39,10 +41,14 @@ internal class RepositoryGraphTool(
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: Exception) {
-            // Only a transport failure of a status read may trigger one independent,
-            // authorized native read. Never replay graph indexing/notes or bypass a
-            // graph admission/permission rejection through another provider.
-            val fallback = if (arguments["action"] == JsonPrimitive("status") && failure is java.io.IOException && failure !is javax.net.ssl.SSLException) {
+            val readAction = arguments["action"] !in setOf(JsonPrimitive("index"), JsonPrimitive("note"))
+            // A transport/readiness failure of a status read may trigger one independent,
+            // authorized native read. Typed readiness does not include graph policy,
+            // identity or permission rejection. Indexing and notes are never replayed.
+            val unavailable = failure is GatewayGraphUnavailableException ||
+                failure is java.io.IOException &&
+                failure !is javax.net.ssl.SSLException
+            val fallback = if (arguments["action"] == JsonPrimitive("status") && unavailable) {
                 try {
                     nativeStatus?.invoke("$callId-native-status")
                 } catch (cancelled: CancellationException) {
@@ -60,15 +66,14 @@ internal class RepositoryGraphTool(
                         put("code", "REPOSITORY_GRAPH_UNAVAILABLE")
                         put("graph_available", false)
                         put("graph_complete", false)
-                        put("message", "Repository graph evidence is unavailable. An authorized native status read can determine whether source inspection can continue; it does not establish graph coverage or test execution.")
+                        put("message", if (unavailable && readAction) "Repository graph evidence is unavailable. Authorized native repository reads remain independent of the graph connection. Resolve the selected revision, inspect branches, commits, source paths, PRs and checks as needed; their receipts do not establish graph coverage or executed tests." else "Repository graph access failed. Resolve the reported admission, validation or transport problem for this operation; no graph write or policy rejection was retried through another provider.")
                         put("failure_type", failure.javaClass.simpleName)
-                        put(
-                            "recovery_call",
-                            buildJsonObject {
-                                put("tool", nativeContextName)
-                                put("arguments", buildJsonObject { put("action", "status") })
-                            }
-                        )
+                        if (unavailable && readAction && nativeStatus != null) {
+                            put("recovery_call", nativeCall("github_context", "status"))
+                            put("native_read_alternatives", JsonArray(listOf("resolve", "branches", "commits", "checks").map { nativeCall("github_context", it) } + nativeCall("github_pr", "list")))
+                            put("source_inspection", "After resolving the revision, use authorized github_search mode=paths with a concrete query, then github_read with exact ranges and commit_sha. Native source inspection does not supply graph callers/callees, complete graph coverage, or CI execution.")
+                            put("native_authorization", "Every alternative still requires the current account, repository, privacy policy and tool budget. No additional tool is exposed by this response.")
+                        }
                         fallback?.let { observed ->
                             put(
                                 "native_fallback",
@@ -88,5 +93,10 @@ internal class RepositoryGraphTool(
                 errorCode = "REPOSITORY_GRAPH_UNAVAILABLE"
             )
         }
+    }
+
+    private fun nativeCall(operation: String, action: String) = buildJsonObject {
+        put("tool", operation + nativeContextName.removePrefix("github_context"))
+        put("arguments", buildJsonObject { put("action", action) })
     }
 }

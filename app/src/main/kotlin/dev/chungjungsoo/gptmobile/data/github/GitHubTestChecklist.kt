@@ -57,6 +57,13 @@ internal object GitHubTestChecklist {
         return observations.filter { it["success"] == JsonPrimitive(true) }.flatMap { receipt ->
             val view = (receipt["view"] as? JsonObject) ?: (receipt["result"] as? JsonObject) ?: return@flatMap emptyList()
             buildList {
+                // The complete original and its normalized remote recipes were
+                // persisted atomically in this trusted receipt. Display fragments
+                // add no new evidence and must not drain the call budget.
+                if (receipt["retained_result_complete"] == JsonPrimitive(true) && receipt["result_sha256"] is JsonPrimitive && receipt["retained_remote_continuations"] is JsonArray) {
+                    (receipt["retained_remote_continuations"] as JsonArray).forEach { entry -> ((entry as? JsonObject)?.get("call") as? JsonObject)?.let(::add) }
+                    return@buildList
+                }
                 (view["continuation_call"] as? JsonObject)?.let(::add)
                 if (view["local_page_complete"] != JsonPrimitive(false)) {
                     (view["remote_continuations"] as? JsonArray).orEmpty().forEach { entry -> ((entry as? JsonObject)?.get("call") as? JsonObject)?.let(::add) }
@@ -131,10 +138,31 @@ internal object GitHubTestChecklist {
         return null
     }
 
-    fun nextCall(task: String, tools: List<AgentToolDefinition>, receipts: Map<String, JsonObject>): ProviderEvent.ToolCall? {
+    fun nextCall(task: String, tools: List<AgentToolDefinition>, receipts: Map<String, JsonObject>, remainingToolCalls: Int? = null): ProviderEvent.ToolCall? {
         if (!integration(task) || tools.isEmpty()) return null
         val observations = trusted(receipts)
-        continuation(task, tools, receipts, localOnly = true)?.let { return it }
+        val remaining = GitHubChecklistBudget.remaining(receipts, remainingToolCalls)
+        if (remaining == 0) return null
+        // Finish a verified owned fixture before optional acquisition can spend
+        // its cleanup allowance. Failed/unknown writes remain blocked.
+        GitHubSelfTestFixtures.next(task, tools, receipts, allowCreate = false)?.let { return it }
+        val acquisitionAllowed = remaining == null || remaining > GitHubChecklistBudget.VERIFICATION_RESERVE
+        // A cached observation is useful evidence but cannot qualify transport.
+        // Retry that exact authorized read once with explicit cache bypass. The
+        // retained argument prevents loops after process restart or another hit.
+        val liveRead = observations.asReversed().firstNotNullOfOrNull { receipt ->
+            if (receipt["success"] != JsonPrimitive(true) || GitHubEvidenceOrigin.of(receipt) == "LIVE") return@firstNotNullOfOrNull null
+            val args = receipt["arguments"] as? JsonObject ?: return@firstNotNullOfOrNull null
+            if (!requiresLiveTransport(Capability(receipt.text("tool").substringBefore("__"), args.text("action"), ""))) return@firstNotNullOfOrNull null
+            if ("view_cursor" in args || args["verify_live"] == JsonPrimitive(true) || !dev.chungjungsoo.gptmobile.data.permissions.GitHubAuthorizationBoundary.isReplayableRead(receipt.text("tool"), args)) return@firstNotNullOfOrNull null
+            val refreshed = JsonObject(args + ("verify_live" to JsonPrimitive(true)))
+            if (observations.any { it.text("tool") == receipt.text("tool") && it["arguments"] == refreshed }) return@firstNotNullOfOrNull null
+            val tool = tools.firstOrNull { it.name == receipt.text("tool") && it.modelVisible } ?: return@firstNotNullOfOrNull null
+            if ((tool.inputSchema["properties"] as? JsonObject)?.containsKey("verify_live") != true || dev.chungjungsoo.gptmobile.data.agent.ToolArgumentValidator.errors(refreshed, tool.inputSchema).isNotEmpty()) return@firstNotNullOfOrNull null
+            call(tool.name, refreshed)
+        }
+        if (liveRead != null) return liveRead
+        if (acquisitionAllowed) continuation(task, tools, receipts, localOnly = true)?.let { return it }
         val watch = tools.firstOrNull { it.name.substringBefore("__") == "github_watch_checks" }
         val selectedHead = observations.asReversed().firstNotNullOfOrNull { receipt ->
             if (!matches(receipt, capabilities.first()) || receipt["success"] != JsonPrimitive(true)) null else data(receipt)?.get("commit_sha")
@@ -155,6 +183,7 @@ internal object GitHubTestChecklist {
             }
         }
         for (capability in capabilities.filter { it.automatic }) {
+            if (!acquisitionAllowed && capability.action != "checks") continue
             if (observations.any { matches(it, capability) }) continue
             val tool = tools.firstOrNull { it.name.substringBefore("__") == capability.tool } ?: continue
             val head = observations.asReversed().firstNotNullOfOrNull { receipt ->
@@ -171,9 +200,13 @@ internal object GitHubTestChecklist {
             if (dev.chungjungsoo.gptmobile.data.agent.ToolArgumentValidator.errors(arguments, tool.inputSchema).isNotEmpty()) continue
             return call(tool.name, arguments)
         }
+        if (!acquisitionAllowed) return null
         GitHubSelfTestReads.next(tools, observations)?.let { return it }
-        continuation(task, tools, receipts, localOnly = false)?.let { return it }
-        return GitHubSelfTestFixtures.next(task, tools, receipts)
+        // A fixture is bounded and must leave capacity for its verification and
+        // cleanup; optional inventory sampling runs only after this decision.
+        val fixtureAllowed = remaining == null || remaining >= GitHubChecklistBudget.FIXTURE_CALLS + GitHubChecklistBudget.VERIFICATION_RESERVE
+        GitHubSelfTestFixtures.next(task, tools, receipts, allowCreate = fixtureAllowed)?.let { return it }
+        return continuation(task, tools, receipts, localOnly = false)
     }
 
     private fun call(tool: String, args: JsonObject) = ProviderEvent.ToolCall("checklist-" + GitHubEvidenceBook.digest("$tool:$args").take(24), tool, args)
@@ -186,6 +219,12 @@ internal object GitHubTestChecklist {
             val actions = ((properties?.get("action") as? JsonObject)?.get("enum") as? JsonArray)?.map { (it as JsonPrimitive).content }.orEmpty().ifEmpty { listOf(((properties?.get("action") as? JsonObject)?.get("const") as? JsonPrimitive)?.content.orEmpty()) }
             actions.map { action -> capabilities.firstOrNull { it.tool == name && it.action == action } ?: Capability(name, action, "$name / ${action.ifBlank { "default" }}") }
         }.distinctBy { it.tool to it.action }
+    }
+
+    private fun requiresLiveTransport(capability: Capability): Boolean = when (capability.tool) {
+        "github_context" -> capability.action !in setOf("status", "resolve", "index", "efficiency", "capabilities", "recovery")
+        "github_search", "github_read", "github_stage_patch", "repository_graph" -> false
+        else -> capability.tool.startsWith("github_")
     }
 
     private fun readOnly(capability: Capability): Boolean = dev.chungjungsoo.gptmobile.data.permissions.GitHubAuthorizationBoundary.isReplayableRead(capability.tool, buildJsonObject { if (capability.action.isNotBlank()) put("action", capability.action) })
@@ -212,6 +251,12 @@ internal object GitHubTestChecklist {
                 val eligible = observed.filter { it["verification_eligible"] != JsonPrimitive(false) && (tools.isEmpty() || permitted(it)) }
                 val successes = eligible.filter { it["success"] == JsonPrimitive(true) }
                 val failures = observed.filter { it["success"] != JsonPrimitive(true) }
+                val transportMissing = requiresLiveTransport(capability) && successes.isNotEmpty() && successes.none { GitHubEvidenceOrigin.of(it) == "LIVE" }
+                val unqualifiedStatus = when {
+                    successes.any { GitHubEvidenceOrigin.of(it) == "CACHED" } -> "CACHED"
+                    successes.any { GitHubEvidenceOrigin.of(it) == "MOCKED" } -> "MOCKED"
+                    else -> "NOT_TESTED"
+                }
                 val latest = eligible.lastOrNull()
                 val incomplete = latest?.get("success") == JsonPrimitive(true) && data(latest)?.text("status") == "PENDING_LOG_AVAILABILITY"
                 val excluded = capability.tool == "github_context" && capability.action == "repositories"
@@ -220,6 +265,7 @@ internal object GitHubTestChecklist {
                     notRequested -> "Write operations are excluded by the requested read-only scope."
                     excluded -> "Account-wide repository discovery is outside this workspace's selected repository scope."
                     eligible.isEmpty() && observed.isNotEmpty() -> "Current catalog excludes the historical receipts; reauthorize this operation before using them as proof."
+                    transportMissing -> "Saved, local or mocked responses cannot qualify this remote operation; an authorized live read or verified mutation is still required."
                     incomplete -> "The endpoint responded but traversal or log availability remains incomplete; follow the saved continuation or wait for the recorded state change."
                     failures.isNotEmpty() && (successes.isEmpty() || latest?.get("success") == JsonPrimitive(false)) -> "Resolve recorded errors: " + failures.map { it.text("error_code") }.distinct().joinToString(", ") + ". " + recoveryAdvice(failures.map { it.text("error_code") }.toSet())
                     capability.tool == "github_decide" -> "Requires a genuine user decision; an integration test must not manufacture a blocking question."
@@ -236,6 +282,7 @@ internal object GitHubTestChecklist {
                     excluded -> "OUT_OF_SCOPE"
                     incomplete || tools.isNotEmpty() && !authorized -> "BLOCKED"
                     latest?.get("success") == JsonPrimitive(false) -> if (latest["dispatched"] == JsonPrimitive(false)) "PREFLIGHT_REJECTED" else "FAILED"
+                    transportMissing -> unqualifiedStatus
                     successes.isNotEmpty() && failures.isNotEmpty() -> "RECOVERED"
                     successes.isNotEmpty() -> "PASSED"
                     failures.isNotEmpty() && failures.all { it["dispatched"] == JsonPrimitive(false) } -> "PREFLIGHT_REJECTED"
@@ -248,6 +295,11 @@ internal object GitHubTestChecklist {
                     put("scope", capability.scope)
                     put("status", status)
                     put("acceptance_state", GitHubAcceptanceLedger.state(status).name)
+                    put("evidence_origins", JsonArray(eligible.map { GitHubEvidenceOrigin.of(it) }.distinct().map(::JsonPrimitive)))
+                    put("live_verified", successes.any { GitHubEvidenceOrigin.of(it) == "LIVE" })
+                    put("response_validated", successes.isNotEmpty())
+                    put("requires_live_transport", requiresLiveTransport(capability))
+                    put("fixture_state", if (readOnly(capability)) "NOT_APPLICABLE" else "REQUIRES_SEPARATE_VERIFICATION")
                     put(
                         "readiness",
                         buildJsonObject {
@@ -265,7 +317,7 @@ internal object GitHubTestChecklist {
                                     "NOT_AUTHORIZED"
                                 }
                             )
-                            val dispatched = eligible.filter { it["dispatched"] == JsonPrimitive(true) }
+                            val dispatched = eligible.filter { GitHubEvidenceOrigin.of(it) == "LIVE" }
                             val latestDispatch = dispatched.lastOrNull()
                             val unavailable = latest?.text("error_code")?.let { code -> code.contains("PERMISSION") || code.contains("AUTHORIZATION") || code.contains("UNREACHABLE") || code.contains("UNAVAILABLE") } == true
                             put(
@@ -283,7 +335,7 @@ internal object GitHubTestChecklist {
                         }
                     )
                     put("inventory_status", if (successes.any { data(it)?.get("complete") == JsonPrimitive(false) }) "PARTIAL" else "See independent inventory coverage")
-                    put("evidence_scope", "Exact API action only; complete search, application behavior and device health require separate evidence")
+                    put("evidence_scope", "Validated response for the exact action; origins identify LIVE, CACHED, LOCAL, MOCKED or NOT_TESTED execution. Fixture state, cleanup, application behavior and device health require separate evidence")
                     put("receipt_ids", JsonArray(observed.mapNotNull { it["receipt_id"] }))
                     put("successful_receipt_ids", JsonArray(successes.mapNotNull { it["receipt_id"] }))
                     put("attempted", observed.size)
@@ -366,15 +418,25 @@ internal object GitHubTestChecklist {
         }.toString()
     )
 
-    fun checkpoint(task: String, receipts: Map<String, JsonObject>, tools: List<AgentToolDefinition> = emptyList()): JsonObject = buildJsonObject {
-        put("schema", "github.test-checklist.v2")
+    fun checkpoint(task: String, receipts: Map<String, JsonObject>, tools: List<AgentToolDefinition> = emptyList(), remainingToolCalls: Int? = null): JsonObject = buildJsonObject {
+        put("schema", "github.test-checklist.v3")
         put("request_digest", GitHubEvidenceBook.digest(task))
         val capabilities = rows(receipts, tools, task)
         put("capabilities", capabilities)
+        put("stage_budget", GitHubChecklistBudget.checkpoint(receipts, remainingToolCalls))
+        put(
+            "resume_plan",
+            buildJsonObject {
+                put("source", "Trusted receipts revalidated against the current authorization catalog")
+                put("pending_capabilities", JsonArray(capabilities.filter { (it as JsonObject).text("status") !in setOf("PASSED", "RECOVERED", "OUT_OF_SCOPE", "NOT_REQUESTED") }))
+                put("cleanup_first", true)
+                put("mutation_retry_policy", "Reconcile failed or uncertain writes; never replay a completed mutation or repeat a write to recover its response.")
+            }
+        )
         put("acceptance_ledger", GitHubAcceptanceLedger.snapshot(capabilities = capabilities, requestDigest = GitHubEvidenceBook.digest(task)))
         put("coverage_source", if (tools.isEmpty()) "BASELINE_CATALOG" else "AUTHORIZED_TOOL_ACTION_SCHEMAS")
-        put("pagination_policy", "Consume all issued local fragments before watches or remote reads; up to 32 definition pages per revision independently of two remote inventory samples, or eight while locating an issue dependency, unless complete inventory is explicitly requested; restore retained pages locally before one bounded read-only source recovery")
-        put("acceptance", JsonArray(listOf("Each requested capability has a result or explicit untested/blocker reason", "Every claim cites matching branch/PR/SHA receipts", "Required local and remote pages consumed or pending", "Application test results bound to newly executed runs at tested SHA", "Coverage, measured score or limitation, failures and solutions retained", "Authorized isolated write fixtures verified and cleaned up").map(::JsonPrimitive)))
+        put("pagination_policy", "Reuse complete persisted originals and their exact remote recipes; consume display fragments only when no complete original was retained; up to 32 definition pages per revision independently of two remote inventory samples, or eight while locating an issue dependency, unless complete inventory is explicitly requested; restore retained pages locally before one bounded read-only source recovery")
+        put("acceptance", JsonArray(listOf("Each requested capability has a result or explicit untested/blocker reason", "Every claim cites matching branch/PR/SHA receipts", "Complete durable sources or required local fragments, and remote pages, consumed or explicitly pending", "Application test results bound to newly executed runs at tested SHA", "Coverage, measured score or limitation, failures and solutions retained", "Authorized isolated write fixtures verified and cleaned up").map(::JsonPrimitive)))
         put("pending_pages", JsonArray(pendingPages(receipts)))
         put("fixtures", GitHubSelfTestFixtures.checkpoint(receipts))
         put("inventory_coverage", inventoryCoverage(receipts))
@@ -387,7 +449,7 @@ internal object GitHubTestChecklist {
 
     fun render(receipts: Map<String, JsonObject>, tools: List<AgentToolDefinition> = emptyList(), task: String = ""): String = buildString {
         val rows = rows(receipts, tools, task)
-        val counts = listOf("PASSED", "FAILED", "PREFLIGHT_REJECTED", "BLOCKED", "UNTESTED", "RECOVERED", "OUT_OF_SCOPE", "NOT_REQUESTED").associateWith { status -> rows.count { (it as JsonObject).text("status") == status } }
+        val counts = listOf("PASSED", "CACHED", "MOCKED", "FAILED", "PREFLIGHT_REJECTED", "BLOCKED", "UNTESTED", "NOT_TESTED", "RECOVERED", "OUT_OF_SCOPE", "NOT_REQUESTED").associateWith { status -> rows.count { (it as JsonObject).text("status") == status } }
         append("\n**Capability coverage:** ${rows.size} capabilities in the cumulative catalog (including historical operations). ")
         append(counts.entries.joinToString("; ") { "${it.key.lowercase().replace('_', ' ')}: ${it.value}" })
         append(". Endpoint success and complete search coverage are separate. **Overall integration health: Not measured.**\n\n")
@@ -404,7 +466,7 @@ internal object GitHubTestChecklist {
             append("\n**${item.text("operation")} inventory:** ${item.text("retrieved")} of ${item.text("total")} retrieved; ${item.text("coverage")}.\n")
         }
         val pages = pendingPages(receipts)
-        if (pages.isNotEmpty()) append("\n**Pending pagination:** ${pages.size} issued continuation(s) remain unread; inventory completeness is not established. Local fragments must finish before remote pages.\n")
+        if (pages.isNotEmpty()) append("\n**Pending pagination:** ${pages.size} issued continuation(s) remain unread; inventory completeness is not established. Complete retained sources satisfy display-fragment traversal; unread remote pages remain pending.\n")
         append("\n**Solutions / next actions:** finish pending reads using the saved continuation arguments; resolve recorded failures; exercise missing writes on an authorized isolated branch or test repository; execute application tests at the exact SHA and retain run/job links. Watch pending checks to a bounded deadline, then keep a pending checkpoint. Cleanup requires verifying fixture ownership. Merge and cancellation are never implied for existing work.\n")
     }
 

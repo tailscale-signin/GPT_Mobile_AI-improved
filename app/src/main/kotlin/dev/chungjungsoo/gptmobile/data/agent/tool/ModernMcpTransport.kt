@@ -52,6 +52,8 @@ internal class ModernMcpTransport(private val http: HttpClient, private val inte
                 put("endpoint", config.endpointUrl)
                 put("networkEpoch", dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.networkEpoch)
                 put("authorization", config.authorizationHeader)
+                put("googleApiKey", config.googleApiKey)
+                put("allowCleartext", config.allowCleartext)
             }
         )
         val now = nowMs()
@@ -76,32 +78,42 @@ internal class ModernMcpTransport(private val http: HttpClient, private val inte
         val lease = connectivity.acquire(endpointHost) ?: error("DNS_RECOVERY: MCP discovery is waiting for the single connectivity probe; retryAfterMs=${connectivity.recoveryDelayMillis(endpointHost)}.")
         val discovered = try {
             val discovery = rpc(config, "server/discover", JsonObject(emptyMap()))
-            val advertised = discovery["supportedVersions"]
-            require(advertised == null || advertised is JsonArray) { "MCP supportedVersions must be an array." }
-            val versions = (advertised as? JsonArray).orEmpty().map { version ->
-                require(version is JsonPrimitive && version.isString) { "MCP supportedVersions must contain strings." }
-                version.content
-            }
+            val versions = discoveryVersions(discovery["supportedVersions"], "supportedVersions")
             when {
-                versions.isEmpty() -> error("MCP discovery omitted supported protocol versions.")
                 VERSION in versions -> discovery
                 versions.any { it in LEGACY_VERSIONS } -> null
-                else -> error("Server has no mutually supported MCP version. Advertised: ${versions.joinToString().ifEmpty { "none" }}")
+                else -> throw McpProtocolConfigurationException("MCP_PROTOCOL_VERSION_UNSUPPORTED", "The server advertises no protocol version supported by this app. Update the MCP server or app, then reconnect.")
             }
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (error: ModernMcpError) {
-            val unsupportedMethod = error.code == -32601 && error.status in setOf(200, 400, 404, 405)
-            if (unsupportedMethod) {
-                dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("MCP", "DISCOVERY_NEGOTIATION · status=${error.status} · outcome=explicit_legacy_fallback · connection=${config.connectionUid}")
-                null
-            } else {
-                // Auth, throttling, malformed 400s and transport failures cannot
-                // establish a different protocol or authorize another request path.
-                throw error
+            when {
+                error.code == -32022 && error.status !in setOf(401, 403, 429) && !error.quotaFailure -> {
+                    if (error.requestedVersion != VERSION) {
+                        throw McpProtocolConfigurationException("MCP_DISCOVERY_SCHEMA_INVALID", "The version-negotiation error must identify the requested protocol version. Update the MCP server or bridge response.")
+                    }
+                    val versions = discoveryVersions(error.supportedVersions, "error.data.supported")
+                    if (versions.none { it in LEGACY_VERSIONS } || VERSION in versions) {
+                        throw McpProtocolConfigurationException("MCP_PROTOCOL_VERSION_UNSUPPORTED", "The server rejected the requested MCP protocol version without a usable alternative. Update its protocol configuration, then reconnect.")
+                    }
+                    // An advertised legacy revision selects the SDK initialize handshake.
+                    // It is not an unchanged replay of the rejected modern request.
+                    null
+                }
+                !error.quotaFailure && ((error.status == 400 && error.code !in MODERN_VALIDATION_ERRORS) || (error.code == -32601 && error.status == 200)) -> {
+                    // 2026-07-28 Streamable HTTP compatibility: non-modern HTTP 400
+                    // (including legacy -32000 session-required errors) selects initialize.
+                    // This era decision is cached; no tools/call is ever replayed here.
+                    dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("MCP", "DISCOVERY_NEGOTIATION · status=${error.status} · outcome=legacy_initialization_required · connection=${config.connectionUid}")
+                    null
+                }
+                error.status !in setOf(401, 403, 408, 429) && (error.status in 400..499 || error.code in MODERN_VALIDATION_ERRORS) && !error.quotaFailure -> {
+                    throw McpProtocolConfigurationException("MCP_DISCOVERY_CONFIGURATION", error.message.orEmpty())
+                }
+                else -> throw error
             }
         } catch (error: Exception) {
-            dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.recordFailure(config.endpointUrl, error)
+            if (error !is McpProtocolConfigurationException) dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.recordFailure(config.endpointUrl, error)
             // Transport failure says nothing about protocol support. Never open a second
             // legacy connection to a host that did not answer discovery.
             throw error
@@ -135,14 +147,29 @@ internal class ModernMcpTransport(private val http: HttpClient, private val inte
     fun capabilities(uid: String): Set<String> = (endpoints[uid]?.discovery?.get("capabilities") as? JsonObject)?.keys.orEmpty()
 
     suspend fun listTools(config: McpConnectionConfig): List<Tool> {
-        val definitions = withMcpConnectivityLease(config) { pages(config, "tools/list", "tools") }.mapNotNull { element ->
-            val definition = element as? JsonObject ?: return@mapNotNull null
-            val schema = definition["inputSchema"] as? JsonObject ?: return@mapNotNull null
-            if (runCatching { mirroredHeaders(schema, null) }.isFailure) return@mapNotNull null
+        val entries = withMcpConnectivityLease(config) { pages(config, "tools/list", "tools") }
+        val definitions = entries.map { element ->
+            val definition = element as? JsonObject
+                ?: throw McpProtocolConfigurationException("MCP_CATALOG_SCHEMA_INVALID", "An MCP tool definition is not an object. Correct the server's tools/list response.")
+            val schema = definition["inputSchema"] as? JsonObject
+                ?: throw McpProtocolConfigurationException("MCP_CATALOG_SCHEMA_INVALID", "An MCP tool definition omitted its inputSchema object. Correct the server's tools/list response.")
+            if (runCatching { mirroredHeaders(schema, null) }.isFailure) {
+                throw McpProtocolConfigurationException("MCP_CATALOG_SCHEMA_INVALID", "An MCP tool has an invalid HTTP header schema. Correct its x-mcp-header annotations.")
+            }
             definition
         }
+        val tools = try {
+            definitions.map { json.decodeFromJsonElement<Tool>(it) }
+        } catch (failure: IllegalArgumentException) {
+            throw McpProtocolConfigurationException("MCP_CATALOG_SCHEMA_INVALID", "The MCP catalogue contains invalid tool definitions. Correct the server's tools/list response.")
+        }
+        try {
+            validateMcpCatalogue(tools)
+        } catch (failure: IllegalArgumentException) {
+            throw McpProtocolConfigurationException("MCP_CATALOG_SCHEMA_INVALID", failure.message.orEmpty() + " Correct the server's tools/list response.")
+        }
         schemas[config.connectionUid] = definitions.associate { it.getValue("name").jsonPrimitive.content to it.getValue("inputSchema").jsonObject }
-        return definitions.map { json.decodeFromJsonElement<Tool>(it) }
+        return tools
     }
 
     suspend fun callTool(config: McpConnectionConfig, name: String, arguments: JsonObject, callId: String? = null, metadata: JsonObject? = null): CallToolResult {
@@ -247,13 +274,20 @@ internal class ModernMcpTransport(private val http: HttpClient, private val inte
         var cursor: String? = null
         repeat(40) {
             val result = rpc(config, method, buildJsonObject { cursor?.let { put("cursor", it) } })
-            values += (result[field] as? JsonArray).orEmpty()
-            check(values.size <= 1000) { "MCP catalog exceeds 1,000 entries." }
-            cursor = (result["nextCursor"] as? JsonPrimitive)?.content
+            val page = result[field] as? JsonArray
+                ?: throw McpProtocolConfigurationException("MCP_CATALOG_SCHEMA_INVALID", "The $method response must contain a $field array. Correct the server or bridge response.")
+            values.addAll(page)
+            if (values.size > 1000) throw McpProtocolConfigurationException("MCP_CATALOG_LIMIT_EXCEEDED", "The MCP catalogue exceeds 1,000 entries. Reduce the server catalogue or split it between connections.")
+            val next = result["nextCursor"]
+            cursor = when {
+                next == null || next is kotlinx.serialization.json.JsonNull -> null
+                next is JsonPrimitive && next.isString && next.content.length in 1..4096 -> next.content
+                else -> throw McpProtocolConfigurationException("MCP_CATALOG_SCHEMA_INVALID", "The $method response contains an invalid nextCursor. Correct the server pagination response.")
+            }
             if (cursor == null) return values
-            check(seen.add(requireNotNull(cursor))) { "MCP catalog repeated a cursor." }
+            if (!seen.add(requireNotNull(cursor))) throw McpProtocolConfigurationException("MCP_CATALOG_SCHEMA_INVALID", "The MCP catalogue repeated a pagination cursor. Correct the server pagination response.")
         }
-        error("MCP catalog exceeds 40 pages.")
+        throw McpProtocolConfigurationException("MCP_CATALOG_LIMIT_EXCEEDED", "The MCP catalogue exceeds 40 pages. Reduce the server catalogue or split it between connections.")
     }
 
     private suspend fun request(config: McpConnectionConfig, method: String, original: JsonObject, headers: Map<String, String> = emptyMap()): JsonObject {
@@ -322,6 +356,7 @@ internal class ModernMcpTransport(private val http: HttpClient, private val inte
             (params["name"] ?: params["uri"])?.jsonPrimitive?.content?.let { header("Mcp-Name", headerValue(it)) }
             mirrored.forEach { (name, value) -> header(name, value) }
             config.authorizationHeader?.let { header("Authorization", it) }
+            config.googleApiKey?.let { header("X-Goog-Api-Key", it) }
             timeout {
                 val discoveryTimeout = if (isLocalMcpEndpoint(config.endpointUrl)) LOCAL_DISCOVERY_TIMEOUT_MS else REMOTE_DISCOVERY_TIMEOUT_MS
                 requestTimeoutMillis = if (method == "server/discover") discoveryTimeout else 60_000
@@ -366,15 +401,36 @@ internal class ModernMcpTransport(private val http: HttpClient, private val inte
                     buffer.append(line.removePrefix("data:").removePrefix(" "))
                 }
             }
+            val responseId = envelope?.get("id")
+            if (responseId != null && responseId !is kotlinx.serialization.json.JsonNull && responseId != JsonPrimitive(id)) {
+                throw McpProtocolConfigurationException("MCP_RESPONSE_ID_MISMATCH", "The server returned a response for a different request. Check the MCP bridge and proxy routing.")
+            }
             val error = envelope?.get("error") as? JsonObject
             if (response.status.value !in 200..299 || error != null) {
                 val quota = isMcpQuotaFailure((error?.get("message") as? JsonPrimitive)?.content.orEmpty())
-                val message = if (quota) "MCP provider quota exhausted. Try later or configure provider credentials." else "MCP request failed (${response.status.value}, ${error?.get("code") ?: "no protocol error"})."
-                throw ModernMcpError(response.status.value, (error?.get("code") as? JsonPrimitive)?.intOrNull, message)
+                val code = (error?.get("code") as? JsonPrimitive)?.intOrNull
+                val guidance = when {
+                    response.status.value in setOf(401, 403) -> "Reconnect or update the MCP credential in Manage connection."
+                    response.status.value == 404 -> "Check the MCP endpoint path and server process."
+                    code == -32020 -> "The server rejected request metadata headers; check protocol compatibility and proxy header forwarding."
+                    code == -32021 -> "The server requires a client capability this app has not enabled."
+                    code == -32022 -> "The server rejected the requested protocol version."
+                    response.status.value == 400 -> "The endpoint rejected the request; validate the MCP endpoint, initialization handshake and protocol schema."
+                    else -> "Check the MCP service and connection settings."
+                }
+                val message = if (quota) "MCP provider quota exhausted. Try later or configure provider credentials." else "MCP $method failed (HTTP ${response.status.value}, code=${code ?: "unavailable"}). $guidance"
+                throw ModernMcpError(
+                    response.status.value,
+                    code,
+                    message,
+                    (error?.get("data") as? JsonObject)?.get("supported"),
+                    quota,
+                    ((error?.get("data") as? JsonObject)?.get("requested") as? JsonPrimitive)?.content
+                )
             }
             if (envelope == null) throw McpIncompleteResponseException(method, bytes)
-            check(envelope?.get("id") == JsonPrimitive(id)) { "MCP response ID did not match the request." }
-            requireNotNull(envelope?.get("result") as? JsonObject) { "MCP result is missing." }
+            if (responseId != JsonPrimitive(id)) throw McpProtocolConfigurationException("MCP_RESPONSE_ID_MISMATCH", "The server response omitted its matching request ID. Check the MCP bridge and proxy routing.")
+            envelope.get("result") as? JsonObject ?: throw McpProtocolConfigurationException("MCP_RESPONSE_SCHEMA_INVALID", "The server response omitted its result object. Check the MCP response schema.")
         }
     }
 
@@ -392,6 +448,7 @@ internal class ModernMcpTransport(private val http: HttpClient, private val inte
     }
     companion object {
         const val VERSION = "2026-07-28"
+        private val MODERN_VALIDATION_ERRORS = setOf(-32020, -32021, -32022, -32600, -32602, -32700)
         private val LEGACY_VERSIONS = setOf("2024-11-05", "2025-03-26", "2025-06-18", "2025-11-25")
         private const val DISCOVERY_CACHE_MS = 60 * 60 * 1000L
 
@@ -446,4 +503,19 @@ internal class ModernMcpTransport(private val http: HttpClient, private val inte
     }
 }
 
-internal class ModernMcpError(val status: Int, val code: Int?, message: String) : IllegalStateException(message)
+internal class ModernMcpError(val status: Int, val code: Int?, message: String, val supportedVersions: JsonElement? = null, val quotaFailure: Boolean = false, val requestedVersion: String? = null) : IllegalStateException(message)
+
+/** A deterministic capability/configuration failure needs a change or explicit reconnect. */
+internal class McpProtocolConfigurationException(val diagnosticCode: String, detail: String) : IllegalStateException("$diagnosticCode: $detail Automatic discovery is paused until configuration changes or you reconnect.")
+
+private fun discoveryVersions(value: JsonElement?, field: String): List<String> {
+    if (value !is JsonArray || value.isEmpty() || value.size > 32) {
+        throw McpProtocolConfigurationException("MCP_DISCOVERY_SCHEMA_INVALID", "MCP discovery must provide a nonempty supported protocol version list in $field. Update the server or bridge response.")
+    }
+    return value.map { version ->
+        if (version !is JsonPrimitive || !version.isString || !Regex("[0-9]{4}-[0-9]{2}-[0-9]{2}").matches(version.content)) {
+            throw McpProtocolConfigurationException("MCP_DISCOVERY_SCHEMA_INVALID", "MCP $field contains an invalid protocol version. Update the server or bridge response.")
+        }
+        version.content
+    }
+}

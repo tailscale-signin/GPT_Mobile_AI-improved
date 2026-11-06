@@ -19,14 +19,44 @@ internal object LocalEndpointConnectionPolicy {
         until[route(endpoint)] = System.nanoTime() / 1_000_000 + 600_000
     }
 
-    /** Synthetic metadata/template probes have no tool effects and may retry once. */
-    suspend fun <T> probe(endpoint: String, action: suspend () -> T): T {
+    /** Only read-only metadata/template probes belong here. Mutations and inference never do. */
+    suspend fun <T> probe(endpoint: String, onStaleConnection: () -> Unit = {}, action: suspend () -> T): T {
         try {
             return action()
         } catch (failure: Exception) {
-            if (failure is kotlinx.coroutines.CancellationException || generateSequence<Throwable>(failure) { it.cause?.takeUnless { cause -> cause === it } }.take(8).any { it is javax.net.ssl.SSLException } || !ResilientStreamingClient.isPrematureConnectionClose(failure)) throw failure
-            peerClosed(endpoint)
-            kotlinx.coroutines.delay(250)
+            val causes = generateSequence<Throwable>(failure) { it.cause?.takeUnless { cause -> cause === it } }.take(8).toList()
+            // A response rejection or invalid document is definitive, even when its
+            // message happens to contain a transport word. Never bypass TLS or a hold.
+            if (causes.any {
+                    it is kotlinx.coroutines.CancellationException ||
+                        it is javax.net.ssl.SSLException ||
+                        it is java.security.cert.CertificateException ||
+                        it is io.ktor.client.plugins.ResponseException ||
+                        it is ProviderHttpFailure ||
+                        it is LocalServiceUnavailableException ||
+                        it is kotlinx.serialization.SerializationException ||
+                        it is IllegalArgumentException
+                }
+            ) {
+                throw failure
+            }
+            val closed = causes.any { it is java.io.EOFException } || ResilientStreamingClient.isPrematureConnectionClose(failure)
+            val connect = causes.any {
+                it is java.net.ConnectException ||
+                    it is java.net.SocketTimeoutException ||
+                    it is java.net.NoRouteToHostException ||
+                    it is java.net.UnknownHostException ||
+                    it is java.nio.channels.UnresolvedAddressException ||
+                    it.javaClass.simpleName in setOf("ConnectTimeoutException", "SocketTimeoutException", "HttpRequestTimeoutException")
+            }
+            if (!closed && !connect) throw failure
+            if (closed) {
+                peerClosed(endpoint)
+                onStaleConnection()
+            }
+            // One retry owner, two attempts total. Stagger simultaneous dashboard,
+            // readiness and recovery reads without extending an outer request budget.
+            kotlinx.coroutines.delay(kotlin.random.Random.nextLong(150, 451))
             return action()
         }
     }

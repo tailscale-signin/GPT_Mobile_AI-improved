@@ -15,9 +15,10 @@ import kotlinx.serialization.json.put
 internal object LocalRuntimeIncidentHistory {
     private val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO)
 
-    @Volatile private var directory: File? = null
+    @Volatile private var directory: Lazy<File>? = null
+    private val persistenceFailures = java.util.concurrent.atomic.AtomicLong()
     fun initialize(context: Context) {
-        directory = File(context.noBackupFilesDir, "local-runtime-incidents")
+        directory = lazy { File(context.noBackupFilesDir, "local-runtime-incidents") }
     }
 
     fun record(event: String, fields: Map<String, String> = emptyMap()) {
@@ -44,8 +45,9 @@ internal object LocalRuntimeIncidentHistory {
     }
 
     @Synchronized private fun persist(row: String) {
-        val folder = directory ?: return
+        val location = directory ?: return
         runCatching {
+            val folder = location.value
             check(folder.isDirectory || folder.mkdirs())
             RandomAccessFile(File(folder, "history.lock"), "rw").use { lock ->
                 lock.channel.lock().use {
@@ -59,12 +61,23 @@ internal object LocalRuntimeIncidentHistory {
                     java.nio.file.Files.move(temporary.toPath(), file.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING, java.nio.file.StandardCopyOption.ATOMIC_MOVE)
                 }
             }
-        }
+        }.onFailure { persistenceFailures.incrementAndGet() }
     }
-    fun snapshot(): List<JsonObject> = runCatching {
-        val folder = directory ?: return emptyList()
+
+    fun snapshot(): List<JsonObject> = capture().records
+
+    fun capture(): RuntimeIncidentCapture {
+        val capturedAt = System.currentTimeMillis()
+        val location = directory ?: return RuntimeIncidentCapture("UNAVAILABLE", capturedAt, emptyList(), persistenceFailures.get())
+        return runCatching {
+            RuntimeIncidentCapture(if (persistenceFailures.get() > 0) "PARTIAL" else "AVAILABLE", capturedAt, readSnapshot(location.value), persistenceFailures.get())
+        }.getOrElse { RuntimeIncidentCapture("FAILED", capturedAt, emptyList(), persistenceFailures.get()) }
+    }
+
+    private fun readSnapshot(folder: File): List<JsonObject> {
         val file = File(folder, "history.jsonl")
-        val history = if (!file.isFile || file.length() > 512 * 1024) emptyList() else file.readLines().takeLast(96).mapNotNull { runCatching { Json.parseToJsonElement(it) as? JsonObject }.getOrNull() }
+        check(!file.isFile || file.length() <= 512 * 1024) { "INCIDENT_HISTORY_BOUND_EXCEEDED" }
+        val history = if (!file.isFile) emptyList() else file.readLines().takeLast(96).filter { it.isNotBlank() }.map { Json.parseToJsonElement(it) as JsonObject }
         val native = readNativeIncidentRecords(folder)
         val terminations = folder.parentFile?.let { parent ->
             dev.chungjungsoo.gptmobile.data.localruntime.NativeWorkerTermination.snapshot(File(parent, "native-worker"))
@@ -80,8 +93,20 @@ internal object LocalRuntimeIncidentHistory {
                 put("workerExitEvidence", JsonNull)
             }
         }
-        history + native + terminations
-    }.getOrDefault(emptyList())
+        return history + native + terminations
+    }
+}
+
+internal data class RuntimeIncidentCapture(val availability: String, val capturedAtMillis: Long, val records: List<JsonObject>, val persistenceFailures: Long) {
+    val metadata: JsonObject get() = buildJsonObject {
+        put("kind", "runtime_incident_capture")
+        put("availability", if (availability == "AVAILABLE" && records.isEmpty()) "EMPTY_RETAINED" else availability)
+        put("collectionInitialized", availability != "UNAVAILABLE")
+        put("capturedAtMillis", capturedAtMillis)
+        put("retainedRecords", records.size)
+        put("persistenceFailures", persistenceFailures)
+        put("scope", "Retained device/process incident history; empty retained history does not establish zero incidents during the entire session.")
+    }
 }
 
 /** The native writer bounds errors and warnings independently; JSON escaping can expand both. */

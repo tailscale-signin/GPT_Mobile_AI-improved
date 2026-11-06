@@ -458,7 +458,7 @@ fun OpponentChatBubble(
                         },
                         beforeAnswer = {
                             if (githubTask != null && (isLoading || activityExpanded)) {
-                                GitHubLiveProgressCard(timeline, githubTask, toolEvents, expanded = activityExpanded)
+                                GitHubLiveProgressCard(timeline, githubTask, toolEvents, expanded = activityExpanded, active = isLoading)
                             }
                         },
                         debugSettings = debugSettings,

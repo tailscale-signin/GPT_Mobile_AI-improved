@@ -35,7 +35,7 @@ internal object GitHubAcceptanceLedger {
                 put(
                     "receipt_ids",
                     JsonArray(
-                        listOf("evidence_receipt_ids", "receipt_ids", "implementation_receipts", "test_receipts")
+                        listOf("evidence_receipt_ids", "receipt_ids", "implementation_receipts", "test_receipts", "operation_receipts", "verification_receipts")
                             .flatMap { (row[it] as? JsonArray).orEmpty() }.distinct()
                     )
                 )

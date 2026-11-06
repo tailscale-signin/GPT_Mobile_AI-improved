@@ -71,6 +71,63 @@ class JournalTests(unittest.TestCase):
         return 200, {'id': 'chatcmpl-test', 'model': 'local', 'choices': [
             {'index': 0, 'message': {'role': 'assistant', 'content': 'SQLite reply'}, 'finish_reason': 'stop'}]}
 
+    def test_durably_admitted_interactive_job_survives_android_disconnect_and_retains_one_saved_result(self):
+        job_id = 'durable-disconnected'
+        soft, hard = threading.Event(), threading.Event()
+        self.runtime.register_gateway_job(job_id, 'local', 'interactive', soft, hard)
+        self.store.claim(job_id, 'local:single-user')
+        self.runtime.mark_gateway_job_disconnected(job_id)
+        result = {'choices': [{'message': {'role': 'assistant', 'content': 'Finished while Android was offline'}}]}
+        executions = []
+
+        async def scenario():
+            release = asyncio.Event()
+            async def run_once():
+                executions.append(job_id)
+                await release.wait()
+                self.runtime.finish_gateway_job(job_id, 200, result)
+            worker = asyncio.create_task(run_once())
+            self.runtime.singleflight_workers[job_id] = {'task': worker, 'clients': 0, 'job_mode': 'interactive'}
+            try:
+                with patch.object(self.runtime, 'SINGLEFLIGHT_ORPHAN_GRACE_SECONDS', 0):
+                    await self.runtime.cancel_orphaned_singleflight_after_grace(job_id, worker, soft)
+                self.assertFalse(worker.done())
+                self.assertFalse(soft.is_set())
+                self.assertTrue(self.runtime.gateway_continue_disconnected(job_id))
+            finally:
+                release.set()
+                await worker
+        asyncio.run(scenario())
+        self.assertEqual([job_id], executions)
+        with closing(sqlite3.connect(self.db)) as db:
+            status, saved = db.execute('SELECT status,result_json FROM gateway_jobs WHERE job_id=?', (job_id,)).fetchone()
+        self.assertEqual('completed', status)
+        self.assertEqual(result, json.loads(saved))
+        self.runtime.job_registry.clear()
+        with self.client() as client, patch.object(self.runtime, 'process_chat_payload') as model:
+            recovered = client.get('/gateway/jobs/' + job_id + '/result')
+            self.assertEqual(200, recovered.status_code, recovered.text)
+            self.assertEqual(result, recovered.json()['result'])
+            model.assert_not_called()
+
+    def test_durable_retention_never_overrides_explicit_cancellation_or_uncommitted_admission(self):
+        soft, hard = threading.Event(), threading.Event()
+        self.runtime.register_gateway_job('manual-cancel', 'local', 'interactive', soft, hard)
+        self.assertTrue(self.runtime.gateway_continue_disconnected('manual-cancel'))
+        hard.set()
+        self.assertFalse(self.runtime.gateway_continue_disconnected('manual-cancel'))
+        self.runtime.job_registry['not-committed'] = {'status': 'running'}
+        self.assertFalse(self.runtime.gateway_continue_disconnected('not-committed'))
+        with patch.object(self.runtime, 'GATEWAY_DURABLE_JOBS', False):
+            hard.clear()
+            self.assertFalse(self.runtime.gateway_continue_disconnected('manual-cancel'))
+        from v14.actions import current_gateway_job_id
+        token = current_gateway_job_id.set('manual-cancel')
+        try:
+            self.assertTrue(self.runtime.should_continue_after_disconnect('interactive'))
+        finally:
+            current_gateway_job_id.reset(token)
+
     def chat(self, client, stream=True):
         headers = {'Origin': 'http://127.0.0.1:8090'}
         headers['X-Gateway-CSRF'] = client.get('/gateway/session', headers=headers).json()['csrfToken']

@@ -314,7 +314,7 @@ fun RepositoryGraphPanel(context: GitHubConversationContext, profile: PlatformV2
 }
 
 @Composable
-private fun GraphMiniMap(nodes: List<JsonObject>, edges: List<JsonObject>, onSelect: (JsonObject) -> Unit) {
+internal fun GraphMiniMap(nodes: List<JsonObject>, edges: List<JsonObject>, onSelect: (JsonObject) -> Unit) {
     val primary = MaterialTheme.colorScheme.primary
     val tertiary = MaterialTheme.colorScheme.tertiary
     val secondary = MaterialTheme.colorScheme.secondary

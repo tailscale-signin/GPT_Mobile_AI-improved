@@ -1,7 +1,9 @@
 # Gateway, task verification and retention follow-up — November 6
 
-Repository: `tailscale-signin/GPT_Mobile_AI-improved`  
-Branch: `fix/diagnostic-workflow-evidence-2026-11-06`  
+Repository: `tailscale-signin/GPT_Mobile_AI-improved`
+
+Branch: `fix/diagnostic-workflow-evidence-2026-11-06`
+
 Parent repair: [Diagnostic workflow and evidence repair](diagnostic-workflow-evidence-2026-11-06.md)
 
 ## Evidence boundary

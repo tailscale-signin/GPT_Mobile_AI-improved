@@ -1,10 +1,10 @@
 # PR #804 validation repairs
 
-Repository: `tailscale-signin/GPT_Mobile_AI-improved`  
-Base branch: `main`  
-Inspected base: `1b8d57128484770d09fe026216a46603803b76f6`  
-Working branch: `fix/diagnostic-capture-github-verification-2026-11-05`  
-Initial reviewed PR head: `b164ceb30d00bd8235daf82f2596e74329298af8`  
+Repository: `tailscale-signin/GPT_Mobile_AI-improved`
+Base branch: `main`
+Inspected base: `1b8d57128484770d09fe026216a46603803b76f6`
+Working branch: `fix/diagnostic-capture-github-verification-2026-11-05`
+Initial reviewed PR head: `b164ceb30d00bd8235daf82f2596e74329298af8`
 User instruction: fix all draft PR branches and merge when all applicable checks are green.
 
 ## Reconciliation

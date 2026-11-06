@@ -62,7 +62,9 @@ jobs:
         run: python3 scripts/gradle_retry.py -- :app:kspBenchmarkKotlin :app:kaptBenchmarkKotlin --no-daemon --console=plain --max-workers=1
       - name: Compile benchmark app
         timeout-minutes: 30
-        run: python3 scripts/gradle_retry.py -- :app:compileBenchmarkKotlin --no-daemon --stacktrace --console=plain --max-workers=1
+        # This variant compiles the same main sources plus benchmark fixtures.
+        # Keep the measured production-compile bound; generation/tests stay separate.
+        run: python3 scripts/gradle_retry.py -- :app:compileBenchmarkKotlin --no-daemon --stacktrace --console=plain --max-workers=1 '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8'
       - name: Compile benchmark regressions
         timeout-minutes: 20
         run: python3 scripts/gradle_retry.py -- :macrobenchmark:compileBenchmarkKotlin --no-daemon --stacktrace --console=plain --max-workers=1

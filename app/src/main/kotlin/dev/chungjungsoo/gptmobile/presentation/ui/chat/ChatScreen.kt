@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
 import android.Manifest
+import android.content.ClipData
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -2143,7 +2144,10 @@ private suspend fun exportChat(context: Context, chatViewModel: ChatViewModel, f
             Toast.makeText(context, "Preparing detailed conversation diagnostics…", Toast.LENGTH_SHORT).show()
         }
         val file = if (format == ChatExportFormat.DEBUG) {
-            withContext(Dispatchers.IO) { chatViewModel.exportDebugFile(context.getExternalFilesDir(null) ?: context.filesDir, reducedMemory, resume) }
+            withContext(Dispatchers.IO) {
+                val output = context.getExternalFilesDir(null) ?: File(context.cacheDir, "diagnostics").apply { mkdirs() }
+                chatViewModel.exportDebugFile(output, reducedMemory, resume)
+            }
         } else {
             val (fileName, fileContent) = chatViewModel.exportChat(format)
             if (fileContent.isBlank()) {
@@ -2151,7 +2155,8 @@ private suspend fun exportChat(context: Context, chatViewModel: ChatViewModel, f
                 return
             }
             withContext(Dispatchers.IO) {
-                val destination = File(context.getExternalFilesDir(null), fileName)
+                val output = context.getExternalFilesDir(null) ?: File(context.cacheDir, "diagnostics").apply { mkdirs() }
+                val destination = File(output, fileName)
                 val staging = File(destination.parentFile, ".${destination.name}.partial")
                 try {
                     staging.writeText(fileContent)
@@ -2165,18 +2170,26 @@ private suspend fun exportChat(context: Context, chatViewModel: ChatViewModel, f
         if (format == ChatExportFormat.DEBUG) {
             chatViewModel.diagnosticExportNotice.value?.let { Toast.makeText(context, it, Toast.LENGTH_LONG).show() }
         }
-        val uri = withContext(Dispatchers.IO) { getUriForFile(context, "${context.packageName}.fileprovider", file) }
+        val uri = withContext(Dispatchers.IO) {
+            check(file.isFile && file.length() > 0L) { "Export is missing or empty." }
+            val provided = getUriForFile(context, "${context.packageName}.fileprovider", file)
+            context.contentResolver.openInputStream(provided)?.use { stream ->
+                check(stream.read() != -1) { "Export provider returned an empty file." }
+            } ?: error("Export provider cannot open the file.")
+            provided
+        }
+        val clip = ClipData.newUri(context.contentResolver, file.name, uri)
         val shareIntent = Intent(Intent.ACTION_SEND).apply {
             type = format.mimeType
             putExtra(Intent.EXTRA_STREAM, uri)
+            clipData = clip
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
+        // The chooser itself carries the grant, so the selected recipient can
+        // open the document without relying on package-visibility enumeration.
         val chooser = Intent.createChooser(shareIntent, "Share Chat Export").apply {
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
-        val resInfo = context.packageManager.queryIntentActivities(chooser, PackageManager.MATCH_DEFAULT_ONLY)
-        resInfo.forEach { res ->
-            context.grantUriPermission(res.activityInfo.packageName, uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            clipData = clip
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
         }
         context.startActivity(chooser)
     } catch (e: kotlinx.coroutines.CancellationException) {

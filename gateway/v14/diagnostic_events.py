@@ -351,6 +351,9 @@ class DiagnosticSessionJournal:
                         return sources[key]
 
                     rejected, committed, duplicate, accounted = [], [], [], []
+                    # Bounded to MAX_BATCH_EVENTS; the inserts and their receipts still
+                    # commit atomically inside the same FULL-synchronous WAL transaction.
+                    pending_events, pending_verifications = [], []
                     # Batch the digest lookup rather than doing 50,000 individual
                     # SQLite SELECTs during a large import. Keep per-event inserts
                     # and the transaction's FULL durability contract unchanged.
@@ -394,9 +397,8 @@ class DiagnosticSessionJournal:
                         self._account(source, sequence, sequence)
                         capture['last_ingest'] += 1
                         item.update(gateway_ingest_sequence=capture['last_ingest'], observed_at_utc=now)
-                        db.execute('INSERT INTO events VALUES(?,?,?,?,?,?,?,?)',
-                                   (owner, session, capture['last_ingest'], event_id, origin, boot, sequence, encoded(item)))
-                        db.execute('INSERT INTO verification VALUES(?,?,?,?,?)', (owner, session, event_id, verification, capture['last_ingest']))
+                        pending_events.append((owner, session, capture['last_ingest'], event_id, origin, boot, sequence, encoded(item)))
+                        pending_verifications.append((owner, session, event_id, verification, capture['last_ingest']))
                         # A repeated ID inside this same batch must be recognized
                         # without another database round-trip.
                         prior_digests[event_id] = verification
@@ -404,6 +406,12 @@ class DiagnosticSessionJournal:
                         source['received_count'] += 1
                         source['updated'] = now
                         committed.append(event_id)
+                    # Use SQLite's bounded executemany path rather than 128
+                    # Python-to-SQLite statement dispatches per full batch.
+                    # A failure rolls back source watermarks, rows and digests together.
+                    if pending_events:
+                        db.executemany('INSERT INTO events VALUES(?,?,?,?,?,?,?,?)', pending_events)
+                        db.executemany('INSERT INTO verification VALUES(?,?,?,?,?)', pending_verifications)
                     for gap in gaps:
                         if not isinstance(gap, dict) or gap.get('reason') not in LOSS_REASONS:
                             raise DiagnosticProtocolError('INVALID_GAP')

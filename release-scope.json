@@ -25,7 +25,10 @@
     "Repair the November 6 diagnostic workflow by reusing complete GitHub evidence, reserving verification and cleanup, distinguishing transport provenance, streaming bounded journal/receipt exports, chunking large redacted records, validating MCP negotiation and reducing progress rendering work.",
     "Repair the expanded November 6 diagnostic scope with run-bound acceptance receipts, action validation and native graph alternatives, protected result retention and upgrade recovery, durable gateway disconnect handling, selected-model capacity confirmation, opt-in failed-attempt tracing, deferred startup/workspace IO and adaptive blur.",
     "Correlate GitHub request and response observations, preserve uncertain GraphQL mutation claims, and verify ready-for-review by exact remote readback without replaying a lost write.",
-    "Bind REST mutation claims to their actual HTTP payload, preserve exact legacy fences and proof-based recovery, connect GraphQL reconciliation to task acceptance, and retain deterministic workflow-error blocking across error-code upgrades."
+    "Bind REST mutation claims to their actual HTTP payload, preserve exact legacy fences and proof-based recovery, connect GraphQL reconciliation to task acceptance, and retain deterministic workflow-error blocking across error-code upgrades.",
+    "Fix Android conversation and diagnostic archive sharing with a FileProvider readability preflight, internal-cache fallback when external files are unavailable, narrow chooser ClipData grants and executable Android regression tests.",
+    "Render the pinned, selected-gateway GitHub repository graph as interactive theme-colored bubbles in the Status tab, using actual indexed architecture communities or nodes with explicit no-index, stale and truncated states.",
+    "Preserve independent user-authorized workflow dispatch identities and exact run receipts; retire the temporary review workflow, include related regressions in release scope and batch durable diagnostic verification lookups to address the Windows stress bottleneck without reducing integrity or time limits."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; its remaining acceptance cases are not represented as passed.",

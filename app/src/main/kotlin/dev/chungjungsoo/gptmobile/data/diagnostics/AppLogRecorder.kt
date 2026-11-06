@@ -25,7 +25,7 @@ data class AppLogEntry(val time: Long, val level: String, val tag: String, val m
     }
 }
 
-/** Opt-in, app-process-only diagnostics. No network upload and no HTTP bodies. */
+/** Opt-in app logs. The gateway bridge receives allowlisted event metadata, never raw messages or HTTP bodies. */
 object AppLogRecorder {
     private const val QUEUE_RECORD_LIMIT = 512
     private const val RECENT_ENTRY_LIMIT = 2000
@@ -62,6 +62,7 @@ object AppLogRecorder {
     @Synchronized fun setPrivateSession(owner: String, active: Boolean) {
         if (active) {
             privateSessions.add(owner)
+            dev.chungjungsoo.gptmobile.data.network.gateway.GatewayClientDiagnostics.pause()
             captureEpoch.incrementAndGet()
             process?.destroy()
             process = null
@@ -79,6 +80,7 @@ object AppLogRecorder {
     @Synchronized fun initialize(application: Application) {
         if (app != null) return
         app = application.applicationContext
+        dev.chungjungsoo.gptmobile.data.network.gateway.GatewayClientDiagnostics.initialize(File(application.noBackupFilesDir, "gateway-diagnostics"))
         LocalRuntimeIncidentHistory.initialize(application)
         dev.chungjungsoo.gptmobile.data.localmodel.PackageDigest.configureReceiptDirectory(File(application.noBackupFilesDir, "model-verification"))
         dev.chungjungsoo.gptmobile.data.localmodel.GgufImportAdapter.configureMetadataCache(File(application.noBackupFilesDir, "gguf-metadata"))
@@ -115,6 +117,7 @@ object AppLogRecorder {
                         if (epoch != captureEpoch.get()) return@forEach
                         runCatching { persistEntry(event) }
                             .onFailure { mutableError.value = "Unable to save logs. Check available storage." }
+                        dev.chungjungsoo.gptmobile.data.network.gateway.GatewayClientDiagnostics.appEvent(event)
                         retainRecent(event)
                         retained = true
                     }
@@ -234,6 +237,7 @@ object AppLogRecorder {
         synchronized(fileLock) {
             if (!mutableEnabled.value || privateSessions.isNotEmpty() || epoch != captureEpoch.get()) return
             retainRecent(entry)
+            dev.chungjungsoo.gptmobile.data.network.gateway.GatewayClientDiagnostics.appEvent(entry)
             mutableEntries.value = recent.toList()
             runCatching {
                 val line = entry.line()
@@ -249,6 +253,7 @@ object AppLogRecorder {
             app?.let(DiagnosticCaptureStorage::clear)
             RunDiagnostics.journal?.clear()
             dev.chungjungsoo.gptmobile.data.free.FreeProviderDiagnostics.clear()
+            dev.chungjungsoo.gptmobile.data.network.gateway.GatewayClientDiagnostics.clear()
             synchronized(exportLock) {
                 synchronized(fileLock) {
                     // Invalidate producers that began sanitizing a record before this clear.

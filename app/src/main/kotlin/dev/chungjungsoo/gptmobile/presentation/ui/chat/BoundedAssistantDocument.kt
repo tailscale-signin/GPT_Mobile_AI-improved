@@ -31,7 +31,6 @@ import dev.chungjungsoo.gptmobile.data.research.researchHash
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.collect
-import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -54,7 +53,7 @@ internal class CombinedDocumentPageCache(private val load: suspend (Int, Int) ->
     }
 }
 
-private data class InlineDocumentSnapshot(val text: String, val frames: List<CombinedMarkdownFrame>, val wording: CombinedWordingPresentation?)
+private data class InlineDocumentSnapshot(val text: String, val frames: List<CombinedMarkdownFrame>, val wording: CombinedWordingPresentation?, val replacement: Long)
 
 private data class DocumentPageState(val block: CombinedDocumentBlock? = null, val failed: Boolean = false)
 
@@ -120,11 +119,13 @@ internal fun BoundedInlineAssistantDocument(
     // answer; old offsets must never index the newer text while preparation runs.
     val latest by rememberUpdatedState(Triple(text, streaming, wording))
     val snapshot by produceState<InlineDocumentSnapshot?>(null, identity) {
-        snapshotFlow { latest }.conflate().collect {
-            if (latest.second) kotlinx.coroutines.delay(500)
-            val (body, _, presentation) = latest
-            value = withContext(Dispatchers.Default) { InlineDocumentSnapshot(body, CombinedMarkdownPaging.frames(body).toList(), presentation) }
-        }
+        var prior: InlineDocumentSnapshot? = null
+        snapshotFlow { latest }.presentationSnapshots(streaming = { it.second }, useful = { it.first.isNotBlank() }).prepareConflatedRender { (body, _, presentation) ->
+            withContext(Dispatchers.Default) {
+                val replacement = (prior?.replacement ?: 0) + if (prior?.text?.let(body::startsWith) == false) 1 else 0
+                InlineDocumentSnapshot(body, CombinedMarkdownPaging.frames(body).toList(), presentation, replacement).also { prior = it }
+            }
+        }.collect { value = it }
     }
     val ready = snapshot
     if (ready == null) {
@@ -136,7 +137,7 @@ internal fun BoundedInlineAssistantDocument(
                 val block = ready.text.substring(range.start, range.end)
                 CombinedDocumentBlock(index, range.start, block, researchHash(block), CombinedDocuments.slicePassages(ready.text, range.start, range.end, ready.wording?.passages.orEmpty()), range.openingFence, range.closingFence, range.tableHeader)
             }
-        }, outputTrace, articleCards, streaming = streaming)
+        }, outputTrace, articleCards, streaming = streaming, pageVersion = { index -> listOf(ready.replacement, ready.frames[index], ready.wording) })
     }
 }
 
@@ -150,16 +151,18 @@ private fun DocumentViewport(
     outputTrace: dev.chungjungsoo.gptmobile.data.diagnostics.OutputTraceOwner?,
     articleCards: @Composable (String) -> Unit,
     onVisiblePage: (() -> Unit)? = null,
-    streaming: Boolean = false
+    streaming: Boolean = false,
+    pageVersion: (Int) -> Any = { page }
 ) {
     if (count == 0) return
     val viewport = (LocalConfiguration.current.screenHeightDp * 0.7f).coerceAtLeast(240f).dp
     val state = rememberLazyListState()
     LazyColumn(state = state, modifier = Modifier.fillMaxWidth().height(viewport).testTag("combined_document")) {
         items(count = count, key = { "$identity:block:$it" }, contentType = { "answer-block" }) { index ->
-            val loaded by produceState(DocumentPageState(), identity, index, page) {
+            val latestPage by rememberUpdatedState(page)
+            val loaded by produceState(DocumentPageState(), identity, index, pageVersion(index)) {
                 value = try {
-                    DocumentPageState(page(index))
+                    DocumentPageState(latestPage(index))
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (_: Exception) {
@@ -187,7 +190,7 @@ private fun DocumentViewport(
                             }
                         )
                     }
-                    ChatMarkdown(adaptiveAnswerLength = if (count == 1) display.length else 1200, content = display, contentIdentity = "$identity:$index:${block.digest}", wording = presentation, outputTrace = outputTrace?.copy(partId = "${outputTrace.partId}:block:$index:${block.digest}"), proseColor = proseColor, streaming = streaming && index == count - 1, animateStreaming = !streaming, modifier = Modifier.padding(vertical = 8.dp), minimumPendingHeight = viewport, onContentDrawn = onVisiblePage)
+                    ChatMarkdown(adaptiveAnswerLength = if (count == 1) display.length else 1200, content = display, contentIdentity = "$identity:$index", wording = presentation, outputTrace = outputTrace?.copy(partId = "${outputTrace.partId}:block:$index:${block.digest}"), proseColor = proseColor, streaming = streaming && index == count - 1, animateStreaming = !streaming, modifier = Modifier.padding(vertical = 8.dp), minimumPendingHeight = viewport, onContentDrawn = onVisiblePage)
                     articleCards(block.text)
                 }
                 loaded.failed -> Text("This part of the saved answer could not be opened.", color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(vertical = 12.dp))

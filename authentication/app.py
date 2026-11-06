@@ -9,15 +9,17 @@ import time
 from pathlib import Path
 
 from .github_broker import AuthorizationError, Broker, Config, github_exchange, https_origin
+from .ticket_broker import TicketBroker, TicketError
 
 
 def create_app(config: Config, exchange=github_exchange):
     from fastapi import FastAPI, Request
-    from fastapi.responses import JSONResponse
+    from fastapi.responses import JSONResponse, RedirectResponse
     from starlette.concurrency import run_in_threadpool
 
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
     broker = Broker(config, exchange)
+    tickets = TicketBroker(config, exchange)
     origin = https_origin(config.public_url)
     callback_origin = https_origin(config.callback_url)
     limit_lock = threading.Lock()
@@ -66,11 +68,37 @@ def create_app(config: Config, exchange=github_exchange):
 
     @app.exception_handler(AuthorizationError)
     async def denied(request, error):
-        return JSONResponse({"error": "AUTHORIZATION_FAILED", "message": str(error)}, status_code=400)
+        return JSONResponse({"error": getattr(error, "code", "AUTHORIZATION_FAILED"), "message": str(error)},
+                            status_code=getattr(error, "status", 400))
 
     @app.get("/health/ready")
     async def ready():
-        return {"service": "github-public-auth", "version": 1, "clientId": config.client_id, "pkce": "S256", "gatewayRequired": False}
+        return {"service": "github-public-auth", "version": 2, "clientId": config.client_id, "pkce": "S256",
+                "gatewayRequired": False, "ticketRedemption": True, "appLinkUri": tickets.app_link}
+
+    @app.post("/v2/github/oauth/start")
+    async def ticket_start(request: Request):
+        values = await arguments(request)
+        if set(values) != {"codeChallenge", "clientSessionId", "accountIntent"}:
+            raise AuthorizationError("Code challenge, client session and account intent are required")
+        return await run_in_threadpool(tickets.begin_ticket, values["codeChallenge"], values["clientSessionId"], values["accountIntent"])
+
+    @app.get("/oauth/github/callback")
+    async def callback(request: Request):
+        pairs = list(request.query_params.multi_items())
+        values = dict(pairs)
+        if (len(pairs) != len(values) or len(request.url.query) > 8192 or "state" not in values
+                or not (set(values) == {"state", "code"} or "error" in values and set(values) <= {"state", "error", "error_description", "error_uri"})):
+            raise AuthorizationError("Invalid GitHub callback parameters")
+        target = await run_in_threadpool(tickets.callback, values["state"], values.get("code"), values.get("error"))
+        return RedirectResponse(target, status_code=303)
+
+    @app.post("/v2/github/oauth/redeem")
+    async def redeem(request: Request):
+        values = await arguments(request)
+        if set(values) != {"state", "ticket", "codeVerifier", "clientSessionId", "accountIntent"}:
+            raise AuthorizationError("The ticket and its complete client binding are required")
+        return await run_in_threadpool(tickets.redeem, values["state"], values["ticket"], values["codeVerifier"], values["clientSessionId"], values["accountIntent"])
 
     @app.post("/v1/github/oauth/start")
     async def start(request: Request):
@@ -99,4 +127,4 @@ def create_app(config: Config, exchange=github_exchange):
 def from_environment():
     return create_app(Config(os.environ["GITHUB_APP_CLIENT_ID"], os.environ["GITHUB_APP_CLIENT_SECRET"],
                              os.environ["GITHUB_APP_CALLBACK_URL"], os.environ["GITHUB_AUTH_PUBLIC_URL"],
-                             Path(os.environ["GITHUB_AUTH_STATE_DB"])))
+                             Path(os.environ["GITHUB_AUTH_STATE_DB"]), os.environ.get("GITHUB_ANDROID_APP_LINK_URL")))

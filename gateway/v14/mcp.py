@@ -1,9 +1,10 @@
-"""Supervised legacy MCP stdio transport; no speculative protocol fallback."""
+"""Supervised MCP stdio with explicit modern and legacy protocol adapters."""
 import json
 import queue
 import threading
 import time
 import uuid
+from v14.mcp_protocol import MODERN_VERSION, modern_params, discovery, failure_category
 
 LEGACY_VERSIONS = frozenset({'2024-11-05', '2025-03-26', '2025-06-18', '2025-11-25'})
 
@@ -50,6 +51,8 @@ def install_mcp_resilience(runtime):
             self.deadline = None
             self.queue_lock = threading.Lock()
             self.queued_bytes = 0
+            self.last_outcome = None
+            self.last_failure = None
 
         def _spawn(self):
             with self.queue_lock:
@@ -123,6 +126,8 @@ def install_mcp_resilience(runtime):
                 method = message.get('method')
                 if isinstance(method, str):
                     if message.get('id') is not None:
+                        if self.protocol_version == MODERN_VERSION:
+                            raise ValueError('Modern MCP server sent an independent request')
                         # Legacy servers may issue ping; sampling/elicitation are not granted.
                         reply = {'jsonrpc': '2.0', 'id': message['id']}
                         reply.update({'result': {}} if method == 'ping' else {'error': {'code': -32601, 'message': 'Client capability not available'}})
@@ -141,6 +146,26 @@ def install_mcp_resilience(runtime):
 
         def _initialize(self):
             requested = self.cfg.get('protocolVersion', runtime.MCP_DEFAULT_PROTOCOL_VERSION)
+            if requested in {MODERN_VERSION, 'auto'}:
+                request_id = self._next_id()
+                self._send_json({'jsonrpc': '2.0', 'id': request_id, 'method': 'server/discover',
+                                 'params': modern_params({}, runtime.GATEWAY_VERSION)})
+                response = self._wait_for_response(request_id, runtime.MCP_STARTUP_TIMEOUT_SECONDS,
+                                                   runtime.MCP_STARTUP_TIMEOUT_SECONDS)
+                error = response.get('error')
+                if error is None:
+                    result = discovery(response)
+                    self.protocol_version = MODERN_VERSION
+                    self.server_capabilities = dict(result['capabilities'])
+                    self.server_info = dict(result.get('_meta', {}).get('io.modelcontextprotocol/serverInfo') or {})
+                    self.initialized = True
+                    return
+                # Only an explicit unsupported pre-handshake RPC permits downgrade.
+                # A timeout, auth denial or modern protocol rejection is not evidence
+                # of a legacy server, and never starts a second execution path.
+                if requested != 'auto' or error.get('code') not in {-32601, -32602}:
+                    raise ValueError('MCP discovery failed; protocol downgrade was not authorized')
+                requested = runtime.MCP_DEFAULT_PROTOCOL_VERSION
             if requested not in LEGACY_VERSIONS:
                 raise ValueError('Configured MCP revision requires a separate modern adapter')
             request_id = self._next_id()
@@ -170,6 +195,7 @@ def install_mcp_resilience(runtime):
             if not acquired:
                 raise TimeoutError('MCP queue deadline exceeded before dispatch')
             request_id, timer, entered = None, None, False
+            self.last_outcome = None
             try:
                 if getattr(runtime, 'gateway_draining', False):
                     raise InterruptedError('Gateway is draining; MCP dispatch stopped')
@@ -196,10 +222,13 @@ def install_mcp_resilience(runtime):
                 timer.start()
                 request_id = self._next_id()
                 arguments = dict(params or {})
+                if self.protocol_version == MODERN_VERSION:
+                    arguments = modern_params(arguments, runtime.GATEWAY_VERSION)
                 token = uuid.uuid4().hex if method == 'tools/call' else None
                 if token:
                     arguments['_meta'] = dict(arguments.get('_meta') or {}, progressToken=token)
                 self.calls += 1
+                self.last_outcome = {'method': method, 'requestId': request_id, 'dispatchState': 'DISPATCHING', 'outcome': 'UNKNOWN_OUTCOME'}
                 runtime.increment_mcp_metric('rpc_calls')
                 self._send_json({'jsonrpc': '2.0', 'id': request_id, 'method': method, 'params': arguments})
                 response = self._wait_for_response(request_id, max(0.01, float(inactivity_timeout)), remaining,
@@ -208,11 +237,19 @@ def install_mcp_resilience(runtime):
                 self.circuit.finish(False)  # A valid RPC error still proves transport health.
                 entered = False
                 if 'error' in response:
+                    self.last_outcome.update(dispatchState='RESPONDED', outcome='RPC_ERROR')
                     raise ValueError('MCP server rejected the RPC: ' + str(response['error'].get('code', 'unknown')))
+                if self.protocol_version == MODERN_VERSION and response['result'].get('resultType') in {'input_required', 'task'}:
+                    self.last_outcome.update(dispatchState='RESPONDED', outcome='UNSUPPORTED_CONTINUATION')
+                    raise ValueError('MCP requested an unadvertised input/task capability; original operation was not replayed')
+                self.last_outcome.update(dispatchState='RESPONDED', outcome='FAILED' if response['result'].get('isError') else 'SUCCEEDED')
                 return response['result']
             except CircuitOpen:
                 raise
             except BaseException as exc:
+                self.last_failure = {'category': failure_category(exc), 'retryOwner': 'operation', 'automaticReplay': False,
+                                     'dispatchState': self.last_outcome['dispatchState'] if self.last_outcome else 'NOT_DISPATCHED',
+                                     'outcome': self.last_outcome['outcome'] if self.last_outcome else 'NOT_DISPATCHED'}
                 if entered:
                     self.circuit.finish(not isinstance(exc, InterruptedError))
                     self.failures += 1
@@ -289,6 +326,8 @@ def install_mcp_resilience(runtime):
         def public_status(self):
             result = super().public_status()
             result['circuit'] = self.circuit.snapshot()
+            result['lastOutcome'] = self.last_outcome
+            result['lastFailure'] = self.last_failure
             return result
 
     runtime.PersistentMCPStdioSession = SupervisedSession
@@ -297,7 +336,15 @@ def install_mcp_resilience(runtime):
     def call(server_name, method, params=None, progress_callback=None, cancel_event=None):
         session = runtime.get_mcp_session(server_name)
         cfg = session.cfg
-        return session.call(method, params, inactivity_timeout=float(cfg.get('timeoutSeconds', runtime.MCP_CALL_INACTIVITY_TIMEOUT_SECONDS)),
-                            absolute_timeout=float(cfg.get('absoluteTimeoutSeconds', runtime.MCP_CALL_ABSOLUTE_TIMEOUT_SECONDS)),
-                            progress_callback=progress_callback, cancel_event=cancel_event)
+        try:
+            result = session.call(method, params, inactivity_timeout=float(cfg.get('timeoutSeconds', runtime.MCP_CALL_INACTIVITY_TIMEOUT_SECONDS)),
+                                  absolute_timeout=float(cfg.get('absoluteTimeoutSeconds', runtime.MCP_CALL_ABSOLUTE_TIMEOUT_SECONDS)),
+                                  progress_callback=progress_callback, cancel_event=cancel_event)
+            if method == 'tools/call' and hasattr(runtime, 'gateway_catalogue'):
+                runtime.gateway_catalogue.observe_execution(server_name, cfg, (params or {}).get('name'), result.get('isError') is not True)
+            return result
+        except Exception:
+            if method == 'tools/call' and hasattr(runtime, 'gateway_catalogue'):
+                runtime.gateway_catalogue.observe_execution(server_name, cfg, (params or {}).get('name'), False)
+            raise
     runtime.mcp_call = call

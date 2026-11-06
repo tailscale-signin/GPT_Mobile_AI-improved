@@ -16,6 +16,8 @@ import org.json.JSONObject
 /** Fixed host, no redirects, bounded responses, and a fresh credential for every request. */
 internal open class GitHubEngineeringApi(private val token: suspend () -> String?) {
     private var http = transport
+    private var origins = dev.chungjungsoo.gptmobile.data.github.GitHubApiOrigins.GITHUB_COM
+    internal fun configureOrigins(value: dev.chungjungsoo.gptmobile.data.github.GitHubApiOrigins): GitHubEngineeringApi = apply { origins = value }
     internal constructor(http: OkHttpClient, token: suspend () -> String?) : this(token) {
         this.http = http
     }
@@ -44,30 +46,40 @@ internal open class GitHubEngineeringApi(private val token: suspend () -> String
         val credential = requireNotNull(token()?.takeIf { it.isNotBlank() && '\r' !in it && '\n' !in it }) { "Reconnect the GitHub account" }
         if (method != "GET" && !readOnlyHealthQuery) {
             val expectedActor = requireNotNull(expectedWriteActor) { "Engineering write has no approved account" }
-            val actualActor = JSONObject(GitHubEngineeringApi { credential }.request("/user")).getLong("id").toString()
+            val actualActor = JSONObject(GitHubEngineeringApi(http) { credential }.configureOrigins(origins).request("/user")).getLong("id").toString()
             check(actualActor == expectedActor) { "GitHub credential changed accounts; review approval again" }
         }
-        val scheduler = dev.chungjungsoo.gptmobile.data.github.GitHubSessionCaches.schedulerForCredential(credential)
-        val limits = dev.chungjungsoo.gptmobile.data.github.GitHubSessionCaches.rateLimitsForCredential(credential)
-        val cache = dev.chungjungsoo.gptmobile.data.github.GitHubSessionCaches.forCredential(credential)
-        val authentication = dev.chungjungsoo.gptmobile.data.github.GitHubSessionCaches.authenticationForCredential(credential)
-        val key = "$method:$path"
+        val scheduler = dev.chungjungsoo.gptmobile.data.github.GitHubSessionCaches.schedulerForCredential(credential, origins.hostIdentity)
+        val limits = dev.chungjungsoo.gptmobile.data.github.GitHubSessionCaches.rateLimitsForCredential(credential, origins.hostIdentity)
+        val cache = dev.chungjungsoo.gptmobile.data.github.GitHubSessionCaches.forCredential(credential, origins.hostIdentity)
+        val authentication = dev.chungjungsoo.gptmobile.data.github.GitHubSessionCaches.authenticationForCredential(credential, origins.hostIdentity)
+        val key = "${origins.rest}:${dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore.digest(credential)}:$method:$path"
         scheduler.execute(if (method == "GET") "engineering:$key" else null) {
+            check(!authentication.get()) { "GitHub authentication was rejected. Reconnect before retrying." }
             val delay = limits.retryDelayMillis()
             if (delay > 0) throw engineeringApiFailure(429, (delay / 1000 + 1).toString(), null, null, null, "", System.currentTimeMillis())
             val cached = if (method == "GET") cache.get(key) else null
             val requestBody = body?.toString()?.toRequestBody(JSON_MEDIA)
                 ?: if (method in setOf("POST", "PUT", "PATCH")) ByteArray(0).toRequestBody(JSON_MEDIA) else null
             val request = Request.Builder()
-                .url("https://api.github.com$path")
+                .url(if (path == "/graphql") origins.graphQl else "${origins.rest}$path")
                 .header("Authorization", "Bearer $credential")
                 .header("Accept", "application/vnd.github+json")
-                .header("X-GitHub-Api-Version", "2022-11-28")
+                .header("X-GitHub-Api-Version", dev.chungjungsoo.gptmobile.data.github.GitHubWorkspaceClient.API_VERSION)
                 .apply { cached?.etag?.takeIf(String::isNotBlank)?.let { header("If-None-Match", it) } }
                 .method(method, requestBody)
                 .build()
             scheduler.recordRequest()
-            http.newCall(request).execute().use { response ->
+            val firstResponse = http.newCall(request).execute()
+            val finalResponse = if (method == "GET" && firstResponse.code == 304 && cached == null) {
+                firstResponse.close()
+                scheduler.recordRequest()
+                http.newCall(request.newBuilder().removeHeader("If-None-Match").build()).execute()
+            } else {
+                firstResponse
+            }
+            finalResponse.use { response ->
+                check(response.code != 304 || cached != null) { "GITHUB_CACHE_BODY_MISSING: unconditional revalidation returned no body." }
                 limits.record(io.ktor.http.Headers.build { response.headers.names().forEach { name -> appendAll(name, response.headers.values(name)) } }, response.code)
                 if (response.code == 401) authentication.set(true)
                 if (response.code in setOf(401, 403)) cache.clear()
@@ -139,4 +151,6 @@ internal open class GitHubEngineeringApi(private val token: suspend () -> String
 /** Injectable transport construction also permits end-to-end controller tests without credentials. */
 open class GitHubEngineeringApiFactory @javax.inject.Inject constructor() {
     internal open fun create(token: suspend () -> String?): GitHubEngineeringApi = GitHubEngineeringApi(token)
+    internal fun createForEndpoint(endpoint: String?, token: suspend () -> String?): GitHubEngineeringApi =
+        create(token).configureOrigins(dev.chungjungsoo.gptmobile.data.github.GitHubApiOrigins.fromEndpoint(endpoint))
 }

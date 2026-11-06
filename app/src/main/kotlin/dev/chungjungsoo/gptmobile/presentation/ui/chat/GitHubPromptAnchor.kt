@@ -1,73 +1,106 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
-/** Intent comes only from a sustained user drag, never streaming layout changes or inertia. */
-internal class GitHubPromptAnchor(private val releaseDistance: Float, private val resumeDistance: Float) {
-    var attached = true
+internal enum class GitHubScrollMode { PIN_PROMPT, FOLLOW_BOTTOM, USER_HISTORY }
+
+/** The sole GitHub scroll intent owner. User input is never consumed to defend an anchor. */
+internal class GitHubPromptAnchor(
+    private val releaseDistance: Float,
+    private val resumeDistance: Float,
+    initialMode: GitHubScrollMode = GitHubScrollMode.PIN_PROMPT
+) {
+    var mode: GitHubScrollMode = initialMode
         private set
+    val attached: Boolean get() = mode != GitHubScrollMode.USER_HISTORY
+    var dragging: Boolean = false
+        private set
+    private var modeBeforeGesture = initialMode
     private var towardHistory = 0f
     private var towardCurrent = 0f
     private var historyStartedAt: Long? = null
     private var lastHistoryAt: Long? = null
+    private var nearBottom = false
 
     data class Movement(val consumed: Float = 0f, val reattach: Boolean = false)
 
     fun attach() {
-        attached = true
-        beginGesture()
+        mode = GitHubScrollMode.PIN_PROMPT
+        resetGesture()
+    }
+
+    fun followBottom() {
+        mode = GitHubScrollMode.FOLLOW_BOTTOM
+        resetGesture()
     }
 
     fun detach() {
-        attached = false
-        beginGesture()
+        mode = GitHubScrollMode.USER_HISTORY
+        resetGesture()
     }
 
     fun beginGesture() {
-        towardHistory = 0f
-        towardCurrent = 0f
-        historyStartedAt = null
-        lastHistoryAt = null
+        modeBeforeGesture = mode
+        dragging = true
+        clearDirection()
     }
 
-    /** A quick upward flick must not bypass the sustained history-release gesture. */
-    fun fling(velocity: Float, threshold: Float): Movement {
-        if (!attached && velocity < -threshold) {
-            attach()
-            return Movement(velocity, reattach = true)
+    /** Hysteresis is based on the measured footer, never a guessed token/line count. */
+    fun observeBottom(distance: Float, enterDistance: Float, leaveDistance: Float) {
+        require(leaveDistance >= enterDistance)
+        nearBottom = distance <= if (nearBottom) leaveDistance else enterDistance
+    }
+
+    /** Returning downward selects its destination only after the finger has lifted. */
+    fun endGesture(distanceToBottom: Float, enterDistance: Float, leaveDistance: Float, cancelled: Boolean = false) {
+        if (!dragging) return
+        observeBottom(distanceToBottom, enterDistance, leaveDistance)
+        if (!cancelled && towardCurrent >= resumeDistance) {
+            mode = if (nearBottom) GitHubScrollMode.FOLLOW_BOTTOM else GitHubScrollMode.PIN_PROMPT
+        } else if (mode != GitHubScrollMode.USER_HISTORY) {
+            mode = modeBeforeGesture
+        }
+        resetGesture()
+    }
+
+    /** Inertia and layout changes never manufacture user intent. */
+    @Suppress("UNUSED_PARAMETER")
+    fun fling(velocity: Float, threshold: Float): Movement = Movement()
+
+    /** Positive motion reveals history; negative motion returns toward the active turn. */
+    @Suppress("UNUSED_PARAMETER")
+    fun move(delta: Float, distanceToPrompt: Float, userInput: Boolean, nowMillis: Long = System.nanoTime() / 1_000_000): Movement {
+        if (!userInput || delta == 0f) return Movement()
+        if (!dragging) beginGesture()
+        if (delta < 0f) {
+            towardHistory = 0f
+            historyStartedAt = null
+            lastHistoryAt = null
+            towardCurrent -= delta
+            return Movement()
+        }
+        towardCurrent = 0f
+        if (lastHistoryAt?.let { nowMillis - it !in 0..MAX_DRAG_SAMPLE_GAP_MILLIS } == true) {
+            towardHistory = 0f
+            historyStartedAt = null
+        }
+        if (historyStartedAt == null) historyStartedAt = nowMillis
+        lastHistoryAt = nowMillis
+        towardHistory += delta
+        if (towardHistory >= releaseDistance && nowMillis - requireNotNull(historyStartedAt) >= HISTORY_RELEASE_MILLIS) {
+            mode = GitHubScrollMode.USER_HISTORY
         }
         return Movement()
     }
 
-    /** Positive motion reveals history; negative motion returns to the current prompt. */
-    fun move(delta: Float, distanceToPrompt: Float, userInput: Boolean, nowMillis: Long = System.nanoTime() / 1_000_000): Movement {
-        if (delta == 0f) return Movement()
-        if (!userInput) return Movement(if (attached && delta > 0) (delta - distanceToPrompt.coerceAtLeast(0f)).coerceAtLeast(0f) else 0f)
-        if (!attached) {
-            towardCurrent = if (delta < 0) towardCurrent - delta else 0f
-            if (towardCurrent >= resumeDistance) {
-                attach()
-                return Movement(delta, reattach = true)
-            }
-            return Movement()
-        }
-        if (delta <= 0) {
-            beginGesture()
-            return Movement()
-        }
-        val excess = (delta - distanceToPrompt.coerceAtLeast(0f)).coerceAtLeast(0f)
-        if (excess == 0f) {
-            beginGesture()
-            return Movement()
-        }
-        // Holding a finger still, reversing direction or separate swipes cannot accumulate time.
-        if (lastHistoryAt?.let { nowMillis - it !in 0..MAX_DRAG_SAMPLE_GAP_MILLIS } == true) beginGesture()
-        if (historyStartedAt == null) historyStartedAt = nowMillis
-        lastHistoryAt = nowMillis
-        towardHistory += excess
-        if (towardHistory >= releaseDistance && nowMillis - requireNotNull(historyStartedAt) >= HISTORY_RELEASE_MILLIS) {
-            detach()
-            return Movement()
-        }
-        return Movement(excess)
+    private fun resetGesture() {
+        dragging = false
+        clearDirection()
+    }
+
+    private fun clearDirection() {
+        towardHistory = 0f
+        towardCurrent = 0f
+        historyStartedAt = null
+        lastHistoryAt = null
     }
 
     companion object {

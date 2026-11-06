@@ -259,6 +259,27 @@ class MCPStabilityTests(unittest.TestCase):
         self.addCleanup(session.close)
         return session
 
+    def test_modern_stdio_uses_discovery_metadata_without_initialize(self):
+        session = self.session('modern_v2')
+        session.cfg['protocolVersion'] = '2026-07-28'
+        self.assertEqual('OK', session.call('tools/call', {'name': 'read'}, absolute_timeout=3)['content'][0]['text'])
+        self.assertEqual('2026-07-28', session.protocol_version)
+        self.assertEqual('SUCCEEDED', session.public_status()['lastOutcome']['outcome'])
+
+    def test_auto_stdio_falls_back_only_after_explicit_legacy_response(self):
+        session = self.session('normal')
+        session.cfg['protocolVersion'] = 'auto'
+        self.assertEqual('OK', session.call('tools/call', {'name': 'read'}, absolute_timeout=3)['content'][0]['text'])
+        self.assertIn(session.protocol_version, ('2024-11-05', '2025-03-26', '2025-06-18', '2025-11-25'))
+
+    def test_unadvertised_modern_input_is_not_replayed_or_claimed_complete(self):
+        session = self.session('modern_v2_input')
+        session.cfg['protocolVersion'] = '2026-07-28'
+        with self.assertRaisesRegex(ValueError, 'unadvertised'):
+            session.call('tools/call', {'name': 'write'}, absolute_timeout=3)
+        self.assertEqual(1, session.calls)
+        self.assertEqual('UNSUPPORTED_CONTINUATION', session.public_status()['lastOutcome']['outcome'])
+
     def test_actual_stdio_handshake_null_id_notification_and_server_ping(self):
         session = self.session('notification')
         result = session.call('tools/call', {'name': 'read', 'arguments': {}}, absolute_timeout=3)

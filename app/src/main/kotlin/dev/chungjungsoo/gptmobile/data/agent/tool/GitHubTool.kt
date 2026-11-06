@@ -63,17 +63,19 @@ class GitHubTool(
     private val durableIdentity: String = dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore.digest(apiToken),
     private val legacyCredentialIdentities: List<String> = emptyList(),
     private val credentialProvider: (suspend () -> String)? = null,
-    private val graphQuery: (suspend (JsonObject) -> JsonObject)? = null
+    private val graphQuery: (suspend (JsonObject) -> JsonObject)? = null,
+    private val apiOrigins: dev.chungjungsoo.gptmobile.data.github.GitHubApiOrigins = dev.chungjungsoo.gptmobile.data.github.GitHubApiOrigins.GITHUB_COM
 ) : AgentTool {
 
-    private val authenticationRejected = if (httpClient === defaultHttpClient) dev.chungjungsoo.gptmobile.data.github.GitHubSessionCaches.authenticationForCredential(apiToken) else java.util.concurrent.atomic.AtomicBoolean()
-    private val rateLimits = if (httpClient === defaultHttpClient) dev.chungjungsoo.gptmobile.data.github.GitHubSessionCaches.rateLimitsForCredential(apiToken) else dev.chungjungsoo.gptmobile.data.github.GitHubRateLimitManager()
+    private val BASE_URL get() = apiOrigins.rest
+    private val authenticationRejected = if (httpClient === defaultHttpClient) dev.chungjungsoo.gptmobile.data.github.GitHubSessionCaches.authenticationForCredential(apiToken, apiOrigins.hostIdentity) else java.util.concurrent.atomic.AtomicBoolean()
+    private val rateLimits = if (httpClient === defaultHttpClient) dev.chungjungsoo.gptmobile.data.github.GitHubSessionCaches.rateLimitsForCredential(apiToken, apiOrigins.hostIdentity) else dev.chungjungsoo.gptmobile.data.github.GitHubRateLimitManager()
     private val operationBlocks by lazy { if (persistentState && stateStore != null) stateStore else dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore() }
     private val operationBlockScope by lazy { "github-operation-blocks:" + dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore.digest("$durableIdentity|$connectionUid|$conversationId") }
     internal val hasCredential get() = apiToken.isNotBlank()
     internal val hasRepositoryContext get() = repositoryContext != null
-    private val scheduler = if (httpClient === defaultHttpClient) dev.chungjungsoo.gptmobile.data.github.GitHubSessionCaches.schedulerForCredential(apiToken) else dev.chungjungsoo.gptmobile.data.github.GitHubRequestScheduler()
-    private val responseCache = if (httpClient === defaultHttpClient) dev.chungjungsoo.gptmobile.data.github.GitHubSessionCaches.forCredential(apiToken) else dev.chungjungsoo.gptmobile.data.github.GitHubResponseCache()
+    private val scheduler = if (httpClient === defaultHttpClient) dev.chungjungsoo.gptmobile.data.github.GitHubSessionCaches.schedulerForCredential(apiToken, apiOrigins.hostIdentity) else dev.chungjungsoo.gptmobile.data.github.GitHubRequestScheduler()
+    private val responseCache = if (httpClient === defaultHttpClient) dev.chungjungsoo.gptmobile.data.github.GitHubSessionCaches.forCredential(apiToken, apiOrigins.hostIdentity) else dev.chungjungsoo.gptmobile.data.github.GitHubResponseCache()
     private val workspaceClient by lazy {
         GitHubWorkspaceClient(
             apiToken, httpClient, rateLimits = rateLimits, authenticationRejected = authenticationRejected,
@@ -81,7 +83,7 @@ class GitHubTool(
             conditionalReads = featureSettings.githubConditionalReads, blobCache = featureSettings.githubBlobCache,
             freshnessSeconds = featureSettings.pluginExecution[dev.chungjungsoo.gptmobile.data.model.ToolPluginId.GITHUB]?.githubCacheSeconds ?: 15,
             connectionUid = connectionUid, conversationId = conversationId, taskId = taskId, persistentState = persistentState, stateStore = stateStore, scheduler = scheduler, engineeringPrepare = engineeringPrepare,
-            durableIdentity = durableIdentity, legacyCredentialIdentities = legacyCredentialIdentities, credentialProvider = credentialProvider
+            durableIdentity = durableIdentity, legacyCredentialIdentities = legacyCredentialIdentities, credentialProvider = credentialProvider, apiOrigins = apiOrigins
         )
     }
     internal suspend fun normalizeOperationRepository(arguments: JsonObject): JsonObject {
@@ -131,7 +133,6 @@ class GitHubTool(
     }
 
     companion object {
-        private const val BASE_URL = "https://api.github.com"
         private const val MAX_OUTPUT_CHARS = 32_000
         private val MUTATING_ACTIONS = GitHubWorkspaceClient.writeActions + setOf(
             "create_branch",
@@ -1031,7 +1032,7 @@ class GitHubTool(
                     }.toString()
                 )
             }
-            val log = dev.chungjungsoo.gptmobile.data.github.GitHubCiLogReader(httpClient, apiToken, scheduler, responseCache, authenticationRejected = authenticationRejected)
+            val log = dev.chungjungsoo.gptmobile.data.github.GitHubCiLogReader(httpClient, apiToken, scheduler, responseCache, authenticationRejected = authenticationRejected, apiOrigins = apiOrigins)
                 .read("/repos/$owner/$repo/actions/jobs/$jobId/logs", immutable = true)
             val safe = dev.chungjungsoo.gptmobile.data.diagnostics.redactLogMessage(log.text).let { if (apiToken.isNotBlank()) it.replace(apiToken, "[REDACTED]") else it }
             val page = dev.chungjungsoo.gptmobile.data.github.GitHubCiLogPage.render(log.copy(text = safe), arguments)
@@ -1915,6 +1916,7 @@ class GitHubTool(
     }
 
     private suspend fun writeGitHubApi(url: String, method: HttpMethod, body: JsonObject): GitHubBoundedResponse {
+        require(apiOrigins.acceptsApiUrl(url)) { "GitHub API origin changed." }
         refreshCredential()
         return scheduler.execute(null) {
             try {
@@ -1944,8 +1946,9 @@ class GitHubTool(
     }
 
     private suspend fun getGitHubApi(url: String): GitHubBoundedResponse = dev.chungjungsoo.gptmobile.data.github.GitHubReadRetry.run {
+        require(apiOrigins.acceptsApiUrl(url)) { "GitHub API origin changed." }
         refreshCredential()
-        scheduler.execute(null) {
+        scheduler.execute("$url:$durableIdentity:${dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore.digest(apiToken)}") {
             check(!authenticationRejected.get()) { "GitHub authentication was rejected (HTTP 401). Reconnect the GitHub account before retrying any operation." }
             rateLimits.requireAvailable(if (url.contains("/search/")) "search" else "core")
             scheduler.recordRequest()

@@ -115,7 +115,9 @@ data class CombinedModelResponse(
     @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
     val selectedContributionAttemptId: String? = null,
     @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
-    val originalDocument: CombinedSourceReference? = null
+    val originalDocument: CombinedSourceReference? = null,
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val responseSource: ResponseSource? = null
 )
 
 @Serializable

@@ -42,6 +42,7 @@ class Config:
     callback_url: str
     public_url: str
     database: Path
+    app_link_url: str | None = None
 
     def __post_init__(self):
         if not re.fullmatch(r"[A-Za-z0-9_.-]{1,128}", self.client_id):
@@ -50,6 +51,8 @@ class Config:
             raise ValueError("The broker's confidential client secret is required")
         https_origin(self.callback_url)
         https_origin(self.public_url)
+        if self.app_link_url:
+            https_origin(self.app_link_url)
 
 
 def challenge_for(verifier: str) -> str:

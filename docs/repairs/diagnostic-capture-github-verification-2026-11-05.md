@@ -1,7 +1,7 @@
 # Diagnostic capture and GitHub verification repair
 
-Repository: `tailscale-signin/GPT_Mobile_AI-improved`  
-Base: `main` at `1b8d57128484770d09fe026216a46603803b76f6`  
+Repository: `tailscale-signin/GPT_Mobile_AI-improved`
+Base: `main` at `1b8d57128484770d09fe026216a46603803b76f6`
 Branch: `fix/diagnostic-capture-github-verification-2026-11-05`
 
 ## Evidence and scope

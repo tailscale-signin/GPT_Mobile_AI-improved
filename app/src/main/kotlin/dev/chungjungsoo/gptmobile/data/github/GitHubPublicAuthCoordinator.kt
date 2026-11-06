@@ -39,7 +39,7 @@ class GitHubPublicAuthCoordinator internal constructor(
     data class Account(val id: String, val login: String, val avatarUrl: String? = null)
 
     @Serializable
-    private data class PendingRecord(val authorization: GitHubPublicAuthClient.Pending, val connection: ToolConnection) {
+    private data class PendingRecord(val authorization: GitHubPublicAuthClient.Pending, val connection: ToolConnection, val ticket: String? = null) {
         override fun toString() = "Pending GitHub sign-in (redacted)"
     }
 
@@ -68,7 +68,7 @@ class GitHubPublicAuthCoordinator internal constructor(
     private fun ToolConnection.matchesAuthorizationSnapshot(other: ToolConnection): Boolean =
         copy(createdAt = other.createdAt, updatedAt = other.updatedAt) == other
 
-    fun canAuthorize(connection: ToolConnection): Boolean = configuration.configured && connection.type == "GITHUB" && connection.authType == "OAUTH" && (connection.oauthClientId.isNullOrBlank() || connection.oauthClientId == configuration.clientId)
+    fun canAuthorize(connection: ToolConnection): Boolean = connection.type == "GITHUB" && connection.authType == "OAUTH" && configuration.configured && runCatching { GitHubApiOrigins.fromEndpoint(connection.endpointUrl) == GitHubApiOrigins.GITHUB_COM }.getOrDefault(false) && (connection.oauthClientId.isNullOrBlank() || connection.oauthClientId == configuration.clientId)
     fun acceptsCallback(value: String) = configuration.acceptsCallback(value)
 
     suspend fun begin(connectionUid: String): String = pendingMutex.withLock {
@@ -86,7 +86,7 @@ class GitHubPublicAuthCoordinator internal constructor(
 
     suspend fun pendingConnectionUid(): String? = pendingMutex.withLock {
         val pending = read(PENDING_REFERENCE, PendingRecord.serializer()) ?: return@withLock null
-        if (pending.authorization.expiresAt <= clock() || pending.authorization.clientId != configuration.clientId || pending.authorization.brokerOrigin != configuration.brokerOrigin || pending.authorization.callbackUri != configuration.callbackUri || connections.getConnection(pending.connection.connectionUid)?.matchesAuthorizationSnapshot(pending.connection) != true) {
+        if (pending.authorization.protocolVersion != 2 || pending.authorization.expiresAt <= clock() || pending.authorization.clientId != configuration.clientId || pending.authorization.brokerOrigin != configuration.brokerOrigin || pending.authorization.callbackUri != configuration.callbackUri || connections.getConnection(pending.connection.connectionUid)?.matchesAuthorizationSnapshot(pending.connection) != true) {
             vault.delete(PENDING_REFERENCE)
             return@withLock null
         }
@@ -118,25 +118,49 @@ class GitHubPublicAuthCoordinator internal constructor(
     }
 
     suspend fun complete(callback: String): Account = pendingMutex.withLock {
-        val pending = read(PENDING_REFERENCE, PendingRecord.serializer()) ?: error("GitHub sign-in is no longer pending. Start again.")
-        val connection = pending.connection
-        check(connections.getConnection(connection.connectionUid)?.matchesAuthorizationSnapshot(connection) == true) { "GitHub connection changed. Start sign-in again." }
+        val pending = requireNotNull(read(PENDING_REFERENCE, PendingRecord.serializer())) { "No pending GitHub sign-in. Start again." }
         clientFactory().use { client ->
-            try {
+            val ticket = try {
                 client.validateCallback(pending.authorization, callback)
             } catch (denied: GitHubPublicAuthClient.ConsentDenied) {
                 vault.delete(PENDING_REFERENCE)
                 throw denied
             }
-            // Wrong-state callbacks cannot consume a legitimate transaction. A valid
-            // callback is consumed before network I/O and cannot be replayed after death.
+            check(pending.ticket == null || pending.ticket == ticket) { "GitHub sign-in ticket changed. Reconnect." }
+            val received = pending.copy(ticket = ticket)
+            // Keep the opaque callback until credentials and account are saved.
+            // A lost redemption response can be reconciled without replaying a code.
+            put(PENDING_REFERENCE, received, PendingRecord.serializer())
+            redeem(received, client)
+        }
+    }
+
+    suspend fun canResumeAuthorization(): Boolean = pendingMutex.withLock {
+        read(PENDING_REFERENCE, PendingRecord.serializer())?.let {
+            it.ticket != null &&
+                it.authorization.protocolVersion == 2 &&
+                clock() < it.authorization.expiresAt &&
+                it.authorization.clientId == configuration.clientId &&
+                it.authorization.brokerOrigin == configuration.brokerOrigin &&
+                it.authorization.callbackUri == configuration.callbackUri &&
+                connections.getConnection(it.connection.connectionUid)?.matchesAuthorizationSnapshot(it.connection) == true
+        } == true
+    }
+
+    suspend fun resumePendingAuthorization(): Account = pendingMutex.withLock {
+        val pending = requireNotNull(read(PENDING_REFERENCE, PendingRecord.serializer())) { "No pending GitHub sign-in." }
+        clientFactory().use { redeem(pending, it) }
+    }
+
+    private suspend fun redeem(pending: PendingRecord, client: GitHubPublicAuthClient): Account {
+        val connection = pending.connection
+        check(connections.getConnection(connection.connectionUid)?.matchesAuthorizationSnapshot(connection) == true) { "GitHub connection changed. Reconnect." }
+        val credential = client.redeem(pending.authorization, requireNotNull(pending.ticket) { "Complete sign-in in the browser first." })
+        return credentialMutex(connection.connectionUid).withLock {
+            val account = verifyAccount(connection, credential.accessToken)
+            save(connection, credential, account)
             vault.delete(PENDING_REFERENCE)
-            val credential = client.complete(pending.authorization, callback)
-            credentialMutex(connection.connectionUid).withLock {
-                val account = verifyAccount(connection, credential.accessToken)
-                save(connection, credential, account)
-                account
-            }
+            account
         }
     }
 
@@ -147,8 +171,15 @@ class GitHubPublicAuthCoordinator internal constructor(
         account
     }
 
+    private suspend fun observedAccount(connection: ToolConnection, token: String): Account {
+        val origins = GitHubApiOrigins.fromEndpoint(connection.endpointUrl)
+        if (origins == GitHubApiOrigins.GITHUB_COM) return accountIdentity(token)
+        val value = GitHubWorkspaceClient(token, apiOrigins = origins).execute("get_account", buildJsonObject {}).jsonObject
+        return Account(value.getValue("id").jsonPrimitive.content, value.getValue("login").jsonPrimitive.content, value["avatar_url"]?.jsonPrimitive?.content)
+    }
+
     private suspend fun verifyAccount(connection: ToolConnection, token: String): Account {
-        val account = accountIdentity(token)
+        val account = observedAccount(connection, token)
         require(account.id.matches(Regex("[1-9][0-9]{0,19}")) && account.login.matches(Regex("[A-Za-z0-9-]{1,39}"))) { "GitHub returned an invalid account identity." }
         val previous = session(connection.connectionUid)
         val binding = read(bindingReference(connection.connectionUid), Account.serializer()) ?: previous?.account
@@ -156,7 +187,7 @@ class GitHubPublicAuthCoordinator internal constructor(
         if (connection.secretRef != null && binding == null) {
             val bytes = vault.read(connection.secretRef) ?: error("Create a new GitHub connection; the old account identity cannot be verified.")
             val previousAccount = try {
-                accountIdentity(bytes.decodeToString().trim())
+                observedAccount(connection, bytes.decodeToString().trim())
             } finally {
                 bytes.fill(0)
             }
@@ -181,31 +212,31 @@ class GitHubPublicAuthCoordinator internal constructor(
         val session = session(liveConnection.connectionUid) ?: run {
             val binding = read(bindingReference(liveConnection.connectionUid), Account.serializer())
             if (binding != null) {
-                val account = accountIdentity(currentToken)
+                val account = observedAccount(liveConnection, currentToken)
                 check(account.id == binding.id) { "This GitHub connection belongs to another account. Add a separate liveConnection." }
                 put(sessionReference(liveConnection.connectionUid), Session(account, fingerprint(currentToken), configuration.clientId), Session.serializer())
             }
             if (binding == null) {
-                val account = accountIdentity(currentToken)
+                val account = observedAccount(liveConnection, currentToken)
                 put(bindingReference(liveConnection.connectionUid), account, Account.serializer())
                 put(sessionReference(liveConnection.connectionUid), Session(account, fingerprint(currentToken), configuration.clientId), Session.serializer())
             }
-            GitHubSessionCaches.bind(currentToken, durableIdentity(liveConnection.connectionUid))
+            GitHubSessionCaches.bind(currentToken, durableIdentity(liveConnection.connectionUid), GitHubApiOrigins.fromEndpoint(liveConnection.endpointUrl).hostIdentity)
             return@withLock currentToken
         }
         check(session.fingerprint == fingerprint(currentToken)) { "GitHub credentials changed. Reconnect to verify this account." }
         if (session.refreshToken != null || liveConnection.authType == "OAUTH") {
             check(liveConnection.authType == "OAUTH" && liveConnection.oauthClientId == session.clientId) { "GitHub App configuration changed. Reconnect to verify this client and account." }
         }
-        val rejected = GitHubSessionCaches.authenticationForCredential(currentToken).get()
+        val rejected = GitHubSessionCaches.authenticationForCredential(currentToken, GitHubApiOrigins.fromEndpoint(liveConnection.endpointUrl).hostIdentity).get()
         if (!rejected && (session.expiresAt == null || clock() + 60_000 < session.expiresAt)) {
             if (session.verifyAfterRestore) {
-                val account = accountIdentity(currentToken)
+                val account = observedAccount(liveConnection, currentToken)
                 check(account.id == session.account.id) { "Restored GitHub credentials belong to another account. Reconnect GitHub." }
                 put(bindingReference(liveConnection.connectionUid), account, Account.serializer())
                 put(sessionReference(liveConnection.connectionUid), session.copy(verifyAfterRestore = false), Session.serializer())
             }
-            GitHubSessionCaches.bind(currentToken, durableIdentity(liveConnection.connectionUid))
+            GitHubSessionCaches.bind(currentToken, durableIdentity(liveConnection.connectionUid), GitHubApiOrigins.fromEndpoint(liveConnection.endpointUrl).hostIdentity)
             return@withLock currentToken
         }
         val canRefresh = when (session.refreshMethod) {
@@ -223,10 +254,10 @@ class GitHubPublicAuthCoordinator internal constructor(
             } else {
                 clientFactory().use { it.rotate(operationId, session.refreshToken) }
             }
-            val account = accountIdentity(rotated.accessToken)
+            val account = observedAccount(liveConnection, rotated.accessToken)
             check(account.id == session.account.id) { "GitHub refresh changed account identity. Reconnect GitHub." }
             save(liveConnection, rotated, account, session.clientId, session.refreshMethod)
-            GitHubSessionCaches.bind(rotated.accessToken, durableIdentity(liveConnection.connectionUid))
+            GitHubSessionCaches.bind(rotated.accessToken, durableIdentity(liveConnection.connectionUid), GitHubApiOrigins.fromEndpoint(liveConnection.endpointUrl).hostIdentity)
             rotated.accessToken
         } catch (failure: Exception) {
             withContext(NonCancellable) {
@@ -255,7 +286,8 @@ class GitHubPublicAuthCoordinator internal constructor(
 
     internal suspend fun durableIdentity(connectionUid: String): String {
         val account = requireNotNull(session(connectionUid)?.account) { "Verify the GitHub account before opening durable state." }
-        return GitHubAuthorizationIdentity.scope(account.id, connectionUid)
+        val connection = requireNotNull(connections.getConnection(connectionUid)) { "GitHub connection removed" }
+        return GitHubAuthorizationIdentity.scope(account.id, connectionUid, host = GitHubApiOrigins.fromEndpoint(connection.endpointUrl).hostIdentity)
     }
 
     internal suspend fun legacyCredentialIdentities(connectionUid: String): List<String> =

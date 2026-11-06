@@ -28,6 +28,9 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from gateway_security import DeviceAuthentication, current_device, device_store
 from gateway_v13_transport import post_chat as v13_post_chat
+from v14.inference_execution import before_physical_dispatch, observe_physical_response, selected_dispatch_headers
+from v14.inference_scheduler import admission_context, bound_invocation
+from v14.debug import diagnostic_trace_headers
 from gateway_multisearch import plan_searches, run_searches
 from gateway_v13_runtime import (
     GatewayContractError, validate_chat_request, compact_history, fit_context,
@@ -36,6 +39,7 @@ from gateway_v13_runtime import (
 )
 
 request_policy = contextvars.ContextVar("gateway_v13_request_policy", default={})
+SELECTED_ONLY_PHYSICAL_GUARDS = True
 
 
 # ============================================================
@@ -3790,10 +3794,16 @@ def _post_llama_model_http(url, *, cancel_event=None, hard_cancel_event=None, jo
                 deadline_seconds=V13_DELEGATE_DEADLINE_SECONDS if job_mode == 'delegate' else V13_MODEL_DEADLINE_SECONDS,
                 cancelled=lambda: _llama_dispatch_cancelled(cancel_event, hard_cancel_event),
                 progress=lambda event: progress_callback(event) if progress_callback else None,
+                headers=kwargs.get('headers'),
             )
+        before_physical_dispatch(url, payload)
+        kwargs['headers'] = {**(kwargs.get('headers') or {}), **diagnostic_trace_headers(), **selected_dispatch_headers()}
+        kwargs['allow_redirects'] = False
         response = get_http_session().post(url, **kwargs)
         if response.status_code == 200 and url.rstrip('/').endswith('/chat/completions'):
-            validate_completion_tools(response.json(), payload)
+            data = response.json()
+            observe_physical_response(data, response)
+            validate_completion_tools(data, payload)
         return response
     except requests.exceptions.Timeout:
         with llama_model_dispatch_lock:
@@ -3820,19 +3830,30 @@ def http_post(url, **kwargs):
 
     if url.rstrip("/").endswith(("/chat/completions", "/completion", "/completions")):
         payload = kwargs.get("json")
-        if isinstance(payload, dict):
+        if isinstance(payload, dict) and bound_invocation.get() is None:
             kwargs["json"] = v12_enforce_request_budget(payload)
 
     if _is_llama_model_endpoint(url):
-        return _post_llama_model_http(
-            url,
-            cancel_event=cancel_event,
-            hard_cancel_event=hard_cancel_event,
-            job_mode=job_mode,
-            progress_callback=progress_callback,
-            round_number=round_number,
-            **kwargs,
-        )
+        marker = None
+        if admission_context.get() is None:
+            payload = kwargs.get('json') or {}
+            raw_size = len(json.dumps(payload, ensure_ascii=False).encode('utf-8'))
+            # Conservative byte bound for unbound legacy chat. Bound jobs carry
+            # selected-tokenizer counts from the shared admission planner.
+            marker = admission_context.set({'byte_length': raw_size, 'tokens': raw_size + 64, 'memory_bytes': 0})
+        try:
+            return _post_llama_model_http(
+                url,
+                cancel_event=cancel_event,
+                hard_cancel_event=hard_cancel_event,
+                job_mode=job_mode,
+                progress_callback=progress_callback,
+                round_number=round_number,
+                **kwargs,
+            )
+        finally:
+            if marker is not None:
+                admission_context.reset(marker)
 
     return get_http_session().post(
         url,

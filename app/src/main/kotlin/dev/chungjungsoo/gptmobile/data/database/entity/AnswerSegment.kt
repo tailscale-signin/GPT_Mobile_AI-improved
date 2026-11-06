@@ -17,5 +17,6 @@ data class AnswerSegment(
     val text: String,
     val digest: String,
     val previousDigest: String?,
-    val utf8Bytes: Int
+    val utf8Bytes: Int,
+    val responseSource: ResponseSource? = null
 )

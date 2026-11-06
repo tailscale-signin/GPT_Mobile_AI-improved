@@ -7,11 +7,18 @@ import re
 import subprocess
 import sys
 from release_identity import release_application_id, release_build_tools_version
+from release_evidence import artifact_inventory, certificate_sha, exact_check_evidence
 
 artifacts = Path(sys.argv[1])
 sha = sys.argv[2]
 if not re.fullmatch(r"[a-f0-9]{40}", sha):
     raise SystemExit("Expected a full immutable commit SHA")
+if subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip() != sha:
+    raise SystemExit("Release source does not match the checked out commit")
+tag = os.environ.get("RELEASE_TAG", "")
+if not re.fullmatch(r"v[0-9A-Za-z_.+-]{1,100}", tag):
+    raise SystemExit("RELEASE_TAG is required for revision-bound provenance")
+signer = certificate_sha(os.environ.get("EXPECTED_CERT_SHA256", ""))
 build = Path("app/build.gradle.kts").read_text()
 expected_id = release_application_id(build)
 expected_code = re.search(r'versionCode = (\d+)', build).group(1)
@@ -45,7 +52,14 @@ for xpath, expected in [
     actual = subprocess.check_output(["java", "-jar", bundletool, "dump", "manifest", f"--bundle={bundles[0]}", f"--xpath={xpath}"], text=True).strip()
     if actual != expected:
         raise SystemExit(f"Unexpected bundle identity at {xpath}")
-provenance = dict(commit=sha, applicationId=expected_id, versionName=expected_name, versionCode=int(expected_code),
+checks_path = Path("build/reports/release-checks.json")
+checks = exact_check_evidence(json.loads(checks_path.read_text()), sha) if checks_path.exists() else []
+if os.environ.get("GITHUB_REF_NAME") == "main" and not checks:
+    raise SystemExit("A main release requires persisted successful exact-commit checks")
+provenance = dict(schemaVersion=2, commit=sha, tag=tag, applicationId=expected_id, versionName=expected_name, versionCode=int(expected_code),
                   minSdk=int(expected_min_sdk), targetSdk=int(expected_target_sdk),
-                  workflowRun=os.environ.get("GITHUB_RUN_ID"), validation="unit tests, lint, AAR and Play AAB compatibility required on this SHA")
+                  sourceTree=subprocess.check_output(["git", "rev-parse", "HEAD^{tree}"], text=True).strip(),
+                  workflowRun=os.environ.get("GITHUB_RUN_ID"), workflowAttempt=os.environ.get("GITHUB_RUN_ATTEMPT"),
+                  signingCertificateSha256=signer, assets=artifact_inventory(apks + bundles),
+                  exactCommitChecks=checks, installationQualification="NOT_MEASURED")
 (artifacts / "provenance.json").write_text(json.dumps(provenance, indent=2) + "\n")

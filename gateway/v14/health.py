@@ -1,11 +1,24 @@
 """Separate process liveness, model availability, generation readiness and metadata access."""
 import hashlib
+import json
 import sqlite3
 import threading
 import time
 from collections import OrderedDict
+from contextlib import closing
 
 from v14.journal import SCHEMA_VERSION, schema_version
+from v14.readiness import observations
+
+
+def bounded_metadata(response, limit=1024 * 1024):
+    raw = bytearray()
+    deadline = time.monotonic() + 2
+    for chunk in response.iter_content(8192):
+        if len(raw) + len(chunk) > limit or time.monotonic() > deadline:
+            raise ValueError('Runtime metadata exceeds its observation budget')
+        raw.extend(chunk)
+    return json.loads(raw)
 
 
 class BackendReadiness:
@@ -56,17 +69,26 @@ class BackendReadiness:
             params['model'] = model
             result['selectedModelDigest'] = hashlib.sha256(model.encode()).hexdigest()
         try:
-            response = runtime.http_get(runtime.LLAMA_BASE + '/health', params=params, timeout=(0.5, 1))
-            status = response.status_code
-            result.update(networkReachable=True, healthHttpStatus=status)
-            if status == 200:
-                result.update(generationReady=True, metadataAccess='available', backend='ready')
-            elif status in {401, 403}:
-                # A restricted administrative surface is reachable; do not call generation broken.
-                result.update(metadataAccess='restricted', backend='restricted')
-            else:
-                result.update(generationReady=False, metadataAccess='available', backend='unavailable')
-            response.close()
+            with closing(runtime.http_get(runtime.LLAMA_BASE + '/health', params=params, timeout=(0.5, 1), stream=True, allow_redirects=False)) as response:
+                status = response.status_code
+                result.update(networkReachable=True, healthHttpStatus=status)
+                if status == 200:
+                    result.update(generationReady=True, metadataAccess='available', backend='ready')
+                elif status in {401, 403}:
+                    # A restricted administrative surface is reachable; do not call generation broken.
+                    result.update(metadataAccess='restricted', backend='restricted')
+                else:
+                    result.update(generationReady=False, metadataAccess='available', backend='unavailable')
+                    if status == 503:
+                        try:
+                            body = bounded_metadata(response, 65536)
+                            error = body.get('error', {}) if isinstance(body, dict) else {}
+                            phase = body.get('status') if isinstance(body, dict) else None
+                            message = error.get('message') if isinstance(error, dict) else None
+                            if phase in {'loading', 'loading model'} or message == 'Loading model':
+                                result.update(backend='loading', modelLoading=True)
+                        except (ValueError, TypeError):
+                            pass
         except runtime.requests.RequestException:
             # Drop a stale socket for the next bounded read, never replay a chat POST here.
             reset = getattr(runtime, 'reset_http_session', None)
@@ -74,17 +96,16 @@ class BackendReadiness:
                 reset()
         if model or result['metadataAccess'] == 'restricted':
             try:
-                response = runtime.http_get(runtime.LLAMA_BASE + '/v1/models', params=params, timeout=(0.5, 1))
-                result.update(networkReachable=True, modelsHttpStatus=response.status_code)
-                if response.status_code == 200:
-                    try:
-                        body = response.json()
-                        values = body.get('data') if isinstance(body, dict) else None
-                        if isinstance(values, list) and all(isinstance(item, dict) and isinstance(item.get('id'), str) for item in values):
-                            result['modelAvailable'] = any(item['id'] == model for item in values) if model else bool(values)
-                    except (ValueError, TypeError):
-                        pass
-                response.close()
+                with closing(runtime.http_get(runtime.LLAMA_BASE + '/v1/models', params=params, timeout=(0.5, 1), stream=True, allow_redirects=False)) as response:
+                    result.update(networkReachable=True, modelsHttpStatus=response.status_code)
+                    if response.status_code == 200:
+                        try:
+                            body = bounded_metadata(response)
+                            values = body.get('data') if isinstance(body, dict) else None
+                            if isinstance(values, list) and len(values) <= 1024 and all(isinstance(item, dict) and isinstance(item.get('id'), str) for item in values):
+                                result['modelAvailable'] = any(item['id'] == model for item in values) if model else bool(values)
+                        except (ValueError, TypeError):
+                            pass
             except runtime.requests.RequestException:
                 pass
         return result
@@ -117,7 +138,8 @@ def readiness(runtime, state, model=''):
              and (not model or backend['modelAvailable'] is True))
     return {'schemaVersion': 1, 'ready': ready, 'version': runtime.GATEWAY_VERSION,
             'instanceId': state.instance_id, 'checks': {'journal': journal, 'backend': backend['backend']},
-            'capabilities': backend, 'service': service, 'durableJobs': runtime.GATEWAY_DURABLE_JOBS}
+            'capabilities': backend, 'service': service, 'durableJobs': runtime.GATEWAY_DURABLE_JOBS,
+            'components': observations(runtime, service, backend, journal)}
 
 
 def diagnostics(runtime, state):

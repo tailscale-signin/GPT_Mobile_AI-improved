@@ -83,9 +83,7 @@ internal class ModernMcpTransport(private val http: HttpClient, private val inte
                 version.content
             }
             when {
-                // A successful probe with no versions is inconclusive. Let the
-                // SDK initialize and negotiate before declaring incompatibility.
-                versions.isEmpty() -> null
+                versions.isEmpty() -> error("MCP discovery omitted supported protocol versions.")
                 VERSION in versions -> discovery
                 versions.any { it in LEGACY_VERSIONS } -> null
                 else -> error("Server has no mutually supported MCP version. Advertised: ${versions.joinToString().ifEmpty { "none" }}")
@@ -94,35 +92,12 @@ internal class ModernMcpTransport(private val http: HttpClient, private val inte
             throw cancelled
         } catch (error: ModernMcpError) {
             val unsupportedMethod = error.code == -32601 && error.status in setOf(200, 400, 404, 405)
-            val legacyHttpResponse = error.status in setOf(400, 404, 405) && error.code !in MODERN_ERRORS
-            if (unsupportedMethod || legacyHttpResponse) {
-                // Some POST-only MCP servers reject the optional server/discover extension
-                // but implement tools/list normally. Probe a read-only POST before the SDK
-                // attempts an unsupported GET/SSE legacy handshake.
-                val postOnly = if (error.status == 400 && error.code == null) {
-                    kotlinx.coroutines.withTimeoutOrNull(5_000L) {
-                        try {
-                            rpc(config, "tools/list", JsonObject(emptyMap()))
-                        } catch (cancelled: CancellationException) {
-                            throw cancelled
-                        } catch (_: Exception) {
-                            null
-                        }
-                    }
-                } else {
-                    null
-                }
-                if (postOnly?.get("tools") is JsonArray) {
-                    dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("MCP", "DISCOVERY_NEGOTIATION · status=${error.status} · outcome=post_only_supported · connection=${config.connectionUid}")
-                    buildJsonObject {
-                        put("supportedVersions", JsonArray(listOf(JsonPrimitive(VERSION))))
-                        put("capabilities", buildJsonObject { put("tools", JsonObject(emptyMap())) })
-                    }
-                } else {
-                    dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("MCP", "DISCOVERY_NEGOTIATION · status=${error.status} · outcome=legacy_fallback · connection=${config.connectionUid}")
-                    null
-                }
+            if (unsupportedMethod) {
+                dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("MCP", "DISCOVERY_NEGOTIATION · status=${error.status} · outcome=explicit_legacy_fallback · connection=${config.connectionUid}")
+                null
             } else {
+                // Auth, throttling, malformed 400s and transport failures cannot
+                // establish a different protocol or authorize another request path.
                 throw error
             }
         } catch (error: Exception) {
@@ -318,12 +293,13 @@ internal class ModernMcpTransport(private val http: HttpClient, private val inte
                 JsonObject(
                     params + (
                         "_meta" to buildJsonObject {
+                            (params["_meta"] as? JsonObject)?.forEach { (key, value) -> put(key, value) }
                             put("io.modelcontextprotocol/protocolVersion", VERSION)
                             put(
                                 "io.modelcontextprotocol/clientInfo",
                                 buildJsonObject {
                                     put("name", "gpt-mobile")
-                                    put("version", "0.9.30.0")
+                                    put("version", dev.chungjungsoo.gptmobile.BuildConfig.VERSION_NAME)
                                 }
                             )
                             put(

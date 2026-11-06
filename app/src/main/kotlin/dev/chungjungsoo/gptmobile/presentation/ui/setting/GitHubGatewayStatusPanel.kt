@@ -55,11 +55,15 @@ import java.time.format.TextStyle
 @Composable
 internal fun GitHubGatewayStatusPanel(profile: PlatformV2, now: Long, model: GitHubGatewayStatusViewModel = hiltViewModel()) {
     val state by model.state.collectAsStateWithLifecycle()
+    val diagnostics by model.diagnostics.collectAsStateWithLifecycle()
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     LaunchedEffect(profile.uid, lifecycle) {
         lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) { model.observe(profile.uid) }
     }
-    if (state.target?.selectedProfileUid == profile.uid) GitHubGatewayStatusContent(state, maxOf(now, System.currentTimeMillis()), model::refresh)
+    if (state.target?.selectedProfileUid == profile.uid) {
+        GitHubGatewayStatusContent(state, maxOf(now, System.currentTimeMillis()), model::refresh)
+        if (state.phase != GatewayDashboardPhase.HIDDEN) GatewayDiagnosticPanel(diagnostics, model::diagnosticFilter, model::diagnosticTrace, model::loadDiagnosticPage, model::refresh, model::exportDiagnostics)
+    }
 }
 
 /** Pure content also renders in compact, large-text, and theme regression tests. */

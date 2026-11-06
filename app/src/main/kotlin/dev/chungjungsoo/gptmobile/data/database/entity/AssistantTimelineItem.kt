@@ -50,7 +50,9 @@ data class AssistantTimelineItem(
     @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
     val personalData: List<dev.chungjungsoo.gptmobile.data.permissions.PersonalDataProvenance> = emptyList(),
     @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
-    val progressId: String? = null
+    val progressId: String? = null,
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val responseSource: ResponseSource? = null
 )
 
 // Fallback for callers without a resource context; keep in sync with R.string.legacy_assistant_order_unavailable.
@@ -78,7 +80,7 @@ internal fun rebuildAssistantTimelineForEdit(
             add(AssistantTimelineItem(AssistantTimelineItemType.THINKING, content = it))
         }
         updatedContent.takeIf(String::isNotBlank)?.let {
-            add(AssistantTimelineItem(AssistantTimelineItemType.TEXT, content = it))
+            add(AssistantTimelineItem(AssistantTimelineItemType.TEXT, content = it, responseSource = currentTimeline.uniformResponseSource()))
         }
     }
 }
@@ -89,7 +91,7 @@ internal fun List<AssistantTimelineItem>.appendChronologicalText(text: String): 
     return if (last?.type == AssistantTimelineItemType.TEXT && last.toolSequence == null) {
         dropLast(1) + last.copy(content = last.content + text)
     } else {
-        this + AssistantTimelineItem(AssistantTimelineItemType.TEXT, content = text)
+        this + AssistantTimelineItem(AssistantTimelineItemType.TEXT, content = text, responseSource = lastOrNull { it.generation?.responseSource != null }?.generation?.responseSource)
     }
 }
 
@@ -103,7 +105,12 @@ internal fun hasUnavailableAssistantOrder(
 
 /** Transport completion is independent of content completeness or factual support. */
 @Serializable
-data class GenerationReceipt(val finishReason: String? = null, val outputTokens: Int? = null, val outputAllowance: Int? = null)
+data class GenerationReceipt(
+    val finishReason: String? = null,
+    val outputTokens: Int? = null,
+    val outputAllowance: Int? = null,
+    val responseSource: ResponseSource? = null
+)
 
 @Serializable
 data class CombinedWriterIdentity(val answerSlotProfileUid: String?, val writerProfileUid: String, val writerModel: String, val contributorProfileUids: List<String>)

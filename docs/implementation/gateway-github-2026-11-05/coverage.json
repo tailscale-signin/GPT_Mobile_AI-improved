@@ -1,0 +1,703 @@
+{
+  "schemaVersion": 1,
+  "sourceBaseline": "1b8d57128484770d09fe026216a46603803b76f6",
+  "workingBranch": "fix/diagnostic-capture-github-verification-2026-11-05",
+  "specification": {
+    "title": "GPT Mobile AI Gateway and GitHub Implementation Design",
+    "date": "2026-11-05",
+    "pages": 57,
+    "items": 50,
+    "requirements": 83
+  },
+  "publication": {
+    "pullRequest": 804,
+    "status": "DRAFT",
+    "lastPublishedSourceSha": "57f6fd81edc627cdb5a5622716b7e9532e2d49a3"
+  },
+  "qualificationPolicy": "Code and mapped tests do not establish execution. Passed acceptance requires suitable observed evidence at the tested source revision. Missing device, deployment, model and long-run measurements remain NOT_QUALIFIED.",
+  "items": [
+    {
+      "id": "P01",
+      "title": "Use one selected AI profile for every model invocation",
+      "requirements": [
+        "REQ-PROFILE-ONLY",
+        "REQ-REVIEW-OVERRIDE"
+      ],
+      "implementation": "IN_PROGRESS",
+      "qualification": "NOT_QUALIFIED",
+      "files": [],
+      "tests": [],
+      "evidence": [],
+      "remaining": []
+    },
+    {
+      "id": "P02",
+      "title": "Show requested configuration and observed execution separately",
+      "requirements": [
+        "REQ-RUNTIME-RECEIPT",
+        "REQ-INSPECTOR"
+      ],
+      "implementation": "IN_PROGRESS",
+      "qualification": "NOT_QUALIFIED",
+      "files": [],
+      "tests": [],
+      "evidence": [],
+      "remaining": []
+    },
+    {
+      "id": "P03",
+      "title": "Fence capability and recovery state when profile identity changes",
+      "requirements": [
+        "REQ-IDENTITY-EPOCH"
+      ],
+      "implementation": "IN_PROGRESS",
+      "qualification": "NOT_QUALIFIED",
+      "files": [],
+      "tests": [],
+      "evidence": [],
+      "remaining": []
+    },
+    {
+      "id": "P04",
+      "title": "Preflight the capabilities required by the selected request",
+      "requirements": [
+        "REQ-CAP-PREFLIGHT"
+      ],
+      "implementation": "IN_PROGRESS",
+      "qualification": "NOT_QUALIFIED",
+      "files": [],
+      "tests": [],
+      "evidence": [],
+      "remaining": []
+    },
+    {
+      "id": "G01",
+      "title": "Refactor gateway composition behind versioned service contracts",
+      "requirements": [
+        "REQ-GATEWAY-REWIRE",
+        "REQ-SINGLE-OWNER"
+      ],
+      "implementation": "IN_PROGRESS",
+      "qualification": "NOT_QUALIFIED",
+      "files": [],
+      "tests": [],
+      "evidence": [],
+      "remaining": []
+    },
+    {
+      "id": "G02",
+      "title": "Separate supported features, liveness and actual readiness",
+      "requirements": [
+        "REQ-READINESS",
+        "REQ-CAP-VERSION"
+      ],
+      "implementation": "IN_PROGRESS",
+      "qualification": "NOT_QUALIFIED",
+      "files": [],
+      "tests": [],
+      "evidence": [],
+      "remaining": []
+    },
+    {
+      "id": "G03",
+      "title": "Repair graph prerequisite reporting and read-only degraded operation",
+      "requirements": [
+        "REQ-GRAPH",
+        "REQ-GRAPH-DEGRADED"
+      ],
+      "implementation": "IN_PROGRESS",
+      "qualification": "NOT_QUALIFIED",
+      "files": [],
+      "tests": [],
+      "evidence": [],
+      "remaining": []
+    },
+    {
+      "id": "G04",
+      "title": "Qualify listener and endpoint connectivity independently",
+      "requirements": [
+        "REQ-ENDPOINT-SUPERVISOR",
+        "REQ-NETWORK-SETUP"
+      ],
+      "implementation": "IN_PROGRESS",
+      "qualification": "NOT_QUALIFIED",
+      "files": [],
+      "tests": [],
+      "evidence": [],
+      "remaining": []
+    },
+    {
+      "id": "G05",
+      "title": "Preserve streamed work across disconnect and cancel",
+      "requirements": [
+        "REQ-STREAM-RECOVERY"
+      ],
+      "implementation": "IN_PROGRESS",
+      "qualification": "NOT_QUALIFIED",
+      "files": [],
+      "tests": [],
+      "evidence": [],
+      "remaining": []
+    },
+    {
+      "id": "M01",
+      "title": "Negotiate MCP protocol and transport explicitly",
+      "requirements": [
+        "REQ-MCP-PROTOCOL"
+      ],
+      "implementation": "IN_PROGRESS",
+      "qualification": "NOT_QUALIFIED",
+      "files": [],
+      "tests": [],
+      "evidence": [],
+      "remaining": []
+    },
+    {
+      "id": "M02",
+      "title": "Make tool discovery state truthful and generation-aware",
+      "requirements": [
+        "REQ-CATALOG-PENDING",
+        "REQ-REMOTE-TOOL-MISSING",
+        "REQ-TOOL-EXECUTION-READINESS"
+      ],
+      "implementation": "IN_PROGRESS",
+      "qualification": "NOT_QUALIFIED",
+      "files": [],
+      "tests": [],
+      "evidence": [],
+      "remaining": []
+    },
+    {
+      "id": "M03",
+      "title": "Handle broken pipes, subprocess loss and tool timeouts safely",
+      "requirements": [
+        "REQ-MCP-BROKEN-PIPE",
+        "REQ-MCP-TIMEOUT"
+      ],
+      "implementation": "IN_PROGRESS",
+      "qualification": "NOT_QUALIFIED",
+      "files": [],
+      "tests": [],
+      "evidence": [],
+      "remaining": []
+    },
+    {
+      "id": "M04",
+      "title": "Classify DNS, auth, validation and privacy failures without retry loops",
+      "requirements": [
+        "REQ-DNS-CLASSIFICATION",
+        "REQ-NONRETRYABLE"
+      ],
+      "implementation": "IN_PROGRESS",
+      "qualification": "NOT_QUALIFIED",
+      "files": [],
+      "tests": [],
+      "evidence": [],
+      "remaining": []
+    },
+    {
+      "id": "D01",
+      "title": "Keep an efficient 5,000-event local debug ring",
+      "requirements": [
+        "REQ-DEBUG-LOCAL-5000"
+      ],
+      "implementation": "IN_PROGRESS",
+      "qualification": "NOT_QUALIFIED",
+      "files": [],
+      "tests": [],
+      "evidence": [],
+      "remaining": []
+    },
+    {
+      "id": "D02",
+      "title": "Exchange correlated Android and gateway diagnostic events in both directions",
+      "requirements": [
+        "REQ-BIDIRECTIONAL-DEBUG",
+        "REQ-FAILURE-ATTRIBUTION"
+      ],
+      "implementation": "IN_PROGRESS",
+      "qualification": "NOT_QUALIFIED",
+      "files": [],
+      "tests": [],
+      "evidence": [],
+      "remaining": []
+    },
+    {
+      "id": "D03",
+      "title": "Normalize error taxonomy and incident grouping",
+      "requirements": [
+        "REQ-ERROR-TAXONOMY",
+        "REQ-INCIDENT-DEDUP"
+      ],
+      "implementation": "IN_PROGRESS",
+      "qualification": "NOT_QUALIFIED",
+      "files": [],
+      "tests": [],
+      "evidence": [],
+      "remaining": []
+    },
+    {
+      "id": "D04",
+      "title": "Export a privacy-preserving integrity and coverage bundle",
+      "requirements": [
+        "REQ-EXPORT",
+        "REQ-REDACTION",
+        "REQ-VENDOR-AVAILABILITY"
+      ],
+      "implementation": "IN_PROGRESS",
+      "qualification": "NOT_QUALIFIED",
+      "files": [],
+      "tests": [],
+      "evidence": [],
+      "remaining": []
+    },
+    {
+      "id": "D05",
+      "title": "Build a unified diagnostics command center",
+      "requirements": [
+        "REQ-COMMAND-CENTER",
+        "REQ-PERFORMANCE-CORRELATION"
+      ],
+      "implementation": "IN_PROGRESS",
+      "qualification": "NOT_QUALIFIED",
+      "files": [],
+      "tests": [],
+      "evidence": [],
+      "remaining": []
+    },
+    {
+      "id": "H01",
+      "title": "Complete first-run GitHub connection onboarding",
+      "requirements": [
+        "REQ-GITHUB-WELCOME",
+        "REQ-GITHUB-AUTH-UX"
+      ],
+      "implementation": "IN_PROGRESS",
+      "qualification": "NOT_QUALIFIED",
+      "files": [],
+      "tests": [],
+      "evidence": [],
+      "remaining": []
+    },
+    {
+      "id": "H02",
+      "title": "Guide repository, branch, permissions and profile selection",
+      "requirements": [
+        "REQ-REPO-SETUP",
+        "REQ-SETUP-READINESS"
+      ],
+      "implementation": "IN_PROGRESS",
+      "qualification": "NOT_QUALIFIED",
+      "files": [],
+      "tests": [],
+      "evidence": [],
+      "remaining": []
+    },
+    {
+      "id": "H03",
+      "title": "Keep GitHub Workshop out of global app Settings",
+      "requirements": [
+        "REQ-REMOVE-WORKSHOP"
+      ],
+      "implementation": "IN_PROGRESS",
+      "qualification": "NOT_QUALIFIED",
+      "files": [],
+      "tests": [],
+      "evidence": [],
+      "remaining": []
+    },
+    {
+      "id": "H04",
+      "title": "Open GitHub mode without blocking on remote inventory",
+      "requirements": [
+        "REQ-FAST-GITHUB-LOAD"
+      ],
+      "implementation": "IN_PROGRESS",
+      "qualification": "NOT_QUALIFIED",
+      "files": [],
+      "tests": [],
+      "evidence": [],
+      "remaining": []
+    },
+    {
+      "id": "H05",
+      "title": "Consolidate GitHub API reads, pagination and freshness",
+      "requirements": [
+        "REQ-GITHUB-CACHE",
+        "REQ-GITHUB-API-UX"
+      ],
+      "implementation": "IN_PROGRESS",
+      "qualification": "NOT_QUALIFIED",
+      "files": [],
+      "tests": [],
+      "evidence": [],
+      "remaining": []
+    },
+    {
+      "id": "L01",
+      "title": "Schedule local inference with bounded capacity and interactive priority",
+      "requirements": [
+        "REQ-LOCAL-STABILITY"
+      ],
+      "implementation": "IN_PROGRESS",
+      "qualification": "NOT_QUALIFIED",
+      "files": [],
+      "tests": [],
+      "evidence": [],
+      "remaining": []
+    },
+    {
+      "id": "L02",
+      "title": "Choose inference batching using measured per-runtime tuning",
+      "requirements": [
+        "REQ-OPTIMAL-GATEWAY-BATCHING"
+      ],
+      "implementation": "IN_PROGRESS",
+      "qualification": "NOT_QUALIFIED",
+      "files": [],
+      "tests": [],
+      "evidence": [],
+      "remaining": []
+    },
+    {
+      "id": "L03",
+      "title": "Budget tokens and preserve capacity for completion",
+      "requirements": [
+        "REQ-PROVIDER-CEILINGS",
+        "REQ-COMPLETION-RESERVE"
+      ],
+      "implementation": "IN_PROGRESS",
+      "qualification": "NOT_QUALIFIED",
+      "files": [],
+      "tests": [],
+      "evidence": [],
+      "remaining": []
+    },
+    {
+      "id": "L04",
+      "title": "Preserve and tune dependency-aware read-tool batching",
+      "requirements": [
+        "REQ-READ-BATCH"
+      ],
+      "implementation": "IN_PROGRESS",
+      "qualification": "NOT_QUALIFIED",
+      "files": [],
+      "tests": [],
+      "evidence": [],
+      "remaining": []
+    },
+    {
+      "id": "A01",
+      "title": "Store large tool results as durable referenced artifacts",
+      "requirements": [
+        "REQ-RETAINED-RESULT-CAPACITY",
+        "REQ-RESULT-PAGING"
+      ],
+      "implementation": "IN_PROGRESS",
+      "qualification": "NOT_QUALIFIED",
+      "files": [],
+      "tests": [],
+      "evidence": [],
+      "remaining": []
+    },
+    {
+      "id": "A02",
+      "title": "Compact task memory and load only relevant schemas",
+      "requirements": [
+        "REQ-STRUCTURED-COMPACTION",
+        "REQ-PROGRESSIVE-SCHEMAS"
+      ],
+      "implementation": "IN_PROGRESS",
+      "qualification": "NOT_QUALIFIED",
+      "files": [],
+      "tests": [],
+      "evidence": [],
+      "remaining": []
+    },
+    {
+      "id": "A03",
+      "title": "Keep searchable evidence and memory private and access-scoped",
+      "requirements": [
+        "REQ-LOCAL-FIRST-MEMORY",
+        "REQ-PRIVACY-BOUNDARY"
+      ],
+      "implementation": "IN_PROGRESS",
+      "qualification": "NOT_QUALIFIED",
+      "files": [],
+      "tests": [],
+      "evidence": [],
+      "remaining": []
+    },
+    {
+      "id": "A04",
+      "title": "Bound artifact lifecycle without discarding active evidence",
+      "requirements": [
+        "REQ-ARTIFACT-LIFECYCLE",
+        "REQ-LARGE-SAVED-ANSWER"
+      ],
+      "implementation": "IN_PROGRESS",
+      "qualification": "NOT_QUALIFIED",
+      "files": [],
+      "tests": [],
+      "evidence": [],
+      "remaining": []
+    },
+    {
+      "id": "J01",
+      "title": "Unify durable task stages and checkpoints",
+      "requirements": [
+        "REQ-TASK-INCOMPLETE",
+        "REQ-STATE-MACHINE"
+      ],
+      "implementation": "IN_PROGRESS",
+      "qualification": "NOT_QUALIFIED",
+      "files": [],
+      "tests": [],
+      "evidence": [],
+      "remaining": []
+    },
+    {
+      "id": "J02",
+      "title": "Reconcile uncertain mutations through one operation ledger",
+      "requirements": [
+        "REQ-UNKNOWN-OUTCOME"
+      ],
+      "implementation": "IN_PROGRESS",
+      "qualification": "NOT_QUALIFIED",
+      "files": [],
+      "tests": [],
+      "evidence": [],
+      "remaining": []
+    },
+    {
+      "id": "J03",
+      "title": "Bound repair and retry by cause, progress and remaining budget",
+      "requirements": [
+        "REQ-STAGE-RETRIES"
+      ],
+      "implementation": "IN_PROGRESS",
+      "qualification": "NOT_QUALIFIED",
+      "files": [],
+      "tests": [],
+      "evidence": [],
+      "remaining": []
+    },
+    {
+      "id": "J04",
+      "title": "Distinguish approval from verification and retain blocked work",
+      "requirements": [
+        "REQ-REVIEW-INPUT"
+      ],
+      "implementation": "IN_PROGRESS",
+      "qualification": "NOT_QUALIFIED",
+      "files": [],
+      "tests": [],
+      "evidence": [],
+      "remaining": []
+    },
+    {
+      "id": "V01",
+      "title": "Verify each requirement using typed evidence",
+      "requirements": [
+        "REQ-EVIDENCE-REQUIRED",
+        "REQ-SEMANTIC-VERIFICATION"
+      ],
+      "implementation": "IN_PROGRESS",
+      "qualification": "NOT_QUALIFIED",
+      "files": [],
+      "tests": [],
+      "evidence": [],
+      "remaining": []
+    },
+    {
+      "id": "V02",
+      "title": "Track the full PR and required-check lifecycle",
+      "requirements": [
+        "REQ-PR-LIFECYCLE",
+        "REQ-EXACT-HEAD-CI"
+      ],
+      "implementation": "IN_PROGRESS",
+      "qualification": "NOT_QUALIFIED",
+      "files": [],
+      "tests": [],
+      "evidence": [],
+      "remaining": []
+    },
+    {
+      "id": "V03",
+      "title": "Generate final status from the evidence ledger",
+      "requirements": [
+        "REQ-FINAL-EVIDENCE-REPORT"
+      ],
+      "implementation": "IN_PROGRESS",
+      "qualification": "NOT_QUALIFIED",
+      "files": [],
+      "tests": [],
+      "evidence": [],
+      "remaining": []
+    },
+    {
+      "id": "V04",
+      "title": "Verify merge and publication against the resulting main commit",
+      "requirements": [
+        "REQ-MERGE-PUBLISH"
+      ],
+      "implementation": "IN_PROGRESS",
+      "qualification": "NOT_QUALIFIED",
+      "files": [],
+      "tests": [],
+      "evidence": [],
+      "remaining": []
+    },
+    {
+      "id": "U01",
+      "title": "Profile and remove main-thread work causing stalls",
+      "requirements": [
+        "REQ-SEVERE-STALLS",
+        "REQ-RUNTIME-PAUSES"
+      ],
+      "implementation": "IN_PROGRESS",
+      "qualification": "NOT_QUALIFIED",
+      "files": [],
+      "tests": [],
+      "evidence": [],
+      "remaining": []
+    },
+    {
+      "id": "U02",
+      "title": "Render chat, progress and logs as bounded lazy state",
+      "requirements": [
+        "REQ-LAZY-CHAT",
+        "REQ-RECOMPOSITION",
+        "REQ-LAZY-LOGS"
+      ],
+      "implementation": "IN_PROGRESS",
+      "qualification": "NOT_QUALIFIED",
+      "files": [],
+      "tests": [],
+      "evidence": [],
+      "remaining": []
+    },
+    {
+      "id": "U03",
+      "title": "Decouple lossless streaming from smooth presentation",
+      "requirements": [
+        "REQ-STREAM-JITTER",
+        "REQ-EXISTING-CHAT-MOTION"
+      ],
+      "implementation": "IN_PROGRESS",
+      "qualification": "NOT_QUALIFIED",
+      "files": [],
+      "tests": [],
+      "evidence": [],
+      "remaining": []
+    },
+    {
+      "id": "U04",
+      "title": "Theme-colour gateway-generated answer text using persisted provenance",
+      "requirements": [
+        "REQ-GATEWAY-THEME"
+      ],
+      "implementation": "IN_PROGRESS",
+      "qualification": "NOT_QUALIFIED",
+      "files": [],
+      "tests": [],
+      "evidence": [],
+      "remaining": []
+    },
+    {
+      "id": "U05",
+      "title": "Investigate GPU timestamp anomalies as a separate evidence problem",
+      "requirements": [
+        "REQ-GPU-CLOCK"
+      ],
+      "implementation": "IN_PROGRESS",
+      "qualification": "NOT_QUALIFIED",
+      "files": [],
+      "tests": [],
+      "evidence": [],
+      "remaining": []
+    },
+    {
+      "id": "W01",
+      "title": "Reconcile WorkManager generations before treating warnings as bugs",
+      "requirements": [
+        "REQ-WORKSPEC",
+        "REQ-WORK-GENERATION"
+      ],
+      "implementation": "IN_PROGRESS",
+      "qualification": "NOT_QUALIFIED",
+      "files": [],
+      "tests": [],
+      "evidence": [],
+      "remaining": []
+    },
+    {
+      "id": "W02",
+      "title": "Separate UI, foreground work and durable server execution",
+      "requirements": [
+        "REQ-BACKGROUND-OWNERSHIP",
+        "REQ-BACKGROUND-RESTORE"
+      ],
+      "implementation": "IN_PROGRESS",
+      "qualification": "NOT_QUALIFIED",
+      "files": [],
+      "tests": [],
+      "evidence": [],
+      "remaining": []
+    },
+    {
+      "id": "W03",
+      "title": "Expose a recovery dashboard with exact blocked reasons",
+      "requirements": [
+        "REQ-RECOVERY-DASHBOARD"
+      ],
+      "implementation": "IN_PROGRESS",
+      "qualification": "NOT_QUALIFIED",
+      "files": [],
+      "tests": [],
+      "evidence": [],
+      "remaining": []
+    },
+    {
+      "id": "Q01",
+      "title": "Qualify complete API and engineering workflows with behavioral evidence",
+      "requirements": [
+        "REQ-END-TO-END-TESTS"
+      ],
+      "implementation": "IN_PROGRESS",
+      "qualification": "NOT_QUALIFIED",
+      "files": [],
+      "tests": [],
+      "evidence": [],
+      "remaining": []
+    },
+    {
+      "id": "Q02",
+      "title": "Establish reproducible performance baselines and regression gates",
+      "requirements": [
+        "REQ-PERFORMANCE-BENCHMARKS"
+      ],
+      "implementation": "IN_PROGRESS",
+      "qualification": "NOT_QUALIFIED",
+      "files": [],
+      "tests": [],
+      "evidence": [],
+      "remaining": []
+    },
+    {
+      "id": "Q03",
+      "title": "Test long-run recovery, schema upgrades and staged rollout",
+      "requirements": [
+        "REQ-LONG-RUN-QUALIFICATION",
+        "REQ-ROLLOUT-GATES"
+      ],
+      "implementation": "IN_PROGRESS",
+      "qualification": "NOT_QUALIFIED",
+      "files": [],
+      "tests": [],
+      "evidence": [],
+      "remaining": []
+    }
+  ]
+}

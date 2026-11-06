@@ -29,6 +29,24 @@ import org.junit.Assert.fail
 import org.junit.Test
 
 class McpClientManagerTest {
+    @Test fun returnedToolFailureIsAnExecutionObservationWithoutInventingADiscoveryFailure() = runBlocking {
+        McpFixtureServer(toolResult = { """{"content":[{"type":"text","text":"fixture failure"}],"isError":true}""" }).use { server ->
+            val client = testClient()
+            val manager = McpClientManager(client)
+            val config = McpConnectionConfig("failed-tool-observation", server.url, true)
+            try {
+                manager.listTools(config)
+                assertEquals(null, manager.healthSnapshot(config.connectionUid).executionVerified)
+                assertTrue(manager.callTool(config, "echo", buildJsonObject { put("text", "fixture") }).isError == true)
+                assertEquals(false, manager.healthSnapshot(config.connectionUid).executionVerified)
+                assertEquals(McpToolReadiness.READY, manager.healthSnapshot(config.connectionUid).toolReadiness)
+            } finally {
+                manager.closeAll()
+                client.close()
+            }
+        }
+    }
+
     @Test fun dnsRecoveryWaitDoesNotBecomeAnEndpointCircuitFailure() = runBlocking {
         val gate = dev.chungjungsoo.gptmobile.data.research.academic.ResearchConnectivityGate.shared
         gate.failed("failed-a.example", java.net.UnknownHostException())
@@ -297,6 +315,8 @@ class McpClientManagerTest {
             )
 
             val tools = manager.listTools(config)
+            assertEquals(null, manager.healthSnapshot(config.connectionUid).executionVerified)
+            assertEquals(null, manager.catalogueAvailability(config).executionVerified)
             val metadata = buildJsonObject {
                 put(
                     "gptmobile/crawlerGrant",
@@ -307,6 +327,8 @@ class McpClientManagerTest {
                 )
             }
             val result = manager.callTool(config, "echo", buildJsonObject { put("text", "hello") }, metadata = metadata)
+            assertEquals(true, manager.healthSnapshot(config.connectionUid).executionVerified)
+            assertTrue(requireNotNull(manager.healthSnapshot(config.connectionUid).executionObservedAtMs) > 0)
             assertEquals(metadata, server.toolParams.single()["_meta"])
             assertEquals(buildJsonObject { put("text", "hello") }, server.toolParams.single()["arguments"])
 

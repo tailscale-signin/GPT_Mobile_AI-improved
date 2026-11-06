@@ -10,6 +10,47 @@ import tarfile
 import tempfile
 import threading
 import time
+import xml.etree.ElementTree as ET
+
+
+def behavior_receipts(coverage, results, checkout, source_sha, image):
+    """Only exact executed JUnit cases from a host-approved report verify behavior."""
+    evidence = []
+    reports = {}
+    root = Path(checkout).resolve()
+    for item in coverage:
+        if item['command_index'] >= len(results):
+            continue
+        observed = results[item['command_index']]
+        key = item['report_path']
+        if key not in reports:
+            path = root / key
+            try:
+                if path.is_symlink() or not path.resolve().is_relative_to(root) or not path.is_file() or path.stat().st_size > 1024 * 1024:
+                    raise ValueError('Report unavailable')
+                with path.open('rb') as stream:
+                    raw = stream.read(1024 * 1024 + 1)
+                if len(raw) > 1024 * 1024 or b'<!DOCTYPE' in raw.upper() or b'<!ENTITY' in raw.upper():
+                    raise ValueError('Unsafe report')
+                document = ET.fromstring(raw)
+                cases = {}
+                for node in document.iter('testcase'):
+                    name = '.'.join(part for part in (node.get('classname', ''), node.get('name', '')) if part)
+                    status = 'FAILED' if node.find('failure') is not None or node.find('error') is not None else 'SKIPPED' if node.find('skipped') is not None else 'PASSED'
+                    cases[name] = 'UNAVAILABLE' if name in cases else status
+                reports[key] = cases, hashlib.sha256(raw).hexdigest()
+            except (OSError, ValueError, ET.ParseError):
+                reports[key] = {}, None
+        cases, report_sha = reports[key]
+        status = cases.get(item['case_id'], 'UNAVAILABLE')
+        if observed['exit_code'] != 0 and status == 'PASSED':
+            status = 'FAILED'
+        evidence.append({'requirement_id': item['requirement_id'], 'kind': 'behavior_test', 'name': item['case_id'],
+            'scope': 'behavior', 'status': status, 'observed_at_ms': int(time.time() * 1000), 'image': image,
+            'report_sha256': report_sha, 'test_case': item['case_id'], 'report_path': key,
+            'command_sha256': hashlib.sha256(json.dumps(observed['command']).encode()).hexdigest(),
+            'output_sha256': observed['output_sha256'], 'exit_code': observed['exit_code'], 'source_sha': source_sha})
+    return evidence
 
 
 def patch_identity(head, changes):
@@ -106,6 +147,14 @@ def validate(job, changes):
         raise ValueError('Validation image must be pinned by digest')
     if not isinstance(commands, list) or not 1 <= len(commands) <= 10 or any(not isinstance(command, list) or not command or len(command) > 32 or any(not isinstance(arg, str) or not arg or len(arg) > 1024 or '\0' in arg for arg in command) for command in commands):
         raise ValueError('Validation commands must be a bounded host-approved argv list')
+    coverage = policy.get('acceptance_map', [])
+    if not isinstance(coverage, list) or len(coverage) > 256:
+        raise ValueError('Host acceptance coverage exceeds its bound')
+    for item in coverage:
+        if not isinstance(item, dict) or set(item) != {'requirement_id', 'case_id', 'command_index', 'scope', 'report_path'} or item['scope'] != 'behavior' or type(item['command_index']) is not int or not 0 <= item['command_index'] < len(commands) or any(not isinstance(item[key], str) or not 1 <= len(item[key]) <= 200 for key in ('requirement_id', 'case_id', 'report_path')):
+            raise ValueError('Host acceptance coverage must identify an exact behavior case and approved command')
+        if Path(item['report_path']).is_absolute() or any(part in {'', '.', '..', '.git'} for part in item['report_path'].split('/')) or '\\' in item['report_path']:
+            raise ValueError('Acceptance report must be a bounded checkout-relative path')
     head = job['data']['head_sha']
     if not re.fullmatch('[a-f0-9]{40}', head):
         raise ValueError('Validation needs an exact source revision')
@@ -160,5 +209,7 @@ def validate(job, changes):
                         subprocess.run(['docker', 'rm', '-f', container], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=15, check=False)
             if result['exit_code'] != 0:
                 break
+        evidence = behavior_receipts(coverage, results, checkout, head, image)
     return {'status': 'PASSED' if len(results) == len(commands) and all(item['exit_code'] == 0 for item in results) else 'FAILED',
-            'patch_identity': identity, 'source_sha': head, 'image': image, 'commands': results, 'network': 'disabled', 'device_tested': False}
+            'patch_identity': identity, 'source_sha': head, 'image': image, 'commands': results, 'network': 'disabled', 'device_tested': False,
+            'requirement_evidence': evidence}

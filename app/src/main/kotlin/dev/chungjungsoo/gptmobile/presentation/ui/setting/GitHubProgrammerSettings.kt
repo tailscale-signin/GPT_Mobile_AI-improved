@@ -30,6 +30,7 @@ import kotlinx.serialization.json.jsonPrimitive
 @Composable
 internal fun GitHubProfilePicker(profiles: List<PlatformV2>, selectedUid: String?, onSelect: (String?) -> Unit, global: Boolean = false) {
     var expanded by remember { mutableStateOf(false) }
+    val selected = profiles.firstOrNull { it.uid == selectedUid }
     Column {
         Text(if (global) "Default GitHub AI profile" else "Engineering AI profile", style = MaterialTheme.typography.titleSmall)
         OutlinedButton(onClick = { expanded = true }, modifier = Modifier.testTag("github_main_profile")) {
@@ -42,6 +43,11 @@ internal fun GitHubProfilePicker(profiles: List<PlatformV2>, selectedUid: String
                     onSelect(profile.uid)
                 })
             }
+        }
+        selected?.let { profile ->
+            Text("Requested model: ${profile.model.ifBlank { "Not configured" }}", style = MaterialTheme.typography.bodySmall)
+            val location = if (profile.compatibleType == dev.chungjungsoo.gptmobile.data.model.ClientType.LITERT_LM) "On this device" else "Observed when the selected endpoint responds"
+            Text("Execution location: $location", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }

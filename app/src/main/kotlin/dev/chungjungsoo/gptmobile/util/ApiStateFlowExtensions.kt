@@ -21,11 +21,10 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
-// Target frame budgets for streaming token batching:
-// - 120Hz display refresh budget is ~8.3ms. 8ms delivers frame-synced token updates without micro-stutter.
-// - Standard displays (60Hz) or standard memory tiers target ~33ms (~30 FPS).
-// - Low-memory or background power-saving tiers target 250ms.
-const val HIGH_REFRESH_FRAME_INTERVAL_MILLIS = 8L
+// Start interactive presentation at a bounded 33ms cadence on every refresh rate.
+// A faster display is not evidence that rebuilding text at 120Hz improves latency.
+// Low-memory or background power-saving tiers may explicitly select 250ms.
+const val HIGH_REFRESH_FRAME_INTERVAL_MILLIS = 33L
 const val STANDARD_STREAM_PUBLISH_INTERVAL_MILLIS = 33L
 const val LOW_POWER_STREAM_PUBLISH_INTERVAL_MILLIS = 250L
 
@@ -89,9 +88,10 @@ internal suspend fun Flow<ApiState>.collectApiStateUpdates(
     onCombinedReplacement: suspend (dev.chungjungsoo.gptmobile.data.agent.CombinedReplacementCandidate) -> Boolean = { false },
     onCombinedAnswer: suspend (String, String, List<AssistantTimelineItem>) -> Boolean = { _, _, _ -> false },
     nanoTimeProvider: () -> Long = System::nanoTime,
-    publishIntervalMillis: Long = STANDARD_STREAM_PUBLISH_INTERVAL_MILLIS
+    publishIntervalMillis: Long = STANDARD_STREAM_PUBLISH_INTERVAL_MILLIS,
+    restoredTimeline: List<AssistantTimelineItem> = emptyList()
 ): ApiStateFlowOutcome {
-    val buffer = StreamingMessageBuffer(nanoTimeProvider, publishIntervalMillis)
+    val buffer = StreamingMessageBuffer(nanoTimeProvider, publishIntervalMillis, restoredTimeline)
     var isCompletedSuccessfully = false
     var pendingCombinedAnswer: ApiState.CombinedAnswer? = null
     suspend fun publishCombined(chunk: ApiState.CombinedAnswer) {
@@ -150,6 +150,11 @@ internal suspend fun Flow<ApiState>.collectApiStateUpdates(
 
                 is ApiState.TokenUsage -> {
                     buffer.updateGeneration(chunk)
+                }
+
+                is ApiState.ResponseSourceCaptured -> {
+                    buffer.updateResponseSource(chunk.source)
+                    buffer.publishNow(onUpdate)
                 }
 
                 is ApiState.AssistStatus -> {
@@ -265,7 +270,7 @@ private data class PublicationPulse(val state: ApiState? = null, val error: Thro
 private fun Flow<ApiState>.withPublicationTicks(intervalMillis: Long): Flow<PublicationPulse> = channelFlow {
     val timer = launch {
         while (isActive) {
-            delay(intervalMillis.coerceIn(8L, 250L))
+            delay(intervalMillis.coerceIn(33L, 250L))
             send(PublicationPulse())
         }
     }
@@ -287,7 +292,8 @@ private fun Flow<ApiState>.withPublicationTicks(intervalMillis: Long): Flow<Publ
 
 private class StreamingMessageBuffer(
     private val nanoTimeProvider: () -> Long,
-    private val publishIntervalMillis: Long
+    private val publishIntervalMillis: Long,
+    restoredTimeline: List<AssistantTimelineItem>
 ) {
     private val thoughts = StringBuilder()
     private val content = StringBuilder()
@@ -295,6 +301,10 @@ private class StreamingMessageBuffer(
     private var githubProgress = false
     private var pendingTimelineIndex = -1
     private val pendingTimelineText = StringBuilder()
+    private var responseSource: dev.chungjungsoo.gptmobile.data.database.entity.ResponseSource? = null
+    private val restoredText = restoredTimeline.filter { it.type == AssistantTimelineItemType.TEXT && it.content.isNotEmpty() }
+    private var restoredIndex = 0
+    private var restoredOffset = 0
     private var contentSnapshot: String? = null
     private fun currentContent(): String = contentSnapshot ?: content.toString().also { contentSnapshot = it }
     val hasResponse: Boolean get() = dev.chungjungsoo.gptmobile.data.conversation.AnswerProjection.hasAnswer(currentContent())
@@ -425,7 +435,23 @@ private class StreamingMessageBuffer(
         if (chunk.isNotEmpty()) {
             contentSnapshot = null
             content.append(chunk)
-            appendTimelineText(AssistantTimelineItemType.TEXT, chunk)
+            var offset = 0
+            while (offset < chunk.length && restoredIndex < restoredText.size) {
+                val prior = restoredText[restoredIndex]
+                val length = minOf(prior.content.length - restoredOffset, chunk.length - offset)
+                if (!chunk.regionMatches(offset, prior.content, restoredOffset, length)) {
+                    restoredIndex = restoredText.size
+                    break
+                }
+                appendTimelineText(AssistantTimelineItemType.TEXT, chunk.substring(offset, offset + length), prior.responseSource)
+                offset += length
+                restoredOffset += length
+                if (restoredOffset == prior.content.length) {
+                    restoredIndex++
+                    restoredOffset = 0
+                }
+            }
+            if (offset < chunk.length) appendTimelineText(AssistantTimelineItemType.TEXT, chunk.substring(offset), responseSource)
         }
     }
 
@@ -493,10 +519,18 @@ private class StreamingMessageBuffer(
         flushTimelineText()
         val index = timeline.indexOfLast { it.generation != null }
         val prior = timeline.getOrNull(index)?.generation
-        val receipt = dev.chungjungsoo.gptmobile.data.database.entity.GenerationReceipt(usage.finishReason ?: prior?.finishReason, usage.outputTokens ?: prior?.outputTokens, usage.outputAllowance ?: prior?.outputAllowance)
+        val receipt = dev.chungjungsoo.gptmobile.data.database.entity.GenerationReceipt(usage.finishReason ?: prior?.finishReason, usage.outputTokens ?: prior?.outputTokens, usage.outputAllowance ?: prior?.outputAllowance, responseSource ?: prior?.responseSource)
         val item = AssistantTimelineItem(AssistantTimelineItemType.NOTICE, generation = receipt)
         if (index < 0) timeline += item else timeline[index] = item
         timelineVersion += 1
+    }
+
+    fun updateResponseSource(source: dev.chungjungsoo.gptmobile.data.database.entity.ResponseSource) {
+        if (source == responseSource) return
+        flushTimelineText()
+        responseSource = source
+        timeline += AssistantTimelineItem(AssistantTimelineItemType.NOTICE, generation = dev.chungjungsoo.gptmobile.data.database.entity.GenerationReceipt(responseSource = source))
+        timelineVersion++
     }
 
     fun appendProfileFailure(message: String, attachToTypedFailure: Boolean, errorCode: String? = null, details: kotlinx.serialization.json.JsonObject? = null) {
@@ -545,6 +579,7 @@ private class StreamingMessageBuffer(
         pendingTimelineIndex = -1
         pendingTimelineText.setLength(0)
         timeline.removeAll { it.type == AssistantTimelineItemType.TEXT }
+        restoredIndex = restoredText.size
         appendContent(text)
         timelineVersion++
     }
@@ -559,7 +594,7 @@ private class StreamingMessageBuffer(
         flushTimelineText()
         return timeline.filterNot { it.type == AssistantTimelineItemType.TEXT || it.combinedQuality != null } +
             listOf(
-                AssistantTimelineItem(AssistantTimelineItemType.TEXT, content = text),
+                AssistantTimelineItem(AssistantTimelineItemType.TEXT, content = text, responseSource = responseSource),
                 AssistantTimelineItem(AssistantTimelineItemType.NOTICE, combinedQuality = report)
             )
     }
@@ -570,6 +605,7 @@ private class StreamingMessageBuffer(
         content.setLength(0)
         pendingTimelineIndex = -1
         pendingTimelineText.setLength(0)
+        restoredIndex = restoredText.size
         timeline.removeAll { it.type == AssistantTimelineItemType.TEXT || it.combinedQuality != null }
         appendContent(text)
         updateCombinedQuality(report)
@@ -625,11 +661,11 @@ private class StreamingMessageBuffer(
         lastPublishedAtNanos = publishedAtNanos
     }
 
-    private fun appendTimelineText(type: AssistantTimelineItemType, chunk: String) {
+    private fun appendTimelineText(type: AssistantTimelineItemType, chunk: String, source: dev.chungjungsoo.gptmobile.data.database.entity.ResponseSource? = null) {
         val last = timeline.lastOrNull()
-        if (last?.type != type || last.toolSequence != null) {
+        if (last?.type != type || last.toolSequence != null || last.responseSource != source) {
             flushTimelineText()
-            timeline += AssistantTimelineItem(type = type, content = "")
+            timeline += AssistantTimelineItem(type = type, content = "", responseSource = source)
         }
         if (pendingTimelineIndex != timeline.lastIndex) {
             flushTimelineText()

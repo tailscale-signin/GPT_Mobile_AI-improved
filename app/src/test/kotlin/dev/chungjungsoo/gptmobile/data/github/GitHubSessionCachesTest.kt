@@ -21,6 +21,20 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubSessionCachesTest {
+    @Test fun sharedCredentialTextCannotShareAuthorizationOrReceiptsAcrossHosts() {
+        val token = "host-isolation-fixture"
+        val cloud = GitHubSessionCaches.authenticationForCredential(token)
+        val enterprise = GitHubSessionCaches.authenticationForCredential(token, "git.example.org")
+        GitHubSessionCaches.bind(token, "same-account-id", "github.com")
+        GitHubSessionCaches.bind(token, "same-account-id", "git.example.org")
+        cloud.set(true)
+        assertFalse(enterprise.get())
+        assertTrue(GitHubSessionCaches.authenticationForCredential(token).get())
+        assertFalse(GitHubSessionCaches.stateForCredential(token) === GitHubSessionCaches.stateForCredential(token, "git.example.org"))
+        GitHubSessionCaches.credentialReconnected(token, "git.example.org")
+        assertTrue(cloud.get())
+    }
+
     @Test fun reconnectResetsOnlyThatCredentialsAuthenticationAndRetainsReceiptStore() {
         val token = "reconnect-test-credential"
         val other = "reconnect-test-other"
@@ -80,7 +94,7 @@ class GitHubSessionCachesTest {
             }
             val first = async { runCatching { client.execute("get_repository", args) } }
             started.await()
-            val second = async { runCatching { client.execute("get_repository", args) } }
+            val second = async { runCatching { client.execute("get_account", buildJsonObject {}) } }
             // HTTP responses run on real IO; do not advance a virtual queue deadline
             // while the first response is still travelling back to the caller.
             withTimeout(10_000) {

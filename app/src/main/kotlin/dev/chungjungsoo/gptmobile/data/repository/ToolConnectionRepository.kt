@@ -151,7 +151,7 @@ class ToolConnectionRepository internal constructor(
                 }
                 if (connection.type == ToolConnectionType.GITHUB) {
                     secretVault.delete(dev.chungjungsoo.gptmobile.data.github.GitHubPublicAuthCoordinator.sessionReference(connection.connectionUid))
-                    dev.chungjungsoo.gptmobile.data.github.GitHubSessionCaches.credentialReconnected(credential.toString(StandardCharsets.UTF_8))
+                    dev.chungjungsoo.gptmobile.data.github.GitHubSessionCaches.credentialReconnected(credential.toString(StandardCharsets.UTF_8), dev.chungjungsoo.gptmobile.data.github.GitHubApiOrigins.fromEndpoint(connection.endpointUrl).hostIdentity)
                 }
             } catch (error: Exception) {
                 restoreCredential(secretRef, previousSecretRef, previousBytes)

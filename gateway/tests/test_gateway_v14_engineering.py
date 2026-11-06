@@ -12,6 +12,7 @@ from types import SimpleNamespace
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from v14.engineering import EngineeringStore, EngineeringService, EngineeringSupervisor, public_job, validate_request, principal_authorized
 from v14.engineering_backend import prepare_changes, blob_sha
+from v14.execution_binding import fingerprint
 
 
 class Backend:
@@ -24,7 +25,8 @@ class Backend:
     def step(self, job, phase):
         self.calls.append(phase)
         return {'PLAN': {'head_sha': 'a' * 40}, 'READ': {'files': {}}, 'IMPLEMENT': {'changes': [{'path': 'file', 'content': 'new'}]},
-                'REVIEW': {'review': {'approved': True, 'issues': []}}, 'COMMIT': {'head_sha': 'a' * 40},
+                'REVIEW': {'review': {'approved': True, 'issues': []}, 'local_validation': {'patch_identity': 'fixture-patch',
+                    'requirement_evidence': [{'requirement_id': 'build-fix', 'kind': 'behavior_test', 'name': 'build-fix', 'scope': 'behavior', 'status': 'PASSED'}]}}, 'COMMIT': {'head_sha': 'a' * 40},
                 'OPEN_PR': {'pr': 7, 'pr_url': 'https://github.com/owner/repo/pull/7'}, 'VERIFY': {'result': {'merged': True, 'merge_sha': 'c' * 40}}}[phase]
 
     def inspect(self, job):
@@ -44,13 +46,30 @@ class DurableEngineeringTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.time = 1000.
-        self.runtime = SimpleNamespace(GATEWAY_DURABLE_JOBS=True, durable_job_initialized=True, durable_job_lock=threading.RLock(),
+        self.runtime = SimpleNamespace(LLAMA_BASE='http://localhost:8080', GATEWAY_DURABLE_JOBS=True, durable_job_initialized=True, durable_job_lock=threading.RLock(),
                                        _durable_connect=lambda: sqlite3.connect(Path(self.temp.name) / 'jobs.db'))
         self.store = EngineeringStore(self.runtime, lambda: self.time)
         self.backend = Backend()
         self.service = EngineeringService(self.store, self.backend)
         self.request = {'repository': 'owner/repo', 'branch': 'feature/job', 'base': 'main', 'objective': 'Repair the build',
-                        'model': 'local', 'request_id': 'request', 'chat_id': 12}
+                        'model': 'local', 'profile_id': 'test-profile', 'request_id': 'request', 'chat_id': 12,
+                        'acceptance': [{'id': 'build-fix', 'paths': ['file'], 'checks': ['tests']}]}
+        # These tests exercise durable state transitions, not a model runtime.
+        # Actual metadata/HTTP/queue/repair integration has separate socket tests.
+        self.service.capabilities._probe = lambda route, model: {
+            'requested_model_id': model, 'reported_model_id': model, 'limits_verified': True,
+            'context_tokens': 32768, 'max_output_tokens': 32768, 'model_revision': None,
+            'template_digest': None, 'capability_revision': fingerprint([route, model]),
+            'supported': ['SELECTED_ONLY', 'MODEL_IDENTITY', 'CONTEXT_BUDGET']}
+        DurableEngineeringTests.admit(self)
+
+    def admit(self, principal='owner'):
+        result = self.service.prepare_binding(principal, {
+            'profile_uid': 'test-profile', 'profile_revision': 'test-1', 'provider_connection_id': 'test-connection',
+            'provider_connection_revision': 'test-1', 'provider_kind': 'LLAMA', 'configured_endpoint': self.runtime.LLAMA_BASE,
+            'requested_model_id': 'local', 'generation_parameters': {}, 'privacy_scope': 'test-scope', 'tool_owner': 'GATEWAY',
+            'required_capability_policy': ['SELECTED_ONLY', 'MODEL_IDENTITY', 'CONTEXT_BUDGET']})
+        self.request['execution_binding_id'] = result['binding']['binding_id']
 
     def tearDown(self):
         self.temp.cleanup()

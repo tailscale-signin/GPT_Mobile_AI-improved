@@ -5,7 +5,7 @@
   "base_sha": "1b8d57128484770d09fe026216a46603803b76f6",
   "working_branch": "fix/diagnostic-capture-github-verification-2026-11-05",
   "intent": "Implement bounded diagnostic capture, persistent critical evidence, independent resumable stages, honest export validation and memory telemetry; remedy source defects behind the supplied partial GitHub verification report without weakening operation authorization or evidence requirements.",
-  "state": "IMPLEMENTED_HOST_VALIDATED",
+  "state": "EXPANDED_IMPLEMENTATION_IN_PROGRESS",
   "inputs": {
     "partial_archive": "partial-diagnostics-6-1545ad2a-3afc-48cb-be36-c9405eb87415.zip",
     "diagnostic_analysis_supplied_in_request": true,
@@ -104,5 +104,12 @@
       "java_heap_mib": 64,
       "qualification": "Actual journal source compiled; focused snapshot byte/event-cap behavior exercised with storage boundaries."
     }
-  }
+  },
+  "publication": {
+    "authorized": true,
+    "source_sha": "57f6fd81edc627cdb5a5622716b7e9532e2d49a3",
+    "tree": "4424195fd65cd05ed5154f1f222da9528c11e265",
+    "pull_request": 804
+  },
+  "expanded_task_id": "eng_3f5c8d59f34941f8b71db458335f8366"
 }

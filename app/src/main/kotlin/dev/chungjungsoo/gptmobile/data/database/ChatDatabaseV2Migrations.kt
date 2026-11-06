@@ -509,6 +509,13 @@ object ChatDatabaseV2Migrations {
         }
     }
 
+    val MIGRATION_48_49 = object : Migration(48, 49) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            // Historical rows remain unknown; the current profile cannot establish their source.
+            addColumnIfMissing(db, "answer_segments", "responseSource", "TEXT")
+        }
+    }
+
     val ALL_MIGRATIONS: Array<Migration> = arrayOf(
         MIGRATION_10_11,
         MIGRATION_11_12,
@@ -547,7 +554,8 @@ object ChatDatabaseV2Migrations {
         MIGRATION_44_45,
         MIGRATION_45_46,
         MIGRATION_46_47,
-        MIGRATION_47_48
+        MIGRATION_47_48,
+        MIGRATION_48_49
     )
     private fun columns(db: SupportSQLiteDatabase, table: String): Set<String> = db.query("PRAGMA table_info(`$table`)").use { cursor -> buildSet { while (cursor.moveToNext()) add(cursor.getString(1)) } }
     private fun addColumnIfMissing(db: SupportSQLiteDatabase, table: String, column: String, definition: String) {

@@ -42,9 +42,15 @@ class EvidenceTests(unittest.TestCase):
         job = {'request': {'acceptance': [{'id': 'fix', 'paths': ['Fix.kt'], 'checks': ['regression']}]},
                'data': {'head_sha': 'a' * 40, 'merge_sha': 'b' * 40, 'result': {'merged': True, 'merge_sha': 'b' * 40}}}
         state = {'head_sha': 'a' * 40, 'checks_passed': True, 'changed_files': ['Fix.kt'], 'checks': [{'name': 'regression', 'required': True, 'status': 'SUCCESS'}]}
-        self.assertTrue(completion_gate(job, state, merged=True)['passed'])
+        # A changed file and a green check name do not prove feature semantics.
+        self.assertFalse(completion_gate(job, state, merged=True)['passed'])
+        evidence = {'requirement_id': 'fix', 'receipt_id': 'ev_test', 'kind': 'behavior_test', 'name': 'fix', 'scope': 'behavior',
+                    'head_sha': 'a' * 40, 'status': 'PASSED', 'source': 'HOST_VALIDATION', 'trusted': True}
+        self.assertTrue(completion_gate(job, state, merged=True, semantic_receipts=[evidence])['passed'])
         for change in ({'checks': []}, {'head_sha': 'c' * 40}, {'changed_files': []}, {'checks': [{'name': 'regression', 'required': True, 'status': 'SKIPPED'}]}):
-            self.assertFalse(completion_gate(job, dict(state, **change))['passed'])
+            self.assertFalse(completion_gate(job, dict(state, **change), semantic_receipts=[evidence])['passed'])
+        for change in ({'head_sha': 'c' * 40}, {'status': 'FAILED'}, {'name': 'unrelated'}, {'scope': 'build'}, {'trusted': False}):
+            self.assertFalse(completion_gate(job, state, semantic_receipts=[dict(evidence, **change)])['passed'])
         job['data']['result'] = {'model_says_merged': True}
         self.assertFalse(completion_gate(job, state, merged=True)['passed'])
 

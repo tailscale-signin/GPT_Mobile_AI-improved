@@ -56,8 +56,18 @@ internal fun GitHubConnectionSetupScreen(
         FadingAlertDialog(
             onDismissRequest = viewModel::cancelGitHubSignIn,
             title = { Text("Finish GitHub sign-in") },
-            text = { Text("Authorize the app in your browser. When you return, choose the repository and branch for this chat.") },
-            confirmButton = { TextButton(onClick = viewModel::cancelGitHubSignIn) { Text("Cancel sign-in") } }
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(if (state.gitHubAuthorizationResumable) "GitHub authorization is saved. Finish connecting from the retained sign-in ticket." else "Authorize the app in your browser. When you return, choose the repository and branch for this chat.")
+                    state.errorMessage?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                }
+            },
+            confirmButton = {
+                if (state.gitHubAuthorizationResumable) {
+                    TextButton(onClick = viewModel::resumeGitHubAuthorization, enabled = !state.isOAuthBusy) { Text(if (state.isOAuthBusy) "Connecting…" else "Finish connecting") }
+                }
+            },
+            dismissButton = { TextButton(onClick = viewModel::cancelGitHubSignIn, enabled = !state.isOAuthBusy) { Text("Cancel sign-in") } }
         )
     }
     state.gitHubSignIn?.let { signIn ->

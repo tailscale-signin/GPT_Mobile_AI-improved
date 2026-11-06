@@ -97,7 +97,7 @@ internal fun AppLogPanel(entriesOverride: List<AppLogEntry>? = null) {
                     Switch(enabled, AppLogRecorder::setEnabled)
                 }
                 Text("Capture app events, errors, model requests, tools, network headers and Android logs for this app.", style = MaterialTheme.typography.bodyMedium)
-                Text("Logs stay on this device until you share them. Credentials are redacted. Provider error details may include request content; successful HTTP bodies are excluded. Review the export before sharing. Up to 2 MiB of recent logs and a separate 256 KiB of critical events are retained.", style = MaterialTheme.typography.bodySmall)
+                Text("Raw logs stay on this device until you share them. With Debug enabled, allowlisted event metadata synchronizes with your selected paired gateway; raw messages and request content are excluded from that bridge. Credentials are redacted. Provider error details in local logs may include request content; successful HTTP bodies are excluded. Review the export before sharing. Up to 2 MiB of recent logs and a separate 256 KiB of critical events are retained.", style = MaterialTheme.typography.bodySmall)
             }
         }
         error?.let { Text(it, color = MaterialTheme.colorScheme.error) }

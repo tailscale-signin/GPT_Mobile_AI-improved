@@ -15,7 +15,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -25,6 +25,9 @@ import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringBinding
 import dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringJob
@@ -35,39 +38,59 @@ import kotlinx.serialization.json.jsonPrimitive
 /** Persisted host jobs are shown in the ordinary conversation, including notification deep links. */
 @Composable
 fun GatewayEngineeringPanel(chatId: Int, context: GitHubConversationContext, profile: dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2?, debugMode: Boolean = false, model: GatewayEngineeringViewModel = hiltViewModel()) {
-    val selectedProfile = profile?.takeIf { it.uid == context.mainProfileUid } ?: return
-    if (!dev.chungjungsoo.gptmobile.data.github.GitHubAutonomousEngineeringPolicy.enabled(selectedProfile)) return
-    LaunchedEffect(chatId) { model.bind(chatId) }
+    GatewayEngineeringObservation(model, chatId)
     val state by model.state.collectAsStateWithLifecycle()
+    var page by remember(chatId) { androidx.compose.runtime.mutableIntStateOf(0) }
+    val bindings = state.bindings.filter { it.chatId == chatId }
+    val lastPage = (bindings.size - 1).coerceAtLeast(0) / 20
+    val visible = bindings.asReversed().drop(page.coerceAtMost(lastPage) * 20).take(20)
     var confirmation by remember { mutableStateOf<Pair<GatewayEngineeringBinding, GatewayEngineeringJob>?>(null) }
     var details by remember { mutableStateOf<GatewayEngineeringBinding?>(null) }
     val uri = LocalUriHandler.current
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        if (debugMode) state.error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
-        state.bindings.filter { it.profileUid == selectedProfile.uid && (debugMode || it.job?.mergeReady == true || it.job?.pr != null || it.job?.terminal == false) }.forEach { binding ->
-            val job = binding.job
-            Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    if (job == null) {
-                        Text("Reconnecting your task…")
-                        TextButton(onClick = { model.reconnect(binding) }, enabled = !state.busy) { Text("Reconnect saved request") }
-                    } else {
-                        if (LocalChatProgressInHeader.current) Text(job.message, style = MaterialTheme.typography.bodyMedium) else EngineeringJobProgress(job)
-                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            if (debugMode) {
+        state.error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+        if (bindings.isNotEmpty()) Text("Saved engineering work", style = MaterialTheme.typography.titleSmall)
+        if (lastPage > 0) {
+            Row {
+                TextButton(onClick = { page-- }, enabled = page > 0) { Text("Newer jobs") }
+                TextButton(onClick = { page++ }, enabled = page < lastPage) { Text("Earlier jobs") }
+            }
+        }
+        visible.forEach { binding ->
+            androidx.compose.runtime.key(binding.request.requestId) {
+                val job = binding.job
+                val recovery = gatewayRecoveryPresentation(binding)
+                Card(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text("${binding.request.repository} · ${job?.branch ?: binding.request.branch}", style = MaterialTheme.typography.titleSmall)
+                        Text("Stage: ${recovery.stage} · Profile: ${recovery.profileUid}", style = MaterialTheme.typography.bodySmall)
+                        Text("Requested model: ${recovery.requestedModel}\nObserved model: ${recovery.observedModel}", style = MaterialTheme.typography.bodySmall)
+                        if (binding.profileUid != context.mainProfileUid || profile?.uid != binding.profileUid || profile?.enabled != true) {
+                            Text("This job retains its original profile. Its saved progress remains available after a selection change.", style = MaterialTheme.typography.bodySmall)
+                        }
+                        recovery.reason?.let { Text("Blocked: $it", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+                        if (job == null) {
+                            Text("Submission has not been confirmed.")
+                            Text(recovery.nextAction, style = MaterialTheme.typography.bodySmall)
+                            if (recovery.canReconcileRequest) TextButton(onClick = { model.reconnect(binding) }, enabled = !state.busy) { Text("Reconcile saved request") }
+                        } else {
+                            if (LocalChatProgressInHeader.current) Text(job.message, style = MaterialTheme.typography.bodyMedium) else EngineeringJobProgress(job)
+                            Text(recovery.nextAction, style = MaterialTheme.typography.bodySmall)
+                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                                 TextButton(onClick = { details = binding }) {
                                     val unread = binding.updates.count { it.revision > binding.seenRevision }
-                                    Text(if (unread > 0) "Updates ($unread new)" else "Updates")
+                                    Text(if (unread > 0) "Evidence ($unread new)" else "Evidence")
                                 }
+                                job.prUrl?.takeIf { it.startsWith("https://") }?.let { url -> TextButton(onClick = { uri.openUri(url) }) { Text("Review PR") } }
+                                TextButton(onClick = { model.check(binding) }, enabled = !state.busy) { Text("Check saved job") }
+                                if (recovery.canCancel) TextButton(onClick = { model.control(binding, job, "cancel") }, enabled = !state.busy) { Text("Stop") }
                             }
-                            if (job.pr != null) TextButton(onClick = { uri.openUri("https://github.com/${job.repository}/pull/${job.pr}") }) { Text("Review PR") }
-                            if (!job.terminal) TextButton(onClick = { model.control(binding, job, "cancel") }, enabled = !state.busy) { Text("Stop") }
-                        }
-                        if (job.mergeReady) {
-                            Text("All required checks passed. Review the exact commit before merging.", style = MaterialTheme.typography.bodySmall)
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Button(onClick = { confirmation = binding to job }, enabled = !state.busy) { Text("Approve & Merge") }
-                                OutlinedButton(onClick = { model.control(binding, job, "request_changes") }, enabled = !state.busy) { Text("Request changes") }
+                            if (job.mergeReady) {
+                                Text("All required checks passed. Review the exact commit before merging.", style = MaterialTheme.typography.bodySmall)
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Button(onClick = { confirmation = binding to job }, enabled = !state.busy) { Text("Approve & Merge") }
+                                    OutlinedButton(onClick = { model.control(binding, job, "request_changes") }, enabled = !state.busy) { Text("Request changes") }
+                                }
                             }
                         }
                     }
@@ -100,6 +123,9 @@ fun GatewayEngineeringPanel(chatId: Int, context: GitHubConversationContext, pro
     }
     details?.let { selected ->
         val current = state.bindings.firstOrNull { it.request.requestId == selected.request.requestId } ?: selected
+        val recovery = gatewayRecoveryPresentation(current)
+        var updatePage by remember(current.request.requestId) { androidx.compose.runtime.mutableIntStateOf(0) }
+        val lastUpdatePage = (current.updates.size - 1).coerceAtLeast(0) / 20
         AlertDialog(
             onDismissRequest = {
                 model.markSeen(current)
@@ -109,8 +135,16 @@ fun GatewayEngineeringPanel(chatId: Int, context: GitHubConversationContext, pro
             text = {
                 Column(Modifier.heightIn(max = 440.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text("Job ${current.job?.id ?: current.request.requestId}", style = MaterialTheme.typography.bodySmall)
-                    Text("The gateway keeps working while this app is closed. Reconnecting retrieves saved updates; it does not start another job.")
-                    current.updates.forEach { update ->
+                    Text("Owner: ${current.principalId ?: "Not recorded"}\nProfile: ${recovery.profileUid}\nRepository: ${current.request.repository}\nHead: ${current.job?.headSha ?: "Not observed"}", style = MaterialTheme.typography.bodySmall)
+                    Text("Execution identity: ${recovery.executionIdentity}\nHardware: ${recovery.hardware}", style = MaterialTheme.typography.bodySmall)
+                    Text("Check saved job retrieves retained progress on the original route. Confirmed operations and partial output are preserved.")
+                    if (lastUpdatePage > 0) {
+                        Row {
+                            TextButton(onClick = { updatePage-- }, enabled = updatePage > 0) { Text("Newer evidence") }
+                            TextButton(onClick = { updatePage++ }, enabled = updatePage < lastUpdatePage) { Text("Earlier evidence") }
+                        }
+                    }
+                    current.updates.asReversed().drop(updatePage.coerceAtMost(lastUpdatePage) * 20).take(20).forEach { update ->
                         Text("${java.time.Instant.ofEpochSecond(update.createdAt.toLong())}\n${update.message}", style = MaterialTheme.typography.bodySmall)
                     }
                     if (current.updates.isEmpty()) Text(current.job?.message ?: "Connecting to saved request")
@@ -135,6 +169,25 @@ fun GatewayEngineeringPanel(chatId: Int, context: GitHubConversationContext, pro
             text = { Text(receipt, Modifier.heightIn(max = 440.dp).verticalScroll(rememberScrollState()), style = MaterialTheme.typography.bodySmall) },
             confirmButton = { TextButton(onClick = model::closeEvidence) { Text("Close") } }
         )
+    }
+}
+
+/** Multiple mounted surfaces share one observer, and backgrounding stops foreground polling. */
+@Composable
+internal fun GatewayEngineeringObservation(model: GatewayEngineeringViewModel, chatId: Int?) {
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    val owner = remember { java.util.UUID.randomUUID().toString() }
+    DisposableEffect(model, chatId, lifecycle, owner) {
+        fun update() {
+            if (chatId != null) model.setVisible(owner, chatId, lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED))
+        }
+        val observer = LifecycleEventObserver { _, _ -> update() }
+        lifecycle.addObserver(observer)
+        update()
+        onDispose {
+            lifecycle.removeObserver(observer)
+            if (chatId != null) model.setVisible(owner, chatId, false)
+        }
     }
 }
 

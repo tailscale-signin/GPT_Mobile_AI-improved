@@ -1,5 +1,6 @@
 """Readiness evidence is authenticated-route/model specific and never an inference replay."""
 import hashlib
+import json
 from pathlib import Path
 import sys
 import threading
@@ -15,7 +16,7 @@ from v14.service import ServiceState
 
 
 def response(status, body=None):
-    return Mock(status_code=status, json=Mock(return_value=body or {}))
+    return Mock(status_code=status, iter_content=Mock(side_effect=lambda size: iter([json.dumps(body or {}).encode()])))
 
 
 def runtime(get):
@@ -89,6 +90,18 @@ class BackendReadinessTests(unittest.TestCase):
         first, second = ServiceState(2), ServiceState(2)
         self.assertNotEqual(first.instance_id, second.instance_id)
         self.assertRegex(first.instance_id, '^[a-f0-9]{32}$')
+
+    def test_model_load_is_distinct_and_oversized_metadata_cannot_claim_availability(self):
+        oversized = Mock(status_code=200, iter_content=Mock(side_effect=lambda size: iter([b'x' * (1024 * 1024 + 1)])))
+        get = Mock(side_effect=[response(503, {'error': {'message': 'Loading model'}}), oversized])
+        result = readiness(runtime(get), ServiceState(1), 'selected')
+        self.assertFalse(result['ready'])
+        self.assertEqual('LOADING', result['components']['selectedModel']['state'])
+        self.assertIsNone(result['capabilities']['modelAvailable'])
+        for call in get.call_args_list:
+            self.assertTrue(call.kwargs['stream'])
+            self.assertFalse(call.kwargs['allow_redirects'])
+        oversized.close.assert_called_once()
 
 
 if __name__ == '__main__':

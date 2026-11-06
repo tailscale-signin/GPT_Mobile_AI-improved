@@ -68,8 +68,12 @@ class EvidenceLedger:
     def append(self, job, kind, payload):
         # Private storage only. Headers, credentials and signed redirect URLs are never accepted.
         raw = canonical(payload)
-        if len(raw.encode()) > 6 * 1024 * 1024:
-            raise ValueError('Evidence record exceeds capacity')
+        if len(raw.encode()) > 128 * 1024:
+            from v14.engineering_artifacts import EngineeringArtifacts
+            reference = EngineeringArtifacts(self.store).put_json(job, payload, 'evidence:' + kind[:80])
+            raw = canonical({'result_ref': reference, 'source': payload.get('source'), 'success': payload.get('success'),
+                             'trusted': payload.get('trusted'), 'head_sha': payload.get('head_sha'),
+                             'observed_at_ms': payload.get('observed_at_ms'), 'facts': facts(payload)})
         observed = int(self.store.now() * 1000)
         def save(db):
             self.schema(db)
@@ -112,7 +116,7 @@ class EvidenceLedger:
         return self.store.tx(fetch)
 
 
-def completion_gate(job, readiness, merged=False):
+def completion_gate(job, readiness, merged=False, *, semantic_receipts=()):
     """Check explicit acceptance contracts and actual CI. Model summaries are not inputs."""
     failures = []
     data = job['data']
@@ -127,18 +131,30 @@ def completion_gate(job, readiness, merged=False):
     changed = set(readiness.get('changed_files', []))
     passed = {check.get('name') for check in checks if check.get('status') == 'SUCCESS'}
     requirements = []
+    if not job['request'].get('acceptance'):
+        failures.append('No explicit feature acceptance manifest is available')
     for requirement in job['request'].get('acceptance', []):
         implemented = set(requirement['paths']) <= changed
         tested = set(requirement['checks']) <= passed
-        requirements.append(dict(requirement, status='VERIFIED' if implemented and tested and not failures else 'IMPLEMENTED' if implemented else 'BLOCKED',
-                                 scope='Changed paths and exact-head CI only', head_sha=readiness.get('head_sha')))
-        if not implemented or not tested:
+        rows = [row for row in semantic_receipts if row.get('requirement_id') == requirement['id'] and row.get('trusted') is True
+                and row.get('source') in {'HOST_VALIDATION', 'GITHUB_TEST_REPORT', 'MANAGED_DEVICE_TRACE'} and row.get('receipt_id')]
+        current = [row for row in rows if row.get('head_sha') == readiness.get('head_sha') and row.get('repository') == job['request'].get('repository')
+                   and row.get('branch') == job['request'].get('branch') and row.get('binding_id') == job['request'].get('execution_binding_id')]
+        expected = requirement.get('evidence') or [{'kind': 'behavior_test', 'name': requirement['id']}]
+        matching = [row for row in current if any(row.get('kind') == item['kind'] and row.get('name') == item['name'] for item in expected)]
+        contradicted = any(row.get('status') in {'FAILED', 'CONTRADICTED'} for row in matching)
+        verified = all(any(row.get('kind') == item['kind'] and row.get('name') == item['name'] and row.get('status') == 'PASSED'
+                           and row.get('scope') == 'behavior' for row in matching) for item in expected)
+        status = 'CONTRADICTED' if contradicted else 'BEHAVIOR_VERIFIED' if implemented and tested and verified else 'STALE' if rows and not current else 'IMPLEMENTED' if implemented else 'UNAVAILABLE'
+        requirements.append(dict(requirement, status=status, receipt_ids=[row['receipt_id'] for row in matching],
+                                 scope='Explicit typed behavior evidence at the exact repository revision', head_sha=readiness.get('head_sha')))
+        if not implemented or not tested or not verified or contradicted:
             failures.append('Acceptance evidence missing: ' + requirement['id'])
     if merged:
         result = data.get('result', {})
         if result.get('merged') is not True or result.get('merge_sha') != data.get('merge_sha'):
             failures.append('Actual merge result was not verified')
-    return {'schema': 'github.completion.v1', 'passed': not failures, 'failures': failures,
+    return {'schema': 'github.completion.v2', 'passed': not failures, 'failures': failures,
             'head_sha': data.get('head_sha'), 'acceptance_configured': bool(job['request'].get('acceptance')), 'requirements': requirements,
-            'scope': 'Explicit changed-path/check requirements and workflow receipts. Semantic feature completeness is not automatically proven.',
+            'scope': 'Explicit typed feature acceptance evidence plus exact-head workflow and merge receipts.',
             'benchmark_status': 'NOT_MEASURED', 'local_test_execution': 'NOT_MEASURED'}

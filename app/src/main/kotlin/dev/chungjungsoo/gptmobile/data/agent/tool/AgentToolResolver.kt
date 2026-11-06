@@ -1297,6 +1297,7 @@ class AgentToolResolver @Inject constructor(
         }
         val tool = GitHubTool(
             apiToken = token,
+            apiOrigins = dev.chungjungsoo.gptmobile.data.github.GitHubApiOrigins.fromEndpoint(actualConnection?.endpointUrl),
             durableIdentity = durableIdentity,
             legacyCredentialIdentities = if (!authorizationFailed && actualConnection != null) gitHubPublicAuth?.legacyCredentialIdentities(actualConnection.connectionUid).orEmpty() else emptyList(),
             credentialProvider = credentialProvider,

@@ -126,18 +126,16 @@ class EngineeringBackendTests(unittest.TestCase):
         self.assertFalse(any(method != 'GET' for _, method, _ in self.requests))
 
     def test_inference_reuses_gateway_admission_and_has_no_tools_or_merge_authority(self):
-        response = Mock()
-        response.json.return_value = {'choices': [{'finish_reason': 'stop', 'message': {'content': '{"approved":true,"issues":[]}'}}]}
-        self.runtime.http_post = Mock(return_value=response)
+        self.backend.model_executor = Mock(return_value={'choices': [{'finish_reason': 'stop', 'message': {'content': '{"approved":true,"issues":[]}'}}]})
         self.backend.model(self.job, 'independent reviewer', {'diff': 'change'})
-        _, kwargs = self.runtime.http_post.call_args
-        self.assertEqual('background', kwargs['_gateway_job_mode'])
-        self.assertFalse(kwargs['_gateway_cancel_event'].is_set())
-        self.assertNotIn('tools', kwargs['json'])
-        self.assertTrue(kwargs['json']['cache_prompt'])
+        args, _ = self.backend.model_executor.call_args
+        self.assertEqual('selected-model reviewer', args[1])
+        self.assertFalse(args[3].is_set())
+        self.assertNotIn('tools', args[2])
+        self.assertFalse(args[2]['cache_prompt'])
+        self.assertNotIn('max_tokens', args[2])
         self.backend.cancelled = lambda job_id: True
-        self.assertTrue(kwargs['_gateway_cancel_event'].is_set())
-        response.close.assert_called_once()
+        self.assertTrue(args[3].is_set())
 
     def test_log_excerpt_keeps_actual_failure_tail_with_a_download_bound(self):
         response = Mock()

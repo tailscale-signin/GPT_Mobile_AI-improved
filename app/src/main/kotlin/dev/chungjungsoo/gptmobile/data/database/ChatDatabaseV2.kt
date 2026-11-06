@@ -81,10 +81,11 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
         dev.chungjungsoo.gptmobile.data.memory.MemoryGraphObservationRecord::class,
         dev.chungjungsoo.gptmobile.data.memory.MemoryGraphRelationRecord::class
     ],
-    version = 48,
+    version = 49,
     exportSchema = true
 )
 @TypeConverters(
+    dev.chungjungsoo.gptmobile.data.database.entity.ResponseSourceConverter::class,
     dev.chungjungsoo.gptmobile.data.database.entity.CombinedManifestReferenceConverter::class,
     StringListConverter::class,
     ChatAttachmentListConverter::class,

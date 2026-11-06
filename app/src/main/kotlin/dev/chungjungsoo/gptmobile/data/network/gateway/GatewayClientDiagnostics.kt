@@ -10,7 +10,7 @@ import dev.chungjungsoo.gptmobile.data.research.researchHash
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
-/** Opt-in transport metadata only. App logs, prompts, device identifiers and credentials are never uploaded. */
+/** Opt-in allowlisted event metadata. Raw app logs, prompts, device identifiers and credentials are never uploaded. */
 internal object GatewayClientDiagnostics {
     const val CLIENT_HEADER = "X-Gateway-Client-Diagnostics"
     private val lock = Any()
@@ -21,10 +21,21 @@ internal object GatewayClientDiagnostics {
     private var revisionClock = 0L
     private val instancePattern = Regex("[a-f0-9]{32}")
     private val roles = setOf("primary", "github", "review", "synthesis", "diagnostic")
+    private val diagnosticHeaders = setOf(CLIENT_HEADER.lowercase(), "x-gateway-diagnostic-session", "x-gateway-diagnostic-started", "traceparent", "tracestate", "baggage")
+    private val dispatched = linkedMapOf<String, Long>()
+    val diagnosticStatus get() = GatewayDiagnosticBridge.status
+
+    fun initialize(directory: java.io.File) = GatewayDiagnosticBridge.initialize(directory)
+    fun appEvent(entry: dev.chungjungsoo.gptmobile.data.diagnostics.AppLogEntry) = GatewayDiagnosticBridge.appEvent(entry)
+    fun pause() = GatewayDiagnosticBridge.pause()
+    fun clear() = GatewayDiagnosticBridge.clear()
+    suspend fun diagnosticStatusFor(config: ProviderRequestConfig) = GatewayDiagnosticBridge.statusFor(config)
+    suspend fun diagnosticPage(config: ProviderRequestConfig? = null, offset: Int = 0, failuresOnly: Boolean = true, traceId: String? = null, stages: Set<String> = emptySet()) = GatewayDiagnosticBridge.page(config, offset, failuresOnly, traceId, stages)
+    suspend fun exportDiagnostics(destination: java.io.File, config: ProviderRequestConfig? = null) = GatewayDiagnosticBridge.export(config, destination)
 
     /** Shared capability identity; two profiles on one authenticated route need only one probe. */
     fun routeIdentity(config: ProviderRequestConfig): String {
-        val headers = config.extraHeaders.entries.filterNot { it.key.startsWith("X-Gateway-", true) }
+        val headers = config.extraHeaders.entries.filterNot { it.key.startsWith("X-Gateway-", true) || it.key.lowercase() in diagnosticHeaders || it.key.equals("X-Request-ID", true) }
             .sortedBy { it.key.lowercase() }.joinToString("\n") { "${it.key.lowercase()}:${it.value}" }
         return researchHash("${config.apiUrl.trim().trimEnd('/')}|${researchHash(config.token.orEmpty())}|${researchHash(headers)}")
     }
@@ -81,15 +92,42 @@ internal object GatewayClientDiagnostics {
         val allowedRoute = config.providerType == "LLAMA" || config.extraHeaders.keys.any { it.startsWith("X-Gateway-", true) }
         val without = config.extraHeaders.filterKeys { !it.equals(CLIENT_HEADER, true) }
         if (!captureAllowed || !allowedRoute) return config.copy(extraHeaders = without)
+        GatewayDiagnosticBridge.remember(config)
         val metadata = metadata(config, model, Build.VERSION.SDK_INT, BuildConfig.VERSION_CODE, LocalServiceHealth.networkEpoch)
-        return config.copy(extraHeaders = without + (CLIENT_HEADER to metadata))
+        val trace = java.util.UUID.randomUUID().toString().replace("-", "")
+        return config.copy(extraHeaders = without + mapOf(CLIENT_HEADER to metadata, "traceparent" to "00-$trace-${trace.takeLast(16)}-01", "X-Request-ID" to trace))
     }
 
     private val captureAllowed: Boolean get() = LocalDiagnosticsPolicy.enabled && !AppLogRecorder.privateSessionActive
 
     /** Recheck at each physical dispatch; a request prepared before Debug was disabled must not upload metadata. */
-    fun requestHeaders(config: ProviderRequestConfig): Map<String, String> =
-        if (captureAllowed) config.extraHeaders else config.extraHeaders.filterKeys { !it.equals(CLIENT_HEADER, true) }
+    fun requestHeaders(config: ProviderRequestConfig): Map<String, String> {
+        if (!captureAllowed) return config.extraHeaders.filterKeys { it.lowercase() !in diagnosticHeaders }
+        if (config.extraHeaders.keys.none { it.equals(CLIENT_HEADER, true) }) return config.extraHeaders
+        val prior = config.extraHeaders.entries.firstOrNull { it.key.equals("traceparent", true) }?.value
+        val trace = Regex("00-([a-f0-9]{32})-[a-f0-9]{16}-[a-f0-9]{2}").matchEntire(prior.orEmpty())?.groupValues?.get(1)
+            ?: java.util.UUID.randomUUID().toString().replace("-", "")
+        val span = java.util.UUID.randomUUID().toString().replace("-", "").take(16)
+        synchronized(lock) {
+            if (dispatched.size >= 256) dispatched.remove(dispatched.keys.first())
+            dispatched[span] = System.nanoTime()
+        }
+        GatewayDiagnosticBridge.event(
+            config,
+            buildJsonObject {
+                put("stage", "request")
+                put("direction", "client_to_gateway")
+                put("severity", "info")
+                put("trace_id", trace)
+                put("span_id", span)
+                put("request_id", researchHash(trace))
+                put("dispatch_state", "dispatched")
+                put("category", "transport")
+                put("retry_class", "unknown")
+            }
+        )
+        return config.extraHeaders.filterKeys { !it.equals("traceparent", true) } + GatewayDiagnosticBridge.sessionHeaders(config) + ("traceparent" to "00-$trace-$span-01")
+    }
 
     private fun canonicalRole(role: String): String = when {
         role in roles -> role
@@ -112,10 +150,40 @@ internal object GatewayClientDiagnostics {
     fun observe(config: ProviderRequestConfig, status: Int, header: (String) -> String?) {
         val instance = header("X-Gateway-Instance-ID")
         observeInstance(config, instance)
-        if (!captureAllowed || header("X-Gateway-Debug-Protocol") != "1") return
+        val protocol = header("X-Gateway-Debug-Protocol")?.toIntOrNull()
+        if (!captureAllowed || protocol !in setOf(1, 2)) return
         val accepted = header("X-Gateway-Client-Diagnostics-Accepted") == "1"
         val debugEnabled = header("X-Gateway-Debug-Enabled") == "true"
+        GatewayDiagnosticBridge.remember(config, protocol, debugEnabled)
         val requestDigest = header("X-Gateway-Request-ID")?.takeIf { it.length <= 128 }?.let(::researchHash) ?: "unavailable"
+        val trace = Regex("00-([a-f0-9]{32})-([a-f0-9]{16})-[a-f0-9]{2}").matchEntire(header("traceparent").orEmpty())
+        val start = header("X-Gateway-Client-Span-ID")?.let { synchronized(lock) { dispatched.remove(it) } }
+        GatewayDiagnosticBridge.event(
+            config,
+            buildJsonObject {
+                put("stage", "response")
+                put("direction", "gateway_to_client")
+                put("severity", if (status >= 400) "error" else "info")
+                put("error_code", if (status >= 400) "HTTP_ERROR" else "NONE")
+                put("category", "transport")
+                put("dispatch_state", "response_received")
+                put("retry_class", "unknown")
+                put("request_id", requestDigest)
+                if (trace != null) {
+                    put("trace_id", trace.groupValues[1])
+                    put("parent_span_id", trace.groupValues[2])
+                    put("span_id", java.util.UUID.randomUUID().toString().replace("-", "").take(16))
+                }
+                if (start != null) put("local_duration_ms", ((System.nanoTime() - start) / 1_000_000).coerceAtLeast(0))
+                put(
+                    "bounded_attributes",
+                    buildJsonObject {
+                        put("status", status)
+                        put("client_metadata_accepted", accepted)
+                    }
+                )
+            }
+        )
         AppLogRecorder.record("Gateway", "CLIENT_EXCHANGE · route=${routeIdentity(config)} · instance=${runtimeEpoch(config)} · http=$status · gatewayDebug=$debugEnabled · clientMetadataAccepted=$accepted · requestDigest=$requestDigest")
     }
 }

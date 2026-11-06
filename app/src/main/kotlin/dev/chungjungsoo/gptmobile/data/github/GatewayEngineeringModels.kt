@@ -60,12 +60,20 @@ data class GatewayEngineeringSettings(val durationHours: Int = 3, val repairAtte
 }
 
 @Serializable
-data class GatewayEngineeringAcceptance(val id: String, val paths: List<String>, val checks: List<String>) {
+data class GatewayEngineeringAcceptance(val id: String, val paths: List<String>, val checks: List<String>, val evidence: List<GatewayRequirementEvidence> = emptyList()) {
     init {
         require(id.matches(Regex("[A-Za-z0-9_-]{1,80}")))
         require(paths.size in 1..32 && checks.size in 1..32)
         require((paths + checks).all { it.isNotBlank() && it.length <= 400 })
         require(paths.all { !it.startsWith('/') && '\\' !in it && it.split('/').none { part -> part in setOf("", ".", "..", ".git") } })
+        require(evidence.size <= 32)
+    }
+}
+
+@Serializable
+data class GatewayRequirementEvidence(val kind: String, val name: String) {
+    init {
+        require(kind in setOf("behavior_test", "api_receipt", "device_trace", "model_runtime", "artifact") && name.length in 1..200)
     }
 }
 
@@ -82,7 +90,8 @@ data class GatewayEngineeringRequest(
     @SerialName("request_id") val requestId: String,
     val acceptance: List<GatewayEngineeringAcceptance> = emptyList(),
     @SerialName("profile_id") val profileId: String? = null,
-    @SerialName("memory_mode") val memoryMode: GitHubEngineeringMemoryMode = GitHubEngineeringMemoryMode.HYBRID
+    @SerialName("memory_mode") val memoryMode: GitHubEngineeringMemoryMode = GitHubEngineeringMemoryMode.HYBRID,
+    @SerialName("execution_binding_id") val executionBindingId: String? = null
 )
 
 @Serializable
@@ -116,7 +125,12 @@ data class GatewayEngineeringJob(
     @SerialName("has_more_updates") val hasMoreUpdates: Boolean = false,
     @SerialName("finished_at") val finishedAt: Double? = null,
     @SerialName("completion_verification") val completionVerification: JsonObject? = null,
-    @SerialName("latest_evidence") val latestEvidence: JsonObject? = null
+    @SerialName("latest_evidence") val latestEvidence: JsonObject? = null,
+    @SerialName("execution_binding_id") val executionBindingId: String? = null,
+    @SerialName("execution_binding") val executionBinding: JsonObject? = null,
+    @SerialName("latest_execution_receipt") val latestExecutionReceipt: JsonObject? = null,
+    @SerialName("blocked_reason") val blockedReason: JsonObject? = null,
+    @SerialName("final_report") val finalReport: JsonObject? = null
 ) {
     val terminal: Boolean get() = state in setOf("COMPLETED", "CANCELLED")
     val progress: Float get() = (milestonesCompleted.toFloat() / milestonesTotal.coerceAtLeast(1)).coerceIn(0f, 1f)
@@ -134,7 +148,9 @@ data class GatewayEngineeringBinding(
     val seenRevision: Int = -1,
     val notifiedRevision: Int = -1,
     val principalId: String? = null,
-    val localChatId: Int? = null
+    val localChatId: Int? = null,
+    val executionSelection: GatewayExecutionSelection? = null,
+    val executionAdmission: GatewayExecutionAdmission? = null
 ) {
     /** Remote request identity stays immutable when a backup maps local conversation IDs. */
     val chatId: Int get() = localChatId ?: request.chatId

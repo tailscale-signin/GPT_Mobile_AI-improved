@@ -10,7 +10,10 @@ STRESS_SUITE = 'test_gateway_diagnostic_stress.py'
 def run_suite(root, pattern, timeout=120):
     # Print the blocked test and all Python thread stacks before the hard
     # deadline. Keep the deadline and failure result, including on Windows.
-    runner = ('import faulthandler,runpy; '
+    # The former aggregate's first module added this runtime import root for
+    # later files. Each isolated child needs the same explicit source root.
+    runner = ('import faulthandler,runpy,sys; '
+              f'sys.path.insert(0, {str(root)!r}); '
               f'faulthandler.dump_traceback_later({max(1, timeout - 20)}); '
               'runpy.run_module("unittest", run_name="__main__")')
     try:
@@ -37,9 +40,11 @@ def main():
     sys.stderr.reconfigure(encoding='utf-8')
     root = Path(__file__).resolve().parent
     failures = []
+    # Apply the existing per-file deadline to v14 too. Bundling its 294 cases
+    # into one subprocess makes cumulative Windows I/O compete for one 120s
+    # deadline even when every individual test continues making progress.
     suites = [p.name for p in sorted((root / 'tests').glob('test_gateway_*.py'))
-              if not p.name.startswith('test_gateway_v14') and p.name != STRESS_SUITE]
-    suites.append('test_gateway_v14*.py')
+              if p.name != STRESS_SUITE]
     suites.append(STRESS_SUITE)
     for pattern in suites:
         # Fifty thousand durable events require 782 FULL-sync batch commits.

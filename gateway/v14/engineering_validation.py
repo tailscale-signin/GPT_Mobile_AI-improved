@@ -103,8 +103,13 @@ def run_bounded(argv, cwd, timeout, maximum=4 * 1024 * 1024, destination=None):
     output = bytearray()
     total = 0
     digest = hashlib.sha256()
+    environment = {'PATH': os.defpath, 'HOME': str(cwd), 'LANG': 'C.UTF-8'}
+    # Windows needs SystemRoot to initialize runtime DLLs, including Winsock.
+    # Keep the environment otherwise isolated from host credentials and hooks.
+    if os.name == 'nt' and os.environ.get('SystemRoot'):
+        environment['SystemRoot'] = os.environ['SystemRoot']
     process = subprocess.Popen(argv, cwd=cwd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                               env={'PATH': os.defpath, 'HOME': str(cwd), 'LANG': 'C.UTF-8'})
+                               env=environment)
     # Windows selectors accept sockets, not subprocess pipes. A bounded reader
     # also lets the deadline run while the child is silent or emits no newline.
     blocks = queue.Queue(maxsize=2)

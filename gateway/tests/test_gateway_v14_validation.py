@@ -147,6 +147,27 @@ class IsolatedValidationTests(unittest.TestCase):
             with self.assertRaises(TimeoutError):
                 run_bounded([sys.executable, '-c', 'import time; time.sleep(10)'], directory, .1)
 
+    def test_isolated_child_initializes_async_runtime_without_inheriting_credentials(self):
+        script = (
+            'import asyncio,json,os,socket; '
+            'asyncio.run(asyncio.sleep(0)); '
+            'sock=socket.socket(); sock.close(); '
+            'print(json.dumps({"home":os.environ.get("HOME"), '
+            '"system_root":os.environ.get("SystemRoot"), '
+            '"credentials_inherited":"GATEWAY_VALIDATION_TEST_SECRET" in os.environ, '
+            '"python_path_inherited":"PYTHONPATH" in os.environ}))'
+        )
+        with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {
+                'GATEWAY_VALIDATION_TEST_SECRET': 'must-not-reach-validation',
+                'PYTHONPATH': 'must-not-reach-validation'}):
+            receipt = run_bounded([sys.executable, '-c', script], directory, 10)
+            self.assertEqual(0, receipt['exit_code'], receipt['output_tail'])
+            observed = json.loads(receipt['output_tail'])
+            self.assertEqual(directory, observed['home'])
+            self.assertFalse(observed['credentials_inherited'])
+            self.assertFalse(observed['python_path_inherited'])
+            self.assertEqual(os.environ.get('SystemRoot') if os.name == 'nt' else None, observed['system_root'])
+
     def test_large_output_keeps_only_tail_and_hashes_all_bytes(self):
         with tempfile.TemporaryDirectory() as directory:
             receipt = run_bounded([sys.executable, '-c', 'import sys; sys.stdout.buffer.write(b"x" * 100000)'], directory, 10)

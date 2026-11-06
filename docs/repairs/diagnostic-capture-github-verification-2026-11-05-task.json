@@ -131,7 +131,10 @@
       "nonretryable diagnostic synchronization failures",
       "canonical hardware evidence and unknown-outcome recovery guidance",
       "fresh command-specific behavior-report snapshots",
-      "stop definitive engineering authorization/validation failures without repeated stage dispatch"
+      "stop definitive engineering authorization/validation failures without repeated stage dispatch",
+      "bounded production compiler heap after measured 3 GiB exhaustion",
+      "isolated Windows child runtime environment",
+      "fully synchronous single-owner diagnostic WAL and indexed retention pruning"
     ],
     "local_validation": {
       "canonical_host": {
@@ -149,8 +152,8 @@
       },
       "gateway": {
         "status": "PASSED",
-        "total": 469,
-        "passed": 468,
+        "total": 472,
+        "passed": 471,
         "skipped": 1,
         "skip_reason": "No bindable LAN IPv4 in editing environment"
       },
@@ -169,7 +172,7 @@
       },
       "fresh_validation_reports": {
         "status": "PASSED",
-        "tests": 13
+        "tests": 14
       },
       "retained_validation_evidence": {
         "status": "PASSED",
@@ -178,9 +181,18 @@
       "gateway_terminal_failures": {
         "status": "PASSED",
         "tests": 17
+      },
+      "gateway_windows_repairs": {
+        "status": "PASSED_LOCALLY",
+        "diagnostic_cases": 22,
+        "validation_cases": 14,
+        "v14_aggregate": 295,
+        "v14_aggregate_seconds": 51.96,
+        "qualification": "Linux real subprocess/crash/reopen tests; Windows CI still required"
       }
     },
     "remote_validation": "Fresh final-head CI required before merge",
-    "report": "docs/repairs/pr804-validation-repairs-2026-11-05.md"
+    "report": "docs/repairs/pr804-validation-repairs-2026-11-05.md",
+    "last_inspected_head": "43b343365e37ff83a5d7c2f60f5b1d754ad8cc07"
   }
 }

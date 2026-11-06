@@ -205,24 +205,38 @@ class DiagnosticSessionJournal:
             return self.db
         self.path.parent.mkdir(parents=True, exist_ok=True)
         db = sqlite3.connect(str(self.path), timeout=1, check_same_thread=False)
-        db.row_factory = sqlite3.Row
-        db.execute('PRAGMA foreign_keys=ON')
-        db.execute('PRAGMA synchronous=FULL')
-        db.executescript('''
-            CREATE TABLE IF NOT EXISTS captures(owner TEXT, session TEXT, created INTEGER, last_ingest INTEGER DEFAULT 0,
-                evicted INTEGER DEFAULT 0, rejected INTEGER DEFAULT 0, dropped INTEGER DEFAULT 0, updated INTEGER,
-                PRIMARY KEY(owner,session));
-            CREATE TABLE IF NOT EXISTS origins(owner TEXT, session TEXT, origin TEXT, boot TEXT, accounted INTEGER DEFAULT 0,
-                highest_received INTEGER DEFAULT 0, received_count INTEGER DEFAULT 0, lost_count INTEGER DEFAULT 0,
-                ranges TEXT DEFAULT '[]', gaps TEXT DEFAULT '[]', updated INTEGER, kind TEXT NOT NULL,
-                PRIMARY KEY(owner,session,origin,boot), FOREIGN KEY(owner,session) REFERENCES captures ON DELETE CASCADE);
-            CREATE TABLE IF NOT EXISTS events(owner TEXT, session TEXT, cursor INTEGER, event_id TEXT, origin TEXT,
-                boot TEXT, sequence INTEGER, payload TEXT, PRIMARY KEY(owner,session,cursor),
-                UNIQUE(owner,session,event_id), FOREIGN KEY(owner,session) REFERENCES captures ON DELETE CASCADE);
-            CREATE TABLE IF NOT EXISTS verification(owner TEXT, session TEXT, event_id TEXT, digest TEXT, cursor INTEGER,
-                PRIMARY KEY(owner,session,event_id), FOREIGN KEY(owner,session) REFERENCES captures ON DELETE CASCADE);
-        ''')
-        db.commit()
+        try:
+            db.row_factory = sqlite3.Row
+            db.execute('PRAGMA foreign_keys=ON')
+            # Every read/write uses this one cached connection under self.lock.
+            # Exclusive ownership also prevents separate connections from racing
+            # WAL checkpoints and commits on older SQLite versions bundled with Python.
+            db.execute('PRAGMA locking_mode=EXCLUSIVE')
+            # FULL WAL commits sync the append-only log before acknowledgment,
+            # without creating, syncing and deleting a rollback journal per batch.
+            # That repeated filesystem work stalls large captures on Windows.
+            if db.execute('PRAGMA journal_mode=WAL').fetchone()[0].lower() != 'wal':
+                raise sqlite3.OperationalError('Durable diagnostic WAL is unavailable')
+            db.execute('PRAGMA synchronous=FULL')
+            db.executescript('''
+                CREATE TABLE IF NOT EXISTS captures(owner TEXT, session TEXT, created INTEGER, last_ingest INTEGER DEFAULT 0,
+                    evicted INTEGER DEFAULT 0, rejected INTEGER DEFAULT 0, dropped INTEGER DEFAULT 0, updated INTEGER,
+                    PRIMARY KEY(owner,session));
+                CREATE TABLE IF NOT EXISTS origins(owner TEXT, session TEXT, origin TEXT, boot TEXT, accounted INTEGER DEFAULT 0,
+                    highest_received INTEGER DEFAULT 0, received_count INTEGER DEFAULT 0, lost_count INTEGER DEFAULT 0,
+                    ranges TEXT DEFAULT '[]', gaps TEXT DEFAULT '[]', updated INTEGER, kind TEXT NOT NULL,
+                    PRIMARY KEY(owner,session,origin,boot), FOREIGN KEY(owner,session) REFERENCES captures ON DELETE CASCADE);
+                CREATE TABLE IF NOT EXISTS events(owner TEXT, session TEXT, cursor INTEGER, event_id TEXT, origin TEXT,
+                    boot TEXT, sequence INTEGER, payload TEXT, PRIMARY KEY(owner,session,cursor),
+                    UNIQUE(owner,session,event_id), FOREIGN KEY(owner,session) REFERENCES captures ON DELETE CASCADE);
+                CREATE TABLE IF NOT EXISTS verification(owner TEXT, session TEXT, event_id TEXT, digest TEXT, cursor INTEGER,
+                    PRIMARY KEY(owner,session,event_id), FOREIGN KEY(owner,session) REFERENCES captures ON DELETE CASCADE);
+                CREATE INDEX IF NOT EXISTS verification_retention ON verification(owner,session,cursor);
+            ''')
+            db.commit()
+        except BaseException:
+            db.close()
+            raise
         self.db = db
         return db
 

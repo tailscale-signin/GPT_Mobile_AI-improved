@@ -4,6 +4,7 @@ import io
 import json
 from pathlib import Path
 import sqlite3
+import subprocess
 import sys
 import tempfile
 import threading
@@ -86,6 +87,46 @@ class DiagnosticJournalTests(unittest.TestCase):
         self.assertEqual(45000, manifest['evicted_count'])
         self.assertEqual(45001, rows[0]['origin_sequence'])
         self.assertEqual(50000, manifest['sources'][0]['accounted_through'])
+
+    def test_acknowledged_wal_commit_survives_process_exit_and_uncommitted_watermark_does_not(self):
+        script = (
+            'import json,os,sys\n'
+            f'sys.path.insert(0,{str(Path(__file__).resolve().parents[1])!r})\n'
+            'from v14.diagnostic_events import DiagnosticSessionJournal\n'
+            f'journal=DiagnosticSessionJournal(sys.argv[1],now=lambda:{NOW})\n'
+            f'receipt=journal.ingest("paired-owner",json.loads({json.dumps(batch([event(1)]))!r}))\n'
+            f'assert receipt["committed_event_ids"]==[{event(1)["event_id"]!r}]\n'
+            'assert journal.db.execute("PRAGMA journal_mode").fetchone()[0]=="wal"\n'
+            'assert journal.db.execute("PRAGMA synchronous").fetchone()[0]==2\n'
+            'journal.db.execute("BEGIN IMMEDIATE")\n'
+            'journal.db.execute("UPDATE captures SET last_ingest=999")\n'
+            # No connection close/checkpoint or transaction rollback can run.
+            'os._exit(0)\n'
+        )
+        result = subprocess.run([sys.executable, '-c', script, str(self.path)],
+                                capture_output=True, text=True, timeout=15)
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertTrue(Path(str(self.path) + '-wal').is_file())
+        receipt = self.store.ingest('paired-owner', batch([event(1)]))
+        self.assertEqual([{'event_id': event(1)['event_id'], 'content_verified': True}], receipt['duplicates'])
+        self.assertEqual(1, receipt['last_ingest_sequence'])
+        manifest, rows, _ = unpack(self.store.export('paired-owner', SESSION))
+        self.assertEqual([1], [row['origin_sequence'] for row in rows])
+        self.assertEqual(1, manifest['sources'][0]['accounted_through'])
+
+    def test_second_journal_owner_cannot_overlap_and_recovers_after_the_first_closes(self):
+        self.store.ingest('paired-owner', batch([event(1)]))
+        replacement = DiagnosticSessionJournal(self.path, now=lambda: NOW)
+        self.addCleanup(replacement.close)
+        with self.assertRaises(DiagnosticProtocolError) as blocked:
+            replacement.ingest('paired-owner', batch([event(2)]))
+        self.assertEqual('DEBUG_STORAGE_UNAVAILABLE', blocked.exception.code)
+        self.assertIsNone(replacement.db)
+        self.store.close()
+        receipt = replacement.ingest('paired-owner', batch([event(2)]))
+        self.assertEqual(2, receipt['last_ingest_sequence'])
+        self.assertEqual(2, receipt['watermarks'][0]['accounted_through'])
+        self.assertIsNone(replacement.storage_error)
 
     def test_out_of_order_lost_range_and_duplicate_receipts_have_separate_received_and_accounted_counts(self):
         first = self.store.ingest('paired-owner', batch([event(2), event(4)]))

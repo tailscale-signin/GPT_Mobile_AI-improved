@@ -1528,7 +1528,7 @@ class GitHubTool(
                         put("ref", branch)
                         put("refresh", true)
                     }
-                )
+                ).jsonObject
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {

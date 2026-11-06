@@ -5,7 +5,7 @@
   "base_sha": "e1c85e10370d0e40f80e68c6875656117fdc5ffa",
   "working_branch": "fix/diagnostic-workflow-evidence-2026-11-06",
   "intent": "Audit and repair all 24 November 6 diagnostic findings: evidence-backed GitHub completion and safe continuation, complete bounded diagnostic capture, context reuse, protocol-aware MCP discovery and efficient chat rendering.",
-  "state": "READY_FOR_ANDROID_CI",
+  "state": "AWAITING_ANDROID_RECHECK",
   "inputs": {
     "diagnostic_review_supplied_in_request": true,
     "raw_archive_available_in_this_turn": false,
@@ -119,8 +119,21 @@
       "scope": "Production checklist/fixtures/acceptance and complete OperationTool, ResultViews and ToolResultEnvelope integration, with explicit unrelated process boundaries. Fresh-read authorization/budget rejection, mutation rejection and recipe envelope bounds verified. HTTP MockEngine harness ongoing separately."
     },
     "android_full": {
-      "status": "PENDING_EXACT_COMMIT_CI",
-      "local_blocker": "Editing host has Java 17 and no configured Android SDK; Java 21 distribution download endpoints returned HTTP 403. No validation configuration or dependency verification was weakened."
+      "status": "PENDING_RECHECK",
+      "local_blocker": "Editing host has Java 17 and no configured Android SDK; Java 21 distribution download endpoints returned HTTP 403. No validation configuration or dependency verification was weakened.",
+      "first_attempt": {
+        "head_sha": "4fda7af258138bedd9afd07d798a425c1764e9ed",
+        "job_id": 127922264505,
+        "status": "COMPILATION_FAILED",
+        "failures": [
+          "GitHubTool context response required explicit JsonObject projection before keyed access.",
+          "ChatRepositoryImpl budget callback referenced a variable outside the streaming helper scope."
+        ],
+        "repairs": [
+          "Project the response inside the existing error boundary; invalid response remains unverified.",
+          "Pass the actual dispatchPreparation tool budget callback through streamPrimaryAnswer to GitHubVerifiedSession."
+        ]
+      }
     },
     "live_acceptance": {
       "status": "NOT_MEASURED",
@@ -141,13 +154,20 @@
         "explicit release-scope validation"
       ],
       "kotlin_paths_checked": 52
+    },
+    "github_http_host": {
+      "status": "PASSED",
+      "tests": 3,
+      "scope": "Source-extracted production request/deletion methods and full cache/journal/scheduler classes with Ktor MockEngine; not a full Android compilation."
     }
   },
   "publication": {
-    "state": "PREPARED_FOR_PUSH",
+    "state": "DRAFT_PR_OPEN",
     "branch": "fix/diagnostic-workflow-evidence-2026-11-06",
     "target": "main",
-    "pull_request_mode": "DRAFT",
+    "pull_request": 806,
+    "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/806",
+    "previously_published_head": "4fda7af258138bedd9afd07d798a425c1764e9ed",
     "release_requested": false
   },
   "review": [

@@ -138,8 +138,8 @@ class GitHubWorkspaceClient(
     }
     suspend fun taskSnapshot(): GitHubTaskSnapshot? = repositorySession.snapshot()
     suspend fun taskContext(): GitHubRepositoryContext? = repositorySession.context()
-    internal suspend fun trackExecution(action: String, arguments: JsonObject, block: suspend () -> JsonElement): JsonObject =
-        executionJournal.run(action, arguments, block = block).jsonObject
+    internal suspend fun trackExecution(action: String, arguments: JsonObject, reconcile: (suspend () -> JsonElement?)? = null, block: suspend () -> JsonElement): JsonObject =
+        executionJournal.run(action, arguments, reconcile = reconcile, block = block).jsonObject
 
     private data class ReleaseDispatchReceipt(val root: String, val workflowId: String, val sourceSha: String, val tagName: String, val correlationId: String)
 
@@ -228,6 +228,9 @@ class GitHubWorkspaceClient(
         if (action == "resolve_context" && args["refresh"] == JsonPrimitive(true)) {
             val selectedRef = field("commit_sha").ifBlank { field("ref").ifBlank { field("branch").ifBlank { repositorySession.context()?.ref.orEmpty() } } }
             if (selectedRef.isNotBlank()) refAvailability.revalidate(root, selectedRef)
+        }
+        if (action == "get_branch_head" && args["refresh"] == JsonPrimitive(true)) {
+            refAvailability.revalidateBranch(root, required("branch"))
         }
         if (action in setOf("pr_headers", "issue_headers")) {
             val pullRequest = action == "pr_headers"
@@ -771,6 +774,7 @@ class GitHubWorkspaceClient(
         }
         return buildJsonObject {
             put("pull_request", project(pr, "number", "title", "state", "draft", "merged", "mergeable", "mergeable_state", "html_url", "changed_files", "additions", "deletions", "head", "base"))
+            (pr["body"] as? JsonPrimitive)?.takeIf { it.isString }?.let { put("body_sha256", GitHubRepositoryStateStore.digest(it.content)) }
             health?.let { put("merge_health", json.encodeToJsonElement(GitHubPullRequestHealth.serializer(), it)) }
             put("expected_head", head)
             put("files_total", total)
@@ -940,14 +944,17 @@ class GitHubWorkspaceClient(
         require(Regex("[a-fA-F0-9]{40}").matches(expected)) { "Read the current PR head and supply expected_head_sha." }
         val pr = request("$root/pulls/$number").jsonObject
         check(pr["head"]?.jsonObject?.get("sha")?.jsonPrimitive?.content == expected) { "Pull request head changed. Refresh before continuing." }
-        check(pr["state"]?.jsonPrimitive?.content == "open") { "Pull request is no longer open." }
+        args["expected_base_sha"]?.let { check(pr["base"]?.jsonObject?.get("sha") == it) { "Pull request base changed. Refresh before continuing." } }
+        if (action != "update_pull_request") check(pr["state"]?.jsonPrimitive?.content == "open") { "Pull request is no longer open." }
         val body = args["body"]?.jsonPrimitive?.content.orEmpty()
         val result = when (action) {
             "update_pull_request" -> request(
                 "$root/pulls/$number",
                 HttpMethod.Patch,
                 buildJsonObject {
-                    listOf("title", "body", "base").forEach { key -> args[key]?.let { put(key, it) } }
+                    listOf("title", "body", "base", "state").forEach { key -> args[key]?.let { put(key, it) } }
+                    require(args.keys.any { it in setOf("title", "body", "base", "state") }) { "Supply title, body, base or state for a PR update." }
+                    args["state"]?.let { require(it.jsonPrimitive.content in setOf("open", "closed")) { "PR state must be open or closed." } }
                 }
             )
             "mark_ready_for_review" -> graphQl(
@@ -1595,7 +1602,7 @@ class GitHubWorkspaceClient(
         put(
             "assets",
             buildJsonArray {
-                assets.take(30).forEach { asset ->
+                assets.forEach { asset ->
                     add(project(asset.jsonObject, "id", "name", "content_type", "state", "size", "digest", "download_count", "created_at", "updated_at", "browser_download_url"))
                 }
             }
@@ -1944,6 +1951,7 @@ class GitHubWorkspaceClient(
                     if (category == "GITHUB_SECONDARY_RATE_LIMITED") rateLimits.cooldown(GitHubReadRetry.retryAfterMillis(response.headers["Retry-After"])?.let { it / 1000 + if (it % 1000 == 0L) 0 else 1 } ?: 60)
                     val details = buildList {
                         githubMessage?.let { add("message=$it") }
+                        GitHubFailurePolicy.validationDetails(text).takeIf { it.isNotEmpty() }?.let { add("validation=$it") }
                         response.headers["X-RateLimit-Remaining"]?.let { add("rateLimitRemaining=$it") }
                         response.headers["Retry-After"]?.let { add("retryAfter=$it") }
                         response.headers["X-OAuth-Scopes"]?.takeIf { it.isNotBlank() }?.let { add("oauthScopes=$it") }
@@ -1957,7 +1965,7 @@ class GitHubWorkspaceClient(
                             (if (details.isBlank()) ". " else " · $details. ") +
                             (
                                 if (response.status.value == 403 && path.contains("/actions/") && response.headers["X-RateLimit-Remaining"] != "0") {
-                                    "Actions endpoint denied access. Check the GitHub App installation repository access and Actions: write permission, or the token workflow scope; also verify organization SSO and repository rules. Repository can_push alone does not grant Actions API access. "
+                                    "Actions endpoint denied access. Check the GitHub App installation repository access and Actions: ${if (method == HttpMethod.Get) "read" else "write"} permission; also verify organization SSO and repository rules. Repository can_push alone does not grant Actions API access. "
                                 } else {
                                     ""
                                 }
@@ -1967,7 +1975,8 @@ class GitHubWorkspaceClient(
                                 response.headers["Retry-After"],
                                 response.headers["X-RateLimit-Reset"],
                                 githubMessage,
-                                response.headers["X-RateLimit-Remaining"]
+                                response.headers["X-RateLimit-Remaining"],
+                                method != HttpMethod.Get
                             )
                     )
                 }
@@ -1987,9 +1996,10 @@ class GitHubWorkspaceClient(
         retryAfter: String?,
         reset: String?,
         githubMessage: String? = null,
-        rateLimitRemaining: String? = null
+        rateLimitRemaining: String? = null,
+        mutation: Boolean = false
     ): String = when {
-        status == 401 -> "Reconnect the GitHub API plugin."
+        status == 401 -> GitHubFailurePolicy.recoveryHint("AUTH_REQUIRED")
         status == 429 || (status == 403 && rateLimitRemaining == "0") ->
             "GitHub rate limiting blocked this request. Retry after: ${retryAfter ?: reset ?: "not supplied"}."
         status == 403 && githubMessage?.contains("saml", ignoreCase = true) == true ->
@@ -1999,15 +2009,16 @@ class GitHubWorkspaceClient(
                 githubMessage?.contains("workflow", ignoreCase = true) == true ||
                     githubMessage?.contains("actions", ignoreCase = true) == true
                 ) ->
-            "This operation needs GitHub Actions or workflow write permission. Update the GitHub App installation permissions or token scope; repository push permission is insufficient."
+            "This endpoint needs GitHub Actions ${if (mutation) "write" else "read"} permission. Check installation permissions and repository access; repository push permission is insufficient."
         status == 403 && githubMessage?.contains("resource not accessible", ignoreCase = true) == true ->
-            "The credential or GitHub App installation cannot perform this API operation. Check the plugin's repository access and required write permission."
+            GitHubFailurePolicy.recoveryHint("GITHUB_ENDPOINT_PERMISSION_REQUIRED")
         status == 403 && githubMessage?.contains("protected branch", ignoreCase = true) == true ->
             "Branch protection blocked this write. Create or use a working branch allowed by repository rules."
         status == 403 ->
             "GitHub denied this operation. Do not infer a read-only token from HTTP 403 alone; inspect write_capabilities and the GitHub message before choosing a recovery path."
-        status == 404 -> "Check repository access, branch and path."
-        status == 409 || status == 422 -> "Refresh the branch and review the change before retrying."
+        status == 404 -> GitHubFailurePolicy.recoveryHint("GITHUB_NOT_FOUND_OR_INACCESSIBLE")
+        status == 409 -> GitHubFailurePolicy.recoveryHint("GITHUB_CONFLICT")
+        status == 422 -> GitHubFailurePolicy.recoveryHint("GITHUB_VALIDATION_FAILED")
         else -> "Try again later."
     }
 }

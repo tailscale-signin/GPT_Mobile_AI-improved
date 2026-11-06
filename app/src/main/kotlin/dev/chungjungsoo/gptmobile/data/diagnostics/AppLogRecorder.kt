@@ -80,10 +80,7 @@ object AppLogRecorder {
     @Synchronized fun initialize(application: Application) {
         if (app != null) return
         app = application.applicationContext
-        dev.chungjungsoo.gptmobile.data.network.gateway.GatewayClientDiagnostics.initialize(File(application.noBackupFilesDir, "gateway-diagnostics"))
         LocalRuntimeIncidentHistory.initialize(application)
-        dev.chungjungsoo.gptmobile.data.localmodel.PackageDigest.configureReceiptDirectory(File(application.noBackupFilesDir, "model-verification"))
-        dev.chungjungsoo.gptmobile.data.localmodel.GgufImportAdapter.configureMetadataCache(File(application.noBackupFilesDir, "gguf-metadata"))
         RunDiagnostics.journal = RunDiagnosticJournal(
             dev.chungjungsoo.gptmobile.data.security.AndroidSecretVault(application, "gptmobile-diagnostic-metadata-v1", "run_diagnostics_v1"),
             scope
@@ -153,8 +150,25 @@ object AppLogRecorder {
             override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) = Unit
             private fun event(activity: Activity, state: String) = record("Lifecycle", "${activity.javaClass.simpleName} $state")
         })
-        scope.launch { setEnabled(application.getSharedPreferences("app_diagnostics", Context.MODE_PRIVATE).getBoolean("tracking", false)) }
+        val startupPreferenceRevision = preferenceRevision.get()
+        scope.launch {
+            // Context directory getters may touch disk even when constructing a File.
+            // Prepare these locations on IO before enabling the existing capture gate.
+            val storage = application.noBackupFilesDir
+            dev.chungjungsoo.gptmobile.data.network.gateway.GatewayClientDiagnostics.initialize(File(storage, "gateway-diagnostics"))
+            dev.chungjungsoo.gptmobile.data.localmodel.PackageDigest.configureReceiptDirectory(File(storage, "model-verification"))
+            dev.chungjungsoo.gptmobile.data.localmodel.GgufImportAdapter.configureMetadataCache(File(storage, "gguf-metadata"))
+            val retainedTracking = application.getSharedPreferences("app_diagnostics", Context.MODE_PRIVATE).getBoolean("tracking", false)
+            restoreTrackingPreference(startupPreferenceRevision, retainedTracking)
+        }
         record("Application", "Started process ${Process.myPid()}")
+    }
+
+    /** A delayed startup read must not override a newer explicit tracking choice. */
+    @Synchronized internal fun restoreTrackingPreference(revision: Long, value: Boolean): Boolean {
+        if (preferenceRevision.get() != revision) return false
+        setEnabled(value)
+        return true
     }
 
     @Synchronized fun setEnabled(value: Boolean) {

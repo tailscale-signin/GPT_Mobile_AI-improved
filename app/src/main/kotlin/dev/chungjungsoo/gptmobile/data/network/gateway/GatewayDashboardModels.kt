@@ -54,6 +54,33 @@ internal data class GatewayDashboardSnapshot(
 
 internal data class GatewayDashboardObservation(val snapshot: GatewayDashboardSnapshot, val receivedAtMillis: Long)
 
+/** A responding gateway can be alive while its selected model or durable store is not ready. */
+internal data class GatewayReadinessObservation(
+    val instanceId: String,
+    val ready: Boolean,
+    val generationReady: Boolean?,
+    val selectedModelAvailable: Boolean?,
+    val draining: Boolean,
+    val receivedAtMillis: Long
+)
+
+internal fun parseGatewayReadiness(value: JsonObject, status: Int, model: String?, receivedAtMillis: Long): GatewayReadinessObservation {
+    require((value["schemaVersion"] as? JsonPrimitive)?.takeUnless { it.isString }?.intOrNull == 1) { "Unsupported gateway readiness." }
+    val instance = (value["instanceId"] as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
+    require(instance != null && instance.matches(Regex("[a-f0-9]{32}"))) { "Gateway readiness identity is unavailable." }
+    val ready = (value["ready"] as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull ?: error("Gateway readiness was not measured.")
+    require(status == if (ready) 200 else 503) { "Gateway readiness response contradicts its status." }
+    val capabilities = value["capabilities"] as? JsonObject ?: error("Gateway readiness capabilities are unavailable.")
+    if (!model.isNullOrBlank()) {
+        val digest = (capabilities["selectedModelDigest"] as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
+        require(digest == dev.chungjungsoo.gptmobile.data.research.researchHash(model)) { "Gateway readiness belongs to another model." }
+    }
+    val generation = (capabilities["generationReady"] as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull
+    val available = (capabilities["modelAvailable"] as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull
+    require(!ready || generation == true && (model.isNullOrBlank() || available == true)) { "Gateway readiness lacks model evidence." }
+    return GatewayReadinessObservation(instance, ready, generation, available, (value["service"] as? JsonObject)?.flag("draining") == true, receivedAtMillis)
+}
+
 /** Missing, invalid, and explicitly unavailable measurements remain unknown. */
 internal fun parseGatewayDashboard(value: JsonObject): GatewayDashboardSnapshot {
     require((value["schemaVersion"] as? JsonPrimitive)?.intOrNull == 1 && value.text("schema") == "gptmobile.gateway.dashboard.v1") { "Unsupported gateway dashboard." }

@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.network.gateway
 
+import dev.chungjungsoo.gptmobile.data.network.LocalEndpointConnectionPolicy
 import dev.chungjungsoo.gptmobile.data.network.NetworkClient
 import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
 import dev.chungjungsoo.gptmobile.data.network.SseUtils
@@ -14,6 +15,7 @@ import io.ktor.client.request.prepareGet
 import io.ktor.client.request.preparePost
 import io.ktor.client.statement.bodyAsChannel
 import io.ktor.http.ContentType
+import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.isSuccess
 import io.ktor.utils.io.readLine
@@ -38,21 +40,26 @@ class GatewayAPIImpl @Inject constructor(
     override suspend fun getCapabilities(config: ProviderRequestConfig): GatewayCapabilities? {
         val endpoint = config.buildEndpoint("gateway/capabilities")
         return try {
-            val responseBody = networkClient().prepareGet(endpoint) {
-                config.token?.takeIf(String::isNotBlank)?.let { bearerAuth(it) }
-                GatewayClientDiagnostics.requestHeaders(config).forEach { (key, value) -> header(key, value) }
-                accept(ContentType.Application.Json)
-                timeout {
-                    connectTimeoutMillis = CAPABILITY_CONNECT_TIMEOUT_MS
-                    requestTimeoutMillis = CAPABILITY_REQUEST_TIMEOUT_MS
-                    socketTimeoutMillis = CAPABILITY_REQUEST_TIMEOUT_MS
-                }
-            }.execute { response ->
-                GatewayClientDiagnostics.observe(config, response.status.value) { response.headers[it] }
-                when {
-                    response.status.value in setOf(404, 501) -> null
-                    response.status.isSuccess() -> response.boundedMetadata(256 * 1024)
-                    else -> throw GatewayCapabilityDiscoveryException("GATEWAY_CAPABILITY_UNAVAILABLE: The selected connection could not verify gateway controls (HTTP ${response.status.value}). Check the connection and retry; no model request was sent.")
+            val responseBody = LocalEndpointConnectionPolicy.probe(endpoint, networkClient::evictIdleConnections) {
+                gatewayClientExchange(config, "capabilities", safeRead = true) { requestHeaders ->
+                    networkClient().prepareGet(endpoint) {
+                        config.token?.takeIf(String::isNotBlank)?.let { bearerAuth(it) }
+                        requestHeaders.forEach { (key, value) -> header(key, value) }
+                        if (LocalEndpointConnectionPolicy.freshConnection(endpoint)) header(HttpHeaders.Connection, "close")
+                        accept(ContentType.Application.Json)
+                        timeout {
+                            connectTimeoutMillis = CAPABILITY_CONNECT_TIMEOUT_MS
+                            requestTimeoutMillis = CAPABILITY_REQUEST_TIMEOUT_MS
+                            socketTimeoutMillis = CAPABILITY_REQUEST_TIMEOUT_MS
+                        }
+                    }.execute { response ->
+                        GatewayClientDiagnostics.observe(config, response.status.value) { response.headers[it] }
+                        when {
+                            response.status.value in setOf(404, 501) -> null
+                            response.status.isSuccess() -> response.boundedMetadata(256 * 1024)
+                            else -> throw GatewayCapabilityDiscoveryException("GATEWAY_CAPABILITY_UNAVAILABLE: The selected connection could not verify gateway controls (HTTP ${response.status.value}). Check the connection and retry; no model request was sent.")
+                        }
+                    }
                 }
             } ?: return null
             json.decodeFromString<GatewayCapabilities>(responseBody).also {
@@ -84,46 +91,48 @@ class GatewayAPIImpl @Inject constructor(
         val endpoint = config.buildEndpoint("gateway/jobs/$jobId/events?after_sequence=${afterSequence.coerceAtLeast(0)}$generationQuery")
         var lastSequence = afterSequence.coerceAtLeast(0)
         var activeGeneration: String? = null
-        networkClient().prepareGet(endpoint) {
-            applyPlatformStreamingTimeout(timeoutSeconds)
-            accept(ContentType.Text.EventStream)
-            config.token?.takeIf(String::isNotBlank)?.let { bearerAuth(it) }
-            GatewayClientDiagnostics.requestHeaders(config).forEach { (key, value) -> header(key, value) }
-        }.execute { response ->
-            GatewayClientDiagnostics.observe(config, response.status.value) { response.headers[it] }
-            if (!response.status.isSuccess()) {
-                throw GatewayEventReplayException("Gateway event replay failed with HTTP ${response.status.value}.")
-            }
+        gatewayClientExchange(config, "job", safeRead = true) { requestHeaders ->
+            networkClient().prepareGet(endpoint) {
+                applyPlatformStreamingTimeout(timeoutSeconds)
+                accept(ContentType.Text.EventStream)
+                config.token?.takeIf(String::isNotBlank)?.let { bearerAuth(it) }
+                requestHeaders.forEach { (key, value) -> header(key, value) }
+            }.execute { response ->
+                GatewayClientDiagnostics.observe(config, response.status.value) { response.headers[it] }
+                if (!response.status.isSuccess()) {
+                    throw GatewayEventReplayException("Gateway event replay failed with HTTP ${response.status.value}.")
+                }
 
-            val channel = response.bodyAsChannel()
-            while (!channel.isClosedForRead) {
-                val line = channel.readLine() ?: break
-                val data = SseUtils.extractSseData(line) ?: continue
-                if (data == "[DONE]") break
+                val channel = response.bodyAsChannel()
+                while (!channel.isClosedForRead) {
+                    val line = channel.readLine() ?: break
+                    val data = SseUtils.extractSseData(line) ?: continue
+                    if (data == "[DONE]") break
 
-                val progress = try {
-                    json.decodeFromString<GatewayProgress>(data)
-                } catch (cancellation: CancellationException) {
-                    throw cancellation
-                } catch (failure: Exception) {
-                    throw GatewayEventReplayException("Gateway returned an unreadable replay event.", failure)
+                    val progress = try {
+                        json.decodeFromString<GatewayProgress>(data)
+                    } catch (cancellation: CancellationException) {
+                        throw cancellation
+                    } catch (failure: Exception) {
+                        throw GatewayEventReplayException("Gateway returned an unreadable replay event.", failure)
+                    }
+                    val generation = progress.generation
+                    if (progress.jobId != null && progress.jobId != jobId) {
+                        throw GatewayEventReplayException("Gateway replay belongs to a different job; retained output was not replaced.")
+                    }
+                    if (activeGeneration == null && expectedGeneration != null && generation != expectedGeneration && progress.generationChanged != true) {
+                        throw GatewayEventReplayException("Gateway replay did not confirm the saved generation or declare a generation change.")
+                    }
+                    if (generation != null && activeGeneration != null && generation != activeGeneration) {
+                        throw GatewayEventReplayException("Gateway event generation changed during replay.")
+                    }
+                    if (generation != null) activeGeneration = generation
+                    val sequence = progress.sequence
+                    if (sequence != null && sequence < 0) throw GatewayEventReplayException("Gateway returned an invalid replay cursor.")
+                    if (sequence != null && sequence <= lastSequence && progress.generationChanged != true) continue
+                    if (sequence != null) lastSequence = if (progress.generationChanged == true) sequence else maxOf(lastSequence, sequence)
+                    emit(progress)
                 }
-                val generation = progress.generation
-                if (progress.jobId != null && progress.jobId != jobId) {
-                    throw GatewayEventReplayException("Gateway replay belongs to a different job; retained output was not replaced.")
-                }
-                if (activeGeneration == null && expectedGeneration != null && generation != expectedGeneration && progress.generationChanged != true) {
-                    throw GatewayEventReplayException("Gateway replay did not confirm the saved generation or declare a generation change.")
-                }
-                if (generation != null && activeGeneration != null && generation != activeGeneration) {
-                    throw GatewayEventReplayException("Gateway event generation changed during replay.")
-                }
-                if (generation != null) activeGeneration = generation
-                val sequence = progress.sequence
-                if (sequence != null && sequence < 0) throw GatewayEventReplayException("Gateway returned an invalid replay cursor.")
-                if (sequence != null && sequence <= lastSequence && progress.generationChanged != true) continue
-                if (sequence != null) lastSequence = if (progress.generationChanged == true) sequence else maxOf(lastSequence, sequence)
-                emit(progress)
             }
         }
     }.flowOn(Dispatchers.IO)
@@ -135,24 +144,29 @@ class GatewayAPIImpl @Inject constructor(
         require(jobId.matches(Regex("[A-Za-z0-9_-]{1,128}"))) { "Invalid Gateway job identifier." }
         val endpoint = config.buildEndpoint("gateway/jobs/$jobId/result")
         return try {
-            networkClient().prepareGet(endpoint) {
-                config.token?.takeIf(String::isNotBlank)?.let { bearerAuth(it) }
-                GatewayClientDiagnostics.requestHeaders(config).forEach { (key, value) -> header(key, value) }
-                accept(ContentType.Application.Json)
-                timeout {
-                    connectTimeoutMillis = RECOVERY_CONNECT_TIMEOUT_MS
-                    requestTimeoutMillis = RECOVERY_REQUEST_TIMEOUT_MS
-                    socketTimeoutMillis = RECOVERY_REQUEST_TIMEOUT_MS
-                }
-            }.execute { response ->
-                GatewayClientDiagnostics.observe(config, response.status.value) { response.headers[it] }
-                when {
-                    response.status == HttpStatusCode.Accepted -> GatewayJobResult(jobId = jobId, status = "RUNNING")
-                    response.status.isSuccess() -> {
-                        val body = response.boundedMetadata(4 * 1024 * 1024)
-                        json.decodeFromString<GatewayJobResult>(body).takeIf { it.jobId == jobId }
+            LocalEndpointConnectionPolicy.probe(endpoint, networkClient::evictIdleConnections) {
+                gatewayClientExchange(config, "job", safeRead = true) { requestHeaders ->
+                    networkClient().prepareGet(endpoint) {
+                        config.token?.takeIf(String::isNotBlank)?.let { bearerAuth(it) }
+                        requestHeaders.forEach { (key, value) -> header(key, value) }
+                        if (LocalEndpointConnectionPolicy.freshConnection(endpoint)) header(HttpHeaders.Connection, "close")
+                        accept(ContentType.Application.Json)
+                        timeout {
+                            connectTimeoutMillis = RECOVERY_CONNECT_TIMEOUT_MS
+                            requestTimeoutMillis = RECOVERY_REQUEST_TIMEOUT_MS
+                            socketTimeoutMillis = RECOVERY_REQUEST_TIMEOUT_MS
+                        }
+                    }.execute { response ->
+                        GatewayClientDiagnostics.observe(config, response.status.value) { response.headers[it] }
+                        when {
+                            response.status == HttpStatusCode.Accepted -> GatewayJobResult(jobId = jobId, status = "RUNNING")
+                            response.status.isSuccess() -> {
+                                val body = response.boundedMetadata(4 * 1024 * 1024)
+                                json.decodeFromString<GatewayJobResult>(body).takeIf { it.jobId == jobId }
+                            }
+                            else -> null
+                        }
                     }
-                    else -> null
                 }
             }
         } catch (cancellation: CancellationException) {
@@ -169,18 +183,20 @@ class GatewayAPIImpl @Inject constructor(
         require(jobId.matches(Regex("[A-Za-z0-9_-]{1,128}"))) { "Invalid Gateway job identifier." }
         val endpoint = config.buildEndpoint("gateway/jobs/$jobId/cancel")
         return try {
-            val responseBody = networkClient().preparePost(endpoint) {
-                config.token?.takeIf(String::isNotBlank)?.let { bearerAuth(it) }
-                GatewayClientDiagnostics.requestHeaders(config).forEach { (key, value) -> header(key, value) }
-                accept(ContentType.Application.Json)
-                timeout {
-                    connectTimeoutMillis = RECOVERY_CONNECT_TIMEOUT_MS
-                    requestTimeoutMillis = RECOVERY_REQUEST_TIMEOUT_MS
-                    socketTimeoutMillis = RECOVERY_REQUEST_TIMEOUT_MS
+            val responseBody = gatewayClientExchange(config, "job", safeRead = false, method = "POST") { requestHeaders ->
+                networkClient().preparePost(endpoint) {
+                    config.token?.takeIf(String::isNotBlank)?.let { bearerAuth(it) }
+                    requestHeaders.forEach { (key, value) -> header(key, value) }
+                    accept(ContentType.Application.Json)
+                    timeout {
+                        connectTimeoutMillis = RECOVERY_CONNECT_TIMEOUT_MS
+                        requestTimeoutMillis = RECOVERY_REQUEST_TIMEOUT_MS
+                        socketTimeoutMillis = RECOVERY_REQUEST_TIMEOUT_MS
+                    }
+                }.execute { response ->
+                    GatewayClientDiagnostics.observe(config, response.status.value) { response.headers[it] }
+                    if (response.status.isSuccess()) response.body<String>() else null
                 }
-            }.execute { response ->
-                GatewayClientDiagnostics.observe(config, response.status.value) { response.headers[it] }
-                if (response.status.isSuccess()) response.body<String>() else null
             } ?: return null
             json.decodeFromString<GatewayCancelResult>(responseBody)
         } catch (cancellation: CancellationException) {

@@ -17,6 +17,38 @@ internal object GitHubResultProjection {
     )
 
     fun project(operation: String, request: JsonObject, source: JsonObject): JsonObject {
+        if (operation == "github_release" && request["response_detail"] != JsonPrimitive("full") && request["action"] in setOf(JsonPrimitive("list"), JsonPrimitive("status"))) {
+            var notes = 0
+            fun releaseView(value: JsonElement): JsonElement = when (value) {
+                is JsonObject -> buildJsonObject {
+                    value.forEach { (key, child) ->
+                        val body = (child as? JsonPrimitive)?.takeIf { it.isString }?.content
+                        if (key == "body" && body != null && body.length > 512) {
+                            notes++
+                            put("body_preview", body.take(if (body[512].isLowSurrogate()) 511 else 512))
+                            put("body_characters", body.length)
+                            put("body_sha256", GitHubRepositoryStateStore.digest(body))
+                        } else {
+                            put(key, releaseView(child))
+                        }
+                    }
+                }
+                is JsonArray -> JsonArray(value.map(::releaseView))
+                else -> value
+            }
+            val projected = releaseView(source) as JsonObject
+            if (notes > 0) {
+                return JsonObject(
+                    projected + (
+                        "projection" to buildJsonObject {
+                            put("release_note_previews", notes)
+                            put("detail", "Release notes are previews with original hashes. Full captured notes remain in the durable evidence receipt; detail retrieves the selected release. IDs, SHAs, assets, errors and remote pagination are preserved.")
+                        }
+                        )
+                )
+            }
+            return source
+        }
         if (operation == "github_read" && request["response_detail"] != JsonPrimitive("full")) {
             val graph = source["context_graph"] as? JsonObject ?: return source
             return JsonObject(

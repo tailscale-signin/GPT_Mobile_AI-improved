@@ -98,5 +98,11 @@ internal class GitHubRefAvailability(
         rejected.keys.removeAll { it.startsWith(prefix) && it.substringAfterLast(':') == encoded }
     }
 
+    /** A branch-head refresh cannot clear a tag, commit or another repository's rejection. */
+    @Synchronized fun revalidateBranch(repository: String, value: String) {
+        val key = repository.removePrefix("/repos/").lowercase(Locale.ROOT) + ":BRANCH:" + GitHubWorkspaceClient.segment(value)
+        rejected.remove(key)
+    }
+
     @Synchronized fun clear() = rejected.clear()
 }

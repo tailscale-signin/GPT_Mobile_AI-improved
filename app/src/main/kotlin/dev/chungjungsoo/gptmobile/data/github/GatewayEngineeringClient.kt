@@ -6,6 +6,7 @@ import dev.chungjungsoo.gptmobile.data.network.NetworkClient
 import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
 import dev.chungjungsoo.gptmobile.data.network.boundedMetadata
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayClientDiagnostics
+import dev.chungjungsoo.gptmobile.data.network.gateway.gatewayClientExchange
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.timeout
 import io.ktor.client.request.bearerAuth
@@ -35,42 +36,47 @@ class GatewayEngineeringClient internal constructor(private val http: HttpClient
     private val capabilityCache = RouteCapabilityCache<GatewayEngineeringCapabilities>({ System.nanoTime() / 1_000_000 }, positiveTtl = 10_000, negativeTtl = 60_000)
     private fun capabilityKey(config: ProviderRequestConfig) = "${GatewayClientDiagnostics.routeIdentity(config)}|${LocalServiceHealth.networkEpoch}|${GatewayClientDiagnostics.capabilityEpoch(config)}"
 
-    private suspend fun request(config: ProviderRequestConfig, path: String, body: String? = null, approval: Boolean = false): String = http.prepareRequest(config.buildEndpoint("gateway/engineering/$path")) {
-        method = if (body == null) HttpMethod.Get else HttpMethod.Post
-        config.token?.takeIf(String::isNotBlank)?.let { bearerAuth(it) }
-        GatewayClientDiagnostics.requestHeaders(config).forEach { (key, value) -> header(key, value) }
-        if (approval) header("X-Gateway-User-Action", "approve-and-merge")
-        if (body != null) {
-            contentType(ContentType.Application.Json)
-            setBody(body)
-        }
-        timeout {
-            connectTimeoutMillis = if (path == "capabilities") 1_500 else 10_000
-            requestTimeoutMillis = if (path == "capabilities") 4_000 else 120_000
-            socketTimeoutMillis = if (path == "capabilities") 4_000 else 120_000
-        }
-    }.execute { response ->
-        GatewayClientDiagnostics.observe(config, response.status.value) { response.headers[it] }
-        if (path == "capabilities" && response.status.value in setOf(404, 501)) throw UnsupportedEngineeringGateway()
-        val payload = response.boundedMetadata(if (path == "capabilities") 128 * 1024 else 2_000_000)
-        if (!response.status.isSuccess()) {
-            val error = runCatching { json.parseToJsonElement(payload) as? JsonObject }.getOrNull()
-            val detail = error?.get("error") as? JsonObject ?: error?.get("detail") as? JsonObject ?: error
-            val code = detail?.get("code")?.jsonPrimitive?.content
-            if (code != null && code.matches(Regex("(?:EXECUTION|SELECTED_ONLY|INFERENCE)_[A-Z0-9_]{1,80}"))) {
-                throw GatewayExecutionRejected(code, response.status.value)
+    private suspend fun request(config: ProviderRequestConfig, path: String, body: String? = null, approval: Boolean = false): String {
+        val diagnostic = GatewayClientDiagnostics.withHeaders(config, model = "", knownGateway = true)
+        return gatewayClientExchange(diagnostic, "engineering", safeRead = body == null, method = if (body == null) "GET" else "POST") { headers ->
+            http.prepareRequest(config.buildEndpoint("gateway/engineering/$path")) {
+                method = if (body == null) HttpMethod.Get else HttpMethod.Post
+                config.token?.takeIf(String::isNotBlank)?.let { bearerAuth(it) }
+                headers.forEach { (key, value) -> header(key, value) }
+                if (approval) header("X-Gateway-User-Action", "approve-and-merge")
+                if (body != null) {
+                    contentType(ContentType.Application.Json)
+                    setBody(body)
+                }
+                timeout {
+                    connectTimeoutMillis = if (path == "capabilities") 1_500 else 10_000
+                    requestTimeoutMillis = if (path == "capabilities") 4_000 else 120_000
+                    socketTimeoutMillis = if (path == "capabilities") 4_000 else 120_000
+                }
+            }.execute { response ->
+                GatewayClientDiagnostics.observe(diagnostic, response.status.value) { response.headers[it] }
+                if (path == "capabilities" && response.status.value in setOf(404, 501)) throw UnsupportedEngineeringGateway()
+                val payload = response.boundedMetadata(if (path == "capabilities") 128 * 1024 else 2_000_000)
+                if (!response.status.isSuccess()) {
+                    val error = runCatching { json.parseToJsonElement(payload) as? JsonObject }.getOrNull()
+                    val detail = error?.get("error") as? JsonObject ?: error?.get("detail") as? JsonObject ?: error
+                    val code = detail?.get("code")?.jsonPrimitive?.content
+                    if (code != null && code.matches(Regex("(?:EXECUTION|SELECTED_ONLY|INFERENCE)_[A-Z0-9_]{1,80}"))) {
+                        throw GatewayExecutionRejected(code, response.status.value)
+                    }
+                }
+                check(response.status.isSuccess()) {
+                    when (response.status.value) {
+                        401, 403 -> "Gateway engineering access is not authorized. Check the gateway connection and engineering scope."
+                        404 -> "This gateway does not expose the saved engineering job. Check the selected gateway and account."
+                        409 -> "The job or PR changed. Refresh and review its current commit before confirming."
+                        503 -> "The gateway needs its host GitHub connection configured, or is at capacity. Your request is retained."
+                        else -> "Gateway engineering request failed (HTTP ${response.status.value}). The job may still be running; reconnect to check."
+                    }
+                }
+                payload
             }
         }
-        check(response.status.isSuccess()) {
-            when (response.status.value) {
-                401, 403 -> "Gateway engineering access is not authorized. Check the gateway connection and engineering scope."
-                404 -> "This gateway does not expose the saved engineering job. Check the selected gateway and account."
-                409 -> "The job or PR changed. Refresh and review its current commit before confirming."
-                503 -> "The gateway needs its host GitHub connection configured, or is at capacity. Your request is retained."
-                else -> "Gateway engineering request failed (HTTP ${response.status.value}). The job may still be running; reconnect to check."
-            }
-        }
-        payload
     }
 
     suspend fun capabilities(config: ProviderRequestConfig): GatewayEngineeringCapabilities =
@@ -124,31 +130,34 @@ class GatewayEngineeringClient internal constructor(private val http: HttpClient
 
     internal fun diagnosticEvents(config: ProviderRequestConfig, jobId: String, after: Int): kotlinx.coroutines.flow.Flow<JsonObject> = kotlinx.coroutines.flow.flow {
         require(jobId.matches(Regex("diag_[a-f0-9]{32}")) && after in 0..3)
-        http.prepareRequest(config.buildEndpoint("gateway/engineering/diagnostics/jobs/$jobId/events?after=$after")) {
-            method = HttpMethod.Get
-            config.token?.takeIf(String::isNotBlank)?.let { bearerAuth(it) }
-            GatewayClientDiagnostics.requestHeaders(config).forEach { (key, value) -> header(key, value) }
-            header("Accept", "text/event-stream")
-            timeout {
-                connectTimeoutMillis = 10_000
-                requestTimeoutMillis = 30_000
-                socketTimeoutMillis = 30_000
-            }
-        }.execute { response ->
-            GatewayClientDiagnostics.observe(config, response.status.value) { response.headers[it] }
-            check(response.status.isSuccess()) { "Gateway diagnostic stream failed (HTTP ${response.status.value})." }
-            val channel = response.bodyAsChannel()
-            var seen = after
-            while (!channel.isClosedForRead) {
-                val line = channel.readLine() ?: break
-                if (line.length > 4096) error("Gateway diagnostic event exceeds its limit.")
-                val data = dev.chungjungsoo.gptmobile.data.network.SseUtils.extractSseData(line) ?: continue
-                if (data == "[DONE]") break
-                val event = json.parseToJsonElement(data) as? JsonObject ?: error("Invalid gateway diagnostic event.")
-                val sequence = event["sequence"]?.jsonPrimitive?.intOrNull ?: error("Missing diagnostic sequence.")
-                check(event["job_id"] == kotlinx.serialization.json.JsonPrimitive(jobId) && sequence == seen + 1 && sequence <= 3) { "Gateway event identity or cursor changed." }
-                seen = sequence
-                emit(event)
+        val diagnostic = GatewayClientDiagnostics.withHeaders(config, model = "", knownGateway = true)
+        gatewayClientExchange(diagnostic, "engineering", safeRead = true) { headers ->
+            http.prepareRequest(config.buildEndpoint("gateway/engineering/diagnostics/jobs/$jobId/events?after=$after")) {
+                method = HttpMethod.Get
+                config.token?.takeIf(String::isNotBlank)?.let { bearerAuth(it) }
+                headers.forEach { (key, value) -> header(key, value) }
+                header("Accept", "text/event-stream")
+                timeout {
+                    connectTimeoutMillis = 10_000
+                    requestTimeoutMillis = 30_000
+                    socketTimeoutMillis = 30_000
+                }
+            }.execute { response ->
+                GatewayClientDiagnostics.observe(diagnostic, response.status.value) { response.headers[it] }
+                check(response.status.isSuccess()) { "Gateway diagnostic stream failed (HTTP ${response.status.value})." }
+                val channel = response.bodyAsChannel()
+                var seen = after
+                while (!channel.isClosedForRead) {
+                    val line = channel.readLine() ?: break
+                    if (line.length > 4096) error("Gateway diagnostic event exceeds its limit.")
+                    val data = dev.chungjungsoo.gptmobile.data.network.SseUtils.extractSseData(line) ?: continue
+                    if (data == "[DONE]") break
+                    val event = json.parseToJsonElement(data) as? JsonObject ?: error("Invalid gateway diagnostic event.")
+                    val sequence = event["sequence"]?.jsonPrimitive?.intOrNull ?: error("Missing diagnostic sequence.")
+                    check(event["job_id"] == kotlinx.serialization.json.JsonPrimitive(jobId) && sequence == seen + 1 && sequence <= 3) { "Gateway event identity or cursor changed." }
+                    seen = sequence
+                    emit(event)
+                }
             }
         }
     }

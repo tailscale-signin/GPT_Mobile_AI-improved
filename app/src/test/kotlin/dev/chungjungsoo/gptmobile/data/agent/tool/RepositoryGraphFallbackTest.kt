@@ -45,6 +45,25 @@ class RepositoryGraphFallbackTest {
         }
     }
 
+    @Test fun graphReadFailureOffersNativeReadsWithoutDispatchingOrInventingGraphCoverage() = runTest {
+        var calls = 0
+        val tool = RepositoryGraphTool("repository_graph__selected", nativeStatus = {
+            calls++
+            error("Only status may run the native probe")
+        }) { throw IOException("unreachable") }
+        val result = tool.execute("graph-query", JsonObject(mapOf("action" to JsonPrimitive("query"))))
+        val root = (result.content as ToolResultContent.Json).value as JsonObject
+        val alternatives = root["native_read_alternatives"] as kotlinx.serialization.json.JsonArray
+        assertTrue(alternatives.toString().contains("github_pr__selected"))
+        for (action in listOf("resolve", "branches", "commits", "checks")) assertTrue(alternatives.toString().contains(action))
+        assertEquals(JsonPrimitive(false), root["graph_complete"])
+        assertEquals(0, calls)
+        val denied = RepositoryGraphTool("repository_graph", nativeStatus = { error("No fallback") }) { throw IllegalStateException("permission denied") }
+        val rejected = (denied.execute("denied", JsonObject(mapOf("action" to JsonPrimitive("query")))).content as ToolResultContent.Json).value as JsonObject
+        assertFalse(rejected.containsKey("native_read_alternatives"))
+        assertFalse(rejected.containsKey("recovery_call"))
+    }
+
     @Test fun indexingAndCancellationAreNeverReplayed() = runTest {
         var nativeReads = 0
         val cancelled = CancellationException("cancel")

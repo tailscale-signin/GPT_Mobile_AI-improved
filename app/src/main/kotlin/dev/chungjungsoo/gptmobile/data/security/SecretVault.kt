@@ -33,20 +33,23 @@ interface SecretVault {
 class SecretVaultException(message: String, cause: Throwable? = null) : Exception(message, cause)
 
 class AndroidSecretVault private constructor(
-    private val directory: File,
+    directoryProvider: () -> File,
     private val keyAlias: String
 ) : SecretVault {
     @Inject
     constructor(@ApplicationContext context: Context) : this(
-        directory = File(context.noBackupFilesDir, DEFAULT_DIRECTORY_NAME),
+        directoryProvider = { File(context.noBackupFilesDir, DEFAULT_DIRECTORY_NAME) },
         keyAlias = DEFAULT_KEY_ALIAS
     )
 
     internal constructor(context: Context, keyAlias: String, directoryName: String) : this(
-        directory = File(context.noBackupFilesDir, directoryName),
+        directoryProvider = { File(context.noBackupFilesDir, directoryName) },
         keyAlias = keyAlias
     )
 
+    // Context directory getters perform filesystem checks. Hilt may construct the
+    // vault on Main; resolve the directory only inside an IO-backed operation.
+    private val directory by lazy(directoryProvider)
     private val mutex = Mutex()
 
     override suspend fun put(secretRef: String, secret: ByteArray) = withContext(Dispatchers.IO) {

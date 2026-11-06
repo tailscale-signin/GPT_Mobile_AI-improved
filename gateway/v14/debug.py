@@ -24,7 +24,7 @@ MAX_LINE_BYTES = 2048
 CLIENT_HEADER = 'X-Gateway-Client-Diagnostics'
 _DIGEST = re.compile(r'[a-f0-9]{64}')
 _EVENTS = {'client_request', 'gateway_response', 'transport_failure', 'debug_enabled', 'debug_disabled', 'gateway_started'}
-_ROUTES = {'chat', 'models', 'readiness', 'liveness', 'capabilities', 'job', 'engineering', 'other'}
+_ROUTES = {'chat', 'models', 'readiness', 'liveness', 'capabilities', 'dashboard', 'job', 'engineering', 'other'}
 current_diagnostic_trace = ContextVar('gateway_diagnostic_trace', default=None)
 current_diagnostic_capture = ContextVar('gateway_diagnostic_capture', default=None)
 
@@ -160,6 +160,7 @@ def route_kind(path):
     return ('chat' if path == '/chat/completions' else 'models' if path == '/models' else
             'readiness' if path == '/gateway/ready' else 'liveness' if path == '/gateway/live' else
             'capabilities' if path in {'/gateway/capabilities', '/gateway/v14', '/gateway/v15'} else
+            'dashboard' if path == '/gateway/dashboard' else
             'job' if path.startswith('/gateway/jobs') else 'engineering' if path.startswith('/gateway/engineering/') else 'other')
 
 
@@ -485,8 +486,13 @@ class DebugMiddleware:
                                                          if HEX32.fullmatch(session) and capture_started is not None else None)
         started = time.monotonic()
         received = sent = 0
-        status = 500
+        status = None
+        response_started = response_completed = False
         request_logged = False
+
+        def attributes():
+            return {'route': context['route'], 'method': context['method'],
+                    'response_headers_sent': response_started, 'response_body_completed': response_completed}
 
         def event(stage, severity='info', error_code='NONE', **fields):
             principal = scope.get('state', {}).get('principal')
@@ -501,7 +507,8 @@ class DebugMiddleware:
             principal = scope.get('state', {}).get('principal')
             context['principalDigest'] = digest(getattr(principal, 'id', 'unavailable'))
             self.store.record('client_request', client=client if principal else {}, **context)
-            event('request', direction='client_to_gateway', dispatch_state='dispatched', category='transport')
+            event('request', direction='client_to_gateway', dispatch_state='dispatched', category='transport',
+                  bounded_attributes=attributes())
             request_logged = True
 
         async def observed_receive():
@@ -511,7 +518,7 @@ class DebugMiddleware:
             return message
 
         async def observed_send(message):
-            nonlocal status, sent
+            nonlocal status, sent, response_started, response_completed
             if message['type'] == 'http.response.start':
                 status = message['status']
                 additions = {b'x-gateway-instance-id': self.instance_id.encode(), b'x-gateway-debug-protocol': b'2',
@@ -530,8 +537,12 @@ class DebugMiddleware:
                     context['requestDigest'] = digest(returned_id)
                 record_request()
                 message['headers'] = [(k, v) for k, v in prior if k.lower() not in additions] + list(additions.items())
-            sent += len(message.get('body', b''))
             await send(message)
+            if message['type'] == 'http.response.start':
+                response_started = True
+            elif message['type'] == 'http.response.body':
+                sent += len(message.get('body', b''))
+                response_completed = not message.get('more_body', False)
 
         try:
             await self.app(scope, observed_receive, observed_send)
@@ -542,17 +553,22 @@ class DebugMiddleware:
                 self.store.record('transport_failure', failure=failure, **context)
                 event('transport', severity='warning' if failure == 'cancelled' else 'error',
                       error_code='CANCELLED' if failure == 'cancelled' else 'TRANSPORT_FAILURE',
-                      category='cancellation' if failure == 'cancelled' else 'transport', dispatch_state='unknown', retry_class='unknown')
+                      category='cancellation' if failure == 'cancelled' else 'transport', dispatch_state='unknown',
+                      retry_class='none' if failure == 'cancelled' else 'unknown',
+                      local_duration_ms=max(0, int((time.monotonic() - started) * 1000)), bounded_attributes=attributes())
             raise
         finally:
             if observed:
                 record_request()
-                self.store.record('gateway_response', status=status, receivedBytes=received, sentBytes=sent,
-                                  durationMs=max(0, int((time.monotonic() - started) * 1000)), **context)
-                event('response', severity='error' if status >= 400 else 'info', error_code='HTTP_ERROR' if status >= 400 else 'NONE',
-                      direction='gateway_to_client', category='transport', dispatch_state='response_received',
-                      local_duration_ms=max(0, int((time.monotonic() - started) * 1000)),
-                      bounded_attributes={'status': status, 'received_bytes': received, 'sent_bytes': sent})
+                # A broken connection before response.start is not an observed HTTP
+                # 500. A sent header also does not prove a complete response body.
+                if response_started:
+                    self.store.record('gateway_response', status=status, receivedBytes=received, sentBytes=sent,
+                                      durationMs=max(0, int((time.monotonic() - started) * 1000)), **context)
+                    event('response', severity='error' if status >= 400 else 'info', error_code='HTTP_ERROR' if status >= 400 else 'NONE',
+                          direction='gateway_to_client', category='transport', dispatch_state='response_received',
+                          local_duration_ms=max(0, int((time.monotonic() - started) * 1000)),
+                          bounded_attributes={**attributes(), 'status': status, 'received_bytes': received, 'sent_bytes': sent})
             current_diagnostic_trace.reset(trace_marker)
             current_diagnostic_capture.reset(capture_marker)
 

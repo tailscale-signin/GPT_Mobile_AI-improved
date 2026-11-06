@@ -4,6 +4,7 @@ from __future__ import annotations
 import copy
 import ipaddress
 import json
+import os
 import threading
 import time
 from collections import OrderedDict
@@ -11,7 +12,7 @@ from urllib.parse import urlsplit
 
 import requests
 
-from v14.execution_binding import ExecutionBindingError, canonical, fingerprint
+from v14.execution_binding import ExecutionBindingError, canonical, configured_route, fingerprint
 
 
 def positive(value, maximum=2097152):
@@ -39,8 +40,9 @@ class InferenceCapabilities:
                 raise ExecutionBindingError('EXECUTION_METADATA_DENIED', 'The configured backend did not authorize required model metadata.', response.status_code)
             response.raise_for_status()
             raw = bytearray()
+            deadline = time.monotonic() + 5
             for chunk in response.iter_content(8192):
-                if len(raw) + len(chunk) > maximum:
+                if len(raw) + len(chunk) > maximum or time.monotonic() > deadline:
                     raise ExecutionBindingError('EXECUTION_METADATA_OVERSIZE', 'The configured backend metadata exceeded its bound.')
                 raw.extend(chunk)
             value = json.loads(raw)
@@ -76,6 +78,30 @@ class InferenceCapabilities:
                 self.cache.popitem(last=False)
             return copy.deepcopy(result)
 
+    def selected_model(self, model):
+        """Read-only public handshake. Never expose backend addresses, templates or another model."""
+        if not isinstance(model, str) or not 1 <= len(model) <= 512 or model != model.strip() or any(ord(c) < 32 for c in model):
+            raise ExecutionBindingError('EXECUTION_MODEL_IDENTITY_INVALID', 'Select a bounded model identifier.', 400)
+        result = {'schema': 'gptmobile.gateway.selected-model.v1', 'schemaVersion': 1,
+                  'requestedModel': model, 'limitsVerified': False}
+        try:
+            kind = str(getattr(self.runtime, 'GATEWAY_INFERENCE_PROVIDER', None) or os.getenv('GATEWAY_INFERENCE_PROVIDER') or 'LLAMA').upper()
+            route = configured_route(self.runtime, kind)
+            observed = self.inspect(route, model)
+            self.require(observed, {'requested_model_id': model,
+                                   'required_capability_policy': ['SELECTED_ONLY', 'MODEL_IDENTITY', 'CONTEXT_BUDGET']})
+            # A context-capacity bound is useful for admission but is not a
+            # separately measured provider output-token limit.
+            output = observed['max_output_tokens'] if observed.get('output_limit_source') == 'provider_reported' else None
+            result.update(reportedModel=observed['reported_model_id'], contextTokens=observed['context_tokens'],
+                          maxOutputTokens=output, outputLimitSource=observed['output_limit_source'],
+                          limitsVerified=True, capabilityRevision=observed['capability_revision'],
+                          observedAtMillis=observed['observed_at_ms'],
+                          evidenceOrigin='GATEWAY_OBSERVED_PROVIDER_METADATA')
+        except ExecutionBindingError as error:
+            result['failureCode'] = error.code
+        return result
+
     def _probe(self, route, model):
         root = route['metadata_base']
         catalog = self._json('GET', root + '/v1/models', params={'autoload': 'false'})
@@ -108,7 +134,14 @@ class InferenceCapabilities:
             context = positive(settings.get('n_ctx')) or positive(props.get('n_ctx')) or positive(props.get('context_length'))
             # Training context and model filename do not prove the active runtime
             # allocation or an alias's weight revision.
-            loaded_model = props.get('model_alias') or props.get('model_id') or selected['id']
+            loaded_model = props.get('model_alias') or props.get('model_id')
+            if not loaded_model:
+                # A single-model server's catalog identifies its active props.
+                # An unscoped response from a router cannot attest which of its
+                # advertised models owns this allocation merely from the query.
+                if len(rows) != 1:
+                    raise ExecutionBindingError('EXECUTION_MODEL_IDENTITY_INVALID', 'The active model allocation does not identify the exact selected model.')
+                loaded_model = selected['id']
             revision = props.get('model_sha256') or selected.get('digest')
             tokenizer = root + '/v1/chat/completions/input_tokens'
             template = props.get('chat_template')

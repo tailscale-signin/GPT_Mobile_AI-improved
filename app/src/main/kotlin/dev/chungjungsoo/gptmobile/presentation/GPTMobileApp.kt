@@ -96,8 +96,8 @@ class GPTMobileApp :
         if (dev.chungjungsoo.gptmobile.data.localruntime.isInferenceProcess()) return
         dev.chungjungsoo.gptmobile.data.security.DevicePrivacySettings.initialize(this)
         dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.initialize(this)
-        dev.chungjungsoo.gptmobile.data.network.FreeAiRequestLimiter.shared.initialize(java.io.File(noBackupFilesDir, "free-provider-cooldowns.json"), requireExplicitLoad = true)
-        dev.chungjungsoo.gptmobile.data.free.FreeProviderDiagnostics.initialize(java.io.File(noBackupFilesDir, "free-provider-failures.json"))
+        dev.chungjungsoo.gptmobile.data.network.FreeAiRequestLimiter.shared.initialize({ java.io.File(noBackupFilesDir, "free-provider-cooldowns.json") }, requireExplicitLoad = true)
+        dev.chungjungsoo.gptmobile.data.free.FreeProviderDiagnostics.initialize { java.io.File(noBackupFilesDir, "free-provider-failures.json") }
         if (dev.chungjungsoo.gptmobile.BuildConfig.DEBUG) {
             // Diagnose unexpected UI-thread disk and network blocking in development builds.
             StrictMode.setThreadPolicy(

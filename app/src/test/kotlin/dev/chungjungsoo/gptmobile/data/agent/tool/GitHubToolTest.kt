@@ -971,6 +971,15 @@ class GitHubToolTest {
         )
         try {
             val tool = GitHubTool("token", http, repositoryContext = GitHubRepositoryContext("o", "r", "main"))
+            val missing = tool.execute(
+                "missing-fixture",
+                buildJsonObject {
+                    put("action", "get_branch_head")
+                    put("branch", "fixture")
+                }
+            )
+            assertTrue(missing.isError)
+            assertEquals("GITHUB_NOT_FOUND_OR_INACCESSIBLE", missing.errorCode)
             val result = tool.execute(
                 "fixture",
                 buildJsonObject {

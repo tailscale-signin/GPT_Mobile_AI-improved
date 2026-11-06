@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.network.gateway
 
 import dev.chungjungsoo.gptmobile.data.context.RouteCapabilityCache
+import dev.chungjungsoo.gptmobile.data.network.LocalEndpointConnectionPolicy
 import dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth
 import dev.chungjungsoo.gptmobile.data.network.NetworkClient
 import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
@@ -10,10 +11,15 @@ import io.ktor.client.HttpClient
 import io.ktor.client.plugins.timeout
 import io.ktor.client.request.bearerAuth
 import io.ktor.client.request.header
+import io.ktor.client.request.parameter
 import io.ktor.client.request.prepareGet
+import io.ktor.http.HttpHeaders
 import io.ktor.http.isSuccess
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 
@@ -21,37 +27,114 @@ internal class GatewayDashboardAccessDenied : IllegalStateException("Gateway acc
 
 internal interface GatewayDashboardSource {
     suspend fun read(config: ProviderRequestConfig): GatewayDashboardObservation?
+    suspend fun readiness(config: ProviderRequestConfig, model: String?): GatewayReadinessObservation? = null
 }
 
 /** A bounded read of the selected gateway; never uses the desktop management endpoint. */
 @Singleton
-internal class GatewayDashboardClient internal constructor(private val http: HttpClient) : GatewayDashboardSource {
-    @Inject constructor(network: NetworkClient) : this(network())
-    private val cache = RouteCapabilityCache<GatewayDashboardObservation>({ System.nanoTime() / 1_000_000 }, positiveTtl = 4_000, negativeTtl = 60_000)
+internal class GatewayDashboardClient internal constructor(private val http: HttpClient, private val evictIdleConnections: () -> Unit = {}) : GatewayDashboardSource {
+    @Inject constructor(network: NetworkClient) : this(network(), network::evictIdleConnections)
+    private data class Attempt(val observation: GatewayDashboardObservation? = null, val failure: Exception? = null)
+    private data class ReadinessAttempt(val observation: GatewayReadinessObservation? = null, val failure: Exception? = null)
+    private val cache = RouteCapabilityCache<Attempt>({ System.nanoTime() / 1_000_000 }, positiveTtl = 4_000, negativeTtl = 60_000)
+    private val readinessCache = RouteCapabilityCache<ReadinessAttempt>({ System.nanoTime() / 1_000_000 }, positiveTtl = 4_000, negativeTtl = 60_000)
 
-    fun refresh() = cache.invalidate()
+    fun refresh() {
+        cache.invalidate()
+        readinessCache.invalidate()
+    }
 
-    override suspend fun read(config: ProviderRequestConfig): GatewayDashboardObservation? = cache.getOrLoad(gatewayDashboardIdentity(config) + ":" + LocalServiceHealth.networkEpoch) {
-        http.prepareGet(config.buildEndpoint("gateway/dashboard")) {
-            config.token?.takeIf(String::isNotBlank)?.let { bearerAuth(it) }
-            // Profile headers are allowed; management credentials are never used here.
-            config.extraHeaders.filterKeys { !it.equals("X-Gateway-Management", true) }.forEach { (key, value) -> header(key, value) }
-            timeout {
-                connectTimeoutMillis = 5_000
-                requestTimeoutMillis = 8_000
-                socketTimeoutMillis = 8_000
+    override suspend fun read(config: ProviderRequestConfig): GatewayDashboardObservation? {
+        val attempt = cache.getOrLoad(gatewayDashboardIdentity(config) + ":" + LocalServiceHealth.networkEpoch) {
+            try {
+                readDashboard(config)?.let { Attempt(observation = it) }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                // Concurrent observers share a short failure observation as well
+                // as successes; a single offline refresh cannot fan out retries.
+                Attempt(failure = failure)
             }
-        }.execute { response ->
-            GatewayClientDiagnostics.observe(config, response.status.value) { response.headers[it] }
-            if (response.status.value in setOf(404, 405)) return@execute null
-            if (response.status.value in setOf(401, 403)) throw GatewayDashboardAccessDenied()
-            check(response.status.isSuccess()) { "Gateway refresh is unavailable (HTTP ${response.status.value})." }
-            val body = Json.parseToJsonElement(response.boundedMetadata(512_000)) as? JsonObject ?: error("Invalid gateway dashboard.")
-            val snapshot = parseGatewayDashboard(body)
-            GatewayClientDiagnostics.observeInstance(config, snapshot.instanceId)
-            GatewayDashboardObservation(snapshot, System.currentTimeMillis())
+        } ?: return null
+        attempt.failure?.let { throw it }
+        return attempt.observation
+    }
+
+    private suspend fun readDashboard(config: ProviderRequestConfig): GatewayDashboardObservation? {
+        val endpoint = config.buildEndpoint("gateway/dashboard")
+        return LocalEndpointConnectionPolicy.probe(endpoint, evictIdleConnections) {
+            gatewayClientExchange(config, "dashboard", safeRead = true) { requestHeaders ->
+                http.prepareGet(endpoint) {
+                    config.token?.takeIf(String::isNotBlank)?.let { bearerAuth(it) }
+                    // Profile headers are allowed; management credentials are never used here.
+                    requestHeaders.filterKeys { !it.equals("X-Gateway-Management", true) }.forEach { (key, value) -> header(key, value) }
+                    if (LocalEndpointConnectionPolicy.freshConnection(endpoint)) header(HttpHeaders.Connection, "close")
+                    timeout {
+                        connectTimeoutMillis = 5_000
+                        requestTimeoutMillis = 8_000
+                        socketTimeoutMillis = 8_000
+                    }
+                }.execute { response ->
+                    GatewayClientDiagnostics.observe(config, response.status.value) { response.headers[it] }
+                    if (response.status.value in setOf(404, 405)) return@execute null
+                    if (response.status.value in setOf(401, 403)) throw GatewayDashboardAccessDenied()
+                    check(response.status.isSuccess()) { "Gateway refresh is unavailable (HTTP ${response.status.value})." }
+                    val snapshot = withContext(Dispatchers.Default) {
+                        val body = Json.parseToJsonElement(response.boundedMetadata(512_000)) as? JsonObject ?: error("Invalid gateway dashboard.")
+                        parseGatewayDashboard(body)
+                    }
+                    GatewayClientDiagnostics.observeInstance(config, snapshot.instanceId)
+                    GatewayDashboardObservation(snapshot, System.currentTimeMillis())
+                }
+            }
+        }
+    }
+
+    override suspend fun readiness(config: ProviderRequestConfig, model: String?): GatewayReadinessObservation? {
+        val attempt = readinessCache.getOrLoad(gatewayDashboardIdentity(config) + ":" + researchHash(model.orEmpty()) + ":" + LocalServiceHealth.networkEpoch) {
+            try {
+                readReadiness(config, model)?.let { ReadinessAttempt(observation = it) }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                ReadinessAttempt(failure = failure)
+            }
+        } ?: return null
+        attempt.failure?.let { throw it }
+        return attempt.observation
+    }
+
+    private suspend fun readReadiness(config: ProviderRequestConfig, model: String?): GatewayReadinessObservation? {
+        require(model == null || model.length <= 512) { "Invalid gateway model identifier." }
+        val endpoint = config.buildEndpoint("gateway/ready")
+        return LocalEndpointConnectionPolicy.probe(endpoint, evictIdleConnections) {
+            gatewayClientExchange(config, "readiness", safeRead = true) { requestHeaders ->
+                http.prepareGet(endpoint) {
+                    config.token?.takeIf(String::isNotBlank)?.let { bearerAuth(it) }
+                    requestHeaders.filterKeys { !it.equals("X-Gateway-Management", true) }.forEach { (key, value) -> header(key, value) }
+                    if (LocalEndpointConnectionPolicy.freshConnection(endpoint)) header(HttpHeaders.Connection, "close")
+                    model?.takeIf(String::isNotBlank)?.let { parameter("model", it) }
+                    timeout {
+                        connectTimeoutMillis = 2_000
+                        requestTimeoutMillis = 5_000
+                        socketTimeoutMillis = 5_000
+                    }
+                }.execute { response ->
+                    GatewayClientDiagnostics.observe(config, response.status.value) { response.headers[it] }
+                    if (response.status.value in setOf(404, 405, 501)) return@execute null
+                    if (response.status.value in setOf(401, 403)) throw GatewayDashboardAccessDenied()
+                    check(response.status.value in setOf(200, 503)) { "Gateway readiness is unavailable (HTTP ${response.status.value})." }
+                    val readiness = withContext(Dispatchers.Default) {
+                        val body = Json.parseToJsonElement(response.boundedMetadata(128_000)) as? JsonObject ?: error("Invalid gateway readiness.")
+                        parseGatewayReadiness(body, response.status.value, model, System.currentTimeMillis())
+                    }
+                    readiness.also {
+                        GatewayClientDiagnostics.observeInstance(config, it.instanceId)
+                    }
+                }
+            }
         }
     }
 }
 
-internal fun gatewayDashboardIdentity(config: ProviderRequestConfig): String = researchHash("${config.profileUid}|${config.apiUrl.trim().trimEnd('/')}|${researchHash(config.token.orEmpty())}")
+internal fun gatewayDashboardIdentity(config: ProviderRequestConfig): String = researchHash("${config.profileUid}|${GatewayClientDiagnostics.routeIdentity(config)}")

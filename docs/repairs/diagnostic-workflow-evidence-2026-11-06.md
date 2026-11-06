@@ -6,6 +6,8 @@ Base: `main` at `e1c85e10370d0e40f80e68c6875656117fdc5ffa`
 
 Branch: `fix/diagnostic-workflow-evidence-2026-11-06`
 
+The additive review against merge build `69309b332c0d25b6721a2d7befbc04f49b804a3b` is covered by the [gateway, task verification and retention follow-up](gateway-task-retention-2026-11-06.md). Both reviews are implemented on this branch before merge.
+
 ## Scope and source findings
 
 The supplied review describes GPT Mobile AI 0.9.66.5, build 139, at the exact base commit above. The review was available during this implementation; the original diagnostic ZIP was not attached to this turn. Its counts are observations from retained evidence, not independently reproduced session totals.

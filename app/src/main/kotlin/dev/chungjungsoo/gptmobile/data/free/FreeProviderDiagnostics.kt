@@ -13,7 +13,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 
 /** Per-flow state. No prompt, response, tools or credentials are retained. */
-class FreeRequestDiagnostics {
+class FreeRequestDiagnostics(internal val startedAt: Long = System.currentTimeMillis()) {
     internal val failureId = java.util.UUID.randomUUID().toString()
     internal var requestSent: Boolean? = false
     internal var attemptedDispatch = false
@@ -52,7 +52,6 @@ class FreeRequestDiagnostics {
     }
     internal var category: dev.chungjungsoo.gptmobile.data.network.FreeFailureCategory? = null
     internal var cooldown: dev.chungjungsoo.gptmobile.data.network.FreeCooldown? = null
-    internal val startedAt = System.currentTimeMillis()
     internal var admission: RequestAdmissionReceipt? = null
     internal var recorded = false
     internal var stage = "preparation"
@@ -116,13 +115,16 @@ object FreeProviderDiagnostics {
         ignoreUnknownKeys = true
         encodeDefaults = true
     }
-    private var file: File? = null
+    private var fileProvider: Lazy<File>? = null
+    private val file: File? get() = fileProvider?.value
     private var loaded = false
     private val revokedChats = mutableMapOf<Int, Long>()
     private var records = emptyList<FreeProviderFailureRecord>()
 
-    @Synchronized fun initialize(target: File) {
-        file = target
+    @Synchronized fun initialize(target: File) = initialize { target }
+
+    @Synchronized fun initialize(target: () -> File) {
+        fileProvider = lazy(target)
         loaded = false
         records = emptyList()
     }
@@ -165,9 +167,9 @@ object FreeProviderDiagnostics {
         }
     }
 
-    fun recordPreflight(profile: dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2, outcome: dev.chungjungsoo.gptmobile.data.network.FreePreflightOutcome, chatId: Int?, persistent: Boolean) {
+    fun recordPreflight(profile: dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2, outcome: dev.chungjungsoo.gptmobile.data.network.FreePreflightOutcome, chatId: Int?, persistent: Boolean, startedAt: Long = System.currentTimeMillis()) {
         val provider = dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.fromApiUrl(profile.apiUrl) ?: return
-        val diagnostics = FreeRequestDiagnostics().apply {
+        val diagnostics = FreeRequestDiagnostics(startedAt).apply {
             category = outcome.category
             cooldown = outcome.cooldown
             stage = "preflight"

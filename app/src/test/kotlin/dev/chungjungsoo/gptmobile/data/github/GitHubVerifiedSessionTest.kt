@@ -65,6 +65,8 @@ class GitHubVerifiedSessionTest {
         assertTrue(events.filterIsInstance<ProviderEvent.TextDelta>().single().text.contains("remote outcome unconfirmed"))
         assertEquals(JsonPrimitive("PARTIAL"), published?.get("task_outcome"))
         assertEquals(JsonPrimitive(false), published?.get("completion_verified"))
+        assertEquals(JsonPrimitive(true), published?.get("response_delivered"))
+        assertEquals(JsonPrimitive(GitHubEvidenceBook.digest(events.filterIsInstance<ProviderEvent.TextDelta>().single().text)), published?.get("response_sha256"))
         assertEquals(JsonPrimitive("PARTIAL"), saved.last()["task_state"])
         assertEquals(JsonPrimitive(true), saved.last()["response_delivered"])
     }

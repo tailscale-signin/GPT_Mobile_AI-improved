@@ -9,6 +9,7 @@ import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayDashboardMonitor
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayDashboardState
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayDiagnosticPage
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayDiagnosticStatus
+import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayNetworkRecoveryMonitor
 import dev.chungjungsoo.gptmobile.data.network.gateway.gatewayDashboardTarget
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import java.io.File
@@ -23,8 +24,8 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 
 @HiltViewModel
-internal class GitHubGatewayStatusViewModel @Inject constructor(private val settings: SettingRepository, private val client: GatewayDashboardClient) : ViewModel() {
-    private val monitor = GatewayDashboardMonitor(client)
+internal class GitHubGatewayStatusViewModel @Inject constructor(private val settings: SettingRepository, private val client: GatewayDashboardClient, networkRecovery: GatewayNetworkRecoveryMonitor) : ViewModel() {
+    private val monitor = GatewayDashboardMonitor(client, networkRecovery.routeAvailable)
     private val mutable = MutableStateFlow(GatewayDashboardState())
     val state = mutable.asStateFlow()
     private val mutableDiagnostics = MutableStateFlow(GatewayDiagnosticViewState())

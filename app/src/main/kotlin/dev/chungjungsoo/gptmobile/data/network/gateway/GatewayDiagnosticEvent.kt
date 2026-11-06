@@ -33,7 +33,10 @@ internal object GatewayDiagnosticEvent {
     )
     private val numericAttributes = setOf("status", "received_bytes", "sent_bytes", "queue_ms", "load_ms", "prefill_ms", "decode_ms", "output_tokens", "input_tokens", "frame_count", "slow_frames", "dropped_frames", "gc_count", "heap_bytes", "network_epoch", "android_sdk", "app_version_code", "occurrence_count", "source_record_bytes", "stalls_over_500_ms", "refresh_rate_millihz", "gc_duration_ms", "native_heap_bytes")
     private val digestAttributes = setOf("profile_digest", "model_digest", "endpoint_digest", "repository_digest", "app_revision", "gateway_revision", "capability_digest", "runtime_config_digest", "source_event_digest")
-    private val boolAttributes = setOf("vendor_log_available", "source_available", "client_metadata_accepted", "truncation_applied")
+    private val boolAttributes = setOf("vendor_log_available", "source_available", "client_metadata_accepted", "truncation_applied", "response_headers_received", "response_headers_sent", "response_body_completed")
+    val routes = setOf("chat", "models", "readiness", "liveness", "capabilities", "dashboard", "job", "engineering", "other")
+    val methods = setOf("GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS")
+    private val enumAttributes = mapOf("route" to routes, "method" to methods)
 
     fun digest(value: String): String = MessageDigest.getInstance("SHA-256").digest(value.toByteArray(Charsets.UTF_8)).diagnosticHex()
 
@@ -66,6 +69,7 @@ internal object GatewayDiagnosticEvent {
                     boolAttributes.forEach { name ->
                         (attributes[name] as? JsonPrimitive)?.booleanOrNull?.let { put(name, if (name == "vendor_log_available") false else it) }
                     }
+                    enumAttributes.forEach { (name, permitted) -> attributes.diagnosticText(name)?.takeIf { it in permitted }?.let { put(name, it) } }
                 }
             )
         }

@@ -851,10 +851,7 @@ async def cancel_orphaned_singleflight_after_grace(
     if clients > 0:
         return
 
-    if (
-        job_mode == "long"
-        and LONG_JOB_DISCONNECT_CONTINUES
-    ):
+    if should_continue_after_disconnect(job_mode, job_id):
         _singleflight_metric(
             "orphan_grace_continues"
         )
@@ -8979,8 +8976,10 @@ def extract_plaintext_tool_calls(content, round_number=0):
     return recovered
 
 
-def should_continue_after_disconnect(job_mode):
-    return bool(job_mode == "long" and LONG_JOB_DISCONNECT_CONTINUES)
+def should_continue_after_disconnect(job_mode, job_id=None):
+    durable_policy = globals().get('gateway_continue_disconnected')
+    return bool((callable(durable_policy) and durable_policy(job_id))
+                or job_mode == "long" and LONG_JOB_DISCONNECT_CONTINUES)
 
 
 def job_wall_clock_expired(started_at):
@@ -14544,7 +14543,7 @@ def _process_chat_payload_core(
         if request_cancelled(cancel_event):
             if should_continue_after_disconnect(job_mode):
                 logger.info(
-                    "Client disconnected, but long-job mode is active; "
+                    "Client disconnected, but durable or long-job retention is active; "
                     "continuing background research/checkpointing"
                 )
                 cancel_event.clear()
@@ -17104,7 +17103,7 @@ def _process_chat_payload_core(
             if request_cancelled(cancel_event):
                 if should_continue_after_disconnect(job_mode):
                     logger.info(
-                        "Client disconnected during long job; continuing after tool "
+                        "Client disconnected during retained job; continuing after tool "
                         "execution so checkpoints can complete"
                     )
                     cancel_event.clear()

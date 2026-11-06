@@ -6,13 +6,16 @@ import dev.chungjungsoo.gptmobile.data.network.NetworkClient
 import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
 import dev.chungjungsoo.gptmobile.data.network.boundedMetadata
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayClientDiagnostics
+import dev.chungjungsoo.gptmobile.data.network.gateway.gatewayClientExchange
 import dev.chungjungsoo.gptmobile.data.research.researchHash
 import io.ktor.client.call.body
+import io.ktor.client.plugins.timeout
 import io.ktor.client.request.bearerAuth
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.parameter
 import io.ktor.client.request.post
+import io.ktor.client.request.prepareGet
 import io.ktor.client.request.setBody
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
@@ -22,6 +25,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
@@ -31,17 +35,64 @@ import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 
 /** Metadata stays on the configured route, with autoload disabled. No slot contents are requested. */
-internal class LlamaCapacityRepository(private val client: () -> io.ktor.client.HttpClient, private val now: () -> Long = { System.nanoTime() / 1_000_000 }) {
-    constructor(client: NetworkClient, now: () -> Long = { System.nanoTime() / 1_000_000 }) : this({ client() }, now)
+internal class LlamaCapacityRepository(
+    private val client: () -> io.ktor.client.HttpClient,
+    private val now: () -> Long = { System.nanoTime() / 1_000_000 },
+    private val evictIdleConnections: () -> Unit = {}
+) {
+    constructor(client: NetworkClient, now: () -> Long = { System.nanoTime() / 1_000_000 }) : this({ client() }, now, client::evictIdleConnections)
     private data class Metadata(val capacity: CapacitySnapshot, val template: String, val buildKnown: Boolean)
     private val cache = RouteCapabilityCache<Metadata>(now)
     private val reasoningCache = RouteCapabilityCache<ReasoningTemplateControl>(now)
     private val schemaCache = RouteCapabilityCache<Boolean>(now, negativeTtl = 60_000L)
+    private val gatewayCache = RouteCapabilityCache<CapacitySnapshot>(now, positiveTtl = 15_000L)
 
     private fun routeRevision(config: ProviderRequestConfig, model: String): String =
         "${config.profileUid}|${GatewayClientDiagnostics.routeIdentity(config)}|$model|${LocalServiceHealth.networkEpoch}|${GatewayClientDiagnostics.capabilityEpoch(config)}"
 
-    suspend fun discover(config: ProviderRequestConfig, model: String): CapacitySnapshot? = metadata(config, model)?.capacity
+    suspend fun discover(config: ProviderRequestConfig, model: String): CapacitySnapshot? = metadata(config, model)?.capacity ?: discoverGateway(config, model)
+
+    /** Only an already observed gateway is asked to confirm its exact selected serving model. */
+    suspend fun discoverGateway(config: ProviderRequestConfig, model: String): CapacitySnapshot? {
+        if (GatewayClientDiagnostics.runtimeEpoch(config) == "unobserved" || model.isBlank() || model.length > 512) return null
+        return gatewayCache.getOrLoad(researchHash(routeRevision(config, model))) {
+            try {
+                withTimeoutOrNull(6_000L) {
+                    val endpoint = config.buildEndpoint("gateway/capabilities")
+                    LocalEndpointConnectionPolicy.probe(endpoint, evictIdleConnections) {
+                        gatewayClientExchange(config, "capabilities", safeRead = true) { requestHeaders ->
+                            client().prepareGet(endpoint) {
+                                config.token?.takeIf(String::isNotBlank)?.let { bearerAuth(it) }
+                                requestHeaders.forEach { (name, value) -> header(name, value) }
+                                if (LocalEndpointConnectionPolicy.freshConnection(endpoint)) header(HttpHeaders.Connection, "close")
+                                parameter("model", model)
+                                parameter("autoload", "false")
+                                timeout {
+                                    connectTimeoutMillis = 2_000
+                                    requestTimeoutMillis = 5_000
+                                    socketTimeoutMillis = 5_000
+                                }
+                            }.execute { response ->
+                                GatewayClientDiagnostics.observe(config, response.status.value) { response.headers[it] }
+                                if (response.status.value != 200) return@execute null
+                                val body = response.boundedMetadata(256 * 1024)
+                                parseGatewayCapacity(body, config, model, now())?.takeIf { capacity ->
+                                    val responseInstance = response.headers["X-Gateway-Instance-ID"]
+                                    responseInstance == null || capacity.fingerprint.runtimeRevision.startsWith("$responseInstance:")
+                                }?.also { capacity ->
+                                    GatewayClientDiagnostics.observeInstance(config, capacity.fingerprint.runtimeRevision.substringBefore(':'))
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                null
+            }
+        }
+    }
 
     private suspend fun metadata(config: ProviderRequestConfig, model: String): Metadata? {
         val route = config.apiUrl.trim().trimEnd('/')
@@ -52,7 +103,7 @@ internal class LlamaCapacityRepository(private val client: () -> io.ktor.client.
                     val uri = URI(route)
                     require(uri.scheme in setOf("http", "https") && uri.host != null && uri.rawQuery == null && uri.rawFragment == null && uri.userInfo == null)
                     val endpoint = route.removeSuffix("/v1") + "/props"
-                    val (response, body) = LocalEndpointConnectionPolicy.probe(config.apiUrl) {
+                    val (response, body) = LocalEndpointConnectionPolicy.probe(config.apiUrl, evictIdleConnections) {
                         val response = client().get(endpoint) {
                             config.token?.takeIf { it.isNotBlank() }?.let { bearerAuth(it) }
                             GatewayClientDiagnostics.requestHeaders(config).forEach { (name, value) -> header(name, value) }
@@ -159,7 +210,7 @@ internal class LlamaCapacityRepository(private val client: () -> io.ktor.client.
 
     private suspend fun applyTemplate(config: ProviderRequestConfig, model: String, control: ReasoningTemplateControl, enabled: Boolean): String? {
         val endpoint = config.apiUrl.trim().trimEnd('/').removeSuffix("/v1") + "/apply-template"
-        val response = LocalEndpointConnectionPolicy.probe(config.apiUrl) {
+        val response = LocalEndpointConnectionPolicy.probe(config.apiUrl, evictIdleConnections) {
             client().post(endpoint) {
                 config.token?.takeIf { it.isNotBlank() }?.let { bearerAuth(it) }
                 GatewayClientDiagnostics.requestHeaders(config).forEach { (name, value) -> header(name, value) }
@@ -200,6 +251,7 @@ internal class LlamaCapacityRepository(private val client: () -> io.ktor.client.
         cache.invalidate()
         reasoningCache.invalidate()
         schemaCache.invalidate()
+        gatewayCache.invalidate()
     }
 }
 
@@ -218,6 +270,42 @@ internal fun parseLlamaCapacity(body: String, config: ProviderRequestConfig, mod
     return CapacitySnapshot(
         RuntimeFingerprint(config.profileUid ?: "unbound", "sha256:${researchHash(config.apiUrl.trim().trimEnd('/'))}", researchHash(config.token.orEmpty()), model, resolved ?: model, revision, researchHash(template), "n_ctx=$allocation;slots=${root["total_slots"]}"),
         allocation,
+        outputTokens = (root["max_output_tokens"] as? JsonPrimitive)?.takeUnless { it.isString }?.longOrNull?.takeIf { it > 0 }?.coerceAtMost(allocation),
+        provenance = CapacityProvenance.VERIFIED_ROUTE,
+        observedAtMillis = now
+    )
+}
+
+/** Catalog limits and a different model's allocation never become serving evidence. */
+internal fun parseGatewayCapacity(body: String, config: ProviderRequestConfig, model: String, now: Long): CapacitySnapshot? {
+    if (body.length > 256 * 1024) return null
+    val root = runCatching { Json.parseToJsonElement(body) as? JsonObject }.getOrNull() ?: return null
+    if ((root["contractVersion"] as? JsonPrimitive)?.takeUnless { it.isString }?.longOrNull != 1L) return null
+    val instance = (root["instanceId"] as? JsonPrimitive)?.contentOrNull?.takeIf { it.matches(Regex("[a-f0-9]{32}")) } ?: return null
+    val selected = root["selectedModel"] as? JsonObject ?: return null
+    fun text(key: String) = (selected[key] as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
+    fun number(key: String) = (selected[key] as? JsonPrimitive)?.takeUnless { it.isString }?.longOrNull
+    if (text("schema") != "gptmobile.gateway.selected-model.v1" ||
+        number("schemaVersion") != 1L ||
+        text("requestedModel") != model ||
+        text("reportedModel") != model ||
+        (selected["limitsVerified"] as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull != true ||
+        text("evidenceOrigin") != "GATEWAY_OBSERVED_PROVIDER_METADATA"
+    ) {
+        return null
+    }
+    val context = number("contextTokens")?.takeIf { it in 256L..2_097_152L } ?: return null
+    val revision = text("capabilityRevision")?.takeIf { it.matches(Regex("[a-f0-9]{64}")) } ?: return null
+    if (number("observedAtMillis")?.takeIf { it > 0 } == null) return null
+    val output = when (text("outputLimitSource")) {
+        "provider_reported" -> number("maxOutputTokens")?.takeIf { it in 1..context } ?: return null
+        "context_capacity" -> if (selected["maxOutputTokens"] == null || selected["maxOutputTokens"] == JsonNull) null else return null
+        else -> return null
+    }
+    return CapacitySnapshot(
+        RuntimeFingerprint(config.profileUid ?: "unbound", "sha256:${researchHash(config.apiUrl.trim().trimEnd('/'))}", GatewayClientDiagnostics.routeIdentity(config), model, model, "$instance:$revision", "gateway:$revision", "context=$context;output=${output ?: "unreported"}"),
+        context,
+        outputTokens = output,
         provenance = CapacityProvenance.VERIFIED_ROUTE,
         observedAtMillis = now
     )

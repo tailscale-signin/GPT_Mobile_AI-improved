@@ -4,19 +4,26 @@
   "base_branch": "main",
   "base_sha": "e1c85e10370d0e40f80e68c6875656117fdc5ffa",
   "working_branch": "fix/diagnostic-workflow-evidence-2026-11-06",
-  "intent": "Audit and repair all 24 November 6 diagnostic findings: evidence-backed GitHub completion and safe continuation, complete bounded diagnostic capture, context reuse, protocol-aware MCP discovery and efficient chat rendering.",
-  "state": "AWAITING_ANDROID_RECHECK",
+  "intent": "Repair both November 6 diagnostic reviews on the existing branch, validate all confirmed failure categories, then merge PR 806 to main as authorized.",
+  "state": "EXPANDED_SOURCE_PREPUBLICATION_CHECKPOINT",
   "inputs": {
     "diagnostic_review_supplied_in_request": true,
     "raw_archive_available_in_this_turn": false,
     "observed_version": "0.9.66.5",
     "observed_build": 139,
-    "observed_commit": "e1c85e10370d0e40f80e68c6875656117fdc5ffa"
+    "observed_commit": "e1c85e10370d0e40f80e68c6875656117fdc5ffa",
+    "second_diagnostic_review": {
+      "supplied_in_request": true,
+      "raw_jsonl_available": false,
+      "observed_commit": "69309b332c0d25b6721a2d7befbc04f49b804a3b",
+      "observed_tree": "4492387151820ba023d2e28cf8112e1166e9fbd7",
+      "source_identity": "GitHub merge build of this remediation branch at 2ea2e8b9ff14b0ea74fe72bc26858fbeb2bcbf55; subsequent source at 2b6d6592 contains schema/provenance follow-up."
+    }
   },
   "work_packages": [
     {
       "id": "workflow_completion",
-      "state": "IMPLEMENTED_ANDROID_CI_PENDING",
+      "state": "IMPLEMENTED_AND_REGRESSION_VERIFIED",
       "findings": [
         1,
         2,
@@ -31,7 +38,7 @@
     },
     {
       "id": "context_and_usage",
-      "state": "IMPLEMENTED_ANDROID_CI_PENDING",
+      "state": "IMPLEMENTED_AND_REGRESSION_VERIFIED",
       "findings": [
         11,
         12,
@@ -43,7 +50,7 @@
     },
     {
       "id": "diagnostic_persistence",
-      "state": "IMPLEMENTED_ANDROID_CI_PENDING",
+      "state": "IMPLEMENTED_AND_REGRESSION_VERIFIED",
       "findings": [
         3,
         16,
@@ -58,11 +65,11 @@
     },
     {
       "id": "mcp_connectivity_and_policy",
-      "state": "IMPLEMENTED_ANDROID_CI_PENDING"
+      "state": "IMPLEMENTED_AND_REGRESSION_VERIFIED"
     },
     {
       "id": "chat_performance",
-      "state": "IMPLEMENTED_ANDROID_CI_PENDING"
+      "state": "IMPLEMENTED_AND_REGRESSION_VERIFIED"
     }
   ],
   "acceptance": {
@@ -119,7 +126,7 @@
       "scope": "Production checklist/fixtures/acceptance and complete OperationTool, ResultViews and ToolResultEnvelope integration, with explicit unrelated process boundaries. Fresh-read authorization/budget rejection, mutation rejection and recipe envelope bounds verified."
     },
     "android_full": {
-      "status": "PENDING_RECHECK",
+      "status": "PASSED_REQUIRED_GATES",
       "local_blocker": "Editing host has Java 17 and no configured Android SDK; Java 21 distribution download endpoints returned HTTP 403. No validation configuration or dependency verification was weakened.",
       "first_attempt": {
         "head_sha": "4fda7af258138bedd9afd07d798a425c1764e9ed",
@@ -166,7 +173,313 @@
           "Keep verify_live on remote facades, remove repeated wording and preserve the existing under-1000 estimated-token schema gate.",
           "Declare LIVE/LOCAL provenance explicitly in synthetic coverage fixtures and retain missing-provenance and cached-evidence rejection assertions.",
           "Give the mutation guard regression a valid head SHA so it verifies rejection before backend dispatch."
+        ],
+        "diagnostic_audit": {
+          "run_id": 42229609397,
+          "job_id": 127931948407,
+          "status": "FAILED_DURING_SETUP",
+          "application_steps_reached": false,
+          "logs_available": false,
+          "root_cause": "UNKNOWN"
+        }
+      },
+      "head_sha": "2b6d65925723351d2288ca53a811653c2cd85378",
+      "run_ids": [
+        42236629872,
+        42236629839,
+        42236629917,
+        42236629890,
+        42236629849,
+        42236629884,
+        42236630037,
+        42236630152
+      ],
+      "completed_jobs": {
+        "kotlin_lint": {
+          "status": "PASSED",
+          "run_id": 42236629884,
+          "job_id": 127955825904
+        },
+        "formatting": {
+          "status": "PASSED",
+          "run_id": 42236629872,
+          "job_id": 127955825602
+        },
+        "completion_gate": {
+          "status": "PASSED",
+          "run_id": 42236629872,
+          "job_id": 127955825412
+        },
+        "repository_contracts": {
+          "status": "PASSED",
+          "run_id": 42236629872,
+          "job_id": 127955824855
+        },
+        "github_build_downloads": {
+          "status": "PASSED",
+          "run_id": 42236630152,
+          "job_id": 127955826045,
+          "tests": 35
+        },
+        "marketplace_contracts": {
+          "status": "PASSED",
+          "run_id": 42236630037,
+          "job_id": 127955825920,
+          "tests": 207
+        },
+        "codeql": {
+          "status": "PASSED",
+          "run_id": 42236629839,
+          "job_id": 127955825428
+        },
+        "android_acceptance": {
+          "status": "PASSED",
+          "run_id": 42236629890,
+          "api34_job": 127955824975,
+          "api36_job": 127955824845,
+          "required_cases_per_api": 54,
+          "test_executions_per_api": 55
+        },
+        "main_unit_heap_apk": {
+          "status": "PASSED",
+          "run_id": 42236629872,
+          "job_id": 127955825418
+        },
+        "android_lint": {
+          "status": "PASSED",
+          "run_id": 42236629872,
+          "job_id": 127955825335
+        },
+        "required_verification": {
+          "status": "PASSED",
+          "run_id": 42236629872,
+          "job_id": 127975856547
+        },
+        "review_apk_and_benchmarks": {
+          "status": "PASSED",
+          "run_id": 42236629849,
+          "job_id": 127955826510,
+          "artifact_id": 13517440280
+        }
+      },
+      "diagnostic_audit_setup": "PASSED_ON_FRESH_RUN",
+      "production_compile": "PASSED",
+      "unit_test_compile": "PASSED",
+      "full_unit_suite": "PASSED",
+      "diagnostic_audit_phase": "UNIT_SUITE_AND_APK_PASSED_LINT_RUNNING",
+      "pending_jobs": [],
+      "unit_results": {
+        "artifact_id": 13515621883,
+        "run_id": 42236629872,
+        "head_sha": "2b6d65925723351d2288ca53a811653c2cd85378",
+        "sha256": "04012f3e3c0f787725e643269956fbd5a5c8ae50fc870d144cdb3ba7e7181179",
+        "artifact_path": "/workspace/scratch/eb1731ad31a7/ci-artifacts/unit-tests-2b6d6592-workflow-agent.zip",
+        "suites": 1130,
+        "totals": {
+          "tests": 6997,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 5
+        },
+        "skipped_cases": [
+          {
+            "class": "dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkColdStreamingExportHeapTest",
+            "test": "fortyEightMiBOfColdCanonicalRoomHistoryStreamsWithoutHydrationOrMirrorParsing"
+          },
+          {
+            "class": "dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkStreamingExportHeapTest",
+            "test": "moreThanFortyMiBOfRawHistoryAndAttemptCopiesStreamsWithin256MiBHeap"
+          },
+          {
+            "class": "dev.chungjungsoo.gptmobile.data.diagnostics.StagedDiagnosticCaptureHeapTest",
+            "test": "streamsAndResumesHistoryLargerThanHeapWithIndependentFailure"
+          },
+          {
+            "class": "dev.chungjungsoo.gptmobile.data.research.ResearchSessionStoreHeapTest",
+            "test": "moreThanFortyMiBOfRetainedEvidenceStreamsWithoutLoadingAllSessionsInto256MiBHeap"
+          },
+          {
+            "class": "dev.chungjungsoo.gptmobile.presentation.ui.chat.StreamingDebugBundleTest",
+            "test": "fortyMiBTwoThousandMessageExportCompletesUnder256MiBHeapWithoutConversationTree"
+          }
+        ],
+        "failures": [],
+        "targeted_suites": [
+          {
+            "path": "build/test-results/testDebugUnitTest/TEST-dev.chungjungsoo.gptmobile.data.agent.tool.GitHubLiveVerificationTest.xml",
+            "name": "dev.chungjungsoo.gptmobile.data.agent.tool.GitHubLiveVerificationTest",
+            "tests": 3,
+            "failures": 0,
+            "errors": 0,
+            "skipped": 0
+          },
+          {
+            "path": "build/test-results/testDebugUnitTest/TEST-dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationToolTest.xml",
+            "name": "dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationToolTest",
+            "tests": 47,
+            "failures": 0,
+            "errors": 0,
+            "skipped": 0
+          },
+          {
+            "path": "build/test-results/testDebugUnitTest/TEST-dev.chungjungsoo.gptmobile.data.github.GitHubChecklistReliabilityTest.xml",
+            "name": "dev.chungjungsoo.gptmobile.data.github.GitHubChecklistReliabilityTest",
+            "tests": 6,
+            "failures": 0,
+            "errors": 0,
+            "skipped": 0
+          },
+          {
+            "path": "build/test-results/testDebugUnitTest/TEST-dev.chungjungsoo.gptmobile.data.github.GitHubContinuityUpgradeTest.xml",
+            "name": "dev.chungjungsoo.gptmobile.data.github.GitHubContinuityUpgradeTest",
+            "tests": 14,
+            "failures": 0,
+            "errors": 0,
+            "skipped": 0
+          }
+        ],
+        "passed": 6992
+      },
+      "room_schema_gate": "PASSED",
+      "heap_step": "PASSED",
+      "individual_heap_case_receipts": "ALL_FIVE_EXECUTED_AND_PASSED",
+      "heap_results": {
+        "artifact_id": 13516711532,
+        "run_id": 42236629872,
+        "head_sha": "2b6d65925723351d2288ca53a811653c2cd85378",
+        "totals": {
+          "tests": 11,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        },
+        "suites": [
+          {
+            "path": "app/build/test-results/heapRecovery/TEST-dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkColdStreamingExportHeapTest.xml",
+            "configured_heap_mib": 256,
+            "tests": 1,
+            "failures": 0,
+            "errors": 0,
+            "skipped": 0,
+            "cases": [
+              {
+                "class": "dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkColdStreamingExportHeapTest",
+                "test": "fortyEightMiBOfColdCanonicalRoomHistoryStreamsWithoutHydrationOrMirrorParsing",
+                "status": "PASSED"
+              }
+            ]
+          },
+          {
+            "path": "app/build/test-results/heapRecovery/TEST-dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkStreamingExportHeapTest.xml",
+            "configured_heap_mib": 256,
+            "tests": 2,
+            "failures": 0,
+            "errors": 0,
+            "skipped": 0,
+            "cases": [
+              {
+                "class": "dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkStreamingExportHeapTest",
+                "test": "moreThanFortyMiBOfRawHistoryAndAttemptCopiesStreamsWithin256MiBHeap",
+                "status": "PASSED"
+              },
+              {
+                "class": "dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkStreamingExportHeapTest",
+                "test": "streamingEmitsCompleteBodiesAndLeavesTheCallerStreamOpen",
+                "status": "PASSED"
+              }
+            ]
+          },
+          {
+            "path": "app/build/test-results/heapRecovery/TEST-dev.chungjungsoo.gptmobile.data.research.ResearchSessionStoreHeapTest.xml",
+            "configured_heap_mib": 256,
+            "tests": 3,
+            "failures": 0,
+            "errors": 0,
+            "skipped": 0,
+            "cases": [
+              {
+                "class": "dev.chungjungsoo.gptmobile.data.research.ResearchSessionStoreHeapTest",
+                "test": "authorizedTurnMetadataFiltersBeforeAnyUnselectedManifestOrEvidenceRead",
+                "status": "PASSED"
+              },
+              {
+                "class": "dev.chungjungsoo.gptmobile.data.research.ResearchSessionStoreHeapTest",
+                "test": "moreThanFortyMiBOfRetainedEvidenceStreamsWithoutLoadingAllSessionsInto256MiBHeap",
+                "status": "PASSED"
+              },
+              {
+                "class": "dev.chungjungsoo.gptmobile.data.research.ResearchSessionStoreHeapTest",
+                "test": "rebuildingMissingMetadataReadsSmallManifestsButSkipsUnselectedEvidenceBodies",
+                "status": "PASSED"
+              }
+            ]
+          },
+          {
+            "path": "app/build/test-results/heapRecovery/TEST-dev.chungjungsoo.gptmobile.presentation.ui.chat.StreamingDebugBundleTest.xml",
+            "configured_heap_mib": 256,
+            "tests": 4,
+            "failures": 0,
+            "errors": 0,
+            "skipped": 0,
+            "cases": [
+              {
+                "class": "dev.chungjungsoo.gptmobile.presentation.ui.chat.StreamingDebugBundleTest",
+                "test": "corruptDigestAndWellHashedIncompleteConversationAreRejected",
+                "status": "PASSED"
+              },
+              {
+                "class": "dev.chungjungsoo.gptmobile.presentation.ui.chat.StreamingDebugBundleTest",
+                "test": "actualProducerStreamsIntoLegacyCompatibleFiveFileBundleWithRedactedDigests",
+                "status": "PASSED"
+              },
+              {
+                "class": "dev.chungjungsoo.gptmobile.presentation.ui.chat.StreamingDebugBundleTest",
+                "test": "fortyMiBTwoThousandMessageExportCompletesUnder256MiBHeapWithoutConversationTree",
+                "status": "PASSED"
+              },
+              {
+                "class": "dev.chungjungsoo.gptmobile.presentation.ui.chat.StreamingDebugBundleTest",
+                "test": "emptyDisabledJournalHasTheSameStatusInStreamingAndMemoryBundles",
+                "status": "PASSED"
+              }
+            ]
+          },
+          {
+            "path": "app/build/test-results/diagnosticHeapRecovery/TEST-dev.chungjungsoo.gptmobile.data.diagnostics.StagedDiagnosticCaptureHeapTest.xml",
+            "configured_heap_mib": 64,
+            "tests": 1,
+            "failures": 0,
+            "errors": 0,
+            "skipped": 0,
+            "cases": [
+              {
+                "class": "dev.chungjungsoo.gptmobile.data.diagnostics.StagedDiagnosticCaptureHeapTest",
+                "test": "streamsAndResumesHistoryLargerThanHeapWithIndependentFailure",
+                "status": "PASSED"
+              }
+            ]
+          }
         ]
+      },
+      "required_pending_jobs": [],
+      "additional_audit": {
+        "run_id": 42236629917,
+        "job_id": 127955827343,
+        "status": "PASSED",
+        "last_observed_at": "2026-11-06T15:23:33Z",
+        "current_step": "COMPLETE",
+        "completed": [
+          "preflight",
+          "setup",
+          "production generation and compilation",
+          "unit compilation",
+          "full unit suite:6992 passed,5 heap-only skipped,0 failures/errors",
+          "debug APK build"
+        ],
+        "remaining": [],
+        "independent_source_tree": "40dfdf135c5242a6944ac24894c52a453b5d7610",
+        "coverage_note": "Main PR full unit, Room schemas, 256MiB/64MiB heap, lint and full APK/package gates passed; UI review also passed benchmark compilation. Remaining audit work repeats covered behavior; its overall workflow remains explicitly pending.",
+        "completed_at": "2026-11-06T15:45:39Z"
       }
     },
     "live_acceptance": {
@@ -212,18 +525,162 @@
     }
   },
   "publication": {
-    "state": "DRAFT_PR_OPEN",
+    "state": "DRAFT_PR_EXPANDED_SOURCE_READY_FOR_PUBLICATION",
     "branch": "fix/diagnostic-workflow-evidence-2026-11-06",
     "target": "main",
     "pull_request": 806,
     "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/806",
-    "previously_published_head": "2ea2e8b9ff14b0ea74fe72bc26858fbeb2bcbf55",
-    "release_requested": false
+    "previously_published_head": "2b6d65925723351d2288ca53a811653c2cd85378",
+    "release_requested": false,
+    "head_sha": "3ef12e8798f7ff11fe7e18e1761b254d63e70c27",
+    "local_tree_matches_remote": false,
+    "working_tree_clean": false,
+    "pull_request_mergeable": true,
+    "validation_summary_updated": true,
+    "historical_ci_source": "2b6d65925723351d2288ca53a811653c2cd85378",
+    "historical_review_apk_url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/42236629849/artifacts/13517440280",
+    "tree_sha": "d5773844e0822aa6351980a9e480937d1d4f5fa5"
   },
   "review": [
     "Fixed export checkpoint-value race found during cross-review.",
     "Weak identity cache keys avoid retaining discarded oversized tool bodies.",
     "Mixed cached/local/mocked observations cannot satisfy remote transport qualification.",
-    "The 24-finding report distinguishes new repairs, existing acceptance contracts, and live-environment qualification."
-  ]
+    "The 24-finding report distinguishes new repairs, existing acceptance contracts, and live-environment qualification.",
+    "Preserved concurrently added source-evidence workflow by fast-forwarding b84e310b; application/gateway working edits were not overwritten. PR prose is not authority to release.",
+    {
+      "concurrent_source_repair": {
+        "head": "3ef12e8798f7ff11fe7e18e1761b254d63e70c27",
+        "status": "INTEGRATED_HOST_VERIFIED",
+        "scope": [
+          "stale-ref negative observations",
+          "fixture branch selection",
+          "bounded tag commit view",
+          "typed graph outage",
+          "result recovery"
+        ],
+        "local_edits_preserved": true
+      }
+    },
+    "Integrated concurrent repair at 3ef12e879 without overwriting local application or gateway changes; retained stale-ref recovery, disposable fixture selection, typed graph availability and bounded tag continuation.",
+    "Closed compound-request acceptance, lost readback, incidental-argument mutation replay, comment precondition identity and missing encrypted acceptance after restart gaps during independent review.",
+    "Protected startup tracking preference revision and captured off-main preflight event time against delayed writes after chat deletion.",
+    "Combined retention regression exposed long-pointer fragmentation; corrected complete fragment budgeting within the same recovery-page ceiling.",
+    "Temporary source-review workflow was intentionally removed by the concurrent source repair and remains removed; canonical required checks are unchanged."
+  ],
+  "checkpoint_updated_at": "2026-11-06T17:41:26.927449+00:00",
+  "merge_request": {
+    "user_instruction": "Fix, and merge to main",
+    "expected_head_sha": "3ef12e8798f7ff11fe7e18e1761b254d63e70c27",
+    "expected_base_sha": "e1c85e10370d0e40f80e68c6875656117fdc5ffa",
+    "target": "main",
+    "pr": 806,
+    "authorized": true,
+    "live_main_protected": false,
+    "live_rulesets": [],
+    "merge_method": "merge",
+    "readiness_required_run": "Refresh on expanded published head after final ready_for_review",
+    "draft": true,
+    "current_required_run": null,
+    "superseded_edit_run": 42250654384,
+    "superseded_edit_run_status": "CANCELLED_BY_READY_EVENT",
+    "reviews": [],
+    "mergeable": true,
+    "mergeable_state": "unstable",
+    "source_head_unchanged": true,
+    "source_base_unchanged": true,
+    "hold_reason": "Publish expanded combined source, require all fresh applicable checks and revalidate head/base before authorized merge."
+  },
+  "expanded_work_packages": [
+    {
+      "id": "gateway_reliability_and_model_capacity",
+      "owner": "mcp_connectivity",
+      "state": "IMPLEMENTED_PENDING_FRESH_ANDROID_CI"
+    },
+    {
+      "id": "github_validation_graph_and_task_verification",
+      "owner": "workflow_completion",
+      "state": "IMPLEMENTED_PENDING_FRESH_ANDROID_CI"
+    },
+    {
+      "id": "durable_result_retention",
+      "owner": "diagnostic_persistence",
+      "state": "IMPLEMENTED_PENDING_FRESH_ANDROID_CI"
+    },
+    {
+      "id": "android_io_rendering_and_unified_trace",
+      "owner": "root",
+      "state": "IMPLEMENTED_PENDING_FRESH_ANDROID_CI"
+    }
+  ],
+  "expanded_validation": {
+    "gateway_diagnostic_delivery_protocol": {
+      "status": "PASSED",
+      "tests": 36,
+      "scope": "Actual diagnostic middleware, delivery, redaction and protocol tests; may overlap gateway suite."
+    },
+    "gateway_server_focused": {
+      "status": "PASSED",
+      "tests": 81,
+      "scope": "Actual Python source, real HTTP fixtures, selected-model capacity and durable disconnect jobs. Concurrent Android merge changed no Python."
+    },
+    "gateway_kotlin_host": {
+      "status": "PASSED",
+      "tests": 73,
+      "scope": "Combined actual gateway, health, capacity, diagnostics and quota sources with real Ktor/OkHttp; Android and storage boundaries isolated."
+    },
+    "retention_host": {
+      "status": "PASSED",
+      "tests": 45,
+      "heap_mib": 256,
+      "scope": "Combined actual retention, journal, protected receipt, migration and stress source with explicit platform boundaries."
+    },
+    "workflow_focused": {
+      "status": "PASSED",
+      "tests": 78,
+      "scope": "Combined acceptance, restart, ownership, graph, circuit, ref-admission, lifecycle and branch-transition behavior."
+    },
+    "workflow_http": {
+      "status": "PASSED",
+      "tests": 5,
+      "scope": "Exact production native/write/request methods with host adapters; one-POST unknown outcomes, typed rejection, PR state PATCH and fixture recovery from prior HTTP 404."
+    },
+    "kotlin_format": {
+      "status": "PASSED",
+      "paths": 140,
+      "scope": "All changed Kotlin files plus final integration-file formatting."
+    },
+    "ordinary_facade_schema": {
+      "status": "PASSED",
+      "tests": 1,
+      "utf8_bytes": 2991,
+      "estimated_tokens": 997,
+      "facades": 3,
+      "heap_mib": 256,
+      "gate": "Existing under-1000 estimated-token assertion unchanged; actual merged tool definitions, catalog and estimator compiled."
+    },
+    "canonical_fast": {
+      "status": "PASSED_FINAL_COMBINED_SOURCE",
+      "tests": 329,
+      "command": "PYTHONPATH=<locked gateway dependencies> bash scripts/validate-local.sh fast",
+      "scope": "Host script tests, CI policy, dependency catalog, secrets, Android regex/resources and whitespace. Device fixture logs are not real physical measurements."
+    },
+    "fresh_android_ci": {
+      "status": "PENDING_EXPANDED_SOURCE_PUBLICATION",
+      "required": "Current-head Required verification, complete unit/heap suite, Android lint, repository contracts, review APK and benchmark compilation, CodeQL and API 34/API 36 acceptance."
+    },
+    "android_io_and_rendering": {
+      "status": "AWAITING_ANDROID_CI",
+      "scope": "Actual Robolectric preference/directory/startup/preflight tests and Compose status fixture; physical target remains unmeasured."
+    },
+    "physical_performance": {
+      "status": "NOT_MEASURED",
+      "targets": [
+        "Defined-scenario jank below 1%",
+        "No application-caused StrictMode reads",
+        "Affected port-8090 deployment recovery",
+        "Verified authorized repository modification through running app"
+      ]
+    }
+  },
+  "snapshot_note": "This repository checkpoint precedes publication of the expanded repair. The validation section records the earlier 2b6d6592 patch; expanded_validation identifies combined-source host results. Exact final published-source CI and merge receipts are retained in PR #806 and the engineering task checkpoint. No physical result is inferred from host or emulator checks."
 }

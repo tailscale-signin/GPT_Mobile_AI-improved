@@ -15,10 +15,10 @@ import kotlinx.serialization.json.put
 internal object LocalRuntimeIncidentHistory {
     private val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO)
 
-    @Volatile private var directory: File? = null
+    @Volatile private var directory: Lazy<File>? = null
     private val persistenceFailures = java.util.concurrent.atomic.AtomicLong()
     fun initialize(context: Context) {
-        directory = File(context.noBackupFilesDir, "local-runtime-incidents")
+        directory = lazy { File(context.noBackupFilesDir, "local-runtime-incidents") }
     }
 
     fun record(event: String, fields: Map<String, String> = emptyMap()) {
@@ -45,8 +45,9 @@ internal object LocalRuntimeIncidentHistory {
     }
 
     @Synchronized private fun persist(row: String) {
-        val folder = directory ?: return
+        val location = directory ?: return
         runCatching {
+            val folder = location.value
             check(folder.isDirectory || folder.mkdirs())
             RandomAccessFile(File(folder, "history.lock"), "rw").use { lock ->
                 lock.channel.lock().use {
@@ -67,9 +68,9 @@ internal object LocalRuntimeIncidentHistory {
 
     fun capture(): RuntimeIncidentCapture {
         val capturedAt = System.currentTimeMillis()
-        val folder = directory ?: return RuntimeIncidentCapture("UNAVAILABLE", capturedAt, emptyList(), persistenceFailures.get())
+        val location = directory ?: return RuntimeIncidentCapture("UNAVAILABLE", capturedAt, emptyList(), persistenceFailures.get())
         return runCatching {
-            RuntimeIncidentCapture(if (persistenceFailures.get() > 0) "PARTIAL" else "AVAILABLE", capturedAt, readSnapshot(folder), persistenceFailures.get())
+            RuntimeIncidentCapture(if (persistenceFailures.get() > 0) "PARTIAL" else "AVAILABLE", capturedAt, readSnapshot(location.value), persistenceFailures.get())
         }.getOrElse { RuntimeIncidentCapture("FAILED", capturedAt, emptyList(), persistenceFailures.get()) }
     }
 

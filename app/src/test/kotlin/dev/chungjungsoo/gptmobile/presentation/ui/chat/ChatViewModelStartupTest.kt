@@ -138,6 +138,43 @@ class ChatViewModelStartupTest {
         assertTrue(model.loadingStates.value.all { it == ChatViewModel.LoadingState.Idle })
     }
 
+    @Test fun rejectedFreeProfileShowsItsNoticeBeforeOffMainDiagnosticPersistenceCompletes() = runTest(dispatcher) {
+        StartupRecoveryGate.start(backgroundScope) {}
+        val caller = Thread.currentThread()
+        val entered = CompletableDeferred<Thread>()
+        val releaseStorage = java.util.concurrent.CountDownLatch(1)
+        val folder = java.nio.file.Files.createTempDirectory("preflight-thread").toFile()
+        try {
+            dev.chungjungsoo.gptmobile.data.free.FreeProviderDiagnostics.initialize {
+                entered.complete(Thread.currentThread())
+                check(releaseStorage.await(10, java.util.concurrent.TimeUnit.SECONDS))
+                java.io.File(folder, "failures.json")
+            }
+            val model = createViewModel(combined = false)
+            val profile = profiles.first().copy(
+                apiUrl = dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.OPENCODE.apiUrl,
+                compatibleType = dev.chungjungsoo.gptmobile.data.model.ClientType.FREE
+            )
+            val reject = ChatViewModel::class.java.getDeclaredMethod("rejectUnavailableFreeProfile", PlatformV2::class.java).apply { isAccessible = true }
+            assertEquals(true, reject.invoke(model, profile))
+            assertTrue(model.freeProviderNotice.value.orEmpty().contains("Your draft and conversation are kept"))
+            verify(exactly = 0) { coordinator.start(any()) }
+            val storageThread = withContext(Dispatchers.IO) { withTimeout(10_000) { entered.await() } }
+            assertNotEquals(caller, storageThread)
+            releaseStorage.countDown()
+            val saved = withContext(Dispatchers.IO) { dev.chungjungsoo.gptmobile.data.free.FreeProviderDiagnostics.snapshot(7) }
+            assertEquals(1, saved.size)
+            assertEquals(profile.uid, saved.single().profileUid)
+            assertEquals(7, saved.single().chatId)
+            assertEquals("preflight", saved.single().stage)
+        } finally {
+            releaseStorage.countDown()
+            clearViewModels()
+            withContext(Dispatchers.IO) { dev.chungjungsoo.gptmobile.data.free.FreeProviderDiagnostics.clear() }
+            folder.deleteRecursively()
+        }
+    }
+
     @Test fun freshCombinedChatHandlesImmediateEmptyRunEmission() = runTest(dispatcher) {
         StartupRecoveryGate.start(backgroundScope) {}
         val model = createViewModel(chatId = 0)

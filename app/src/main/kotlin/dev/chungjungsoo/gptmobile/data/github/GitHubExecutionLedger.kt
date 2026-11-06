@@ -42,7 +42,7 @@ internal object GitHubExecutionLedger {
         val states = receipts.values.groupingBy(::receiptState).eachCount()
         val uncertain = receipts.filterValues { receiptState(it) == ReceiptState.UNKNOWN_OUTCOME }
         val proofs = receipts.mapNotNull { (id, receipt) ->
-            if (isCommitReconciliation(receipt)) reconciliationKey(receipt)?.let { it to id } else null
+            if (isNativeReconciliation(receipt)) reconciliationKey(receipt)?.let { it to id } else null
         }.toMap()
         val reconciled = uncertain.mapNotNull { (id, receipt) ->
             reconciliationKey(receipt)?.let(proofs::get)?.let { id to JsonPrimitive(it) }
@@ -123,13 +123,27 @@ internal object GitHubExecutionLedger {
         return JsonObject(checkpoint + limitation + ("execution_ledger" to ledger))
     }
 
-    /** Only the native read-only ref/parent/message/full-tree proof can resolve a lost commit. */
-    private fun isCommitReconciliation(receipt: JsonObject): Boolean {
+    /** Only operation-specific native readback can settle an exact uncertain claim. */
+    private fun isNativeReconciliation(receipt: JsonObject): Boolean {
         if (receipt["trusted"] != JsonPrimitive(true) || receipt["verification_eligible"] == JsonPrimitive(false) || receiptState(receipt) != ReceiptState.COMPLETED) return false
         val arguments = receipt["arguments"] as? JsonObject ?: return false
         val native = if (receipt.text("tool").substringBefore("__") == "github") arguments else GitHubOperationTool.nativeArguments(receipt.text("tool"), arguments) ?: return false
-        if (native.text("action") !in setOf("commit_files", "commit_staged_patch")) return false
         val result = receipt.result() ?: return false
+        if (native.text("action") == "create_branch") {
+            val expected = native.text("expected_head_sha").takeIf { it.matches(Regex("[a-fA-F0-9]{40}")) } ?: return false
+            val branch = runCatching { normalizeGitHubBranch(native.text("branch")) }.getOrNull() ?: return false
+            val ref = result["receipt"] as? JsonObject ?: return false
+            return GitHubEvidenceOrigin.of(receipt) == "LIVE" &&
+                result["reconciled"] == JsonPrimitive(true) &&
+                result["remote_state_verified"] == JsonPrimitive(true) &&
+                result.text("verification") == "REMOTE_REF_AND_EXPECTED_HEAD" &&
+                result.text("head_sha") == expected &&
+                result.text("base_sha") == expected &&
+                result.text("branch") == branch &&
+                ref.text("ref") == "refs/heads/$branch" &&
+                (ref["object"] as? JsonObject)?.text("sha") == expected
+        }
+        if (native.text("action") !in setOf("commit_files", "commit_staged_patch")) return false
         val sha = result.text("sha")
         return result["reconciled"] == JsonPrimitive(true) &&
             result.text("verification") == "REMOTE_REF_PARENT_MESSAGE_AND_COMPLETE_TREE" &&

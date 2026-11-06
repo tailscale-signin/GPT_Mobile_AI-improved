@@ -248,12 +248,42 @@ class GitHubResultViewsStressTest {
                 put("receipt", "confirmed")
             }
         )
-        val result = GitHubResultViews(capacityBytes = 100).present("scope", "github_commit", "github_commit", AgentToolResult("write", source, false))
-        assertTrue(result.isError)
-        assertEquals("RETAINED_RESULT_CAPACITY", result.errorCode)
+        val receipt = buildJsonObject { put("accepted_mutations", 1) }
+        val original = AgentToolResult("write", source, false, executionReceipt = receipt)
+        val result = GitHubResultViews(capacityBytes = 100).present("scope", "github_commit", "github_commit", original)
+        assertFalse(result.isError)
+        assertEquals(null, result.errorCode)
+        assertEquals(original.dispatched, result.dispatched)
         assertEquals(source, result.retainedContent)
+        assertEquals(JsonPrimitive(1), result.executionReceipt?.get("accepted_mutations"))
         assertEquals(JsonPrimitive(true), result.executionReceipt?.get("upstream_completed"))
         assertEquals(JsonPrimitive("COMPLETED"), result.executionReceipt?.get("upstream_execution_state"))
         assertEquals(JsonPrimitive("CAPACITY_REJECTED"), result.executionReceipt?.get("presentation_state"))
+        assertEquals(JsonPrimitive("RETAINED_RESULT_CAPACITY"), result.executionReceipt?.get("presentation_error_code"))
+        assertEquals(JsonPrimitive("UNAVAILABLE"), result.executionReceipt?.get("saved_view_persistence"))
+        assertEquals(JsonPrimitive(true), result.executionReceipt?.get("original_available_for_retention"))
+    }
+
+    @Test fun presentationCapacityKeepsARefusedUpstreamOutcomeAndDoesNotInventADispatch() {
+        val source = ToolResultContent.Json(buildJsonObject { put("message", "Access denied") })
+        val original = AgentToolResult(
+            "refused",
+            source,
+            true,
+            dispatched = false,
+            errorCode = "GITHUB_WRITE_BLOCKED",
+            executionReceipt = buildJsonObject { put("accepted_mutations", 0) }
+        )
+        val result = GitHubResultViews(capacityBytes = 100).present("scope", "github_commit", "github_commit", original)
+        assertTrue(result.isError)
+        assertFalse(result.dispatched)
+        assertEquals("GITHUB_WRITE_BLOCKED", result.errorCode)
+        assertEquals(source, result.retainedContent)
+        assertEquals(JsonPrimitive(0), result.executionReceipt?.get("accepted_mutations"))
+        assertEquals(JsonPrimitive(false), result.executionReceipt?.get("upstream_completed"))
+        assertEquals(JsonPrimitive("FAILED"), result.executionReceipt?.get("upstream_execution_state"))
+        assertEquals(JsonPrimitive("GITHUB_WRITE_BLOCKED"), result.executionReceipt?.get("upstream_error_code"))
+        assertEquals(JsonPrimitive("RETAINED_RESULT_CAPACITY"), result.executionReceipt?.get("presentation_error_code"))
+        assertEquals(JsonPrimitive("UNAVAILABLE"), result.executionReceipt?.get("saved_view_persistence"))
     }
 }

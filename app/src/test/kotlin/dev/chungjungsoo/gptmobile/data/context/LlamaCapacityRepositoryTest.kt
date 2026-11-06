@@ -29,6 +29,9 @@ class LlamaCapacityRepositoryTest {
                     assertEquals("false", request.url.parameters["autoload"])
                     if (request.url.encodedPath == "/props") {
                         respond("restricted", io.ktor.http.HttpStatusCode.Forbidden, headersOf("X-Gateway-Instance-ID", "1".repeat(32)))
+                    } else if (request.url.encodedPath == "/v1/gateway/capabilities") {
+                        // Older gateways do not expose selected-model capacity yet.
+                        respond("unsupported", io.ktor.http.HttpStatusCode.NotFound)
                     } else {
                         assertEquals("/v1/chat/completions", request.url.encodedPath)
                         assertEquals(null, request.headers["X-Gateway-Job-ID"])

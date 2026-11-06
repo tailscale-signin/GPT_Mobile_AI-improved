@@ -114,7 +114,7 @@ class GitHubStatusDashboardRenderTest {
         compose.onNodeWithText("Checks need attention").assertIsDisplayed()
         compose.onNodeWithContentDescription("Refresh repository status").performClick()
         compose.onNodeWithContentDescription("Refresh gateway").performScrollTo().performClick()
-        compose.onNodeWithText("Live").assertIsDisplayed()
+        compose.onNodeWithText("Connected").assertIsDisplayed()
         compose.onNodeWithText("Not measured", useUnmergedTree = true).performScrollTo().assertIsDisplayed()
         val unknownNode = compose.onNodeWithText("Not measured", useUnmergedTree = true).fetchSemanticsNode()
         compose.runOnIdle {

@@ -46,7 +46,7 @@ internal object GitHubRequestCompletion {
                 )
     }
 
-    fun requirements(task: String): List<String> = task.lineSequence().map(String::trim).filter { it.isNotBlank() && it !in setOf("Acceptance criteria:", "Request details:") && !it.startsWith("Budget:") && !it.startsWith("[github-workflow-preset:") }.map { it.removePrefix("- ") }.toList().ifEmpty { listOf("Requested answer") }
+    fun requirements(task: String): List<String> = GitHubTaskContinuity.request(task).lineSequence().map(String::trim).filter { it.isNotBlank() && it !in setOf("Acceptance criteria:", "Request details:") && !it.startsWith("Budget:") && !it.startsWith("[github-workflow-preset:") }.map { it.removePrefix("- ") }.toList().ifEmpty { listOf("Requested answer") }
     fun id(requirement: String): String = GitHubEvidenceBook.digest(requirement).take(24)
 
     private fun latestAttempts(receipts: Map<String, JsonObject>): Map<String, Int> = buildMap {
@@ -123,7 +123,7 @@ internal object GitHubRequestCompletion {
             ?: assessments.first()
     }
 
-    fun evaluate(task: String, claims: List<JsonObject>, answer: JsonObject, receipts: Map<String, JsonObject>): JsonObject {
+    fun evaluate(task: String, claims: List<JsonObject>, answer: JsonObject, receipts: Map<String, JsonObject>, now: Long = System.currentTimeMillis()): JsonObject {
         val verified = claims.isNotEmpty() && claims.all { it["status"] in setOf(JsonPrimitive("VERIFIED"), JsonPrimitive("INFERRED")) }
         val requirements = requirements(task)
         val coverage = (answer["requirement_claims"] as? JsonObject).orEmpty()
@@ -132,7 +132,10 @@ internal object GitHubRequestCompletion {
             val selected = (coverage[id(requirement)] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.intOrNull }
             val covered = if (requirements.size == 1) verified else selected.isNotEmpty() && selected.all { claims.getOrNull(it)?.get("status") in setOf(JsonPrimitive("VERIFIED"), JsonPrimitive("INFERRED")) }
             val acceptance = (answer["acceptance"] as? JsonObject)?.get(id(requirement)) as? JsonObject
-            val assessment = acceptance?.let { engineeringAcceptance(it, receipts) }
+            val assessment = acceptance?.let {
+                GitHubOperationAcceptance.evaluate(requirement, it, receipts, now)?.let { operation -> Assessment(operation.state, operation.reason) }
+                    ?: engineeringAcceptance(it, receipts)
+            }
             val implementedAndTested = assessment?.state == GitHubAcceptanceLedger.State.PASS
             val passed = covered && !unanswered && (informational(task) || implementedAndTested)
             val state = when {
@@ -169,6 +172,8 @@ internal object GitHubRequestCompletion {
                 )
                 acceptance?.get("implementation_receipts")?.let { put("implementation_receipts", it) }
                 acceptance?.get("test_receipts")?.let { put("test_receipts", it) }
+                acceptance?.get("operation_receipts")?.let { put("operation_receipts", it) }
+                acceptance?.get("verification_receipts")?.let { put("verification_receipts", it) }
             }
         }
         val complete = rows.all { it["status"] == JsonPrimitive("PASSED") }
@@ -178,7 +183,7 @@ internal object GitHubRequestCompletion {
             put("task_outcome", if (complete) "COMPLETED" else "PARTIAL")
             put("requirements", JsonArray(rows))
             put("remaining_requirements", JsonArray(rows.filter { it["status"] != JsonPrimitive("PASSED") }))
-            put("completion_scope", if (informational(task)) "Answer coverage" else "Engineering acceptance requires implementation and revision-bound test evidence")
+            put("completion_scope", if (informational(task)) "Answer coverage" else "Operation-specific remote state or implementation and revision-bound test evidence, as required by the request")
         }
     }
 }

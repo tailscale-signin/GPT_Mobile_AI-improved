@@ -30,4 +30,21 @@ class GitHubOperationArgumentsTest {
         }
         assertTrue(GitHubOperationArguments.errors("github_ci", args("""{"action":"definitions","workflow_id":".github/workflows/ci.yml"}""")).isEmpty())
     }
+
+    @Test fun operationSpecificFieldsCannotBeSilentlyIgnoredOrSendEmptyUpdates() {
+        val head = "a".repeat(40)
+        for ((operation, value) in listOf(
+            "github_pr" to """{"action":"update","pull_number":7,"expected_head_sha":"$head"}""",
+            "github_pr" to """{"action":"merge","pull_number":7,"expected_head_sha":"$head","title":"ignored"}""",
+            "github_pr" to """{"action":"create","title":"topic","head":"main","base":"main"}""",
+            "github_issue" to """{"action":"update","issue_number":7,"expected_updated_at":"now"}""",
+            "github_ci" to """{"action":"dispatch","workflow_id":"ci.yml","ref":"main","expected_head_sha":"$head","run_id":7}""",
+            "github_ci" to """{"action":"rerun","run_id":7,"inputs":{"publish":"true"}}""",
+            "github_release" to """{"action":"create_tag","tag_name":"v1"}"""
+        )) {
+            assertTrue(value, GitHubOperationArguments.errors(operation, args(value)).isNotEmpty())
+        }
+        assertTrue(GitHubOperationArguments.errors("github_pr", args("""{"action":"update","pull_number":7,"expected_head_sha":"$head","state":"closed"}""")).isEmpty())
+        assertTrue(GitHubOperationArguments.errors("github_issue", args("""{"action":"update","issue_number":7,"expected_updated_at":"now","body":""}""")).isEmpty())
+    }
 }

@@ -49,6 +49,9 @@ internal class GitHubDispatchAccounting(val forceLiveReads: Boolean = false) : A
         if (mutation || mutations == 0) lastStatus = status
         if (!mutation) return
         when (status) {
+            // A timeout is not evidence that the server rejected the write before it
+            // took effect. The execution journal makes the same distinction.
+            408 -> Unit
             in 200..299 -> {
                 unknown--
                 accepted++

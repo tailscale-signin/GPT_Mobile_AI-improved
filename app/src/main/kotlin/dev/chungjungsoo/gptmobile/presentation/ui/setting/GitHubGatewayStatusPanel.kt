@@ -79,8 +79,11 @@ internal fun GitHubGatewayStatusContent(state: GatewayDashboardState, now: Long,
     var selectedDevice by remember(state.target?.identity) { mutableStateOf<String?>(null) }
     var selectedActivity by remember(state.target?.identity) { mutableStateOf<String?>(null) }
     val badge = when {
+        state.phase == GatewayDashboardPhase.OFFLINE -> "Offline"
+        state.phase == GatewayDashboardPhase.RECONNECTING -> "Reconnecting"
+        state.phase == GatewayDashboardPhase.DEGRADED -> "Degraded"
         fresh && snapshot?.draining == true -> "Pausing"
-        fresh -> "Live"
+        fresh -> "Connected"
         snapshot != null -> "Saved"
         state.phase == GatewayDashboardPhase.CONNECTING -> "Connecting"
         else -> "Unavailable"
@@ -105,6 +108,7 @@ internal fun GitHubGatewayStatusContent(state: GatewayDashboardState, now: Long,
                 Text(state.message ?: "Connecting…", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 return@Column
             }
+            state.message?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             GitHubStatusMetricPair(
                 { GitHubStatusMetric("Total tokens", measuredCount(snapshot.outputTokens), MaterialTheme.colorScheme.primary, it) },
                 { GitHubStatusMetric("Today", measuredCount(snapshot.days.lastOrNull()?.outputTokens), MaterialTheme.colorScheme.primary, it) }

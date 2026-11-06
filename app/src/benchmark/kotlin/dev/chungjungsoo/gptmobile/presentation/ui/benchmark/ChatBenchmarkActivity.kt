@@ -50,6 +50,10 @@ class ChatBenchmarkActivity : ComponentActivity() {
                     AppLogBenchmarkFixture()
                     return@MaterialTheme
                 }
+                if (intent.getStringExtra("screen") == "gateway-reconnect") {
+                    GatewayReconnectBenchmarkFixture()
+                    return@MaterialTheme
+                }
                 if (intent.getStringExtra("screen") == "settings") {
                     var search by remember { mutableStateOf("") }
                     LazyColumn(Modifier.fillMaxSize().semantics { testTagsAsResourceId = true }.testTag("benchmark_settings")) {

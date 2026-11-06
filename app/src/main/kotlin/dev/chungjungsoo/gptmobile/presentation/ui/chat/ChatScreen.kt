@@ -811,7 +811,7 @@ private fun ChatScreenContent(
         val composerHeight = with(density) { composerHeightPx.toDp() }
 
         GlassBackdropBox(
-            blurEnabled = true,
+            blurEnabled = isIdle && !listState.isScrollInProgress,
             modifier = Modifier
                 .fillMaxSize()
                 .padding(bottom = innerPadding.calculateBottomPadding())

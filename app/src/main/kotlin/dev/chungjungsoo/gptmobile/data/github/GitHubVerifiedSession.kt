@@ -404,15 +404,23 @@ internal class GitHubVerifiedSession(
         // Collector exceptions must propagate unchanged; they are not formatter failures.
         val (text, partial, report) = publication
         emit(ProviderEvent.TextDelta(text))
-        evidence.retainVerdict(JsonObject(report + ("response_delivered" to kotlinx.serialization.json.JsonPrimitive(true))))
-        onPublication(report)
-        val extractionCode = (report["failure_code"] as? kotlinx.serialization.json.JsonPrimitive)?.content?.takeUnless { it == "null" }
-        if (partial) {
+        val delivered = evidence.retainVerdict(
+            JsonObject(
+                report + buildJsonObject {
+                    put("response_delivered", true)
+                    put("response_sha256", GitHubEvidenceBook.digest(text))
+                }
+            )
+        )
+        onPublication(delivered)
+        val unresolved = ((delivered["execution_ledger"] as? JsonObject)?.get("unresolved_remote_outcomes") as? kotlinx.serialization.json.JsonPrimitive)?.content?.toIntOrNull()?.let { it > 0 } == true
+        val extractionCode = (delivered["failure_code"] as? kotlinx.serialization.json.JsonPrimitive)?.content?.takeUnless { it == "null" }
+        if (partial || delivered["completion_verified"] != kotlinx.serialization.json.JsonPrimitive(true)) {
             lifecycle(dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.VERIFICATION_REJECTED)
             emit(
                 ProviderEvent.Failed(
                     originalFailure?.message ?: "Partial response delivered. The requested task remains incomplete; saved receipts and the task checkpoint are available for continuation.",
-                    errorCode = failureCode ?: extractionCode ?: (report["verification_failure"] as? kotlinx.serialization.json.JsonPrimitive)?.content ?: "GITHUB_TASK_INCOMPLETE",
+                    errorCode = if (unresolved) "RECONCILIATION_REQUIRED" else failureCode ?: extractionCode ?: (delivered["verification_failure"] as? kotlinx.serialization.json.JsonPrimitive)?.content ?: "GITHUB_TASK_INCOMPLETE",
                     transportComplete = true,
                     taskOutcome = if (originalFailure?.taskOutcome == "BLOCKED") "BLOCKED" else "PARTIAL",
                     failureDetails = originalFailure?.failureDetails

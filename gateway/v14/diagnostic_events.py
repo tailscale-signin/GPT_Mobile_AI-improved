@@ -50,7 +50,10 @@ NUMBER_ATTRIBUTES = {'status', 'received_bytes', 'sent_bytes', 'queue_ms', 'load
                      'refresh_rate_millihz', 'gc_duration_ms', 'native_heap_bytes'}
 DIGEST_ATTRIBUTES = {'profile_digest', 'model_digest', 'endpoint_digest', 'repository_digest', 'app_revision', 'gateway_revision',
                      'capability_digest', 'runtime_config_digest', 'source_event_digest'}
-BOOL_ATTRIBUTES = {'vendor_log_available', 'source_available', 'client_metadata_accepted', 'truncation_applied'}
+BOOL_ATTRIBUTES = {'vendor_log_available', 'source_available', 'client_metadata_accepted', 'truncation_applied',
+                   'response_headers_received', 'response_headers_sent', 'response_body_completed'}
+ENUM_ATTRIBUTES = {'route': {'chat', 'models', 'readiness', 'liveness', 'capabilities', 'dashboard', 'job', 'engineering', 'other'},
+                   'method': {'GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'}}
 LOSS_REASONS = {'OFFLINE_EVICTED', 'QUEUE_FULL', 'RECORD_REJECTED', 'STORAGE_UNAVAILABLE', 'CAPTURE_INTERRUPTED'}
 
 
@@ -128,6 +131,10 @@ def sanitize_event(value, *, imported=True):
         for field in BOOL_ATTRIBUTES:
             if type(attributes.get(field)) is bool:
                 kept[field] = False if field == 'vendor_log_available' else attributes[field]
+        for field, choices in ENUM_ATTRIBUTES.items():
+            candidate = attributes.get(field)
+            if isinstance(candidate, str) and candidate in choices:
+                kept[field] = candidate
     if kept:
         result['bounded_attributes'] = kept
     # Reserve the server-owned observation/cursor fields before accepting a record.

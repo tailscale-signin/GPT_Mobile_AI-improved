@@ -196,7 +196,7 @@ def cancel(job_id: str):
         return runtime.cancel_gateway_job(job_id)
 
 
-def capabilities():
+def capabilities(model=""):
     build = {"sourceCommit": manifest["sourceCommit"], "manifestVersion": 1, "status": "development"}
     if getattr(sys, 'frozen', False):
         packaged_build = json.loads((Path(__file__).parent / 'build-info.json').read_text(encoding='utf-8'))
@@ -230,14 +230,19 @@ def capabilities():
                                     batchDependencies=True, batchDurableReceipts=True, durableEngineeringJobs=True,
                                     shaBoundMergeApproval=True, engineeringSupervisor=True, repositoryCodeGraph=True,
                                     loopbackBrowserCsrf=config.mode == "loopback", boundedAdmission=True,
-                                    versionedJournal=True, mcpCircuitBreakers=True, supervisedShutdown=True)})
+                                    versionedJournal=True, mcpCircuitBreakers=True, supervisedShutdown=True,
+                                    selectedModelLimits=True)})
+    if model:
+        result['selectedModel'] = engineering.capabilities.selected_model(model)
     return result
 
 
 @app.get("/gateway/capabilities")
 @app.get("/v1/gateway/capabilities")
-def v14_capabilities():
-    return capabilities()
+async def v14_capabilities(model: str = ""):
+    if len(model) > 512 or model != model.strip() or any(ord(c) < 32 for c in model):
+        return JSONResponse({'error': {'code': 'invalid_model_identifier'}}, status_code=400)
+    return await asyncio.to_thread(capabilities, model)
 
 
 @app.get("/gateway/v15")

@@ -64,6 +64,19 @@ class GitHubRefAvailabilityTest {
         gate.requireAvailable("/repos/o/r/git/ref/tags/ref128")
     }
 
+    @Test fun branchHeadRefreshClearsOnlyTheExactBranchObservation() {
+        val gate = GitHubRefAvailability()
+        gate.failed("/repos/o/r/git/ref/heads/feature", 404, "Not found")
+        gate.failed("/repos/o/r/commits/feature", 404, "Not found")
+        gate.failed("/repos/o/r/git/ref/heads/other", 404, "Not found")
+        gate.failed("/repos/o/other/git/ref/heads/feature", 404, "Not found")
+        gate.revalidateBranch("/repos/o/r", "feature")
+        gate.requireAvailable("/repos/o/r/git/ref/heads/feature")
+        assertTrue(runCatching { gate.requireAvailable("/repos/o/r/commits/feature") }.isFailure)
+        assertTrue(runCatching { gate.requireAvailable("/repos/o/r/git/ref/heads/other") }.isFailure)
+        assertTrue(runCatching { gate.requireAvailable("/repos/o/other/git/ref/heads/feature") }.isFailure)
+    }
+
     @Test fun staleCommitStopsCascadingHttpAndExplicitRefreshCanRecover() = runTest {
         var requests = 0
         var restored = false

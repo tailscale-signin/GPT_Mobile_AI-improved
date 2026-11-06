@@ -7,6 +7,9 @@ import io.ktor.client.engine.mock.respond
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
+import java.io.EOFException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -22,6 +25,107 @@ class GatewayDashboardClientTest {
     private fun http(engine: MockEngine) = HttpClient(engine) {
         install(HttpTimeout)
         followRedirects = false
+    }
+
+    @Test fun concurrentReadinessFailuresShareTheRecoveryProbeWithoutCachingCancellation() = runTest {
+        var calls = 0
+        var cancelled = true
+        http(
+            MockEngine {
+                calls++
+                if (cancelled) throw kotlinx.coroutines.CancellationException("route lost")
+                throw java.net.ConnectException("connection refused")
+            }
+        ).use { http ->
+            val client = GatewayDashboardClient(http)
+            assertTrue(runCatching { client.readiness(config, "selected-model") }.exceptionOrNull() is kotlinx.coroutines.CancellationException)
+            assertEquals(1, calls)
+            cancelled = false
+            val results = List(12) { async { runCatching { client.readiness(config, "selected-model") } } }.awaitAll()
+            assertTrue(results.all { it.exceptionOrNull() is java.net.ConnectException })
+            assertEquals(3, calls)
+            client.refresh()
+            assertTrue(runCatching { client.readiness(config, "selected-model") }.isFailure)
+            assertEquals(5, calls)
+        }
+    }
+
+    @Test fun concurrentOfflineReadsShareOneBoundedRetryAndOneStalePoolEviction() = runTest {
+        var calls = 0
+        var evictions = 0
+        http(
+            MockEngine {
+                calls++
+                throw EOFException("unexpected end of stream")
+            }
+        ).use { http ->
+            val client = GatewayDashboardClient(http) { evictions++ }
+            val results = List(12) { async { runCatching { client.read(config) } } }.awaitAll()
+            assertTrue(results.all { it.exceptionOrNull() is EOFException })
+            assertEquals(2, calls)
+            assertEquals(1, evictions)
+            repeat(5) { assertTrue(runCatching { client.read(config) }.isFailure) }
+            assertEquals(2, calls)
+            client.refresh()
+            assertTrue(runCatching { client.read(config) }.isFailure)
+            assertEquals(4, calls)
+            assertEquals(2, evictions)
+        }
+    }
+
+    @Test fun readinessSeparatesAnAliveGatewayFromUnavailableSelectedModelWithoutInference() = runTest {
+        var calls = 0
+        http(
+            MockEngine { request ->
+                calls++
+                assertEquals("GET", request.method.value)
+                assertEquals("/v1/gateway/ready", request.url.encodedPath)
+                assertEquals("selected-model", request.url.parameters["model"])
+                assertEquals("Bearer selected-token", request.headers["Authorization"])
+                assertNull(request.headers["X-Gateway-Management"])
+                respond(readinessFixture("selected-model", ready = false).toString(), HttpStatusCode.ServiceUnavailable)
+            }
+        ).use { http ->
+            val client = GatewayDashboardClient(http)
+            val report = client.readiness(config.copy(extraHeaders = mapOf("X-Gateway-Management" to "never-send")), "selected-model")!!
+            assertFalse(report.ready)
+            assertEquals(false, report.selectedModelAvailable)
+            assertEquals("a".repeat(32), report.instanceId)
+            assertEquals(1, calls)
+        }
+    }
+
+    @Test fun anotherModelsReadinessAndContradictoryStatusAreRejectedWithoutRetry() = runTest {
+        for ((model, status) in listOf("other-model" to HttpStatusCode.OK, "selected-model" to HttpStatusCode.ServiceUnavailable)) {
+            var calls = 0
+            http(
+                MockEngine {
+                    calls++
+                    respond(readinessFixture(model).toString(), status)
+                }
+            ).use { http ->
+                assertTrue(runCatching { GatewayDashboardClient(http).readiness(config, "selected-model") }.isFailure)
+                assertEquals(1, calls)
+            }
+        }
+        val valid = readinessFixture("selected-model")
+        val capabilities = valid["capabilities"] as JsonObject
+        for (malformed in listOf(
+            JsonObject(valid + ("schemaVersion" to JsonPrimitive("1"))),
+            JsonObject(valid + ("instanceId" to JsonPrimitive("${"a".repeat(32)}\n"))),
+            JsonObject(valid + ("capabilities" to JsonObject(capabilities + ("selectedModelDigest" to JsonPrimitive(dev.chungjungsoo.gptmobile.data.research.researchHash("selected-model") + "\n")))))
+        )) {
+            var calls = 0
+            http(
+                MockEngine {
+                    calls++
+                    respond(malformed.toString())
+                }
+            ).use { http ->
+                assertTrue(runCatching { GatewayDashboardClient(http).readiness(config, "selected-model") }.isFailure)
+                assertEquals(1, calls)
+            }
+        }
     }
 
     @Test fun usesOnlyTheSelectedConnectionAndReadOnlyDashboardRoute() = runTest {

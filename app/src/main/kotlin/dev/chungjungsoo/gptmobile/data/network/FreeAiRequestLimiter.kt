@@ -56,12 +56,16 @@ class FreeAiRequestLimiter(
         _revision.update { it + 1 }
     }
 
-    private var storage: java.io.File? = null
+    private var storageProvider: Lazy<java.io.File>? = null
+    private val storage: java.io.File? get() = storageProvider?.value
     private var restored = false
     private var awaitingExplicitLoad = false
 
-    @Synchronized fun initialize(file: java.io.File, requireExplicitLoad: Boolean = false) {
-        storage = file
+    @Synchronized fun initialize(file: java.io.File, requireExplicitLoad: Boolean = false) = initialize({ file }, requireExplicitLoad)
+
+    /** Register before startup admission, without resolving an Android directory on Main. */
+    @Synchronized fun initialize(file: () -> java.io.File, requireExplicitLoad: Boolean = true) {
+        storageProvider = lazy(file)
         restored = false
         awaitingExplicitLoad = requireExplicitLoad
         buckets.clear()

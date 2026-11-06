@@ -43,7 +43,7 @@ internal class ModelRequestPreparation(client: NetworkClient) {
         kotlinx.coroutines.currentCoroutineContext()[WorkerRequestBudget]?.preflight()
         kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestAuthorizationGuard]?.validate?.invoke()
         dev.chungjungsoo.gptmobile.data.context.ProviderMessageValidator.validate(payload, config.intentionalAssistantPrefill)
-        val discovered = if (config.providerType == "LLAMA") llama.discover(config, model) else null
+        val discovered = if (config.providerType == "LLAMA") llama.discover(config, model) else llama.discoverGateway(config, model)
         if (config.providerType == "LLAMA" && discovered == null) {
             val diagnostics = llamaHealth.inspect(config, model)
             dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("LocalConnection", "LLAMA_READINESS · ${diagnostics.summary()}", "W")
@@ -105,7 +105,7 @@ internal class ModelRequestPreparation(client: NetworkClient) {
         val measured = RequestAdmission.estimate(finalPayload)
         dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
             "Admission",
-            "OUTPUT_ALLOWANCE · role=${config.requestRole} · tokens=${finalAllowance.tokens} · source=${allowance.source} · providerCeiling=${snapshot.outputTokens ?: "unknown"} · providerConfirmed=${snapshot.provenance == CapacityProvenance.VERIFIED_ROUTE}"
+            "OUTPUT_ALLOWANCE · role=${config.requestRole} · tokens=${finalAllowance.tokens} · source=${allowance.source} · providerCeiling=${discovered?.outputTokens ?: "unknown"} · effectiveCeiling=${snapshot.outputTokens ?: "unknown"} · providerConfirmed=${discovered?.provenance == CapacityProvenance.VERIFIED_ROUTE && discovered?.outputTokens != null}"
         )
         val toolSchema = bounded["tools"]?.toString().orEmpty()
         val toolNames = wireToolNames(bounded)

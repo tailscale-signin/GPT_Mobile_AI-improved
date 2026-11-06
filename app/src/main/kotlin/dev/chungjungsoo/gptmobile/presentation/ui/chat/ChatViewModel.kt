@@ -630,7 +630,14 @@ class ChatViewModel @Inject constructor(
 
     private fun rejectUnavailableFreeProfile(profile: PlatformV2): Boolean {
         val outcome = dev.chungjungsoo.gptmobile.data.network.FreeProviderPreflight.check(profile) ?: return false
-        dev.chungjungsoo.gptmobile.data.free.FreeProviderDiagnostics.recordPreflight(profile, outcome, _chatRoom.value.id, !_chatRoom.value.isTemporary)
+        val room = _chatRoom.value
+        val chatId = room.id
+        val persistent = !room.isTemporary
+        val capturedProfile = profile.copy()
+        val startedAt = System.currentTimeMillis()
+        viewModelScope.launch(Dispatchers.IO) {
+            dev.chungjungsoo.gptmobile.data.free.FreeProviderDiagnostics.recordPreflight(capturedProfile, outcome, chatId, persistent, startedAt)
+        }
         _freeProviderNotice.value = "${profile.name}: ${outcome.message} Your draft and conversation are kept."
         return true
     }

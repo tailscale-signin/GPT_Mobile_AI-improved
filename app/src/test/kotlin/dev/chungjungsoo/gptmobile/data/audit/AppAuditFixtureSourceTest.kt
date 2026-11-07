@@ -59,6 +59,8 @@ class AppAuditFixtureSourceTest {
         val result = source.execute(entry, context())
         assertEquals(AppAuditOutcome.BLOCKED, result.outcome)
         assertEquals("AUDIT_PROBE_CHANGED", result.reasonCode)
+        assertEquals(AppAuditEvidenceKind.LOCAL_CONTRACT, result.evidenceKind)
+        assertTrue(result.configChanged)
         assertEquals(0, executions)
     }
 

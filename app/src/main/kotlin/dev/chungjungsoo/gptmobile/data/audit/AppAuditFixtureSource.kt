@@ -31,7 +31,7 @@ internal abstract class AppAuditFixtureSource(
     override suspend fun execute(entry: AppAuditPlanEntry, context: AppAuditProbeContext): AppAuditObservation {
         context.ensureActive()
         val fixture = fixtures.singleOrNull { it.id == entry.probeId && entry == definition(it) }
-            ?: return AppAuditObservation(AppAuditOutcome.BLOCKED, "AUDIT_PROBE_CHANGED", stage = "fixture")
+            ?: return AppAuditObservation(AppAuditOutcome.BLOCKED, "AUDIT_PROBE_CHANGED", stage = "fixture", evidenceKind = entry.evidenceKind, configChanged = true)
         val assertions = AppAuditAssertions()
         return try {
             fixture.exercise(assertions)

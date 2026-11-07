@@ -1982,16 +1982,20 @@ def register_remote_handoff(tool_call_id, job_id):
 
 
 def extract_tool_result_call_ids(messages):
+    """Return only the current result-return suffix, after role normalization.
+
+    Earlier completed exchanges are conversation evidence, not a continuation
+    of their old job. A trailing duplicate result still selects its original
+    job so terminal and single-flight guards can prevent automatic replay.
+    """
     result = []
-    for message in messages or []:
-        if not isinstance(message, dict):
-            continue
-        if message.get("role") != "tool":
-            continue
+    for message in reversed(messages or []):
+        if not isinstance(message, dict) or message.get("role") != "tool":
+            break
         call_id = message.get("tool_call_id")
         if call_id:
             result.append(str(call_id))
-    return result
+    return list(reversed(result))
 
 
 def resolve_root_job_id(incoming_payload, request_headers=None):
@@ -2001,7 +2005,7 @@ def resolve_root_job_id(incoming_payload, request_headers=None):
     Priority:
       1. X-Gateway-Job-ID
       2. gateway_job_id vendor body field
-      3. role=tool call IDs from a previous gateway handoff
+      3. trailing role=tool call IDs from the current gateway handoff
       4. unique active/waiting root job for the same substantive task
     """
     cleanup_remote_handoff_index()
@@ -2044,7 +2048,9 @@ def resolve_root_job_id(incoming_payload, request_headers=None):
         raise GatewayContractError("The saved gateway job is unavailable on this connection. Reconnect to its original gateway; no new request was started.",
                                    "gateway_job_unavailable", 404, details={"job_id": explicit, "failed_stage": "tool_continuation", "dispatch_state": "not_dispatched"})
 
-    messages = incoming_payload.get("messages", [])
+    # Late instruction messages are consolidated before finding the dialog
+    # suffix; they cannot disguise a duplicate result return as a new task.
+    messages = normalize_backend_messages(incoming_payload.get("messages", []))
 
     for call_id in reversed(extract_tool_result_call_ids(messages)):
         with remote_handoff_lock:

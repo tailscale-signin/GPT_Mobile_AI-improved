@@ -238,6 +238,79 @@ class JournalTests(unittest.TestCase):
                     self.assertNotIn('_server_isolation_new', proof)
                     self.assertEqual(2, backend.call_count)
 
+    def test_historical_tool_ids_do_not_bind_new_turns_but_terminal_returns_remain_fenced(self):
+        import requests
+        call = {'id': 'historical-client-call', 'type': 'function',
+                'function': {'name': 'github_ci__github_api', 'arguments': '{"action":"workflows"}'}}
+        tool_message = {'role': 'assistant', 'content': None, 'tool_calls': [call]}
+        tool_result = {'role': 'tool', 'tool_call_id': call['id'], 'content': 'Two workflows found'}
+        answer = {'choices': [{'index': 0, 'message': {'role': 'assistant', 'content': 'Verified workflow reply'},
+                               'finish_reason': 'stop'}]}
+        replies = iter([{'choices': [{'index': 0, 'message': tool_message, 'finish_reason': 'tool_calls'}]}])
+
+        def model_round(payload, *args, **kwargs):
+            response = requests.Response()
+            response.status_code = 200
+            response._content = json.dumps(next(replies, answer)).encode()
+            return response, 1
+
+        headers = {'X-Gateway-Request-Role': 'github-primary', 'X-Gateway-Delegated-Worker': 'true'}
+        body = {'model': 'fixture', 'stream': False, 'max_tokens': 128,
+                'messages': [{'role': 'user', 'content': 'Inspect workflow history'}],
+                'tools': [{'type': 'function', 'function': {'name': 'github_ci__github_api',
+                          'parameters': {'type': 'object', 'required': ['action']}}}]}
+        with self.client() as client, \
+                patch.object(self.runtime, 'post_llama_model_round', side_effect=model_round) as backend, \
+                patch.object(self.runtime, 'apply_context_guard'), \
+                patch.object(self.runtime, 'configure_llama_model_round'):
+            first = client.post('/v1/chat/completions', json=body, headers=headers)
+            self.assertEqual(200, first.status_code, first.text)
+            old_job_id = first.headers['x-gateway-job-id']
+            body['messages'] += [tool_message, tool_result]
+            # The current pending exchange still resumes implicitly, with its
+            # stored call fingerprint checked at the normal admission boundary.
+            completed = client.post('/v1/chat/completions', json=body, headers=headers)
+            self.assertEqual(200, completed.status_code, completed.text)
+            self.assertEqual(old_job_id, completed.headers['x-gateway-job-id'])
+            self.assertEqual(2, backend.call_count)
+
+            for index, instructions in enumerate(([], [{'role': 'system', 'content': 'Keep the response concise.'}])):
+                duplicate = dict(body, messages=body['messages'] + instructions)
+                # Distinct attempt IDs bypass short-lived request coalescing;
+                # the original terminal job must still prevent model dispatch.
+                repeated = client.post('/v1/chat/completions', json=duplicate,
+                                       headers=dict(headers, **{'X-Gateway-Attempt-ID': 'duplicate-' + str(index)}))
+                self.assertEqual(409, repeated.status_code, repeated.text)
+                self.assertEqual('terminal_job_not_resumable', repeated.json()['error']['code'])
+                self.assertEqual(old_job_id, repeated.json()['error']['job_id'])
+                self.assertEqual(2, backend.call_count)
+
+            suffixes = (
+                [{'role': 'user', 'content': 'Now inspect the release configuration'}],
+                [{'role': 'assistant', 'content': 'The workflow inspection is complete.'}],
+                [{'role': 'assistant', 'content': 'The workflow inspection is complete.'},
+                 {'role': 'user', 'content': 'Inspect a different workflow'}],
+            )
+            new_job_ids = set()
+            for index, suffix in enumerate(suffixes):
+                with self.subTest(suffix=suffix):
+                    new_turn = dict(body, messages=body['messages'] + suffix)
+                    response = client.post('/v1/chat/completions', json=new_turn, headers=headers)
+                    self.assertEqual(200, response.status_code, response.text)
+                    new_job_id = response.headers['x-gateway-job-id']
+                    self.assertNotEqual(old_job_id, new_job_id)
+                    self.assertNotIn(new_job_id, new_job_ids)
+                    new_job_ids.add(new_job_id)
+                    self.assertEqual(3 + index, backend.call_count)
+                    sent = backend.call_args.args[0]['messages']
+                    self.assertIn(tool_message, sent)
+                    self.assertIn(tool_result, sent)
+                    self.assertEqual(suffix, sent[-len(suffix):])
+            recovered = client.get('/gateway/jobs/' + old_job_id + '/result')
+            self.assertEqual(200, recovered.status_code, recovered.text)
+            self.assertEqual('Verified workflow reply', recovered.json()['content'])
+            self.assertEqual('completed', self.runtime.job_registry[old_job_id]['status'])
+
     def test_unknown_explicit_saved_job_cannot_silently_create_and_replay(self):
         with self.client() as client, patch.object(self.runtime, 'process_chat_payload') as model:
             for stream in (True, False):

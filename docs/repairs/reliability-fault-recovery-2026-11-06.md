@@ -94,7 +94,7 @@ Executed locally before submission:
 Physical-device jank, app-caused StrictMode counts, local NPU/GPU behavior, private port-8090/MCP availability, live authorized app operations and a physical application relaunch remain NOT_MEASURED. An unavailable attachment is not proof of an Android export defect. No guarantee of permanent failure-free operation is made.
 
 
-## Combined draft integration — 2026-11-07
+## Combined draft integration — 2026-11-06 (Toronto)
 
 The integration candidate combines PR #808 at `d8dd1fdcf56da159669308917ba300d6d267199f` and PR #809 at `1feca10547e2ea8d1f2cebc31299bd4b977a51de`. Their common base is `c313a9897afe6e0a7cff609cdcf33d83fad83a90`. Both parents must remain in the source merge history. This section records the later integration validation separately from the original branch results above.
 
@@ -114,4 +114,4 @@ Integration validation:
 - ktlint **1.3.1** passed on both Kotlin conflict-resolution files. Full Android compilation and emulator qualification remain exact-head CI requirements.
 - All **158** gateway payload hashes match the merged source. Whitespace checks pass.
 
-Publication is owned by the coordinating agent. The manifest's source commit is deliberately still the previously published parent while the source tree is prepared. After the remote source merge commit is created, its returned SHA must be written into `manifest-v14.json` in a second metadata commit before a single branch update. An unpublished local candidate SHA must not be used as release provenance. These local checks do not authorize bypassing fresh required CI on the final PR head.
+The reviewed source tree was reproduced exactly on GitHub as `316b9095b356741600b8583172bd4af1e1ff7f3b`, and source merge commit `5237ec4cf730a723e371e6af4f78fbc836a99228` retains both PR parents. This metadata revision binds `manifest-v14.json` to that published source commit. The PR branch is advanced once to the complete candidate before fresh CI. Local checks do not replace the final current-head validation gates; the combined merge must preserve both parent histories and recheck the current main revision.

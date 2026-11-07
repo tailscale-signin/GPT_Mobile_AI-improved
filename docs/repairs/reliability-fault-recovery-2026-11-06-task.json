@@ -90,11 +90,11 @@
     "repository": "tailscale-signin/GPT_Mobile_AI-improved",
     "base_branch": "fix/reliability-fault-recovery-2026-11-06",
     "base_sha": "d8dd1fdcf56da159669308917ba300d6d267199f",
-    "working_branch": "local integration candidate (detached worktree)",
+    "working_branch": "fix/reliability-fault-recovery-2026-11-06",
     "parent_pr": 809,
     "parent_sha": "1feca10547e2ea8d1f2cebc31299bd4b977a51de",
     "intent": "Preserve both reviewed recovery branches and repair conflicts before fresh exact-head CI",
-    "state": "LOCAL_VERIFIED_PENDING_REMOTE_SOURCE_BINDING_AND_EXACT_HEAD_CI",
+    "state": "IMPLEMENTED_PENDING_EXACT_HEAD_CI",
     "merge_base_sha": "c313a9897afe6e0a7cff609cdcf33d83fad83a90",
     "resolutions": [
       "Preserve bounded retry/TLS admission and coordinator drain while interrupted workers remain resumable without failed receipts",
@@ -153,9 +153,10 @@
       }
     },
     "publication": {
-      "status": "PENDING_ROOT_PUBLICATION",
-      "manifest_source_commit": "TEMPORARY_PARENT_VALUE_PENDING_REMOTE_SOURCE_MERGE_COMMIT",
-      "required_next_step": "Create remote source merge commit with both pinned PR parents, bind manifest sourceCommit to its returned SHA in a second metadata commit, then advance the PR branch once and validate exact-head CI"
+      "status": "SOURCE_PUBLISHED_FINAL_BRANCH_UPDATE_PENDING",
+      "source_merge_commit": "5237ec4cf730a723e371e6af4f78fbc836a99228",
+      "manifest_source_commit": "5237ec4cf730a723e371e6af4f78fbc836a99228",
+      "required_next_step": "Advance PR #808 once to the metadata commit, validate all applicable workflows on both current PR heads against the observed main revision, then merge with both parent histories preserved."
     }
   }
 }

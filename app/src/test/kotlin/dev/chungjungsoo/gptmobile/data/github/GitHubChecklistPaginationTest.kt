@@ -132,4 +132,95 @@ class GitHubChecklistPaginationTest {
         val watch = AgentToolDefinition("github_watch_checks", "Watch", json("""{"type":"object"}"""))
         assertEquals(page["arguments"], GitHubTestChecklist.nextCall("test all tools", tools + watch, records)?.arguments)
     }
+
+    @Test fun issueHistoryAndTagContinuationsAreNotSilentlyStranded() {
+        for ((name, action) in listOf("github_issue" to "history", "github_release" to "tags")) {
+            val args = json("""{"action":"$action","page":2,"issue_number":7}""")
+            val continuation = json("""{"tool":"$name","arguments":$args}""")
+            val source = json("""{"trusted":true,"success":true,"dispatched":true,"tool":"$name","arguments":{"action":"$action","issue_number":7},"result":{"continuation_call":$continuation}}""")
+            val definition = AgentToolDefinition(name, action, json("""{"properties":{"action":{"const":"$action"}}}"""))
+            assertEquals(args, GitHubTestChecklist.nextCall("test all tools", listOf(definition), mapOf("source" to source))?.arguments)
+        }
+    }
+
+    @Test fun logOffsetContinuationConsumesTheSameBoundedRemoteAllowance() {
+        val definition = AgentToolDefinition("github_ci", "Logs", json("""{"properties":{"action":{"const":"logs"}}}"""))
+        fun args(offset: Int) = json("""{"action":"logs","job_id":7,"start_offset":$offset}""")
+        fun source(offset: Int, next: Int) = json("""{"trusted":true,"success":true,"dispatched":true,"tool":"github_ci","arguments":${args(offset)},"result":{"continuation_call":{"tool":"github_ci","arguments":${args(next)}}}}""")
+        val receipts = linkedMapOf("first" to source(0, 40))
+        assertEquals(args(40), GitHubTestChecklist.nextCall("test all tools", listOf(definition), receipts)?.arguments)
+        receipts["second"] = source(40, 80)
+        assertEquals(args(80), GitHubTestChecklist.nextCall("test all tools", listOf(definition), receipts)?.arguments)
+        receipts["third"] = source(80, 120)
+        assertEquals(null, GitHubTestChecklist.nextCall("test all tools", listOf(definition), receipts))
+        assertEquals(args(120), GitHubTestChecklist.nextCall("test all tools and complete pending pagination", listOf(definition), receipts)?.arguments)
+        val checkpoint = GitHubTestChecklist.paginationResume("test all tools", receipts, listOf(definition))
+        assertEquals(JsonPrimitive(2), checkpoint["remote_samples_spent"])
+        assertEquals(JsonPrimitive(false), checkpoint["complete"])
+        assertEquals(JsonPrimitive("BOUNDED_SMOKE_SAMPLE"), checkpoint["mode"])
+    }
+
+    @Test fun resumedPaginationPreservesBudgetAndDoesNotAuthorizeWrites() {
+        val remote = json("""{"tool":"github_context","arguments":{"action":"branches","page":2}}""")
+        val receipts = mapOf("source" to json("""{"trusted":true,"success":true,"dispatched":true,"tool":"github_context","arguments":{"action":"branches"},"result":{"continuation_call":$remote}}"""))
+        val task = "test all tools read only and complete remaining pages"
+        assertTrue(GitHubChecklistScope.exhaustive(task))
+        assertTrue(GitHubChecklistScope.readOnly(task))
+        val resume = GitHubTestChecklist.paginationResume(task, receipts, tools, remainingToolCalls = 2)
+        assertEquals(JsonPrimitive(1), resume["pending_count"])
+        assertFalse(resume.containsKey("next_call"))
+        assertFalse(GitHubTestChecklist.apiComplete(task, receipts, tools))
+    }
+
+    @Test fun terminalReadbackPreventsWatchOfHistoricalPendingState() {
+        val sha = "a".repeat(40)
+        val receipts = mapOf(
+            "status" to json("""{"trusted":true,"success":true,"tool":"github_context","arguments":{"action":"status"},"result":{"commit_sha":"$sha"}}"""),
+            "runs" to json("""{"trusted":true,"success":true,"tool":"github_ci","arguments":{"action":"runs"},"result":{"workflow_runs":[{"id":7,"run_attempt":1,"head_sha":"$sha","status":"in_progress"}]}}"""),
+            "run" to json("""{"trusted":true,"success":true,"tool":"github_ci","arguments":{"action":"run","run_id":7},"result":{"id":7,"run_attempt":1,"head_sha":"$sha","status":"completed","conclusion":"success"}}""")
+        )
+        val watch = AgentToolDefinition("github_watch_checks", "Watch", json("""{"type":"object"}"""))
+        assertEquals(null, GitHubTestChecklist.nextCall("test all tools", listOf(watch), receipts))
+    }
+
+    @Test fun failedPageAdviceDoesNotClaimThatPaginationWasCompleted() {
+        val remote = json("""{"tool":"github_context","arguments":{"action":"branches","page":2}}""")
+        val receipts = mapOf(
+            "source" to json("""{"trusted":true,"success":true,"dispatched":true,"tool":"github_context","arguments":{"action":"branches"},"result":{"continuation_call":$remote}}"""),
+            "denied" to json("""{"trusted":true,"success":false,"dispatched":false,"tool":"github_context","arguments":{"action":"branches","page":2},"error_code":"AUTH_REQUIRED"}""")
+        )
+        val resume = GitHubTestChecklist.paginationResume("test all tools and complete pending pagination", receipts, tools)
+        assertEquals(JsonPrimitive(1), resume["failed_page_count"])
+        assertFalse(resume.containsKey("next_call"))
+        assertEquals(JsonPrimitive(false), resume["complete"])
+    }
+
+    @Test fun negatedPaginationRequestDoesNotExpandSampling() {
+        for (task in listOf("test all tools; do not complete pending pagination", "test all tools; never resume unread pages", "test all tools; don't finish remaining reads")) {
+            assertFalse(task, GitHubChecklistScope.exhaustive(task))
+        }
+        assertTrue(GitHubChecklistScope.exhaustive("test all tools and finish pending reads"))
+        assertTrue(GitHubChecklistScope.exhaustive("test all tools and complete remaining pagination"))
+    }
+
+    @Test fun issuedContinuationCannotSwitchBranchDispatchOrIndexTheGraph() {
+        for ((name, action, extra) in listOf(
+            Triple("github_context", "resolve", "\"ref\":\"other-branch\""),
+            Triple("github_ci", "dispatch", "\"ref\":\"main\""),
+            Triple("repository_graph", "index", "\"query\":\"ignored\"")
+        )) {
+            val recipe = json("""{"tool":"$name","arguments":{"action":"$action",$extra}}""")
+            val source = json("""{"trusted":true,"success":true,"tool":"$name","arguments":{"action":"status"},"result":{"continuation_call":$recipe}}""")
+            val tool = AgentToolDefinition(name, action, json("""{"properties":{"action":{"const":"$action"}}}"""))
+            val resume = GitHubTestChecklist.paginationResume("test all tools read only and complete pending pages", mapOf("source" to source), listOf(tool))
+            assertFalse(name, "next_call" in resume)
+            assertEquals(JsonPrimitive(false), resume["complete"])
+        }
+    }
+
+    @Test fun hiddenToolCannotBeSelectedByContinuationOrAutomaticProbe() {
+        val hidden = tools.map { it.copy(modelVisible = false) }
+        assertEquals(null, GitHubTestChecklist.nextCall("test all tools and complete pending pages", hidden, mapOf("source" to source())))
+        assertEquals(null, GitHubTestChecklist.nextCall("test all tools", hidden, emptyMap()))
+    }
 }

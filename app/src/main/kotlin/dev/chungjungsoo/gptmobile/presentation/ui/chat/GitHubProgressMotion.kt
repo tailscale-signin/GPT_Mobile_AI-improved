@@ -11,6 +11,8 @@ import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.MotionDurationScale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -27,7 +29,11 @@ internal const val GITHUB_PROGRESS_PAN_MILLIS = 1800
 internal fun rememberGitHubProgressMotion(active: Boolean): State<Float> {
     val reduced by FrameEffectPressure.guard.reduced.collectAsStateWithLifecycle()
     val lifecycle by LocalLifecycleOwner.current.lifecycle.currentStateFlow.collectAsStateWithLifecycle(minActiveState = Lifecycle.State.CREATED)
-    return if (active && !reduced && lifecycle.isAtLeast(Lifecycle.State.STARTED)) {
+    val durationScale = rememberCoroutineScope().coroutineContext[MotionDurationScale]
+    // Infinite transitions can settle on either endpoint when system animations
+    // are disabled. Both endpoints put this indeterminate bar outside the view.
+    val animationsEnabled = (durationScale?.scaleFactor ?: 1f) > 0f
+    return if (active && !reduced && animationsEnabled && lifecycle.isAtLeast(Lifecycle.State.STARTED)) {
         rememberInfiniteTransition(label = "github_activity").animateFloat(
             0f,
             1f,

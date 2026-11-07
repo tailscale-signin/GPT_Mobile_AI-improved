@@ -306,7 +306,31 @@ internal suspend fun writeStagedChatDiagnostics(
                 buildJsonObject {
                     put("diagnosticsCollection", features.diagnosticsCollection)
                     put("localAssistPolicy", json.encodeToJsonElement(features.localAssistPolicy))
-                    put("scope", "Current diagnostic and local-assist settings. Accepted per-run policies are retained in runs.jsonl; unrelated preference histories are excluded.")
+                    put("configurationEvidence", "CURRENT_SNAPSHOT_NOT_EXECUTION_PROOF")
+                    put("currentChatReasoningOverride", json.encodeToJsonElement(tools.reasoning ?: features.conversationReasoning[room.id]))
+                    put(
+                        "reasoningByProfile",
+                        buildJsonObject {
+                            profiles.filter { it.compatibleType == dev.chungjungsoo.gptmobile.data.model.ClientType.LLAMA }.forEach { profile ->
+                                put(
+                                    profile.uid,
+                                    buildJsonObject {
+                                        put("legacyEnabled", profile.reasoning)
+                                        put("explicitMode", json.encodeToJsonElement(features.llamaReasoningModes[profile.uid]))
+                                        put("resolvedPreference", dev.chungjungsoo.gptmobile.data.context.ReasoningPolicy.preference(profile.reasoning, features.llamaReasoningModes[profile.uid], tools.reasoning ?: features.conversationReasoning[room.id]).name)
+                                        put("observedComputation", "NOT_MEASURED_BY_SETTINGS")
+                                    }
+                                )
+                            }
+                        }
+                    )
+                    put(
+                        "engineeringGatewayByProfile",
+                        buildJsonObject {
+                            profiles.forEach { profile -> put(profile.uid, json.encodeToJsonElement(features.githubProfileOverrides[profile.uid]?.engineeringGatewayProfileUid)) }
+                        }
+                    )
+                    put("scope", "Current diagnostic, local-assist, reasoning and explicit engineering-route settings. Accepted per-run policies are retained in runs.jsonl; observed routing and reasoning require invocation receipts. Unrelated preference histories are excluded.")
                 },
                 evidence = false
             )

@@ -7,6 +7,37 @@ import org.junit.Test
 
 class ChatResponseActionParserTest {
 
+    @Test fun normalizedAndBatchedCachedOffersCannotRequestUnknownUserInformation() {
+        val clarifications = listOf(
+            "Would you like me to confirm your repository?",
+            "Please answer this follow-up directly: Would you like me to confirm your repository?",
+            "Yes, please confirm your repository.",
+            "Please address each of these: How does pagination work?; Which branch have you selected?",
+            "Please address each of these: How does pagination work?; Would you like me to confirm your repository?",
+            "Please answer each of these directly: How does pagination work?; Please provide the repository owner and name."
+        )
+        clarifications.forEach { assertEquals(it, null, ChatResponseActionParser.answerRequest(it)) }
+        assertEquals(
+            "Please answer each of these directly: Please answer this follow-up directly: How does pagination work?; Please explain repository permissions.",
+            ChatResponseActionParser.answerRequest("Please address each of these: How does pagination work?; Would you like me to explain repository permissions?")
+        )
+    }
+
+    @Test fun repositoryClarificationsCannotBeResubmittedAsAssistantAnswerRequests() {
+        val questions = listOf(
+            "What is the owner and name of the repository you want to check?",
+            "Which branch have you selected?",
+            "Please provide the repository owner and name.",
+            "Please answer this follow-up directly: What is the repository you want to check?"
+        )
+        for (question in questions) {
+            assertEquals(null, ChatResponseActionParser.answerRequest(question))
+            assertTrue(ChatResponseActionParser.extractDynamicActions("Next questions:\n- $question", false).isEmpty())
+        }
+        assertEquals("Please answer this follow-up directly: How can I find a repository owner?", ChatResponseActionParser.answerRequest("How can I find a repository owner?"))
+        assertEquals("Please explain how repository permissions work.", ChatResponseActionParser.answerRequest("Would you like me to explain how repository permissions work?"))
+    }
+
     @Test
     fun `combined response keeps distinct suggested questions from every profile`() {
         val response = """

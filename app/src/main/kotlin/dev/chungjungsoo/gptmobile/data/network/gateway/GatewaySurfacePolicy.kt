@@ -41,6 +41,11 @@ internal class GatewaySurfacePolicy(
     @Synchronized
     fun invalidate() = entries.clear()
 
+    @Synchronized
+    fun invalidate(identity: String) {
+        entries.keys.removeAll { it.first == identity }
+    }
+
     companion object {
         val shared = GatewaySurfacePolicy()
 

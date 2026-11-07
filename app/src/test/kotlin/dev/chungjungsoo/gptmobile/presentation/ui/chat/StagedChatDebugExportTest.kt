@@ -58,6 +58,19 @@ class StagedChatDebugExportTest {
     private var retainRecentLogs = true
     private var readSection: suspend (String, suspend () -> Unit, suspend (JsonObject) -> Unit) -> Unit = { _, _, _ -> }
 
+    @Test fun configurationSnapshotExplainsReasoningAndGatewaySelectionWithoutClaimingExecution() = runBlocking {
+        val profile = PlatformV2(uid = "selected-profile", name = "Profile", compatibleType = dev.chungjungsoo.gptmobile.data.model.ClientType.LLAMA, reasoning = false, token = "private-secret")
+        val features = AppFeatureSettings(githubProfileOverrides = mapOf(profile.uid to dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride(engineeringGatewayProfileUid = "selected-gateway")))
+        val result = writeStagedChatDiagnostics(context, destination, ChatRoomV2(chatId, "Test"), listOf(profile), ChatMcpToolConfig(), features, "", emptyList(), database, null, false, false) {}
+        val settings = archive(result).getValue("feature-settings.jsonl")
+        assertTrue(settings.contains("CURRENT_SNAPSHOT_NOT_EXECUTION_PROOF"))
+        assertTrue(settings.contains("selected-gateway"))
+        assertTrue(settings.contains("resolvedPreference"))
+        assertTrue(settings.contains("OFF"))
+        assertTrue(settings.contains("NOT_MEASURED_BY_SETTINGS"))
+        assertFalse(settings.contains("private-secret"))
+    }
+
     @Before fun prepare() {
         context = ApplicationProvider.getApplicationContext()
         destination = File(context.cacheDir, "export-test-${UUID.randomUUID()}")

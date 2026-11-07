@@ -198,6 +198,9 @@ class ConnectionDoctorViewModel @Inject constructor(
                 lines += "Chat inference was not tested. Use the separate explicit NVIDIA inference test to make a small potentially billable request."
             }
             if (profile.compatibleType == ClientType.LLAMA) {
+                dev.chungjungsoo.gptmobile.data.network.gateway.GatewaySurfacePolicy.shared.invalidate(
+                    dev.chungjungsoo.gptmobile.data.network.gateway.GatewaySurfacePolicy.identity(ProviderRequestConfig(profile.apiUrl, profile.token))
+                )
                 val capabilities = try {
                     withTimeoutOrNull(5000L) { gateway.getCapabilities(ProviderRequestConfig(profile.apiUrl, profile.token)) }
                 } catch (cancelled: CancellationException) {
@@ -219,6 +222,9 @@ class ConnectionDoctorViewModel @Inject constructor(
                 }
                 llamaCapacity.invalidate()
                 val llamaConfig = ProviderRequestConfig(profile.apiUrl, catalogKey, profileUid = profile.uid, providerType = "LLAMA")
+                dev.chungjungsoo.gptmobile.data.network.gateway.GatewaySurfacePolicy.shared.invalidate(
+                    dev.chungjungsoo.gptmobile.data.network.gateway.GatewaySurfacePolicy.identity(llamaConfig)
+                )
                 val capacity = llamaCapacity.discover(llamaConfig, profile.model)
                 val health = llamaHealth.inspect(llamaConfig, profile.model, capacity)
                 lines += health.summary()
@@ -227,7 +233,7 @@ class ConnectionDoctorViewModel @Inject constructor(
                 val global = features.tokenBudget.normalized().contextTokens.takeIf { it != Int.MAX_VALUE }
                 val effective = listOfNotNull(capacity?.contextTokens, declared?.toLong(), global?.toLong()).minOrNull()
                 val output = dev.chungjungsoo.gptmobile.data.context.RequestLimitResolver.output(profile.maxTokens, features.tokenBudget.outputTokens)
-                val reasoning = features.llamaReasoningModes[profile.uid] ?: dev.chungjungsoo.gptmobile.data.context.ReasoningMode.AUTO
+                val reasoning = dev.chungjungsoo.gptmobile.data.context.ReasoningPolicy.preference(profile.reasoning, features.llamaReasoningModes[profile.uid])
                 contextReport.value = listOf(
                     "Verified serving allocation: ${capacity?.contextTokens ?: "unknown"} tokens",
                     "Manual profile ceiling: ${declared ?: "not declared"}",

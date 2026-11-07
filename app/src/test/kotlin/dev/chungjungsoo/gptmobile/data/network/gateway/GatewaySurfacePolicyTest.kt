@@ -38,4 +38,13 @@ class GatewaySurfacePolicyTest {
         policy.observe("route", GatewaySurfacePolicy.Surface.PROPS, 200)
         assertNull(policy.rememberedStatus("route", GatewaySurfacePolicy.Surface.PROPS))
     }
+
+    @Test fun explicitReconnectOnlyInvalidatesTheSelectedRoute() {
+        val policy = GatewaySurfacePolicy({ 0 })
+        policy.observe("selected", GatewaySurfacePolicy.Surface.CAPABILITIES, 404)
+        policy.observe("other", GatewaySurfacePolicy.Surface.CAPABILITIES, 404)
+        policy.invalidate("selected")
+        assertNull(policy.rememberedStatus("selected", GatewaySurfacePolicy.Surface.CAPABILITIES))
+        assertEquals(404, policy.rememberedStatus("other", GatewaySurfacePolicy.Surface.CAPABILITIES))
+    }
 }

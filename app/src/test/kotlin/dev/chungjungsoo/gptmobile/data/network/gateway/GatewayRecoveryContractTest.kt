@@ -18,6 +18,39 @@ import org.junit.Assert.fail
 import org.junit.Test
 
 class GatewayRecoveryContractTest {
+    @Test fun waitingResultRetainsItsBoundHandoffWithoutPromotingItToCompletion() = runBlocking {
+        val body = """{"job_id":"job-1","status":"waiting_for_client_tool","job":{"job_id":"job-1","model":"selected-model","pending_client_tool_call_ids":["call-1"]},"result":{"model":"selected-model","choices":[{"index":0,"message":{"role":"assistant","tool_calls":[{"id":"call-1","type":"function","function":{"name":"read_repository","arguments":"{}"}}]},"finish_reason":"tool_calls"}]}}"""
+        HttpClient(MockEngine { respond(body, HttpStatusCode.Accepted) }).use { client ->
+            val network = mockk<NetworkClient>()
+            every { network() } returns client
+            val saved = requireNotNull(GatewayAPIImpl(network).getJobResult("job-1", ProviderRequestConfig("https://waiting-job.example/v1", "selected-token")))
+            assertEquals("waiting_for_client_tool", saved.status)
+            assertEquals(GatewayResultDisposition.WAITING, saved.recoveryDisposition)
+            assertEquals("call-1", saved.result?.choices?.single()?.effectiveDelta?.toolCalls?.single()?.id)
+        }
+    }
+
+    @Test fun acceptedResponseCannotReturnAnotherJobsEvidenceOrACompletedAnswer() = runBlocking {
+        val bodies = listOf(
+            """{"job_id":"other-job","status":"waiting_for_client_tool"}""",
+            """{"job_id":"job-1","status":"waiting_for_client_tool","job":{"job_id":"other-job"}}""",
+            """{"job_id":"job-1","status":"completed","content":"Not accepted as complete","result_quality":"complete"}"""
+        )
+        for ((index, body) in bodies.withIndex()) {
+            HttpClient(MockEngine { respond(body, HttpStatusCode.Accepted) }).use { client ->
+                val network = mockk<NetworkClient>()
+                every { network() } returns client
+                val saved = GatewayAPIImpl(network).getJobResult("job-1", ProviderRequestConfig("https://waiting-job.example/v1", "selected-token"))
+                if (index < 2) {
+                    assertEquals(null, saved)
+                } else {
+                    assertEquals(GatewayResultDisposition.WAITING, saved?.recoveryDisposition)
+                    assertEquals(null, saved?.recoverableContent)
+                }
+            }
+        }
+    }
+
     @Test fun `generation reset restarts cursor and wrong job or undeclared generation fails closed`() = runBlocking {
         val bodies = listOf(
             "data: {\"job_id\":\"job-1\",\"generation\":\"new\",\"sequence\":1,\"generationChanged\":true}\n\n" +

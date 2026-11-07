@@ -286,13 +286,6 @@ private fun ChatScreenContent(
         )
     }
     val focusManager = LocalFocusManager.current
-    val keyboardController = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
-    androidx.compose.runtime.DisposableEffect(focusManager, keyboardController) {
-        onDispose {
-            keyboardController?.hide()
-            focusManager.clearFocus(force = true)
-        }
-    }
     val systemChatMargin = 16.dp
     val maximumUserChatBubbleWidth = (viewportWidth - systemChatMargin).coerceAtLeast(0.dp) * 0.8F
     val maximumOpponentChatBubbleWidth = (viewportWidth - systemChatMargin).coerceAtLeast(0.dp)
@@ -1597,9 +1590,8 @@ internal fun ChatMessagePair(
         else -> isActiveMessage && loadingStates.getOrElse(displayPlatformIndex) { ChatViewModel.LoadingState.Idle } == ChatViewModel.LoadingState.Loading
     }
     val isResponseLoading = if (hasCombinedTabs) isCurrentPlatformLoading else shouldShowAssistantResponseProgress(isCurrentPlatformLoading, activeAgentRun != null, agentRun?.status)
-    val reviewRetryBlock = dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.reviewRetryBlock(
-        assistantTimeline.lastOrNull { it.runError != null }?.runError ?: agentRun?.terminalError
-    )
+    val responseFailure = visibleResponseFailure(assistantTimeline.lastOrNull { it.runError != null }?.runError, agentRun?.terminalError, agentRun?.status)
+    val reviewRetryBlock = dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.reviewRetryBlock(responseFailure)
     StableChatResponseViewport(contentKey = if (isCombinedConversation) "combined" else selectedPlatformUid, reservedHeight = reservedTurnHeight) {
         Column(
             modifier = Modifier
@@ -1843,7 +1835,7 @@ internal fun ChatMessagePair(
                     onContinueClick = onContinueClick.takeIf { smartSuggestionsEnabled && !isSourceResponse },
                     onActionClick = onActionClick.takeIf { smartSuggestionsEnabled && !isSourceResponse }
                 )
-                assistantTimeline.lastOrNull { it.runError != null }?.runError?.let { error ->
+                responseFailure?.let { error ->
                     Column(Modifier.fillMaxWidth().padding(12.dp)) {
                         Text(
                             if (agentRun?.status == AgentRunStatus.PARTIAL) {
@@ -2248,9 +2240,9 @@ fun ChatInputBox(
         // A tab can remove only the composer while the parent chat stays mounted.
         // Release this editor's input session without dismissing another field's focus.
         if (composerFocused) {
+            composerFocused = false
             composerKeyboard?.hide()
             composerFocusManager.clearFocus(force = true)
-            composerFocused = false
         }
         reportComposerFocus(false)
     }
@@ -2258,6 +2250,9 @@ fun ChatInputBox(
         onDispose { releaseComposerInput() }
     }
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) { releaseComposerInput() }
+    LaunchedEffect(chatEnabled) {
+        if (!chatEnabled) releaseComposerInput()
+    }
     val haptic = dev.chungjungsoo.gptmobile.presentation.common.rememberAppHaptic()
     var composerNotice by remember { mutableStateOf("") }
     val sendAction = {

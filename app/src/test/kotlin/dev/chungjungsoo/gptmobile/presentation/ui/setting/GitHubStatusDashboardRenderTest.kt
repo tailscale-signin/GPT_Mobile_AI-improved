@@ -10,9 +10,13 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.assertIsDisplayed
@@ -24,13 +28,17 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performSemanticsAction
+import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextMeasurer
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
+import dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext
 import dev.chungjungsoo.gptmobile.data.github.GitHubLiveProcess
 import dev.chungjungsoo.gptmobile.data.github.GitHubLiveStatus
 import dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryContext
@@ -44,6 +52,8 @@ import dev.chungjungsoo.gptmobile.data.network.gateway.gatewayDashboardTarget
 import dev.chungjungsoo.gptmobile.data.network.gateway.parseGatewayDashboard
 import dev.chungjungsoo.gptmobile.presentation.theme.GPTMobileTheme
 import dev.chungjungsoo.gptmobile.presentation.ui.chat.GraphMiniMap
+import dev.chungjungsoo.gptmobile.presentation.ui.chat.RepositoryGraphStatusContent
+import dev.chungjungsoo.gptmobile.presentation.ui.chat.RepositoryGraphUiState
 import java.io.File
 import java.time.LocalDate
 import kotlinx.serialization.json.Json
@@ -82,19 +92,76 @@ class GitHubStatusDashboardRenderTest {
         )
         val edges = listOf(Json.parseToJsonElement("""{"source":"app","target":"gateway","relation":"calls"}""") as JsonObject)
         var selected = ""
+        var direction by mutableStateOf(LayoutDirection.Ltr)
         compose.setContent {
             GPTMobileTheme(themeMode = ThemeMode.DARK) {
                 Surface {
-                    GraphMiniMap(nodes, edges) { selected = it["id"]?.jsonPrimitive?.content.orEmpty() }
+                    CompositionLocalProvider(LocalLayoutDirection provides direction) {
+                        GraphMiniMap(nodes, edges) { selected = it["id"]?.jsonPrimitive?.content.orEmpty() }
+                    }
                 }
             }
         }
         compose.onNodeWithTag("github_repository_bubble_network").assertIsDisplayed()
         compose.onNodeWithContentDescription("Interactive repository network with 3 source-backed bubbles").assertIsDisplayed()
-        compose.onNodeWithTag("github_repository_bubble_network").performTouchInput {
-            click(percentOffset(.5f, .2f))
-        }
+        compose.onNodeWithTag("github_repository_bubble_network").performTouchInput { click(percentOffset(.01f, .01f)) }
+        compose.runOnIdle { assertEquals("", selected) }
+        compose.onNodeWithTag("github_repository_node_app").performClick()
         compose.runOnIdle { assertEquals("app", selected) }
+        val ids = listOf("app", "gateway", "tests")
+        val positions = ids.map { compose.onNodeWithTag("github_repository_node_$it").fetchSemanticsNode().boundsInRoot }
+        compose.runOnIdle { direction = LayoutDirection.Rtl }
+        ids.forEachIndexed { index, id ->
+            assertEquals("$id must stay at its Canvas edge coordinate in RTL", positions[index], compose.onNodeWithTag("github_repository_node_$id").fetchSemanticsNode().boundsInRoot)
+        }
+        val rtlLabels = mutableListOf<TextLayoutResult>()
+        compose.onNodeWithText("Gateway", useUnmergedTree = true).performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(rtlLabels) }
+        assertEquals(LayoutDirection.Rtl, rtlLabels.single().layoutInput.layoutDirection)
+        compose.onNodeWithTag("github_repository_node_gateway").performClick()
+        compose.runOnIdle { assertEquals("gateway", selected) }
+    }
+
+    @Test fun statusArchitectureMapPagesSearchesAndInspectsRealFilesAtLargeFontSize() {
+        val paths = (0..12).joinToString(",") { "\"app/File${it.toString().padStart(2, '0')}.kt\"" }
+        val map = Json.parseToJsonElement("""{"communities":[{"id":"app","name":"app","files":[$paths]}],"dependencies":{"app/File00.kt":["app/File01.kt"]}}""") as JsonObject
+        var context by mutableStateOf(GitHubConversationContext("github", "mobile", "app", "main", "a".repeat(40), "selected-profile"))
+        var selected = ""
+        var refreshes = 0
+        compose.setContent {
+            GPTMobileTheme(themeMode = ThemeMode.DARK) {
+                CompositionLocalProvider(LocalDensity provides Density(1f, 1.4f)) {
+                    Surface(Modifier.width(320.dp)) {
+                        Column(Modifier.verticalScroll(rememberScrollState())) {
+                            RepositoryGraphStatusContent(
+                                context,
+                                RepositoryGraphUiState(architecture = map),
+                                onRefresh = { refreshes++ },
+                                onIndex = {},
+                                onStop = {},
+                                onSelect = { selected = it["id"]?.jsonPrimitive?.content.orEmpty() }
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        compose.onNodeWithContentDescription("Interactive repository network with 12 source-backed bubbles").assertIsDisplayed()
+        compose.onNodeWithTag("github_repository_node_app/File00.kt").performClick()
+        compose.runOnIdle { assertEquals("app/File00.kt", selected) }
+        compose.onNodeWithTag("github_repository_map_selection").assertExists()
+        compose.onNodeWithTag("github_repository_map_next").performScrollTo().performClick()
+        compose.onNodeWithTag("github_repository_node_app/File12.kt").assertExists()
+        compose.onNodeWithTag("github_repository_map_search").performScrollTo().performTextInput("File00")
+        compose.onNodeWithContentDescription("Interactive repository network with 1 source-backed bubbles").assertExists()
+        compose.runOnIdle { context = context.copy(commitSha = "b".repeat(40)) }
+        compose.onNodeWithTag("github_repository_map_selection").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Interactive repository network with 12 source-backed bubbles").assertExists()
+        compose.onNodeWithText("Refresh").performScrollTo().performClick()
+        compose.runOnIdle { assertEquals(1, refreshes) }
+        val directory = File("build/reports/reliability-ui").apply { mkdirs() }
+        File(directory, "repository-map-dark-large.png").outputStream().use { output ->
+            compose.onNodeWithTag("github_status_repository_map").captureToImage().asAndroidBitmap().compress(Bitmap.CompressFormat.PNG, 100, output)
+        }
     }
 
     private fun render(name: String, width: Int, fontScale: Float, theme: ThemeMode) {

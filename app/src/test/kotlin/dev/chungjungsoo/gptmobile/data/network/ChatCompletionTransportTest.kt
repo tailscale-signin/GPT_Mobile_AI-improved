@@ -2,6 +2,12 @@ package dev.chungjungsoo.gptmobile.data.network
 
 import com.sun.net.httpserver.HttpServer
 import dev.chungjungsoo.gptmobile.data.dto.openai.request.ChatCompletionRequest
+import dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponseInputContent
+import dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponseInputMessage
+import dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponsesRequest
+import dev.chungjungsoo.gptmobile.data.dto.openai.response.OutputTextDeltaEvent
+import dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseGatewayMetadataEvent
+import dev.chungjungsoo.gptmobile.data.network.gateway.observedResponseSource
 import io.ktor.client.engine.cio.CIO
 import java.net.InetSocketAddress
 import kotlinx.coroutines.flow.toList
@@ -21,8 +27,64 @@ class ChatCompletionTransportTest {
         assertEquals("application/json", accept())
         assertEquals("gps-1", chunk.choices!!.single().effectiveDelta.toolCalls!!.single().id)
         assertEquals("job-1", chunk.gatewayMetadata?.jobId)
+        assertTrue(chunk.gatewayMetadata?.transportVerified == true)
         assertEquals(20, chunk.usage?.totalTokens)
         assertEquals(null, chunk.error)
+    }
+
+    @Test
+    fun `ordinary provider request ids and body metadata do not claim a gateway route`() {
+        val payload = """{"choices":[{"delta":{"content":"Remote answer"},"message":{"content":"Remote answer"},"finish_reason":"stop"}],"gateway_metadata":{"job_id":"forged","transportVerified":true}}"""
+        listOf(false, true).forEach { streaming ->
+            withResponse(
+                if (streaming) "text/event-stream" else "application/json",
+                if (streaming) "data: $payload\n\ndata: [DONE]\n\n" else payload,
+                mapOf("X-Request-ID" to "ordinary-provider-request", "request-id" to "also-a-provider-id")
+            ) { api, config, _ ->
+                val chunks = runBlocking { api.streamChatCompletion(request(streaming), 5, config).toList() }
+                assertEquals("Remote answer", chunks.flatMap { it.choices.orEmpty() }.mapNotNull { it.effectiveDelta.content }.joinToString(""))
+                assertTrue(chunks.none { it.gatewayMetadata?.transportVerified == true })
+                assertEquals(dev.chungjungsoo.gptmobile.data.database.entity.ResponseTransport.UNKNOWN, chunks.first { it.choices != null }.gatewayMetadata?.observedResponseSource("profile", "llama")?.transport)
+                assertTrue(chunks.none { it.error != null })
+            }
+        }
+    }
+
+    @Test
+    fun `gateway headers annotate the first streamed answer without debug controls`() = withResponse(
+        "text/event-stream",
+        "data: {\"choices\":[{\"delta\":{\"content\":\"Gateway answer\"}}]}\n\ndata: [DONE]\n\n",
+        mapOf("X-Gateway-Instance-ID" to "a".repeat(32), "X-Gateway-Request-ID" to "gateway-request")
+    ) { api, config, _ ->
+        assertTrue(config.extraHeaders.isEmpty())
+        val chunks = runBlocking { api.streamChatCompletion(request(), 5, config).toList() }
+        val firstText = chunks.first { it.choices.orEmpty().any { choice -> choice.effectiveDelta.content != null } }
+        assertEquals("gateway-request", firstText.gatewayMetadata?.requestId)
+        assertEquals("a".repeat(32), firstText.gatewayMetadata?.instanceId)
+        assertTrue(firstText.gatewayMetadata?.transportVerified == true)
+        assertTrue(chunks.none { it.error != null })
+    }
+
+    @Test
+    fun `responses transport observes each route before text without inheriting gateway proof`() {
+        val body = "data: {\"type\":\"response.output_text.delta\",\"item_id\":\"message\",\"output_index\":0,\"content_index\":0,\"delta\":\"Answer\"}\n\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"response\",\"status\":\"completed\"}}\n\n"
+        listOf(false, true).forEach { gateway ->
+            val headers = if (gateway) mapOf("X-Gateway-Request-ID" to "gateway-request") else mapOf("X-Request-ID" to "remote-request")
+            withResponse("text/event-stream", body, headers) { api, config, _ ->
+                val request = ResponsesRequest("selected-model", listOf(ResponseInputMessage("user", ResponseInputContent.text("Transport fixture request."))))
+                val events = runBlocking { api.streamResponses(request, 5, config).toList() }
+                assertEquals("Answer", events.filterIsInstance<OutputTextDeltaEvent>().single().delta)
+                val metadata = events.filterIsInstance<ResponseGatewayMetadataEvent>()
+                if (gateway) {
+                    assertTrue(events.first() is ResponseGatewayMetadataEvent)
+                    assertTrue(metadata.single().metadata?.transportVerified == true)
+                    assertEquals("gateway-request", metadata.single().metadata?.requestId)
+                } else {
+                    assertTrue(events.first() is ResponseGatewayMetadataEvent)
+                    assertFalse(metadata.single().metadata?.transportVerified == true)
+                }
+            }
+        }
     }
 
     @Test
@@ -90,14 +152,14 @@ class ChatCompletionTransportTest {
 
     private fun request(stream: Boolean = true) = ChatCompletionRequest(model = "llama", messages = listOf(dev.chungjungsoo.gptmobile.data.dto.openai.request.ChatMessage(role = dev.chungjungsoo.gptmobile.data.dto.openai.common.Role.USER, content = listOf(dev.chungjungsoo.gptmobile.data.dto.openai.common.TextContent("Transport fixture request.")))), stream = stream)
 
-    private fun withResponse(contentType: String, body: String, block: (OpenAIAPI, ProviderRequestConfig, () -> String?) -> Unit) {
+    private fun withResponse(contentType: String, body: String, headers: Map<String, String> = mapOf("X-Gateway-Job-ID" to "job-1"), block: (OpenAIAPI, ProviderRequestConfig, () -> String?) -> Unit) {
         var accept: String? = null
         val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
         server.createContext("/") { exchange ->
             accept = exchange.requestHeaders.getFirst("Accept")
             exchange.requestBody.close()
             exchange.responseHeaders.add("Content-Type", contentType)
-            exchange.responseHeaders.add("X-Gateway-Job-ID", "job-1")
+            headers.forEach { (key, value) -> exchange.responseHeaders.add(key, value) }
             val bytes = body.toByteArray()
             exchange.sendResponseHeaders(200, bytes.size.toLong())
             exchange.responseBody.use { it.write(bytes) }

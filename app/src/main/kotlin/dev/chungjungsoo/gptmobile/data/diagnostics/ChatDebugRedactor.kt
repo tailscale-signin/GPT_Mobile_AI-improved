@@ -8,14 +8,30 @@ import kotlinx.serialization.json.JsonPrimitive
 
 /** Preserve large results and token-count fields; redact secrets, including embedded JSON payloads. */
 internal fun redactChatDebugData(element: JsonElement, credentials: List<String> = emptyList()): JsonElement {
-    val sensitive = Regex("(?i)^(?:token|secretRef|protectedReference|password|secret|authorization|proxy.authorization|cookie|set.cookie|(?:x[-_])?(?:goog[-_])?api.?key|access.?token|refresh.?token|client.?secret|credential|credentials|lastShareToken)$")
-    val bearer = Regex("(?i)\\b(bearer|basic)\\s+[a-z0-9._~+/=-]+")
-    val knownKey = Regex("\\b(?:sk-|hf_|ghp_|github_pat_)[A-Za-z0-9_-]{8,}")
-    val assignment = Regex("(?i)((?:api.?key|access.?token|refresh.?token|password|client.?secret|authorization)\\s*[:=]\\s*[\"']?)[^\"'\\s,};&]+")
-    val urlSecret = Regex("(?i)([?&](?:api.?key|token|access.?token|auth|secret|signature|sig|key)=)[^&#\\s]+")
+    val knownCredentials = credentials.filter { it.length >= 4 }.distinct()
     fun clean(value: JsonElement): JsonElement = when (value) {
-        is JsonObject -> JsonObject(value.mapValues { (key, child) -> if (sensitive.matches(key)) JsonPrimitive("[redacted]") else clean(child) })
-        is JsonArray -> JsonArray(value.map(::clean))
+        is JsonObject -> {
+            var changed: MutableMap<String, JsonElement>? = null
+            value.forEach { (key, child) ->
+                val safe = if (sensitive.matches(key)) JsonPrimitive("[redacted]") else clean(child)
+                if (safe !== child) {
+                    if (changed == null) changed = LinkedHashMap(value)
+                    changed[key] = safe
+                }
+            }
+            changed?.let(::JsonObject) ?: value
+        }
+        is JsonArray -> {
+            var changed: MutableList<JsonElement>? = null
+            value.forEachIndexed { index, child ->
+                val safe = clean(child)
+                if (safe !== child) {
+                    if (changed == null) changed = value.toMutableList()
+                    changed[index] = safe
+                }
+            }
+            changed?.let(::JsonArray) ?: value
+        }
         is JsonPrimitive -> if (!value.isString) {
             val normalized = diagnosticJsonValue(value)
             if (normalized is JsonPrimitive && normalized.isString) clean(normalized) else normalized
@@ -26,14 +42,22 @@ internal fun redactChatDebugData(element: JsonElement, credentials: List<String>
                 JsonPrimitive(clean(embedded).toString())
             } else {
                 var safe = text
-                credentials.filter { it.length >= 4 }.distinct().forEach { safe = safe.replace(it, "[redacted]") }
-                safe = safe.replace(Regex("(?i)(https?://)[^/\\s@]+@"), "$1[redacted]@")
+                knownCredentials.forEach { safe = safe.replace(it, "[redacted]") }
+                safe = safe.replace(urlCredentials, "$1[redacted]@")
                 safe = urlSecret.replace(safe, "$1[redacted]")
                 safe = bearer.replace(safe, "$1 [redacted]")
                 safe = assignment.replace(safe, "$1[redacted]")
-                JsonPrimitive(knownKey.replace(safe, "[redacted]"))
+                safe = knownKey.replace(safe, "[redacted]")
+                if (safe == text) value else JsonPrimitive(safe)
             }
         }
     }
     return clean(element)
 }
+
+private val sensitive = Regex("(?i)^(?:token|secretRef|protectedReference|password|secret|authorization|proxy.authorization|cookie|set.cookie|(?:x[-_])?(?:goog[-_])?api.?key|access.?token|refresh.?token|client.?secret|credential|credentials|lastShareToken)$")
+private val bearer = Regex("(?i)\\b(bearer|basic)\\s+[a-z0-9._~+/=-]+")
+private val knownKey = Regex("\\b(?:sk-|hf_|ghp_|github_pat_)[A-Za-z0-9_-]{8,}")
+private val assignment = Regex("(?i)((?:api.?key|access.?token|refresh.?token|password|client.?secret|authorization)\\s*[:=]\\s*[\"']?)[^\"'\\s,};&]+")
+private val urlSecret = Regex("(?i)([?&](?:api.?key|token|access.?token|auth|secret|signature|sig|key)=)[^&#\\s]+")
+private val urlCredentials = Regex("(?i)(https?://)[^/\\s@]+@")

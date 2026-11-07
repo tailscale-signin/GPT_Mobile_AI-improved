@@ -11,7 +11,7 @@ internal val LocalAnswerSource = staticCompositionLocalOf<ResponseSource?> { nul
 internal val LocalAnswerSurface = staticCompositionLocalOf { Color.White }
 
 internal object ResponseSourceAppearance {
-    fun isGateway(source: ResponseSource?): Boolean = source?.transport == ResponseTransport.GATEWAY
+    fun isGateway(source: ResponseSource?): Boolean = source?.transport == ResponseTransport.GATEWAY && source.gatewayVerified
 
     /** Preserve the theme's accent as far as normal-text contrast permits. */
     fun gatewayForeground(accent: Color, surface: Color): Color {

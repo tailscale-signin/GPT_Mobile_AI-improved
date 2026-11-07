@@ -652,7 +652,8 @@ class EngineeringService:
                 output.update(error_code=error.code, dispatched=getattr(error, 'dispatched', False))
             http_status = getattr(getattr(error, 'response', None), 'status_code', None)
             http_status = http_status if type(http_status) is int else None
-            transient = retry_delay(error, 0) is not None
+            recovery_delay = retry_delay(error, 0)
+            transient = recovery_delay is not None
             job['connection_retries'] = job.get('connection_retries', 0) + 1 if transient else 0
             if not transient:
                 job['stalls'] += 1
@@ -685,7 +686,9 @@ class EngineeringService:
                 # polling the same stage. Mutation reconciliation above retains
                 # precedence: a validation failure never erases a dispatch receipt.
                 status = http_status
-                if status == 401:
+                if status == 429:
+                    code, instruction = 'ENGINEERING_RATE_LIMIT_WAIT', 'Honor the server cooldown and review the bounded retry budget'
+                elif status == 401:
                     code, instruction = 'ENGINEERING_AUTHENTICATION_REQUIRED', 'Restore the host connection authentication'
                 elif status == 403 or isinstance(error, PermissionError):
                     code, instruction = 'ENGINEERING_ACCESS_DENIED', 'Review execution authority and repository access'
@@ -702,10 +705,17 @@ class EngineeringService:
                 output.update(error_code=code, retryable=False)
                 if status is not None:
                     output['http_status'] = status
+            elif not transient:
+                phase = 'NEEDS_INPUT'
+                code = 'ENGINEERING_RECOVERY_REQUIRES_REVIEW'
+                job['message'] = 'Recovery is not safely retryable within this request budget. Review transport security, the server cooldown and retained evidence before resuming; confirmed work is retained.'
+                job['data']['blocked_reason'] = {'code': code, 'retryable': False}
+                output.update(error_code=code, retryable=False)
             else:
-                phase = 'NEEDS_INPUT' if job['stalls'] >= 3 or job['connection_retries'] >= 12 else job['state']
-                delay = min(300, 5 * 2 ** min(6, max(job['stalls'], job['connection_retries'])))
-                job['message'] = 'Connection or evidence unavailable; confirmed work retained. ' + type(error).__name__
+                phase = 'NEEDS_INPUT' if job['connection_retries'] >= 12 else job['state']
+                delay = max(recovery_delay, min(300, 5 * 2 ** min(6, job['connection_retries'])))
+                output.update(retryable=phase != 'NEEDS_INPUT', retry_after_seconds=delay)
+                job['message'] = 'Connection unavailable; waiting for the bounded retry deadline. Confirmed work is retained.'
         if output and 'error_type' not in output:
             job['connection_retries'] = 0
             job['stalls'] = 0

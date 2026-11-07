@@ -1,12 +1,17 @@
 package dev.chungjungsoo.gptmobile.data.workspace
 
 import dev.chungjungsoo.gptmobile.data.chat.ArchivedTextCodec
+import dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticRecordChunks
 import java.io.IOException
 import java.security.MessageDigest
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -144,6 +149,48 @@ class WorkspaceDiagnosticPayloadTest {
             }
         }
         assertTrue(observed === expected)
+    }
+
+    @Test fun largeProtectedEvidenceRestoresAllRowsWithinTheMeasuredLimit() = runBlocking {
+        val text = JsonObject(
+            mapOf(
+                "receipts" to JsonArray(
+                    List(4000) { index ->
+                        JsonObject(mapOf("id" to JsonPrimitive(index), "result" to JsonPrimitive("evidence"), "token" to JsonPrimitive("private-token")))
+                    }
+                )
+            )
+        ).toString()
+        val bytes = text.toByteArray()
+        val chunks = bytes.indices.step(60 * 1024).mapIndexed { index, offset ->
+            "workspace-memory-7-$index" to bytes.copyOfRange(offset, minOf(bytes.size, offset + 60 * 1024))
+        }.toMap()
+        val issued = mutableListOf<ByteArray>()
+        val omissions = mutableListOf<String>()
+        val result = readWorkspaceDiagnosticPayload(
+            7,
+            metadata(chunks.keys.toList(), text),
+            1_048_576,
+            {},
+            { true },
+            { chunks[it]!!.size + 38L },
+            { chunks[it]?.copyOf()?.also(issued::add) },
+            omissions::add
+        )
+        assertNull(result.omissionReason)
+        assertTrue(omissions.isEmpty())
+        val payload = requireNotNull(result.payload)
+        val receipts = payload.jsonObject.getValue("receipts").jsonArray
+        assertEquals(4000, receipts.size)
+        assertEquals("3999", receipts.last().jsonObject.getValue("id").jsonPrimitive.content)
+        assertTrue(receipts.all { it.jsonObject.getValue("token").jsonPrimitive.content == "[redacted]" })
+        assertFalse(payload.toString().contains("private-token"))
+        val exported = DiagnosticRecordChunks.encode(payload.toString(), 12 * 1024).toList()
+        assertTrue(exported.size > 1)
+        val reconstructed = exported.joinToString("") { it.getValue("content").jsonPrimitive.content }
+        assertEquals(payload, Json.parseToJsonElement(reconstructed))
+        assertTrue(exported.all { it.getValue("recordSha256").jsonPrimitive.content == DiagnosticRecordChunks.sha256(reconstructed) })
+        assertTrue(issued.all { chunk -> chunk.all { it == 0.toByte() } })
     }
 
     private fun metadata(references: List<String>, text: String) = JsonObject(

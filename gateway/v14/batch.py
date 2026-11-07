@@ -6,6 +6,9 @@ approval/transaction path and are never accepted by this aggregate read tool.
 import contextvars
 import hashlib
 import json
+import math
+import ssl
+from email.utils import parsedate_to_datetime
 import random
 import threading
 import time
@@ -117,21 +120,42 @@ def failed(result):
 
 
 def retry_delay(error, attempt):
-    """Retry transport failures/explicit throttling, never auth, contracts or writes."""
+    """A safe-read retry delay, or None when recovery requires explicit action.
+
+    A server cooldown is a lower bound, not a value to clamp downward. Long
+    cooldowns are handed back to the durable task rather than retried early.
+    """
+    import requests
+    current, seen = error, set()
+    while current is not None and id(current) not in seen and len(seen) < 16:
+        seen.add(id(current))
+        if isinstance(current, (ssl.SSLError, requests.exceptions.SSLError,
+                                PermissionError, InterruptedError)):
+            return None
+        current = current.__cause__ or current.__context__
     response = getattr(error, 'response', None)
     status = getattr(response, 'status_code', None)
-    if status is not None and status not in {429, 502, 503, 504}:
+    if status is not None and status not in {429, 500, 502, 503, 504}:
         return None
-    if status is None:
-        import requests
-        if not isinstance(error, (TimeoutError, requests.Timeout, requests.ConnectionError)):
-            return None
+    if status is None and not isinstance(error, (TimeoutError, requests.Timeout, requests.ConnectionError)):
+        return None
     headers = getattr(response, 'headers', {}) or {}
-    try:
-        retry_after = max(0, float(headers.get('Retry-After', 0)))
-    except (TypeError, ValueError):
-        retry_after = 0
-    return max(min(retry_after, 120), min(8, .5 * 2 ** attempt) + random.uniform(0, .25))
+    value = headers.get('Retry-After')
+    retry_after = 0.0
+    if value is not None:
+        try:
+            retry_after = float(value)
+        except (TypeError, ValueError, OverflowError):
+            try:
+                retry_after = parsedate_to_datetime(str(value)).timestamp() - time.time()
+            except (TypeError, ValueError, OverflowError):
+                # An unparseable explicit cooldown is not permission to guess a
+                # shorter wait. Preserve the failure for an explicit refresh.
+                return None
+        if not math.isfinite(retry_after) or retry_after > 120:
+            return None
+        retry_after = max(0.0, retry_after)
+    return max(retry_after, min(8, .5 * 2 ** min(4, max(0, attempt))) + random.uniform(0, .25))
 
 
 class BatchExecutor:
@@ -144,6 +168,7 @@ class BatchExecutor:
         if not self.admission.acquire(blocking=False):
             raise TimeoutError('Batch capacity occupied')
         cancel = cancel_event if cancel_event is not None else threading.Event()
+        halted = threading.Event()
         results = dict(receipts or {})
         if not set(results) <= {node['id'] for node in nodes}:
             self.admission.release()
@@ -157,27 +182,48 @@ class BatchExecutor:
                       'failed': sum(failed(value) for value in results.values()),
                       'elapsed_ms': round((time.monotonic() - started) * 1000),
                       'message': f'Batch {len(results)}/{len(nodes)} · {len(active)} running · {len(pending)} queued'})
+        def stopping():
+            return halted.is_set() or cancel.is_set()
+
+        def wait_backoff(delay):
+            until = time.monotonic() + delay
+            while not stopping():
+                remaining = until - time.monotonic()
+                if remaining <= 0:
+                    return False
+                cancel.wait(min(.1, remaining))
+            return True
+
         def run(node):
             before = time.monotonic()
             for attempt in range(3):
-                if cancel.is_set():
+                if stopping():
                     raise InterruptedError('Batch canceled')
                 try:
                     return invoke(node), (time.monotonic() - before) * 1000, attempt
+                except InterruptedError:
+                    halted.set()
+                    raise
                 except Exception as error:
                     delay = retry_delay(error, attempt)
                     if delay is None or attempt == 2:
                         # No source, arguments, credentials or exception text in telemetry.
                         return {'isError': True, 'error': {'code': 'BATCH_READ_FAILED', 'type': type(error).__name__}}, (time.monotonic() - before) * 1000, attempt
-                    if cancel.wait(delay):
+                    if wait_backoff(delay):
                         raise InterruptedError('Batch canceled during retry backoff')
         try:
-            with ThreadPoolExecutor(max_workers=self.maximum, thread_name_prefix='github-batch') as pool:
+            pool = ThreadPoolExecutor(max_workers=self.maximum, thread_name_prefix='github-batch')
+            try:
                 report()
                 while pending or active:
-                    if cancel.is_set():
-                        raise InterruptedError('Batch canceled; completed receipts retained')
-                    for node in pending[:]:
+                    if stopping():
+                        halted.set()
+                    # Stop dispatch immediately, then drain admitted reads. A
+                    # successful in-flight response still needs a durable receipt.
+                    for node in pending[:] if not halted.is_set() else []:
+                        if stopping():
+                            halted.set()
+                            break
                         if not set(node['depends_on']) <= results.keys():
                             continue
                         if any(failed(results[dep]) for dep in node['depends_on']):
@@ -204,13 +250,21 @@ class BatchExecutor:
                         pending.remove(node)
                     report()
                     if not active:
+                        if halted.is_set():
+                            break
                         if pending:
                             raise ValueError('Batch dependencies cannot advance')
                         break
                     done, _ = wait(active, timeout=.1, return_when=FIRST_COMPLETED)
                     for future in done:
                         node = active.pop(future)
-                        result, elapsed, retries = future.result()
+                        try:
+                            result, elapsed, retries = future.result()
+                        except InterruptedError:
+                            # Cancellation is not a completed read failure. Keep
+                            # this node pending for an explicit resumed batch.
+                            halted.set()
+                            continue
                         results[node['id']] = result
                         checkpoint(results)
                         if failed(result) or retries or elapsed >= 15000:
@@ -220,6 +274,24 @@ class BatchExecutor:
                             if healthy >= width:
                                 width, healthy = min(self.maximum, width + 1), 0
                         report()
+            except BaseException:
+                halted.set()
+                raise
+            finally:
+                # Keep admission until actual workers exit. Releasing it while
+                # reads still run would let cancellation bypass backpressure.
+                pool.shutdown(wait=True, cancel_futures=True)
+                for future, node in active.items():
+                    if future.cancelled():
+                        continue
+                    try:
+                        result, _, _ = future.result()
+                    except InterruptedError:
+                        continue  # Unobserved reads remain resumable, never failed receipts.
+                    results[node['id']] = result
+                    checkpoint(results)
+            if stopping():
+                raise InterruptedError('Batch canceled; completed receipts retained')
             return results
         finally:
             self.admission.release()

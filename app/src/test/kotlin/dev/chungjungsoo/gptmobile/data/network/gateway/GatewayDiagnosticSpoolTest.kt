@@ -7,6 +7,7 @@ import java.security.MessageDigest
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.zip.ZipFile
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
@@ -294,6 +295,120 @@ class GatewayDiagnosticSpoolTest {
                 assertEquals(rows.size.toLong(), rows.last().diagnosticLong("origin_sequence"))
             }
             writer.get(10, TimeUnit.SECONDS)
+        } finally {
+            executor.shutdownNow()
+        }
+    }
+
+    @Test fun fullSpoolKeepsBoundedPagesAndSourceVersionsAcrossRestart() {
+        val large = buildJsonObject {
+            put("stage", "transport")
+            put("severity", "warning")
+            put("trace_id", "e".repeat(32))
+            put("span_id", "f".repeat(16))
+            listOf("run_id", "job_id", "request_id", "operation_id", "tool_call_id", "binding_id", "incident_id").forEach { put(it, "a".repeat(64)) }
+            put(
+                "bounded_attributes",
+                buildJsonObject {
+                    listOf("profile_digest", "model_digest", "endpoint_digest", "repository_digest", "app_revision", "gateway_revision", "capability_digest", "runtime_config_digest", "source_event_digest").forEach { put(it, "a".repeat(64)) }
+                    put("app_version_code", 140)
+                    put("android_sdk", 37)
+                }
+            )
+        }
+        var spool = spool()
+        spool.append(List(5000) { now + it to large })
+        spool = GatewayDiagnosticSpool(file(), boot, { now })
+        val page = spool.page(0, 64, true)
+        assertEquals(5000, page.total)
+        assertEquals(64, page.events.size)
+        assertTrue(page.events.all { GatewayDiagnosticEvent.bytes(it) in 1800..2048 })
+        assertEquals(5000, spool.status().pending)
+        assertEquals(1, spool.status().incidents)
+        assertEquals(1, spool.status().operationCount)
+        val destination = temporary.newFile("full-spool.zip")
+        spool.export(destination)
+        ZipFile(destination).use { zip ->
+            val count = zip.getInputStream(zip.getEntry("events.jsonl")).bufferedReader().useLines { lines -> lines.count() }
+            assertEquals(5000, count)
+            val manifest = Json.parseToJsonElement(zip.getInputStream(zip.getEntry("manifest.json")).reader().readText()) as JsonObject
+            val versions = manifest["source_versions"] as JsonObject
+            assertEquals("a".repeat(64), versions.diagnosticText("app_revision"))
+            assertEquals(140L, versions.diagnosticLong("app_version_code"))
+            assertEquals(37L, versions.diagnosticLong("android_sdk"))
+        }
+    }
+
+    @Test fun readsAndExportUseCommittedGenerationWhileDiskWriterIsBlocked() {
+        val block = AtomicBoolean(false)
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val spool = GatewayDiagnosticSpool(file(), boot, { now }) { target, header, rows ->
+            if (block.get()) {
+                entered.countDown()
+                check(release.await(10, TimeUnit.SECONDS))
+            }
+            target.writeText((listOf(header) + rows).joinToString("\n", postfix = "\n"))
+        }
+        append(spool, 2)
+        val oldBatch = spool.batch()
+        val oldPage = spool.page(0, 64, false)
+        val oldStatus = spool.status()
+        val executor = Executors.newFixedThreadPool(2)
+        try {
+            block.set(true)
+            val writer = executor.submit { spool.acknowledge(ack(spool, 2)) }
+            assertTrue(entered.await(5, TimeUnit.SECONDS))
+            executor.submit {
+                assertEquals(oldStatus, spool.status())
+                assertEquals(oldBatch, spool.batch())
+                assertEquals(oldPage, spool.page(0, 64, false))
+                val (manifest, rows) = export(spool)
+                assertEquals(2, rows.size)
+                val source = (manifest["sources"] as JsonArray).single() as JsonObject
+                assertEquals(0L, source.diagnosticLong("accounted_through"))
+                assertEquals(2, GatewayDiagnosticSpool(file(), boot, { now }).status().pending)
+            }.get(5, TimeUnit.SECONDS)
+            release.countDown()
+            writer.get(5, TimeUnit.SECONDS)
+            assertEquals(0, spool.status().pending)
+            assertEquals(0, GatewayDiagnosticSpool(file(), boot, { now }).status().pending)
+            assertTrue((spool.batch()["events"] as JsonArray).isEmpty())
+        } finally {
+            release.countDown()
+            executor.shutdownNow()
+        }
+    }
+
+    @Test fun concurrentAppendsKeepDistinctDurableIdentitiesAndSummaryCounts() {
+        val spool = spool()
+        val executor = Executors.newFixedThreadPool(3)
+        val start = CountDownLatch(1)
+        try {
+            val writers = List(3) { worker ->
+                executor.submit {
+                    start.await()
+                    spool.append(
+                        List(40) { index ->
+                            now + index to buildJsonObject {
+                                put("stage", "transport")
+                                put("severity", "error")
+                                put("operation_id", worker.toString().repeat(32))
+                            }
+                        }
+                    )
+                }
+            }
+            start.countDown()
+            writers.forEach { it.get(10, TimeUnit.SECONDS) }
+            val recovered = GatewayDiagnosticSpool(file(), boot, { now })
+            assertEquals(spool.status(), recovered.status())
+            assertEquals(120, recovered.status().retained)
+            assertEquals(120, recovered.status().pending)
+            assertEquals(3, recovered.status().incidents)
+            assertEquals(3, recovered.status().operationCount)
+            val (_, rows) = export(recovered)
+            assertEquals((1L..120).toList(), rows.map { it.diagnosticLong("origin_sequence") })
         } finally {
             executor.shutdownNow()
         }

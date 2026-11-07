@@ -40,13 +40,14 @@ class IndependentReadinessTest(unittest.TestCase):
     def test_catalogue_success_does_not_establish_execution_success(self):
         config = {'server': {'command': 'fixture'}}
         runtime = SimpleNamespace(load_mcp_config=lambda: config, mcp_tool_metadata={},
-                                  mcp_call=lambda *args, **kwargs: {'tools': []})
+                                  mcp_call=lambda *args, **kwargs: {'tools': [{'name': 'actual_read', 'inputSchema': {'type': 'object'}}]})
         cache = CatalogCache(runtime, interactive=1)
-        self.assertEqual([], cache.get())
+        self.assertEqual(1, len(cache.get()))
         self.assertIsNone(cache.readiness()['toolsReady'])
         self.assertTrue(cache.readiness()['schemaReady'])
         self.assertIsNone(cache.readiness()['executionVerified'])
-        cache.observe_execution('server', config['server'], 'actual_read', True)
+        cache.observe_execution('server', config['server'], 'actual_read', True,
+            contract=cache.execution_contract('server', config['server'], 'actual_read'))
         self.assertTrue(cache.readiness()['toolsReady'])
         self.assertTrue(cache.readiness()['executionVerified'])
         config['server'] = {'command': 'new-connection'}

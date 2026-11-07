@@ -9,6 +9,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -47,5 +48,14 @@ class ChatDebugRedactorTest {
         val clean = redactChatDebugData(Json.parseToJsonElement((0..100).joinToString(",", "[", "]")))
         assertEquals(101, clean.jsonArray.size)
         assertEquals("plain", (redactChatDebugData(JsonPrimitive("plain")) as JsonPrimitive).content)
+    }
+
+    @Test fun redactionReusesSafeSubtreesWhenAnotherBranchContainsCredentials() {
+        val source = Json.parseToJsonElement("""{"evidence":[{"count":1,"result":"safe"},null,true],"authorization":"Bearer private-value"}""").jsonObject
+        val clean = redactChatDebugData(source).jsonObject
+        assertSame(source.getValue("evidence"), clean.getValue("evidence"))
+        assertEquals("[redacted]", clean.getValue("authorization").jsonPrimitive.content)
+        assertFalse(clean.toString().contains("private-value"))
+        assertSame(source.getValue("evidence"), redactChatDebugData(source.getValue("evidence")))
     }
 }

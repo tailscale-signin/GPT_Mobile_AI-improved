@@ -18,6 +18,53 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ApiStateFlowExtensionsTest {
+    @Test fun unverifiedResponseObservationClearsGatewayProofAcrossProviderRounds() = runBlocking {
+        val gateway = dev.chungjungsoo.gptmobile.data.database.entity.ResponseSource(dev.chungjungsoo.gptmobile.data.database.entity.ResponseTransport.GATEWAY, profileUid = "same-profile", modelId = "same-model", gatewayVerified = true)
+        val unknown = dev.chungjungsoo.gptmobile.data.database.entity.ResponseSource(profileUid = "same-profile", modelId = "same-model")
+        var timeline = emptyList<AssistantTimelineItem>()
+        var content = ""
+        val result = flowOf(
+            ApiState.GitHubRoundStarted,
+            ApiState.ResponseSourceCaptured(gateway),
+            ApiState.Success("Verified first response"),
+            ApiState.GitHubRoundStarted,
+            ApiState.ResponseSourceCaptured(unknown),
+            ApiState.Success("Unverified next response"),
+            ApiState.TokenUsage(1, 2, 3),
+            ApiState.Error("Interrupted after the second response")
+        ).collectApiStateUpdates(onUpdate = { text, _, items ->
+            content = text
+            timeline = items
+        })
+        assertTrue(result is ApiStateFlowOutcome.Failed)
+        assertEquals("Unverified next response", content)
+        val prior = timeline.single { it.progressCheckpoint && it.content == "Verified first response" }
+        assertEquals(gateway, prior.responseSource)
+        assertTrue(prior.responseSource!!.gatewayVerified)
+        val current = timeline.single { it.type == AssistantTimelineItemType.TEXT }
+        assertEquals(unknown, current.responseSource)
+        assertFalse(current.responseSource!!.gatewayVerified)
+        assertEquals(unknown, timeline.last { it.generation != null }.generation?.responseSource)
+    }
+
+    @Test fun unverifiedResponseObservationFlushesEarlierVerifiedTextWithoutReclassifyingIt() = runBlocking {
+        val gateway = dev.chungjungsoo.gptmobile.data.database.entity.ResponseSource(dev.chungjungsoo.gptmobile.data.database.entity.ResponseTransport.GATEWAY, profileUid = "same-profile", gatewayVerified = true)
+        val unknown = dev.chungjungsoo.gptmobile.data.database.entity.ResponseSource(profileUid = "same-profile")
+        var timeline = emptyList<AssistantTimelineItem>()
+        val result = flowOf(
+            ApiState.ResponseSourceCaptured(gateway),
+            ApiState.Success("Verified prefix. "),
+            ApiState.ResponseSourceCaptured(unknown),
+            ApiState.Success("Unverified continuation."),
+            ApiState.Done
+        ).collectApiStateUpdates(onUpdate = { _, _, items -> timeline = items })
+        assertEquals(ApiStateFlowOutcome.Completed, result)
+        val text = timeline.filter { it.type == AssistantTimelineItemType.TEXT }
+        assertEquals(listOf("Verified prefix. ", "Unverified continuation."), text.map { it.content })
+        assertEquals(listOf(gateway, unknown), text.map { it.responseSource })
+        assertEquals(listOf(true, false), text.map { it.responseSource!!.gatewayVerified })
+    }
+
     @Test fun sourceReceiptsPreserveMixedTransportAndTerminalTail() = runBlocking {
         val gateway = dev.chungjungsoo.gptmobile.data.database.entity.ResponseSource(dev.chungjungsoo.gptmobile.data.database.entity.ResponseTransport.GATEWAY, profileUid = "gateway-profile")
         val direct = dev.chungjungsoo.gptmobile.data.database.entity.ResponseSource(dev.chungjungsoo.gptmobile.data.database.entity.ResponseTransport.DIRECT, profileUid = "direct-profile")

@@ -1,3 +1,7 @@
+## Unreleased reliability follow-up
+
+A separate post-PR-806 branch repairs server-cooldown/TLS retry admission, durable retry timing, cancellation-safe batch receipts, schema-bound MCP readiness, missing event replay and bounded context projection. Android reports now distinguish authentication and graph recovery. Gateway answer colour and badges now require response-bound gateway evidence, clear stale attribution between responses, and confirm recognized gateway capabilities with diagnostics disabled. No new version is published by this change; full current-head CI and physical deployment qualification remain separate requirements. See `docs/repairs/reliability-fault-recovery-2026-11-06.md`.
+
 # GPT Mobile 0.9.66.6
 
 Android build 140. Scoped diagnostic-reliability release candidate.
@@ -75,3 +79,4 @@ The existing signed-release pipeline verifies exact-commit tests, required main 
 - The GitHub ticket broker, callback registration and enterprise/private-repository deployment remain operator qualification tasks; deterministic tests do not establish production sign-in or credential refresh.
 - The November 6 diagnostic repairs require live acceptance on the original MCP endpoints, an authorized GitHub workflow against the running application build, and physical-device frame measurements. Retained exports cannot recover previously deleted, evicted or uncaptured history; cached or mocked observations do not establish live integration success.
 - Legacy writes whose original invocation arguments and identifying context were already lost cannot be reconstructed from their hashes. Exact retained fences remain enforced; arbitrary resumption of that historical work requires external remote-state reconciliation.
+- The 008174e2 archive was partial: omitted original payloads cannot be reconstructed. Live private endpoint availability, phone frame pacing and process-death acceptance remain deployment/device gates; host regression success does not establish those results.

@@ -3,6 +3,7 @@ package dev.chungjungsoo.gptmobile.presentation.ui.chat
 import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem
 import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -54,8 +55,26 @@ class GitHubActivityLinesTest {
     @Test fun repeatedCountsReplaceTheSamePublicLineAndSummaryDoesNotRecur() {
         val lines = gitHubActivityLines(listOf(line("Summary", true), line("Checks: 1/8 complete. Reading files."), line("Other summary", true), line("Summary", true), line("Checks: 3/8 complete; 1 failed. Checking jobs.")), "test all")
         assertEquals(1, lines.count { it.content.startsWith("Checks:") })
-        assertEquals("Checks: 3/8 complete; 1 failed", lines.last().content)
-        assertEquals("github-check-counts", lines.last().progressId)
+        assertEquals("Checks: 3/8 complete; 1 failed", lines[1].content)
+        assertEquals("github-check-counts", lines[1].progressId)
         assertEquals(1, lines.count { it.content == "Summary" })
+    }
+
+    @Test fun independentCountersUpdateTheirOriginalRowsAndSurviveHistoryTrimming() {
+        val timeline = listOf(line("Summary", true), line("Check 1/8"), line("Files: 2/6")) +
+            (1..30).map { line("Reviewing item $it") } + listOf(line("Check 3/8"), line("Files: 5/6"))
+        val lines = gitHubActivityLines(timeline, "test")
+        assertEquals(listOf("Summary", "Check 3/8", "Files: 5/6"), lines.take(3).map { it.content })
+        val visible = gitHubVisibleActivityLines(lines, compact = true)
+        assertEquals(20, visible.size)
+        assertEquals(listOf("Summary", "Check 3/8", "Files: 5/6"), visible.take(3).map { it.content })
+        assertEquals("Reviewing item 30", visible.last().content)
+    }
+
+    @Test fun detailedModelSummariesRetainTheirTextAndAuthorshipWhileAcknowledgementIsDeterministic() {
+        val first = line("The gateway received the request.\nI have verified the response schema and will check the source files next.", true).copy(modelAuthored = true)
+        val second = line("The gateway returned the file list.\nTwo files contain the affected function; I will check their callers next.", true).copy(modelAuthored = true)
+        assertEquals(listOf(first, second), gitHubActivityLines(listOf(first, second), "fix"))
+        assertFalse(gitHubActivityLines(emptyList(), "fix").single().modelAuthored)
     }
 }

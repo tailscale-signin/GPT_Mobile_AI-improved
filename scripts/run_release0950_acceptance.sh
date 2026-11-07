@@ -2,19 +2,34 @@
 set -euo pipefail
 acceptance_output=app/build/acceptance-0950
 mkdir -p "$acceptance_output"
+# Preserve the original status while retaining evidence even when preparation
+# fails before any instrumentation starts. Never clear away boot/setup ANRs.
+capture_acceptance_diagnostics() {
+  acceptance_exit=$?
+  trap - EXIT
+  set +e
+  timeout 10s adb logcat -d > "$acceptance_output/exit-logcat.txt"
+  timeout 10s adb shell dumpsys window -a > "$acceptance_output/window-state.txt"
+  timeout 10s adb shell dumpsys activity processes > "$acceptance_output/process-state.txt"
+  timeout 10s adb shell dumpsys activity lastanr > "$acceptance_output/last-anr.txt"
+  exit "$acceptance_exit"
+}
+trap capture_acceptance_diagnostics EXIT
+timeout 10s adb logcat -d > "$acceptance_output/boot-logcat.txt"
 application_apk=$(python3 scripts/select_android_test_apk.py app/build/intermediates/apk/debug --application-id dev.melo.gptmobile.improved --abi x86_64)
 instrumentation_apk=$(python3 scripts/select_android_test_apk.py app/build/intermediates/apk/androidTest/debug --application-id dev.melo.gptmobile.improved.test)
 # AGP marks IDE-targeted APKs test-only; both installs are confined to this emulator.
 adb install -r -t "$application_apk"
 adb install -r -t "$instrumentation_apk"
 python3 scripts/prepare_emulator_ui.py --output "$acceptance_output/emulator-ui.json"
-# Constrain the display only after the lightweight test home is active, so
-# neither the stock launcher nor Settings.FallbackHome handles these changes.
+# Constrain the display with the lightweight test HOME in the foreground.
+# Keep the stock launcher's QuickStep service available to SystemUI's taskbar.
 adb shell wm size 640x1280
 adb shell wm density 320
 adb shell settings put system font_scale 2.0
+python3 scripts/prepare_emulator_ui.py --settle-display --output "$acceptance_output/emulator-display.json"
+timeout 10s adb logcat -d > "$acceptance_output/setup-logcat.txt"
 adb shell pm list instrumentation > "$acceptance_output/instrumentations.txt"
-adb logcat -c
 # Gradle's connected-test cleanup uninstalls the app. Run explicit named cases
 # directly, validate their actual protocol packets, then collect private files.
 set +e
@@ -45,6 +60,10 @@ github_workflow_execution_status=${PIPESTATUS[0]}
 # The suite requests both 320 dp and 600 dp layouts; the device must accommodate the wider one.
 timeout 30s adb shell wm size 1200x2560
 settings_home_display_status=$?
+if [ "$settings_home_display_status" -eq 0 ]; then
+  python3 scripts/prepare_emulator_ui.py --settle-display --size 1200x2560 --output "$acceptance_output/settings-home-display.json"
+  settings_home_display_status=$?
+fi
 if [ "$settings_home_display_status" -ne 0 ]; then
   printf 'Settings Home 600 dp viewport setup failed (exit %s).\n' "$settings_home_display_status" >&2
 fi
@@ -55,6 +74,10 @@ if [ "$settings_home_display_status" -eq 0 ]; then
 fi
 timeout 30s adb shell wm size 640x1280
 settings_home_restore_status=$?
+if [ "$settings_home_restore_status" -eq 0 ]; then
+  python3 scripts/prepare_emulator_ui.py --settle-display --output "$acceptance_output/settings-home-restore.json"
+  settings_home_restore_status=$?
+fi
 if [ "$settings_home_restore_status" -ne 0 ]; then
   printf 'Settings Home 320 dp viewport restore failed (exit %s).\n' "$settings_home_restore_status" >&2
 fi
@@ -97,7 +120,7 @@ model_source_status=${PIPESTATUS[0]}
 timeout 180s adb shell am instrument -w -r -e class dev.chungjungsoo.gptmobile.data.security.SecretVaultInstrumentedTest dev.melo.gptmobile.improved.test/androidx.test.runner.AndroidJUnitRunner | tee "$acceptance_output/secret-vault-instrumentation.txt"
 secret_vault_status=${PIPESTATUS[0]}
 set -e
-adb logcat -d > "$acceptance_output/logcat.txt"
+timeout 10s adb logcat -d > "$acceptance_output/logcat.txt"
 settings_home_artifact_status=0
 timeout 30s adb exec-out run-as dev.melo.gptmobile.improved tar -cf - -C files/ui-review settings-home > "$acceptance_output/settings-home.tar" || settings_home_artifact_status=$?
 adb exec-out run-as dev.melo.gptmobile.improved cat files/acceptance-0950-performance.json > "$acceptance_output/performance.json" || true

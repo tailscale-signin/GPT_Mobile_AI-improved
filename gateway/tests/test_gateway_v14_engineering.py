@@ -192,6 +192,43 @@ class DurableEngineeringTests(unittest.TestCase):
             self.service.tick(job['id'])
         self.assertEqual('NEEDS_INPUT', self.store.get(job['id'])['state'])
 
+    def test_server_cooldown_is_preserved_in_the_durable_schedule(self):
+        job = self.store.create('owner', self.request)
+        response = requests.Response()
+        response.status_code = 429
+        response.headers['Retry-After'] = '90'
+        self.backend.step = lambda *args: (_ for _ in ()).throw(requests.HTTPError('fixture limit', response=response))
+        self.service.tick(job['id'])
+        self.assertEqual('PLAN', self.store.get(job['id'])['state'])
+        self.time += 89
+        self.assertNotIn(job['id'], self.store.due())
+        self.time += 2
+        self.assertIn(job['id'], self.store.due())
+        reopened = EngineeringStore(self.runtime, lambda: self.time)
+        self.assertIn(job['id'], reopened.due())
+
+    def test_tls_failures_and_excessive_cooldowns_pause_without_replaying_stages(self):
+        response = requests.Response()
+        response.status_code = 503
+        response.headers['Retry-After'] = '600'
+        errors = (requests.exceptions.SSLError('fixture TLS secret'), requests.HTTPError('fixture cooldown secret', response=response))
+        for index, error in enumerate(errors):
+            self.request['request_id'] = f'safe-stop-{index}'
+            job = self.store.create('owner', self.request)
+            calls = []
+            def fail(*args):
+                calls.append('PLAN')
+                raise error
+            self.backend.step = fail
+            self.service.tick(job['id'])
+            current = self.store.get(job['id'])
+            self.assertEqual('NEEDS_INPUT', current['state'])
+            self.assertFalse(current['data']['blocked_reason']['retryable'])
+            self.assertNotIn('secret', str(current))
+            self.time += 1000
+            self.service.tick(job['id'])
+            self.assertEqual(['PLAN'], calls)
+
     def test_definitive_http_failures_pause_without_repeating_the_backend_request(self):
         for phase in ('PLAN', 'CI'):
             for status in (400, 401, 403, 404, 409, 422):

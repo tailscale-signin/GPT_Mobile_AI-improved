@@ -20,7 +20,7 @@ from gateway_v13_transport import post_chat
 from v14.engineering import EngineeringService, EngineeringStore
 from v14.engineering_backend import GitHubEngineeringBackend
 from v14.execution_binding import ExecutionBindingError
-from v14.inference_budget import fit_engineering_payload, plan_tokens
+from v14.inference_budget import compact_evidence, fit_engineering_payload, plan_tokens
 from v14.inference_scheduler import FairInferenceScheduler
 from v14.debug import DebugLogStore, current_diagnostic_capture, current_diagnostic_trace
 
@@ -315,6 +315,59 @@ class BudgetAndSchedulerTests(unittest.TestCase):
         self.assertFalse(json.loads(fitted['messages'][-1]['content'])['evidence_view']['complete'])
         self.assertGreaterEqual(budget['remaining_tokens'], 0)
         self.assertEqual(30000, len(json.loads(request['messages'][-1]['content'])['evidence']['file']))
+
+    def test_wide_projection_stops_traversal_at_the_node_budget(self):
+        class CountedEvidence(dict):
+            visited = 0
+            def items(self):
+                for item in super().items():
+                    self.visited += 1
+                    yield item
+        evidence = CountedEvidence({str(i): i for i in range(10000)})
+        view, omissions = compact_evidence(evidence, 256, nodes=16)
+        self.assertEqual(15, len(view))  # The root consumes one node.
+        self.assertLessEqual(evidence.visited, 16)
+        self.assertLess(len(json.dumps(view)), 256)
+        self.assertEqual([{'pointer': '', 'reason': 'VIEW_NODE_LIMIT', 'retained_count': 10000,
+                           'visible_count': 15}], omissions)
+        self.assertEqual(10000, len(evidence))
+
+    def test_nested_projection_and_omission_ledger_remain_bounded(self):
+        # Key admission now has its own aggregate bound. Use unkeyed nested
+        # evidence to exercise omission overflow independently of that bound.
+        evidence = [['é' * 300 for _ in range(500)] for _ in range(64)]
+        view, omissions = compact_evidence(evidence, 256, nodes=1024)
+        self.assertLessEqual(len(omissions), 256)
+        self.assertEqual('VIEW_OMISSION_LIMIT', omissions[-1]['reason'])
+        self.assertGreater(omissions[-1]['additional_omissions'], 0)
+        self.assertLess(len(view), len(evidence))
+        excerpt = view[0][0]
+        self.assertEqual(256, len(excerpt['excerpt'].encode()))
+        self.assertFalse(excerpt['complete'])
+        self.assertEqual(600, excerpt['retained_bytes'])
+
+    def test_wide_compaction_replaces_omitted_root_fields_and_keeps_reserves(self):
+        caps = {'context_tokens': 8192, 'max_output_tokens': 8192, 'limits_verified': True}
+        # Exhaust the node budget across bounded containers before the other
+        # root fields; a single wide object is now stopped by its item limit.
+        evidence = [list(range(500)) for _ in range(500)]
+        envelope = {'objective': 'keep exact objective', 'evidence': evidence,
+                    'historical_memory': {'source': 'x' * 10000}, 'code_graph': {'nodes': list(range(10000))}}
+        request = {'max_tokens': 1024, 'messages': [{'role': 'system', 'content': 'policy'},
+                                                  {'role': 'user', 'content': json.dumps(envelope)}]}
+        original = copy.deepcopy(request)
+        fitted, budget, compaction = fit_engineering_payload(request, caps,
+            lambda value: (len(value['messages'][-1]['content']), 'CONSERVATIVE_UTF8_BOUND'))
+        view = json.loads(fitted['messages'][-1]['content'])
+        self.assertEqual('keep exact objective', view['objective'])
+        self.assertEqual({'available_in_retained_evidence': True, 'view_omitted': True}, view['historical_memory'])
+        self.assertEqual(view['historical_memory'], view['code_graph'])
+        self.assertLess(len(view['evidence']), len(evidence))
+        self.assertLess(compaction['view_node_limit'], 2048)
+        self.assertEqual(1024, budget['output_tokens'])
+        self.assertGreater(budget['final_tokens'], 0)
+        self.assertGreaterEqual(budget['remaining_tokens'], 0)
+        self.assertEqual(original, request)
 
     def test_cancelled_queue_releases_budget_and_never_validates(self):
         scheduler = FairInferenceScheduler(max_queue_bytes=10)

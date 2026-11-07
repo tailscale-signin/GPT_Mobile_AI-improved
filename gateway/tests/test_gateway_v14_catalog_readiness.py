@@ -21,15 +21,21 @@ class CatalogReadinessTest(unittest.TestCase):
 
     def test_readiness_requires_current_authorized_fresh_catalog_evidence(self):
         self.cache.cache[self.key] = (time.monotonic(), [{}], {})
-        self.cache.health[self.key] = {'executionAvailable': True}
+        self.cache.health[self.key] = {'executionAvailable': True, 'connectionHealthy': True, 'authorized': True}
         self.assertIs(True, self.cache.readiness()['toolsReady'])
         self.cache.health[self.key] = {'executionAvailable': False}
         self.assertIs(False, self.cache.readiness()['toolsReady'])
-        self.cache.health[self.key] = {'executionAvailable': True}
+        self.cache.health[self.key] = {'executionAvailable': True, 'connectionHealthy': True, 'authorized': True}
         self.cache.cache[self.key] = (time.monotonic() - 301, [{}], {})
         self.assertEqual('STALE', self.cache.readiness()['toolsState'])
         self.config['local'] = {'command': ['changed-server']}
         self.assertIsNone(self.cache.readiness()['toolsReady'])
+
+    def test_success_without_validated_schema_does_not_establish_readiness(self):
+        self.cache.cache[self.key] = (time.monotonic(), [{}], {})
+        self.cache.health[self.key] = {'executionAvailable': True}
+        self.assertIsNone(self.cache.readiness()['toolsReady'])
+        self.assertFalse(self.cache.readiness()['schemaReady'])
 
     def test_no_configured_tool_is_explicit_and_not_a_failure(self):
         self.config.clear()

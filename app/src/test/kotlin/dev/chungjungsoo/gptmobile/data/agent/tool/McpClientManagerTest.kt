@@ -8,6 +8,7 @@ import io.ktor.client.engine.mock.respond
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.plugins.sse.SSE
 import io.ktor.serialization.kotlinx.json.json
+import io.modelcontextprotocol.kotlin.sdk.client.Client
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.util.concurrent.CopyOnWriteArrayList
@@ -24,6 +25,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
@@ -343,6 +345,100 @@ class McpClientManagerTest {
     }
 
     @Test
+    fun disconnectedSdkClientRecoversCatalogueOnceWithoutProviderBackoff() = runBlocking {
+        McpFixtureServer(postOnly = true).use { server ->
+            val client = testClient()
+            val manager = McpClientManager(client, retryJitterMs = { 0 })
+            val config = McpConnectionConfig("disconnected-catalogue", server.url, true)
+            try {
+                assertEquals(listOf("echo"), manager.listTools(config, awaitCompletion = true).map { it.name })
+                val disconnected = cachedSdkClient(manager, config.connectionUid)
+                disconnected.close()
+                val failure = runCatching { disconnected.listTools() }.exceptionOrNull()
+                assertEquals(IllegalStateException::class.java, failure?.javaClass)
+                assertEquals("Not connected", failure?.message)
+
+                val tools = withTimeout(6_000) { manager.listTools(config, forceRefresh = true, awaitCompletion = true) }
+                assertEquals(listOf("echo"), tools.map { it.name })
+                assertEquals(2, server.methods.count { it == "initialize" })
+                assertEquals(2, server.methods.count { it == "tools/list" })
+                val health = manager.healthSnapshot(config.connectionUid)
+                assertEquals(McpConnectionHealthState.CONNECTED, health.state)
+                assertEquals(McpToolReadiness.READY, health.toolReadiness)
+                assertEquals(0, health.consecutiveFailures)
+                assertEquals(null, health.nextRetryAtMs)
+                assertEquals(null, health.executionVerified)
+            } finally {
+                manager.closeAll()
+                client.close()
+            }
+        }
+    }
+
+    @Test
+    fun disconnectedSdkClientDoesNotAutomaticallyRetryAToolCall() = runBlocking {
+        McpFixtureServer(postOnly = true).use { server ->
+            val client = testClient()
+            val manager = McpClientManager(client, retryJitterMs = { 0 })
+            val config = McpConnectionConfig("disconnected-call", server.url, true)
+            try {
+                manager.listTools(config, awaitCompletion = true)
+                cachedSdkClient(manager, config.connectionUid).close()
+                val failure = runCatching { manager.callTool(config, "echo", buildJsonObject { put("text", "change") }) }.exceptionOrNull()
+                assertEquals(IllegalStateException::class.java, failure?.javaClass)
+                assertEquals("Not connected", failure?.message)
+                assertEquals(1, server.methods.count { it == "initialize" })
+                assertEquals(0, server.methods.count { it == "tools/call" })
+                assertFalse(manager.catalogueAvailability(config).executionAvailable)
+            } finally {
+                manager.closeAll()
+                client.close()
+            }
+        }
+    }
+
+    @Test
+    fun dispatchedToolCallWithLostSessionResponseIsNeverReplayed() = runBlocking {
+        McpFixtureServer(postOnly = true, toolStatus = 404).use { server ->
+            val client = testClient()
+            val manager = McpClientManager(client, retryJitterMs = { 0 })
+            val config = McpConnectionConfig("dispatched-call", server.url, true)
+            try {
+                manager.listTools(config, awaitCompletion = true)
+                val failure = runCatching { manager.callTool(config, "echo", buildJsonObject { put("text", "change") }) }.exceptionOrNull()
+                assertTrue(failure != null)
+                assertEquals(1, server.methods.count { it == "tools/call" })
+                assertEquals(1, server.toolParams.size)
+                assertEquals(1, server.methods.count { it == "initialize" })
+                assertFalse(manager.catalogueAvailability(config).executionAvailable)
+            } finally {
+                manager.closeAll()
+                client.close()
+            }
+        }
+    }
+
+    @Test
+    fun invalidCatalogueDoesNotReconnectOrPublishReadiness() = runBlocking {
+        McpFixtureServer(postOnly = true, toolsResponse = """{"tools":[{"name":"","inputSchema":{"type":"object"}}]}""").use { server ->
+            val client = testClient()
+            val manager = McpClientManager(client, retryJitterMs = { 0 })
+            val config = McpConnectionConfig("invalid-catalogue", server.url, true)
+            try {
+                val failure = runCatching { manager.listTools(config, awaitCompletion = true) }.exceptionOrNull()
+                assertTrue(failure is IllegalArgumentException)
+                assertEquals(1, server.methods.count { it == "initialize" })
+                assertEquals(1, server.methods.count { it == "tools/list" })
+                assertFalse(manager.healthSnapshot(config.connectionUid).toolsReady)
+                assertFalse(manager.catalogueAvailability(config).executionAvailable)
+            } finally {
+                manager.closeAll()
+                client.close()
+            }
+        }
+    }
+
+    @Test
     fun `post only server GET 405 does not invalidate a working MCP session`() = runBlocking {
         McpFixtureServer(postOnly = true).use { server ->
             val client = testClient()
@@ -461,6 +557,14 @@ class McpClientManagerTest {
         client.close()
     }
 
+    // Emulate the SDK closing its transport independently while the manager still
+    // holds that session, as can happen when another discovery owner is cancelled.
+    private fun cachedSdkClient(manager: McpClientManager, uid: String): Client {
+        val sessions = McpClientManager::class.java.getDeclaredField("sessions").apply { isAccessible = true }.get(manager) as Map<*, *>
+        val session = requireNotNull(sessions[uid])
+        return session.javaClass.getDeclaredField("client").apply { isAccessible = true }.get(session) as Client
+    }
+
     private fun testClient(): HttpClient = HttpClient(CIO) {
         expectSuccess = false
         install(ContentNegotiation) { json(JSON) }
@@ -472,7 +576,8 @@ class McpClientManagerTest {
         acceptedAuthorization: String? = null,
         private val toolsResponse: String? = null,
         private val postOnly: Boolean = false,
-        private val toolResult: ((JsonObject) -> String)? = null
+        private val toolResult: ((JsonObject) -> String)? = null,
+        private val toolStatus: Int? = null
     ) : AutoCloseable {
         @Volatile
         var acceptedAuthorization: String? = acceptedAuthorization
@@ -527,6 +632,10 @@ class McpClientManagerTest {
                     "tools/call" -> {
                         val params = request["params"] as JsonObject
                         toolParams += params
+                        toolStatus?.let { status ->
+                            exchange.sendResponseHeaders(status, -1)
+                            return
+                        }
                         toolResult?.invoke(params) ?: run {
                             val text = (params["arguments"] as JsonObject)["text"]!!.jsonPrimitive.content
                             """{"content":[{"type":"text","text":"$text"}]}"""

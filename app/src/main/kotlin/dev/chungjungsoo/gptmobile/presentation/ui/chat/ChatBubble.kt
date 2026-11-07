@@ -866,22 +866,22 @@ internal fun DetailsButton(
 fun GPTMobileIcon(loading: Boolean, github: Boolean = false) {
     Box(
         modifier = Modifier
-            .padding(start = 4.dp)
-            .size(40.dp),
+            .size(40.dp)
+            .testTag("assistant_response_icon"),
         contentAlignment = Alignment.Center
     ) {
         if (loading) {
             CircularProgressIndicator(
-                modifier = Modifier.size(40.dp),
+                modifier = Modifier.size(40.dp).testTag("assistant_response_progress"),
                 color = MaterialTheme.colorScheme.primary,
                 strokeWidth = 2.5.dp,
                 trackColor = Color.Transparent
             )
         }
         if (github) {
-            Icon(ImageVector.vectorResource(R.drawable.ic_github_outline), "GitHub assistant", Modifier.size(34.dp), tint = MaterialTheme.colorScheme.primary)
+            Icon(ImageVector.vectorResource(R.drawable.ic_github_outline), "GitHub assistant", Modifier.size(30.dp).testTag("assistant_response_glyph"), tint = MaterialTheme.colorScheme.primary)
         } else {
-            dev.chungjungsoo.gptmobile.presentation.common.ThemedAppIcon(Modifier.size(34.dp))
+            dev.chungjungsoo.gptmobile.presentation.common.ThemedAppIcon(Modifier.size(30.dp).testTag("assistant_response_glyph"))
         }
     }
 }

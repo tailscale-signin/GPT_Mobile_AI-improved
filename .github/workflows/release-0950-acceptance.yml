@@ -75,6 +75,10 @@ jobs:
         with:
           api-level: ${{ matrix.api }}
           profile: ${{ matrix.profile }}
+          # Both cold boots need CPU and memory headroom before the action unlocks HOME.
+          # API 34's two-core/2560MB guest hit a launcher ANR with heavy CPU/paging load.
+          cores: 4
+          ram-size: 4096M
           arch: x86_64
           target: google_apis
           disable-animations: true

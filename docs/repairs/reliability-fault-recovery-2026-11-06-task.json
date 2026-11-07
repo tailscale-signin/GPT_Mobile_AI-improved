@@ -261,5 +261,81 @@
         "whitespace": "PASSED"
       }
     }
+  },
+  "emulator_setup_followup": {
+    "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+    "base_branch": "main",
+    "base_sha": "c313a9897afe6e0a7cff609cdcf33d83fad83a90",
+    "parent_head": "6c1a001d0998253979f5bb163c50c76070e6021f",
+    "working_branch": "repair/gateway-emulator-final",
+    "remote_branch": "fix/reliability-fault-recovery-2026-11-06",
+    "parent_prs": [
+      808,
+      809
+    ],
+    "intent": "Repair observed emulator cold-start and display-configuration readiness gaps, retain ANR evidence and all existing acceptance assertions, then revalidate the exact integrated head before merging both PR histories.",
+    "state": "IMPLEMENTED_LOCALLY_PENDING_EXACT_HEAD_CI",
+    "prior_head_validation": {
+      "pr_validation_run": 42335532919,
+      "diagnostic_audit_run": 42335532996,
+      "unit_tests": {
+        "total": 7225,
+        "passed": 7220,
+        "skipped": 5,
+        "failed": 0
+      },
+      "all_eight_non_emulator_workflows": "SUCCESS",
+      "api34": "SUCCESS",
+      "api36": "FAILED_TWICE"
+    },
+    "failures": [
+      {
+        "job": 128291485870,
+        "artifact": 13560121850,
+        "cause": "Initial application startup ANR before any test status; heavy CPU contention observed; exact blocked app call not captured."
+      },
+      {
+        "job": 128297624559,
+        "artifact": 13560723138,
+        "cause": "Editor test passed; two glass tests correctly rejected screenshots obstructed by a System UI is not responding dialog."
+      }
+    ],
+    "observed_setup_gaps": [
+      "HOME selection was declared ready before display, density and font configuration settled.",
+      "Stock launcher force-stop triggered SystemUI QuickStep rebinding and taskbar reconstruction.",
+      "Boot broadcasts were still completing after instrumentation began.",
+      "Logcat was cleared after setup, removing the original SystemUI ANR diagnosis."
+    ],
+    "repair_plan": [
+      "Keep the lightweight test HOME and its recents provider running.",
+      "Require bounded broadcast and application queue barriers and exact display, HOME focus and non-ANR readiness before instrumentation.",
+      "Give the API36 emulator four guest cores on its four-vCPU public runner; retain API34 resources.",
+      "Retain boot and setup diagnostics even when preparation fails."
+    ],
+    "preserved": [
+      "All named instrumentation cases, foreground-window assertions, pixel thresholds, strict protocol validation and existing instrumentation watchdogs.",
+      "System and application ANR reporting; no dismissal, suppression or instrumentation retry."
+    ],
+    "new_exact_head_ci_required": true,
+    "checkpoint_utc": "2026-11-07T04:56:56.407708+00:00",
+    "source_commit": "05ca97f0060b52b4eb83f475f57013b2aa80bc59",
+    "local_validation": {
+      "focused_setup_and_runner_tests": {
+        "passed": 34,
+        "status": "PASSED"
+      },
+      "canonical_integrated_fast": {
+        "passed": 346,
+        "status": "PASSED"
+      },
+      "shell_syntax": "PASSED",
+      "whitespace": "PASSED",
+      "gate_preservation": {
+        "instrumentation_invocations_and_watchdogs": 20,
+        "strict_protocol_block": "BYTE_FOR_BYTE_UNCHANGED",
+        "foreground_and_pixel_assertions": "BYTE_FOR_BYTE_UNCHANGED"
+      },
+      "independent_review": "CLEAR on frozen source commit05ca97f0060b52b4eb83f475f57013b2aa80bc59; AOSP34/36 formats, bounded deadlines, native dump timeouts and diagnostics failure preservation verified. Runtime effectiveness requires new-head CI."
+    }
   }
 }

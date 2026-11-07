@@ -1,5 +1,6 @@
 from pathlib import Path
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -21,6 +22,18 @@ class HomeDevice:
         self.fault = fault
         self.accept_selection = True
         self.launch = f'Status: ok\nActivity: {emulator.TEST_HOME}\nComplete'
+        self.broadcast_output = emulator.BROADCAST_IDLE
+        self.application_output = emulator.APPLICATION_IDLE
+        self.process_dump = ('ACTIVITY MANAGER RUNNING PROCESSES (dumpsys activity processes)\n'
+                             '  *APP* ProcessRecord{abc 1035:com.android.systemui/u0a99}\n'
+                             '    mCrashing=false mNotResponding=false\n')
+        self.window_dump = ('WINDOW MANAGER WINDOWS (dumpsys window windows)\n'
+                            f'  mCurrentFocus=Window{{abc u0 {emulator.TEST_HOME}}}\n'
+                            '  mWaitingForConfig=false\n')
+        self.window_states = []
+        self.display_size = 'Physical size: 2560x1800\nOverride size: 640x1280'
+        self.display_density = 'Physical density: 320\nOverride density: 320'
+        self.font_scale = '2.0'
 
     def __call__(self, command, **options):
         self.calls.append((command, options))
@@ -39,15 +52,31 @@ class HomeDevice:
             output = 'Success'
         elif 'start' in command:
             output = self.launch
-        elif 'force-stop' in command:
-            assert command[-1] in emulator.LAUNCHERS
-            output = ''
+        elif 'wait-for-broadcast-idle' in command:
+            output = self.broadcast_output
+        elif 'wait-for-application-barrier' in command:
+            output = self.application_output
+        elif command[2:] == ['dumpsys', 'activity', 'processes']:
+            output = self.process_dump
+        elif command[2:] == ['dumpsys', 'window', '-a']:
+            output = self.window_states.pop(0) if self.window_states else self.window_dump
+        elif command[2:] == ['wm', 'size']:
+            output = self.display_size
+        elif command[2:] == ['wm', 'density']:
+            output = self.display_density
+        elif command[2:] == ['settings', 'get', 'system', 'font_scale']:
+            output = self.font_scale
         else:
             raise AssertionError(f'Unexpected emulator command: {command}')
         return subprocess.CompletedProcess(command, 0, output)
 
     def mutations(self):
-        return [command for command, _ in self.calls if 'resolve-activity' not in command]
+        reads = [('am', 'wait-for-broadcast-idle', '--flush-broadcast-loopers'),
+                 ('am', 'wait-for-application-barrier'), ('dumpsys', 'activity', 'processes'),
+                 ('dumpsys', 'window', '-a'), ('wm', 'size'), ('wm', 'density'),
+                 ('settings', 'get', 'system', 'font_scale')]
+        return [command for command, _ in self.calls
+                if 'resolve-activity' not in command and tuple(command[2:]) not in reads]
 
 
 class EmulatorReadinessTest(unittest.TestCase):
@@ -55,7 +84,7 @@ class EmulatorReadinessTest(unittest.TestCase):
         elapsed = [0.0]
         return (lambda: elapsed[0]), (lambda seconds: elapsed.__setitem__(0, elapsed[0] + seconds))
 
-    def test_valid_test_home_is_selected_and_started_before_the_stock_launcher_stops(self):
+    def test_boot_work_drains_before_selecting_home_without_stopping_quickstep(self):
         device = HomeDevice(homes=['com.google.android.apps.nexuslauncher/.NexusLauncherActivity'])
         report = emulator.prepare(device)
         self.assertEqual('PREPARED', report['status'])
@@ -66,7 +95,12 @@ class EmulatorReadinessTest(unittest.TestCase):
         mutations = device.mutations()
         self.assertEqual(['adb', 'shell', 'cmd', 'package', 'set-home-activity', '--user', '0', emulator.TEST_HOME], mutations[0])
         self.assertEqual(['adb', 'shell', 'am', 'start', '-W', '--user', '0', '-n', emulator.TEST_HOME], mutations[1])
-        self.assertEqual(['adb', 'shell', 'am', 'force-stop', 'com.google.android.apps.nexuslauncher'], mutations[2])
+        self.assertEqual(2, len(mutations))
+        self.assertIsNone(report['stopped_system_launcher'])
+        barrier = next(i for i, (command, _) in enumerate(device.calls) if 'wait-for-broadcast-idle' in command)
+        selection = next(i for i, (command, _) in enumerate(device.calls) if 'set-home-activity' in command)
+        self.assertLess(barrier, selection)
+        self.assertFalse(any('force-stop' in command for command, _ in device.calls))
         self.assertFalse(any('disable-user' in command for command, _ in device.calls))
 
     def test_missing_test_apk_is_rejected_before_any_environment_mutation(self):
@@ -83,7 +117,7 @@ class EmulatorReadinessTest(unittest.TestCase):
                 if options['timeout'] < 12:
                     raise subprocess.TimeoutExpired(command, options['timeout'])
                 wait(12)
-            else:
+            elif 'wait-for-broadcast-idle' not in command:
                 self.assertLessEqual(options['timeout'], 10)
             return device(command, **options)
         report = emulator.prepare(slow_selection, now=now, wait=wait)
@@ -92,7 +126,7 @@ class EmulatorReadinessTest(unittest.TestCase):
         self.assertEqual(12, report['readiness_seconds'])
         self.assertEqual(emulator.TEST_HOME, device.home)
         self.assertEqual(1, sum('set-home-activity' in command for command, _ in device.calls))
-        self.assertEqual(['set-home-activity', 'start', 'force-stop'],
+        self.assertEqual(['set-home-activity', 'start'],
                          [next(operation for operation in ('set-home-activity', 'start', 'force-stop') if operation in command)
                           for command in device.mutations()])
 
@@ -125,7 +159,7 @@ class EmulatorReadinessTest(unittest.TestCase):
         self.assertEqual('PREPARED', report['status'])
         self.assertEqual(emulator.TEST_HOME, report['selected_test_home'])
 
-    def test_an_unconfirmed_home_selection_is_not_used_to_stop_the_launcher(self):
+    def test_an_unconfirmed_home_selection_is_not_launched(self):
         device = HomeDevice()
         device.accept_selection = False
         with self.assertRaisesRegex(ValueError, 'does not resolve'):
@@ -159,7 +193,7 @@ class EmulatorReadinessTest(unittest.TestCase):
             self.assertLessEqual(now(), 3)
 
     def test_mutation_errors_and_timeouts_are_never_replayed(self):
-        for operation in ('set-home-activity', 'start', 'force-stop'):
+        for operation in ('set-home-activity', 'start'):
             for error in (subprocess.CalledProcessError(1, ['adb']), subprocess.TimeoutExpired(['adb'], 1)):
                 device = HomeDevice(fault=(operation, error))
                 with self.assertRaises(type(error)):
@@ -173,7 +207,8 @@ class EmulatorReadinessTest(unittest.TestCase):
         self.assertEqual(3, report['readiness_attempts'])
         self.assertEqual(3, report['readiness_seconds'])
         self.assertTrue(all('resolve-activity' in command for command, _ in device.calls[:4]))
-        self.assertIn('set-home-activity', device.calls[4][0])
+        self.assertIn('wait-for-broadcast-idle', device.calls[4][0])
+        self.assertIn('set-home-activity', device.calls[6][0])
 
     def test_only_transient_read_discovery_can_retry(self):
         device = HomeDevice(homes=[subprocess.CalledProcessError(1, ['adb'], stderr='error: device offline')])
@@ -231,6 +266,285 @@ class EmulatorReadinessTest(unittest.TestCase):
         self.assertIn('android.intent.category.HOME', categories)
         self.assertIn('android.intent.category.DEFAULT', categories)
         self.assertNotIn('EmulatorHomeActivity', (root / 'app/src/main/AndroidManifest.xml').read_text())
+
+
+class DisplayReadinessTest(unittest.TestCase):
+    def clock(self):
+        elapsed = [0.0]
+        return (lambda: elapsed[0]), (lambda seconds: elapsed.__setitem__(0, elapsed[0] + seconds))
+
+    def device(self):
+        device = HomeDevice()
+        device.home = emulator.TEST_HOME
+        return device
+
+    def test_boot_barrier_drains_before_any_home_mutation(self):
+        device = HomeDevice()
+        now, wait = self.clock()
+        def boot_work(command, **options):
+            if 'wait-for-broadcast-idle' in command:
+                self.assertEqual([], device.mutations())
+                wait(7)
+            return device(command, **options)
+        report = emulator.prepare(boot_work, now=now, wait=wait)
+        self.assertEqual(7, report['boot_barrier_seconds'])
+        self.assertEqual(7, report['readiness_seconds'])
+        self.assertEqual(2, len(device.mutations()))
+
+    def test_barrier_exit_zero_without_confirmation_never_claims_readiness(self):
+        invalid = ('', 'All broadcast queues are idle', 'Finished application barriers',
+                   'Unknown command: wait-for-broadcast-idle',
+                   'Gave up waiting for application barriers!',
+                   emulator.APPLICATION_IDLE + '\nGave up waiting for application barriers!',
+                   emulator.BROADCAST_IDLE + '\nError: interrupted')
+        for output in invalid:
+            with self.subTest(output=output):
+                device = HomeDevice()
+                device.broadcast_output = output
+                with self.assertRaisesRegex(ValueError, 'did not confirm'):
+                    emulator.prepare(device)
+                self.assertEqual([], device.mutations())
+                device = self.device()
+                device.application_output = output
+                with self.assertRaisesRegex(ValueError, 'did not confirm'):
+                    emulator.settle_display(device)
+                self.assertEqual([], device.mutations())
+
+    def test_display_barriers_precede_readiness_observations_without_mutations(self):
+        device = self.device()
+        report = emulator.settle_display(device)
+        self.assertEqual('READY', report['status'])
+        self.assertEqual('640x1280', report['display_size'])
+        self.assertEqual(320, report['density_dpi'])
+        self.assertEqual(2.0, report['font_scale'])
+        self.assertTrue(report['broadcast_idle'])
+        self.assertTrue(report['application_threads_drained'])
+        self.assertFalse(report['system_error_dialogs_suppressed'])
+        self.assertEqual(['adb', 'shell', 'am', 'wait-for-broadcast-idle', '--flush-broadcast-loopers'], device.calls[0][0])
+        self.assertEqual(['adb', 'shell', 'am', 'wait-for-application-barrier'], device.calls[1][0])
+        self.assertEqual([], device.mutations())
+
+    def test_pending_configuration_and_null_focus_are_only_observed_until_ready(self):
+        device = self.device()
+        ready = device.window_dump
+        device.window_states = [ready.replace(f'Window{{abc u0 {emulator.TEST_HOME}}}', 'null'),
+                                ready.replace('mWaitingForConfig=false', 'mWaitingForConfig=true')]
+        now, wait = self.clock()
+        report = emulator.settle_display(device, now=now, wait=wait, ready_timeout=10)
+        self.assertEqual(3, report['readiness_attempts'])
+        self.assertEqual(3, report['readiness_seconds'])
+        self.assertEqual([], device.mutations())
+        self.assertEqual(1, sum('wait-for-broadcast-idle' in command for command, _ in device.calls))
+        self.assertEqual(1, sum('wait-for-application-barrier' in command for command, _ in device.calls))
+
+    def test_application_and_window_waits_share_the_remaining_phase_budget(self):
+        device = self.device()
+        device.window_dump = device.window_dump.replace('mWaitingForConfig=false', 'mWaitingForConfig=true')
+        now, wait = self.clock()
+        def slow_barriers(command, **options):
+            self.assertLessEqual(options['timeout'], 12 - now())
+            if 'wait-for-broadcast-idle' in command:
+                self.assertEqual(12, options['timeout'])
+                wait(7)
+            elif 'wait-for-application-barrier' in command:
+                self.assertEqual(5, options['timeout'])
+                wait(4)
+            return device(command, **options)
+        with self.assertRaises(TimeoutError):
+            emulator.settle_display(slow_barriers, now=now, wait=wait, ready_timeout=12)
+        self.assertEqual(12, now())
+        self.assertEqual([], device.mutations())
+
+    def test_a_late_barrier_acknowledgment_cannot_exceed_the_deadline(self):
+        device = self.device()
+        now, wait = self.clock()
+        def late(command, **options):
+            wait(4)
+            return device(command, **options)
+        with self.assertRaises(TimeoutError):
+            emulator.settle_display(late, now=now, wait=wait, ready_timeout=3)
+        self.assertEqual(1, len(device.calls))
+
+    def test_barrier_timeout_or_permission_failure_is_not_replayed(self):
+        for operation in ('wait-for-broadcast-idle', 'wait-for-application-barrier'):
+            for failure in (subprocess.TimeoutExpired(['adb'], 1), subprocess.CalledProcessError(1, ['adb'], stderr='permission denied')):
+                with self.subTest(operation=operation, failure=type(failure)):
+                    device = self.device()
+                    device.fault = (operation, failure)
+                    with self.assertRaises(type(failure)):
+                        emulator.settle_display(device)
+                    self.assertEqual(1, sum(operation in command for command, _ in device.calls))
+                    self.assertEqual([], device.mutations())
+
+    def test_crashing_or_nonresponding_process_blocks_home_and_display_without_dismissal(self):
+        for field in ('mCrashing', 'mNotResponding'):
+            for phase in (emulator.prepare, emulator.settle_display):
+                with self.subTest(field=field, phase=phase.__name__):
+                    device = self.device()
+                    device.process_dump = device.process_dump.replace(field + '=false', field + '=true')
+                    with self.assertRaisesRegex(ValueError, 'crashing or nonresponding'):
+                        phase(device)
+                    self.assertEqual([], device.mutations())
+
+    def test_error_window_and_foreign_focus_do_not_become_ready(self):
+        device = self.device()
+        device.window_dump = device.window_dump.replace(emulator.TEST_HOME, 'Application Not Responding: com.android.systemui')
+        with self.assertRaisesRegex(ValueError, 'error window obstructs'):
+            emulator.settle_display(device)
+        self.assertEqual([], device.mutations())
+        for focus in ('com.android.settings/.FallbackHome', 'com.android.systemui/.SomeWindow',
+                      emulator.TEST_HOME.replace('.test/', '/')):
+            with self.subTest(focus=focus):
+                device = self.device()
+                device.window_dump = device.window_dump.replace(emulator.TEST_HOME, focus)
+                now, wait = self.clock()
+                with self.assertRaisesRegex(TimeoutError, 'last focus='):
+                    emulator.settle_display(device, now=now, wait=wait, ready_timeout=3)
+                self.assertEqual(3, now())
+                self.assertEqual([], device.mutations())
+
+    def test_empty_malformed_or_ambiguous_dumps_fail_closed(self):
+        valid_processes = self.device().process_dump
+        invalid_processes = ('', 'permission denied', 'ACTIVITY MANAGER RUNNING PROCESSES (dumpsys activity processes)',
+                             valid_processes.replace('mNotResponding=false', 'mNotResponding='),
+                             valid_processes.replace('mCrashing=false', 'mCrashing=unknown'),
+                             valid_processes.replace('/u0a99}', '/'),
+                             valid_processes + "*** SERVICE 'activity' DUMP TIMEOUT (10000ms) EXPIRED ***\n")
+        for output in invalid_processes:
+            device = self.device()
+            device.process_dump = output
+            with self.assertRaises(ValueError):
+                emulator.settle_display(device)
+        ready = self.device().window_dump
+        invalid_windows = ('', 'WINDOW MANAGER', ready.replace('mWaitingForConfig=false', 'mWaitingForConfig=unknown'),
+                           ready.replace('Window{abc u0 ', '').replace('}', ''),
+                           ready + 'mCurrentFocus=null\n', ready + 'mWaitingForConfig=unknown\n',
+                           ready + 'mDisplayFrozen=unknown\n',
+                           ready + "*** SERVICE 'window' DUMP TIMEOUT (10000ms) EXPIRED ***\n",
+                           ready + 'Error dumping service info: failed\n')
+        for output in invalid_windows:
+            with self.subTest(output=output):
+                device = self.device()
+                device.window_dump = output
+                with self.assertRaises(ValueError):
+                    emulator.settle_display(device)
+
+    def test_exact_display_configuration_and_selected_home_are_required(self):
+        invalid = [('display_size', ''), ('display_size', 'Physical size: 2560x1800'),
+                   ('display_size', 'Override size: 640x1280\nOverride size: 640x1280'),
+                   ('display_size', 'Physical size: 640x1280\nOverride size: malformed'),
+                   ('display_density', 'Override density: 240'), ('display_density', 'unknown'),
+                   ('font_scale', '1.0'), ('font_scale', 'NaN'), ('font_scale', ''),
+                   ('home', 'com.android.launcher3/.Launcher')]
+        for field, value in invalid:
+            with self.subTest(field=field, value=value):
+                device = self.device()
+                setattr(device, field, value)
+                with self.assertRaises(ValueError):
+                    emulator.settle_display(device)
+                self.assertEqual([], device.mutations())
+
+    def test_wide_viewport_can_be_verified_without_changing_any_setting(self):
+        device = self.device()
+        device.display_size = 'Physical size: 2560x1800\nOverride size: 1200x2560'
+        device.window_dump += 'mDisplayFrozen=false\n'
+        self.assertEqual('1200x2560', emulator.settle_display(device, size='1200x2560')['display_size'])
+        self.assertEqual([], device.mutations())
+
+    def test_invalid_budgets_and_configuration_never_call_adb(self):
+        for options in ({'ready_timeout': 0}, {'ready_timeout': 61}, {'ready_timeout': float('nan')},
+                        {'size': '640x1280; reboot'}, {'density': 0}, {'font_scale': float('inf')}):
+            device = self.device()
+            with self.assertRaises(ValueError):
+                emulator.settle_display(device, **options)
+            self.assertEqual([], device.calls)
+
+    def test_failed_display_phase_retains_blocked_report_and_failure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / 'display.json'
+            with patch.object(sys, 'argv', ['prepare_emulator_ui.py', '--settle-display', '--output', str(output)]), patch.object(emulator, 'settle_display', side_effect=ValueError('System UI is not responding')):
+                with self.assertRaises(ValueError):
+                    emulator.main()
+            report = json.loads(output.read_text())
+            self.assertEqual('BLOCKED', report['status'])
+            self.assertEqual('display', report['phase'])
+            self.assertFalse(report['app_under_test_changed'])
+            self.assertFalse(report['system_error_dialogs_suppressed'])
+
+
+class AcceptanceSetupOrderTest(unittest.TestCase):
+    """Execute the real shell runner with fake ADB/Python boundaries, never a device."""
+    def run_fixture(self, directory, failure):
+        folder = Path(directory)
+        binaries = folder / 'bin'
+        binaries.mkdir()
+        log = folder / 'commands.txt'
+        adb = binaries / 'adb'
+        adb.write_text('''#!/bin/sh
+printf 'adb %s\\n' "$*" >> "$EMULATOR_TEST_LOG"
+if [ "$1" = logcat ]; then
+  count=0
+  if [ -f "$EMULATOR_TEST_LOG.count" ]; then read -r count < "$EMULATOR_TEST_LOG.count"; fi
+  count=$((count + 1))
+  printf '%s\\n' "$count" > "$EMULATOR_TEST_LOG.count"
+  if [ "$EMULATOR_TEST_FAILURE" = normal-logcat ] && [ "$count" = 3 ]; then exit 37; fi
+fi
+printf 'retained emulator evidence\\n'
+if [ "$1 $2" = 'shell am' ] && [ "$3" = instrument ] && [ "$EMULATOR_TEST_FAILURE" = after-setup ]; then exit 55; fi
+''')
+        python = binaries / 'python3'
+        python.write_text('''#!/bin/sh
+printf 'python3 %s\\n' "$*" >> "$EMULATOR_TEST_LOG"
+case "$1" in
+  scripts/select_android_test_apk.py) printf 'fixture.apk\\n' ;;
+  scripts/prepare_emulator_ui.py)
+    case "$*" in
+      *--settle-display*) if [ "$EMULATOR_TEST_FAILURE" = display ]; then exit 32; fi ;;
+      *) if [ "$EMULATOR_TEST_FAILURE" = home ]; then exit 31; fi ;;
+    esac ;;
+esac
+''')
+        adb.chmod(0o755)
+        python.chmod(0o755)
+        env = dict(os.environ, PATH=str(binaries) + os.pathsep + os.environ['PATH'],
+                   EMULATOR_TEST_LOG=str(log), EMULATOR_TEST_FAILURE=failure)
+        runner = Path(__file__).resolve().parents[1] / 'run_release0950_acceptance.sh'
+        result = subprocess.run(['bash', str(runner)], cwd=folder, env=env, text=True, capture_output=True, timeout=20)
+        return result, log.read_text().splitlines(), folder / 'app/build/acceptance-0950'
+
+    def test_home_or_display_failure_retains_diagnostics_and_prevents_instrumentation(self):
+        for phase, status in (('home', 31), ('display', 32)):
+            with self.subTest(phase=phase), tempfile.TemporaryDirectory() as directory:
+                result, commands, artifacts = self.run_fixture(directory, phase)
+                self.assertEqual(status, result.returncode, result.stderr)
+                self.assertFalse(any('am instrument' in command for command in commands))
+                self.assertEqual('adb logcat -d', commands[0])
+                self.assertFalse(any('logcat -c' in command for command in commands))
+                for name in ('boot-logcat.txt', 'exit-logcat.txt', 'window-state.txt', 'process-state.txt', 'last-anr.txt'):
+                    self.assertIn('retained emulator evidence', (artifacts / name).read_text())
+
+    def test_display_readiness_precedes_tests_and_diagnostics_do_not_replace_test_failure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result, commands, artifacts = self.run_fixture(directory, 'after-setup')
+            self.assertEqual(55, result.returncode, result.stderr)
+            home = next(i for i, command in enumerate(commands) if 'prepare_emulator_ui.py --output' in command)
+            size = commands.index('adb shell wm size 640x1280')
+            configured = commands.index('adb shell settings put system font_scale 2.0')
+            ready = next(i for i, command in enumerate(commands) if 'prepare_emulator_ui.py --settle-display' in command)
+            test = next(i for i, command in enumerate(commands) if 'am instrument' in command)
+            self.assertLess(home, size)
+            self.assertLess(configured, ready)
+            self.assertLess(ready, test)
+            self.assertFalse(any('logcat -c' in command for command in commands))
+            for name in ('boot-logcat.txt', 'setup-logcat.txt', 'logcat.txt', 'exit-logcat.txt'):
+                self.assertIn('retained emulator evidence', (artifacts / name).read_text())
+
+    def test_normal_logcat_capture_failure_remains_fatal_and_exit_capture_is_separate(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result, _, artifacts = self.run_fixture(directory, 'normal-logcat')
+            self.assertEqual(37, result.returncode, result.stderr)
+            self.assertEqual('', (artifacts / 'logcat.txt').read_text())
+            self.assertIn('retained emulator evidence', (artifacts / 'exit-logcat.txt').read_text())
 
 
 if __name__ == '__main__':

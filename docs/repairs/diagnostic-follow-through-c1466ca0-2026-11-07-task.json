@@ -7,7 +7,7 @@
   "parent_merge_sha": "737303c4f82eead75b5f554fc29201a9f9a43b82",
   "working_branch": "fix/diagnostic-remediation-8597579-2026-11-07",
   "intent": "Implement the 27 numbered findings from the later diagnostic archive audit, preserving authorization, exact job and tool identities, retained evidence, bounded budgets and truthful task acceptance.",
-  "state": "IMPLEMENTED_AND_LOCAL_VALIDATED_PENDING_EXACT_HEAD_ANDROID_CI",
+  "state": "IMPLEMENTED_PENDING_FINAL_HEAD_CI",
   "coverage_ledger": "docs/repairs/diagnostic-follow-through-c1466ca0-2026-11-07.md",
   "implementation_groups": [
     "strict_template_and_durable_gateway_handoffs",
@@ -36,7 +36,8 @@
     "ktlint": "PASS: ktlint 1.3.1 checked all 87 changed Kotlin files in the integrated source.",
     "release_scope": "PASS: exact changed paths admitted without broadening directory wildcards; existing release identity, base and limitations preserved.",
     "generated_metadata": "PASS: architecture index retained; gateway manifest refreshed for published timing-fixture source a7c0be4b06d430854ec721cc31ab57b8e2853d57. Exactly one of 166 entries changed from the passing aggregate: test_gateway_message_contract.py; all production gateway entries are identical.",
-    "windows_timing_followup": "PASS: 15 message-contract tests on the controlled-clock fixture, followed by a fresh canonical fast validation (378 script tests and all fast gates passed). Windows Python 3.12 job 128459511122 previously recorded both 5ms-separated observations at 0ms; clocks now advance explicitly with strict exact/ordering/SSE/privacy assertions retained. Production code unchanged."
+    "windows_timing_followup": "PASS on exact head 50a6f2544c8738a56838de2ce906daee8d894d36: all four Gateway stability matrix jobs passed. Windows Python 3.12: 557/557 Python tests, 15/15 timing/message-contract tests, 7/7 browser checks, 25/25 authentication tests, and 50,000-event stress passed; no skips.",
+    "android_test_import_followup": "SOURCE FIX PUBLISHED; CI REQUIRED: add the missing kotlinx.serialization.json.JsonPrimitive import to ProviderAdaptersTest.kt after compileDebugUnitTestKotlin reported three unresolved references. Single-line API diff verified; local execution environment became unavailable, so no local compiler rerun is claimed."
   },
   "deployment_qualification_required": [
     "matching Android/gateway installation and interrupted pending-tool handoff on the original selected route",
@@ -115,7 +116,7 @@
       "tree_sha": "9de18aaafc69ddacbddb9aeb9c9077e62ee27cc6"
     }
   ],
-  "publication_verification": "Repository API commit identities differ from local commits. Each published source Git tree exactly matched the corresponding locally validated Git tree before the branch update.",
+  "publication_verification": "Through 50a6f2544c8738a56838de2ce906daee8d894d36 each published source Git tree matched its locally validated tree. The later import-only test fix was applied through the repository API after local execution became unavailable and its exact one-line commit diff was read back.",
   "ci_followup": {
     "prior_head": "0e7c3e30c8d7d0c710dc49fd6013bfa0373609aa",
     "failing_run": 42391385303,
@@ -124,6 +125,25 @@
     "fix_source_sha": "a7c0be4b06d430854ec721cc31ab57b8e2853d57",
     "production_change": false,
     "focused_tests_passed": 15,
-    "exact_new_head_ci": "PENDING"
+    "exact_new_head_ci": "Gateway fixture qualified on 50a6f254; later Android test import requires fresh final-head CI.",
+    "qualified_head": "50a6f2544c8738a56838de2ce906daee8d894d36",
+    "successful_gateway_run": 42392356728,
+    "successful_windows_python312_job": 128462402922
+  },
+  "updated_at_utc": "2026-11-07 16:52:30 UTC",
+  "android_test_import_followup": {
+    "prior_head": "50a6f2544c8738a56838de2ce906daee8d894d36",
+    "failing_run": 42392356741,
+    "failing_job": 128462402669,
+    "cause": "Missing kotlinx.serialization.json.JsonPrimitive import in ProviderAdaptersTest.kt blocked unit-test compilation.",
+    "fix_source_sha": "1ab9e991d31c9697a85a510648db51a9bb471aa9",
+    "tree_sha": "e94a2667e50864f994e64123640a9b036cc3df96",
+    "changed_path": "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/ProviderAdaptersTest.kt",
+    "added_line": "import kotlinx.serialization.json.JsonPrimitive",
+    "production_change": false,
+    "gateway_change": false,
+    "verification": "Repository API readback confirms exactly one added import and no other source change.",
+    "local_execution": "UNAVAILABLE after prior validations; no local compiler rerun claimed.",
+    "final_head_ci": "PENDING"
   }
 }

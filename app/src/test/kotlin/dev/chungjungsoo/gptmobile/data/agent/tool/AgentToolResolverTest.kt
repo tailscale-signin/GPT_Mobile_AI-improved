@@ -4,6 +4,7 @@ import dev.chungjungsoo.gptmobile.data.agent.AgentTool
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import dev.chungjungsoo.gptmobile.data.amazon.AmazonFetchResult
 import dev.chungjungsoo.gptmobile.data.amazon.AmazonHtmlProvider
+import dev.chungjungsoo.gptmobile.data.context.DispatchPolicyChangedException
 import dev.chungjungsoo.gptmobile.data.database.dao.AgentToolBindingWithConnection
 import dev.chungjungsoo.gptmobile.data.database.dao.ToolConnectionDao
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentToolBinding
@@ -30,7 +31,9 @@ import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import dev.chungjungsoo.gptmobile.data.repository.ToolConnectionRepository
 import dev.chungjungsoo.gptmobile.data.security.SecretVault
 import io.ktor.client.engine.cio.CIO
+import io.ktor.client.engine.mock.respond
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.mockk
 import java.time.Clock
 import java.time.Instant
@@ -43,6 +46,8 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -393,6 +398,120 @@ class AgentToolResolverTest {
         } finally {
             manager.closeAll()
             http.close()
+        }
+    }
+
+    @Test fun coldDiscoveryRejectsChangedOrRemovedProfilesAndRevokedRemoteAccessBeforeAnyRequest() = runBlocking {
+        for (change in listOf("profile_changed", "profile_removed", "remote_disabled")) {
+            dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.networkChanged()
+            val profile = PlatformV2(uid = "selected", name = "Selected", model = "selected-model")
+            val profiles = mutableListOf(profile, PlatformV2(uid = "replacement", name = "Other", model = "other-model"))
+            val settings = ResolverFakeSettingRepository(profiles)
+            val dao = ResolverFakeToolConnectionDao()
+            val remote = connection("cold-mcp", ToolConnectionType.MCP, "https://server.example/mcp", authType = ToolConnectionAuthType.NONE)
+            dao.bind(remote, binding(profile.uid, remote.connectionUid, "echo"))
+            var requests = 0
+            val http = io.ktor.client.HttpClient(
+                io.ktor.client.engine.mock.MockEngine {
+                    requests++
+                    error("Discovery must stop before dispatch after authority changes")
+                }
+            )
+            val manager = McpClientManager(http, modern = ModernMcpTransport(http))
+            val resolver = resolver(dao = dao, settings = settings, managerOverride = manager)
+            val message = dev.chungjungsoo.gptmobile.data.database.entity.MessageV2(id = 42, chatId = 7, content = "Use echo", platformType = null)
+            try {
+                val directory = resolver.resolve(profile.uid, ChatMcpToolConfig(allowAllByDefault = true), message, cachedCataloguesOnly = true).single { it.dynamicTools != null }
+                assertEquals(0, requests)
+                when (change) {
+                    "profile_changed" -> profiles[0] = profile.copy(model = "changed-model")
+                    "profile_removed" -> profiles.removeAt(0)
+                    else -> settings.features = settings.features.copy(remoteMcpConnections = false)
+                }
+                val failure = runCatching { directory.tool.execute("discover-after-change", buildJsonObject { put("query", "echo") }) }.exceptionOrNull()
+                assertTrue(failure is DispatchPolicyChangedException)
+                assertEquals(listOf(if (change == "remote_disabled") "tool_inventory" else "profile"), (failure as DispatchPolicyChangedException).fields)
+                assertEquals(0, requests)
+                assertFalse(requireNotNull(directory.dynamicTools).invoke().any { it.connectionUid == remote.connectionUid })
+            } finally {
+                manager.closeAll()
+                http.close()
+                dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.networkChanged()
+            }
+        }
+    }
+
+    @Test fun authorityChangesAfterDiscoveryKeepTheTypedCauseAndNeverPublishStaleTools() = runBlocking {
+        for (changedField in listOf("profile", "tool_inventory")) {
+            dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.networkChanged()
+            val profile = PlatformV2(uid = "selected", name = "Selected", model = "selected-model")
+            val profiles = mutableListOf(profile, PlatformV2(uid = "replacement", name = "Other", model = "other-model"))
+            val settings = ResolverFakeSettingRepository(profiles)
+            val dao = ResolverFakeToolConnectionDao()
+            val remote = connection("cold-mcp", ToolConnectionType.MCP, "https://server.example/mcp", authType = ToolConnectionAuthType.NONE).copy(approvedReadTools = "echo")
+            dao.bind(remote, binding(profile.uid, remote.connectionUid, "echo"))
+            var requests = 0
+            val http = io.ktor.client.HttpClient(
+                io.ktor.client.engine.mock.MockEngine { request ->
+                    requests++
+                    val body = kotlinx.serialization.json.Json.parseToJsonElement((request.body as io.ktor.http.content.TextContent).text).jsonObject
+                    val result = if (body.getValue("method").jsonPrimitive.content == "server/discover") {
+                        """{"supportedVersions":["2026-07-28"],"capabilities":{"tools":{}}}"""
+                    } else {
+                        if (changedField == "profile") profiles[0] = profile.copy(model = "changed-model") else dao.upsertConnection(remote.copy(approvedReadTools = ""))
+                        """{"tools":[{"name":"echo","inputSchema":{"type":"object","properties":{}}}]}"""
+                    }
+                    respond(
+                        buildJsonObject {
+                            put("jsonrpc", "2.0")
+                            put("id", body.getValue("id"))
+                            put("result", kotlinx.serialization.json.Json.parseToJsonElement(result))
+                        }.toString(),
+                        headers = io.ktor.http.headersOf("Content-Type", "application/json")
+                    )
+                }
+            )
+            val manager = McpClientManager(http, modern = ModernMcpTransport(http))
+            val resolver = resolver(dao = dao, settings = settings, managerOverride = manager)
+            val message = dev.chungjungsoo.gptmobile.data.database.entity.MessageV2(id = 42, chatId = 7, content = "Use echo", platformType = null)
+            try {
+                val directory = resolver.resolve(profile.uid, ChatMcpToolConfig(allowAllByDefault = true), message, cachedCataloguesOnly = true).single { it.dynamicTools != null }
+                assertEquals(0, requests)
+                val failure = runCatching { directory.tool.execute("discover-then-change", buildJsonObject { put("query", "echo") }) }.exceptionOrNull()
+                assertTrue(failure is DispatchPolicyChangedException)
+                assertEquals(listOf(changedField), (failure as DispatchPolicyChangedException).fields)
+                assertEquals(2, requests)
+                assertTrue(manager.healthSnapshot(remote.connectionUid).toolsReady)
+                assertFalse(requireNotNull(directory.dynamicTools).invoke().any { it.connectionUid == remote.connectionUid })
+            } finally {
+                manager.closeAll()
+                http.close()
+                dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.networkChanged()
+            }
+        }
+    }
+
+    @Test fun typedAuthorityFailureFromMcpDiscoveryIsNeverRelabeledAsAnUnavailableServer() = runBlocking {
+        for (cachedOnly in listOf(false, true)) {
+            val profile = PlatformV2(uid = "selected", name = "Selected", model = "selected-model")
+            val dao = ResolverFakeToolConnectionDao()
+            val remote = connection("cold-mcp", ToolConnectionType.MCP, "https://server.example/mcp", authType = ToolConnectionAuthType.NONE)
+            dao.bind(remote, binding(profile.uid, remote.connectionUid, "echo"))
+            val manager = mockk<McpClientManager>(relaxed = true)
+            val expected = DispatchPolicyChangedException(listOf("tool_inventory"))
+            coEvery { manager.peekToolsForConnection(any(), any(), any()) } returns null
+            coEvery { manager.listTools(any(), any(), any(), any()) } throws expected
+            val resolver = resolver(dao = dao, settings = ResolverFakeSettingRepository(listOf(profile)), managerOverride = manager)
+            val message = dev.chungjungsoo.gptmobile.data.database.entity.MessageV2(id = 42, chatId = 7, content = "Use echo", platformType = null)
+            val connectionErrors = mutableListOf<String>()
+            val failure = runCatching {
+                val tools = resolver.resolve(profile.uid, ChatMcpToolConfig(allowAllByDefault = true), message, onConnectionError = connectionErrors::add, cachedCataloguesOnly = cachedOnly)
+                tools.single { it.dynamicTools != null }.tool.execute("discover", buildJsonObject { put("query", "echo") })
+            }.exceptionOrNull()
+            assertTrue(failure is DispatchPolicyChangedException)
+            assertEquals(expected.fields, (failure as DispatchPolicyChangedException).fields)
+            assertTrue(connectionErrors.isEmpty())
+            coVerify(exactly = 1) { manager.listTools(any(), any(), any(), any()) }
         }
     }
 

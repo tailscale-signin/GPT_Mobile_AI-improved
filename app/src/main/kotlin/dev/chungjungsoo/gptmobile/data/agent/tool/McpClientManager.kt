@@ -951,7 +951,7 @@ class McpClientManager internal constructor(
 
 internal class McpAuthenticationRequiredException : IllegalStateException("MCP authentication is required. Open Manage connection and reconnect or update the credential.")
 
-private fun Throwable.isMcpUnauthorized(): Boolean = generateSequence(this) { it.cause?.takeUnless { cause -> cause === it } }.take(8)
+internal fun Throwable.isMcpUnauthorized(): Boolean = generateSequence(this) { it.cause?.takeUnless { cause -> cause === it } }.take(8)
     .any { error -> error is McpAuthenticationRequiredException || (error is StreamableHttpError && error.code in setOf(401, 403)) || (error is ModernMcpError && error.status in setOf(401, 403)) }
 
 /** Only replay discovery/resource reads after a dropped connection, never tools/call. */

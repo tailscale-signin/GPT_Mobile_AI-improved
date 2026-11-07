@@ -61,6 +61,21 @@ class McpReadRecoveryTest {
         assertEquals(1, writes)
     }
 
+    @Test fun plainEofReadRecoveryDoesNotTurnAnSslWrappedEofIntoAnAutomaticRetry() = runTest {
+        val tls = javax.net.ssl.SSLException("Secure stream ended", EOFException("unexpected end of stream"))
+        for ((expected, expectedCalls) in listOf(EOFException("unexpected end of stream") to 2, tls to 1, java.io.IOException("SDK wrapper", tls) to 1)) {
+            var calls = 0
+            val observed = runCatching {
+                withMcpReadRecovery("tools/list", pause = { }) {
+                    calls++
+                    throw expected
+                }
+            }.exceptionOrNull()
+            assertTrue(expected === observed)
+            assertEquals(expectedCalls, calls)
+        }
+    }
+
     @Test fun requestDeadlineIsTransportFailureWhileParentDeadlineRemainsCancellation() = runTest {
         val deadline = runCatching { withMcpRequestDeadline(10, "tools/call") { delay(20) } }.exceptionOrNull()
         assertTrue(deadline is McpRequestTimeoutException)

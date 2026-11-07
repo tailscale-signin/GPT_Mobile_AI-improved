@@ -1,8 +1,12 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.setting
 
 import androidx.lifecycle.viewModelScope
+import dev.chungjungsoo.gptmobile.data.agent.tool.AgentToolResolver
 import dev.chungjungsoo.gptmobile.data.agent.tool.MCP_OAUTH_SCHEME
+import dev.chungjungsoo.gptmobile.data.agent.tool.McpBackoffException
 import dev.chungjungsoo.gptmobile.data.agent.tool.McpClientManager
+import dev.chungjungsoo.gptmobile.data.agent.tool.McpConnectionHealth
+import dev.chungjungsoo.gptmobile.data.agent.tool.McpConnectionHealthState
 import dev.chungjungsoo.gptmobile.data.agent.tool.McpOAuthClient
 import dev.chungjungsoo.gptmobile.data.agent.tool.McpOAuthClientTest
 import dev.chungjungsoo.gptmobile.data.agent.tool.McpOAuthCoordinator
@@ -56,6 +60,51 @@ class ToolConnectionsViewModelTest {
     @After
     fun tearDown() {
         Dispatchers.resetMain()
+    }
+
+    @Test fun mcpProbeShowsTheTypedRecoveryActionAndRetainsTheOriginalError() = runBlocking {
+        val connection = ToolConnection("mcp", "MCP", "mcp", ToolConnectionType.MCP, "https://server.example/mcp", ToolConnectionAuthType.NONE, null, null)
+        val dao = FakeToolConnectionDao()
+        dao.upsertConnection(connection)
+        val snapshots = listOf(
+            McpConnectionHealth(state = McpConnectionHealthState.UNREACHABLE, lastFailureAtMs = 1_000, nextRetryAtMs = Long.MAX_VALUE, lastErrorCode = "TLS_FAILURE", lastError = "TLS authentication handshake failed"),
+            McpConnectionHealth(state = McpConnectionHealthState.UNREACHABLE, lastFailureAtMs = 1_000, nextRetryAtMs = Long.MAX_VALUE, lastErrorCode = "MCP_DISCOVERY_SCHEMA_INVALID", lastError = "supportedVersions must be nonempty"),
+            McpConnectionHealth(state = McpConnectionHealthState.AUTHENTICATION_REQUIRED, lastFailureAtMs = 1_000, nextRetryAtMs = Long.MAX_VALUE, lastErrorCode = "MCP_AUTHENTICATION_REQUIRED", lastError = "The saved credential was rejected"),
+            McpConnectionHealth(state = McpConnectionHealthState.DEGRADED, lastFailureAtMs = 1_000, nextRetryAtMs = 30_000, lastErrorCode = "DNS_FAILED", lastError = "The MCP hostname could not be resolved")
+        )
+        var observed = snapshots.first()
+        val manager = mockk<McpClientManager>()
+        every { manager.healthSnapshot(connection.connectionUid) } answers { observed }
+        val resolver = mockk<AgentToolResolver>()
+        coEvery { resolver.discoverMcpTools(connection, forceRefresh = true, awaitCompletion = true, passiveBackoff = false) } coAnswers {
+            throw McpBackoffException(connection.connectionUid, requireNotNull(observed.nextRetryAtMs))
+        }
+        val settings = fakeSettingRepository()
+        every { settings.observeFeatureSettings() } returns kotlinx.coroutines.flow.flowOf(AppFeatureSettings())
+        val model = ToolConnectionsViewModel(dao, FakeSecretVault(), mockk(relaxed = true), manager, settings, agentToolResolver = resolver)
+        try {
+            withTimeout(5000) { model.uiState.first { it.connections.any { it.connectionUid == connection.connectionUid } } }
+            for (snapshot in snapshots) {
+                observed = snapshot
+                model.probeConnection(connection)
+                val state = withTimeout(5000) { model.uiState.first { it.connectionHealth[connection.connectionUid]?.errorCode == snapshot.lastErrorCode } }
+                val shown = state.connectionHealth.getValue(connection.connectionUid)
+                assertEquals(if (snapshot.state == McpConnectionHealthState.AUTHENTICATION_REQUIRED) ToolConnectionHealthStatus.LIMITED else ToolConnectionHealthStatus.OFFLINE, shown.status)
+                assertEquals(snapshot.failureRetryable, shown.retryable)
+                assertTrue(shown.message.contains(requireNotNull(snapshot.lastError)))
+                assertTrue(shown.message.contains(requireNotNull(snapshot.lastErrorCode)))
+                if (snapshot.failureRetryable == false) {
+                    assertTrue(shown.message.contains("reconnect"))
+                    assertFalse(shown.message.contains("backoff", ignoreCase = true))
+                    assertFalse(shown.message.contains(Long.MAX_VALUE.toString()))
+                } else {
+                    assertTrue(shown.message.contains("backoff to expire"))
+                }
+            }
+            coVerify(exactly = 4) { resolver.discoverMcpTools(connection, forceRefresh = true, awaitCompletion = true, passiveBackoff = false) }
+        } finally {
+            model.viewModelScope.cancel()
+        }
     }
 
     @Test fun firstRunGitHubSetupCreatesOneConnectionAndStartsSecureBrowserAuthorization() = runBlocking {

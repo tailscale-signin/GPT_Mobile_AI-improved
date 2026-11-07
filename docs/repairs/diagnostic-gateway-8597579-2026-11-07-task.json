@@ -6,7 +6,7 @@
   "working_branch": "work/diagnostic-gateway-8597579",
   "integration_branch": "fix/diagnostic-remediation-8597579-2026-11-07",
   "intent": "Repair source-confirmed gateway and MCP connection reliability gaps identified by diagnostic capture 8597579 while preserving selected-profile identity, verified transport proofs, TLS, bounded retries and existing supervisors.",
-  "state": "IMPLEMENTED_HOST_VERIFIED",
+  "state": "FOLLOW_UP_IMPLEMENTED_HOST_VERIFIED",
   "ownership": [
     "gateway Python and regression tests",
     "data/agent/tool MCP connection and catalogue code",
@@ -46,18 +46,46 @@
     "fast_host_validation": {
       "command": "bash scripts/validate-local.sh fast",
       "host_tests_passed": 361,
-      "exit_code": 0
+      "exit_code": 0,
+      "seconds": 23.396
     },
-    "kotlin_formatter": "ktlint 1.3.1 on the four touched Kotlin files; no formatting changes",
+    "kotlin_formatter": "ktlint 1.3.1 on all ten Kotlin files touched in the follow-up",
     "limitations": [
       "No Android SDK or connected device in this child environment.",
       "No live private gateway, OpenRouter certificate-path repair, GPU/NPU throughput or hardware execution qualification."
-    ]
+    ],
+    "mcp_failure_presentation_host": {
+      "passed": 76,
+      "seconds": 11.501,
+      "scope": "Production MCP/network classes and redaction implementation, pinned SDK, JUnit and MockEngine; includes shared failure presentation and plain EOF versus SSL-wrapped EOF behavior.",
+      "exit_code": 0
+    },
+    "full_android_regressions_added": [
+      "ToolConnectionsViewModelTest.mcpProbeShowsTheTypedRecoveryActionAndRetainsTheOriginalError",
+      "AgentToolResolverTest.coldDiscoveryRejectsChangedOrRemovedProfilesAndRevokedRemoteAccessBeforeAnyRequest",
+      "AgentToolResolverTest.authorityChangesAfterDiscoveryKeepTheTypedCauseAndNeverPublishStaleTools",
+      "AgentToolResolverTest.typedAuthorityFailureFromMcpDiscoveryIsNeverRelabeledAsAnUnavailableServer"
+    ],
+    "full_android_regressions_note": "These resolver/viewmodel tests require the full app classpath and are delegated to parent CI; they are not included in the 76-test host count."
   },
   "integration_follow_up": [
-    "Resolver owner: append health.lastErrorCode and health.failureRetryable to TOOL_RESOLUTION_FAILED/WAITING_RECOVERY; use them when rendering reconnect-required failures.",
-    "UI owner: ToolConnectionsViewModel currently reads health.lastError; the new safe fields are available for explicit code/retry status. Do not infer readiness from the saved catalogue.",
-    "Root owns architecture index, gateway package manifest and release-scope regeneration; this branch does not modify them."
+    "Resolver and ToolConnectionsViewModel integration is implemented in the follow-up: shared safe error code/retryability presentation and actionable reconnect guidance.",
+    "Typed discovery authority failures retain the selected profile, stop stale publication and propagate to the execution owner without inferring dispatch metadata from the exception type.",
+    "Root owns architecture index, gateway package manifest, release-scope regeneration and full Android/viewmodel/resolver CI."
   ],
-  "implementation_commit": "66b6c2af09c875ac26d0c2db7c3bc1c3ee3c6563"
+  "implementation_commit": "66b6c2af09c875ac26d0c2db7c3bc1c3ee3c6563",
+  "follow_up_base_commit": "4fe9860a9b65cc3481c73079b7dbbd0cdee57a39",
+  "follow_up_scope": [
+    "AgentToolResolver MCP failure summaries",
+    "ToolConnectionsViewModel MCP failure presentation",
+    "Shared typed failure mapping and behavior regressions",
+    "TLS versus plain interrupted-stream policy audit",
+    "Typed discovery authority rejection before and after MCP I/O, coordinated with the execution owner"
+  ],
+  "follow_up_implementation": [
+    "Shared typed MCP failure presentation is wired into the resolver diagnostic summary and connection viewmodel.",
+    "Permanent gates give actionable reconnect/configuration guidance and preserve bounded redacted original details; finite network backoff stays waitable.",
+    "Discovery authority changes retain DispatchPolicyChangedException with fixed field names and cannot publish stale tools.",
+    "Existing conservative SSLException policy retained and covered separately from plain EOF safe-read recovery."
+  ]
 }

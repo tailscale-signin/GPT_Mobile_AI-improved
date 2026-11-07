@@ -6,6 +6,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.chungjungsoo.gptmobile.data.agent.tool.AgentToolResolver
 import dev.chungjungsoo.gptmobile.data.agent.tool.McpClientManager
 import dev.chungjungsoo.gptmobile.data.agent.tool.McpOAuthCoordinator
+import dev.chungjungsoo.gptmobile.data.agent.tool.mcpFailurePresentation
 import dev.chungjungsoo.gptmobile.data.agent.tool.mcpOAuthConnectionUid
 import dev.chungjungsoo.gptmobile.data.agent.tool.mcpOAuthRedirectUri
 import dev.chungjungsoo.gptmobile.data.database.dao.ToolConnectionDao
@@ -44,7 +45,9 @@ data class ToolConnectionHealth(
     val status: ToolConnectionHealthStatus,
     val toolCount: Int? = null,
     val message: String,
-    val checkedAt: Long? = null
+    val checkedAt: Long? = null,
+    val errorCode: String? = null,
+    val retryable: Boolean? = null
 )
 
 @HiltViewModel
@@ -442,19 +445,17 @@ class ToolConnectionsViewModel @Inject constructor(
                             onFailure = { error ->
                                 if (error is kotlinx.coroutines.CancellationException) throw error
                                 val observedHealth = mcpClientManager.healthSnapshot(connection.connectionUid)
-                                val message = observedHealth.lastError ?: error.message ?: "Unable to reach the MCP server."
-                                val limited = message.contains("401") ||
-                                    message.contains("403") ||
-                                    message.contains("auth", ignoreCase = true) ||
-                                    message.contains("permission", ignoreCase = true)
+                                val failure = mcpFailurePresentation(error, observedHealth)
                                 ToolConnectionHealth(
-                                    status = if (limited) {
+                                    status = if (failure.authenticationRequired) {
                                         ToolConnectionHealthStatus.LIMITED
                                     } else {
                                         ToolConnectionHealthStatus.OFFLINE
                                     },
-                                    message = message,
-                                    checkedAt = System.currentTimeMillis()
+                                    message = failure.message,
+                                    checkedAt = System.currentTimeMillis(),
+                                    errorCode = failure.errorCode,
+                                    retryable = failure.retryable
                                 )
                             }
                         )

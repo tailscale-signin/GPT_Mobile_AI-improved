@@ -55,6 +55,10 @@ class McpFailureDiagnosticsTest {
             assertEquals(1, requests)
             assertEquals(1, manager.healthSnapshot(config.connectionUid).consecutiveFailures)
             assertEquals("MCP_DISCOVERY_SCHEMA_INVALID", manager.healthSnapshot(config.connectionUid).lastErrorCode)
+            val presented = mcpFailurePresentation(requireNotNull(first), manager.healthSnapshot(config.connectionUid))
+            assertEquals("outcome=PROTOCOL_CONFIGURATION · errorCode=MCP_DISCOVERY_SCHEMA_INVALID · retryable=false", presented.diagnosticSummary)
+            assertTrue(presented.message.contains("supported protocol version list"))
+            assertFalse(presented.waitingForRecovery)
 
             valid = true
             assertTrue(manager.listTools(config, forceRefresh = true, awaitCompletion = true).isEmpty())
@@ -70,40 +74,53 @@ class McpFailureDiagnosticsTest {
     }
 
     @Test fun tlsFailurePausesDiscoveryUntilExplicitReconnectAndNeverSelectsLegacyTransport() = runBlocking {
-        var requests = 0
-        var now = 1_000L
-        val client = HttpClient(
-            MockEngine {
-                requests++
-                throw IOException("MCP initialization failed", SSLHandshakeException("Certificate verification failed"))
-            }
+        val tlsFailures = listOf(
+            SSLHandshakeException("Certificate verification failed"),
+            javax.net.ssl.SSLException("Secure stream ended", java.io.EOFException("unexpected end of stream"))
         )
-        val manager = McpClientManager(client, modern = ModernMcpTransport(client), nowMs = { now })
-        val config = McpConnectionConfig("tls", "https://certificate.example/mcp", false)
-        try {
-            assertTrue(runCatching { manager.listTools(config, awaitCompletion = true) }.isFailure)
-            val failed = manager.healthSnapshot(config.connectionUid)
-            assertEquals(1, requests)
-            assertEquals(ConnectionHealth.TLS_FAILED, failed.connectionHealth)
-            assertEquals("tls", failed.failedStage)
-            assertEquals("TLS_FAILURE", failed.lastErrorCode)
-            assertEquals(false, failed.failureRetryable)
-            assertEquals(Long.MAX_VALUE, failed.nextRetryAtMs)
-            assertFalse(failed.toolsReady)
-            now += 24 * 60 * 60_000L
-            repeat(3) {
-                assertTrue(runCatching { manager.listTools(config, awaitCompletion = true) }.exceptionOrNull() is McpBackoffException)
-            }
-            assertEquals(1, requests)
-            assertEquals(1, manager.healthSnapshot(config.connectionUid).consecutiveFailures)
+        for (tlsFailure in tlsFailures) {
+            LocalServiceHealth.networkChanged()
+            var requests = 0
+            var now = 1_000L
+            val client = HttpClient(
+                MockEngine {
+                    requests++
+                    throw IOException("MCP initialization failed", tlsFailure)
+                }
+            )
+            val manager = McpClientManager(client, modern = ModernMcpTransport(client), nowMs = { now })
+            val config = McpConnectionConfig("tls", "https://certificate.example/mcp", false)
+            try {
+                assertTrue(runCatching { manager.listTools(config, awaitCompletion = true) }.isFailure)
+                val failed = manager.healthSnapshot(config.connectionUid)
+                assertEquals(1, requests)
+                assertEquals(ConnectionHealth.TLS_FAILED, failed.connectionHealth)
+                assertEquals("tls", failed.failedStage)
+                assertEquals("TLS_FAILURE", failed.lastErrorCode)
+                assertEquals(false, failed.failureRetryable)
+                assertEquals(Long.MAX_VALUE, failed.nextRetryAtMs)
+                assertFalse(failed.toolsReady)
+                now += 24 * 60 * 60_000L
+                repeat(3) {
+                    val blocked = runCatching { manager.listTools(config, awaitCompletion = true) }.exceptionOrNull()
+                    assertTrue(blocked is McpBackoffException)
+                    val presented = mcpFailurePresentation(requireNotNull(blocked), manager.healthSnapshot(config.connectionUid))
+                    assertEquals("outcome=TLS_FAILURE · errorCode=TLS_FAILURE · retryable=false", presented.diagnosticSummary)
+                    assertFalse(presented.waitingForRecovery)
+                    assertTrue(presented.message.contains("reconnect"))
+                    assertFalse(presented.message.contains(Long.MAX_VALUE.toString()))
+                }
+                assertEquals(1, requests)
+                assertEquals(1, manager.healthSnapshot(config.connectionUid).consecutiveFailures)
 
-            assertTrue(runCatching { manager.listTools(config, forceRefresh = true, awaitCompletion = true) }.isFailure)
-            assertEquals(2, requests)
-            assertEquals("TLS_FAILURE", manager.healthSnapshot(config.connectionUid).lastErrorCode)
-            assertEquals(false, manager.healthSnapshot(config.connectionUid).failureRetryable)
-        } finally {
-            manager.closeAll()
-            client.close()
+                assertTrue(runCatching { manager.listTools(config, forceRefresh = true, awaitCompletion = true) }.isFailure)
+                assertEquals(2, requests)
+                assertEquals("TLS_FAILURE", manager.healthSnapshot(config.connectionUid).lastErrorCode)
+                assertEquals(false, manager.healthSnapshot(config.connectionUid).failureRetryable)
+            } finally {
+                manager.closeAll()
+                client.close()
+            }
         }
     }
 

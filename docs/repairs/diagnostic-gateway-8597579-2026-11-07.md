@@ -2,7 +2,7 @@
 
 ## Scope and evidence
 
-This work starts from `91dfce15bc481c4bbdb088bcadd28489436dbb1b` on `work/diagnostic-gateway-8597579`. It changes the existing Android MCP supervisor and network health accounting, and adds a bounded Python gateway regression. No new transport manager or job coordinator is introduced. Private log contents, prompts, credentials, profile IDs and raw diagnostic exports are not included here.
+This work starts from `91dfce15bc481c4bbdb088bcadd28489436dbb1b` on `work/diagnostic-gateway-8597579`. It changes the existing Android MCP supervisor, network health accounting, resolver failure summaries and connection-screen health presentation, and adds a bounded Python gateway regression. No new transport manager or job coordinator is introduced. Private log contents, prompts, credentials, profile IDs and raw diagnostic exports are not included here.
 
 The following positions refer to the original diagnostic export, not repository line numbers. Multiple records about the same request must not be counted as independent failures.
 
@@ -10,9 +10,9 @@ The following positions refer to the original diagnostic export, not repository 
 | --- | --- | --- |
 | Lines 113, 1892 and 1896 describe one model segment and its parent terminal result: `TLS_FAILURE`, zero output, failed stage TLS, nonretryable, verification 0/1. | One failed model transport appears at several layers. The request metadata identifies OpenRouter and the selected DeepSeek model; transport completion and provider identity remain unverified. | Preserve TLS validation and model selection. This change does not repair or claim to diagnose the remote certificate chain from an exception label. |
 | Lines 1871–1891 contain the requested-model, serialized output allowance and partial provider receipt. | A requested model, declared context limit and serialized output setting are not evidence that a runtime accepted or executed them. The receipt lacks a server request ID, finish reason, usage and runtime confirmation. | Retain the current distinction between requested identity and verified runtime observations. No inferred fallback or successful inference. |
-| Lines 241–242 show `TOOL_RESOLUTION_FAILED`, `PROTOCOL_CONFIGURATION`, `McpProtocolConfigurationException`, health `UNREACHABLE`. | The retained resolver record omits the exception's safe diagnostic code. The initiating health failure is outside this window, so the exact invalid protocol/schema field cannot be recovered. | Expose typed error code and retryability in the health snapshot. The resolver owner should include these fields in its repeated summary record. Do not guess that a valid protocol schema caused these particular failures. |
+| Lines 241–242 show `TOOL_RESOLUTION_FAILED`, `PROTOCOL_CONFIGURATION`, `McpProtocolConfigurationException`, health `UNREACHABLE`. | The retained resolver record omits the exception's safe diagnostic code. The initiating health failure is outside this window, so the exact invalid protocol/schema field cannot be recovered. | Expose typed error code and retryability in the health snapshot and the resolver's repeated summary record. Do not guess that a valid protocol schema caused these particular failures. |
 | Lines 1908 and 1918 contain DNS failures for Jina's configured MCP URL, with successful HTTP responses elsewhere before and after them. | This capture supports temporary DNS failure. It does not establish that the public service or configured default is permanently unavailable. | Keep the endpoint and the existing host-wide DNS coordination. No public endpoint is changed. |
-| Line 209 contains a stale inventory precheck rejection with no dispatch. | This is separate from the failed model transport and protocol configuration. | Inventory/execution owner handles this path; this branch does not modify generic resolver or execution ownership. |
+| Line 209 contains a stale inventory precheck rejection with no dispatch. | This is separate from the failed model transport and protocol configuration. | The execution owner handles runner/receipt semantics. This branch preserves typed discovery-authority rejection and prevents publishing tools after the selected profile or inventory changes. |
 
 ## Confirmed source fixes
 
@@ -25,6 +25,20 @@ The following positions refer to the original diagnostic export, not repository 
 `LocalServiceHealth.recordFailure` now ignores a `LocalServiceUnavailableException` anywhere in the bounded cause chain. Previously an SDK-wrapped cooldown rejection could be counted repeatedly even though no network attempt occurred, extending the retry window. The new behavior regression failed against the previous implementation and passed after this guard was corrected. Cancellation remains excluded from transport failure accounting.
 
 The existing endpoint/protocol/authentication pauses, catalogue concurrency, DNS coordination, transport proof checks and selected-model bindings are retained.
+
+### Carry the failure into the resolver and connection screen
+
+`McpFailurePresentation.kt` is the shared mapping used by `AgentToolResolver.kt` and `ToolConnectionsViewModel.kt`. A repeated `McpBackoffException` with a `Long.MAX_VALUE` gate is presented as requiring reconnect, never as a timer that can expire. TLS, protocol, endpoint and authentication failures preserve their actionable recovery guidance and safe diagnostic code; finite DNS/network backoff remains waitable. The connection screen uses typed authentication evidence rather than searching error text for words such as “auth.” Its state also exposes the error code and retryability.
+
+The resolver now records code and retryability in its bounded `TOOL_RESOLUTION_FAILED`/`TOOL_RESOLUTION_WAITING_RECOVERY` summary, together with the original exception class and one health snapshot. Original error detail remains in the user-facing message after the existing privacy redaction and a 1,024-character display bound. Exception bodies, URLs, credentials and arbitrary strings are not added to the summary fields. A current typed error does not inherit unrelated detail from a previous failure. Cancellation continues to propagate.
+
+The cold discovery authority checks now throw the existing `DispatchPolicyChangedException` with fixed `profile` or `tool_inventory` field names. Before network I/O, a changed/removed selected profile or disabled remote access prevents discovery. After I/O, a changed profile, settings or binding inventory prevents publishing the acquired tools. The two broad discovery catches propagate this typed authority failure to the execution layer. This branch does not infer that a request was unsent from its exception type: the added resolver regressions distinguish zero requests before discovery from two completed metadata requests followed by rejected publication. The execution owner retains responsibility for dispatch receipts and terminal runner behavior.
+
+### TLS retry policy and tradeoff
+
+The MCP policy intentionally keeps every `SSLException` out of automatic retry, including an SSL-wrapped EOF. This matches the pre-existing `McpReadRecovery.kt` exclusion, `NetworkFailureKind.kt` TLS classification and Python gateway `batch.retry_delay` treatment of SSL errors. Plain EOF remains an interrupted stream and still receives the existing bounded safe-read retry. `NetworkRetryUtils` is more permissive for some non-handshake SSL errors in other callers; it is not the MCP recovery contract.
+
+The tradeoff is that a transient transport interruption surfaced as a generic SSL exception requires explicit reconnect. The new wording says the secure connection failed; it does not assert that every SSL exception proves an invalid certificate. No TLS validation is disabled, no endpoint is substituted and no mutation is replayed.
 
 ### Bounded disconnect and journal reload qualification
 
@@ -52,15 +66,14 @@ The following behavior was already present at the pinned base and should not be 
 
 ## Verification performed in this branch
 
-- **63 Kotlin/JVM tests passed** using production MCP/network classes, Kotlin 2.4.20, Ktor 3.6.0, MCP SDK 0.15.0 and JUnit 4.13.2. Dependencies were checked against the repository's recorded SHA-256 verification metadata. Android persistence, logging and media boundaries are host stubs; this is not a full Android build. Suites: `McpClientManagerTest`, `McpInterruptedReadTest`, `ModernMcpTransportTest`, `ModernMcpRecoveryTest`, `McpHealthObservationOrderTest`, `McpCatalogueExecutionSafetyTest`, `LocalServiceHealthTest`, `McpFailureDiagnosticsTest`.
+- **76 Kotlin/JVM tests passed** in the expanded follow-up harness, including the earlier 63-test scope. The harness uses production MCP/network classes and actual redaction code, Kotlin 2.4.20, Ktor 3.6.0, MCP SDK 0.15.0 and JUnit 4.13.2. Dependencies were checked against the repository's recorded SHA-256 verification metadata. Android persistence, log sinks and media boundaries are host stubs; this is not a full Android build. Suites: `McpClientManagerTest`, `McpInterruptedReadTest`, `ModernMcpTransportTest`, `ModernMcpRecoveryTest`, `McpHealthObservationOrderTest`, `McpCatalogueExecutionSafetyTest`, `LocalServiceHealthTest`, `McpFailureDiagnosticsTest`, `McpFailurePresentationTest`, `McpReadRecoveryTest`.
+- **Full-app behavior regressions added for parent CI:** the connection viewmodel publishes the expected code, retryability, original detail and authentication/offline status across TLS, protocol, authentication and DNS cases. Three resolver tests cover selected-profile mutation/removal and remote-access revocation before discovery, profile/inventory changes after actual metadata responses, and typed authority failure propagation through initial and cold discovery. These require the full app classpath and are not included in the 76-test host count.
 - **97 Python gateway tests passed in 34.144 seconds** across `test_gateway_reliability_faults`, `test_gateway_v14_stability`, `test_gateway_v14_jobs`, `test_gateway_singleflight`, `test_gateway_selected_execution` and `test_gateway_connection_soak`. This includes real HTTP routes, SQLite, and MCP subprocess fault cases.
 - `bash scripts/validate-local.sh fast`: **361 host checks passed**, plus tool-statistics policy, Android regex, XML resource, icon and QNN provenance checks. Mocked retry scenarios print expected HTTP 429/503 messages; they are not actual dependency provisioning failures. QNN provenance does not prove device execution.
-- KtLint 1.3.1 checked/formatted the four touched Kotlin files; `git diff --check` is clean.
+- KtLint 1.3.1 checked/formatted the touched Kotlin files; `git diff --check` is clean.
 
 The child environment has JDK 17 but no Android SDK/adb. The parent owns full Android CI, merged integration checks, architecture-index regeneration, gateway manifest regeneration and release validation. No claim is made about an actual private gateway connection, the remote certificate chain, hardware acceleration, or long-duration stability from these host tests.
 
-## Integration follow-up for the other owners
+## Remaining integration ownership
 
-1. `AgentToolResolver.kt` currently emits only the exception class for `TOOL_RESOLUTION_FAILED`. Add the observed `health.lastErrorCode` and `health.failureRetryable` to its bounded summary; do not add raw exception chains, tokens or endpoint query strings. A permanent TLS pause should request an explicit reconnect rather than promise that waiting for a timer will recover it.
-2. `ToolConnectionsViewModel.kt` currently reads `observedHealth.lastError`. Its existing protocol messages already contain a diagnostic code, but the new safe fields can make code/retryability explicit for all paths. Keep catalogue readiness distinct from observed tool execution and transport proof.
-3. Root must regenerate the gateway package manifest to include the new soak test, and regenerate the repository index/release scope with all child changes. Those shared ownership files are intentionally not edited in this branch.
+The resolver and connection-screen wiring identified in the first commit is complete in this follow-up. The execution owner handles shared-budget precheck receipts, preservation of actual dispatch state and terminal runner behavior for policy changes. Root must run the full Android/viewmodel/resolver regressions, regenerate the gateway package manifest to include the soak test, and regenerate the repository index/release scope with all child changes. Shared ownership files are intentionally not edited in this branch.

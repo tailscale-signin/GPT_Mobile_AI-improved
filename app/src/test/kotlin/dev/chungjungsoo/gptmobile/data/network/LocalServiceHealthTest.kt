@@ -23,6 +23,13 @@ class LocalServiceHealthTest {
         assertEquals(ConnectionHealth.TLS_FAILED, LocalServiceHealth.classify(java.security.cert.CertificateException("Certificate expired")))
     }
 
+    @Test fun plainEofRemainsAnInterruptedStreamWhileAnSslWrappedEofKeepsTheTlsPolicy() {
+        val eof = java.io.EOFException("unexpected end of stream")
+        assertEquals(ConnectionHealth.STREAM_INTERRUPTED, LocalServiceHealth.classify(eof))
+        val tls = javax.net.ssl.SSLException("Secure stream ended", eof)
+        assertEquals(ConnectionHealth.TLS_FAILED, LocalServiceHealth.classify(java.io.IOException("SDK wrapper", tls)))
+    }
+
     @Test fun recoveryCoordinationAndIntentionalCancellationDoNotCreateEndpointFailures() {
         val url = "https://recovery.example/mcp"
         LocalServiceHealth.recordFailure(url, IllegalStateException("DNS_RECOVERY: probe already owned"))

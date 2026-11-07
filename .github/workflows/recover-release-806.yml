@@ -1,0 +1,39 @@
+name: Recover PR806 signed draft from original verified artifacts
+on:
+  push:
+    branches: [fix/release-806-draft-recovery-2026-11-07]
+    paths:
+      - scripts/recover_release_806.py
+      - .github/workflows/recover-release-806.yml
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: signed-release
+  cancel-in-progress: false
+
+jobs:
+  reconcile:
+    name: Reconcile original signed draft without publication
+    runs-on: ubuntu-latest
+    timeout-minutes: 70
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd
+        with:
+          packages: 'build-tools;37.0.0'
+      - name: Validate exact original signed release and all draft asset bytes (read only)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 -m py_compile scripts/recover_release_806.py
+          python3 scripts/recover_release_806.py

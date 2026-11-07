@@ -47,30 +47,59 @@ def stage_reserves(capability):
 
 
 def compact_evidence(value, text_limit, *, nodes=2048):
-    """Bound model views, not stored source. Each omitted slice has an exact digest."""
+    """Bound traversal and aggregate text, not the durable source.
+
+    Omissions describe the parent container when children are not visited; do
+    not allocate a placeholder for every omitted field of a very wide object.
+    """
+    if type(nodes) is not int or nodes < 1 or type(text_limit) is not int or text_limit < 1:
+        raise ValueError('Evidence view limits must be positive integers')
     remaining = [nodes]
+    text_remaining = [text_limit * 4]
     omissions = []
+    def omit(path, reason, **details):
+        if len(omissions) < 256:
+            omissions.append(dict(pointer=path, reason=reason, **details))
     def visit(item, path, depth):
         remaining[0] -= 1
-        if remaining[0] < 0 or depth > 16:
-            omissions.append({'pointer': path, 'reason': 'VIEW_NODE_LIMIT'})
+        if depth > 16:
+            omit(path, 'VIEW_DEPTH_LIMIT')
             return {'available_in_retained_evidence': True, 'view_omitted': True}
-        if isinstance(item, str) and len(item.encode()) > text_limit:
-            # Never split a Unicode codepoint. The hash identifies the full
-            # retained value; the model sees explicitly incomplete source.
-            raw = item.encode()
-            prefix = raw[:text_limit].decode('utf-8', 'ignore')
-            omissions.append({'pointer': path, 'reason': 'TOKEN_BUDGET', 'sha256': fingerprint(item), 'byte_length': len(raw), 'visible_bytes': len(prefix.encode())})
-            return {'excerpt': prefix, 'complete': False, 'retained_sha256': fingerprint(item), 'retained_bytes': len(raw)}
+        if isinstance(item, str):
+            raw = item.encode('utf-8')
+            allowance = min(text_limit, text_remaining[0])
+            if len(raw) > allowance:
+                prefix = raw[:allowance].decode('utf-8', 'ignore')
+                text_remaining[0] -= len(prefix.encode('utf-8'))
+                identity = fingerprint(item)
+                omit(path, 'TOKEN_BUDGET', sha256=identity, byte_length=len(raw), visible_bytes=len(prefix.encode('utf-8')))
+                return {'excerpt': prefix, 'complete': False, 'retained_sha256': identity, 'retained_bytes': len(raw)}
+            text_remaining[0] -= len(raw)
+            return item
         if isinstance(item, dict):
-            return {key: visit(child, path + '/' + key.replace('~', '~0').replace('/', '~1'), depth + 1) for key, child in item.items()}
+            result = {}
+            for key, child in item.items():
+                if remaining[0] <= 0 or len(result) >= 64:
+                    omit(path, 'VIEW_NODE_LIMIT' if remaining[0] <= 0 else 'VIEW_ITEM_LIMIT', retained_count=len(item), visible_count=len(result))
+                    break
+                # Untrusted property names also consume tokens. Stop rather than
+                # scan arbitrarily many oversized keys or duplicate raw paths.
+                if not isinstance(key, str) or len(key.encode('utf-8')) > min(256, text_remaining[0]):
+                    omit(path, 'VIEW_KEY_LIMIT', retained_count=len(item), visible_count=len(result))
+                    break
+                text_remaining[0] -= len(key.encode('utf-8'))
+                result[key] = visit(child, path + '/' + key.replace('~', '~0').replace('/', '~1'), depth + 1)
+            return result
         if isinstance(item, list):
-            kept = item[:64]
-            if len(item) > len(kept):
-                omissions.append({'pointer': path, 'reason': 'VIEW_ITEM_LIMIT', 'retained_count': len(item), 'visible_count': len(kept)})
-            return [visit(child, path + '/' + str(index), depth + 1) for index, child in enumerate(kept)]
+            result = []
+            for child in item:
+                if remaining[0] <= 0 or len(result) >= 64:
+                    omit(path, 'VIEW_NODE_LIMIT' if remaining[0] <= 0 else 'VIEW_ITEM_LIMIT', retained_count=len(item), visible_count=len(result))
+                    break
+                result.append(visit(child, path + '/' + str(len(result)), depth + 1))
+            return result
         return item
-    return visit(value, '', 0), omissions[:256]
+    return visit(value, '', 0), omissions
 
 
 def fit_engineering_payload(payload, capability, counter):
@@ -89,7 +118,9 @@ def fit_engineering_payload(payload, capability, counter):
     for limit in (4096, 2048, 1024, 512, 256):
         candidate = copy.deepcopy(original)
         body = copy.deepcopy(envelope)
-        projected, omissions = compact_evidence(retained, limit)
+        projected, omissions = compact_evidence(retained, limit, nodes=min(2048, max(32, limit // 8)))
+        for name in retained:
+            body.pop(name, None)
         body.update(projected)
         body['evidence_view'] = {'complete': False, 'retained_digest': fingerprint(retained), 'omissions': omissions,
                                  'instruction': 'Omitted evidence remains stored. Do not claim it was inspected or that uncovered requirements passed.'}

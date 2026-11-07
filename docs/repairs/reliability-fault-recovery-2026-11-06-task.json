@@ -1,0 +1,89 @@
+{
+  "schema": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "223b7c9f1dbf1ecaa77b65936ca112817cfb6a9b",
+  "working_branch": "fix/reliability-fault-recovery-2026-11-06",
+  "intent": "Repair source-confirmed gaps in the twelve supplied reliability requirements on an isolated post-806 branch; preserve the existing release.",
+  "state": "IMPLEMENTED_PENDING_EXACT_HEAD_CI",
+  "inputs": {
+    "requirements_supplied": true,
+    "named_raw_archive_recovered": false,
+    "historical_analysis_is_not_current_source_evidence": true
+  },
+  "work_packages": [
+    {
+      "id": "safe_read_retry",
+      "state": "IMPLEMENTED_REGRESSION_VERIFIED_LOCALLY"
+    },
+    {
+      "id": "durable_retry_deadline",
+      "state": "IMPLEMENTED_REGRESSION_VERIFIED_LOCALLY"
+    },
+    {
+      "id": "batch_cancellation_receipts",
+      "state": "IMPLEMENTED_REGRESSION_VERIFIED_LOCALLY"
+    },
+    {
+      "id": "catalog_contract_evidence",
+      "state": "IMPLEMENTED_REGRESSION_VERIFIED_LOCALLY"
+    },
+    {
+      "id": "replay_gap_recovery",
+      "state": "IMPLEMENTED_REGRESSION_VERIFIED_LOCALLY"
+    },
+    {
+      "id": "bounded_evidence_projection",
+      "state": "IMPLEMENTED_REGRESSION_VERIFIED_LOCALLY"
+    },
+    {
+      "id": "actionable_android_failures",
+      "state": "IMPLEMENTED_PENDING_ANDROID_CI"
+    }
+  ],
+  "validation": {
+    "fault_suite": {
+      "tests": 26,
+      "status": "PASSED"
+    },
+    "durable_engineering": {
+      "tests": 19,
+      "status": "PASSED"
+    },
+    "readiness_suites": {
+      "tests": 17,
+      "status": "PASSED"
+    },
+    "canonical_fast": {
+      "tests": 329,
+      "status": "BLOCKED_INHERITED_TIMING_FIXTURE",
+      "failure": "GradleRetryTest.test_deadline_terminates_a_stalled_descendant_and_never_retries_it marker absent before 0.5s timeout; seven-test isolated suite passed"
+    },
+    "gateway_complete": {
+      "status": "PENDING_PINNED_PARSER_ENVIRONMENT"
+    },
+    "android": {
+      "status": "PENDING_EXACT_HEAD_CI"
+    }
+  },
+  "preserved": [
+    "selected-only routing",
+    "unknown mutation reconciliation",
+    "authorization and privacy",
+    "existing call/storage/deadline budgets",
+    "required verification strength",
+    "PR806 publication and separate automation"
+  ],
+  "not_measured": [
+    "physical device performance",
+    "private gateway and MCP deployment",
+    "physical NPU/GPU",
+    "live authenticated app workflows",
+    "device relaunch"
+  ],
+  "release": {
+    "requested_in_this_change": false,
+    "version_changed": false,
+    "prior_release_task_unchanged": true
+  }
+}

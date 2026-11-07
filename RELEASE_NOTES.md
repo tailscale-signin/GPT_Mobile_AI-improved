@@ -1,3 +1,7 @@
+## Unreleased reliability follow-up
+
+A separate post-PR-806 branch repairs server-cooldown/TLS retry admission, durable retry timing, cancellation-safe batch receipts, schema-bound MCP readiness, missing event replay and bounded context projection. Android reports now distinguish authentication and graph recovery. No new version is published by this change; full current-head CI and physical deployment qualification remain separate requirements. See `docs/repairs/reliability-fault-recovery-2026-11-06.md`.
+
 # GPT Mobile 0.9.66.6
 
 Android build 140. Scoped diagnostic-reliability release candidate.

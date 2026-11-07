@@ -351,13 +351,16 @@ internal object GitHubTestChecklist {
         )
     }
 
-    private fun recoveryAdvice(codes: Set<String>): String = when {
+    internal fun recoveryAdvice(codes: Set<String>): String = when {
+        "AUTH_REQUIRED" in codes -> GitHubFailurePolicy.recoveryHint("AUTH_REQUIRED")
+        "REPOSITORY_GRAPH_UNAVAILABLE" in codes -> GitHubFailurePolicy.recoveryHint("REPOSITORY_GRAPH_UNAVAILABLE")
+        codes.any { it in GitHubFailurePolicy.codes } -> codes.filter { it in GitHubFailurePolicy.codes }.sorted().joinToString(" ") { GitHubFailurePolicy.recoveryHint(it) }
         codes.any { it.contains("PERMISSION") || it.contains("AUTHORIZATION") || it.contains("SCOPE_MISMATCH") } -> "Review the selected repository and connection permissions; unchanged authorization failures are not retried."
         codes.any { it.startsWith("SAVED_VIEW_") || it == "RETAINED_RESULT_CAPACITY" } -> "Use the exact retained read-only recovery recipe once; retain the unavailable result if reopening fails. Never replay a write to recover its output."
         "INVALID_ARGUMENTS" in codes -> "Use identifiers and required fields from the matching inventory and current tool schema; retry only corrected read arguments."
         "GITHUB_NOT_FOUND_OR_HIDDEN" in codes -> "Check the observed resource, permissions and retention; a missing response does not prove deletion. Log sampling permits one different executed job."
         codes.any { it.contains("RATE_LIMIT") } -> "Wait until the recorded retry deadline before an authorized read."
-        else -> "Inspect the retained error and its exact resource; reconcile an uncertain write before attempting another mutation."
+        else -> "Inspect the retained error and its exact resource before correcting the request. Reconciliation is required only when a mutation's remote outcome is uncertain."
     }
 
     /** API completion never implies device, benchmark or application-wide acceptance. */

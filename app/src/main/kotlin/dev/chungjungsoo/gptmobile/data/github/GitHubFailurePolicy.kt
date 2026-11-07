@@ -43,6 +43,12 @@ internal object GitHubFailurePolicy {
     }
 
     fun recoveryHint(code: String): String = when (code) {
+        "REPOSITORY_GRAPH_UNAVAILABLE" -> "Check the selected gateway's readiness and GitHub connection. Use authorized ordinary repository reads where supported; graph-only analysis remains unavailable. Do not switch AI profiles or invent graph evidence."
+        "GATEWAY_CAPABILITY_UNAVAILABLE" -> "Refresh capabilities for the selected gateway and model after restoring readiness; do not substitute another profile. Preserve the saved job and reconnect to its identity."
+        "GITHUB_PRIMARY_RATE_LIMITED", "GITHUB_SECONDARY_RATE_LIMITED" -> "Wait until the recorded Retry-After or rate-reset deadline before an authorized bounded read; do not replay an uncertain write."
+        "GITHUB_TRANSIENT_SERVER", "GITHUB_CIRCUIT_OPEN", "CIRCUIT_BREAKER_OPEN" -> "Use the recorded cooldown and one bounded health probe. Resume confirmed checkpoints after recovery; reconcile any unknown mutation before another write."
+        "RECONCILIATION_REQUIRED", "UNKNOWN_OUTCOME" -> "Read back the exact remote operation identity and retain its receipt before deciding whether another write is safe; do not blindly repeat the mutation."
+        "GITHUB_REF_UNAVAILABLE" -> "Refresh the exact selected branch, tag or commit once after correcting it or restoring it. Do not silently switch to the default branch or fan out dependent requests."
         "AUTH_REQUIRED" -> "Reconnect the same GitHub account and verify credential expiry; no repeated request can repair authentication."
         "GITHUB_NOT_FOUND_OR_INACCESSIBLE" -> "GitHub 404 can mean absent or inaccessible. Verify owner/repository, exact ref/resource ID and the account's repository access; do not treat it as proven deletion or retry unchanged."
         "GITHUB_VALIDATION_FAILED" -> "Inspect the reported resource/field/code, discover current branches or IDs, and correct this action's required fields. A deterministic validation failure is not retried unchanged."

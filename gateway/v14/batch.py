@@ -6,6 +6,9 @@ approval/transaction path and are never accepted by this aggregate read tool.
 import contextvars
 import hashlib
 import json
+import math
+import ssl
+from email.utils import parsedate_to_datetime
 import random
 import threading
 import time
@@ -117,21 +120,42 @@ def failed(result):
 
 
 def retry_delay(error, attempt):
-    """Retry transport failures/explicit throttling, never auth, contracts or writes."""
+    """A safe-read retry delay, or None when recovery requires explicit action.
+
+    A server cooldown is a lower bound, not a value to clamp downward. Long
+    cooldowns are handed back to the durable task rather than retried early.
+    """
+    import requests
+    current, seen = error, set()
+    while current is not None and id(current) not in seen and len(seen) < 16:
+        seen.add(id(current))
+        if isinstance(current, (ssl.SSLError, requests.exceptions.SSLError,
+                                PermissionError, InterruptedError)):
+            return None
+        current = current.__cause__ or current.__context__
     response = getattr(error, 'response', None)
     status = getattr(response, 'status_code', None)
-    if status is not None and status not in {429, 502, 503, 504}:
+    if status is not None and status not in {429, 500, 502, 503, 504}:
         return None
-    if status is None:
-        import requests
-        if not isinstance(error, (TimeoutError, requests.Timeout, requests.ConnectionError)):
-            return None
+    if status is None and not isinstance(error, (TimeoutError, requests.Timeout, requests.ConnectionError)):
+        return None
     headers = getattr(response, 'headers', {}) or {}
-    try:
-        retry_after = max(0, float(headers.get('Retry-After', 0)))
-    except (TypeError, ValueError):
-        retry_after = 0
-    return max(min(retry_after, 120), min(8, .5 * 2 ** attempt) + random.uniform(0, .25))
+    value = headers.get('Retry-After')
+    retry_after = 0.0
+    if value is not None:
+        try:
+            retry_after = float(value)
+        except (TypeError, ValueError, OverflowError):
+            try:
+                retry_after = parsedate_to_datetime(str(value)).timestamp() - time.time()
+            except (TypeError, ValueError, OverflowError):
+                # An unparseable explicit cooldown is not permission to guess a
+                # shorter wait. Preserve the failure for an explicit refresh.
+                return None
+        if not math.isfinite(retry_after) or retry_after > 120:
+            return None
+        retry_after = max(0.0, retry_after)
+    return max(retry_after, min(8, .5 * 2 ** min(4, max(0, attempt))) + random.uniform(0, .25))
 
 
 class BatchExecutor:
@@ -151,6 +175,9 @@ class BatchExecutor:
         started, width, healthy = time.monotonic(), min(5, self.maximum), 0
         pending = [node for node in nodes if node['id'] not in results]
         active = {}
+        aborted = threading.Event()
+        def cancelled():
+            return cancel.is_set() or aborted.is_set()
         def report():
             progress({'progress': len(results), 'total': len(nodes), 'active': len(active),
                       'queued': len(pending), 'concurrency': width,
@@ -160,7 +187,7 @@ class BatchExecutor:
         def run(node):
             before = time.monotonic()
             for attempt in range(3):
-                if cancel.is_set():
+                if cancelled():
                     raise InterruptedError('Batch canceled')
                 try:
                     return invoke(node), (time.monotonic() - before) * 1000, attempt
@@ -169,13 +196,17 @@ class BatchExecutor:
                     if delay is None or attempt == 2:
                         # No source, arguments, credentials or exception text in telemetry.
                         return {'isError': True, 'error': {'code': 'BATCH_READ_FAILED', 'type': type(error).__name__}}, (time.monotonic() - before) * 1000, attempt
-                    if cancel.wait(delay):
-                        raise InterruptedError('Batch canceled during retry backoff')
+                    deadline = time.monotonic() + delay
+                    while time.monotonic() < deadline:
+                        if cancelled():
+                            raise InterruptedError('Batch canceled during retry backoff')
+                        cancel.wait(min(.1, max(0, deadline - time.monotonic())))
         try:
-            with ThreadPoolExecutor(max_workers=self.maximum, thread_name_prefix='github-batch') as pool:
+            pool = ThreadPoolExecutor(max_workers=self.maximum, thread_name_prefix='github-batch')
+            try:
                 report()
                 while pending or active:
-                    if cancel.is_set():
+                    if cancelled():
                         raise InterruptedError('Batch canceled; completed receipts retained')
                     for node in pending[:]:
                         if not set(node['depends_on']) <= results.keys():
@@ -220,6 +251,22 @@ class BatchExecutor:
                             if healthy >= width:
                                 width, healthy = min(self.maximum, width + 1), 0
                         report()
+            except BaseException:
+                aborted.set()
+                raise
+            finally:
+                # Keep admission until actual workers exit. Releasing it while
+                # reads still run would let cancellation bypass backpressure.
+                pool.shutdown(wait=True, cancel_futures=True)
+                for future, node in active.items():
+                    if future.cancelled():
+                        continue
+                    try:
+                        result, _, _ = future.result()
+                    except InterruptedError:
+                        continue  # No observed result; safe reads remain resumable.
+                    results[node['id']] = result
+                    checkpoint(results)
             return results
         finally:
             self.admission.release()

@@ -28,7 +28,8 @@
     "Bind REST mutation claims to their actual HTTP payload, preserve exact legacy fences and proof-based recovery, connect GraphQL reconciliation to task acceptance, and retain deterministic workflow-error blocking across error-code upgrades.",
     "Fix Android conversation and diagnostic archive sharing with a FileProvider readability preflight, internal-cache fallback when external files are unavailable, narrow chooser ClipData grants and executable Android regression tests.",
     "Render the pinned, selected-gateway GitHub repository graph as interactive theme-colored bubbles in the Status tab, using actual indexed architecture communities or nodes with explicit no-index, stale and truncated states.",
-    "Preserve independent user-authorized workflow dispatch identities and exact run receipts; retire the temporary review workflow, include related regressions in release scope and batch durable diagnostic verification lookups to address the Windows stress bottleneck without reducing integrity or time limits."
+    "Preserve independent user-authorized workflow dispatch identities and exact run receipts; retire the temporary review workflow, include related regressions in release scope and batch durable diagnostic verification lookups to address the Windows stress bottleneck without reducing integrity or time limits.",
+    "Harden safe-read cooldown/TLS recovery, durable retry scheduling, batch cancellation checkpoints, MCP catalog/schema evidence, replay gap detection, bounded context projection and actionable failure guidance; preserve the existing release identity and all qualification limits."
   ],
   "limitations": [
     "Unified Reliability v2 is not complete; its remaining acceptance cases are not represented as passed.",
@@ -743,6 +744,8 @@
     "docs/repairs/merged-branch-quality-2026-11-03.md",
     "docs/repairs/pr801-hosted-recovery-2026-11-04-task.json",
     "docs/repairs/pr804-validation-repairs-2026-11-05.md",
+    "docs/repairs/reliability-fault-recovery-2026-11-06-task.json",
+    "docs/repairs/reliability-fault-recovery-2026-11-06.md",
     "gateway/COMPLETION_RECOVERY.md",
     "gateway/INTELLIGENT_ENGINEERING.md",
     "gateway/README.md",
@@ -763,6 +766,7 @@
     "gateway/tests/test_gateway_diagnostic_delivery.py",
     "gateway/tests/test_gateway_diagnostic_stress.py",
     "gateway/tests/test_gateway_engineering_retention.py",
+    "gateway/tests/test_gateway_reliability_faults.py",
     "gateway/tests/test_gateway_selected_execution.py",
     "gateway/tests/test_gateway_selected_model_benchmark.py",
     "gateway/tests/test_gateway_v14_catalog_readiness.py",
@@ -780,6 +784,7 @@
     "gateway/tests/test_gateway_v14_stability.py",
     "gateway/tests/test_gateway_v14_validation.py",
     "gateway/v14/activity.py",
+    "gateway/v14/batch.py",
     "gateway/v14/catalog.py",
     "gateway/v14/code_graph/service.py",
     "gateway/v14/config.py",
@@ -795,6 +800,7 @@
     "gateway/v14/engineering_report.py",
     "gateway/v14/engineering_routes.py",
     "gateway/v14/engineering_validation.py",
+    "gateway/v14/events.py",
     "gateway/v14/evidence.py",
     "gateway/v14/execution_binding.py",
     "gateway/v14/github.py",

@@ -3,6 +3,8 @@ import hashlib
 import json
 import threading
 import time
+import re
+from v14.contracts import validate_schema
 
 class CatalogCache:
     def __init__(self,runtime,interactive=2.0,total=8.0,ttl=300.0):
@@ -21,19 +23,21 @@ class CatalogCache:
                         'toolCount': 0, 'schemaReady': None, 'executionVerified': None}
             snapshots = [(self.cache.get(key), self.health.get(key, {})) for key in keys]
             count = sum(len(cached[1]) for cached, _ in snapshots if cached)
-            if any(health.get('executionAvailable') is False for _, health in snapshots):
+            schema_ready = all(cached and time.monotonic() - cached[0] <= self.ttl and health.get('connectionHealthy') is True and health.get('authorized') is not False and not health.get('catalogRejected',False) for cached, health in snapshots)
+            if any(health.get('authorized') is False for _, health in snapshots):
+                ready, state = False, 'AUTH_REQUIRED'
+            elif any(health.get('executionAvailable') is False for _, health in snapshots):
                 ready, state = False, 'UNAVAILABLE'
             elif any(not cached for cached, _ in snapshots):
                 ready, state = None, 'NOT_DISCOVERED'
             elif any(time.monotonic() - cached[0] > self.ttl for cached, _ in snapshots):
                 ready, state = False, 'STALE'
-            elif all(health.get('executionAvailable') is True for _, health in snapshots):
+            elif schema_ready and all(health.get('executionAvailable') is True for _, health in snapshots):
                 ready, state = True, 'READY'
             else:
                 ready, state = None, 'NOT_MEASURED'
             observed = [health.get('executionVerified') for _, health in snapshots]
             execution = False if False in observed else True if all(value is True for value in observed) else None
-            schema_ready = all(cached and time.monotonic() - cached[0] <= self.ttl and health.get('connectionHealthy') is True for cached, health in snapshots)
             return {'toolsReady': ready, 'toolsState': state, 'toolConnectionCount': len(keys),
                     'toolCount': count, 'schemaReady': schema_ready, 'executionVerified': execution}
 
@@ -42,6 +46,12 @@ class CatalogCache:
         if len(keys)>64: raise ValueError('MCP connection catalogue exceeds 64 connections')
         waits=[]
         with self.lock:
+            for key, (_, cancel) in self.flights.items():
+                if key not in keys.values():
+                    cancel.set()  # Retain ownership until the superseded producer exits.
+            for key in list(self.health):
+                if key not in keys.values():
+                    self.health.pop(key, None)
             for key in list(self.cache):
                 if key not in keys.values(): self.cache.pop(key,None);self.health.pop(key,None)
             for name,key in keys.items():
@@ -59,7 +69,7 @@ class CatalogCache:
             for name,key in keys.items():
                 if name not in current or self.key(name,current[name])!=key: continue
                 cached=self.cache.get(key)
-                if cached and self.health.get(key,{}).get('authorized',True):
+                if cached and self.health.get(key,{}).get('authorized',True) and not self.health.get(key,{}).get('catalogRejected',False):
                     result.extend(cached[1]);self.runtime.mcp_tool_metadata.update(cached[2])
         return sorted(result,key=lambda item:item['function']['name'])
     def _load(self,name,key,cfg,event,cancel):
@@ -67,8 +77,9 @@ class CatalogCache:
         def expired():
             cancel.set()
             with self.lock:
-                if self.flights.get(key,(None,None))[0] is event:
-                    self.health[key]={'authorized':True,'schemaKnown':key in self.cache,'connectionHealthy':False,'executionAvailable':False,'reason':'DISCOVERY_DEADLINE','retryAt':time.monotonic()+30}
+                current = self.runtime.load_mcp_config().get(name)
+                if self.flights.get(key,(None,None))[0] is event and current is not None and self.key(name,current)==key:
+                    self.health[key]={'authorized':self.health.get(key,{}).get('authorized',True),'catalogRejected':self.health.get(key,{}).get('catalogRejected',False),'schemaKnown':key in self.cache,'connectionHealthy':False,'executionAvailable':False,'reason':'DISCOVERY_DEADLINE','retryAt':time.monotonic()+30}
                     # Keep physical ownership until the producer exits, even if transport ignores cancellation.
                     # The completed event lets callers leave without starting duplicate hidden requests.
             event.set()
@@ -78,28 +89,37 @@ class CatalogCache:
             for page in range(32):
                 if cancel.is_set() or time.monotonic()>=end: raise TimeoutError('Discovery total deadline')
                 response=self.runtime.mcp_call(name,'tools/list',{'cursor':cursor} if cursor else {},cancel_event=cancel)
-                size+=len(json.dumps(response,ensure_ascii=False).encode())
+                if not isinstance(response,dict) or response.get('isError') is True or not isinstance(response.get('tools'),list):
+                    raise ValueError('Malformed MCP catalogue page')
+                size+=len(json.dumps(response,ensure_ascii=False,allow_nan=False).encode())
                 if size>4*1024*1024: raise ValueError('Catalogue byte limit')
                 rows.extend(response.get('tools',[]))
                 if len(rows)>2048: raise ValueError('Catalogue tool limit')
                 cursor=response.get('nextCursor')
-                if not cursor: break
+                if cursor is None or cursor == '': break
                 if not isinstance(cursor,str) or len(cursor)>4096 or cursor in seen: raise ValueError('Invalid/repeated catalogue cursor')
                 seen.add(cursor)
             else: raise ValueError('Catalogue page limit')
             definitions=[];metadata={};include=set(cfg.get('includeTools') or []);exclude=set(cfg.get('excludeTools') or [])
             for row in rows:
+                if not isinstance(row,dict): raise ValueError('Malformed MCP tool definition')
                 tool=row.get('name')
-                if not isinstance(tool,str) or tool in exclude or include and tool not in include: continue
-                full=name+'_'+tool;schema=row.get('inputSchema',{'type':'object','properties':{}})
+                if not isinstance(tool,str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,128}', name+'_'+tool):
+                    raise ValueError('Malformed MCP tool name')
+                if tool in exclude or include and tool not in include: continue
+                full=name+'_'+tool;schema=row.get('inputSchema')
+                if not isinstance(schema,dict): raise ValueError('MCP input schema must be an object')
+                validate_schema(schema)  # Readiness cannot claim an unvalidated catalogue.
                 metadata[full]={'server':name,'tool':tool,'inputSchema':schema,'annotations':row.get('annotations')}
                 definitions.append({'type':'function','function':{'name':full,'description':str(row.get('description','')),'parameters':schema}})
             if len({d['function']['name'] for d in definitions})!=len(definitions): raise ValueError('Duplicate catalogue tool')
             with self.lock:
                 current=self.runtime.load_mcp_config().get(name)
                 if cancel.is_set() or current is None or self.key(name,current)!=key: return
+                old = self.cache.get(key)
+                same_contract = old is not None and old[2] == metadata
+                previous = self.health.get(key, {}) if same_contract else {}
                 self.cache[key]=(time.monotonic(),definitions,metadata)
-                previous = self.health.get(key, {})
                 self.health[key]={'authorized':True,'schemaKnown':True,'connectionHealthy':True,
                                   'executionAvailable': previous.get('executionAvailable'),
                                   'executionVerified': previous.get('executionVerified'),
@@ -107,19 +127,35 @@ class CatalogCache:
                                   'executionTool': previous.get('executionTool'), 'retryAt':0}
         except Exception as error:
             with self.lock:
-                if not cancel.is_set():
-                    unauthorized=any(code in str(error) for code in ('401','403','Unauthorized'))
-                    self.health[key]={'authorized':not unauthorized,'schemaKnown':key in self.cache,'connectionHealthy':False,'executionAvailable':False,'reason':type(error).__name__,'retryAt':float('inf') if unauthorized else time.monotonic()+30}
+                current = self.runtime.load_mcp_config().get(name)
+                if not cancel.is_set() and current is not None and self.key(name,current)==key:
+                    status = getattr(getattr(error, 'response', None), 'status_code', getattr(error, 'status_code', None))
+                    unauthorized = isinstance(error,PermissionError) or status in {401,403} or re.search(r'(?i)\b(?:HTTP(?: Error)?\s+|RPC:\s*)(?:401|403)\b|\bunauthori[sz]ed\b',str(error)) is not None
+                    self.health[key]={'authorized':not unauthorized,'schemaKnown':key in self.cache,'connectionHealthy':False,'executionAvailable':False,'reason':type(error).__name__,'catalogRejected':isinstance(error,(ValueError,TypeError)),'retryAt':float('inf') if unauthorized or isinstance(error,(ValueError,TypeError)) else time.monotonic()+30}
         finally:
             timer.cancel()
             with self.lock:
                 if self.flights.get(key,(None,None))[0] is event: self.flights.pop(key,None)
             event.set()
 
-    def observe_execution(self, name, config, tool, succeeded):
+    def execution_contract(self, name, config, tool):
+        """Bind execution observations to the exact advertised tool before I/O."""
         key = self.key(name, config)
         with self.lock:
-            if self.runtime.load_mcp_config().get(name) != config:
+            cached, health = self.cache.get(key), self.health.get(key, {})
+            if self.runtime.load_mcp_config().get(name) != config or not cached or health.get('authorized') is False or health.get('catalogRejected'):
+                return None
+            metadata = cached[2].get(name + '_' + str(tool))
+            if metadata is None:
+                return None
+            return hashlib.sha256(json.dumps(metadata, sort_keys=True, separators=(',', ':'), ensure_ascii=False).encode()).hexdigest()
+
+    def observe_execution(self, name, config, tool, succeeded, *, contract=None):
+        key = self.key(name, config)
+        with self.lock:
+            # No catalogue or a response from an old schema is not evidence
+            # about the newly advertised contract. Authorization changes win.
+            if contract is None or self.execution_contract(name, config, tool) != contract:
                 return
             self.health.setdefault(key, {}).update(executionAvailable=bool(succeeded), executionVerified=bool(succeeded),
                                                     executionObservedAt=int(time.time() * 1000),

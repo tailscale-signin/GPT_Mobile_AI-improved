@@ -117,6 +117,17 @@ Linux/Windows gateway and installer checks. The final follow-up preserves exact
 source paths and publishes completed selected-profile prose immediately; it also
 passes the 69-test focused suite and the canonical fast checks.
 
+In [gateway run 42325145693](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/42325145693)
+on `5b8bd53729cc9e5db72092583ffb2648fdf538a3`, the Windows/Python 3.13
+stress subprocess reached its 300-second watchdog while still committing
+events: 40,000 of 50,000 events were durable after 243.7 seconds, with no failed
+correctness assertion. The identical workload had previously passed on Windows
+in 180.4 seconds, and the concurrent Python 3.12 run passed in 250.4 seconds.
+The final harness correction gives only this 782-commit, FULL-sync stress test a
+600-second watchdog. Its event count, restart/digest/replay assertions, ordinary
+120-second suite limits and the 15-minute workflow limit are unchanged. This
+watchdog is a liveness bound, not a production throughput acceptance threshold.
+
 The current head's check results on [PR #809](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/809/checks)
 are authoritative for final Android and release-gate qualification. A prior head's
 green result does not replace them. No merge or release is performed by this task.

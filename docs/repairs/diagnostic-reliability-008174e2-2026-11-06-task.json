@@ -41,6 +41,7 @@
   "review_url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/809",
   "final_followup": [
     "Publish completed authored prose in the observing flow before the next tool round can invalidate it",
-    "Preserve source paths and quoted identifiers in readable previews; classify singular Check counters consistently"
+    "Preserve source paths and quoted identifiers in readable previews; classify singular Check counters consistently",
+    "Allow 600 seconds for the isolated 50,000-event FULL-sync durability stress after measured Windows commit latency exceeded its watchdog; preserve all assertions and ordinary suite limits"
   ]
 }

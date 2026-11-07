@@ -48,9 +48,10 @@ def main():
     suites.append(STRESS_SUITE)
     for pattern in suites:
         # Fifty thousand durable events require 782 FULL-sync batch commits.
-        # Windows flush latency exceeded the former shared 120s budget; isolate
-        # this unchanged workload and keep every ordinary group at 120 seconds.
-        if not run_suite(root, pattern, timeout=300 if pattern == STRESS_SUITE else 120):
+        # This is a liveness watchdog, not a throughput acceptance threshold.
+        # Windows FULL-sync commits can keep progressing beyond 300 seconds;
+        # allow this isolated workload 600s and keep ordinary groups at 120s.
+        if not run_suite(root, pattern, timeout=600 if pattern == STRESS_SUITE else 120):
             failures.append(pattern)
     result = subprocess.run(['node', '--test', str(root / 'tests/test_gateway_browser_bridge.mjs')], timeout=30)
     if result.returncode:

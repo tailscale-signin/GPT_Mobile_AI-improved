@@ -45,6 +45,17 @@ class TaskRecoveryActionTest {
         assertEquals(8, resolveTaskRecovery(messages + user(7, "Inspect this file") + user(8, "Test all GitHub tools") + user(9, "continue"))!!.sourceMessageId)
     }
 
+    @Test fun changedIntegrationScopeBecomesTheAuthoritativeTaskAcrossFurtherControls() {
+        val original = user(1, "Test all GitHub tools and create disposable fixtures. Budget: 60 minutes.")
+        val restricted = user(2, "Test all GitHub tools, read-only; do not create fixtures. Budget: 5 minutes.")
+        assertNull(resolveTaskRecovery(listOf(original, restricted)))
+        assertEquals("1:2", rootWorkId(listOf(original, restricted), "unused"))
+        val resumed = requireNotNull(resolveTaskRecovery(listOf(original, restricted, user(3, "proceed"))))
+        assertEquals(2, resumed.sourceMessageId)
+        assertEquals(restricted.content, resumed.originalRequest)
+        assertFalse(resumed.renewsToolBudget)
+    }
+
     @Test fun onlyExplicitRetryDescriptorsCanReopenUndispatchedBudgetFailures() {
         val messages = listOf(user(1, "Inspect the repository"))
         val automatic = TaskResumeDescriptor("1:1", 1, "provider-resume:fixture", TaskRecoveryAction.RETRY_FAILED_STAGE)

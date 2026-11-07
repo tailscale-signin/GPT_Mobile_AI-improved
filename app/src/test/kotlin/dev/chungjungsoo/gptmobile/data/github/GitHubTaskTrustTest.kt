@@ -3,10 +3,15 @@ package dev.chungjungsoo.gptmobile.data.github
 import dev.chungjungsoo.gptmobile.data.agent.AgentProviderSession
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolExchange
+import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
 import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
+import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
+import dev.chungjungsoo.gptmobile.data.agent.resolveTaskRecovery
+import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -76,6 +81,38 @@ class GitHubTaskTrustTest {
             assertTrue(control, GitHubTaskContinuity.reuse(control, task))
             assertTrue(control, GitHubTaskContinuity.reuse("Please $control!", task))
         }
+    }
+
+    @Test fun bareIntegrationRetestsKeepRestrictionsWhileChangedScopeNeverRestoresOldPermission() {
+        val previous = "Test all authorized GitHub integration tools.\nBudget: at most 12 tool calls and 60 minutes."
+        for (current in listOf("test all", "Please test all authorized GitHub integration tools!", "test GitHub integration again", previous)) {
+            assertTrue(current, GitHubTaskContinuity.reuse(current, previous))
+        }
+        for (current in listOf("Test all GitHub tools, read-only; do not create fixtures", "Test all GitHub tools within 5 minutes", "Test all GitHub tools in owner/another-repo", "Test all GitHub tools, including a release publication")) {
+            assertFalse(current, GitHubTaskContinuity.reuse(current, previous))
+        }
+        assertTrue(GitHubTaskContinuity.reuse("test all GitHub tools", "Test all GitHub tools, read-only; do not create fixtures"))
+        assertFalse(GitHubTaskContinuity.reuse("Test all GitHub tools for Foo.kt", "Test all GitHub tools for foo.kt"))
+        assertFalse(GitHubTaskContinuity.reuse("Test all GitHub tools on branch Feature", "Test all GitHub tools on branch feature"))
+    }
+
+    @Test fun newReadOnlyTaskCannotScheduleAnOlderTasksFixtureWrite() = runBlocking {
+        val previous = "Test all GitHub tools"
+        val current = "Test all GitHub tools, read-only; do not create fixtures"
+        val history = listOf(MessageV2(id = 1, chatId = 7, content = previous), MessageV2(id = 2, chatId = 7, content = current))
+        val effectiveTask = resolveTaskRecovery(history)?.originalRequest ?: current
+        fun json(text: String) = Json.parseToJsonElement(text) as JsonObject
+        val commit = AgentToolDefinition("github_commit", "fixture lifecycle", json("""{"type":"object","properties":{"action":{"enum":["branch","delete_branch"]},"branch":{"type":"string"},"from_branch":{"type":"string"},"expected_head_sha":{"type":"string"},"select_created_branch":{"type":"boolean"}}}"""))
+        val evidence = GitHubEvidenceBook("task", "owner/repo", "main", setOf("github_context", "github_commit"))
+        val status = ProviderEvent.ToolCall("status", "github_context", json("""{"action":"status"}"""))
+        evidence.observe(status, AgentToolResult("status", ToolResultContent.Json(json("""{"branch":"main","commit_sha":"${"a".repeat(40)}","repository":{"default_branch":"main"}}""")), false, dispatched = true))
+        val provider = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = error("The checklist owns scheduling")
+        }
+        val session = GitHubVerifiedSession(provider, evidence, effectiveTask, { 8192 }, { error("No extraction") }, {}, {}, authorizedTools = listOf(commit), remainingToolCalls = { 20 }, currentRequest = current)
+        val events = session.streamRound(listOf(commit), emptyList()).toList()
+        assertTrue(events.none { it is ProviderEvent.ToolCall })
+        assertEquals(current, effectiveTask)
     }
 
     @Test fun diagnosticFollowUpExplainsSavedTaskWithoutRestartingItsOperations() = runBlocking {

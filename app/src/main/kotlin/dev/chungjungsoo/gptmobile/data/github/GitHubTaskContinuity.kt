@@ -58,8 +58,15 @@ internal object GitHubTaskContinuity {
             continuation(current) ||
                 GitHubTestChecklist.integration(request(current)) &&
                 GitHubTestChecklist.integration(request(previous)) &&
+                (request(current) == request(previous) || bareIntegrationContinuation.matches(normalized(current))) &&
                 !Regex("(?i)\\b(?:new|fresh|restart|start over|different)\\b").containsMatchIn(request(current))
             )
+
+    // A bare retest inherits the accepted restrictions. Extra instructions, budgets,
+    // selectors or authorization changes must never be replaced by the previous task.
+    private val bareIntegrationContinuation = Regex(
+        "^(?:(?:test|retest|check) (?:(?:all|every|the|my|connected|authorized|available|enabled|native) )*(?:github )?(?:integration )?(?:tools?|functionality|integration)(?: again)?|test all)$"
+    )
 
     fun explain(verdict: kotlinx.serialization.json.JsonObject?, receipts: Map<String, kotlinx.serialization.json.JsonObject>): String {
         fun kotlinx.serialization.json.JsonObject.text(key: String) = (get(key) as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { it.isString }?.content.orEmpty()

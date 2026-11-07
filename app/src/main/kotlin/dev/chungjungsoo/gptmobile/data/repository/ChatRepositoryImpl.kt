@@ -2629,7 +2629,11 @@ class ChatRepositoryImpl(
 
     private suspend fun prepareRecoveryRequest(userMessages: List<MessageV2>, assistantMessages: List<List<MessageV2>>, runId: String): RecoveryRequest? {
         val recoveryAction = dev.chungjungsoo.gptmobile.data.agent.TaskRecoveryAction.fromText(userMessages.lastOrNull()?.content.orEmpty())
-        val savedUserTurns = if (recoveryAction != null || dev.chungjungsoo.gptmobile.data.github.GitHubTaskContinuity.continuation(userMessages.lastOrNull()?.content.orEmpty())) {
+        val currentRequest = userMessages.lastOrNull()?.content.orEmpty()
+        val savedUserTurns = if (recoveryAction != null ||
+            dev.chungjungsoo.gptmobile.data.github.GitHubTaskContinuity.continuation(currentRequest) ||
+            dev.chungjungsoo.gptmobile.data.github.GitHubTestChecklist.integration(currentRequest)
+        ) {
             userMessages.lastOrNull()?.takeIf { it.chatId > 0 }?.let { latest ->
                 agentPersistenceDao.getMessages(latest.chatId).filter { it.platformType == null && it.id <= latest.id }
             }?.takeIf { it.isNotEmpty() } ?: userMessages

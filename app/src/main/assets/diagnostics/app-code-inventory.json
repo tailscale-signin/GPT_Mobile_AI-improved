@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "f304e324409e87ca7b0ca865c572ab2d6727dd0b5737abd9a57a1998cfbc3125",
+  "source_digest": "29adb8ad9da5284bddaeeb7345cab113e9752a9b7cb73ec6be5e84c622f9b5e7",
   "file_count": 2238,
-  "indexed_line_count": 345862,
+  "indexed_line_count": 345873,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -52,7 +52,7 @@
       "id": "agent_execution",
       "label": "Agent execution and recovery",
       "file_count": 197,
-      "indexed_line_count": 31723
+      "indexed_line_count": 31727
     },
     {
       "id": "agent_tools",
@@ -106,7 +106,7 @@
       "id": "github",
       "label": "GitHub and engineering workspace",
       "file_count": 155,
-      "indexed_line_count": 22223
+      "indexed_line_count": 22230
     },
     {
       "id": "research",
@@ -6303,8 +6303,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubTaskContinuity.kt",
       "area_id": "github",
       "kind": "source",
-      "sha256": "4256e1f57cd6cf17aafe61634420c68dde582f3bd217f173d90d3481e4ea5ade",
-      "indexed_lines": 99
+      "sha256": "3e4b47453ab515b1473e8b91ef2a7f3bc97e557e2e194ccf34c71d14496d26de",
+      "indexed_lines": 106
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubTaskCoverage.kt",
@@ -9124,8 +9124,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/ChatRepositoryImpl.kt",
       "area_id": "agent_execution",
       "kind": "source",
-      "sha256": "5963eed776f9375cb435572cee9b7af0495a2b47ed2f06edf95becf894e50a9f",
-      "indexed_lines": 6978
+      "sha256": "20af6467a2ef11b119acd60e0ba92057127d57d31d9239b205238532f8fc7b19",
+      "indexed_lines": 6982
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/CombinedSettingsSaveJournal.kt",

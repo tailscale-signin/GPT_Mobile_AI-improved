@@ -25,7 +25,12 @@ dispatch. A task contract retains the original user-message identity, repository
 and ref, requested actions, acceptance criteria, required tools, original call
 limit, explicit deadline, receipt-store identity, and cleanup policy.
 
-Short follow-ups resolve to that accepted task. They retain its spent call budget
+Short follow-ups resolve to that accepted task. A bare integration retest inherits
+the accepted restrictions. Expanded requests with changed scope, budgets, or
+selectors establish a new authoritative task; they cannot be replaced by an
+earlier write-capable request. Full-request comparison preserves case-sensitive
+branch and path identities. A session regression confirms that a new read-only
+request cannot schedule the earlier task's fixture branch. Follow-ups retain the spent call budget
 and deadline, including retry aliases and primary-only controls. Temporary chats
 still enforce the current run's accepted contract without creating persistent
 workspace records. Historical time windows in a prompt are not interpreted as
@@ -110,7 +115,7 @@ Focused JVM harnesses compile current production implementations with explicit
 Android/service boundaries. They do not establish a full Android build. The
 companion checkpoint records final run counts and canonical validation results.
 
-- Task/catalog/evidence/session suite: 215 passing tests, compiling 83 current
+- Task/catalog/evidence/session suite: 218 passing tests, compiling 83 current
   production files and 25 test files, with 26 explicit host boundary files and no
   source drift. Regressions include actual `GitHubVerifiedSession`,
   `GitHubEvidenceBook`, task continuity, budget parsing, readiness, operation facade,
@@ -128,7 +133,7 @@ companion checkpoint records final run counts and canonical validation results.
   cases; bounded omission/frame helpers: 12 passing cases. These suites overlap
   and must not be summed into a unique-test count.
 - Canonical `bash scripts/validate-local.sh fast`: 398 script tests and every
-  fast gate pass, including 1,272 literal Android regex checks and 30 XML files.
+  fast gate pass, including 1,273 literal Android regex checks and 30 XML files.
 - Full Android compilation, Room/Compose/provider integration, DEX-size checks,
   and aggregate required verification belong to CI on the published commit.
 

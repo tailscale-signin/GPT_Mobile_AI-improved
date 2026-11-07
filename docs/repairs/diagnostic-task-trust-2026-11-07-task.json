@@ -27,7 +27,7 @@
     "canonical_fast": {
       "passed": true,
       "python_tests": 398,
-      "android_regex_literals": 1272,
+      "android_regex_literals": 1273,
       "android_dynamic_patterns_not_evaluated": 75,
       "resource_xml_files": 30
     },
@@ -66,7 +66,7 @@
     "full_android_local": "NOT_RUN_JDK21_AND_SDK37_UNAVAILABLE",
     "exact_published_head_ci": "IN_PROGRESS",
     "task_catalog_evidence_jvm": {
-      "passed": 215,
+      "passed": 218,
       "production_files": 83,
       "repository_test_files": 25,
       "host_boundary_files": 26,
@@ -81,6 +81,16 @@
       "stress_events": 50000,
       "stress_full_sync_commits": 782,
       "watchdogs_unchanged": true
+    },
+    "predecessor_android_ci": {
+      "head": "a06bbe33d57c00d81a75aabefaa0d27fe50b96b9",
+      "production_compilation": "PASSED",
+      "unit_test_compilation": "PASSED",
+      "apk_catalog_download_contracts": "PASSED",
+      "full_unit_execution": "IN_PROGRESS_AT_CHECKPOINT",
+      "gateway_matrix": "ALL_FOUR_PASSED",
+      "windows_installer": "PASSED",
+      "does_not_qualify_later_head": true
     }
   },
   "reconciled_remote_head": "423b917196419605a6c789810d3d469c55d09ce8",
@@ -97,5 +107,13 @@
     "tree": "02da2cc9e3a5bc8df5c837e6b7bd8179c2c2a1cb",
     "parent": "423b917196419605a6c789810d3d469c55d09ce8",
     "remote_tree_matches_validated_local_tree": true
+  },
+  "scope_followup": {
+    "parent_head": "a06bbe33d57c00d81a75aabefaa0d27fe50b96b9",
+    "reason": "Expanded integration requests must preserve changed read-only constraints, budgets and case-sensitive targets instead of inheriting the previous task scope.",
+    "regression": "Actual GitHubVerifiedSession emits no fixture ToolCall for a new read-only request, and later controls stay rooted in the newer request.",
+    "tests_passed": 218,
+    "source_drift": false,
+    "continuity_source_sha256": "3e4b47453ab515b1473e8b91ef2a7f3bc97e557e2e194ccf34c71d14496d26de"
   }
 }

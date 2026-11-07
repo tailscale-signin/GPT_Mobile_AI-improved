@@ -529,7 +529,6 @@
         ".github/workflows/scoreboard.yml",
         ".github/workflows/ui-review-apk.yml",
         ".github/workflows/unsigned-release-build.yml",
-        ".github/workflows/verification-repair-source.yml",
         ".github/workflows/workflow-health.yml"
       ]
     }

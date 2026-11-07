@@ -22,6 +22,43 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AgentRunnerTest {
+    @Test fun repeatedFlowCollectionsDoNotShareLoopBudgetsOrFinalizationFlags() = runBlocking {
+        var invocations = 0
+        var providerRequests = 0
+        val write = tool("write_fixture") { id, _ ->
+            invocations++
+            AgentToolResult(id, ToolResultContent.Text("confirmed receipt"), false)
+        }
+        val provider = session { definitions, exchanges ->
+            flow {
+                providerRequests++
+                if (exchanges.isEmpty()) {
+                    assertEquals(listOf(write.definition), definitions)
+                    emit(toolCall("write-once", write.definition.name))
+                } else {
+                    assertTrue(definitions.isEmpty())
+                    assertEquals(1, exchanges.size)
+                    emit(ProviderEvent.TextDelta("Completed with the saved receipt."))
+                }
+                emit(ProviderEvent.Completed)
+            }
+        }
+        val run = AgentRunner(AgentRunLimits(maxToolCalls = 1, maxRounds = 1)).run(provider, listOf(write))
+
+        repeat(2) {
+            val events = run.toList()
+            val receipt = events.filterIsInstance<AgentRunEvent.ToolFinished>().single().result
+            assertTrue(receipt.dispatched)
+            assertFalse(receipt.isError)
+            val providerEvents = events.filterIsInstance<AgentRunEvent.Provider>().map { it.event }
+            assertEquals(1, providerEvents.count { it is ProviderEvent.TextDelta })
+            assertEquals(1, providerEvents.count { it is ProviderEvent.Completed })
+            assertFalse(providerEvents.any { it is ProviderEvent.Failed })
+        }
+        assertEquals(2, invocations)
+        assertEquals(4, providerRequests)
+    }
+
     @Test fun unapprovedRemoteReaderCannotRepeatAnUnknownOutcomeWithANewCallId() = runBlocking {
         var executions = 0
         var round = 0

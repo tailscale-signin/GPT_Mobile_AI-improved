@@ -102,6 +102,7 @@ import dev.chungjungsoo.gptmobile.data.network.GroqAPI
 import dev.chungjungsoo.gptmobile.data.network.OpenAIAPI
 import dev.chungjungsoo.gptmobile.data.network.bindAuthority
 import dev.chungjungsoo.gptmobile.data.network.error.ErrorClassification
+import dev.chungjungsoo.gptmobile.data.network.gateway.observedResponseSource
 import dev.chungjungsoo.gptmobile.data.orchestration.assistEnabled
 import dev.chungjungsoo.gptmobile.data.orchestration.effectiveAssistPolicy
 import dev.chungjungsoo.gptmobile.data.rag.FactRecall
@@ -5441,16 +5442,8 @@ class ChatRepositoryImpl(
                     }
 
                     is ProviderEvent.GatewayMetadataCaptured -> {
-                        emit(
-                            ApiState.ResponseSourceCaptured(
-                                dev.chungjungsoo.gptmobile.data.database.entity.ResponseSource(
-                                    transport = dev.chungjungsoo.gptmobile.data.database.entity.ResponseTransport.GATEWAY,
-                                    profileUid = platform.uid,
-                                    modelId = platform.model
-                                )
-                            )
-                        )
-                        providerEvent.metadata.jobId?.let { agentRunDao.bindGatewayJob(runId, it, platform.apiUrl) }
+                        emit(ApiState.ResponseSourceCaptured(providerEvent.metadata.observedResponseSource(platform.uid, platform.model)))
+                        providerEvent.metadata.takeIf { it.transportVerified }?.jobId?.let { agentRunDao.bindGatewayJob(runId, it, platform.apiUrl) }
                     }
                     is ProviderEvent.GatewayProgressUpdate -> {
                         gatewayTelemetrySeen = true

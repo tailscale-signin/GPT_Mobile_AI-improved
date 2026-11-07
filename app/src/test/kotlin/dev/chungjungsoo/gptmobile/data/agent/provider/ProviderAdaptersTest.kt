@@ -862,6 +862,29 @@ class ProviderAdaptersTest {
     )
 
     @Test
+    fun `responses header observation is not partial answer output`() = runBlocking {
+        val metadata = requireNotNull(dev.chungjungsoo.gptmobile.data.network.gateway.gatewayResponseMetadata(mapOf("X-Gateway-Request-ID" to "gateway-request")::get))
+        val api = FakeOpenAIAPI(
+            responseRounds = ArrayDeque(
+                listOf(
+                    flow<ResponsesStreamEvent> {
+                        emit(dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseGatewayMetadataEvent(metadata))
+                        throw dev.chungjungsoo.gptmobile.data.network.error.CircuitBreakerOpenException(5000L)
+                    }
+                )
+            )
+        )
+        val events = OpenAIResponsesAdapter(api, attachmentEncoder()).openSession(turns(), platform(ClientType.OPENAI))
+            .streamRound(emptyList(), emptyList()).toList()
+        assertEquals(metadata, events.filterIsInstance<ProviderEvent.GatewayMetadataCaptured>().single().metadata)
+        assertTrue(events.none { it is ProviderEvent.TextDelta })
+        val failure = events.filterIsInstance<ProviderEvent.Failed>().single()
+        assertEquals("CIRCUIT_BREAKER_OPEN", failure.errorCode)
+        assertNull(failure.failureDetails?.get("partial_output_preserved"))
+        assertEquals("provider_admission", failure.failureDetails?.get("failed_stage")?.jsonPrimitive?.content)
+    }
+
+    @Test
     fun `responses preserve typed local circuit admission through the adapter`() = runBlocking {
         val failure = requireNotNull(
             dev.chungjungsoo.gptmobile.data.network.providerExceptionDetails(

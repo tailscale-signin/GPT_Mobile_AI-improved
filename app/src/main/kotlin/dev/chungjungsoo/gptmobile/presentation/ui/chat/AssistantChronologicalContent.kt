@@ -129,7 +129,10 @@ internal fun AssistantChronologicalContent(
         }
     )
     val documentSource = originalSource?.source?.responseSource ?: timeline.uniformResponseSource()
-    val hasGatewaySource = ResponseSourceAppearance.isGateway(documentSource) || sourceItems.any { ResponseSourceAppearance.isGateway(it.responseSource) }
+    val hasGatewaySource = ResponseSourceAppearance.isGateway(documentSource) ||
+        sourceItems.any {
+            it.type == AssistantTimelineItemType.TEXT && it.content.isNotEmpty() && ResponseSourceAppearance.isGateway(it.responseSource)
+        }
     CompositionLocalProvider(LocalAnswerSurface provides responseSurface) {
         Column(Modifier.fillMaxWidth().padding(12.dp)) {
             if (responseIcon != null || effectiveExecutionTrace || isLoading && !LocalChatProgressInHeader.current) {

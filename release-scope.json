@@ -30,7 +30,8 @@
     "Retain speech transcript review during cooldown, clean up composer focus and frame-observer ownership, and reduce diagnostic hot-path allocations.",
     "Stabilize CI and release validation by isolating source generation, compilation and lint in bounded processes.",
     "Stream URL retrieval into bounded buffers or complete temporary documents; continue PDFs with page/text offsets and pinned source identity, and disclose incomplete coverage and exhausted budgets.",
-    "Validate MCP catalogs before publishing tool readiness, separate connection/catalog/gateway/inference evidence and add explicit bounded generation probes."
+    "Validate MCP catalogs before publishing tool readiness, separate connection/catalog/gateway/inference evidence and add explicit bounded generation probes.",
+    "Bind gateway answer colour and badges to locally observed response headers or a matching saved job; clear stale proof per response, preserve historical source ranges and require capability confirmation for recognized gateway software even without debug controls."
   ],
   "limitations": [
     "Android GPU qualification requires compatible-device receipts for actual offload, prefill, decode, repeated requests and cancel/recovery; host tests do not establish those results.",
@@ -701,6 +702,7 @@
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/AssistantDebugVisibilityTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/AssistantResponseIconTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/AssistantResponseLoadingTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatMarkdownWordingTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatViewModelStartupTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ComposerInputLifecycleTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/DebugPolicySnapshotsTest.kt",

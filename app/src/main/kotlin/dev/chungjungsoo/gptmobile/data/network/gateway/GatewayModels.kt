@@ -1,11 +1,14 @@
 package dev.chungjungsoo.gptmobile.data.network.gateway
 
+import dev.chungjungsoo.gptmobile.data.database.entity.ResponseSource
+import dev.chungjungsoo.gptmobile.data.database.entity.ResponseTransport
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.Transient
 
 /**
- * Gateway response header metadata.
- * Captured from HTTP response headers on /chat/completions requests.
+ * Local response header observation or a bound saved-job receipt.
+ * An empty observation clears any earlier response's gateway provenance.
  */
 @Serializable
 data class GatewayResponseMetadata(
@@ -15,7 +18,38 @@ data class GatewayResponseMetadata(
     val progressProtocol: String? = null,
     val singleflightRole: String? = null,
     val terminalStatus: String? = null,
-    val resultQuality: String? = null
+    val resultQuality: String? = null,
+    val instanceId: String? = null,
+    /** Set by the local HTTP/recovery transport, never decoded from a provider body. */
+    @Transient val transportVerified: Boolean = false
+)
+
+/** Generic provider request IDs and profile names cannot establish a gateway connection. */
+internal fun gatewayResponseMetadata(header: (String) -> String?): GatewayResponseMetadata? {
+    fun observed(name: String): String? = header(name)?.trim()?.takeIf {
+        it.length in 1..256 && it.none { character -> character.isISOControl() }
+    }
+    val jobId = observed("X-Gateway-Job-ID")
+    val requestId = observed("X-Gateway-Request-ID")
+    val version = observed("X-Gateway-Version")
+    val instanceId = observed("X-Gateway-Instance-ID")
+    if (jobId == null && requestId == null && version == null && instanceId == null) return null
+    return GatewayResponseMetadata(
+        jobId = jobId,
+        requestId = requestId,
+        version = version,
+        progressProtocol = observed("X-Gateway-Progress-Protocol"),
+        singleflightRole = observed("X-Gateway-Singleflight"),
+        instanceId = instanceId,
+        transportVerified = true
+    )
+}
+
+internal fun GatewayResponseMetadata.observedResponseSource(profileUid: String, modelId: String): ResponseSource = ResponseSource(
+    transport = if (transportVerified) ResponseTransport.GATEWAY else ResponseTransport.UNKNOWN,
+    profileUid = profileUid,
+    modelId = modelId,
+    gatewayVerified = transportVerified
 )
 
 /**

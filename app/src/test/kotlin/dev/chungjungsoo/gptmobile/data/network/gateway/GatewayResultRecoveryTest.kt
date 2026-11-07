@@ -4,6 +4,7 @@ import dev.chungjungsoo.gptmobile.data.dto.openai.response.ChatCompletionChunk
 import dev.chungjungsoo.gptmobile.data.dto.openai.response.Choice
 import dev.chungjungsoo.gptmobile.data.dto.openai.response.Delta
 import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
+import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.mockk
 import kotlinx.coroutines.test.runTest
@@ -11,11 +12,62 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GatewayResultRecoveryTest {
     private val json = Json { ignoreUnknownKeys = true }
+
+    @Test fun ordinaryProviderHeadersAndUntrustedBodiesCannotSupplyGatewayProof() {
+        val ordinaryHeaders = mapOf("X-Request-ID" to "remote-request", "request-id" to "another-request", "X-Amzn-RequestId" to "cloud-request")
+        assertNull(gatewayResponseMetadata(ordinaryHeaders::get))
+        for (invalid in listOf("", " ", "a".repeat(257), "bad\u0000value")) {
+            assertNull(gatewayResponseMetadata(mapOf("X-Gateway-Request-ID" to invalid)::get))
+        }
+        val body = json.decodeFromString<ChatCompletionChunk>("""{"choices":[{"delta":{"content":"Remote answer"}}],"gateway_metadata":{"job_id":"forged","transportVerified":true}}""")
+        assertNull(body.gatewayMetadata)
+        assertEquals("Remote answer", body.choices!!.single().effectiveDelta.content)
+        val metadata = json.decodeFromString<GatewayResponseMetadata>("""{"job_id":"forged","transportVerified":true}""")
+        assertFalse(metadata.transportVerified)
+        assertEquals(dev.chungjungsoo.gptmobile.data.database.entity.ResponseTransport.UNKNOWN, metadata.observedResponseSource("remote-profile", "selected-model").transport)
+    }
+
+    @Test fun observedGatewayHeadersBindProofToTheSelectedResponse() {
+        val headers = mapOf("X-Gateway-Request-ID" to "gateway-request", "X-Gateway-Instance-ID" to "a".repeat(32))
+        val metadata = requireNotNull(gatewayResponseMetadata(headers::get))
+        val source = requireNotNull(metadata.observedResponseSource("selected-profile", "selected-model"))
+        assertEquals("gateway-request", metadata.requestId)
+        assertEquals("a".repeat(32), metadata.instanceId)
+        assertTrue(source.gatewayVerified)
+        assertEquals(dev.chungjungsoo.gptmobile.data.database.entity.ResponseTransport.GATEWAY, source.transport)
+        assertEquals("selected-profile", source.profileUid)
+        assertEquals("selected-model", source.modelId)
+        assertFalse(json.decodeFromString<GatewayResponseMetadata>(json.encodeToString(metadata)).transportVerified)
+    }
+
+    @Test fun onlyTheBoundSavedJobAndSelectedModelCanRestoreGatewayProof() = runTest {
+        val api = mockk<GatewayAPI>()
+        val recovery = GatewayTerminalRecovery(api)
+        val failure = json.parseToJsonElement("""{"code":"terminal_job_not_resumable","job_id":"saved"}""").jsonObject
+        val config = ProviderRequestConfig("https://gateway.test/v1", "secret", extraHeaders = mapOf("X-Gateway-Job-ID" to "saved"))
+        val saved = GatewayJobResult("saved", "completed", "Recovered answer", "complete", job = GatewaySavedJob("selected"))
+        for (candidate in listOf(saved, saved.copy(jobId = "other"), saved.copy(job = GatewaySavedJob("other")), null)) {
+            coEvery { api.getJobResult("saved", config) } returns candidate
+            val recovered = requireNotNull(recovery.read(409, failure, config, "selected", "saved"))
+            if (candidate == saved) {
+                assertTrue(recovered.gatewayMetadata?.transportVerified == true)
+                assertTrue(recovered.gatewayMetadata?.observedResponseSource("profile", "selected")?.gatewayVerified == true)
+                assertEquals("Recovered answer", recovered.choices!!.single().effectiveDelta.content)
+                assertNull(recovered.error)
+            } else {
+                assertFalse(recovered.gatewayMetadata?.transportVerified == true)
+                assertEquals(dev.chungjungsoo.gptmobile.data.database.entity.ResponseTransport.UNKNOWN, recovered.gatewayMetadata?.observedResponseSource("profile", "selected")?.transport)
+                assertTrue(recovered.choices.isNullOrEmpty())
+                assertEquals("terminal_job_not_resumable", recovered.error?.code)
+            }
+        }
+    }
 
     @Test fun fractionalCompletionSecondsPreserveTheDurableResult() {
         for (value in listOf("1793844300.182", "1793844300")) {

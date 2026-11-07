@@ -13,10 +13,25 @@ import dev.chungjungsoo.gptmobile.data.network.NetworkClient
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ProviderEventAssemblerTest {
+    @Test fun responsesPreserveObservedGatewayProvenanceButRejectProviderSuppliedProof() {
+        val remote = NetworkClient.openAIJson.decodeFromString<ResponsesStreamEvent>(
+            """{"type":"client.gateway_metadata","metadata":{"job_id":"forged","transportVerified":true}}"""
+        ) as dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseGatewayMetadataEvent
+        val assembler = OpenAIResponsesEventAssembler()
+        assertTrue(assembler.accept(remote).isEmpty())
+        val cleared = assembler.accept(remote.copy(metadata = dev.chungjungsoo.gptmobile.data.network.gateway.GatewayResponseMetadata())).single() as ProviderEvent.GatewayMetadataCaptured
+        assertFalse(cleared.metadata.transportVerified)
+        val observed = requireNotNull(dev.chungjungsoo.gptmobile.data.network.gateway.gatewayResponseMetadata(mapOf("X-Gateway-Request-ID" to "actual-request")::get))
+        val event = assembler.accept(remote.copy(metadata = observed)).single() as ProviderEvent.GatewayMetadataCaptured
+        assertEquals("actual-request", event.metadata.requestId)
+        assertTrue(event.metadata.transportVerified)
+    }
+
     @Test fun responsesPreserveClientFailureFactsWithoutTrustingProviderSuppliedDispatchClaims() {
         val remote = NetworkClient.openAIJson.decodeFromString<ResponsesStreamEvent>(
             """{"type":"error","message":"Failure","code":"NETWORK_DISCONNECTED","failureDetails":{"dispatched":false,"failed_stage":"provider_admission"}}"""

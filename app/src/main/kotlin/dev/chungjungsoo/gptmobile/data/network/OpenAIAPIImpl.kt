@@ -8,12 +8,14 @@ import dev.chungjungsoo.gptmobile.data.dto.openai.response.Delta
 import dev.chungjungsoo.gptmobile.data.dto.openai.response.ErrorDetail
 import dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseCreatedEvent
 import dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseErrorEvent
+import dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseGatewayMetadataEvent
 import dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseInProgressEvent
 import dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponsesStreamEvent
 import dev.chungjungsoo.gptmobile.data.dto.openai.response.UnknownEvent
 import dev.chungjungsoo.gptmobile.data.model.FreeAiProvider
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayClientDiagnostics
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayResponseMetadata
+import dev.chungjungsoo.gptmobile.data.network.gateway.gatewayResponseMetadata
 import dev.chungjungsoo.gptmobile.data.openrouter.account.recordOpenRouterReceipts
 import dev.chungjungsoo.gptmobile.util.applyPlatformStreamingTimeout
 import io.ktor.client.call.body
@@ -292,24 +294,8 @@ class OpenAIAPIImpl @Inject constructor(
                             "Provider",
                             "REQUEST_ACCEPTED · model=${request.model} · server=${response.headers["Server"].orEmpty().take(120)} · requestId=${providerRequestIdentity { response.headers[it] }} · requestedOutputCap=${preparedRequest.maxTokens} · requestedReasoning=${preparedRequest.reasoningEffort ?: preparedRequest.reasoning?.toString() ?: "provider-default"} · reasoningCapabilityVerified=false · templateThinking=${preparedRequest.chatTemplateKwargs?.get("enable_thinking")} · serverEffectiveSettings=unverified"
                         )
-                        // Capture Gateway headers from response
-                        val gatewayJobId = response.headers["X-Gateway-Job-ID"]
-                        val gatewayRequestId = response.headers["X-Gateway-Request-ID"] ?: providerRequestIdentity { response.headers[it] }.takeUnless { it == "unavailable" }
-                        val gatewayVersion = response.headers["X-Gateway-Version"]
-                        val gatewayProgressProtocol = response.headers["X-Gateway-Progress-Protocol"]
-                        val gatewaySingleflight = response.headers["X-Gateway-Singleflight"]
-
-                        val gatewayMetadata = if (gatewayJobId != null || gatewayRequestId != null || gatewayVersion != null) {
-                            GatewayResponseMetadata(
-                                jobId = gatewayJobId,
-                                requestId = gatewayRequestId,
-                                version = gatewayVersion,
-                                progressProtocol = gatewayProgressProtocol,
-                                singleflightRole = gatewaySingleflight
-                            )
-                        } else {
-                            null
-                        }
+                        // Absence is also observed: later responses must not inherit an earlier gateway route.
+                        val gatewayMetadata = gatewayResponseMetadata { response.headers[it] } ?: GatewayResponseMetadata()
 
                         if (config.openRouterReceipt != null) {
                             emit(
@@ -335,7 +321,7 @@ class OpenAIAPIImpl @Inject constructor(
                                 choices = decoded.choices?.map { choice ->
                                     if (choice.message != null && choice.finishReason == null) choice.copy(finishReason = "stop") else choice
                                 },
-                                gatewayMetadata = gatewayMetadata ?: decoded.gatewayMetadata,
+                                gatewayMetadata = gatewayMetadata,
                                 reasoningControlReceipt = reasoningControlReceipt,
                                 error = decoded.error?.let { error ->
                                     val category = providerPayloadFailure(error.code, error.message, preparedRequest.toolChoice, !preparedRequest.tools.isNullOrEmpty())
@@ -454,7 +440,7 @@ class OpenAIAPIImpl @Inject constructor(
                             // A malformed chunk can contain missing arguments even when a later
                             // finish marker looks valid, so retain the text but never execute it.
                             val publishedChunk = if (receivedToolCalls) observedChunk.copy(choices = chunk.choices?.map { if (it.finishReason in setOf("tool_calls", "function_call", "stop")) it.copy(finishReason = null) else it }) else observedChunk
-                            if (firstChunk && gatewayMetadata != null) {
+                            if (firstChunk) {
                                 firstChunk = false
                                 emit(publishedChunk.copy(gatewayMetadata = gatewayMetadata))
                             } else {
@@ -480,8 +466,8 @@ class OpenAIAPIImpl @Inject constructor(
                             }
                             freeResponseOutcome(free, receivedAnswer, receivedToolCalls, receivedError, reachedOutputLimit, receivedReasoning)?.let { emit(it) }
                         }
-                        // If no chunks were emitted but metadata was present, emit a metadata chunk
-                        if (firstChunk && gatewayMetadata != null) {
+                        // Preserve the route observation even when the stream has no decoded chunks.
+                        if (firstChunk) {
                             emit(ChatCompletionChunk(gatewayMetadata = gatewayMetadata))
                         }
                     }
@@ -714,6 +700,8 @@ class OpenAIAPIImpl @Inject constructor(
                             "Provider",
                             "REQUEST_ACCEPTED · model=${request.model} · server=${response.headers["Server"].orEmpty().take(120)} · requestId=${providerRequestIdentity { response.headers[it] }} · requestedOutputCap=${preparedRequest.maxOutputTokens} · serverEffectiveSettings=unverified"
                         )
+                        // Responses API requests need the same response-bound provenance as chat completions.
+                        emit(ResponseGatewayMetadataEvent(gatewayResponseMetadata { response.headers[it] } ?: GatewayResponseMetadata()))
                         // Success - read SSE stream
                         val channel = response.bodyAsChannel()
                         while (!channel.isClosedForRead) {
@@ -841,6 +829,7 @@ private fun ChatCompletionChunk.hasAssistantStreamPayload(): Boolean =
 private fun ResponsesStreamEvent.hasResponseStreamPayload(): Boolean = when (this) {
     is ResponseCreatedEvent,
     is ResponseInProgressEvent,
+    is ResponseGatewayMetadataEvent,
     UnknownEvent -> false
 
     else -> true

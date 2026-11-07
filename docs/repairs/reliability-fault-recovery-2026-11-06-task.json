@@ -153,10 +153,72 @@
       }
     },
     "publication": {
-      "status": "SOURCE_PUBLISHED_FINAL_BRANCH_UPDATE_PENDING",
+      "status": "PROVISIONAL_CANDIDATE_PUBLISHED_GATEWAY_FOLLOWUP_PENDING",
       "source_merge_commit": "5237ec4cf730a723e371e6af4f78fbc836a99228",
       "manifest_source_commit": "5237ec4cf730a723e371e6af4f78fbc836a99228",
-      "required_next_step": "Advance PR #808 once to the metadata commit, validate all applicable workflows on both current PR heads against the observed main revision, then merge with both parent histories preserved."
+      "required_next_step": "Publish the response provenance/capability follow-up on PR #808, validate all applicable workflows on both current PR heads against the current main revision, then merge with both parent histories preserved.",
+      "provisional_head": "ada9fbf3c90458041343155f5a24c7f596afdef2"
     }
+  },
+  "gateway_response_followup": {
+    "requested": "AI response text theme colour is missing for gateway use and incorrectly appears for a remote model; connect gateway attribution to gateway software.",
+    "state": "IMPLEMENTED_LOCAL_CORE_VERIFIED_PENDING_EXACT_HEAD_CI",
+    "base_head": "ada9fbf3c90458041343155f5a24c7f596afdef2",
+    "findings": [
+      "Generic provider request IDs were treated as gateway header evidence.",
+      "Provider body gateway_metadata could inject attribution metadata.",
+      "Responses API did not forward observed gateway response headers.",
+      "Headerless later rounds could inherit an earlier response gateway source.",
+      "Known gateway routes skipped capability verification without optional gateway request headers."
+    ],
+    "behavior": [
+      "Only local gateway-specific response headers or matching bound saved jobs establish verified gateway styling.",
+      "Every successful HTTP response records verified gateway or unknown provenance before answer text; prior text retains its original source.",
+      "Provider body metadata cannot set the local proof; only verified metadata can bind a durable gateway job.",
+      "Persisted legacy gateway labels without proof remain neutral.",
+      "Gateway capability confirmation applies without diagnostics and respects gateway identity learned during discovery.",
+      "Selected profile, endpoint, credentials and model stay bound to the user selection; independent engineering profiles do not reroute inference."
+    ],
+    "validation": {
+      "gateway_admission_host": {
+        "tests": 25,
+        "status": "PASSED",
+        "baseline_regression_failures": 4
+      },
+      "response_source_host": {
+        "tests": 7,
+        "status": "PASSED",
+        "baseline_regression_failures": 1
+      },
+      "transport_and_assembler": "PENDING",
+      "full_android_and_compose": "PENDING_EXACT_HEAD_CI",
+      "core_recovery_admission_serialization_assembler_host": {
+        "tests": 40,
+        "status": "PASSED",
+        "scope": "Actual production source; Android/logging and unrelated provider-event/tool boundaries only. Includes the25 admission and5 source serializer cases already counted separately."
+      },
+      "source_transition_flow_host": {
+        "tests": 2,
+        "status": "PASSED",
+        "scope": "Actual flow reducer, publication timer, streaming buffer and ApiState; DTO/platform boundaries only."
+      },
+      "canonical_fast": {
+        "tests": 329,
+        "status": "PASSED"
+      },
+      "transport_and_adapter_http": "PENDING_FULL_ANDROID_CI; full local transport harness stopped at unrelated production dependency closure without substituting request preparation or recovery.",
+      "ktlint": {
+        "version": "1.3.1",
+        "files": 22,
+        "status": "PASSED_AFTER_FORMATTING"
+      },
+      "release_scope": "PASSED"
+    },
+    "limitations": [
+      "Historical genuine gateway entries without stored proof also remain neutral because they cannot be distinguished from earlier false attribution.",
+      "The affected private gateway deployment and physical-device rendering are not accessible from this workspace."
+    ],
+    "checkpoint_utc": "2026-11-07T03:07:53.850136+00:00",
+    "independent_review": "Transport ordering, body-proof isolation, per-response reset, hidden-notice badge exclusion and test compile shapes reviewed; no remaining source blocker."
   }
 }

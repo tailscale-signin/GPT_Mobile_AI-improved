@@ -84,7 +84,7 @@ internal class GatewayTerminalRecovery(private val api: GatewayAPI) {
         return ChatCompletionChunk(
             model = model,
             gatewayMetadata = requested?.takeIf { bound }?.let {
-                GatewayResponseMetadata(jobId = it, singleflightRole = "saved_result", terminalStatus = verified?.status, resultQuality = verified?.resultQuality)
+                GatewayResponseMetadata(jobId = it, singleflightRole = "saved_result", terminalStatus = verified?.status, resultQuality = verified?.resultQuality, transportVerified = verified != null)
             },
             choices = retainedText?.let { listOf(Choice(delta = Delta(content = it), finishReason = if (disposition == GatewayResultDisposition.COMPLETE) "stop" else null)) },
             error = if (disposition == GatewayResultDisposition.COMPLETE) {

@@ -20,9 +20,19 @@ class ResponseSourceAppearanceTest {
         }
     }
 
-    @Test fun gatewaySemanticsDependOnlyOnPersistedTransport() {
+    @Test fun gatewaySemanticsRequireProofCapturedForThatResponse() {
         assertFalse(ResponseSourceAppearance.isGateway(null))
         assertFalse(ResponseSourceAppearance.isGateway(ResponseSource(executionLocation = "gateway-host")))
-        assertTrue(ResponseSourceAppearance.isGateway(ResponseSource(ResponseTransport.GATEWAY)))
+        assertFalse(ResponseSourceAppearance.isGateway(ResponseSource(ResponseTransport.GATEWAY)))
+        assertFalse(ResponseSourceAppearance.isGateway(ResponseSource(ResponseTransport.GATEWAY, executionLocation = "gateway-host", profileUid = "gateway-profile")))
+        assertTrue(ResponseSourceAppearance.isGateway(ResponseSource(ResponseTransport.GATEWAY, gatewayVerified = true)))
+    }
+
+    @Test fun directAndUnknownTransportsCannotClaimTheGatewayAccent() {
+        for (transport in listOf(ResponseTransport.DIRECT, ResponseTransport.UNKNOWN)) {
+            for (proof in listOf(false, true)) {
+                assertFalse(ResponseSourceAppearance.isGateway(ResponseSource(transport, executionLocation = "gateway-host", profileUid = "gateway-profile", gatewayVerified = proof)))
+            }
+        }
     }
 }

@@ -361,6 +361,7 @@ class OpenAIRecoveryTransportTest {
             assertEquals("Retained answer", chunks.single { it.choices != null }.choices!!.single().effectiveDelta.content)
             assertTrue(chunks.none { it.error != null })
             assertEquals("saved-job", chunks.single { it.choices != null }.gatewayMetadata?.jobId)
+            assertTrue(chunks.single { it.choices != null }.gatewayMetadata?.transportVerified == true)
             assertEquals("completed", chunks.single { it.choices != null }.gatewayMetadata?.terminalStatus)
             assertEquals(listOf("/v1/gateway/capabilities", "/v1/chat/completions", "/v1/gateway/jobs/saved-job/result"), paths)
         }

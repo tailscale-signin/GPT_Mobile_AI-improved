@@ -1,0 +1,174 @@
+# Diagnostic remediation and improvement coverage
+
+Repository: `tailscale-signin/GPT_Mobile_AI-improved`  
+Base: `main` at `91dfce15bc481c4bbdb088bcadd28489436dbb1b`  
+Branch: `fix/diagnostic-remediation-8597579-2026-11-07`
+
+This branch addresses the supplied November 7 diagnostic capture and the requested reliability, gateway and usability backlog. The application that produced the capture identifies the exact base above. Existing coordinators, journals, permission boundaries, gateway transport and UI components are extended; no replacement scheduler, transport manager or memory store is introduced.
+
+The supplied plan explicitly names **26 backlog items** and gives category totals for **19 unnamed items**. The coverage tables preserve the 26 named requests and identify the remaining 19 as implementation interpretations of the three supplied categories. They are not recovered quotations from an unavailable expanded checklist. Implementation coverage and deployment/device qualification remain separate.
+
+## Diagnostic evidence and accounting
+
+The source JSONL has SHA-256 `b539a1e3f3f9642ac5b1ecf779d08e9baa1d65f28dadec4001a415bbc638127d`, 10,253,235 bytes and 6,266 rows. Every row parses. The private export is not committed. A content-free, reproducible inventory is retained in [diagnostic-remediation-8597579-observations.json](diagnostic-remediation-8597579-observations.json).
+
+| Record type | Count | Interpretation |
+| --- | ---: | --- |
+| Primary events | 3,500 | Includes four export/device/capture metadata records. |
+| Continuations | 2,758 | Associated with retained parent events; not additional failures. |
+| Duplicate-reference batches | 8 | Represent 247 exact recaptures and are not issue records. |
+| Reconciled source records | 6,501 | `3,500 + 2,758 + 247 - 4`; matches the capture summary exactly. |
+| `countAsIssue` observations | 79 | 79 recorded incident identities, not 79 independently established software defects. |
+| Source/export truncations and reported dropped records | 0 | Applies to this retained capture, not to all historical execution evidence. |
+
+The offline inspector now accepts schema-7 app-log JSONL in addition to existing conversation and staged exports. It bounds total bytes, line allocation, records and reference inventory; verifies continuation sequences and duplicate-reference source positions; reports contradictory or incomplete evidence; and emits only a fixed failure vocabulary, counts, source-line references and input digest. It does not print messages, endpoints, prompts, source metadata or model output. Signature groups do not prove causality, successful inference, task completion or physical-device performance.
+
+Reproduce the inventory with:
+
+```bash
+python scripts/replay_conversation_debug.py /path/to/app-diagnostics.jsonl
+```
+
+### Disposition of the 79 issue observations
+
+Line numbers below refer to the supplied export, not repository source lines. The inspector's JSON contains every corresponding line reference.
+
+| Observations | Count | Finding and disposition |
+| --- | ---: | --- |
+| Saved-page `INVALID_ARGUMENTS` | 3 | A correct non-dispatched selector rejection supplied a native correction that deterministic checklist recovery did not consume. The branch consumes only the exact, trusted cursor-only read under the same visible tool and current budget. One correction is allowed per retained view across restoration. |
+| `POLICY_STALE` tool failures | 6 | Two groups of three correspond to the profile's tools being disabled and the engineering configuration changing. Their reasons said the stale request was unsent while generic receipts said dispatched. Admission and terminal handling retain the actual execution boundary and stop further work under the invalidated authority. A later observer/checkpoint rejection preserves completed receipts and prior unknown mutation outcomes. The production measurement wrapper and thrown provider-guard path retain that same boundary. |
+| `STALE_INVENTORY` precheck | 1 | No tool dispatch occurred. Inventory freshness is an authority boundary; retained discovery must not silently reauthorize a changed profile or tool catalog. Recovery requires a current, explicit request context. |
+| `PARTIAL/TASK_INCOMPLETE` | 2 | Both report verification 0/5. They remain incomplete; read/API success is not converted into acceptance evidence. The required criteria and exact run/fence/delivery checks are preserved. |
+| `FAILED/INCOMPLETE` | 2 | The exact run IDs match the stale-policy groups. Both retained 196 visible characters and unavailable acceptance evidence. Typed configuration invalidation is preserved instead of losing the cause in a generic incomplete outcome. |
+| Model and parent TLS failures | 3 | One transport failure is recorded at segment, model-finished and parent-run levels. The request selected OpenRouter/DeepSeek, and the receipt does not establish accepted runtime identity or successful inference. TLS remains validated. Health reporting preserves the TLS cause; this branch cannot establish that the remote certificate path is repaired. |
+| MCP resolution/configuration failures | 2 | The retained summary names `McpProtocolConfigurationException` but omits its specific code. Typed codes and recovery requirements are retained in the supervisor and surfaced by consumers. The exact historical protocol defect cannot be reconstructed from the missing detail. |
+| DNS availability failures | 2 | Jina requests have successful responses elsewhere before and after the failures. Keep the configured endpoint, supervise bounded recovery, and avoid treating wrapped cooldown refusals as new physical failures that extend the outage. |
+| `CHAT_DELETED` cancellation | 2 | Intentional cancellation, with unknown remote outcome. Neither successful mutation nor proven non-dispatch follows from this record. Retained journal fences and reconciliation remain authoritative; no replay is authorized. |
+| Frame-timing failure windows | 33 | Measured rendering symptoms. The capture does not prove a common graphics/blur cause; some jank occurs with no graphics effect. Preserve frame-pressure controls and measure the resulting build on the affected device. |
+| Skipped-frame warnings | 2 | Reports of 35 and 33 skipped frames. They corroborate a performance symptom, not a separate root cause for each warning. |
+| Inactive input-connection warnings | 11 | Occur around input teardown/replacement. No accompanying lost-edit evidence, application exception or attributable application focus stack was found. Existing lifecycle coverage remains; warnings are not suppressed. |
+| StrictMode main-thread disk reads | 10 | All ten stacks reach the export chooser's MIME lookup through `ClipData.newUri` and `FileProvider.getType` on `AndroidUiDispatcher`. Explicit known MIME metadata removes that lookup while retaining content-URI/read grants. No relaxed StrictMode policy is added. |
+| **Total** | **79** | Every flagged observation is accounted for; repeated layers and intentional actions are not counted as separate repaired defects. |
+
+The additional MediaPipe feedback warning is a symptom record, outside the 79 flagged observations. It follows successful sentence-encoder setup and does not establish failed memory indexing or user-visible inference failure.
+
+### Rendering baseline from all retained windows
+
+Use all 79 windows, including those not individually flagged, when calculating a denominator.
+
+| Screen | Windows | Frames | Deadline-relative jank | Frames over 100 ms |
+| --- | ---: | ---: | ---: | ---: |
+| Chat | 49 | 17,605 | 859 | 1 |
+| Main activity | 28 | 15,046 | 181 | 13 |
+| Debug/logs | 2 | 628 | 22 | 2 |
+| **Total** | **79** | **33,279** | **1,062** | **16** |
+
+The retained overall rate is approximately 3.19%, with approximately 4.88% in Chat. No retained frame exceeds 500 ms, and these windows report zero dropped samples or fallback deadlines. This is an affected-device debug-capture baseline, not a measured post-fix release improvement or a workload-independent performance guarantee. The existing physical-workload qualifier still requires exact source/APK identity, device/build, refresh rate, thermal/network conditions, reproducible workload and measured navigation/frame trials.
+
+## Changes beyond the observed failures
+
+**Reduced motion:** GitHub indeterminate progress previously used off-screen animation endpoints. At system animation scale zero, an endpoint could leave the active indicator invisible. The existing motion function now holds a visible midpoint when animations are disabled and responds when the setting changes. Existing lifecycle and frame-pressure behavior remains.
+
+**Research/Combined scope:** A public source transfer previously copied private derived questions, queries, model/tool history and completion state from a different authority. A public reread could also retain source titles or bibliography from an earlier restricted discovery. The transfer boundary uses an explicit public-evidence projection, preserves accepted task identity and spent-work counters, and keeps completion/review authority in its original scope. Public excerpts remain usable for destination analysis; unavailable metadata and incomplete coverage are explicit. Same-authority snapshots retain their original content and identity.
+
+**Repeatable diagnosis:** The JSONL inspector produces stable, content-free failure groups and complete observation counts that can be attached to a repair review. Synthetic behavioral regressions reproduce confirmed source failures without committing the private diagnostic archive. This does not automatically infer a root cause or generate a passing application regression from an arbitrary error string.
+
+**Repeated disconnect qualification:** The gateway's existing production registration, journal, orphan handling and result routes are exercised over 48 jobs, 144 disconnect notifications, six SQLite journal reloads and 336 result reads. The deterministic fixture completes each job once and verifies zero extra inference during result retrieval. Existing process-death tests separately use a real subprocess exit.
+
+## Coverage of the 26 explicitly named requests
+
+“Existing” means the implementation was present at the inspected base and was reviewed against its tests. “Strengthened” identifies relevant changes in this branch. Neither label substitutes for exact-revision CI or physical/private deployment acceptance. Detailed execution and gateway mappings are in the [execution audit](diagnostic-execution-8597579-2026-11-07.md) and [gateway audit](diagnostic-gateway-8597579-2026-11-07.md).
+
+### GitHub Mode and autonomous jobs — eight named requests
+
+| # | Request | Implementation and verification |
+| --- | --- | --- |
+| 1 | Durable job execution | Existing `AgentRunCoordinator`, `AgentRunDao`, `GitHubExecutionJournal` and gateway SQLite jobs retain fenced work, receipts and checkpoints. Coordinator, journal, job/restart and capacity regressions remain required. |
+| 2 | Completion verification | Existing `GitHubAcceptanceLedger`, `GitHubRequestCompletion` and `GitHubRunAcceptance` require all criteria, exact run/fence/response evidence and no unresolved outcomes. Seven run-acceptance host cases were rerun; the observed 0/5 runs remain partial. |
+| 3 | Tool outcome tracking | Existing `ToolResultEnvelope` and execution receipts distinguish precheck, dispatch, completion, failure and unknown outcome. Strengthened policy-invalidated admission/terminal handling preserves the real boundary and stronger uncertain-write evidence. |
+| 4 | Recovery loops | Strengthened `GitHubTestChecklist` consumes one exact native saved-page correction; existing bounded read/CI repair loops and mutation journals remain. Real restored-page consumption and forged/widened-recipe rejection are tested. |
+| 5 | Selected-profile enforcement | Existing `ConfiguredDispatchAuthority`, current tool definitions and gateway execution binding pin profile/model/connection/grants. Changed authority blocks the current run and requires revalidation; it cannot select another provider. |
+| 6 | Context preservation | Existing evidence book, review checkpoint and bounded projections retain full durable receipts separately from model context. New blocked paths keep earlier receipts. Missing context never becomes verified completion. |
+| 7 | GitHub API reliability | Existing operation argument/read validators enforce SHA/ref/cursor/action contracts. The saved-view repair preserves source scope and exact issued cursor, including after restoration. |
+| 8 | Background processing | Existing `GitHubCheckWatchWorker`, `GatewayEngineeringSyncWorker` and run-coordinator recovery supervise/reattach saved work. Host/restart tests do not establish the phone's process-death or private network behavior. |
+
+### Gateway/local AI — eight named requests
+
+| # | Request | Implementation and verification |
+| --- | --- | --- |
+| 9 | Gateway connectivity | Existing readiness/liveness separation, supervisor and bounded reconnect are retained. Wrapped preflight failures no longer extend cooldown; permanent TLS/configuration failures retain actionable identity. |
+| 10 | Actual model identity | Existing `execution_binding.py`, inference capabilities/execution and Android transport receipts distinguish requested from observed model/provider/route. Selected-execution tests cover fixture requests, changed configuration and contradictory/missing identity. |
+| 11 | Batch inference/cache/context | Existing `inference_scheduler.py`, `inference_budget.py`, batch journal and capability cache remain bounded. Correctness tests cover admission/cancellation/cache identity; no unmeasured throughput gain is claimed. |
+| 12 | Streaming reliability | Existing singleflight/replay cursors/durable results prevent duplicate inference for the same admitted attempt. New repeated-disconnect coverage supplements jobs, interrupted-read and subprocess-death cases. Arbitrary providers without a resume protocol do not gain token-for-token replay. |
+| 13 | Context/output budgets | Existing completion reservation and context admission reject unsupported/oversized requests before inference. Selected-model/budget tests retain positive output allowance and primary/final-response reserves. |
+| 14 | GPU/NPU compatibility | Existing local-runtime router, capability observation, runtime fallback and memory admission remain. The capture does not establish a hardware-runtime fault. Actual QNN/GPU execution and thermal/memory performance require compatible-device receipts. |
+| 15 | Listener/network security | Existing gateway configuration, identity and endpoint authorization support explicit binding. No wildcard listener, insecure TLS mode, silent route change or credential logging is introduced. Existing configuration/network/security tests remain. |
+| 16 | Correlated bounded diagnostics | Existing Android/gateway journals, correlation, privacy and retention limits remain. Typed MCP cause/retry metadata and the offline JSONL inspector improve diagnosis. Dedicated heap and 50,000-event durable-retention tests remain separate gates. |
+
+### Android/GitHub experience — ten named requests
+
+| # | Request | Implementation and verification |
+| --- | --- | --- |
+| 17 | GitHub welcome/setup | Existing `GitHubSetupWelcome`, `GitHubProgrammerHome` and workspace admission require account/repository/branch/profile context. Setup and admission suites remain required. |
+| 18 | Interactive repository graph | Existing presentation, minimap and viewmodel use actual file/symbol nodes, edges, selection and pagination. Four host projection tests pass; missing nodes do not create invented graph data. This is not compiler-resolved navigation. |
+| 19 | Dynamic progress previews | Existing keyed activity rows update counters in place and retain ordered history. `GitHubLiveProgressTest` covers stable rows, duplicate avoidance and terminal behavior. |
+| 20 | Detailed summaries | Existing activity/status summaries retain detail and distinguish passed/skipped/cancelled/unknown/stale evidence. Execution acceptance determines completion independently of display text. |
+| 21 | Animation/icon alignment | Existing fixed leading icon column and centered row alignment remain. Live-progress coordinate tests are retained; reduced-motion visibility is additionally repaired. |
+| 22 | Scrolling and 250 ms release | Existing anchor requires 250 ms of continuous intentional manual motion, accounts for gaps/reversal and does not consume the user's gesture. Six anchor and four bottom-follow host cases pass; Compose/device frame behavior has separate gates. |
+| 23 | Gateway response theme | Existing `ResponseSourceAppearance` requires per-response gateway source and verified gateway provenance. Transport/header/job binding and renderer contrast tests remain. Provider-body labels or generic request IDs do not establish gateway attribution. |
+| 24 | Live status/warnings/decisions | Existing decision cards, persistent run notices and progress status retain warnings and terminal state. Policy/MCP repairs improve typed blocked/reconnect outcomes rather than hiding failures. |
+| 25 | Loading/main-thread performance | Existing cached workspace bootstrap and asynchronous optional inventories remain. The confirmed export chooser MIME lookup is removed from the UI thread; file sharing preserves its permission contract. |
+| 26 | Accessibility | Existing spoken status, graph semantics, large-font/RTL and contrast coverage remain. Added system-animation-scale regression keeps active progress visible when animation is disabled and when the setting changes. Physical/custom-theme qualification remains separate. |
+
+## Explicit interpretation of the 19 category-only requests
+
+These entries define the implementation interpretation used for the collapsed categories. They were not individually named in the supplied audit.
+
+| # | Category and interpreted requirement | Implementation and verification |
+| --- | --- | --- |
+| 27 | MCP: typed argument/result contracts | Existing tool schema validation, contract validation and modern MCP discovery/result parsing remain. New recovery accepts only native structured correction recipes, never inferred arguments. |
+| 28 | MCP: supervised health and circuits | Existing MCP manager/process supervision/circuit gates remain; nested TLS and wrapped cooldown accounting are strengthened with behavioral regressions. |
+| 29 | MCP: capability/inventory freshness | Existing catalog fingerprints and current-grant/selected-profile checks remain binding. Stale inventory is a precheck failure and cannot silently authorize a replacement tool set. |
+| 30 | MCP: cancellation and uncertain outcomes | Existing interrupted-read recovery is bounded to safe reads; mutation outcomes require receipts/reconciliation. Generic policy handling must not relabel a started or unknown mutation as unsent. |
+| 31 | MCP: actionable configuration/authentication failures | Supervisor retains safe error code, failed stage and retryability; resolver/settings consumers surface permanent reconnect requirements. Successful verified discovery clears stale details. |
+| 32 | Plugins/tools: isolation and resource limits | Existing connection/grant/actor boundaries, MCP subprocess I/O/time limits and tool budgets remain. Fault tests exercise silent, oversized and flooding subprocesses; no new privilege or destination is granted. |
+| 33 | Research: selected, authorized model stages | Existing `DirectResearchModelFactory` and `ResearchModelCoordinator` admit only configured candidates, validate identity/permissions and retain stage outcome evidence. Unavailable or changed models do not silently authorize another account. |
+| 34 | Research: durable restart and budgets | Existing startup reconciler, task/session stores and accepted-attempt fences preserve evidence and spent work. Restart/checkpoint/cancellation regressions remain; sharing public evidence does not reset counters. |
+| 35 | Research: source grounding and missing coverage | Existing content validator, source identity, claim capture/version/quote binding and review digests distinguish leads, excerpts and verified captures. Unknown publication/coverage metadata remains unknown. |
+| 36 | Memory: scope, privacy and retention | Existing memory-scope resolver, encrypted memory/vector stores and retention policies isolate authorized conversations/projects and historical evidence. Historical memory is not current execution proof. |
+| 37 | Combined: bounded work and revision recovery | Existing `CombinedTurnBudgetStore`, reservations, immutable input snapshots and delivery checkpoints retain ownership, budgets and uncertain outcomes across revisions. Existing Combined budget/recovery/delivery tests remain. |
+| 38 | Combined: cross-authority evidence transfer | Strengthened public-capture projection excludes private derived run context and inherited source metadata. Same-authority snapshots remain intact; public excerpts stay usable without inheriting completion or review authority. |
+| 39 | Testing: diagnostic failure fixtures | Added actual saved-page/policy/TLS/export/reduced-motion/research regressions and bounded schema-7 inspection fixtures. Input digest and complete line mappings allow comparison with a future capture without publishing private payloads. |
+| 40 | CI: exact-revision required gates | Existing canonical `Required verification`, workflow identity and missing/skipped/failed/cancelled rejection remain. Branch/head/base must be reconciled before merge; no gate, checksum or test watchdog is weakened. |
+| 41 | Android: build/install/UI acceptance | Full Android unit, heap and API 34/API 36 instrumentation workflows remain mandatory. Host adapters are not Android installation evidence. Physical-phone behavior still requires that phone. |
+| 42 | Release: identity/signatures/artifact verification | Existing release evidence, draft/published identity reconciliation, signature and downloaded-byte checks remain. This repair does not republish an existing version or imply an existing release contains the new branch. |
+| 43 | Security: dependencies/secrets/static analysis | Existing dependency verification, secret scanning, pinned actions and CodeQL remain. TLS verification, endpoint consent, mutation authorization and current grant checks are preserved. |
+| 44 | Stability: disconnect/restart soak | Added 48-job bounded disconnect/journal-reload regression; existing real subprocess-death and durable stress tests remain. Prolonged live phone/gateway soak is explicitly a separate measured workload. |
+| 45 | Diagnostics: retention and reproducible qualification | Existing bounded export/storage/heap controls remain. The inspector reconciles retained-source counts and refuses invalid continuations/references; qualification scripts reject absent source/device/workload evidence. |
+
+## Qualification and handoff
+
+The integrated host check passes 377 script tests plus policy, dependency, secret, Android regex, resource, icon and source-provenance checks. The full gateway check passes 529 Python test executions across 45 isolated suites and all seven browser tests. Focused production-source host runs additionally pass 85 GitHub/session/classifier, 76 MCP/network, 24 UI-policy, ten research-transfer/delivery and 23 final runner/budget/measurement-wrapper cases; these overlap later full-app suites and are not a unique combined test count. Platform adapters and each work package's exact boundaries are recorded in the linked audits and task checkpoints. Those results do not substitute for the integrated branch's exact-revision required workflows. The pull request's current checks and retained artifacts are the authoritative remote qualification record; a later source or base change invalidates earlier merge evidence.
+
+Run the canonical checks from a configured JDK 21/Android SDK 37 checkout:
+
+```bash
+bash scripts/validate-local.sh fast
+bash scripts/validate-local.sh full
+```
+
+The full gateway check includes the new bounded connection test and the existing 50,000-event/782-commit durable diagnostic stress suite. Model generation in the new connection test is deterministic; registration, journals, disconnect handling, restoration and result routes are production code. The existing subprocess-death case verifies real termination separately. These measurements do not certify an hours-long live deployment.
+
+### Prolonged device/gateway acceptance procedure
+
+Record the exact app commit, APK SHA-256, gateway source/package digest, selected profile/model, observed route receipt, device/build/refresh rate, network, thermal state and workload revision. Use a disposable repository and explicitly authorized mutations. Keep raw captures private.
+
+1. Run a multi-hour selected-profile job workload with repeated safe reads, checkpointed long inference and independently verified disposable writes. Record one operation identity and expected result for each authorized mutation.
+2. Interrupt the Android connection during queueing, streaming, tool handoff and completed-result retrieval. Reattach to the saved job and verify retained text/results, current model binding and no additional physical mutation for an uncertain operation.
+3. Terminate/restart the gateway and the Android process at recorded boundaries. Verify saved terminal results and blocked/interrupted active work, then resume only after current authority and remote outcomes have been reconciled. Missing historical evidence stays unresolved.
+4. Change the selected profile, tool grants and gateway configuration while work is queued. Verify a typed blocked outcome, retained completed receipts and no request under stale authority or silent alternate model.
+5. Test valid and invalid TLS, DNS loss/recovery and explicit MCP reconnect. Verify correct diagnostics, bounded safe recovery, no security downgrade and no timer-based promise for a permanent configuration failure.
+6. On the affected physical phone, check verified gateway theme through streaming, process restoration and a subsequent direct-provider response; compare source receipts with rendered content. Exercise export sharing, large fonts, screen reader navigation, animation scale zero and the 250 ms manual-scroll release.
+7. Repeat the recorded rendering/navigation workload in a release or benchmark build and feed measurements to `scripts/qualify_gateway_github_performance.py`. Compare like-for-like device/workload/thermal conditions; retain failures and missing measurements.
+
+Stop the workload on duplicate writes, unverified success, silent profile changes, missing durable receipts, unsafe replay or a security downgrade. A passing deterministic host/emulator suite does not waive these device/private-deployment acceptance checks. The supplied capture has no post-fix physical-device, private gateway, GPU/NPU or prolonged-live-soak evidence, and this branch does not manufacture it.

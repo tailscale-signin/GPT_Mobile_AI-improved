@@ -5,7 +5,7 @@
   "base_sha": "91dfce15bc481c4bbdb088bcadd28489436dbb1b",
   "working_branch": "fix/diagnostic-remediation-8597579-2026-11-07",
   "intent": "Implement the requested diagnostic-driven reliability and usability improvements on a new branch, preserve existing safety and verification contracts, and qualify the exact resulting revision.",
-  "state": "IMPLEMENTATION_AND_INTEGRATION",
+  "state": "SOURCE_VALIDATED_ANDROID_CI_PENDING",
   "inputs": {
     "diagnostic_sha256": "b539a1e3f3f9642ac5b1ecf779d08e9baa1d65f28dadec4001a415bbc638127d",
     "diagnostic_app_commit": "91dfce15bc481c4bbdb088bcadd28489436dbb1b",
@@ -22,37 +22,46 @@
   "work_packages": [
     {
       "id": "github_execution_and_recovery",
-      "state": "PRIMARY_FIXES_INTEGRATED_GENERIC_POLICY_FOLLOWUP_IN_PROGRESS",
+      "state": "INTEGRATED_ANDROID_CI_PENDING",
       "commits": [
-        "fc48fc4",
-        "2867a8b"
+        "2aeaeb192ada8ca4847f32c7a8ead3b7bea5bdbb",
+        "843ad87c21a09a774a2fdcc30ae11d715f751df9",
+        "3109818b2475e4db4668137079648a1248df0583",
+        "c7d34d7e6ba193c917d25b805e0f8c3810e940af",
+        "c6fd3cc1a50d52474fa3deaed5f12680c44409b5",
+        "4bfc8b9927a53c9a34501e8fc6697011a024fad2",
+        "fde06d7c7d6b4bb177ef56cab94435af696184dc"
       ]
     },
     {
       "id": "gateway_mcp_and_model_routing",
-      "state": "HEALTH_AND_SOAK_INTEGRATED_CONSUMER_FOLLOWUP_IN_PROGRESS",
+      "state": "INTEGRATED_ANDROID_CI_PENDING",
       "commits": [
-        "d9222f2",
-        "0845955"
+        "15902a359c1ccb756a3c3f4f4a6e8568c480b11b",
+        "8300eb342094e3190913ac032d64d4ddb75dd1bc",
+        "d49b93596f99e793d3c13dae457c53181bf012d6"
       ]
     },
     {
       "id": "android_performance_and_ui",
       "state": "INTEGRATED_ANDROID_CI_PENDING",
       "commits": [
-        "b78c34f",
-        "35b6983"
+        "93f592fc8a17c6dc38a2240913cb2b37b280e775",
+        "e30eaed11737fdffeeb0ecf9316ec59cdbd32d4b"
       ]
     },
     {
       "id": "diagnostic_coverage_and_acceptance",
-      "state": "JSONL_STRUCTURE_REVIEW_CLOSED_COVERAGE_DRAFTED"
+      "state": "RETAINED_LOG_ACCOUNTED_FOR_DEVICE_AND_DEPLOYMENT_GATES_EXPLICIT"
     },
     {
       "id": "research_public_capture_transfer",
-      "state": "SNAPSHOT_FIX_INTEGRATED_SOURCE_METADATA_REVIEW_FOLLOWUP_IN_PROGRESS",
+      "state": "INTEGRATED_ANDROID_CI_PENDING",
       "finding": "Cross-authority transfer filters captured sources but retains run-derived context and completion state; use an explicit public evidence projection.",
-      "commit": "9cba8af"
+      "commits": [
+        "62e8edec76ab983914ff09c0990bc86757facea2",
+        "03f4968229533fa8031138bcb1b9775be4b29f79"
+      ]
     }
   ],
   "preserved": [
@@ -74,6 +83,58 @@
       "tests": 374,
       "status": "PASSED",
       "source_scope": "Root JSONL inspector before integration of parallel source repairs"
+    },
+    "gateway_full": {
+      "status": "PASSED",
+      "command": "PYTHONPATH=gateway/tests:gateway <isolated-python-with-pinned-gateway-dependencies> gateway/check_gateway.py",
+      "python_suites": 45,
+      "python_test_executions": 529,
+      "browser_tests": 7,
+      "durable_stress_events": 50000,
+      "durable_stress_commits": 782,
+      "scope": "Production gateway paths with deterministic model/endpoint fixtures; the existing process-death regression uses a real subprocess. No live private deployment or prolonged device qualification.",
+      "local_source_commit": "70e18125039e471ef1db3ac87ac10aa9072766c5",
+      "equivalent_published_source_commit": "17a7c4475606774a3752d22acd1a6bd3ca69e09d"
+    },
+    "research_transfer": {
+      "status": "PASSED",
+      "tests": 10,
+      "scope": "Focused production snapshot, source projection and delivery behavior with declared Android/DTO adapters; baseline privacy regression fails against the unchanged parent implementation."
+    },
+    "mcp_host": {
+      "status": "PASSED",
+      "tests": 76,
+      "scope": "Actual network/MCP production classes and library dependencies; Android persistence/log/media boundaries adapted. Full-app resolver and settings tests await Android CI."
+    },
+    "android_ci": {
+      "status": "PENDING",
+      "required": "Exact integrated revision; unit, heap, build and API 34/API 36 instrumentation gates."
+    },
+    "canonical_fast_integrated": {
+      "status": "PASSED",
+      "tests": 377,
+      "command": "bash scripts/validate-local.sh fast",
+      "additional": "CI/dependency/secret policies, Android regex, resources, icons, QNN source provenance and git diff whitespace checks pass; QNN device execution is not measured.",
+      "local_source_commit": "b306018266c447dc4736c6e416d92f228907bea9",
+      "equivalent_published_source_commit": "3109818b2475e4db4668137079648a1248df0583"
+    },
+    "github_session_host": {
+      "status": "PASSED",
+      "tests": 85,
+      "scope": "Actual GitHub planner/session/receipt and profile classifier production code with declared platform adapters; generic runner/budget host follow-up and full Android CI remain separate."
+    },
+    "generic_runner_host": {
+      "status": "PASSED",
+      "tests": 23,
+      "scope": "Nine runner policy, five shared-budget policy and nine existing measured-wrapper tests. Actual production classes, with declared Android persistence/Room telemetry/disabled Combined adapters; source hashes verified. Earlier 93 execution regressions and separate baseline/post-fix probes are documented in the execution audit.",
+      "remaining": "Exact-head full Android CI."
+    },
+    "canonical_fast_final": {
+      "status": "PASSED",
+      "tests": 377,
+      "source_commit": "fde06d7c7d6b4bb177ef56cab94435af696184dc",
+      "command": "bash scripts/validate-local.sh fast",
+      "scope": "Integrated final source, generated index, package manifest and explicit release scope; policy/dependency/secret/regex/resource/icon/provenance/whitespace gates passed."
     }
   },
   "not_yet_measured": [
@@ -85,5 +146,98 @@
   "release": {
     "version_changed": false,
     "publication_requested": false
+  },
+  "coverage_report": "docs/repairs/diagnostic-remediation-8597579-2026-11-07.md",
+  "independent_reviews": [
+    "MCP resolver/settings presentation and regression API usage: no blocking findings.",
+    "Research transfer/delivery: mixed-provenance source metadata fixed and baseline failing regression preserved.",
+    "Execution observer, provider-guard and measured-wrapper defects were reproduced and fixed. Final focused behavior regressions pass; no concrete independent-review finding remains open. Full Android CI remains required."
+  ],
+  "source_publication": {
+    "source_branch_head": "fde06d7c7d6b4bb177ef56cab94435af696184dc",
+    "tree": "3c9ee7c0133e91ef7bc6c42cf458fcf1dcdc65b9",
+    "method": "Git data publication; every source commit tree matched the reviewed local tree, and the branch was read back before checkout reconciliation.",
+    "local_to_published_commits": [
+      {
+        "local_sha": "6fa73fbcd79765388a3e6fc4b0285fc63ece0fa8",
+        "remote_sha": "f327050970b63c97d22bb270aae570673e6de447",
+        "tree": "c93c455b34cb47c65c22c6b26d0dc6919e6c4183"
+      },
+      {
+        "local_sha": "9cba8aff967bb71109c4ee9df69c7fb75112e02c",
+        "remote_sha": "62e8edec76ab983914ff09c0990bc86757facea2",
+        "tree": "57b654812bdfe19a8546e04c4e2f7afb116f7154"
+      },
+      {
+        "local_sha": "b78c34f3a1bd8ecdbc25030f551b31f523b6eee5",
+        "remote_sha": "93f592fc8a17c6dc38a2240913cb2b37b280e775",
+        "tree": "1a7b7c0a2d60420a909ff9c3578edf1f1fbcfd2d"
+      },
+      {
+        "local_sha": "35b6983fb53daa2f3c5a977e1394a14830767dde",
+        "remote_sha": "e30eaed11737fdffeeb0ecf9316ec59cdbd32d4b",
+        "tree": "2c8db7610c96649af4bc7ebf64ad9dcf8ed4a884"
+      },
+      {
+        "local_sha": "d9222f2f6b4fb494a2ebc9bcb2d265eac62db400",
+        "remote_sha": "15902a359c1ccb756a3c3f4f4a6e8568c480b11b",
+        "tree": "17c8bd63057d2bac57eba123f81e303c8b91576f"
+      },
+      {
+        "local_sha": "08459550ef15c3a4528f4a5e08b8095b255150ea",
+        "remote_sha": "8300eb342094e3190913ac032d64d4ddb75dd1bc",
+        "tree": "4a22b2d34a8b1305856d595744ce6678add794b2"
+      },
+      {
+        "local_sha": "fc48fc453ad6f85f7496b2f756df2b0702413a9d",
+        "remote_sha": "2aeaeb192ada8ca4847f32c7a8ead3b7bea5bdbb",
+        "tree": "19d7b1639c5582de5716338d5db33b51cf105bea"
+      },
+      {
+        "local_sha": "2867a8b85af6fe508be600bfb98de01d623bbd70",
+        "remote_sha": "843ad87c21a09a774a2fdcc30ae11d715f751df9",
+        "tree": "275bfd9339d131266f44bee1271781e1f22e3542"
+      },
+      {
+        "local_sha": "70e18125039e471ef1db3ac87ac10aa9072766c5",
+        "remote_sha": "17a7c4475606774a3752d22acd1a6bd3ca69e09d",
+        "tree": "0d360c4986c6f48f3c73fcfd3eceb94a0134ed2f"
+      },
+      {
+        "local_sha": "dbf015c797b30b04204e2d5f9686e41311b11bb9",
+        "remote_sha": "d49b93596f99e793d3c13dae457c53181bf012d6",
+        "tree": "134d7a30bfb54c2309262f4fa41b5606860bf57f"
+      },
+      {
+        "local_sha": "376bae734ad8367845d0506f871377d8d9c38d51",
+        "remote_sha": "03f4968229533fa8031138bcb1b9775be4b29f79",
+        "tree": "dcd9fde18a7817e9e238ac6ac2a2a1fa3aa8efb8"
+      },
+      {
+        "local_sha": "b306018266c447dc4736c6e416d92f228907bea9",
+        "remote_sha": "3109818b2475e4db4668137079648a1248df0583",
+        "tree": "9c8982e1952296b6be802e779a29b4e652c25b10"
+      },
+      {
+        "local_sha": "7fffc2163091f2bead72d1436c02becbac71abdd",
+        "remote_sha": "c7d34d7e6ba193c917d25b805e0f8c3810e940af",
+        "tree": "72a533ce371daebfff1413c86de985d42d7ec120"
+      },
+      {
+        "local_sha": "5cbf971e6e4f4e6af7a859a66227d0eaa5dde360",
+        "remote_sha": "c6fd3cc1a50d52474fa3deaed5f12680c44409b5",
+        "tree": "fa002aca67995abfe8e97423140c7eed9a2e9e11"
+      },
+      {
+        "local_sha": "9b8d9eaa5bf1d740da688f57630c08b793000e17",
+        "remote_sha": "4bfc8b9927a53c9a34501e8fc6697011a024fad2",
+        "tree": "6a4952cf42b97dbfb0f2103d3c4a8d2e1337abcf"
+      },
+      {
+        "local_sha": "8dedc5bd3192f27737b31e1804f55e6d1fb29fbf",
+        "remote_sha": "fde06d7c7d6b4bb177ef56cab94435af696184dc",
+        "tree": "3c9ee7c0133e91ef7bc6c42cf458fcf1dcdc65b9"
+      }
+    ]
   }
 }

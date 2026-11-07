@@ -19,7 +19,7 @@
       "failed_incomplete": 2
     }
   },
-  "state": "GENERIC_POLICY_SOURCE_CHECKPOINT_PENDING_EXECUTION",
+  "state": "LOCAL_EXECUTION_VALIDATED_PENDING_INTEGRATED_ANDROID_CI",
   "owned_scope": [
     "data/github execution planning acceptance recovery",
     "GitHub-specific agent recovery and tools",
@@ -96,7 +96,7 @@
     "coordination": "Gateway agent retains AgentToolResolver.kt ownership; no generic execution overlap.",
     "validation": {
       "ktlint": "PASSED",
-      "behavioral_execution": "PENDING_HOST_HARNESS",
+      "behavioral_execution": "PASSED",
       "android_full": "PENDING_ROOT_EXACT_HEAD_CI",
       "github_session_classifier_tests": 85,
       "github_source_hashes_stable": true,
@@ -109,6 +109,18 @@
         "status": "PASSED",
         "source_hashes_stable": true,
         "scope": "Actual AgentRunner, contracts, ToolExecutionBudget, schedulers, catalog, checkpoints and metadata; unrelated Android/provider/Combined boundaries use host adapters."
+      },
+      "final_policy_and_measurement_suite": {
+        "head": "0ba3bec",
+        "status": "PASSED",
+        "tests": 23,
+        "classes": {
+          "AgentPolicyInvalidationTest": 9,
+          "ToolPolicyInvalidationTest": 5,
+          "MeasuredAgentToolTest": 9
+        },
+        "source_hashes_stable": true,
+        "scope": "Latest measurement wrapper and real preparation fence freshly compiled; unchanged actual runner, shared budget, schedulers, catalog, checkpoints and metadata hashes verified before reuse. External Android/provider/Combined host adapters are not full platform qualification."
       }
     },
     "constraints": [
@@ -140,7 +152,7 @@
     "provider_guard_followup": {
       "base_sha": "7cf03c0",
       "intent": "Preserve earlier unknown tool outcomes when a provider session throws authority invalidation; keep ordinary preparation rebuild and downstream collector transparency.",
-      "state": "SOURCE_CHECKPOINT_PENDING_EXECUTION",
+      "state": "LOCAL_BEHAVIOR_VALIDATED",
       "validation": {
         "ktlint": "PASSED",
         "behavioral_execution": "PASSED_IN_DBBE22A_HOST_SUITE"
@@ -149,7 +161,7 @@
     "fixture_adjustment": "Distinct queued mutations expect DISPATCH_POLICY_CHANGED from the legacy queue and the intelligent scheduler's earlier DEPENDENCY_FAILED precheck. Both retain exactly one invocation/unknown outcome, one round, no discovery and false-dispatch sibling receipts. The observed-success case separately requires a typed authority-latch rejection. No journal or scheduler production semantics changed.",
     "measured_wrapper_followup": {
       "base_sha": "dbbe22a",
-      "state": "SOURCE_CHECKPOINT_PENDING_EXECUTION",
+      "state": "LOCAL_BEHAVIOR_VALIDATED",
       "confirmed_defect": "Actual MeasuredAgentTool returned false dispatch for an authority-coded ToolAuthorizationRejected after a fixture side effect.",
       "scope": [
         "MeasuredAgentTool.kt",
@@ -162,7 +174,7 @@
       ],
       "validation": {
         "ktlint": "PASSED",
-        "behavioral_execution": "PENDING_HOST_HARNESS_AND_ANDROID_CI"
+        "behavioral_execution": "PASSED_IN_0BA3BEC_23_TEST_SUITE"
       }
     }
   }

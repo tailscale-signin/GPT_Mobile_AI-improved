@@ -1,0 +1,113 @@
+{
+  "schema": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "fix/diagnostic-remediation-8597579-2026-11-07",
+  "base_sha": "c980ad3b4c13f8d9dd8bb4b5a393f4263d3b197f",
+  "parent_pr": 811,
+  "parent_merge_sha": "737303c4f82eead75b5f554fc29201a9f9a43b82",
+  "working_branch": "fix/diagnostic-remediation-8597579-2026-11-07",
+  "intent": "Implement the 27 numbered findings from the later diagnostic archive audit, preserving authorization, exact job and tool identities, retained evidence, bounded budgets and truthful task acceptance.",
+  "state": "IMPLEMENTED_AND_LOCAL_VALIDATED_PENDING_EXACT_HEAD_ANDROID_CI",
+  "coverage_ledger": "docs/repairs/diagnostic-follow-through-c1466ca0-2026-11-07.md",
+  "implementation_groups": [
+    "strict_template_and_durable_gateway_handoffs",
+    "provider_error_and_recovery_contracts",
+    "grounded_github_planning_pagination_and_acceptance",
+    "reasoning_preferences_and_measured_timing",
+    "route_capability_and_connector_failure_isolation",
+    "response_paging_clarification_and_composer_ownership",
+    "bounded_diagnostics_and_configuration_exports"
+  ],
+  "validation": {
+    "gateway_capacity_recovery_host": "PASS: 84 tests on integrated production transport/capacity/recovery and verified waiting binding, with JVM assertions and coroutine stacktrace recovery enabled; Android/framework boundaries inventoried.",
+    "mcp_host": "PASS: 78 tests; production transport/catalogue/recovery with inventoried Android boundaries.",
+    "ui_policy_host": "PASS: 19 tests; production response presentation, quick-reply parser and omission summary.",
+    "ui_baseline_regression": "The pre-change parser fails the new repository-clarification regression; the changed parser passes.",
+    "github_focused_host": "PASS: 47 tests; real catalogue, facade, pagination, target policy and narrator; native Android-backed HTTP adapters are outside this host boundary.",
+    "gateway_full_aggregate": "PASS: 48 Python suites, 557 tests run (556 passed, 1 unavailable-LAN-interface skip), plus 7 browser bridge tests. Source 68336351190e8b96058932ccbf52f1aa6acb0d7b and all 166 manifest source hashes unchanged through validation.",
+    "canonical_fast": "PASS: 378 script tests, CI policy, dependency catalogue, secret scan, 1237 literal Android regex patterns (75 dynamic patterns explicitly skipped), resources and whitespace. Source c682d6df3ec9e6dd93ed4d579033713990376b09.",
+    "android_build_and_tests": "PENDING_EXACT_HEAD_CI: full Android build, native adapter/transport/coordinator tests, Robolectric, heap gates and lint must run on the follow-up PR. The local Java 17 environment has no Android SDK; the project requires JDK 21 and Android SDK 37.",
+    "gateway_stress": "PASS: 50,000 diagnostic events, 782 durable commits; workload 16.689 seconds. This is host journal behavior, not phone performance.",
+    "authentication": "PASS: 25 tests across GitHub broker, application and ticket broker suites.",
+    "environment_repairs": "Installed pinned dependencies in a scratch virtual environment so isolated child processes can import them. Reproduced timer-before-dispatch cancellation with zero RPCs; synchronized the active-cancellation regression without weakening its deadline or cleanup assertions.",
+    "runtime_network_reasoning_host": "PASS: 34 tests in each of coroutine stacktrace-recovery=true and false, including typed failures, original saved cause, waiting binding, terminal new-user boundary and reasoning policy.",
+    "runtime_classification_scope_host": "PASS: 22 profile failure classification and GitHub task/target scope tests.",
+    "github_bound_target_host": "PASS: six production-wrapper behavior tests; independent review confirmed normal, dynamic and LiteRtLm native tool paths use the same target guard.",
+    "ktlint": "PASS: ktlint 1.3.1 checked all 87 changed Kotlin files in the integrated source.",
+    "release_scope": "PASS: exact changed paths admitted without broadening directory wildcards; existing release identity, base and limitations preserved.",
+    "generated_metadata": "PASS: architecture index regenerated; gateway manifest regenerated at final implementation source with all 166 source entries identical to the passing aggregate."
+  },
+  "deployment_qualification_required": [
+    "matching Android/gateway installation and interrupted pending-tool handoff on the original selected route",
+    "live Qwen normal/compacted/repaired dispatch and original failure retention",
+    "reasoning OFF/AUTO, verified control and distinct backend/client timing",
+    "actual MCP endpoint schema repair and separate Jina DNS/VPN diagnosis",
+    "physical-device text measurement, frame pacing and IME transitions",
+    "semantic enrichment wakeup and source freshness on the affected device"
+  ],
+  "private_diagnostics_committed": false,
+  "release_or_merge_requested": false,
+  "task_store": "engineering_agent_checkpoints (existing engineering task store)",
+  "task_store_key": "fix/diagnostic-remediation-8597579-2026-11-07:archive-c1466ca0-remediation",
+  "application_mutations_replayed": false,
+  "additional_review_repairs": [
+    "Scope native GitHub acceptance to repository work and require an unambiguous target before dependent dispatch.",
+    "Bind implicit gateway continuations only to the current tool-result suffix; historical IDs before a new user turn cannot revive a terminal job.",
+    "Synchronize the active MCP cancellation regression with actual dispatch and separately preserve warmed pre-dispatch cancellation semantics."
+  ],
+  "implementation_source_sha": "c682d6df3ec9e6dd93ed4d579033713990376b09",
+  "recorded_at_utc": "2026-11-07T16:21:52.131126+00:00",
+  "source_identity_mapping": [
+    {
+      "local_sha": "e8c7554d92836d9d0ec88aa734c8295ce4805b2f",
+      "remote_sha": "b13b85b28ca6844a39094c6507978a30d3220268",
+      "tree_sha": "53322ad757876b6e933c9888ad66ccfcc5f0bd48"
+    },
+    {
+      "local_sha": "f2c5b4ed6eed0d817a1e27083aac5a345822c89a",
+      "remote_sha": "b9fec09fac74361e4a1dab288ca6ca96ec6adc8d",
+      "tree_sha": "6d7d0c9a3fb1f9ab651c7f0dd187b38799e214a2"
+    },
+    {
+      "local_sha": "3eeb1c350c563ad0be95807daa3be129c1e4e8db",
+      "remote_sha": "21ee4b8626048521e1fe61ff8075e6ff5536ac99",
+      "tree_sha": "9866f202f5a8ebe2a175f704aa837278a5c319ee"
+    },
+    {
+      "local_sha": "bb2eb1f3e42b6967def51e7bbc364a48b816f795",
+      "remote_sha": "5e84288877d32f048cf0a99f4db90e753b9aa6e5",
+      "tree_sha": "f0fe1bb021908b1372a73b594ae9eb49d9b8db2f"
+    },
+    {
+      "local_sha": "e9a7c455c6b501277753528731b6e74bf593b01c",
+      "remote_sha": "36d605e3490ea8a0ccea174c5f7b281ce0a0ebdb",
+      "tree_sha": "688bfb925543b17306b6253afc6a2b86eac32c02"
+    },
+    {
+      "local_sha": "9060815fa2ce6b361e752aaa2e4e575970d81a43",
+      "remote_sha": "68336351190e8b96058932ccbf52f1aa6acb0d7b",
+      "tree_sha": "7a7f4836c333e00dffc87fc2ef76acbdfab593f5"
+    },
+    {
+      "local_sha": "4efe09ffc171f9147ff1ab8cbc704c50fbc73df1",
+      "remote_sha": "e94c90269308a8dcca84a9297ad02a1228bc85a6",
+      "tree_sha": "317762ce0bcea3aa206bfbfe40a71cdf90e1bf78"
+    },
+    {
+      "local_sha": "52c9eb9301f6e1aaed09bc355602359d1f6a1f7f",
+      "remote_sha": "1376bc7fb45c716810afa230460e918c7aca5e8e",
+      "tree_sha": "ad1d4e1992a48d0a256750a15b84a75d71b97e34"
+    },
+    {
+      "local_sha": "97686041ca1f58f52c6b43212b3f8bf8d4894e82",
+      "remote_sha": "4ff62244286c844905527545fcf56b6aa62e451d",
+      "tree_sha": "2865d332af1a2a6535a38b454a8e7761c81f3b83"
+    },
+    {
+      "local_sha": "63862a806b25feb30cf6d808981de279d01e0b48",
+      "remote_sha": "c682d6df3ec9e6dd93ed4d579033713990376b09",
+      "tree_sha": "4416405a2e16d516fed5d9f4b199879eddb92a36"
+    }
+  ],
+  "publication_verification": "Repository API commit identities differ from local commits. Each published source Git tree exactly matched the corresponding locally validated Git tree before the branch update."
+}

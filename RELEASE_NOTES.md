@@ -36,6 +36,17 @@ This candidate combines the November 6 GitHub, gateway, retained-evidence and An
 
 - Bind REST mutation claims to their actual HTTP payload, preserve exact legacy fences and proof-based recovery, connect GraphQL reconciliation to task acceptance, and retain deterministic workflow-error blocking across error-code upgrades.
 
+## Diagnostic follow-through — 7 November 2026
+
+The later diagnostic capture showed strict-template failures, interrupted client-tool handoffs, guessed GitHub targets, misleading discovery/pagination counts and inconsistent reasoning preferences. This follow-through:
+
+- Normalizes one leading instruction prefix at every gateway dispatch, preserves exact client-tool frames and durable waiting-job identity, stops deterministic protocol retries, and retains original failure, partial-result and measured usage evidence.
+- Grounds GitHub planning in the selected repository, keeps recovery in the same connection, preserves captured workflow pages and exact continuations, reports unique coverage, and ties substantive native GitHub work to criterion-linked acceptance.
+- Resolves reasoning preferences consistently across requests, settings and exports; requires verified template control; separates backend timing from visible client timing; and bounds unsupported metadata probes and routine omission logs.
+- Pages long responses earlier, preserves terminal failure presentation, rejects clarification self-loops including cached batched actions, and gives the composer sole ownership of keyboard release.
+
+The [27-item coverage ledger and deployment checklist](docs/repairs/diagnostic-follow-through-c1466ca0-2026-11-07.md) distinguish implemented contracts from deployment and physical-device measurements. The existing release identity is unchanged; preparing this branch does not publish a release.
+
 ## Implementation and verification
 
 Implementation reports: [diagnostic workflow](docs/repairs/diagnostic-workflow-evidence-2026-11-06.md), [gateway, acceptance and retention](docs/repairs/gateway-task-retention-2026-11-06.md), and [GraphQL recovery and dispatch correlation](docs/repairs/github-dispatch-graphql-2026-11-06.md).
@@ -43,6 +54,8 @@ Implementation reports: [diagnostic workflow](docs/repairs/diagnostic-workflow-e
 The existing signed-release pipeline verifies exact-commit tests, required main checks, packaged runtimes, privacy, signing-certificate continuity, APK/AAB identities, checksums, provenance and downloaded publication assets. Earlier green revisions do not qualify this candidate. No release, tag or successful device measurement is implied by preparation of these notes.
 
 ## Qualification and remaining work
+
+- The November 7 c1466ca0 repairs require matching Android/gateway deployment, live MCP endpoint and DNS checks, and physical-device handoff, reasoning, frame-time and IME qualification. Host tests do not establish those outcomes.
 
 - The November7 c285 emulator statistics workload retained API34 gaps of one unacknowledged start and one recorded-in-progress entry, and API36 one unacknowledged start. Functional acceptance passed but performance remains unqualified; later exact-head evidence must be inspected independently.
 

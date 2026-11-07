@@ -1,0 +1,38 @@
+{
+  "schema": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "91dfce15bc481c4bbdb088bcadd28489436dbb1b",
+  "working_branch": "work/diagnostic-ui-8597579",
+  "intent": "Resolve confirmed UI-thread export disk reads from diagnostic 8597579 and audit the ten requested GitHub UI behavior areas without duplicating existing surfaces.",
+  "state": "EXPORT_FIX_IMPLEMENTED_ANDROID_VALIDATION_PENDING",
+  "inputs": {
+    "diagnostic": "app-diagnostics-8597579261673199.jsonl",
+    "private_source_committed": false
+  },
+  "confirmed_findings": [
+    "All ten StrictMode DiskReadViolation reports reconstruct through ChatScreen.chatExportChooser -> ClipData.newUri -> FileProvider.getType -> lazy Android MIME table reads on AndroidUiDispatcher. The stack frames are adjacent Android records with distinct event identities.",
+    "Frame timing includes jank with graphicsEffects=NONE; this log does not prove a graphics-driver or blur cause.",
+    "Inactive InputConnection warnings accompany input teardown/replacement. There is no application exception, lost-edit evidence or stack assigning an app focus cause. Warnings remain visible.",
+    "The MediaPipe feedback warning accompanies successful sentence-encoder setup; it does not establish failed memory indexing or user-visible model failure."
+  ],
+  "owned_paths": [
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation",
+    "app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/presentation",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/util"
+  ],
+  "validation": {
+    "ktlint": "PASS: modified export source/tests, ktlint 1.3.1",
+    "canonical_fast": "PASS: 361 script tests, policy/dependency/secret/regex/resource checks",
+    "host_ui_logic": "PASS: 24 actual-source tests for prompt anchor, bottom following, repository graph projection and effect-pressure guard; Kotlin 2.4.20/JUnit 4.13.2. No Android/Compose rendering claims.",
+    "android_export_test": "NOT RUN locally: Gradle 9.8.0 distribution absent; wrapper download failed because services.gradle.org is unreachable. Requires full Android CI.",
+    "physical_device": "NOT RUN: no compatible device, SDK or adb in this executor."
+  },
+  "runtime_checkpoint_note": "Development checkpoint only; does not fabricate application or gateway execution receipts.",
+  "task_store": "engineering_agent_checkpoints (existing engineering task store)",
+  "changes": [
+    "Use the known export MIME in explicit ClipData, preserve chooser/read grants, reject non-content URIs. No StrictMode suppression or permissive disk-read policy was added.",
+    "Move chooser behavior tests into a focused standalone suite that checks MIME metadata, URI exposure and read-only grants."
+  ]
+}

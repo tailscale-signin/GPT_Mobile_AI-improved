@@ -114,7 +114,7 @@ data class AppAuditResult(
     val observation: AppAuditObservation,
     val startedAtEpochMs: Long,
     val finishedAtEpochMs: Long,
-    val durationMs: Long,
+    val durationMs: Long?,
     val attempted: Boolean = false
 ) {
     val outcome: AppAuditOutcome get() = observation.outcome

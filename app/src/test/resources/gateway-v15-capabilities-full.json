@@ -1,0 +1,218 @@
+{
+  "accepted_request_headers": [
+    "X-Gateway-Job-ID",
+    "X-Gateway-Performance-Profile",
+    "X-Gateway-Slot-Pinning",
+    "X-Gateway-Slot-Count",
+    "X-Gateway-Cache-Prompt",
+    "X-Gateway-Cache-Reuse",
+    "X-Gateway-Reasoning-Effort",
+    "X-Gateway-Tool-Optimization",
+    "X-Gateway-Tool-Surface-Limit",
+    "X-Gateway-Stable-Tool-Surface",
+    "X-Gateway-Intermediate-Max-Tokens",
+    "X-Gateway-Soft-Synthesis-Round",
+    "X-Gateway-Result-Char-Limit",
+    "X-Gateway-Delegated-Worker",
+    "X-Gateway-Allow-Local-Tools",
+    "X-Gateway-Request-Role",
+    "X-Gateway-Attempt-ID",
+    "X-Gateway-Client-Diagnostics",
+    "X-Gateway-Diagnostic-Session",
+    "X-Gateway-Diagnostic-Started",
+    "traceparent"
+  ],
+  "auth": {
+    "apiKeyRequired": false,
+    "legacyBearerEnabled": false,
+    "mode": "loopback"
+  },
+  "build": {
+    "manifestVersion": 1,
+    "sourceCommit": "0000000000000000000000000000000000000000",
+    "status": "development"
+  },
+  "contractVersion": 1,
+  "contracts": {
+    "gatewayDashboard": [
+      "gptmobile.gateway.dashboard.v1"
+    ],
+    "gatewayProgress": [
+      "gpt-mobile-gateway-progress/2"
+    ],
+    "toolArguments": [
+      "gptmobile.tool-arguments.v1"
+    ]
+  },
+  "desktop": {
+    "idleUpdates": true,
+    "maintenanceProtocol": 1,
+    "managed": false,
+    "stateSchema": 1,
+    "updateAuthority": "local-manager"
+  },
+  "diagnostics": {
+    "bidirectionalEvents": true,
+    "clientMetadata": true,
+    "debugEnabled": false,
+    "protocolVersion": 2,
+    "recordByteLimit": 2048,
+    "retainedLineLimit": 5000,
+    "storageChecked": false,
+    "storageReady": null
+  },
+  "endpoints": {
+    "cancel": "/gateway/jobs/{job_id}/cancel",
+    "events": "/gateway/jobs/{job_id}/events",
+    "jobs": "/gateway/jobs",
+    "mcp_sessions": "/gateway/mcp/sessions",
+    "result": "/gateway/jobs/{job_id}/result",
+    "tools": "/gateway/tools"
+  },
+  "eventVersions": [
+    "gpt-mobile-gateway-progress/2"
+  ],
+  "features": {
+    "adaptive_llama_reasoning_effort": true,
+    "all_github_toolsets_available": true,
+    "batchDependencies": true,
+    "batchDurableReceipts": true,
+    "boundedAdmission": true,
+    "branch_audit_accelerator": true,
+    "branch_integrate_profile": true,
+    "branch_repair_profile": true,
+    "branch_tip_scan_optimization": true,
+    "branch_verification_profile": true,
+    "clientMemoryAuthority": true,
+    "compact_read_field_projection": true,
+    "compare_commits_preferred_when_available": true,
+    "context_overflow_auto_retry": true,
+    "context_preflight_guard": true,
+    "cross_segment_safe_read_cache": true,
+    "curated_github_surface_default": true,
+    "default_repo_grounding": true,
+    "detailed_llama_timing": true,
+    "deterministicSearch": true,
+    "domain_aware_client_first_routing": true,
+    "dual_gateway_routes": true,
+    "duplicate_stream_attach": true,
+    "durableEngineeringJobs": true,
+    "durable_job_journal": true,
+    "empty_result_is_success": true,
+    "engineeringSupervisor": true,
+    "exact_llama_input_token_count": true,
+    "explicit_reasoning_passthrough": true,
+    "fastapi_lifespan": true,
+    "flat_android_contract": true,
+    "fresh_location_memory_bypass": true,
+    "gateway_ui_hints": true,
+    "githubClientOwnedFastPath": true,
+    "githubImmutableReadCache": true,
+    "githubPerformanceMetrics": true,
+    "hard_synthesis_v2": true,
+    "intelligentToolBatch": true,
+    "job_result_polling": true,
+    "keyFreeNetworkAccess": false,
+    "keyFreePrivateAccess": true,
+    "llama_low_pressure_slot_cache_recovery": true,
+    "llama_prompt_cache": true,
+    "loop_breaker_v2": true,
+    "loopbackBrowserCsrf": true,
+    "manual_job_cancel": true,
+    "mcpCircuitBreakers": true,
+    "mcpFacade": false,
+    "mcp_progress_forwarding": true,
+    "memory_novelty_filter": false,
+    "merge_action_profile": true,
+    "mobileDashboard": true,
+    "model_facing_schema_sanitization": true,
+    "models_sse_compat": true,
+    "modernMcp": true,
+    "mutation_safe_prefetch_generation": true,
+    "ollama_discovery_compat": true,
+    "openai_compatible_chat": true,
+    "packageValidation": true,
+    "parallel_mcp_discovery": true,
+    "persistent_mcp_stdio": true,
+    "pipelined_read_ahead": true,
+    "prefetch_progress_events": true,
+    "progressive_tool_expansion": true,
+    "raw_completion_synthesis_fallback": true,
+    "release_action_profile": true,
+    "remote_continuation_phase_lock": true,
+    "remote_tool_handoff_resume": true,
+    "repo_issue_audit_profile": true,
+    "repo_structure_audit_profile": true,
+    "repositoryCodeGraph": true,
+    "resumable_job_event_sse": true,
+    "root_job_continuity": true,
+    "safe_read_transient_retry": false,
+    "schema_argument_repair": true,
+    "search_commit_repo_scoping": true,
+    "selectedModelLimits": true,
+    "semantic_read_novelty": true,
+    "shaBoundMergeApproval": true,
+    "singleflight_request_coalescing": true,
+    "startup_mcp_prewarm": true,
+    "strict_read_write_classifier": true,
+    "structuredEvidence": false,
+    "structuredSearch": true,
+    "structured_mcp_error_handling": true,
+    "supervisedShutdown": true,
+    "terminalStateProtection": true,
+    "tool_health_circuit_breaker": true,
+    "unavailable_tool_repair": true,
+    "validatedToolArguments": true,
+    "versionedJournal": true,
+    "workflow_tool_profiles": true
+  },
+  "gatewayVersion": "15.0.0",
+  "gateway_version": "15.0.0",
+  "headers": {
+    "job_id": "X-Gateway-Job-ID",
+    "progress_protocol": "X-Gateway-Progress-Protocol",
+    "request_id": "X-Gateway-Request-ID",
+    "singleflight": "X-Gateway-Singleflight"
+  },
+  "identityScope": "local-machine",
+  "instanceId": "00000000000000000000000000000000",
+  "mcpTransportAdapters": {
+    "continuationCapabilities": [],
+    "stdio": [
+      "legacy",
+      "2026-07-28"
+    ],
+    "streamableHttp": []
+  },
+  "memory": {
+    "authority": "client",
+    "protocolVersion": 1,
+    "workspaceAdapterEnabled": false
+  },
+  "progress_protocol": "gpt-mobile-gateway-progress/2",
+  "progress_protocol_version": "gpt-mobile-gateway-progress/2",
+  "protocols": [
+    "openai-chat-completions",
+    "gpt-mobile-gateway-progress/2",
+    "gateway-job-events-sse"
+  ],
+  "singleflight": {
+    "disconnect_grace_seconds": 20
+  },
+  "supportedMcpEras": [
+    "legacy",
+    "2026-07-28"
+  ],
+  "supports_cancellation": true,
+  "supports_result_recovery": true,
+  "supports_resume": true,
+  "ui_contract": {
+    "gateway_tool_icon": "gateway_server",
+    "gateway_tool_origin": "gateway",
+    "hide_mcp_badge_field": "gateway_progress.ui.show_mcp_badge",
+    "hide_origin_text_field": "gateway_progress.ui.show_origin_text",
+    "hide_server_text_field": "gateway_progress.ui.show_server_text",
+    "title_field": "gateway_progress.ui.title"
+  },
+  "version": "15.0.0"
+}

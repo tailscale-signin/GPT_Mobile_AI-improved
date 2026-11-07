@@ -1,12 +1,54 @@
 package dev.chungjungsoo.gptmobile.data.network.gateway
 
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonPrimitive
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GatewayV14CapabilitiesTest {
     private val json = Json { ignoreUnknownKeys = true }
+
+    @Test fun completeServerRouteFixturesAcceptLegacyMetadataWithoutEnablingIt() {
+        for (name in listOf("gateway-v15-capabilities-legacy-mixed.json", "gateway-v15-capabilities-full.json")) {
+            val fixture = requireNotNull(javaClass.classLoader?.getResourceAsStream(name)).bufferedReader().use { it.readText() }
+            val capabilities = json.decodeFromString<GatewayCapabilities>(fixture)
+            assertTrue(capabilities.supportsKeyFreeConnection)
+            assertTrue(capabilities.supportsResume)
+            assertTrue(capabilities.supportsFeature("validatedToolArguments"))
+            assertTrue(capabilities.supportsContract("gatewayProgress", "gpt-mobile-gateway-progress/2"))
+            assertTrue("X-Gateway-Allow-Local-Tools" in capabilities.acceptedRequestHeaders)
+            assertFalse(capabilities.supportsFeature("gateway_server_icon"))
+            assertFalse(capabilities.supportsFeature("disconnect_grace"))
+            if (name.contains("legacy")) {
+                assertEquals(JsonPrimitive("gateway_server"), capabilities.features["gateway_server_icon"])
+                assertEquals(JsonPrimitive(20), capabilities.features["disconnect_grace"])
+            }
+        }
+    }
+
+    @Test fun onlyLiteralJsonTrueEnablesAFeature() {
+        val capabilities = json.decodeFromString<GatewayCapabilities>(
+            """{"gatewayVersion":"15.0.0","features":{"enabled":true,"disabled":false,"text":"true","number":1,"zero":0,"absent":null,"array":[true],"object":{"enabled":true}}}"""
+        )
+        assertTrue(capabilities.supportsFeature("enabled"))
+        for (name in listOf("disabled", "text", "number", "zero", "absent", "array", "object", "unadvertised")) {
+            assertFalse(name, capabilities.supportsFeature(name))
+        }
+    }
+
+    @Test fun mixedFeatureCompatibilityDoesNotRelaxOtherCapabilityShapes() {
+        for (document in listOf(
+            """{"gatewayVersion":"15.0.0","features":[]}""",
+            """{"gatewayVersion":"15.0.0","auth":[]}""",
+            """{"gatewayVersion":"15.0.0","auth":{"apiKeyRequired":false}}""",
+            """{"gatewayVersion":"15.0.0","contracts":{"gatewayProgress":true}}""",
+            """{"gatewayVersion":"15.0.0","accepted_request_headers":false}"""
+        )) {
+            assertTrue(runCatching { json.decodeFromString<GatewayCapabilities>(document) }.isFailure)
+        }
+    }
 
     @Test
     fun sharedPythonCapabilityFixtureIsAccepted() {

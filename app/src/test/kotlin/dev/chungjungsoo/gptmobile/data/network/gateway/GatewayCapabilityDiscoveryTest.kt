@@ -11,6 +11,7 @@ import io.mockk.mockk
 import io.mockk.verify
 import java.io.EOFException
 import java.net.SocketTimeoutException
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -20,6 +21,98 @@ import org.junit.Test
 
 class GatewayCapabilityDiscoveryTest {
     private val config = ProviderRequestConfig("https://capability-discovery.example/v1", "credential", extraHeaders = mapOf("X-Api-Key" to "custom credential"))
+
+    @Test fun fullRouteCapabilitiesDecodeAfterOneMetadataGetWithoutInference() = runBlocking {
+        for (name in listOf("gateway-v15-capabilities-legacy-mixed.json", "gateway-v15-capabilities-full.json")) {
+            val fixture = requireNotNull(javaClass.classLoader?.getResourceAsStream(name)).bufferedReader().use { it.readText() }
+            var calls = 0
+            HttpClient(
+                MockEngine { request ->
+                    calls++
+                    assertEquals("GET", request.method.value)
+                    assertEquals("/v1/gateway/capabilities", request.url.encodedPath)
+                    respond(fixture, HttpStatusCode.OK)
+                }
+            ).use { http ->
+                val network = mockk<NetworkClient>()
+                every { network() } returns http
+                val capabilities = requireNotNull(GatewayAPIImpl(network).getCapabilities(config))
+                assertEquals("15.0.0", capabilities.gatewayVersion)
+                assertTrue(capabilities.supportsKeyFreeConnection)
+                assertTrue(capabilities.supportsFeature("validatedToolArguments"))
+                assertFalse(capabilities.supportsFeature("gateway_server_icon"))
+                assertFalse(capabilities.supportsFeature("disconnect_grace"))
+                assertEquals(1, calls)
+                verify(exactly = 0) { network.evictIdleConnections() }
+            }
+        }
+    }
+
+    @Test fun invalidCapabilityFieldsExposeOnlySchemaReasonAndPath() = runBlocking {
+        val privateValue = "Bearer private-credential https://private-host.invalid/path?token=private-token"
+        val cases = listOf(
+            Triple("""{"gatewayVersion":"15.0.0","auth":{"mode":"loopback","apiKeyRequired":"$privateValue"}}""", "EXPECTED_BOOLEAN", "$.auth.apiKeyRequired"),
+            Triple("""{"gatewayVersion":"15.0.0","contractVersion":"$privateValue"}""", "EXPECTED_INTEGER", "$.contractVersion"),
+            Triple("""{"gatewayVersion":"15.0.0","auth":{"apiKeyRequired":false}}""", "MISSING_REQUIRED_FIELD", "$.auth.mode"),
+            Triple("""{"gatewayVersion":"15.0.0","contracts":{"$privateValue":true}}""", "EXPECTED_ARRAY", "$.contracts[*]"),
+            Triple("""{"gatewayVersion":"15.0.0","accepted_request_headers":false,"private":"$privateValue"}""", "EXPECTED_ARRAY", "$.accepted_request_headers"),
+            Triple("""{"gatewayVersion":"15.0.0","private":"$privateValue"""", "MALFORMED_JSON", "$")
+        )
+        for ((body, reason, path) in cases) {
+            var calls = 0
+            HttpClient(
+                MockEngine { request ->
+                    calls++
+                    assertEquals("GET", request.method.value)
+                    assertEquals("/v1/gateway/capabilities", request.url.encodedPath)
+                    respond(body)
+                }
+            ).use { http ->
+                val network = mockk<NetworkClient>()
+                every { network() } returns http
+                val failure = runCatching { GatewayAPIImpl(network).getCapabilities(config) }.exceptionOrNull()
+                assertTrue(failure is GatewayCapabilityDiscoveryException)
+                val diagnostic = failure as GatewayCapabilityDiscoveryException
+                assertEquals(reason, diagnostic.decodeReason)
+                assertEquals(path, diagnostic.fieldPath)
+                assertTrue(diagnostic.message.orEmpty().contains("no model request was sent"))
+                assertNull(diagnostic.cause)
+                val exposed = diagnostic.stackTraceToString()
+                for (privateText in listOf(privateValue, "private-host", "private-credential", "private-token", "custom credential", "capability-discovery.example")) {
+                    assertFalse(privateText, exposed.contains(privateText))
+                }
+                assertTrue(diagnostic.message.orEmpty().length < 512)
+                assertEquals(1, calls)
+                verify(exactly = 0) { network.evictIdleConnections() }
+            }
+        }
+    }
+
+    @Test fun capabilityCancellationPropagatesWithoutDiscoveryFailureOrRetry() = runBlocking {
+        val cancellation = CancellationException("caller stopped")
+        var calls = 0
+        HttpClient(
+            MockEngine { request ->
+                calls++
+                assertEquals("GET", request.method.value)
+                assertEquals("/v1/gateway/capabilities", request.url.encodedPath)
+                throw cancellation
+            }
+        ).use { http ->
+            val network = mockk<NetworkClient>()
+            every { network() } returns http
+            val failure = runCatching { GatewayAPIImpl(network).getCapabilities(config) }.exceptionOrNull()
+            assertTrue(failure is CancellationException)
+            assertEquals(cancellation.message, failure?.message)
+            // Coroutine stack-trace recovery may copy an exception across a suspension boundary.
+            assertTrue(
+                "The caller cancellation is retained directly or as a cause",
+                generateSequence(failure) { it.cause }.take(8).any { it === cancellation }
+            )
+            assertEquals(1, calls)
+            verify(exactly = 0) { network.evictIdleConnections() }
+        }
+    }
 
     @Test fun oneStaleCapabilityReadEvictsOnlyIdleSocketsBeforeOneReadRetry() = runBlocking {
         var calls = 0

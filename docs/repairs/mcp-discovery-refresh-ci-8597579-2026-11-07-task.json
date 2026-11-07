@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "fix/diagnostic-remediation-8597579-2026-11-07",
+  "base_sha": "c285a86803e940c469ff8a4d23770547143d0511",
+  "parent_pr": 811,
+  "working_branch": "fix/diagnostic-remediation-8597579-2026-11-07",
+  "intent": "Prevent a completed MCP discovery producer retained during completion cleanup from suppressing an explicit refresh.",
+  "state": "IMPLEMENTED_AND_HOST_VALIDATED",
+  "owned_paths": [
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/McpClientManager.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/McpClientManagerTest.kt"
+  ],
+  "confirmed_ci_evidence": {
+    "head_sha": "c285a86803e940c469ff8a4d23770547143d0511",
+    "audit_run": 42378572934,
+    "audit_job": 128421237406,
+    "audit_artifact": 13577426154,
+    "audit_artifact_sha256": "709b242a95751485517c6d6f2fa5bcea375159a4ac03310e5346f8a1dcfdba94",
+    "failure": "McpClientManagerTest.modern discovery respects passive failure cooldown and explicit refresh: requests did not increase after forceRefresh.",
+    "audit_results": "7309 testcases: 7303 passed, one refresh assertion failed, five dedicated heap assumptions, zero errors.",
+    "parallel_pr_results": "7309 testcases: 7304 passed, five dedicated heap assumptions, no failures or errors; this did not waive the audit failure."
+  },
+  "repair": {
+    "production": "Reuse only an unfinished catalogue producer. Keep active-request coalescing and existing compare-and-remove completion cleanup.",
+    "regression": "Capture the real producer from a paused HTTP discovery, let it settle, then reinstall its terminal entry to reproduce the cleanup window deterministically; assert explicit refresh dispatches a new HTTP request.",
+    "baseline": "The unchanged production source fails the new regression; 76 other cases pass.",
+    "fixed": "77 tests pass with -ea, coroutine debug on and stacktrace recovery enabled.",
+    "manager_sha256": "f31fbc5ed257a090d562935f22a02c5d7c2c1e71bea99e0d4d3cbab8a5c28023"
+  },
+  "validation": {
+    "ktlint": "PASS: pinned ktlint 1.3.1 on both changed Kotlin files.",
+    "source_identity": "All 38 production, test and boundary source hashes match the compiled harness manifest.",
+    "canonical_fast": "PASS: integrated source passes378 canonical host tests and associated repository checks.",
+    "android_runtime": "Fresh exact-head Android workflows remain required after integration.",
+    "host_boundary": "Real MCP manager, transports, health, recovery and network contracts; Android/Room/persistence adapters remain explicit host boundaries.",
+    "independent_review": "PASS: unfinished-producer coalescing, identity-checked cleanup, unchanged health/cooldown policy and deterministic HTTP-dispatch regression reviewed without findings."
+  },
+  "private_diagnostics_committed": false,
+  "remote_mutations": false,
+  "recorded_at_utc": "2026-11-07T14:22:00Z"
+}

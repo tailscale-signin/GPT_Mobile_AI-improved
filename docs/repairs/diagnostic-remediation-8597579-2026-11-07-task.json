@@ -1,0 +1,513 @@
+{
+  "schema": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "91dfce15bc481c4bbdb088bcadd28489436dbb1b",
+  "working_branch": "fix/diagnostic-remediation-8597579-2026-11-07",
+  "intent": "Implement the requested diagnostic-driven reliability and usability improvements on a new branch, preserve existing safety and verification contracts, and qualify the exact resulting revision.",
+  "state": "RUNNER_SIZE_AND_MCP_REFRESH_REPAIRS_VALIDATED_EXACT_HEAD_CI_PENDING",
+  "inputs": {
+    "diagnostic_sha256": "b539a1e3f3f9642ac5b1ecf779d08e9baa1d65f28dadec4001a415bbc638127d",
+    "diagnostic_app_commit": "91dfce15bc481c4bbdb088bcadd28489436dbb1b",
+    "diagnostic_schema": 7,
+    "primary_events": 3500,
+    "continuation_records": 2758,
+    "duplicate_reference_batches": 8,
+    "issue_records": 79,
+    "issue_records_are_not_distinct_defects": true,
+    "user_named_backlog_items": 26,
+    "user_category_only_backlog_items": 19,
+    "raw_diagnostics_committed": false,
+    "capability_archive_sha256": "e06fbb698864aaf5824642f536d5e7c13c4367331bb80da7cff514ea50930f4a",
+    "capability_archive_independently_inspected": true,
+    "capability_response_body_available": false
+  },
+  "work_packages": [
+    {
+      "id": "github_execution_and_recovery",
+      "state": "INTEGRATED_ANDROID_CI_PENDING",
+      "commits": [
+        "2aeaeb192ada8ca4847f32c7a8ead3b7bea5bdbb",
+        "843ad87c21a09a774a2fdcc30ae11d715f751df9",
+        "3109818b2475e4db4668137079648a1248df0583",
+        "c7d34d7e6ba193c917d25b805e0f8c3810e940af",
+        "c6fd3cc1a50d52474fa3deaed5f12680c44409b5",
+        "4bfc8b9927a53c9a34501e8fc6697011a024fad2",
+        "fde06d7c7d6b4bb177ef56cab94435af696184dc"
+      ]
+    },
+    {
+      "id": "gateway_mcp_and_model_routing",
+      "state": "INTEGRATED_ANDROID_CI_PENDING",
+      "commits": [
+        "15902a359c1ccb756a3c3f4f4a6e8568c480b11b",
+        "8300eb342094e3190913ac032d64d4ddb75dd1bc",
+        "d49b93596f99e793d3c13dae457c53181bf012d6"
+      ]
+    },
+    {
+      "id": "android_performance_and_ui",
+      "state": "INTEGRATED_ANDROID_CI_PENDING",
+      "commits": [
+        "93f592fc8a17c6dc38a2240913cb2b37b280e775",
+        "e30eaed11737fdffeeb0ecf9316ec59cdbd32d4b"
+      ]
+    },
+    {
+      "id": "diagnostic_coverage_and_acceptance",
+      "state": "RETAINED_LOG_ACCOUNTED_FOR_DEVICE_AND_DEPLOYMENT_GATES_EXPLICIT"
+    },
+    {
+      "id": "research_public_capture_transfer",
+      "state": "INTEGRATED_ANDROID_CI_PENDING",
+      "finding": "Cross-authority transfer filters captured sources but retains run-derived context and completion state; use an explicit public evidence projection.",
+      "commits": [
+        "62e8edec76ab983914ff09c0990bc86757facea2",
+        "03f4968229533fa8031138bcb1b9775be4b29f79"
+      ]
+    }
+  ],
+  "preserved": [
+    "selected profile and destination identity",
+    "unknown mutation outcome reconciliation without replay",
+    "authorization, TLS verification and privacy boundaries",
+    "bounded call, storage, retry and time budgets",
+    "required verification and release provenance",
+    "existing coordinators, transport managers and memory stores"
+  ],
+  "validation": {
+    "offline_inspection": {
+      "tests": 27,
+      "status": "PASSED",
+      "scope": "16 structured-log regressions plus 11 existing conversation and staged-capture tests",
+      "command": "python -m unittest scripts.tests.test_structured_diagnostic_inspection scripts.tests.test_staged_diagnostic_inspection scripts.tests.test_conversation_replay"
+    },
+    "canonical_fast_initial": {
+      "tests": 374,
+      "status": "PASSED",
+      "source_scope": "Root JSONL inspector before integration of parallel source repairs"
+    },
+    "gateway_full": {
+      "status": "PASSED_WITH_ENVIRONMENT_SKIP",
+      "command": "PYTHONPATH=gateway/tests:gateway <isolated-python-with-pinned-gateway-dependencies> gateway/check_gateway.py",
+      "python_suites": 45,
+      "python_test_executions": 529,
+      "browser_tests": 7,
+      "durable_stress_events": 50000,
+      "durable_stress_commits": 782,
+      "scope": "Production gateway paths with deterministic model/endpoint fixtures; the existing process-death regression uses a real subprocess. No live private deployment or prolonged device qualification.",
+      "local_source_commit": "70e18125039e471ef1db3ac87ac10aa9072766c5",
+      "equivalent_published_source_commit": "17a7c4475606774a3752d22acd1a6bd3ca69e09d",
+      "python_tests_passed": 528,
+      "python_tests_skipped": 1,
+      "skip_reason": "No bindable LAN IPv4 interface on this host; actual LAN listener case was not executed."
+    },
+    "research_transfer": {
+      "status": "PASSED",
+      "tests": 10,
+      "scope": "Focused production snapshot, source projection and delivery behavior with declared Android/DTO adapters; baseline privacy regression fails against the unchanged parent implementation."
+    },
+    "mcp_host": {
+      "status": "PASSED",
+      "tests": 76,
+      "scope": "Actual network/MCP production classes and library dependencies; Android persistence/log/media boundaries adapted. Full-app resolver and settings tests await Android CI."
+    },
+    "android_ci": {
+      "status": "PENDING",
+      "required": "Exact integrated revision; unit, heap, build and API 34/API 36 instrumentation gates."
+    },
+    "canonical_fast_integrated": {
+      "status": "PASSED",
+      "tests": 377,
+      "command": "bash scripts/validate-local.sh fast",
+      "additional": "CI/dependency/secret policies, Android regex, resources, icons, QNN source provenance and git diff whitespace checks pass; QNN device execution is not measured.",
+      "local_source_commit": "b306018266c447dc4736c6e416d92f228907bea9",
+      "equivalent_published_source_commit": "3109818b2475e4db4668137079648a1248df0583"
+    },
+    "github_session_host": {
+      "status": "PASSED",
+      "tests": 85,
+      "scope": "Actual GitHub planner/session/receipt and profile classifier production code with declared platform adapters; generic runner/budget host follow-up and full Android CI remain separate."
+    },
+    "generic_runner_host": {
+      "status": "PASSED",
+      "tests": 23,
+      "scope": "Nine runner policy, five shared-budget policy and nine existing measured-wrapper tests. Actual production classes, with declared Android persistence/Room telemetry/disabled Combined adapters; source hashes verified. Earlier 93 execution regressions and separate baseline/post-fix probes are documented in the execution audit.",
+      "remaining": "Exact-head full Android CI."
+    },
+    "canonical_fast_final": {
+      "status": "PASSED",
+      "tests": 377,
+      "source_commit": "fde06d7c7d6b4bb177ef56cab94435af696184dc",
+      "command": "bash scripts/validate-local.sh fast",
+      "scope": "Integrated final source, generated index, package manifest and explicit release scope; policy/dependency/secret/regex/resource/icon/provenance/whitespace gates passed."
+    },
+    "gateway_capability_followup": {
+      "status": "PASSED_WITH_ENVIRONMENT_SKIP",
+      "python_suites": 46,
+      "python_tests_discovered": 532,
+      "python_tests_passed": 531,
+      "python_tests_skipped": 1,
+      "skip_reason": "No bindable LAN IPv4 interface on this host; loopback/HTTP capability tests did run.",
+      "browser_tests_passed": 7,
+      "durable_events": 50000,
+      "durable_commits": 782,
+      "stress_seconds": 10.035,
+      "source_scope": "Integrated gateway server commit540213d; production gateway full suite, current and legacy route fixtures, and source changes stable during run. Temporary manifest validated normally and was restored; published source manifest is regenerated before final CI."
+    },
+    "gateway_status_host": {
+      "status": "PASSED",
+      "tests": 17,
+      "scope": "Actual production viewmodel, monitor, selection helper and PlatformV2/ProviderRequestConfig; Android lifecycle/DI/settings DTO and HTTP-source/diagnostic adapters declared. Exact previous resolver fails the new no-selection regression."
+    },
+    "gateway_capability_android_host": {
+      "status": "PASSED",
+      "tests": 31,
+      "independent_review_probes": 3,
+      "scope": "Production decoder/API/network/negotiation; complete legacy and corrected route fixtures; original acceptance parser retained; typed schema-only diagnostics; no actual model or physical-device claim.",
+      "integrated_local_commit": "874c82fddeb6efdc5c4c3fc2783db5170afdfe63",
+      "equivalent_published_commit": "84c61c7f77c313ae554b6893b17ecf0c08d23ae7"
+    },
+    "compose_snapshot_ci_repair": {
+      "status": "PASSED_HOST_REPRODUCER",
+      "cases": 2,
+      "scope": "Pinned Compose 1.12.1 runtime, animation, test frame clock and interceptors with unchanged production motion helper; old sequence retains0.5, synchronized sequence progresses then freezes. Actual Robolectric assertion remains a required next-head CI gate.",
+      "source_commit": "1e0207babcff8a7a75e822de27f7a4574cb190af",
+      "production_helper_changed": false
+    },
+    "canonical_fast_followup": {
+      "status": "PASSED",
+      "tests": 378,
+      "command": "bash scripts/validate-local.sh fast",
+      "duration_seconds": 17.524,
+      "scope": "Integrated source, full route fixtures, status selection, test-clock repair, release scope and documentation; CI/dependency/secret/regex/resource/icon/provenance gates. Explicit diff against91dfce15 also passes."
+    },
+    "canonical_fast_post_ci_test": {
+      "status": "PASSED",
+      "tests": 378,
+      "seconds": 17.714,
+      "scope": "Integrated assertions-enabled cancellation regression, explicit release scope and source checks; no production or gateway bytes changed from b164."
+    },
+    "mcp_completed_producer_repair": {
+      "status": "PASSED_HOST",
+      "tests": 77,
+      "baseline_failure": "New deterministic cleanup-window regression fails unchanged manager; other76 cases pass.",
+      "jvm": "Assertions/debug/recovery enabled",
+      "source_sha256": "f31fbc5ed257a090d562935f22a02c5d7c2c1e71bea99e0d4d3cbab8a5c28023",
+      "independent_review": "NO_FINDINGS",
+      "scope": "Actual MCP/network production source with explicit Android/Room/persistence adapters."
+    },
+    "runner_dex_repair": {
+      "status": "PASSED_HOST_AND_CALIBRATED_D8",
+      "focused_tests": 23,
+      "broad_tests": 94,
+      "old_code_units": 24310,
+      "new_code_units": 6244,
+      "largest_runner_method_units": 8970,
+      "exclusive_limit": 16383,
+      "d8_version": "9.4.24 from checksum-verified AGP9.4.1",
+      "baseline_matches_packaged_apk": true,
+      "source_sha256": "6ea4df1952d281d3eeb73f8ae5ab4aed1b19b580c25775c2125b10a85da333c0",
+      "independent_review": "NO_FINDINGS",
+      "scope": "Complete actual runner; Android/Room/Combined adapters and one resolver-dependent delegation case remain outside this host scope."
+    },
+    "c285_emulator_functional": {
+      "status": "PASSED_FUNCTIONAL_PERFORMANCE_UNQUALIFIED",
+      "tests_per_api": 55,
+      "api34_measurement_gaps": {
+        "unacknowledged_starts": 1,
+        "recorded_in_progress": 1
+      },
+      "api36_measurement_gaps": {
+        "unacknowledged_starts": 1,
+        "recorded_in_progress": 0
+      },
+      "gap_origin": "Observed real-repository runtime workload, not injected negative fixtures; exact cause not established by logs."
+    },
+    "canonical_fast_ci_repairs": {
+      "status": "PASSED",
+      "tests": 378,
+      "seconds": 19.067,
+      "command": "bash scripts/validate-local.sh fast",
+      "scope": "Integrated MCP completed-producer fix, invocation-local runner extraction, repair ledger and exact release scope; all source, dependency, policy, regex, resource, icon and provenance checks pass."
+    }
+  },
+  "not_yet_measured": [
+    "physical Android device rendering and installation",
+    "private gateway and MCP deployment connectivity",
+    "physical GPU and NPU execution",
+    "prolonged live disconnection and process-restart soak"
+  ],
+  "release": {
+    "version_changed": false,
+    "publication_requested": false
+  },
+  "coverage_report": "docs/repairs/diagnostic-remediation-8597579-2026-11-07.md",
+  "independent_reviews": [
+    "MCP resolver/settings presentation and regression API usage: no blocking findings.",
+    "Research transfer/delivery: mixed-provenance source metadata fixed and baseline failing regression preserved.",
+    "Execution observer, provider-guard and measured-wrapper defects were reproduced and fixed. Final focused behavior regressions pass; no concrete independent-review finding remains open. Full Android CI remains required.",
+    {
+      "scope": "Gateway capability decoding, strict feature truth, full-route negotiation and bounded schema diagnostics",
+      "reviewer": "diagnostic_gateway",
+      "status": "NO_FINDINGS",
+      "production_api_probes": 3
+    },
+    {
+      "scope": "Cancellation regression semantics under coroutine stack-trace recovery",
+      "status": "NO_FINDINGS",
+      "reviewer": "diagnostic_gateway",
+      "verified_modes": [
+        "assertions/debug on, recovery on",
+        "assertions/debug on, recovery off"
+      ]
+    },
+    {
+      "scope": "Runner state lifetime, statement order, behavior and calibrated D8; MCP completed-producer refresh race and deterministic regression",
+      "reviewers": [
+        "diagnostic_ui",
+        "diagnostic_gateway"
+      ],
+      "status": "NO_FINDINGS"
+    }
+  ],
+  "source_publication": {
+    "source_branch_head": "de2daf514c81b8a680e96ae706902bdc22d8cd2b",
+    "tree": "1a413a3f225bab65df6f69e37078a0daff3e05b6",
+    "method": "Git data publication; every source commit tree matched the reviewed local tree, and the branch was read back before checkout reconciliation.",
+    "local_to_published_commits": [
+      {
+        "local_sha": "6fa73fbcd79765388a3e6fc4b0285fc63ece0fa8",
+        "remote_sha": "f327050970b63c97d22bb270aae570673e6de447",
+        "tree": "c93c455b34cb47c65c22c6b26d0dc6919e6c4183"
+      },
+      {
+        "local_sha": "9cba8aff967bb71109c4ee9df69c7fb75112e02c",
+        "remote_sha": "62e8edec76ab983914ff09c0990bc86757facea2",
+        "tree": "57b654812bdfe19a8546e04c4e2f7afb116f7154"
+      },
+      {
+        "local_sha": "b78c34f3a1bd8ecdbc25030f551b31f523b6eee5",
+        "remote_sha": "93f592fc8a17c6dc38a2240913cb2b37b280e775",
+        "tree": "1a7b7c0a2d60420a909ff9c3578edf1f1fbcfd2d"
+      },
+      {
+        "local_sha": "35b6983fb53daa2f3c5a977e1394a14830767dde",
+        "remote_sha": "e30eaed11737fdffeeb0ecf9316ec59cdbd32d4b",
+        "tree": "2c8db7610c96649af4bc7ebf64ad9dcf8ed4a884"
+      },
+      {
+        "local_sha": "d9222f2f6b4fb494a2ebc9bcb2d265eac62db400",
+        "remote_sha": "15902a359c1ccb756a3c3f4f4a6e8568c480b11b",
+        "tree": "17c8bd63057d2bac57eba123f81e303c8b91576f"
+      },
+      {
+        "local_sha": "08459550ef15c3a4528f4a5e08b8095b255150ea",
+        "remote_sha": "8300eb342094e3190913ac032d64d4ddb75dd1bc",
+        "tree": "4a22b2d34a8b1305856d595744ce6678add794b2"
+      },
+      {
+        "local_sha": "fc48fc453ad6f85f7496b2f756df2b0702413a9d",
+        "remote_sha": "2aeaeb192ada8ca4847f32c7a8ead3b7bea5bdbb",
+        "tree": "19d7b1639c5582de5716338d5db33b51cf105bea"
+      },
+      {
+        "local_sha": "2867a8b85af6fe508be600bfb98de01d623bbd70",
+        "remote_sha": "843ad87c21a09a774a2fdcc30ae11d715f751df9",
+        "tree": "275bfd9339d131266f44bee1271781e1f22e3542"
+      },
+      {
+        "local_sha": "70e18125039e471ef1db3ac87ac10aa9072766c5",
+        "remote_sha": "17a7c4475606774a3752d22acd1a6bd3ca69e09d",
+        "tree": "0d360c4986c6f48f3c73fcfd3eceb94a0134ed2f"
+      },
+      {
+        "local_sha": "dbf015c797b30b04204e2d5f9686e41311b11bb9",
+        "remote_sha": "d49b93596f99e793d3c13dae457c53181bf012d6",
+        "tree": "134d7a30bfb54c2309262f4fa41b5606860bf57f"
+      },
+      {
+        "local_sha": "376bae734ad8367845d0506f871377d8d9c38d51",
+        "remote_sha": "03f4968229533fa8031138bcb1b9775be4b29f79",
+        "tree": "dcd9fde18a7817e9e238ac6ac2a2a1fa3aa8efb8"
+      },
+      {
+        "local_sha": "b306018266c447dc4736c6e416d92f228907bea9",
+        "remote_sha": "3109818b2475e4db4668137079648a1248df0583",
+        "tree": "9c8982e1952296b6be802e779a29b4e652c25b10"
+      },
+      {
+        "local_sha": "7fffc2163091f2bead72d1436c02becbac71abdd",
+        "remote_sha": "c7d34d7e6ba193c917d25b805e0f8c3810e940af",
+        "tree": "72a533ce371daebfff1413c86de985d42d7ec120"
+      },
+      {
+        "local_sha": "5cbf971e6e4f4e6af7a859a66227d0eaa5dde360",
+        "remote_sha": "c6fd3cc1a50d52474fa3deaed5f12680c44409b5",
+        "tree": "fa002aca67995abfe8e97423140c7eed9a2e9e11"
+      },
+      {
+        "local_sha": "9b8d9eaa5bf1d740da688f57630c08b793000e17",
+        "remote_sha": "4bfc8b9927a53c9a34501e8fc6697011a024fad2",
+        "tree": "6a4952cf42b97dbfb0f2103d3c4a8d2e1337abcf"
+      },
+      {
+        "local_sha": "8dedc5bd3192f27737b31e1804f55e6d1fb29fbf",
+        "remote_sha": "fde06d7c7d6b4bb177ef56cab94435af696184dc",
+        "tree": "3c9ee7c0133e91ef7bc6c42cf458fcf1dcdc65b9"
+      },
+      {
+        "local_sha": "56de2367158efdee3be953bab9f78a813c24c8b6",
+        "remote_sha": "bf8e5f764bbbc8cac942e31ee0709344e0b02ac5",
+        "tree": "aef70cd024a92a30f45bc7af427cf297a83d7916"
+      },
+      {
+        "local_sha": "540213db298377e8513fc00aa316c0e721e0b589",
+        "remote_sha": "bce547900465e0f2a887424e704cb0384883844c",
+        "tree": "51dea886e5bd140e850ffc481dad312019651c67"
+      },
+      {
+        "local_sha": "fed839c15444253bcad6a05b5453839bd553f8e8",
+        "remote_sha": "4442fd164852169cb5de6c91e75f0303fb022d59",
+        "tree": "a5569ae21d605b7e4a5e34d8bc02d16dc2263351"
+      },
+      {
+        "local_sha": "874c82fddeb6efdc5c4c3fc2783db5170afdfe63",
+        "remote_sha": "84c61c7f77c313ae554b6893b17ecf0c08d23ae7",
+        "tree": "6c06ba40048631c1e8aef1290cd58a5986fee660"
+      },
+      {
+        "local_sha": "fdaef8e2bcb7b2d586b2b477ff6040333a5e867c",
+        "remote_sha": "f32a7f2d6f1ebea03247fd1d004ca6174cbb8177",
+        "tree": "f031aa1c8e3ff35c39585829108adcf525f9d69c"
+      },
+      {
+        "local_sha": "6efd426db1fcf7e482de9fb3312fba33a9c614ea",
+        "remote_sha": "9f217772f2a2b83d6dd4f1c9f67a4efb46bc3fcc",
+        "tree": "1453e7fc1095f7484a0c42a645f56324ee781992"
+      },
+      {
+        "local_sha": "a5a86f111919095a7443829ec87bfcf4089e6b3c",
+        "remote_sha": "b1647150e449a15b50f21c5bcebc6f7ef35949b7",
+        "tree": "ca72f88f471987d4620890ec0872f53681be86f7"
+      },
+      {
+        "local_sha": "b741980b950933630d115fbed64ef112c9c74826",
+        "remote_sha": "2f6f1e99e4e5d0d4ed0d64ca529902a42b5ede74",
+        "tree": "f7f235e08f513012ab242cd22f43d5e92aedf087"
+      },
+      {
+        "local_sha": "817cbc8afd1b17c15eb595b1649c1c0bbee8e76d",
+        "remote_sha": "c285a86803e940c469ff8a4d23770547143d0511",
+        "tree": "24d86d28569dd9de0cd119fa0f787bc5a2206b8e"
+      },
+      {
+        "local_sha": "04c14d40666099c90dbaded9ac6711507a44717e",
+        "remote_sha": "519bac8099f8f3d53062fc4d2098f63d08dc515c",
+        "tree": "07cc015e298ded37793261660e687ee0121e09f7"
+      },
+      {
+        "local_sha": "a3a54ae5d52993d821ab007739b3e0f056284ad1",
+        "remote_sha": "de2daf514c81b8a680e96ae706902bdc22d8cd2b",
+        "tree": "1a413a3f225bab65df6f69e37078a0daff3e05b6"
+      }
+    ],
+    "gateway_manifest_source_commit": "9f217772f2a2b83d6dd4f1c9f67a4efb46bc3fcc"
+  },
+  "pull_request": {
+    "number": 811,
+    "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/811",
+    "source_head_sha": "de2daf514c81b8a680e96ae706902bdc22d8cd2b",
+    "recorded_before_merge": true,
+    "draft": false,
+    "merged": false
+  },
+  "followup": {
+    "intent": "Legacy capability compatibility, typed server metadata, full actual-route Android fixtures, sanitized schema diagnostics and explicit gateway status selection.",
+    "base_head_sha": "bf8e5f764bbbc8cac942e31ee0709344e0b02ac5",
+    "first_ci_findings": [
+      "Two trailing-whitespace lines in repair report: corrected.",
+      "UI Review APK could not resolve Kotlin plugin; identical version resolved and production compilation started in other jobs. Updated-head rerun required.",
+      "Full Android units: 7,295 discovered / 7,289 passed / 5 explicit heap-gate assumption skips / 1 resumed-motion assertion failure. Both API 34/36 emulator runs pass 55 tests each. The dedicated heap step did not execute after the failure; old-head evidence cannot qualify this follow-up. The test synchronization repair is integrated; no production motion change or gate waiver."
+    ],
+    "merge_requires": "All applicable exact-head CI gates and current head/base/policy checks; no bypass.",
+    "motion_diagnosis": "Pinned Compose test APIs synchronize before runOnIdle actions; the initial disabled state has no animation coroutine to publish the scale Snapshot write during a manual clock advance. Explicit idle synchronization after changing scale is verified by the actual-source host reproducer while preserving stationary and resumed-motion assertions. No production motion change is proposed.",
+    "original_work_package_commits": {
+      "server": "608f0d61a84e3984df111e7dd433548dde5f4afe",
+      "status": "cffa12334684743283e3d59fc1d2dd4ddad7391c",
+      "android_capabilities": "d3ed6a83d66d83f0b88456752f18baadd9eeee53",
+      "compose_test": "1e0207babcff8a7a75e822de27f7a4574cb190af"
+    },
+    "source_commit": "de2daf514c81b8a680e96ae706902bdc22d8cd2b",
+    "ci_candidate_note": "The final review-checkpoint commit extends this source. Read the live PR head and all current checks before merge; c285 and earlier results are historical.",
+    "cancellation_test_repair": {
+      "base_sha": "b1647150e449a15b50f21c5bcebc6f7ef35949b7",
+      "work_package_commit": "188d2318809eff5ef6bba807930a061fdd59bce4",
+      "production_changed": false,
+      "old_ci": {
+        "tests": 7309,
+        "passed": 7303,
+        "failures": 1,
+        "errors": 0,
+        "heap_gate_skips": 5,
+        "sole_failure": "Cancellation outer-instance identity assertion under coroutine diagnostic stack recovery",
+        "motion_test": "PASSED",
+        "status_tests_passed": 17
+      },
+      "regression_proof": {
+        "old_without_assertions": "PASS",
+        "old_with_ci_assertions": "FAIL_SAME_CANCELLATION_ASSERTION",
+        "old_assertions_on_recovery_off": "PASS",
+        "fixed_assertions_on_debug_on_recovery_true": {
+          "passed": 31,
+          "seconds": 2.484
+        },
+        "fixed_assertions_on_debug_on_recovery_false": {
+          "passed": 31,
+          "seconds": 3.188
+        }
+      },
+      "independent_review": "NO_FINDINGS",
+      "remaining": "All mandatory workflows must pass on the new published head; old-head success does not substitute.",
+      "published_source_commit": "2f6f1e99e4e5d0d4ed0d64ca529902a42b5ede74"
+    },
+    "runner_size_and_mcp_refresh": {
+      "base_sha": "c285a86803e940c469ff8a4d23770547143d0511",
+      "mcp_source_commit": "519bac8099f8f3d53062fc4d2098f63d08dc515c",
+      "runner_source_commit": "de2daf514c81b8a680e96ae706902bdc22d8cd2b",
+      "runner_work_package_commit": "eb234cdc01cdc53b381da56cb9726b05f7e83a61",
+      "c285_pr_units": {
+        "tests": 7309,
+        "passed": 7304,
+        "failures": 0,
+        "errors": 0,
+        "heap_assumption_skips": 5
+      },
+      "c285_audit_units": {
+        "tests": 7309,
+        "passed": 7303,
+        "failures": 1,
+        "errors": 0,
+        "heap_assumption_skips": 5,
+        "failure": "Explicit MCP refresh reused a completed discovery producer and sent no new request."
+      },
+      "packaged_failure": {
+        "method": "AgentRunner.executeLoop",
+        "code_units": 24310,
+        "exclusive_limit": 16383
+      },
+      "pending": "Full exact-head Android and packaged-APK validation after integration; no prior-head result substitutes.",
+      "c285_dedicated_heaps": {
+        "tests": 11,
+        "suites": 5,
+        "failures": 0,
+        "errors": 0,
+        "skips": 0,
+        "ordinary_skipped_cases_matched": 5,
+        "artifact": 13577588244,
+        "artifact_sha256": "66e6a89ac6ffc9c308887fd1e83402fbd4f0a17a4cdd089f186796b3914dd08a"
+      },
+      "c285_android_lint": "PASSED"
+    }
+  }
+}

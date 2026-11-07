@@ -26,6 +26,13 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.intOrNull
 
 class GatewayAPIImpl @Inject constructor(
     private val networkClient: NetworkClient
@@ -62,7 +69,7 @@ class GatewayAPIImpl @Inject constructor(
                     }
                 }
             } ?: return null
-            json.decodeFromString<GatewayCapabilities>(responseBody).also {
+            decodeCapabilities(responseBody).also {
                 if (it.version.isNullOrBlank() && it.gatewayVersion.isNullOrBlank()) {
                     throw GatewayCapabilityDiscoveryException("GATEWAY_CAPABILITY_UNAVAILABLE: The selected connection returned an unverified gateway capability document. No model request was sent.")
                 }
@@ -74,6 +81,34 @@ class GatewayAPIImpl @Inject constructor(
         } catch (failure: Exception) {
             throw GatewayCapabilityDiscoveryException("GATEWAY_CAPABILITY_UNAVAILABLE: Gateway control discovery did not complete on the selected connection. Check the connection and retry; no model request was sent.", failure)
         }
+    }
+
+    private fun decodeCapabilities(body: String): GatewayCapabilities = try {
+        json.decodeFromString<GatewayCapabilities>(body)
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (_: Exception) {
+        // Decoder exception messages can contain literal values and whole input
+        // excerpts. Inspect only the known schema; never retain that raw cause.
+        val document = try {
+            json.parseToJsonElement(body)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            rejectCapabilities(GatewayCapabilityDecodeIssue("MALFORMED_JSON", "$"))
+        }
+        val issue = GatewayCapabilityShapeDiagnostic(json).find(document, GatewayCapabilities.serializer().descriptor)
+            ?: GatewayCapabilityDecodeIssue("SCHEMA_MISMATCH", "$")
+        rejectCapabilities(issue)
+    }
+
+    private fun rejectCapabilities(issue: GatewayCapabilityDecodeIssue): Nothing {
+        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Gateway", "CAPABILITY_DECODE_REJECTED · reason=${issue.reason} · field=${issue.fieldPath}", "W")
+        throw GatewayCapabilityDiscoveryException(
+            "GATEWAY_CAPABILITY_UNAVAILABLE: The selected connection returned an invalid gateway capability document (reason=${issue.reason}, field=${issue.fieldPath}). Check or update that gateway; no model request was sent.",
+            decodeReason = issue.reason,
+            fieldPath = issue.fieldPath
+        )
     }
 
     override fun resumeEvents(
@@ -216,4 +251,59 @@ class GatewayAPIImpl @Inject constructor(
 
 class GatewayEventReplayException(message: String, cause: Throwable? = null) : IllegalStateException(message, cause)
 
-internal class GatewayCapabilityDiscoveryException(message: String, cause: Throwable? = null) : IllegalStateException(message, cause)
+internal class GatewayCapabilityDiscoveryException(message: String, cause: Throwable? = null, val decodeReason: String? = null, val fieldPath: String? = null) : IllegalStateException(message, cause)
+
+private data class GatewayCapabilityDecodeIssue(val reason: String, val fieldPath: String)
+
+/** Diagnostic only: the real serializer decides acceptance before this bounded inspection runs. */
+@OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
+private class GatewayCapabilityShapeDiagnostic(private val json: Json) {
+    private var remaining = 256
+
+    fun find(value: JsonElement, descriptor: kotlinx.serialization.descriptors.SerialDescriptor, path: String = "$", depth: Int = 0): GatewayCapabilityDecodeIssue? {
+        if (remaining-- <= 0 || depth >= 12 || path.length > 160) return null
+        if (value == JsonNull) return if (descriptor.isNullable) null else GatewayCapabilityDecodeIssue("NULL_NOT_ALLOWED", path)
+        // JsonElement explicitly accepts arbitrary metadata, including nested values.
+        if (descriptor.serialName == "kotlinx.serialization.json.JsonElement") return null
+        return when (descriptor.kind) {
+            kotlinx.serialization.descriptors.PrimitiveKind.BOOLEAN -> if ((value as? JsonPrimitive)?.booleanOrNull == null) GatewayCapabilityDecodeIssue("EXPECTED_BOOLEAN", path) else null
+            kotlinx.serialization.descriptors.PrimitiveKind.INT -> if ((value as? JsonPrimitive)?.intOrNull == null) GatewayCapabilityDecodeIssue("EXPECTED_INTEGER", path) else null
+            kotlinx.serialization.descriptors.PrimitiveKind.STRING -> if (value !is JsonPrimitive || !value.isString && !json.configuration.isLenient) GatewayCapabilityDecodeIssue("EXPECTED_STRING", path) else null
+            kotlinx.serialization.descriptors.StructureKind.CLASS -> {
+                val objectValue = value as? JsonObject ?: return GatewayCapabilityDecodeIssue("EXPECTED_OBJECT", path)
+                for (index in 0 until descriptor.elementsCount) {
+                    val name = descriptor.getElementName(index)
+                    val childPath = "$path.$name"
+                    val child = objectValue[name]
+                    if (child == null) {
+                        if (!descriptor.isElementOptional(index)) return GatewayCapabilityDecodeIssue("MISSING_REQUIRED_FIELD", childPath)
+                    } else if (!(child == JsonNull && json.configuration.coerceInputValues && descriptor.isElementOptional(index))) {
+                        find(child, descriptor.getElementDescriptor(index), childPath, depth + 1)?.let { return it }
+                    }
+                }
+                null
+            }
+            kotlinx.serialization.descriptors.StructureKind.LIST -> {
+                val array = value as? JsonArray ?: return GatewayCapabilityDecodeIssue("EXPECTED_ARRAY", path)
+                for ((index, child) in array.withIndex()) {
+                    if (remaining <= 0) break
+                    find(child, descriptor.getElementDescriptor(0), "$path[$index]", depth + 1)?.let { return it }
+                }
+                null
+            }
+            kotlinx.serialization.descriptors.StructureKind.MAP -> {
+                val objectValue = value as? JsonObject ?: return GatewayCapabilityDecodeIssue("EXPECTED_OBJECT", path)
+                val childDescriptor = descriptor.getElementDescriptor(1)
+                if (childDescriptor.serialName != "kotlinx.serialization.json.JsonElement") {
+                    for (child in objectValue.values) {
+                        if (remaining <= 0) break
+                        // Map keys are server-controlled payload, not schema field names.
+                        find(child, childDescriptor, "$path[*]", depth + 1)?.let { return it }
+                    }
+                }
+                null
+            }
+            else -> null
+        }
+    }
+}

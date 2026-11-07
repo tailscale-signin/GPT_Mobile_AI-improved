@@ -18102,6 +18102,8 @@ def gateway_capabilities():
             GATEWAY_PROGRESS_PROTOCOL,
             "gateway-job-events-sse",
         ],
+        # Feature negotiation uses strict JSON booleans. Descriptive UI and
+        # numeric lifecycle metadata belong in their typed sections below.
         "features": {
             "openai_compatible_chat": True,
             "root_job_continuity": True,
@@ -18112,7 +18114,6 @@ def gateway_capabilities():
             "persistent_mcp_stdio": MCP_PERSISTENT_SESSIONS,
             "mcp_progress_forwarding": MCP_REQUEST_PROGRESS_NOTIFICATIONS,
             "gateway_ui_hints": True,
-            "gateway_server_icon": "gateway_server",
             "semantic_read_novelty": SEMANTIC_READ_NOVELTY,
             "cross_segment_safe_read_cache": True,
             "pipelined_read_ahead": PREFETCH_ENABLED,
@@ -18136,7 +18137,6 @@ def gateway_capabilities():
             "safe_read_transient_retry": SAFE_READ_TRANSIENT_RETRY,
             "singleflight_request_coalescing": SINGLEFLIGHT_ENABLED,
             "duplicate_stream_attach": SINGLEFLIGHT_ENABLED,
-            "disconnect_grace": SINGLEFLIGHT_ORPHAN_GRACE_SECONDS,
             "merge_action_profile": True,
             "branch_integrate_profile": True,
             "strict_read_write_classifier": True,
@@ -18169,6 +18169,9 @@ def gateway_capabilities():
             "models_sse_compat": True,
             "ollama_discovery_compat": True,
             "compare_commits_preferred_when_available": True,
+        },
+        "singleflight": {
+            "disconnect_grace_seconds": SINGLEFLIGHT_ORPHAN_GRACE_SECONDS,
         },
         "headers": {
             "job_id": "X-Gateway-Job-ID",

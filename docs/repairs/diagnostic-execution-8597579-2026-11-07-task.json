@@ -1,0 +1,181 @@
+{
+  "schema": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "91dfce15bc481c4bbdb088bcadd28489436dbb1b",
+  "working_branch": "work/diagnostic-execution-8597579",
+  "integration_branch": "fix/diagnostic-remediation-8597579-2026-11-07",
+  "intent": "Repair observed GitHub execution, continuation, acceptance and recovery gaps from supplied diagnostic capture while preserving authorization, evidence, revision binding and no-replay safeguards.",
+  "input": {
+    "capture_id": "8597579261673199",
+    "raw_capture_committed": false,
+    "base_matches_capture": true,
+    "observed_saved_page_argument_failures": 3,
+    "observed_policy_stale_failures": 6,
+    "observed_chat_deleted_cancellations": 2,
+    "terminal_failure_observations": {
+      "partial_task_incomplete": 2,
+      "partial_tls_failure": 1,
+      "failed_incomplete": 2
+    }
+  },
+  "state": "LOCAL_EXECUTION_VALIDATED_PENDING_INTEGRATED_ANDROID_CI",
+  "owned_scope": [
+    "data/github execution planning acceptance recovery",
+    "GitHub-specific agent recovery and tools",
+    "Shared agent policy/inventory precheck, execution and terminal provenance"
+  ],
+  "validation": {
+    "focused_regressions": {
+      "status": "PASSED",
+      "tests": 81,
+      "runtime": "Java17 / Kotlin2.4.20 / JUnit4.13.2",
+      "test_heap_mib": 256,
+      "scope": "Actual changed production code and evidence/planner/acceptance dependencies with Android/provider DTO host boundaries",
+      "source_hashes_stable_during_execution": true
+    },
+    "canonical_fast": {
+      "status": "PASSED",
+      "tests": 361,
+      "command": "bash scripts/validate-local.sh fast",
+      "scope": "Isolated base before root integration"
+    },
+    "ktlint": {
+      "status": "PASSED",
+      "version": "1.3.1",
+      "changed_kotlin_files": 6
+    },
+    "diff_whitespace": "PASSED",
+    "android_full": {
+      "status": "NOT_RUN_ENVIRONMENT",
+      "reason": "Java17 only; no Android SDK, adb, or configured JDK21",
+      "required_next": "Root integrated-commit Android CI and instrumentation"
+    },
+    "private_live_endpoints": "NOT_MEASURED",
+    "device_restart_soak": "NOT_MEASURED"
+  },
+  "preserved_constraints": [
+    "selected profile and connection",
+    "current grants",
+    "uncertain mutation reconciliation",
+    "pinned revision and issued continuation identity",
+    "bounded tool and recovery budgets",
+    "required CI gates"
+  ],
+  "implemented": [
+    "Structured saved-view context mismatch reason and bounded native exact-cursor correction, spent once per retained view across restart",
+    "Typed configuration-invalidated GitHub session failure with changed fields and resume-required metadata, no further generation/planning or false acceptance",
+    "Bounded16-element failure-cause traversal with self-reference protection and behavioral cycle/deep-wrapper coverage"
+  ],
+  "source_sha256": {
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubResultViews.kt": "ba251a5bbca8f8a632654ef3c1c48c0ecb7205bfafa79514bc64558bacbb7626",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubTestChecklist.kt": "87f8f656c7def64e1e17434fbeb4974c4298f476b2265a3d69334c6e77343723",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubVerifiedSession.kt": "272aa70ec3c5da94329abde204e5979800f45105854023c91a6325400d608036",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubTaskLifecycle.kt": "390ad786e60d4b27294cf6b41dc530f6d9a586127dbe8e58f655a6765556b126",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSavedPageRepairTest.kt": "56a28d92f256fe1cc32474342d937d20407d55f6766c8a738e823f48dd83e5f1",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubPolicyInvalidationTest.kt": "341a0de8246068677fc34d6daa7ecb0c8169130a61a3d225d45fee8d7434a4a1"
+  },
+  "integration_dependencies": [
+    "Resolver typed discovery guards implemented separately in gateway commit 23cd69b20a3bb01eae04c7d9feb1124f60e78e99; root integrates and qualifies resolver behavior tests",
+    "Root updates architecture index and release-scope metadata as applicable",
+    "Root owns remote publication, exact-head CI and merge"
+  ],
+  "remote_mutations_performed": false,
+  "followup": {
+    "base_sha": "724f9f8bb08ab97d72df858f9a0bb30bc34f353c",
+    "working_branch": "work/diagnostic-execution-8597579",
+    "intent": "Close generic stale-policy/inventory precheck receipt and runner termination gaps without downgrading any post-dispatch mutation uncertainty or resetting budgets.",
+    "owned_files": [
+      "AgentRunner.kt",
+      "ToolExecutionBudget.kt",
+      "ToolFailureMetadata.kt",
+      "ToolResultEnvelope.kt",
+      "ProfileFailureRecord.kt",
+      "behavior regressions"
+    ],
+    "coordination": "Gateway agent retains AgentToolResolver.kt ownership; no generic execution overlap.",
+    "validation": {
+      "ktlint": "PASSED",
+      "behavioral_execution": "PASSED",
+      "android_full": "PENDING_ROOT_EXACT_HEAD_CI",
+      "github_session_classifier_tests": 85,
+      "github_source_hashes_stable": true,
+      "canonical_fast_tests": 361,
+      "source_checkpoint": "7cf03c0",
+      "runner_budget_baseline": {
+        "head": "dbbe22a",
+        "focused_tests": 13,
+        "existing_regressions": 93,
+        "status": "PASSED",
+        "source_hashes_stable": true,
+        "scope": "Actual AgentRunner, contracts, ToolExecutionBudget, schedulers, catalog, checkpoints and metadata; unrelated Android/provider/Combined boundaries use host adapters."
+      },
+      "final_policy_and_measurement_suite": {
+        "head": "0ba3bec",
+        "status": "PASSED",
+        "tests": 23,
+        "classes": {
+          "AgentPolicyInvalidationTest": 9,
+          "ToolPolicyInvalidationTest": 5,
+          "MeasuredAgentToolTest": 9
+        },
+        "source_hashes_stable": true,
+        "scope": "Latest measurement wrapper and real preparation fence freshly compiled; unchanged actual runner, shared budget, schedulers, catalog, checkpoints and metadata hashes verified before reuse. External Android/provider/Combined host adapters are not full platform qualification."
+      }
+    },
+    "constraints": [
+      "Precheck=false only at proven pre-invocation boundaries",
+      "Preserve post-side-effect/unknown outcome precedence",
+      "Stop queued dispatch and provider/discovery continuation under invalidated authority",
+      "Retain earlier receipts, selected profile and existing budgets"
+    ],
+    "implemented": [
+      "Known pre-invocation policy and inventory rejections retain typed non-dispatched precheck receipts",
+      "Invalidated authority stops shared queued work and provider/catalog continuation without renewing spent budgets",
+      "Observed success or unknown receipts outrank later policy failures, including authority-coded ToolAuthorizationRejected",
+      "Restored unknown outcomes outrank later prechecks even when the prior tool is no longer visible",
+      "GitHub acceptance checkpoint policy failure preserves original unknown failure provenance"
+    ],
+    "source_sha256": {
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunner.kt": "0652584696c33f614a771a6b02cb93e8787d01ffde25947961b968bc3221d34b",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProfileFailureRecord.kt": "79247729d5721d5427399b59cd6db0f746f11b268901ea78e8f7c2585e26f499",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolExecutionBudget.kt": "ec9e013a2e230145a4ccd46f3e1547ae1012f936f1434e539a214b7659909d3f",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolFailureMetadata.kt": "333162e8e0e4fa760181610e325b6b2a1dbbcade18912c9730d6b2eb3232c974",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolResultEnvelope.kt": "577bcf73d5e5fe81e9de2187a72c7557f29b8c69d92859736adb650f4eb59a35",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubVerifiedSession.kt": "b80f57a5b9c0b5d74ac6d015e565819bdd2d9ab7c1c5f315466435355866ceab",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProfileFailureRecordTest.kt": "62226e613f56112dcbbd72bd9295d662f57fe7d89ea38f261cf9b24c42e4b958",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubPolicyInvalidationTest.kt": "24ba123a93d10c68652f3b617ed4720532b2e50f9f1e3c66f15847cb13cf8149",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentPolicyInvalidationTest.kt": "7c089954b037467d0c627117a38d99d53dae626fea21858bad7791fc3aea1353",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolPolicyInvalidationTest.kt": "9401ff33d8c462b132045a52b8035d328a24dfb81f6c97cfd28fc844ff87e74c",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/MeasuredAgentTool.kt": "f5331d37cac6f8377c9d4472fd3d934c6c9dd4f61af184849686fc449d318f54"
+    },
+    "provider_guard_followup": {
+      "base_sha": "7cf03c0",
+      "intent": "Preserve earlier unknown tool outcomes when a provider session throws authority invalidation; keep ordinary preparation rebuild and downstream collector transparency.",
+      "state": "LOCAL_BEHAVIOR_VALIDATED",
+      "validation": {
+        "ktlint": "PASSED",
+        "behavioral_execution": "PASSED_IN_DBBE22A_HOST_SUITE"
+      }
+    },
+    "fixture_adjustment": "Distinct queued mutations expect DISPATCH_POLICY_CHANGED from the legacy queue and the intelligent scheduler's earlier DEPENDENCY_FAILED precheck. Both retain exactly one invocation/unknown outcome, one round, no discovery and false-dispatch sibling receipts. The observed-success case separately requires a typed authority-latch rejection. No journal or scheduler production semantics changed.",
+    "measured_wrapper_followup": {
+      "base_sha": "dbbe22a",
+      "state": "LOCAL_BEHAVIOR_VALIDATED",
+      "confirmed_defect": "Actual MeasuredAgentTool returned false dispatch for an authority-coded ToolAuthorizationRejected after a fixture side effect.",
+      "scope": [
+        "MeasuredAgentTool.kt",
+        "ToolPolicyInvalidationTest.kt"
+      ],
+      "constraints": [
+        "Ordinary deterministic permission refusals unchanged",
+        "Optional telemetry callback remains observational",
+        "No additional mutation replay or resource allowance"
+      ],
+      "validation": {
+        "ktlint": "PASSED",
+        "behavioral_execution": "PASSED_IN_0BA3BEC_23_TEST_SUITE"
+      }
+    }
+  }
+}

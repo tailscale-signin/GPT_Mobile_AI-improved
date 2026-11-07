@@ -1,8 +1,8 @@
 package dev.chungjungsoo.gptmobile.data.network.gateway
 
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
-import dev.chungjungsoo.gptmobile.data.model.ClientType
-import dev.chungjungsoo.gptmobile.data.model.isPrivateDestination
+import dev.chungjungsoo.gptmobile.data.github.engineeringConfig
+import dev.chungjungsoo.gptmobile.data.github.engineeringGatewayProfile
 import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
 import java.net.URI
 import kotlinx.coroutines.CancellationException
@@ -27,21 +27,20 @@ internal data class GatewayDashboardTarget(
     val identity: String get() = config?.let(::gatewayDashboardIdentity) ?: "unavailable:$selectedProfileUid"
 }
 
-/** An explicit engineering connection wins; an invalid selection never picks another profile. */
+/** The selected engineering connection owns status; an inference address is not gateway discovery. */
 internal fun gatewayDashboardTarget(selectedProfileUid: String, profiles: List<PlatformV2>, gatewayProfileUid: String?): GatewayDashboardTarget? {
     val selected = profiles.singleOrNull { it.uid == selectedProfileUid && it.enabled } ?: return null
-    val explicit = !gatewayProfileUid.isNullOrBlank()
-    val profile = if (explicit) profiles.singleOrNull { it.uid == gatewayProfileUid && it.enabled } else selected
-    fun available(item: PlatformV2) = item.compatibleType in setOf(ClientType.LLAMA, ClientType.OLLAMA) || item.compatibleType != ClientType.LITERT_LM && item.isPrivateDestination()
-    if (profile == null || !available(profile)) {
-        return if (explicit) GatewayDashboardTarget(selectedProfileUid, "Gateway", "", true, null, "The selected gateway connection is unavailable.") else null
+    if (gatewayProfileUid.isNullOrBlank()) {
+        return GatewayDashboardTarget(selectedProfileUid, "Gateway", "", false, null, "Select an engineering gateway connection in GitHub settings to view its status.")
     }
+    val profile = engineeringGatewayProfile(profiles, gatewayProfileUid)
+        ?: return GatewayDashboardTarget(selectedProfileUid, "Gateway", "", true, null, "The selected gateway connection is unavailable. Choose an enabled private Llama or Ollama connection in GitHub settings.")
     val address = runCatching { URI(profile.apiUrl.trim()) }.getOrNull()
     if (address == null || address.scheme !in setOf("http", "https") || address.host.isNullOrBlank() || address.rawUserInfo != null || address.rawQuery != null || address.rawFragment != null) {
-        return GatewayDashboardTarget(selectedProfileUid, profile.name, "", explicit, null, "Check this gateway address in GitHub settings.")
+        return GatewayDashboardTarget(selectedProfileUid, profile.name, "", true, null, "Check this gateway address in GitHub settings.")
     }
     val host = address.host + if (address.port >= 0) ":${address.port}" else ""
-    return GatewayDashboardTarget(selectedProfileUid, profile.name, host, explicit, ProviderRequestConfig(profile.apiUrl, profile.token, profileUid = profile.uid), model = selected.model.takeIf(String::isNotBlank))
+    return GatewayDashboardTarget(selectedProfileUid, profile.name, host, true, profile.engineeringConfig(), model = selected.model.takeIf(String::isNotBlank))
 }
 
 internal enum class GatewayDashboardPhase { HIDDEN, CONNECTING, LIVE, STALE, UNAVAILABLE, DENIED, RECONNECTING, DEGRADED, OFFLINE }

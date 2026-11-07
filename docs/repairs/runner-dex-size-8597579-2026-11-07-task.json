@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "fix/diagnostic-remediation-8597579-2026-11-07",
+  "base_sha": "c285a86803e940c469ff8a4d23770547143d0511",
+  "parent_pr": 811,
+  "working_branch": "work/runner-dex-size-8597579",
+  "intent": "Reduce AgentRunner.executeLoop DEX size with private per-invocation state and cohesive non-inline stages, preserving dispatch authority, actual receipts, cancellation, accepted budgets, checkpoint recovery, and terminal behavior.",
+  "state": "IMPLEMENTED_AND_VERIFIED_FOR_INTEGRATION",
+  "owned_paths": [
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunner.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunnerTest.kt"
+  ],
+  "confirmed_ci_evidence": {
+    "workflow_run": 42378572880,
+    "job": 128421226468,
+    "method": "AgentRunner.executeLoop",
+    "dex_code_units": 24310,
+    "exclusive_limit": 16383,
+    "other_packaging_checks": "Native runtime, JNI, alignment, and telemetry checks passed before the guarded-method size failure."
+  },
+  "planned_preservation": [
+    "Keep all mutable state local to each run, never on the reusable AgentRunner instance.",
+    "Preserve selected-definition timing and restore settled receipt delivery before inference.",
+    "Preserve immediate return on restored authority invalidation and retained unknown-outcome precedence.",
+    "Preserve restored/live fingerprint boundaries, round adjustments, one-shot repair flags, and original tool allowances.",
+    "Keep cancellation and downstream flow collector failures transparent."
+  ],
+  "validation": {
+    "actual_source_behavior_suites": "PASS: 23 targeted authority/budget/receipt cases (1.129 seconds) and 94 broad cases including repeated-flow isolation (2.696 seconds), with -ea, coroutine debug and stacktrace recovery enabled. Source/test/adapter hashes verified stable.",
+    "pinned_d8_measurement": "PASS: D8 9.4.24 from verified AGP 9.4.1 exactly reproduced the baseline 24310 units, then measured executeLoop at 6244 units, restoreCompletedExchanges at 920, prepareNextRound at 794. Every AgentRunner method is below the unchanged 16383 exclusive limit.",
+    "canonical_fast": "PASS: 378 tests and associated repository checks.",
+    "ktlint": "PASS: ktlint 1.3.1 on both changed Kotlin files.",
+    "independent_review": "No blocker: invocation-local state, statement order, cancellation transparency, and immediate restored-authority stop are preserved.",
+    "full_android_ci": "Required after integration; current c285 qualification continues independently."
+  },
+  "gate_changes": false,
+  "dependency_changes": false,
+  "remote_mutations": false,
+  "private_diagnostics_committed": false,
+  "task_store": "engineering_agent_checkpoints (existing engineering task store)"
+}

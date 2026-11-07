@@ -1,0 +1,255 @@
+{
+  "schema": "gptmobile.offline-log-inspection.v1",
+  "result": "retained-log-records-inspected",
+  "inputSha256": "b539a1e3f3f9642ac5b1ecf779d08e9baa1d65f28dadec4001a415bbc638127d",
+  "inputBytes": 10253235,
+  "appCommit": "91dfce15bc481c4bbdb088bcadd28489436dbb1b",
+  "counts": {
+    "rows": 6266,
+    "event": 3500,
+    "truncatedAtSource": 0,
+    "truncatedAtExport": 0,
+    "retainedSourceRecords": 6501,
+    "issueRecords": 79,
+    "continuation": 2758,
+    "duplicate_reference_batch": 8,
+    "duplicateReferences": 247,
+    "distinctIssueIdentities": 79
+  },
+  "capture": {
+    "retainedRecords": 6501,
+    "sourceFailures": 0,
+    "droppedRecords": 0,
+    "droppedCriticalRecords": 0,
+    "omissionsReported": false,
+    "trackingEnabled": true,
+    "reconciledSourceRecords": 6501,
+    "recordCountMatches": true
+  },
+  "warnings": [],
+  "failureSignatures": [
+    {
+      "signature": "android.inactive-input-connection",
+      "observations": 11,
+      "sourceLines": [
+        951,
+        3409,
+        5178,
+        5179,
+        5180,
+        5181,
+        5182,
+        5183,
+        5184,
+        5192,
+        5347
+      ],
+      "sourceLinesOmitted": 0
+    },
+    {
+      "signature": "android.main-thread-disk-io",
+      "observations": 10,
+      "sourceLines": [
+        5611,
+        5660,
+        5712,
+        5760,
+        5810,
+        5859,
+        5911,
+        5959,
+        6009,
+        6058
+      ],
+      "sourceLinesOmitted": 0
+    },
+    {
+      "signature": "execution.incomplete",
+      "observations": 2,
+      "sourceLines": [
+        2687,
+        4606
+      ],
+      "sourceLinesOmitted": 0
+    },
+    {
+      "signature": "execution.task-incomplete",
+      "observations": 2,
+      "sourceLines": [
+        839,
+        975
+      ],
+      "sourceLinesOmitted": 0
+    },
+    {
+      "signature": "execution.tls-failure",
+      "observations": 1,
+      "sourceLines": [
+        1896
+      ],
+      "sourceLinesOmitted": 0
+    },
+    {
+      "signature": "mcp.discovery-failure",
+      "observations": 2,
+      "sourceLines": [
+        241,
+        242
+      ],
+      "sourceLinesOmitted": 0
+    },
+    {
+      "signature": "model.reported-failure",
+      "observations": 2,
+      "sourceLines": [
+        113,
+        1892
+      ],
+      "sourceLinesOmitted": 0
+    },
+    {
+      "signature": "network.transport-unavailable",
+      "observations": 2,
+      "sourceLines": [
+        1908,
+        1918
+      ],
+      "sourceLinesOmitted": 0
+    },
+    {
+      "signature": "rendering.frame-deadline-miss",
+      "observations": 33,
+      "sourceLines": [
+        273,
+        560,
+        654,
+        2590,
+        2679,
+        2746,
+        2859,
+        3229,
+        3286,
+        3361,
+        4093,
+        4488,
+        4541,
+        4668,
+        4772,
+        5137,
+        5146,
+        5174,
+        5201,
+        5264,
+        5269,
+        5273,
+        5278,
+        5283,
+        5287,
+        5295,
+        5342,
+        5356,
+        5586,
+        5588,
+        5593,
+        5597,
+        6199
+      ],
+      "sourceLinesOmitted": 0
+    },
+    {
+      "signature": "rendering.skipped-frames",
+      "observations": 2,
+      "sourceLines": [
+        277,
+        4529
+      ],
+      "sourceLinesOmitted": 0
+    },
+    {
+      "signature": "tool.canceled",
+      "observations": 2,
+      "sourceLines": [
+        136,
+        137
+      ],
+      "sourceLinesOmitted": 0
+    },
+    {
+      "signature": "tool.invalid-arguments",
+      "observations": 3,
+      "sourceLines": [
+        101,
+        102,
+        103
+      ],
+      "sourceLinesOmitted": 0
+    },
+    {
+      "signature": "tool.policy-stale",
+      "observations": 6,
+      "sourceLines": [
+        156,
+        157,
+        158,
+        238,
+        239,
+        240
+      ],
+      "sourceLinesOmitted": 0
+    },
+    {
+      "signature": "tool.stale-inventory",
+      "observations": 1,
+      "sourceLines": [
+        209
+      ],
+      "sourceLinesOmitted": 0
+    }
+  ],
+  "frameObservations": {
+    "totals": {
+      "frames": 33279,
+      "jankFrames": 1062,
+      "stallsOver100Ms": 16,
+      "stallsOver500Ms": 0,
+      "droppedSamples": 0,
+      "fallbackDeadlines": 0,
+      "windows": 79
+    },
+    "screens": {
+      "Chat": {
+        "frames": 17605,
+        "jankFrames": 859,
+        "stallsOver100Ms": 1,
+        "stallsOver500Ms": 0,
+        "droppedSamples": 0,
+        "fallbackDeadlines": 0,
+        "windows": 49
+      },
+      "Debug/Logs": {
+        "frames": 628,
+        "jankFrames": 22,
+        "stallsOver100Ms": 2,
+        "stallsOver500Ms": 0,
+        "droppedSamples": 0,
+        "fallbackDeadlines": 0,
+        "windows": 2
+      },
+      "MainActivity": {
+        "frames": 15046,
+        "jankFrames": 181,
+        "stallsOver100Ms": 13,
+        "stallsOver500Ms": 0,
+        "droppedSamples": 0,
+        "fallbackDeadlines": 0,
+        "windows": 28
+      }
+    }
+  },
+  "taskCompletion": "not-verified",
+  "causalAttribution": "not-established",
+  "physicalDeviceQualification": "not-established",
+  "providerDeltaReplay": "unavailable",
+  "reducerReplay": "unavailable",
+  "scope": "Retained schema-7 observations and structural references only; signature groups are not a count of distinct defects, and redacted source payload digests are not reverified."
+}

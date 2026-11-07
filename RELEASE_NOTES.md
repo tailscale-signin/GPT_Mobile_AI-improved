@@ -2,6 +2,8 @@
 
 A separate post-PR-806 branch repairs server-cooldown/TLS retry admission, durable retry timing, cancellation-safe batch receipts, schema-bound MCP readiness, missing event replay and bounded context projection. Android reports now distinguish authentication and graph recovery. Gateway answer colour and badges now require response-bound gateway evidence, clear stale attribution between responses, and confirm recognized gateway capabilities with diagnostics disabled. No new version is published by this change; full current-head CI and physical deployment qualification remain separate requirements. See `docs/repairs/reliability-fault-recovery-2026-11-06.md`.
 
+The November 7 diagnostic follow-up repairs mixed-type gateway capabilities, explicit gateway status routing, receipt preservation, sanitized schema diagnostics, the completed MCP discovery refresh race, and the oversized agent execution loop. Complete evidence and qualification limits are in [the diagnostic repair report](docs/repairs/diagnostic-remediation-8597579-2026-11-07.md). These remain unreleased changes until separately published.
+
 # GPT Mobile 0.9.66.6
 
 Android build 140. Scoped diagnostic-reliability release candidate.
@@ -41,6 +43,8 @@ Implementation reports: [diagnostic workflow](docs/repairs/diagnostic-workflow-e
 The existing signed-release pipeline verifies exact-commit tests, required main checks, packaged runtimes, privacy, signing-certificate continuity, APK/AAB identities, checksums, provenance and downloaded publication assets. Earlier green revisions do not qualify this candidate. No release, tag or successful device measurement is implied by preparation of these notes.
 
 ## Qualification and remaining work
+
+- The November7 c285 emulator statistics workload retained API34 gaps of one unacknowledged start and one recorded-in-progress entry, and API36 one unacknowledged start. Functional acceptance passed but performance remains unqualified; later exact-head evidence must be inspected independently.
 
 - Unified Reliability v2 is not complete; its remaining acceptance cases are not represented as passed.
 - Physical-device performance and a production baseline profile remain unqualified until measured on a reference device.

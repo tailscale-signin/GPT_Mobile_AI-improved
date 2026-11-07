@@ -6,6 +6,7 @@ import dev.chungjungsoo.gptmobile.data.research.ResearchSnapshot
 import dev.chungjungsoo.gptmobile.data.research.ResearchSource
 import dev.chungjungsoo.gptmobile.data.research.capturedResearchVersion
 import dev.chungjungsoo.gptmobile.data.research.currentReviewRecord
+import dev.chungjungsoo.gptmobile.data.research.hasPublicCaptureProjection
 import dev.chungjungsoo.gptmobile.data.research.researchClaimMatchesCapture
 import dev.chungjungsoo.gptmobile.data.research.researchHash
 import dev.chungjungsoo.gptmobile.data.research.text
@@ -219,7 +220,14 @@ data class ResearchDeliveryPacket(
                 .thenByDescending { Regex("(?i)randomi[sz]|trial|systematic|meta.analysis").containsMatchIn(it.title + it.publicationType) }
                 .thenByDescending { publicationDate(it) }
                 .thenByDescending { source -> valid.count { it.sourceId == source.id && it.verdict in setOf("Supported", "Contradicted", "Insufficient") } }
-            val ranked = relevant.filter { source -> source.readable && (relevance(snapshot.task, source.title) > 0 || valid.any { it.sourceId == source.id }) }.sortedWith(rank)
+            val ranked = relevant.filter { source ->
+                if (!source.readable) return@filter false
+                // Cross-authority excerpts intentionally have no inherited title.
+                // The receipt/body binding permits their public text to establish
+                // relevance without changing admission for ordinary source records.
+                val taskRelevance = if (source.hasPublicCaptureProjection()) relevance(snapshot.task, "", source.passage) else relevance(snapshot.task, source.title)
+                taskRelevance > 0 || valid.any { it.sourceId == source.id }
+            }.sortedWith(rank)
             // Reserve representation for recent and mixed/negative findings, independent of positive claim volume.
             val recent = ranked.sortedByDescending(::publicationDate).take(2)
             val mixed = ranked.filter { source -> valid.any { it.sourceId == source.id && it.verdict == "Contradicted" } || Regex("(?i)no significant|not significant|adverse|no benefit|null result").containsMatchIn(source.passage) }.take(2)

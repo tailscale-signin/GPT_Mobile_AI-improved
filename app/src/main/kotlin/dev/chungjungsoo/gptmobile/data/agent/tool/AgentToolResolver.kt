@@ -6,6 +6,7 @@ import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import dev.chungjungsoo.gptmobile.data.amazon.AmazonHtmlProvider
 import dev.chungjungsoo.gptmobile.data.amazon.SerpApiAmazonClient
+import dev.chungjungsoo.gptmobile.data.context.DispatchPolicyChangedException
 import dev.chungjungsoo.gptmobile.data.database.dao.AgentToolBindingWithConnection
 import dev.chungjungsoo.gptmobile.data.database.entity.BuiltInAgentTool
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
@@ -285,28 +286,14 @@ class AgentToolResolver @Inject constructor(
                             resolveMcpTools(connection, mcpBindings, featureSettings, profileUid, cachedCataloguesOnly, userMessage, chatToolConfig?.github) to null
                         } catch (error: CancellationException) {
                             throw error
+                        } catch (error: DispatchPolicyChangedException) {
+                            throw error
                         } catch (error: Exception) {
-                            val outcome = when {
-                                error is McpBackoffException -> "WAITING_RECOVERY"
-                                generateSequence<Throwable>(error) { current -> current.cause?.takeUnless { cause -> cause === current } }.take(8).any { it is McpAuthenticationRequiredException } -> "AUTHENTICATION_REQUIRED"
-                                generateSequence<Throwable>(error) { current -> current.cause?.takeUnless { cause -> cause === current } }.take(8).any { it is McpProtocolConfigurationException } -> "PROTOCOL_CONFIGURATION"
-                                generateSequence<Throwable>(error) { current -> current.cause?.takeUnless { cause -> cause === current } }.take(8).any { it is McpEndpointConfigurationException } -> "ENDPOINT_CONFIGURATION"
-                                generateSequence<Throwable>(error) { current -> current.cause?.takeUnless { cause -> cause === current } }.take(8).any { it is java.io.IOException } -> "NETWORK_UNAVAILABLE"
-                                error is IllegalStateException -> "MCP_STATE_OR_CATALOG_INVALID"
-                                else -> "DISCOVERY_FAILED"
-                            }
-                            val event = if (outcome == "WAITING_RECOVERY") "TOOL_RESOLUTION_WAITING_RECOVERY" else "TOOL_RESOLUTION_FAILED"
-                            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("ToolCatalog", "$event · connection=${connection.connectionUid} · outcome=$outcome · reason=${error.javaClass.simpleName} · cachedOnly=$cachedCataloguesOnly · health=${mcpClientManager.healthSnapshot(connection.connectionUid).state}", if (outcome == "WAITING_RECOVERY") "I" else "W")
-                            val message = when (outcome) {
-                                "WAITING_RECOVERY" -> "${connection.name}: temporarily waiting for the MCP connection backoff to expire. The tool catalogue is retained and can be refreshed when recovery is available."
-                                "AUTHENTICATION_REQUIRED" -> "${connection.name}: authentication is required. Reconnect or update this server's credentials."
-                                "PROTOCOL_CONFIGURATION" -> "${connection.name}: " + generateSequence<Throwable>(error) { it.cause?.takeUnless { cause -> cause === it } }.take(8).filterIsInstance<McpProtocolConfigurationException>().first().message.orEmpty()
-                                "ENDPOINT_CONFIGURATION" -> "${connection.name}: the MCP endpoint path or server configuration is invalid. Check the configured URL and reconnect."
-                                "NETWORK_UNAVAILABLE" -> "${connection.name}: network access to this MCP server is unavailable. The saved catalogue is retained for retry after connectivity returns."
-                                "MCP_STATE_OR_CATALOG_INVALID" -> "${connection.name}: the MCP connection or tool catalogue changed during discovery. Refresh the catalogue after the connection settles."
-                                else -> "${connection.name}: tool discovery failed. Check connection diagnostics and retry catalogue discovery."
-                            }
-                            emptyList<ResolvedAgentTool>() to message
+                            val health = mcpClientManager.healthSnapshot(connection.connectionUid)
+                            val failure = mcpFailurePresentation(error, health)
+                            val event = if (failure.waitingForRecovery) "TOOL_RESOLUTION_WAITING_RECOVERY" else "TOOL_RESOLUTION_FAILED"
+                            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("ToolCatalog", "$event · connection=${connection.connectionUid} · ${failure.diagnosticSummary} · reason=${error.javaClass.simpleName} · cachedOnly=$cachedCataloguesOnly · health=${health.state}", if (failure.waitingForRecovery) "I" else "W")
+                            emptyList<ResolvedAgentTool>() to "${connection.name}: ${failure.message}"
                         }
                     }
                 }.awaitAll()
@@ -453,8 +440,8 @@ class AgentToolResolver @Inject constructor(
         val directory = dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog(finalized.map { it.tool.definition }, catalogTask, acquireCold = { query, names ->
             val live = GitHubChatPolicy.features(settingRepository.getFeatureSettings(), profileUid, chatToolConfig?.github)
             val current = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }?.let { GitHubChatPolicy.platform(it, live, chatToolConfig?.github) }
-            check(current == platform && current?.enabled == true) { "Selected profile changed; retry discovery." }
-            check(live.remoteMcpConnections && !current.disableAllTools && !current.disableRemoteTools) { "Remote tools are disabled." }
+            if (current == null || current != platform || !current.enabled) throw DispatchPolicyChangedException(listOf("profile"))
+            if (!live.remoteMcpConnections || current.disableAllTools || current.disableRemoteTools) throw DispatchPolicyChangedException(listOf("tool_inventory"))
             val currentBindings = toolConnectionRepository.listBindingsWithConnections(profileUid)
             val words = Regex("[\\p{L}\\p{N}]+").findAll(query.lowercase(java.util.Locale.ROOT)).map { it.value }.filter { it.length > 2 }.toSet() + if (isGitHubTask(query)) setOf("github", "git") else emptySet()
             // Recheck the same provenance decision before network discovery as well as
@@ -474,6 +461,8 @@ class AgentToolResolver @Inject constructor(
                             resolveMcpTools(connection, group, live, profileUid, userMessage = userMessage, workspaceContext = chatToolConfig?.github)
                         } catch (cancelled: CancellationException) {
                             throw cancelled
+                        } catch (changed: DispatchPolicyChangedException) {
+                            throw changed
                         } catch (_: Exception) {
                             onConnectionError("${connection.name}: discovery unavailable; other authorized tools remain available.")
                             emptyList()
@@ -485,7 +474,8 @@ class AgentToolResolver @Inject constructor(
             }
             // Recheck after I/O. Old grants/credentials cannot publish tools to a newer turn authority.
             val refreshed = GitHubChatPolicy.features(settingRepository.getFeatureSettings(), profileUid, chatToolConfig?.github)
-            check(settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }?.let { GitHubChatPolicy.platform(it, refreshed, chatToolConfig?.github) } == platform && refreshed == live && toolConnectionRepository.listBindingsWithConnections(profileUid) == currentBindings) { "Tool permissions changed during discovery." }
+            if (settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }?.let { GitHubChatPolicy.platform(it, refreshed, chatToolConfig?.github) } != platform) throw DispatchPolicyChangedException(listOf("profile"))
+            if (refreshed != live || toolConnectionRepository.listBindingsWithConnections(profileUid) != currentBindings) throw DispatchPolicyChangedException(listOf("tool_inventory"))
             val admitted = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { finalizeResolvedTools(loaded, profileUid, platform, live, currentBindings, chatToolConfig, freeProfile, disableRemote, disableLocal, onConnectionError, finalized.filter { it.nativeGitHub }, chatId = userMessage?.chatId, consentPlatform = consentPlatform, personalContext = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.permissions.PersonalDataContext]) }
             admitted.forEach { next ->
                 val previous = finalized.firstOrNull { it.modelToolName == next.modelToolName } ?: discovered[next.modelToolName]

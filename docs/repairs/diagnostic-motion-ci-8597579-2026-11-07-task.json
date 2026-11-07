@@ -1,0 +1,43 @@
+{
+  "schema": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "fix/diagnostic-remediation-8597579-2026-11-07",
+  "base_sha": "fed839c15444253bcad6a05b5453839bd553f8e8",
+  "parent_pr": 811,
+  "working_branch": "work/diagnostic-motion-ci-8597579",
+  "intent": "Diagnose and repair the concrete reduced-motion Compose regression while preserving stationary visible progress at zero animation scale and meaningful resumed-motion coverage.",
+  "state": "HOST_VALIDATED_PENDING_ANDROID_CI",
+  "owned_paths": [
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubProgressMotion.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubReducedMotionTest.kt"
+  ],
+  "confirmed_ci_evidence": {
+    "head": "bf8e5f764bbbc8cac942e31ee0709344e0b02ac5",
+    "pr_validation_run": 42373666216,
+    "audit_run": 42373666215,
+    "unit_results": "Both independently downloaded artifacts reconcile 7295 tests, 1 failure, 0 errors, 5 skipped. The sole case is GitHubReducedMotionTest.disabledSystemAnimationsKeepTheActiveProgressVisibleAndStationary line50."
+  },
+  "validation": {
+    "focused": "PASS: 2 host behavior cases compile the unchanged production GitHubProgressMotion and FrameEffectsGuard against repository-checksum-verified Compose 1.12.1 runtime, animation-core, TestMonotonicFrameClock, ApplyingContinuationInterceptor, AbstractMainTestClock and Kotlin Compose compiler 2.4.20. Original sequence reproduces stationary phase 0.5 at 2832ms; synchronized sequence reaches 0.20444444, advances again, then freezes at 0.5 on zero scale.",
+    "canonical_fast": "PASS: bash scripts/validate-local.sh fast; 378 Python tests, CI/dependency policy, secret scan, Android regex, resource/icon/QNN provenance checks, git diff --check.",
+    "android_runtime": "Both original full Android CI artifacts reproduce the same sole test failure. Updated Robolectric and emulator execution requires the next published commit; no local Android SDK is installed.",
+    "host_boundaries": [
+      "Android lifecycle fixed at RESUMED; StateFlow collection uses real Compose collectAsState.",
+      "Android Trace is a no-op; Parcelable and Looper thread identity are host adapters, with parcel operations unexercised.",
+      "Host idle synchronization reproduces the pinned ComposeIdlingResource snapshot-publication boundary; no Android rendering or Robolectric view-tree execution is claimed."
+    ],
+    "ktlint": "PASS: ktlint 1.3.1 on changed Kotlin test.",
+    "diff_check": "PASS"
+  },
+  "private_diagnostics_committed": false,
+  "task_store": "engineering_agent_checkpoints (existing engineering task store)",
+  "recorded_at_utc": "2026-11-07T13:03:58.800642+00:00",
+  "diagnosis": "The test changes a raw mutableFloatStateOf MotionDurationScale inside runOnIdle, which synchronizes before that action. With scale zero no infinite animation coroutine is scheduled. Advancing the manual clock alone does not publish the pending Snapshot write; the subsequent runOnIdle publishes it after the requested frames, leaving the old stationary State at the assertion. The passing FrameEffectsGuard test changes a StateFlow whose intercepted collection coroutine applies snapshots.",
+  "change": "Synchronize after each scale assignment before advancing the manual clock. Keep the resumed phase assertion and require a second phase sample to differ, then retain both stationary zero-scale checks. Production GitHubProgressMotion is unchanged.",
+  "remote_recheck": {
+    "main": "91dfce15bc481c4bbdb088bcadd28489436dbb1b",
+    "pr_head": "bf8e5f764bbbc8cac942e31ee0709344e0b02ac5",
+    "local_integration_base": "fed839c15444253bcad6a05b5453839bd553f8e8"
+  },
+  "updated_at_utc": "2026-11-07T13:13:28.432791+00:00"
+}

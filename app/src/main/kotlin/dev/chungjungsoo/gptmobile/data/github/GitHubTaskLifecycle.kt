@@ -14,7 +14,7 @@ internal object GitHubTaskLifecycle {
 
     fun progress(failure: ProviderEvent.Failed?, receiptCount: Int): State = when {
         failure == null -> State.RUNNING
-        failure.taskOutcome == "BLOCKED" -> State.BLOCKED
+        failure.taskOutcome in setOf("BLOCKED", "CONFIGURATION_INVALIDATED") -> State.BLOCKED
         failure.errorCode == "GITHUB_REVIEW_BLOCKED" || failure.errorCode == "REVIEW_INPUT_REQUIRED" -> State.BLOCKED
         !ProfileFailureRecord.fromProvider(failure.message, failure.errorCode, failure.failureDetails).retryAllowed -> State.BLOCKED
         receiptCount > 0 || failure.taskOutcome == "PARTIAL" -> State.PARTIAL
@@ -36,6 +36,19 @@ internal object GitHubTaskLifecycle {
         }
     }
 
+    fun configurationInvalidated(policy: dev.chungjungsoo.gptmobile.data.context.DispatchPolicyChangedException): ProviderEvent.Failed = ProviderEvent.Failed(
+        policy.message.orEmpty(),
+        errorCode = "DISPATCH_POLICY_CHANGED",
+        taskOutcome = "CONFIGURATION_INVALIDATED",
+        failureDetails = buildJsonObject {
+            put("failed_stage", "provider_admission")
+            put("dispatched", false)
+            put("changed_policy_fields", kotlinx.serialization.json.JsonArray(policy.fields.map(::JsonPrimitive)))
+            put("resume_required", true)
+            put("recovery", "Revalidate the selected profile, connection and grants, then resume from retained receipts. Reconcile uncertain writes before any mutation.")
+        }
+    )
+
     /** Absence is explicitly unknown; prior tool dispatch does not prove review dispatch. */
     fun failureMetadata(failure: ProviderEvent.Failed): JsonObject {
         val classification = ProfileFailureRecord.fromProvider(failure.message, failure.errorCode, failure.failureDetails)
@@ -46,7 +59,9 @@ internal object GitHubTaskLifecycle {
             put("failed_stage", details["failed_stage"] ?: JsonPrimitive(if (review) "answer_review" else classification.phase.ifBlank { "stage_not_recorded" }))
             details["dispatched"]?.let { put("failed_stage_dispatched", it) }
                 ?: classification.dispatched?.let { put("failed_stage_dispatched", it) }
-            put("retryable_without_new_input", failure.taskOutcome != "BLOCKED" && classification.retryAllowed)
+            put("retryable_without_new_input", failure.taskOutcome !in setOf("BLOCKED", "CONFIGURATION_INVALIDATED") && classification.retryAllowed)
+            details["changed_policy_fields"]?.let { put("changed_policy_fields", it) }
+            details["resume_required"]?.let { put("resume_required", it) }
             details["missing_requirements"]?.let { put("missing_requirements", it) }
             details["corrective_actions"]?.let { put("corrective_actions", it) }
         }

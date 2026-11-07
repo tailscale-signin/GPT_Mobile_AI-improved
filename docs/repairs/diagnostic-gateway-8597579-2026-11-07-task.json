@@ -1,0 +1,91 @@
+{
+  "schema": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "91dfce15bc481c4bbdb088bcadd28489436dbb1b",
+  "working_branch": "work/diagnostic-gateway-8597579",
+  "integration_branch": "fix/diagnostic-remediation-8597579-2026-11-07",
+  "intent": "Repair source-confirmed gateway and MCP connection reliability gaps identified by diagnostic capture 8597579 while preserving selected-profile identity, verified transport proofs, TLS, bounded retries and existing supervisors.",
+  "state": "FOLLOW_UP_IMPLEMENTED_HOST_VERIFIED",
+  "ownership": [
+    "gateway Python and regression tests",
+    "data/agent/tool MCP connection and catalogue code",
+    "data/network gateway connectivity code"
+  ],
+  "runtime_checkpoint_note": "Versioned development checkpoint. No private diagnostic payload, live execution receipt or hardware qualification is asserted.",
+  "implementation": [
+    "Preserve typed MCP error codes and retryability in connection health.",
+    "Classify nested TLS failures before generic handshake or timeout messages and pause MCP automatic discovery until explicit reconnect.",
+    "Do not count a wrapped local cooldown/preflight rejection as a new physical transport failure.",
+    "Qualify the existing singleflight and durable journal paths with a bounded 48-job disconnect/reload soak."
+  ],
+  "validation": {
+    "kotlin_mcp_host": {
+      "passed": 63,
+      "scope": "Production MCP/network classes with pinned Ktor and MCP SDK, JUnit and MockEngine; Android storage/logging/media boundaries are host stubs."
+    },
+    "gateway_focused": {
+      "passed": 97,
+      "seconds": 34.144,
+      "suites": [
+        "test_gateway_reliability_faults",
+        "test_gateway_v14_stability",
+        "test_gateway_v14_jobs",
+        "test_gateway_singleflight",
+        "test_gateway_selected_execution",
+        "test_gateway_connection_soak"
+      ]
+    },
+    "bounded_soak": {
+      "jobs": 48,
+      "disconnect_notifications": 144,
+      "journal_reloads": 6,
+      "result_reads": 336,
+      "completion_executions": 48
+    },
+    "fast_host_validation": {
+      "command": "bash scripts/validate-local.sh fast",
+      "host_tests_passed": 361,
+      "exit_code": 0,
+      "seconds": 23.396
+    },
+    "kotlin_formatter": "ktlint 1.3.1 on all ten Kotlin files touched in the follow-up",
+    "limitations": [
+      "No Android SDK or connected device in this child environment.",
+      "No live private gateway, OpenRouter certificate-path repair, GPU/NPU throughput or hardware execution qualification."
+    ],
+    "mcp_failure_presentation_host": {
+      "passed": 76,
+      "seconds": 11.501,
+      "scope": "Production MCP/network classes and redaction implementation, pinned SDK, JUnit and MockEngine; includes shared failure presentation and plain EOF versus SSL-wrapped EOF behavior.",
+      "exit_code": 0
+    },
+    "full_android_regressions_added": [
+      "ToolConnectionsViewModelTest.mcpProbeShowsTheTypedRecoveryActionAndRetainsTheOriginalError",
+      "AgentToolResolverTest.coldDiscoveryRejectsChangedOrRemovedProfilesAndRevokedRemoteAccessBeforeAnyRequest",
+      "AgentToolResolverTest.authorityChangesAfterDiscoveryKeepTheTypedCauseAndNeverPublishStaleTools",
+      "AgentToolResolverTest.typedAuthorityFailureFromMcpDiscoveryIsNeverRelabeledAsAnUnavailableServer"
+    ],
+    "full_android_regressions_note": "These resolver/viewmodel tests require the full app classpath and are delegated to parent CI; they are not included in the 76-test host count."
+  },
+  "integration_follow_up": [
+    "Resolver and ToolConnectionsViewModel integration is implemented in the follow-up: shared safe error code/retryability presentation and actionable reconnect guidance.",
+    "Typed discovery authority failures retain the selected profile, stop stale publication and propagate to the execution owner without inferring dispatch metadata from the exception type.",
+    "Root owns architecture index, gateway package manifest, release-scope regeneration and full Android/viewmodel/resolver CI."
+  ],
+  "implementation_commit": "66b6c2af09c875ac26d0c2db7c3bc1c3ee3c6563",
+  "follow_up_base_commit": "4fe9860a9b65cc3481c73079b7dbbd0cdee57a39",
+  "follow_up_scope": [
+    "AgentToolResolver MCP failure summaries",
+    "ToolConnectionsViewModel MCP failure presentation",
+    "Shared typed failure mapping and behavior regressions",
+    "TLS versus plain interrupted-stream policy audit",
+    "Typed discovery authority rejection before and after MCP I/O, coordinated with the execution owner"
+  ],
+  "follow_up_implementation": [
+    "Shared typed MCP failure presentation is wired into the resolver diagnostic summary and connection viewmodel.",
+    "Permanent gates give actionable reconnect/configuration guidance and preserve bounded redacted original details; finite network backoff stays waitable.",
+    "Discovery authority changes retain DispatchPolicyChangedException with fixed field names and cannot publish stale tools.",
+    "Existing conservative SSLException policy retained and covered separately from plain EOF safe-read recovery."
+  ]
+}

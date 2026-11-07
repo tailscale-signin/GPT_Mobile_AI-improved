@@ -75,7 +75,7 @@ data class GatewayCapabilities(
     val desktop: GatewayDesktopCapabilities? = null,
     val memory: GatewayMemoryCapabilities? = null,
     val contracts: Map<String, List<String>> = emptyMap(),
-    val features: Map<String, Boolean> = emptyMap(),
+    val features: Map<String, kotlinx.serialization.json.JsonElement> = emptyMap(),
     @SerialName("accepted_request_headers")
     val acceptedRequestHeaders: List<String> = emptyList(),
     val build: kotlinx.serialization.json.JsonObject? = null
@@ -88,7 +88,9 @@ data class GatewayCapabilities(
 
     fun supportsContract(name: String, version: String): Boolean = contracts[name]?.contains(version) == true
 
-    fun supportsFeature(name: String): Boolean = features[name] == true
+    // Older gateway routes also placed descriptive strings/numbers in this map.
+    // Only a literal JSON boolean grants a feature; metadata is never coerced.
+    fun supportsFeature(name: String): Boolean = features[name] == kotlinx.serialization.json.JsonPrimitive(true)
 }
 
 @Serializable

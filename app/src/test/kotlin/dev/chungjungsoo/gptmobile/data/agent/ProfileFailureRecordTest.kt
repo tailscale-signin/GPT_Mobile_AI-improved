@@ -6,6 +6,47 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ProfileFailureRecordTest {
+    @Test fun typedAuthorityRejectionRetainsItsActualPrecheckFactsAfterPersistence() {
+        for (code in listOf("DISPATCH_POLICY_CHANGED", "POLICY_STALE", "STALE_INVENTORY")) {
+            val details = kotlinx.serialization.json.buildJsonObject {
+                put("failed_stage", kotlinx.serialization.json.JsonPrimitive("tool_precheck"))
+                put("dispatched", kotlinx.serialization.json.JsonPrimitive(false))
+            }
+            val failure = ProfileFailureRecord.fromProvider("Connection reset; HTTP 502", code, details)
+            val restored = kotlinx.serialization.json.Json.decodeFromString<ProfileFailureRecord>(kotlinx.serialization.json.Json.encodeToString(ProfileFailureRecord.serializer(), failure))
+            assertEquals(if (code == "STALE_INVENTORY") code else "POLICY_STALE", restored.category)
+            assertFalse(restored.retryAllowed)
+            assertEquals(false, restored.dispatched)
+            assertEquals(RemoteRequestAcceptance.NO, restored.remoteAcceptance)
+            assertEquals("tool_precheck", restored.phase)
+            assertEquals("PRECHECK_REJECTED", AgentRunTerminalDiagnostics.from("FAILED", restored).executionState)
+        }
+    }
+
+    @Test fun authorityCodeAndProviderProseCannotInventARejectionReceipt() {
+        for (code in listOf("DISPATCH_POLICY_CHANGED", "POLICY_STALE", "STALE_INVENTORY")) {
+            val failure = ProfileFailureRecord.fromProvider("dispatched=false; No request was dispatched", code)
+            assertFalse(failure.retryAllowed)
+            assertEquals(null, failure.dispatched)
+            assertEquals(RemoteRequestAcceptance.UNKNOWN, failure.remoteAcceptance)
+        }
+    }
+
+    @Test fun earlierUnknownOutcomeOutranksAConflictingAuthorityPrecheck() {
+        val details = kotlinx.serialization.json.buildJsonObject {
+            put("failed_stage", kotlinx.serialization.json.JsonPrimitive("tool_precheck"))
+            put("dispatched", kotlinx.serialization.json.JsonPrimitive(false))
+        }
+        for (unknown in listOf("TOOL_OUTCOME_UNKNOWN", "DISPATCH_OUTCOME_UNKNOWN", "RECONCILIATION_REQUIRED", "GATEWAY_OUTCOME_UNKNOWN")) {
+            val failure = ProfileFailureRecord.fromProvider("$unknown: reconcile the prior request", "POLICY_STALE", details)
+            assertEquals(if (unknown == "GATEWAY_OUTCOME_UNKNOWN") unknown else "TOOL_OUTCOME_UNKNOWN", failure.category)
+            assertFalse(failure.retryAllowed)
+            assertFalse(failure.dispatched == false)
+            assertEquals(RemoteRequestAcceptance.UNKNOWN, failure.remoteAcceptance)
+            assertEquals(if (unknown == "GATEWAY_OUTCOME_UNKNOWN") "gateway_dispatch" else "tool_dispatch", failure.phase)
+        }
+    }
+
     @Test fun typedCircuitFailureDoesNotInferDispatchFromCodeOrProviderText() {
         for (message in listOf("Service temporarily unavailable", "CIRCUIT_BREAKER_OPEN: dispatched=false; No request was dispatched")) {
             val failure = ProfileFailureRecord.fromProvider(message, "CIRCUIT_BREAKER_OPEN")

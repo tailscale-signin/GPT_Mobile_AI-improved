@@ -1,0 +1,49 @@
+{
+  "schema": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "fix/diagnostic-remediation-8597579-2026-11-07",
+  "base_sha": "bf8e5f764bbbc8cac942e31ee0709344e0b02ac5",
+  "parent_pr": 811,
+  "working_branch": "work/diagnostic-gateway-status-8597579",
+  "intent": "Route the GitHub gateway status panel only to the explicitly configured engineering gateway, retaining exact endpoint and credentials while preventing inference-server fallback or arbitrary gateway selection.",
+  "state": "IMPLEMENTED_HOST_VALIDATED_ANDROID_CI_PENDING",
+  "confirmed_findings": [
+    "gatewayDashboardTarget falls back to the selected inference profile when engineeringGatewayProfileUid is blank, while the engineering execution resolver requires an explicit gateway connection.",
+    "GitHubGatewayStatusViewModel observes current profiles and per-profile gateway settings; selection changes are passed through collectLatest to the dashboard monitor."
+  ],
+  "owned_paths": [
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/EngineeringGatewayConnection.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayDashboardMonitor.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayDashboardMonitorTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayDashboardTargetTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubGatewayStatusViewModelTest.kt"
+  ],
+  "validation": {
+    "focused_host": "PASS: 17 JUnit tests: 11 existing dashboard monitor regressions, 3 new target-policy tests and 3 new actual status-viewmodel behavior tests. Complete production PlatformV2/ProviderRequestConfig and unmodified viewmodel/monitor/models/shared selection policy are compiled.",
+    "baseline_regression": "EXPECTED FAILURE: the exact new actual-viewmodel no-selected-gateway regression fails with the original GatewayDashboardMonitor.kt from bf8e5f764bbbc8cac942e31ee0709344e0b02ac5 because readiness/dashboard target the inference connection. Class origin confirms the baseline jar loaded.",
+    "canonical_fast": "PASS: bash scripts/validate-local.sh fast; 377 script tests plus policy, dependency, secret, regex, resource and icon checks.",
+    "ktlint": "PASS: ktlint1.3.1 on all five changed/new Kotlin files; git diff --check passed.",
+    "android_full_build": "NOT RUN locally: Android SDK/adb and complete Android build environment unavailable. Exact-head Android CI remains required.",
+    "physical_device_or_private_server": "NOT RUN. The host tests execute target selection, viewmodel and polling behavior with mocked dashboard/diagnostic collaborators; no HTTP transport or physical device execution is claimed.",
+    "host_boundaries": [
+      "Android Parcelable/Room/Parcelize/resource/Hilt annotations and AndroidX viewModelScope lifecycle ownership are adapted for the host.",
+      "Settings repository and unrelated feature-preference DTO fields are boundary adapters; explicit gateway selection fields retain production types.",
+      "GatewayDashboardClient and network recovery use the mocked external collaborators from the repository viewmodel tests; diagnostic collection/export is mocked or fails if selected.",
+      "Locality, route identity, researchHash, GatewayDashboardSource, gatewayDashboardIdentity and diagnostic DTO declarations are extracted unchanged from production.",
+      "Unused free/NVIDIA/OpenRouter/reasoning collaborators of the complete production ProviderRequestConfig are boundary adapters."
+    ],
+    "published_parent_rechecked": "bf8e5f764bbbc8cac942e31ee0709344e0b02ac5",
+    "main_ref_rechecked": "91dfce15bc481c4bbdb088bcadd28489436dbb1b"
+  },
+  "private_diagnostics_committed": false,
+  "task_store": "engineering_agent_checkpoints (existing engineering task store)",
+  "recorded_at_utc": "2026-11-07T12:45:02.240558+00:00",
+  "changes": [
+    "Use one pure explicit engineering gateway profile selection helper in execution and status. Preserve the configured endpoint, credential and profile identity; never infer a gateway from the inference route or a port number.",
+    "An absent gateway selection produces actionable setup guidance and no readiness/dashboard source calls. A missing, disabled, ambiguous, ineligible or malformed selected connection remains unavailable without selecting another profile.",
+    "Preserve live configured gateway status. Existing profile/settings Flow collection cancels the old route when selection changes, clears old measurements across endpoint/credential identities, and stops polling after removal; new actual-viewmodel regressions verify these behaviors."
+  ],
+  "evidence_limit": "The newer diagnostic export records status requests to the model-server port and later chat capability requests to the gateway port. Its current profile snapshot is not historical routing proof, and its feature-settings export omits per-profile engineering gateway selections. The defect is independently established from production source and an exact baseline behavior regression; no historical profile edit or misconfiguration is asserted.",
+  "task_store_note": "Checkpoint recorded before implementation in the existing engineering_agent_checkpoints table and updated through Python sqlite3; no other agent rows changed.",
+  "updated_at_utc": "2026-11-07T12:55:52.723776+00:00"
+}

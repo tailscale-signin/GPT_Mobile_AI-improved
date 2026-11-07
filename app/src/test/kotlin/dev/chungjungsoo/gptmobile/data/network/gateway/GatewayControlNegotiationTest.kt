@@ -1,15 +1,75 @@
 package dev.chungjungsoo.gptmobile.data.network.gateway
 
 import dev.chungjungsoo.gptmobile.data.diagnostics.LocalDiagnosticsPolicy
+import dev.chungjungsoo.gptmobile.data.network.NetworkClient
 import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
+import io.ktor.client.HttpClient
+import io.ktor.client.engine.mock.MockEngine
+import io.ktor.client.engine.mock.respond
+import io.mockk.every
+import io.mockk.mockk
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.jsonObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GatewayControlNegotiationTest {
+    @Test fun fullServerRouteFixturesNegotiateTheSelectedConnectionWithoutLosingIsolation() = runBlocking {
+        for ((index, name) in listOf("gateway-v15-capabilities-legacy-mixed.json", "gateway-v15-capabilities-full.json").withIndex()) {
+            val fixture = requireNotNull(javaClass.classLoader?.getResourceAsStream(name)).bufferedReader().use { it.readText() }
+            val endpoint = "https://full-route-capabilities-$index.example/v1"
+            val isolation = mapOf("X-Gateway-Allow-Local-Tools" to "false", "X-Gateway-Delegated-Worker" to "true", "X-Gateway-Request-Role" to "reviewer")
+            val config = ProviderRequestConfig(endpoint, "selected-account", profileUid = "selected-profile", lockedApiUrl = endpoint, lockedModel = "selected-model", extraHeaders = isolation + mapOf("X-Gateway-Unknown" to "true", "X-Api-Key" to "selected-key"))
+            var calls = 0
+            HttpClient(
+                MockEngine { request ->
+                    calls++
+                    assertEquals("GET", request.method.value)
+                    assertEquals("/v1/gateway/capabilities", request.url.encodedPath)
+                    assertEquals("Bearer selected-account", request.headers["Authorization"])
+                    assertEquals("selected-key", request.headers["X-Api-Key"])
+                    respond(fixture)
+                }
+            ).use { http ->
+                val network = mockk<NetworkClient>()
+                every { network() } returns http
+                val prepared = GatewayControlNegotiation(GatewayAPIImpl(network)).prepare(config)
+                assertEquals(config.copy(extraHeaders = isolation + ("X-Api-Key" to "selected-key")), prepared)
+                assertEquals(1, calls)
+            }
+        }
+    }
+
+    @Test fun schemaFailureFromTheRealDecoderCannotBecomeDirectInference() = runBlocking {
+        val fixture = requireNotNull(javaClass.classLoader?.getResourceAsStream("gateway-v15-capabilities-full.json")).bufferedReader().use { it.readText() }
+        val malformed = JsonObject(Json.parseToJsonElement(fixture).jsonObject + ("contractVersion" to JsonPrimitive("private payload"))).toString()
+        val config = ProviderRequestConfig("https://schema-negotiation.example/v1", "selected-account", extraHeaders = mapOf("X-Gateway-Allow-Local-Tools" to "false", "X-Gateway-Delegated-Worker" to "true"))
+        var calls = 0
+        HttpClient(
+            MockEngine { request ->
+                calls++
+                assertEquals("GET", request.method.value)
+                assertEquals("/v1/gateway/capabilities", request.url.encodedPath)
+                respond(malformed)
+            }
+        ).use { http ->
+            val network = mockk<NetworkClient>()
+            every { network() } returns http
+            val failure = runCatching { GatewayControlNegotiation(GatewayAPIImpl(network)).prepare(config) }.exceptionOrNull()
+            assertTrue(failure is GatewayCapabilityDiscoveryException)
+            assertEquals("EXPECTED_INTEGER", (failure as GatewayCapabilityDiscoveryException).decodeReason)
+            assertEquals("$.contractVersion", failure.fieldPath)
+            assertEquals(null, failure.cause)
+            assertEquals(1, calls)
+        }
+    }
+
     private class Fake(var capability: GatewayCapabilities? = null) : GatewayAPI {
         var probes = 0
         val configurations = mutableListOf<ProviderRequestConfig>()

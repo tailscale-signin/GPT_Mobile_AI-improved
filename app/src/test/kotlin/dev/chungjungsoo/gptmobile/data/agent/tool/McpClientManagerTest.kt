@@ -11,13 +11,16 @@ import io.ktor.serialization.kotlinx.json.json
 import io.modelcontextprotocol.kotlin.sdk.client.Client
 import java.net.InetAddress
 import java.net.InetSocketAddress
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.yield
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
@@ -126,6 +129,48 @@ class McpClientManagerTest {
             assertEquals(first, requests)
             assertTrue(runCatching { manager.listTools(config) }.exceptionOrNull() is McpBackoffException)
         } finally {
+            manager.closeAll()
+            client.close()
+        }
+    }
+
+    @Test fun completedDiscoveryCannotSuppressExplicitRefreshBeforeProducerCleanup() = runBlocking {
+        val entered = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val requests = AtomicInteger()
+        val client = HttpClient(
+            io.ktor.client.engine.mock.MockEngine {
+                if (requests.incrementAndGet() == 1) {
+                    entered.complete(Unit)
+                    release.await()
+                }
+                respond("Unavailable", io.ktor.http.HttpStatusCode.ServiceUnavailable)
+            }
+        ) { install(SSE) }
+        val manager = McpClientManager(client, modern = ModernMcpTransport(client))
+        val config = McpConnectionConfig("completed-discovery", "https://example.com/mcp", false)
+        try {
+            val initial = async { runCatching { manager.listTools(config, awaitCompletion = true) } }
+            withTimeout(5_000) { entered.await() }
+            @Suppress("UNCHECKED_CAST")
+            val producers = McpClientManager::class.java.getDeclaredField("catalogueProducers").apply { isAccessible = true }
+                .get(manager) as ConcurrentHashMap<String, Deferred<List<io.modelcontextprotocol.kotlin.sdk.types.Tool>>>
+            val (key, completed) = synchronized(producers) { producers.entries.single().let { it.key to it.value } }
+            release.complete(Unit)
+            assertTrue(initial.await().isFailure)
+            assertTrue(completed.isCompleted)
+            withTimeout(5_000) {
+                while (synchronized(producers) { producers.containsKey(key) }) yield()
+            }
+            val first = requests.get()
+            assertTrue(first > 0)
+            // Reinstall the real terminal producer to reproduce the interval before
+            // its completion handler removes it, without depending on thread timing.
+            synchronized(producers) { producers[key] = completed }
+            assertTrue(runCatching { manager.listTools(config, forceRefresh = true, awaitCompletion = true) }.isFailure)
+            assertTrue("Explicit refresh must perform a new discovery request", requests.get() > first)
+        } finally {
+            release.complete(Unit)
             manager.closeAll()
             client.close()
         }

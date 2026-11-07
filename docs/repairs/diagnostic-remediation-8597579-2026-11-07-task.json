@@ -5,7 +5,7 @@
   "base_sha": "91dfce15bc481c4bbdb088bcadd28489436dbb1b",
   "working_branch": "fix/diagnostic-remediation-8597579-2026-11-07",
   "intent": "Implement the requested diagnostic-driven reliability and usability improvements on a new branch, preserve existing safety and verification contracts, and qualify the exact resulting revision.",
-  "state": "FOLLOWUP_SOURCE_VALIDATED_ANDROID_CI_PENDING",
+  "state": "CANCELLATION_TEST_REPAIR_VALIDATED_EXACT_HEAD_CI_PENDING",
   "inputs": {
     "diagnostic_sha256": "b539a1e3f3f9642ac5b1ecf779d08e9baa1d65f28dadec4001a415bbc638127d",
     "diagnostic_app_commit": "91dfce15bc481c4bbdb088bcadd28489436dbb1b",
@@ -181,6 +181,12 @@
       "command": "bash scripts/validate-local.sh fast",
       "duration_seconds": 17.524,
       "scope": "Integrated source, full route fixtures, status selection, test-clock repair, release scope and documentation; CI/dependency/secret/regex/resource/icon/provenance gates. Explicit diff against91dfce15 also passes."
+    },
+    "canonical_fast_post_ci_test": {
+      "status": "PASSED",
+      "tests": 378,
+      "seconds": 17.714,
+      "scope": "Integrated assertions-enabled cancellation regression, explicit release scope and source checks; no production or gateway bytes changed from b164."
     }
   },
   "not_yet_measured": [
@@ -203,11 +209,20 @@
       "reviewer": "diagnostic_gateway",
       "status": "NO_FINDINGS",
       "production_api_probes": 3
+    },
+    {
+      "scope": "Cancellation regression semantics under coroutine stack-trace recovery",
+      "status": "NO_FINDINGS",
+      "reviewer": "diagnostic_gateway",
+      "verified_modes": [
+        "assertions/debug on, recovery on",
+        "assertions/debug on, recovery off"
+      ]
     }
   ],
   "source_publication": {
-    "source_branch_head": "9f217772f2a2b83d6dd4f1c9f67a4efb46bc3fcc",
-    "tree": "1453e7fc1095f7484a0c42a645f56324ee781992",
+    "source_branch_head": "2f6f1e99e4e5d0d4ed0d64ca529902a42b5ede74",
+    "tree": "f7f235e08f513012ab242cd22f43d5e92aedf087",
     "method": "Git data publication; every source commit tree matched the reviewed local tree, and the branch was read back before checkout reconciliation.",
     "local_to_published_commits": [
       {
@@ -319,13 +334,24 @@
         "local_sha": "6efd426db1fcf7e482de9fb3312fba33a9c614ea",
         "remote_sha": "9f217772f2a2b83d6dd4f1c9f67a4efb46bc3fcc",
         "tree": "1453e7fc1095f7484a0c42a645f56324ee781992"
+      },
+      {
+        "local_sha": "a5a86f111919095a7443829ec87bfcf4089e6b3c",
+        "remote_sha": "b1647150e449a15b50f21c5bcebc6f7ef35949b7",
+        "tree": "ca72f88f471987d4620890ec0872f53681be86f7"
+      },
+      {
+        "local_sha": "b741980b950933630d115fbed64ef112c9c74826",
+        "remote_sha": "2f6f1e99e4e5d0d4ed0d64ca529902a42b5ede74",
+        "tree": "f7f235e08f513012ab242cd22f43d5e92aedf087"
       }
-    ]
+    ],
+    "gateway_manifest_source_commit": "9f217772f2a2b83d6dd4f1c9f67a4efb46bc3fcc"
   },
   "pull_request": {
     "number": 811,
     "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/811",
-    "source_head_sha": "9f217772f2a2b83d6dd4f1c9f67a4efb46bc3fcc",
+    "source_head_sha": "2f6f1e99e4e5d0d4ed0d64ca529902a42b5ede74",
     "recorded_before_merge": true,
     "draft": false,
     "merged": false
@@ -346,7 +372,38 @@
       "android_capabilities": "d3ed6a83d66d83f0b88456752f18baadd9eeee53",
       "compose_test": "1e0207babcff8a7a75e822de27f7a4574cb190af"
     },
-    "source_commit": "9f217772f2a2b83d6dd4f1c9f67a4efb46bc3fcc",
-    "ci_candidate_note": "The manifest/checkpoint commit extends this published source; exact CI head is resolved from PR811 and must be rechecked before merge."
+    "source_commit": "2f6f1e99e4e5d0d4ed0d64ca529902a42b5ede74",
+    "ci_candidate_note": "The final review-checkpoint commit extends this source. Read the live PR head and all current checks before merge; b164 results are historical.",
+    "cancellation_test_repair": {
+      "base_sha": "b1647150e449a15b50f21c5bcebc6f7ef35949b7",
+      "work_package_commit": "188d2318809eff5ef6bba807930a061fdd59bce4",
+      "production_changed": false,
+      "old_ci": {
+        "tests": 7309,
+        "passed": 7303,
+        "failures": 1,
+        "errors": 0,
+        "heap_gate_skips": 5,
+        "sole_failure": "Cancellation outer-instance identity assertion under coroutine diagnostic stack recovery",
+        "motion_test": "PASSED",
+        "status_tests_passed": 17
+      },
+      "regression_proof": {
+        "old_without_assertions": "PASS",
+        "old_with_ci_assertions": "FAIL_SAME_CANCELLATION_ASSERTION",
+        "old_assertions_on_recovery_off": "PASS",
+        "fixed_assertions_on_debug_on_recovery_true": {
+          "passed": 31,
+          "seconds": 2.484
+        },
+        "fixed_assertions_on_debug_on_recovery_false": {
+          "passed": 31,
+          "seconds": 3.188
+        }
+      },
+      "independent_review": "NO_FINDINGS",
+      "remaining": "All mandatory workflows must pass on the new published head; old-head success does not substitute.",
+      "published_source_commit": "2f6f1e99e4e5d0d4ed0d64ca529902a42b5ede74"
+    }
   }
 }

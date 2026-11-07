@@ -923,6 +923,8 @@
     "docs/repairs/gateway-capability-compat-8597579-2026-11-07-task.json",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayV14CapabilitiesTest.kt",
     "docs/repairs/gateway-capability-compat-8597579-2026-11-07.md",
-    "docs/repairs/diagnostic-motion-ci-8597579-2026-11-07-task.json"
+    "docs/repairs/diagnostic-motion-ci-8597579-2026-11-07-task.json",
+    "docs/repairs/capability-cancellation-ci-8597579-2026-11-07-task.json",
+    "docs/repairs/capability-cancellation-ci-8597579-2026-11-07.md"
   ]
 }

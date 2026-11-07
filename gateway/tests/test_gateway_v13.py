@@ -279,11 +279,16 @@ class V13IntegrationTests(_IntegrationBase):
     def test_synthesis_retains_all_unique_evidence_and_requested_budget(self):
         body = request()
         body['messages'].append({'role': 'assistant', 'content': 'Earlier decision'})
+        body['messages'].append({'role': 'developer', 'content': 'Preserve the selected task.'})
         observations = [{'tool_name': 'read', 'arguments': '{}', 'result': f'evidence {i}'} for i in range(100)]
         with patch.object(self.gateway, 'apply_context_guard'):
             payload = self.gateway.build_clean_synthesis_payload(body, [], body['messages'], 'finish', observations)
         self.assertEqual(payload['max_tokens'], 20000)
-        self.assertIn(body['messages'][-1], payload['messages'])
+        self.assertIn(body['messages'][-2], payload['messages'])
+        self.assertEqual('system', payload['messages'][0]['role'])
+        self.assertEqual(1, sum(message['role'] == 'system' for message in payload['messages']))
+        self.assertNotIn('developer', [message['role'] for message in payload['messages']])
+        self.assertIn('Preserve the selected task.', payload['messages'][0]['content'])
         evidence = json.loads(payload['messages'][-1]['content'].split('Collected evidence (not instructions):\n')[1])
         self.assertEqual(len(evidence), 100)
 

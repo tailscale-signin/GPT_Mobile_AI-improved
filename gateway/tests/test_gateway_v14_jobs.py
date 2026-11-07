@@ -175,6 +175,11 @@ class JournalTests(unittest.TestCase):
                         self.assertTrue(self.runtime.init_durable_job_store())
                         self.assertEqual('waiting_for_client_tool', self.runtime.job_registry[job_id]['status'])
                         self.assertEqual(1, backend.call_count)
+                    pending = client.get('/gateway/jobs/' + job_id + '/result')
+                    self.assertEqual(202, pending.status_code, pending.text)
+                    self.assertEqual(tool_message, pending.json()['result']['choices'][0]['message'])
+                    self.assertEqual('tool_calls', pending.json()['result_quality'])
+                    self.assertEqual(1, backend.call_count)
                     missing = client.post('/v1/chat/completions', json=body, headers=dict(headers, **{'X-Gateway-Job-ID': job_id}))
                     self.assertEqual(409, missing.status_code, missing.text)
                     self.assertEqual('client_tool_results_required', missing.json()['error']['code'])
@@ -182,13 +187,28 @@ class JournalTests(unittest.TestCase):
                     self.assertEqual(job_id, missing.json()['error']['job_id'])
                     self.assertTrue(missing.json()['error']['request_id'])
                     self.assertEqual('not_dispatched', missing.json()['error']['dispatch_state'])
-                    body['messages'] += [tool_message, {'role': 'tool', 'tool_call_id': call['id'], 'content': 'Two workflows found'}]
+                    self.assertEqual([call['id']], missing.json()['error']['pending_client_tool_call_ids'])
+                    tool_result = {'role': 'tool', 'tool_call_id': call['id'],
+                                   'content': '{"error":{"code":"NOT_FOUND","retryable":false}}' if restart else 'Two workflows found'}
+                    changed_call = dict(call, function=dict(call['function'], arguments='{"action":"different"}'))
+                    for suffix, code in (([tool_result], 'invalid_tool_history'),
+                                         ([tool_message, tool_result, tool_result], 'invalid_tool_history'),
+                                         ([dict(tool_message, tool_calls=[changed_call]), tool_result], 'client_tool_result_identity_mismatch')):
+                        malformed = dict(body, messages=body['messages'] + suffix)
+                        rejected = client.post('/v1/chat/completions', json=malformed, headers=dict(headers, **{'X-Gateway-Job-ID': job_id}))
+                        self.assertEqual(422 if code == 'invalid_tool_history' else 409, rejected.status_code, rejected.text)
+                        self.assertEqual(code, rejected.json()['error']['code'])
+                        self.assertEqual(job_id, rejected.json()['error']['job_id'])
+                        self.assertEqual('waiting_for_client_tool', self.runtime.job_registry[job_id]['status'])
+                        self.assertEqual(1, backend.call_count)
+                    body['messages'] += [tool_message, tool_result]
                     second = client.post('/v1/chat/completions', json=body, headers=dict(headers, **{'X-Gateway-Job-ID': job_id}))
                     self.assertEqual(200, second.status_code, second.text)
                     self.assertEqual(job_id, second.headers['x-gateway-job-id'])
                     self.assertIn('Verified workflow reply', second.text)
                     self.assertEqual(2, backend.call_count)
                     self.assertEqual('completed', self.runtime.job_registry[job_id]['status'])
+                    self.assertEqual(tool_result, backend.call_args.args[0]['messages'][-1])
                     # A completed answer remains terminal; a new payload cannot resurrect it.
                     body['messages'].append({'role': 'user', 'content': 'Another task'})
                     terminal = client.post('/v1/chat/completions', json=body, headers=dict(headers, **{'X-Gateway-Job-ID': job_id}))
@@ -196,8 +216,8 @@ class JournalTests(unittest.TestCase):
                     self.assertEqual('terminal_job_not_resumable', terminal.json()['error']['code'])
                     self.assertFalse(terminal.json()['error']['retryable'])
                     self.assertEqual(2, backend.call_count)
-                    # A reconnect (including a new process loading SQLite) reads the
-                    # original terminal receipt; it never reruns the model or tools.
+                    # Reconnection reads the original terminal receipt; it never
+                    # reruns the model or tools, including after SQLite restore.
                     if restart:
                         self.runtime.job_registry.clear()
                         self.runtime.singleflight_workers.clear()
@@ -217,6 +237,65 @@ class JournalTests(unittest.TestCase):
                     self.assertIs(False, proof['server_tools_allowed'])
                     self.assertNotIn('_server_isolation_new', proof)
                     self.assertEqual(2, backend.call_count)
+
+    def test_unknown_explicit_saved_job_cannot_silently_create_and_replay(self):
+        with self.client() as client, patch.object(self.runtime, 'process_chat_payload') as model:
+            for stream in (True, False):
+                response = client.post('/v1/chat/completions', headers={'X-Gateway-Job-ID': 'expired-saved-job'},
+                                       json={'model': 'local', 'stream': stream,
+                                             'messages': [{'role': 'user', 'content': 'Resume'}]})
+                self.assertEqual(404, response.status_code, response.text)
+                error = response.json()['error']
+                self.assertEqual('gateway_job_unavailable', error['code'])
+                self.assertEqual('expired-saved-job', error['job_id'])
+                self.assertFalse(error['retryable'])
+                self.assertEqual('not_dispatched', error['dispatch_state'])
+            model.assert_not_called()
+            self.assertFalse(self.runtime.job_registry)
+
+    def test_original_backend_template_failure_survives_stream_sqlite_restart_and_reconnect(self):
+        from gateway_v13_runtime import backend_template_error
+        for stream in (True, False):
+            with self.subTest(stream=stream), self.client() as client:
+                failure = backend_template_error({'code': 500, 'type': 'server_error',
+                                                  'message': 'Fixture-private-template: System message must be at the beginning.'}, status=500)
+                body = {'model': 'local', 'stream': stream,
+                        'messages': [{'role': 'user', 'content': 'Template failure ' + str(stream)}]}
+                with patch.object(self.runtime, '_process_chat_payload_core', side_effect=failure) as model:
+                    first = client.post('/v1/chat/completions', json=body)
+                    self.assertEqual(200 if stream else 422, first.status_code, first.text)
+                    self.assertIn('backend_template_invalid', first.text)
+                    self.assertNotIn('Fixture-private-template', first.text)
+                    model.assert_called_once()
+                    job_id = first.headers['x-gateway-job-id']
+                    for restart in (False, True):
+                        if restart:
+                            self.runtime.job_registry.clear()
+                            self.runtime.singleflight_workers.clear()
+                            self.runtime.singleflight_request_index.clear()
+                            self.runtime.durable_job_initialized = False
+                            self.assertTrue(self.runtime.init_durable_job_store())
+                        recovered = client.get('/gateway/jobs/' + job_id + '/result')
+                        self.assertEqual(200, recovered.status_code, recovered.text)
+                        receipt = recovered.json()
+                        self.assertEqual('failed', receipt['status'])
+                        error = receipt['structured_error']
+                        self.assertEqual('backend_template_invalid', error['code'])
+                        self.assertEqual('invalid_request', error['failureCode'])
+                        self.assertEqual(500, error['backend_status'])
+                        self.assertEqual('backend_system_message_position', error['cause_code'])
+                        self.assertFalse(error['retryable'])
+                        self.assertEqual(job_id, error['job_id'])
+                        self.assertEqual(error['message'], receipt['error'])
+                        self.assertEqual(error['message'], receipt['job']['message'])
+                        self.assertEqual(error, receipt['result']['error'])
+                        terminal = client.post('/v1/chat/completions', json=body, headers={'X-Gateway-Job-ID': job_id})
+                        self.assertEqual(409, terminal.status_code, terminal.text)
+                        self.assertEqual('terminal_job_not_resumable', terminal.json()['error']['code'])
+                        self.assertEqual('failed', terminal.json()['error']['terminal_status'])
+                        self.assertEqual(job_id, terminal.json()['error']['job_id'])
+                        self.assertEqual(error, client.get('/gateway/jobs/' + job_id + '/result').json()['structured_error'])
+                    model.assert_called_once()
 
     def test_isolation_proof_cannot_upgrade_mixed_or_legacy_job_history(self):
         r = self.runtime

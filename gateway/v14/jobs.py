@@ -18,7 +18,11 @@ def install_terminal_guard(runtime):
         with runtime.job_registry_lock:
             previous = runtime.job_registry.get(job_id)
             if previous is not None and previous.get('status') in TERMINAL:
-                raise GatewayContractError('This gateway job is already terminal. Retrieve its saved result or start a new request without the old job ID.', 'terminal_job_not_resumable', 409)
+                raise GatewayContractError('This gateway job is already terminal. Retrieve its saved result or start a new request without the old job ID.', 'terminal_job_not_resumable', 409,
+                    details={'job_id': job_id, 'terminal_status': previous.get('status'),
+                             'terminal_status_code': previous.get('status_code'),
+                             'result_available': previous.get('_result') is not None,
+                             'failed_stage': 'tool_continuation', 'dispatch_state': 'not_dispatched'})
             snapshot = dict(previous) if previous is not None else None
             try:
                 result = register(job_id, *args, **kwargs)

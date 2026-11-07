@@ -9,6 +9,7 @@ import dev.chungjungsoo.gptmobile.data.github.GitHubAuthorizationIdentity
 import dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook
 import dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore
 import dev.chungjungsoo.gptmobile.data.github.GitHubSavedViewStore
+import dev.chungjungsoo.gptmobile.data.github.currentGitHubVerification
 import java.nio.file.Files
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
@@ -206,7 +207,7 @@ class GitHubSavedViewRecoveryTest {
         assertTrue(book.complete())
         assertEquals(JsonPrimitive(true), book.snapshot().first.values.single()["success"])
         book.retainProgress("Implement the feature", listOf(tool.definition))
-        val pending = saved.values.last()
+        val pending = saved.currentGitHubVerification()
         assertEquals(JsonPrimitive(false), pending["evidence_retention_complete"])
         assertEquals(JsonPrimitive(false), pending["saved_view_retention_complete"])
         assertEquals(JsonPrimitive("SAVED_VIEW_PERSISTENCE_UNAVAILABLE"), pending.getValue("evidence_retention_limitations").jsonArray.single().jsonObject["code"])

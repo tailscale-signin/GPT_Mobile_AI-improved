@@ -315,6 +315,7 @@ class ChatRepositoryImplTest {
                 val primary = customPlatform().copy(disableLocalTools = toolsDisabled)
                 val settings = mockk<SettingRepository>(relaxed = true)
                 coEvery { settings.fetchPlatformV2s() } returns listOf(primary, helper)
+                coEvery { settings.getDebugMode() } returns true
                 coEvery { settings.getFeatureSettings() } returns dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings(
                     localAssist = true,
                     localAssistPolicy = dev.chungjungsoo.gptmobile.data.assist.LocalAssistPolicy(
@@ -334,9 +335,47 @@ class ChatRepositoryImplTest {
                 ).toList()
                 assertTrue(states.toString(), states.none { it is ApiState.Error })
                 assertEquals(1, api.requests.size)
-                assertEquals(planningRequested && sharingAllowed && !toolsDisabled, api.requests.single().tools.orEmpty().any { it.function.name == "local_assist_plan" })
+                val advertised = api.requests.single().tools.orEmpty().map { it.function.name }
+                assertEquals(
+                    "planningRequested=$planningRequested, sharingAllowed=$sharingAllowed, toolsDisabled=$toolsDisabled, advertised=$advertised, states=$states",
+                    planningRequested && sharingAllowed && !toolsDisabled,
+                    "local_assist_plan" in advertised
+                )
             }
         }
+    }
+
+    @Test
+    fun finiteContextAdmitsThePlannerWhenTheInitialToolCatalogIsEmpty() = runBlocking {
+        val primary = customPlatform()
+        val helper = PlatformV2(uid = "assist-helper", name = "Helper", compatibleType = ClientType.LITERT_LM, model = "fixture")
+        val settings = mockk<SettingRepository>(relaxed = true)
+        coEvery { settings.fetchPlatformV2s() } returns listOf(primary, helper)
+        coEvery { settings.getFeatureSettings() } returns dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings(
+            tokenBudget = dev.chungjungsoo.gptmobile.data.context.TokenBudgetSettings(contextTokens = 8192, outputTokens = 1024),
+            localAssist = true,
+            localAssistPolicy = dev.chungjungsoo.gptmobile.data.assist.LocalAssistPolicy(
+                profileUid = helper.uid,
+                shareDerivedEvidence = true,
+                perTurnQueryPlanning = true,
+                permissionVersion = 1,
+                profilePermissions = mapOf(helper.uid to dev.chungjungsoo.gptmobile.data.assist.AssistProcessingPermission.ALLOWED)
+            )
+        )
+        val api = RecordingOpenAIAPI(ArrayDeque(listOf(flowOf(ChatCompletionChunk(choices = listOf(Choice(0, Delta(content = "Plan prepared."), finishReason = "stop")))))))
+        val states = createRepository(
+            openAIAPI = api,
+            settingsOverride = settings,
+            agentToolResolver = mockk(relaxed = true)
+        ).completeChat(
+            listOf(MessageV2(content = "Plan the research steps for this task", platformType = null)),
+            emptyList(),
+            primary,
+            "finite-context-assist-catalogue"
+        ).toList()
+        assertTrue(states.toString(), states.none { it is ApiState.Error })
+        assertEquals(1, api.requests.size)
+        assertEquals(states.toString(), listOf("local_assist_plan"), api.requests.single().tools.orEmpty().map { it.function.name })
     }
 
     @Test

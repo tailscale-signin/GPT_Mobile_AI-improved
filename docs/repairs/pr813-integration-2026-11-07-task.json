@@ -5,10 +5,10 @@
   "base_sha": "3ac89ceafd9083f67da30e92f9f93aae27be4600",
   "original_pr_head": "4ad5f7d35fd69b0ff274e2b27c1c83caecc721e1",
   "working_branch": "fix/diagnostic-remediation-8597579-2026-11-07",
-  "local_branch": "repair/pr813-merge-2026-11-07",
+  "local_branch": "repair/pr813-published-followup2-2026-11-07",
   "pull_request": 813,
   "intent": "Repair all remaining PR blockers, integrate current main without losing diagnostic or app-audit changes, and merge after exact-head validation passes.",
-  "state": "SOURCE_VALIDATED_AWAITING_PUBLICATION",
+  "state": "READY_TO_PUBLISH_VALIDATED_FOLLOWUP",
   "task_store": "engineering_agent_checkpoints",
   "task_store_key": "pr813-integration-2026-11-07",
   "merge_requested": true,
@@ -32,10 +32,9 @@
       "scope": "actual changed production with platform boundaries; Room/Android cases awaitCI"
     },
     "exact_head_ci": {
-      "head": "daf4f82f86137445f2eab8d34bfa4efd881e1145",
-      "status": "COMPILATION_FAILED",
-      "job_url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/42408253695/job/128510554721",
-      "cause": "The extracted admission/runner widened the non-null resolved output-token allowance to Int?, causing two TokenBudgetSettings.copy argument errors. Restore Int at both helper boundaries."
+      "head": "458d5aca784361e5c83523e4385329e6ce13208f",
+      "status": "FOLLOWUP_SOURCE_VALIDATED_LOCALLY_PUBLICATION_PENDING",
+      "qualification": "The repaired tree has local host evidence. Full Android and required checks must run on the next published commit; ancestor results do not qualify it."
     },
     "device_tests": "NOT_RUN_NO_CONNECTED_DEVICE",
     "focused_github": {
@@ -63,11 +62,11 @@
     "canonical_fast": {
       "python_tests_passed": 398,
       "failures": 0,
-      "regex_literals_checked": 1255,
+      "regex_literals_checked": 1273,
       "regex_dynamic_calls_skipped": 75,
       "regex_errors": 0,
       "xml_files_validated": 30,
-      "scope": "canonical host gate after all production edits and inventory regeneration",
+      "scope": "Canonical host gate after final source edits, integration of 458d5aca and inventory regeneration",
       "passed": true
     },
     "focused_engineering_transport": {
@@ -76,8 +75,9 @@
     },
     "kotlin_formatting": {
       "passed": true,
-      "changed_files_checked": 157,
-      "version": "1.3.1"
+      "changed_files_checked": 24,
+      "version": "1.3.1",
+      "scope": "Current follow-up Kotlin files relative to 458d5aca; initial 157-file integration also passed"
     },
     "release_scope": {
       "passed": true,
@@ -85,7 +85,7 @@
       "qualification": "scoped"
     },
     "generated_inventory": {
-      "production_files": 2229,
+      "production_files": 2238,
       "areas": 26,
       "refreshed": true
     },
@@ -109,6 +109,68 @@
       "changed_test_ktlint_passed": true,
       "canonical_fast_passed": true,
       "python_tests_passed": 398
+    },
+    "android_423b9171": {
+      "head": "423b917196419605a6c789810d3d469c55d09ce8",
+      "audit_checkout_merge_sha": "d516f22e6d85613fdf15911e30ab0d348fad7a51",
+      "production_and_test_compilation": "PASSED",
+      "partial_audit_run_url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/42410540947",
+      "unit_failures_observed_before_cancellation": 22,
+      "unit_result": "INCOMPLETE_CANCELLED_BY_NEW_HEAD",
+      "passed_selected_diagnostic_and_transport_tests": 68,
+      "api36_emulator": {
+        "tests_passed": 56,
+        "test_groups": 20,
+        "protocol_validations": 54,
+        "run_url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/42410540934"
+      },
+      "api34_emulator": "CANCELLED_AFTER_6_GROUPS_9_TESTS; NOT_A_FULL_PASS",
+      "review_apk": "BUILT; packaged DEX gate not reached before cancellation",
+      "qualification": "Historical evidence for this ancestor only; never substitutes for the follow-up head."
+    },
+    "watch_identity_followup": {
+      "original_failure_reproduced": true,
+      "new_legacy_regression_reproduced": true,
+      "tests_passed_after_repair": 10,
+      "scope": "Actual watch repository source with explicit platform/transport boundaries, including overlapping polls and persisted legacy subscription recreation."
+    },
+    "acceptance_followup": {
+      "tests_passed": 157,
+      "ordinary_schema_estimated_tokens": 979,
+      "ordinary_schema_limit_exclusive": 1000,
+      "scope": "Actual acceptance, catalog, lifecycle/session and retained-state sources with explicit platform boundaries, including late-bound catalog admission.",
+      "ordinary_plan_estimated_tokens": 1418,
+      "ordinary_plan_limit_exclusive": 1500,
+      "validated_on": "458d5aca plus the complete follow-up tree",
+      "new_catalog_regressions": 4
+    },
+    "write_stage_followup": {
+      "tests_passed": 48,
+      "suite_runs": [
+        45,
+        3
+      ],
+      "scope": "Production Session/StateStore plus GitHubTool/WorkspaceClient/facade HTTP boundary tests; includes ambient-selection race fencing and independent explicit targets."
+    },
+    "android_a06bbe33": {
+      "head": "a06bbe33d57c00d81a75aabefaa0d27fe50b96b9",
+      "api34_job": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/42412450935/job/128523377789",
+      "api34_status": "PASSED",
+      "other_gates": "CANCELLED_BY_458d5aca; exact follow-up checks required",
+      "api36_job": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/42412450935/job/128523377911",
+      "api36_status": "PASSED"
+    },
+    "planner_output_admission": {
+      "tests_passed": 19,
+      "new_regressions": 6,
+      "existing_regressions": 13,
+      "scope": "Actual budget/context/planner logic with explicit external boundaries. Covers zero allowance, same-instance funding, spent calls, no refill, first-attempt races and retained authorization failure.",
+      "full_repository_regression": "Added finite-context request-serialization regression; full Android execution awaits the published head."
+    },
+    "groq_config_followup": {
+      "cause": "The expected provider config omitted the newly captured profile revision and configured reasoning provenance. Actual native tools and exact call-ID replay passed.",
+      "assertion_repaired": true,
+      "full_android_run_pending": true
     }
   },
   "accepted_scope": [
@@ -127,10 +189,18 @@
     "line reads with max_lines or EOF continuation"
   ],
   "pending": [
-    "publish the validated diagnostic test typing correction",
-    "mark the repaired draft ready for review",
-    "run required checks on the next published head",
-    "merge with exact-head precondition and verify resulting main"
+    "publish with the exact remote-head lease after reconciling any concurrent work",
+    "run all required checks and the unchanged packaged DEX gate on the published head",
+    "reconcile current draft/review state, mark ready, and merge only through normal GitHub rules with the exact-head precondition",
+    "verify resulting main and remaining open PR inventory"
   ],
-  "checkpoint_semantics": "Source-validation snapshot. The exact published commit, required checks and merge outcome are authoritative in PR 813 and its current checks."
+  "checkpoint_semantics": "Source-validation snapshot. The exact published commit, required checks and merge outcome are authoritative in PR 813 and its current checks.",
+  "reconciled_remote_head": "458d5aca784361e5c83523e4385329e6ce13208f",
+  "reconciled_concurrent_work": {
+    "source_commit": "d02f7f85824ab130b7c8c11c784bb960618eccb4",
+    "documentation_commit": "a06bbe33d57c00d81a75aabefaa0d27fe50b96b9",
+    "preserved": true,
+    "scope": "Standard-chat GitHub task contracts, continuation, catalog/provenance, gateway streaming observations and UI lifecycle improvements from the concurrent branch writer.",
+    "additional_commit": "458d5aca784361e5c83523e4385329e6ce13208f"
+  }
 }

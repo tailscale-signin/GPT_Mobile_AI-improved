@@ -162,6 +162,25 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
         return (active + NAME).mapNotNull(definitions::get)
     }
 
+    /** The caller must authorize and bind a new tool before registering its exact schema. */
+    @Synchronized
+    internal fun admitAuthorizedTool(definition: AgentToolDefinition): Boolean {
+        if (conversational || !definition.modelVisible || definition.name == NAME) return false
+        val existing = candidates[definition.name]
+        if (existing != null && existing != definition) return false
+        candidates[definition.name] = definition
+        val explicitRequired = explicitlyRequiredToolNames(taskText, candidates.keys).mapNotNull { candidates[resolveName(it)] }
+        val selected = (
+            (if (integrationPreset) candidates.values.filter(::integrationTool) else emptyList()) +
+                window(explicitRequired + taskRequired + definition + active.mapNotNull(candidates::get))
+            ).distinctBy { it.name }
+        active.clear()
+        active.addAll(selected.map { it.name })
+        if (definition.name in active) discovered.add(definition.name)
+        // Every later selection still intersects this window with the caller's allowed tools.
+        return definition.name in active
+    }
+
     @Synchronized
     internal fun selectionOmissions(allowed: List<AgentToolDefinition>): Map<String, String> {
         val allowedNames = allowed.mapTo(HashSet()) { it.name }

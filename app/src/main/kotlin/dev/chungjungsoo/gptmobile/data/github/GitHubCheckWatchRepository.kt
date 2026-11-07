@@ -26,6 +26,8 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.EncodeDefault
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -34,6 +36,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -41,6 +44,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 
+@OptIn(ExperimentalSerializationApi::class)
 @Serializable
 internal data class GitHubCheckWatch(
     val id: String,
@@ -53,7 +57,7 @@ internal data class GitHubCheckWatch(
     val runId: Long? = null,
     val headSha: String,
     val connectionUpdatedAt: Long,
-    val startedAt: Long = System.currentTimeMillis(),
+    @EncodeDefault val startedAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = startedAt,
     val status: String = "RUNNING",
     val detail: String = "Watching GitHub checks in the background.",
@@ -81,7 +85,12 @@ class GitHubCheckWatchRepository @Inject constructor(
 ) {
     private val mutex = Mutex()
     internal fun observe(chatId: Int) = workspace.dao.observeGitHubChecks(chatId).map { rows -> rows.mapNotNull { decode(it) } }
-    private fun decode(row: WorkspaceRecord): GitHubCheckWatch? = runCatching { workspace.json.decodeFromString<GitHubCheckWatch>(row.payload) }.getOrNull()
+    private fun decode(row: WorkspaceRecord): GitHubCheckWatch? = runCatching {
+        val payload = workspace.json.parseToJsonElement(row.payload).jsonObject
+        val decoded = workspace.json.decodeFromJsonElement<GitHubCheckWatch>(payload)
+        // Older default-omitting encoders could lose the start time; retain a stable persisted boundary.
+        if ("startedAt" in payload) decoded else decoded.copy(startedAt = row.updatedAt, updatedAt = if ("updatedAt" in payload) decoded.updatedAt else row.updatedAt)
+    }.getOrNull()
     private suspend fun save(watch: GitHubCheckWatch) {
         val previous = workspace.dao.get(watch.id)?.let(::decode)
         val next = watch.copy(observationGeneration = GitHubWatchObservationFence.nextGeneration(previous))

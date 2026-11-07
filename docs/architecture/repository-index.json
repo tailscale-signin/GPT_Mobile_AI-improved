@@ -208,6 +208,7 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubDownloadCredentialTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEvidencePolicyTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEvidenceRetentionTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEvidenceTestStore.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubExecutionJournalTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubExecutionLedgerTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubExecutionLimitsTest.kt",

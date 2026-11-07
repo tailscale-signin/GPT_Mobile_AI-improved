@@ -35,6 +35,9 @@ class ToolExecutionBudget(
     private val failures = java.util.concurrent.ConcurrentHashMap<String, AtomicInteger>()
     private val rejectedArguments = java.util.concurrent.ConcurrentHashMap<String, AgentToolResult>()
     private val completed = AtomicInteger()
+    private val outputAdmissionLock = Any()
+    private var outputAdmissionClosed = false
+    private val outputByteLimit = AtomicInteger(limits.maxToolOutputBytes)
     private val remainingBytes = AtomicInteger(limits.maxToolOutputBytes)
     private val permits = Semaphore(limits.maxConcurrentTools.coerceAtLeast(1))
     private val executionLimit = ToolBudgetPolicy.executionLimit(limits)
@@ -50,7 +53,21 @@ class ToolExecutionBudget(
     fun remainingCalls(): Int? = if (limits.researchAcquisition && !combinedMode || executionLimit == Int.MAX_VALUE) null else (executionLimit - calls.get()).coerceAtLeast(0)
 
     fun canExecute(): Boolean = (separateResultAllowance || remainingBytes.get() > 0) && !callBudgetIsExhausted()
-    fun remainingOutputBytes(): Int = if (separateResultAllowance) limits.maxToolOutputBytes.coerceAtLeast(0) else remainingBytes.get().coerceAtLeast(0)
+    fun remainingOutputBytes(): Int = if (separateResultAllowance) outputByteLimit.get().coerceAtLeast(0) else remainingBytes.get().coerceAtLeast(0)
+
+    /** Fund a newly admitted tool from its replanned context before any execution attempt. */
+    internal fun admitPlannedOutputAllowance(maxBytes: Int): Boolean = synchronized(outputAdmissionLock) {
+        if (maxBytes <= 0 || limits.maxToolOutputBytes != 0 || outputAdmissionClosed || separateResultAllowance || limits.githubTask) {
+            false
+        } else {
+            // Keep this budget's identity, spent calls, authority failures and bound tools.
+            // Closing admission here prevents repeated plans from replenishing consumed bytes.
+            outputAdmissionClosed = true
+            outputByteLimit.set(maxBytes)
+            remainingBytes.set(maxBytes)
+            true
+        }
+    }
 
     fun bind(
         tool: AgentTool,
@@ -74,6 +91,7 @@ class ToolExecutionBudget(
         override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult = prepareExecution(callId, arguments).invoke()
 
         override suspend fun prepareExecution(callId: String, arguments: JsonObject): suspend () -> AgentToolResult {
+            synchronized(outputAdmissionLock) { outputAdmissionClosed = true }
             fun failure(message: String) = ToolResultEnvelope.error(callId, "BUDGET_EXHAUSTED", message)
             AgentContractValidation.admission(definition, callId)?.let { rejected -> return { withBudgetState(rejected) } }
             val inherited = currentCoroutineContext()[CombinedToolDispatchScope]
@@ -111,7 +129,7 @@ class ToolExecutionBudget(
                 val message = outputBudgetMessage()
                 AppLogRecorder.record(
                     "ToolBudget",
-                    "Tool-result byte budget blocked execution · tool=${tool.definition.name} · call=$callId · configuredBytes=${limits.maxToolOutputBytes}",
+                    "Tool-result byte budget blocked execution · tool=${tool.definition.name} · call=$callId · configuredBytes=${outputByteLimit.get()}",
                     "W"
                 )
                 return {
@@ -484,11 +502,11 @@ class ToolExecutionBudget(
         // payload to consume the entire turn's research budget. Keep full results
         // separately for UI and recovery, as before.
         val resultAllowance = if (evidenceBytesPerResult != null) {
-            limits.maxToolOutputBytes
+            outputByteLimit.get()
         } else if (preserveSuccessfulHandoff) {
             Int.MAX_VALUE
         } else {
-            minOf(16 * 1024, limits.maxToolOutputBytes)
+            minOf(16 * 1024, outputByteLimit.get())
         }
         val chargedBytes = minOf(size, resultAllowance)
         val sharedAvailable = if (separateResultAllowance) remainingOutputBytes() else remainingBytes.getAndUpdate { (it.toLong() - chargedBytes).coerceAtLeast(0).toInt() }.coerceAtLeast(0)
@@ -581,7 +599,7 @@ class ToolExecutionBudget(
     private fun withBudgetState(result: AgentToolResult): AgentToolResult {
         val configuredCalls = limits.maxToolCalls.takeUnless { limits.researchAcquisition && !combinedMode || it == Int.MAX_VALUE }
         val callLimit = executionLimit.takeUnless { limits.researchAcquisition && !combinedMode || it == Int.MAX_VALUE }
-        val resultByteLimit = limits.maxToolOutputBytes.takeUnless { separateResultAllowance || it == Int.MAX_VALUE }
+        val resultByteLimit = outputByteLimit.get().takeUnless { separateResultAllowance || it == Int.MAX_VALUE }
         val resultBytesUsed = resultByteLimit?.let { limit ->
             (limit.toLong() - remainingBytes.get().toLong()).coerceIn(0L, limit.toLong()).toInt()
         }
@@ -611,7 +629,7 @@ class ToolExecutionBudget(
     }
 
     private fun outputBudgetMessage(): String {
-        val configured = limits.maxToolOutputBytes.coerceAtLeast(0)
+        val configured = outputByteLimit.get().coerceAtLeast(0)
         return "Tool-result byte budget exhausted: $configured/$configured bytes used. " +
             "Use the successful results already available; completed delegated research should still be summarized."
     }

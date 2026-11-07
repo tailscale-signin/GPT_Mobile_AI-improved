@@ -11,6 +11,7 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -325,9 +326,17 @@ class GitHubToolTest {
         }
     }
 
-    @Test fun commitUsesTheExplicitlySelectedTaskBranchInsteadOfTheConstructorBranch() = runTest {
+    @Test fun commitReviewUsesTheExplicitTargetWithoutRebindingTheSelectedTaskBranch() = runTest {
         val sha = "a".repeat(40)
         val tree = "b".repeat(40)
+        val files = JsonArray(
+            listOf(
+                buildJsonObject {
+                    put("path", "review.txt")
+                    put("content", "reviewed content")
+                }
+            )
+        )
         val client = HttpClient(
             MockEngine { request ->
                 when (request.url.encodedPath) {
@@ -337,10 +346,11 @@ class GitHubToolTest {
                 }
             }
         )
-        var proposedBranch = ""
+        val proposedBranches = mutableListOf<String>()
         try {
             val tool = GitHubTool("token", client, repositoryContext = GitHubRepositoryContext("owner", "repo", "main"), engineeringPrepare = { _, arguments ->
-                proposedBranch = arguments.getValue("branch").jsonPrimitive.content
+                assertEquals(files, arguments["files"])
+                proposedBranches += arguments.getValue("branch").jsonPrimitive.content
                 buildJsonObject { put("status", "AWAITING_APPROVAL") }
             })
             val selected = tool.execute(
@@ -357,20 +367,39 @@ class GitHubToolTest {
                     put("action", "commit_files")
                     put("branch", "working")
                     put("expected_head_sha", sha)
+                    put("message", "Review the selected branch patch")
+                    put("files", files)
                 }
             )
             assertFalse(proposed.isError)
-            assertEquals("working", proposedBranch)
-            val rejected = tool.execute(
-                "wrong-branch",
+            assertEquals(listOf("working"), proposedBranches)
+            val explicit = tool.execute(
+                "explicit-branch",
                 buildJsonObject {
                     put("action", "commit_files")
                     put("branch", "unselected")
                     put("expected_head_sha", sha)
+                    put("message", "Review the explicit branch patch")
+                    put("files", files)
                 }
             )
-            assertTrue(rejected.isError)
-            assertEquals("working", proposedBranch)
+            assertFalse(explicit.toString(), explicit.isError)
+            assertEquals(listOf("working", "unselected"), proposedBranches)
+            assertEquals("working", tool.planningContext().repository?.ref)
+            for (missing in listOf("branch", "expected_head_sha", "message")) {
+                val invalid = tool.execute(
+                    "missing-$missing",
+                    buildJsonObject {
+                        put("action", "commit_files")
+                        if (missing != "branch") put("branch", "unselected")
+                        if (missing != "expected_head_sha") put("expected_head_sha", sha)
+                        if (missing != "message") put("message", "Review the explicit branch patch")
+                        put("files", files)
+                    }
+                )
+                assertTrue(missing, invalid.isError)
+            }
+            assertEquals(listOf("working", "unselected"), proposedBranches)
         } finally {
             client.close()
         }

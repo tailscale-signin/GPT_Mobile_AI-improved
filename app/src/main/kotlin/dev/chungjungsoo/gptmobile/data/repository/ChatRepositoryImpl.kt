@@ -2156,8 +2156,10 @@ class ChatRepositoryImpl(
                         // The helper tool is created after initial catalogue admission. Admit its schema
                         // through the same context planner or finalRequestTools will silently remove it.
                         boundedTools.firstOrNull { it.modelToolName == "local_assist_plan" && it.connectionUid == null }?.let { planning ->
+                            exposedTools.mapNotNull { it.progressiveCatalog }.distinct().forEach { it.admitAuthorizedTool(planning.tool.definition) }
                             exposedTools = exposedTools + planning
                             contextPlan = planRunContext(contextTurns, requestPlatform.systemPrompt.orEmpty(), exposedTools, limits)
+                            if (contextPlan.tools.any { it.name == planning.modelToolName }) toolBudget.admitPlannedOutputAllowance(contextPlan.toolResultBytes)
                         }
                         val delegationConfig = effectiveDelegationSettings()
                         val aggregatedTools = prepareSearchStage(boundedTools, behavior, localResearch, delegationConfig, acquisitionBudget, searchPolicy, runId, platform.uid)

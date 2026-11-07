@@ -431,7 +431,7 @@ class GitHubOperationToolTest {
     @Test fun malformedSourceRangesAreRejectedBeforeTheBackendRuns() = runBlocking {
         val backend = Backend()
         val read = GitHubOperationTool("github_read", backend, "validation")
-        for (raw in listOf("""{"ranges":[{"path":"file.kt","start_line":"1","end_line":20}]}""", """{"ranges":[{"path":"file.kt"}]}""", """{"ranges":false}""")) {
+        for (raw in listOf("""{"ranges":[{"path":"file.kt","start_line":"1","end_line":20}]}""", """{"ranges":[{"start_line":1}]}""", """{"ranges":false}""")) {
             val result = read.execute("invalid", args(raw))
             assertEquals("INVALID_ARGUMENTS", result.errorCode)
             assertFalse(result.dispatched)

@@ -35,7 +35,7 @@ class GitHubContinuityUpgradeTest {
         val records = mapOf("one" to receipt("status"), "two" to receipt("branches"))
         val (text, report) = GitHubEvidencePolicy.testing(records, 1000, 0, "Test all GitHub tools", listOf(tool))
         assertEquals(JsonPrimitive(true), report["completion_verified"])
-        assertTrue(text.contains("authorized API coverage completed"))
+        assertTrue(text.contains("Task outcome: acceptance verified"))
         assertFalse(GitHubTestChecklist.apiComplete("Test all GitHub tools and Android device behavior", records, listOf(tool)))
         assertFalse(GitHubTestChecklist.apiComplete("Test all GitHub tools and fix all failures", records, listOf(tool)))
         assertFalse(GitHubTestChecklist.apiComplete("Test all GitHub tools", records - "two", listOf(tool)))

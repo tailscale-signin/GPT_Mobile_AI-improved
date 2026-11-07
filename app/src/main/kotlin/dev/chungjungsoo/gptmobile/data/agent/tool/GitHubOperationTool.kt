@@ -629,7 +629,7 @@ internal class GitHubOperationTool(
             ) = buildJsonObject {
                 put("type", "integer")
                 put("minimum", min)
-                put("maximum", max)
+                if (max != Int.MAX_VALUE) put("maximum", max)
                 if (description.isNotBlank()) put("description", description)
                 default?.let { put("default", it) }
             }
@@ -698,8 +698,8 @@ internal class GitHubOperationTool(
                                     buildJsonObject {
                                         put("path", field("string"))
                                         put("start_line", integer())
-                                        put("end_line", integer(-1, description = "Inclusive last line, or -1 for EOF bounded by the read/output limits. Omit when using max_lines."))
-                                        put("max_lines", integer(1, 2000, "Maximum lines from start_line; omit end_line when using this field."))
+                                        put("end_line", integer(-1))
+                                        put("max_lines", integer(1, 2000))
                                         put("start_offset", integer(0))
                                     }
                                 )
@@ -929,7 +929,7 @@ internal class GitHubOperationTool(
             val description = when (operation) {
                 "github_context" -> "Repo/commits/checks; changes needs base_sha. full adds metadata."
                 "github_search" -> "Search pinned code/paths. literal=text; paths/patterns=* glob. Check coverage."
-                "github_read" -> "Read pinned ranges (1-based, <=2000 lines) or evidence_id. Find paths first; saved pages: view_cursor only."
+                "github_read" -> "Pinned evidence_id/ranges: 1-based, <=2000 lines; end_line (-1=bounded EOF) or max_lines. Find paths first; saved pages use view_cursor only."
                 "github_stage_patch" -> "Stage an exact replacement with target_file, search_snippet and replacement_snippet, or SHA-checked edits. Reads the pinned blob and rejects ambiguous anchors. Returns immutable version/stage_id and preserves publication receipts. Supply restore_stage_id alone to select a saved local patch at the same branch/base. Commit on a permitted working branch using its current expected_head_sha."
                 "github_commit" -> "Create a working branch, commit a validated stage_id, or delete_branch with expected_head_sha after dependency inspection. Ordinary deletion blocks selected/default/protected branches, unmerged commits, open PRs and active runs. delete_fixture_branch additionally requires durable same-task ownership from fixture_plan=content_v1, origin_head_sha and a verified chain containing only its exact synthetic file; it never grants generic unmerged-branch deletion. GitHub deletion is not an atomic SHA lease."
                 "github_write" -> "Every files item requires a repository-relative path (for example app/src/main/kotlin/.../MainActivity.kt), never an absolute path or directory. Stage up to 20 UTF-8 file creations, replacements or deletions for exact user approval and one atomic commit on a working branch. Supply expected_head_sha and expected_blob_sha for existing files. Replacements require content; deletions require delete=true and no content. Never write to the default branch."
@@ -938,7 +938,11 @@ internal class GitHubOperationTool(
                 "github_watch_checks" -> "Watch pr_number and/or run_id at its exact head. Omit wait_timeout_seconds for background updates in a saved chat; supply 1..30 for bounded inline reads and polling, returning an observed outcome or pending timeout without creating a subscription. Optional follow_pr=true follows new PR revisions."
                 "github_issue" -> "List issues (PRs excluded). Prefer headers for title/state/updated_at without bodies or comments; use context/comments/history only when those details are needed. Create/update requires exact approval; update needs expected_updated_at. Timeline is not a full body-edit history."
                 else -> "Inspect release notes (detail), tags/annotations (tag), paginated tags/list, create_tag or explicitly publish the selected release."
-            } + " Exact continuation_call; owner+repo."
+            } + when (operation) {
+                "github_read" -> ""
+                "github_context", "github_search" -> " Exact continuation_call."
+                else -> " Exact continuation_call; owner+repo."
+            }
             return AgentToolDefinition(
                 modelName,
                 description,

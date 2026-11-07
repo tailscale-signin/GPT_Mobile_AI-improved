@@ -1326,8 +1326,9 @@ class ProviderAdaptersTest {
                 )
             )
         )
+        val profile = platform(ClientType.GROQ)
         val session = OpenAICompatibleAdapter(FakeOpenAIAPI(), groq, attachmentEncoder())
-            .openSession(turns(), platform(ClientType.GROQ))
+            .openSession(turns(), profile)
 
         assertEquals(
             listOf(ProviderEvent.Usage(finishReason = "tool_calls"), call, ProviderEvent.Completed),
@@ -1341,13 +1342,15 @@ class ProviderAdaptersTest {
         val continuation = groq.requests.last().messages.takeLast(2)
         assertEquals("call_exact", continuation[0].toolCalls!!.single().id)
         assertEquals("call_exact", continuation[1].toolCallId)
-        assertEquals(
-            listOf(
-                ProviderRequestConfig("https://provider.example/v1", "secret", profileUid = "profile", providerType = "GROQ"),
-                ProviderRequestConfig("https://provider.example/v1", "secret", profileUid = "profile", providerType = "GROQ")
-            ),
-            groq.configs
+        val expectedConfig = ProviderRequestConfig(
+            "https://provider.example/v1",
+            "secret",
+            profileUid = profile.uid,
+            profileRevision = dev.chungjungsoo.gptmobile.data.context.ConfiguredDispatchAuthority.profileRevision(profile),
+            configuredProfileReasoning = profile.reasoning,
+            providerType = "GROQ"
         )
+        assertEquals(listOf(expectedConfig, expectedConfig), groq.configs)
     }
 
     @Test

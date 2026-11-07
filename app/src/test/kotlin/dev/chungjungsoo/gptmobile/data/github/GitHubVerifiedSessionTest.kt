@@ -37,7 +37,7 @@ class GitHubVerifiedSessionTest {
         val saved = mutableListOf<JsonObject>()
         var published: JsonObject? = null
         val sha = "a".repeat(40)
-        val book = GitHubEvidenceBook("b", "o/r", "feature", setOf("github_context", "github_pr", "github_write"), now = { 1000L }, save = { _, value -> saved += value })
+        val book = GitHubEvidenceBook("b", "o/r", "feature", setOf("github_context", "github_pr", "github_write"), now = { 1000L }, save = { id, value -> if (id.startsWith("verification_current_")) saved += value })
         book.observe(
             ProviderEvent.ToolCall("lost-write", "github_write", Json.parseToJsonElement("""{"action":"commit","branch":"feature"}""").jsonObject),
             AgentToolResult("lost-write", ToolResultContent.Text("Response lost"), true, errorCode = "TIMEOUT_OUTCOME_UNKNOWN", dispatched = true)
@@ -163,7 +163,7 @@ class GitHubVerifiedSessionTest {
 
     @Test fun failedContinuationRetainsOriginalCauseAndTaskWithPartialDelivery() = runBlocking {
         val reports = mutableListOf<JsonObject>()
-        val book = GitHubEvidenceBook("b", "o/r", "main", setOf("github_context"), save = { _, value -> reports += value })
+        val book = GitHubEvidenceBook("b", "o/r", "main", setOf("github_context"), save = { id, value -> if (id.startsWith("verification_current_")) reports += value })
         book.observe(
             ProviderEvent.ToolCall("checks", "github_context", JsonObject(mapOf("action" to JsonPrimitive("checks")))),
             AgentToolResult("checks", ToolResultContent.Json(JsonObject(mapOf("checks" to JsonPrimitive(1)))), false)
@@ -199,7 +199,7 @@ class GitHubVerifiedSessionTest {
             }
             val gate = GitHubVerifiedSession(
                 provider,
-                GitHubEvidenceBook("b", "o/r", "main", emptySet(), save = { _, checkpoint -> savedCheckpoints += checkpoint }),
+                GitHubEvidenceBook("b", "o/r", "main", emptySet(), save = { id, checkpoint -> if (id.startsWith("verification_current_")) savedCheckpoints += checkpoint }),
                 task,
                 { 8192 },
                 { error("A provider denial must not open a verifier") },
@@ -496,7 +496,7 @@ class GitHubVerifiedSessionTest {
 
     @Test fun stalledChecklistRendersConcreteBlockersWithoutAnotherModelDraft() = runTest {
         var verdict: JsonObject? = null
-        val book = GitHubEvidenceBook("task", "o/r", "main", setOf("github_context", "github_ci"), now = { 1000L }, save = { id, row -> if (id.startsWith("verification_")) verdict = row }, latestVerdict = { verdict })
+        val book = GitHubEvidenceBook("task", "o/r", "main", setOf("github_context", "github_ci"), now = { 1000L }, save = { id, row -> if (id.startsWith("verification_current_")) verdict = row }, latestVerdict = { verdict })
         book.observe(ProviderEvent.ToolCall("status", "github_context", Json.parseToJsonElement("""{"action":"status"}""").jsonObject), AgentToolResult("status", ToolResultContent.Json(Json.parseToJsonElement("""{"commit_sha":"${"a".repeat(40)}"}""")), false))
         val tools = listOf(AgentToolDefinition("github_ci", "logs", Json.parseToJsonElement("""{"properties":{"action":{"const":"logs"}}}""").jsonObject))
         val delegate = object : AgentProviderSession {
@@ -519,7 +519,7 @@ class GitHubVerifiedSessionTest {
             load = { saved[it] },
             save = { id, row ->
                 saved[id] = row
-                if (id.startsWith("verification_")) verdict = row
+                if (id.startsWith("verification_current_")) verdict = row
             },
             retainedIds = { saved.keys.filter { it.startsWith("ev_") } }, latestVerdict = { verdict }
         )

@@ -205,7 +205,16 @@ internal class GitHubRepositorySession(
         return GitHubTaskSnapshot(accountId, connectionUid, conversationId, taskId, owner, repo, branch, sha, tree)
     }
 
-    private suspend fun rememberStage(context: GitHubTaskSnapshot, id: String) {
+    private suspend fun rememberStage(context: GitHubTaskSnapshot, id: String, requireSelectedRevision: Boolean = false) {
+        fun matches(current: GitHubTaskSnapshot) = current.owner.equals(context.owner, true) && current.repo.equals(context.repo, true) && current.ref == context.ref && current.commitSha == context.commitSha
+        val selected = snapshot()
+        if (requireSelectedRevision || selected != null) {
+            updateSnapshot { current ->
+                val sameRevision = matches(current)
+                require(!requireSelectedRevision || sameRevision) { "Task revision changed during stage preparation; inspect the selected revision before staging again." }
+                if (sameRevision) current.copy(stagedPatchId = id, updatedAt = System.currentTimeMillis()) else current
+            }
+        }
         // The small index lets recovery find an explicit-branch stage even if the
         // process stops before the caller receives its ID.
         store.update(scope, "staged-patches") { old ->
@@ -225,13 +234,6 @@ internal class GitHubRepositorySession(
                             ).takeLast(32)
                     )
                 )
-            }
-        }
-        val selected = snapshot()
-        if (selected != null && selected.owner.equals(context.owner, true) && selected.repo.equals(context.repo, true) && selected.ref == context.ref && selected.commitSha == context.commitSha) {
-            updateSnapshot { current ->
-                require(current.commitSha == context.commitSha && current.ref == context.ref) { "Task changed during stage preparation." }
-                current.copy(stagedPatchId = id, updatedAt = System.currentTimeMillis())
             }
         }
     }
@@ -1148,7 +1150,7 @@ internal class GitHubRepositorySession(
                 }
             }
         }
-        rememberStage(context, id)
+        rememberStage(context, id, requireSelectedRevision = args.s("branch").isBlank())
         return buildJsonObject {
             put("stage_id", id)
             put("schema_version", 1)

@@ -35,7 +35,7 @@ class GitHubTaskLifecycleTest {
                 save = { key, value -> rows[key] = value },
                 load = { rows[it] },
                 retainedIds = { rows.keys.filter { it.startsWith("ev_") } },
-                latestVerdict = { rows.values.lastOrNull() }
+                latestVerdict = { rows.currentGitHubVerificationOrNull() }
             )
             val original = book()
             original.retainProgress("Implement the task", emptyList())
@@ -43,7 +43,7 @@ class GitHubTaskLifecycleTest {
             assertEquals(JsonPrimitive(false), plan["completion_verified"])
             assertEquals(JsonPrimitive(false), plan["response_prepared"])
             assertEquals(JsonPrimitive(false), plan["response_delivered"])
-            assertEquals(JsonPrimitive("RUNNING"), rows.values.last()["task_state"])
+            assertEquals(JsonPrimitive("RUNNING"), rows.currentGitHubVerification()["task_state"])
             val call = ProviderEvent.ToolCall("confirmed-$stage", "github_context", JsonObject(emptyMap()))
             original.observe(call, AgentToolResult(call.callId, ToolResultContent.Json(JsonObject(mapOf("confirmed" to JsonPrimitive(stage)))), false))
             original.retainProgress("Implement the task", emptyList(), "NETWORK_ERROR", ProviderEvent.Failed("Connection reset", errorCode = "NETWORK_ERROR", failureDetails = buildJsonObject { put("failed_stage", stage) }))
@@ -104,11 +104,11 @@ class GitHubTaskLifecycleTest {
             put("requirements", JsonArray(listOf(requirement("PASSED"))))
         }
         book.retainVerdict(complete)
-        assertEquals(JsonPrimitive("PARTIAL"), saved.values.last()["task_state"])
+        assertEquals(JsonPrimitive("PARTIAL"), saved.currentGitHubVerification()["task_state"])
         book.retainVerdict(JsonObject(complete + ("response_delivered" to JsonPrimitive(true))))
-        assertEquals(JsonPrimitive("COMPLETED"), saved.values.last()["task_state"])
+        assertEquals(JsonPrimitive("COMPLETED"), saved.currentGitHubVerification()["task_state"])
         book.retainVerdict(JsonObject(complete + mapOf("response_delivered" to JsonPrimitive(true), "completion_verified" to JsonPrimitive(false))))
-        assertEquals(JsonPrimitive("PARTIAL"), saved.values.last()["task_state"])
+        assertEquals(JsonPrimitive("PARTIAL"), saved.currentGitHubVerification()["task_state"])
     }
 
     @Test fun missingEmptyFailedOrExcludedChecklistCannotEstablishCompletion() = runBlocking {
@@ -125,7 +125,7 @@ class GitHubTaskLifecycleTest {
                     put("acceptance_ledger", buildJsonObject { put("completion_verified", true) })
                 }
             )
-            val retained = saved.values.last()
+            val retained = saved.currentGitHubVerification()
             assertEquals(JsonPrimitive("PARTIAL"), retained["task_state"])
             assertEquals(JsonPrimitive("PARTIAL"), retained["task_outcome"])
             assertEquals(JsonPrimitive(false), retained["completion_verified"])
@@ -138,8 +138,8 @@ class GitHubTaskLifecycleTest {
         val book = GitHubEvidenceBook("task", "o/r", "main", emptySet(), save = { key, value -> saved[key] = value })
         val assessment = GitHubRequestCompletion.evaluate("Explain how branches work", listOf(buildJsonObject { put("status", "VERIFIED") }), JsonObject(emptyMap()), emptyMap())
         book.retainVerdict(JsonObject(assessment + ("response_delivered" to JsonPrimitive(true))))
-        assertEquals(JsonPrimitive("COMPLETED"), saved.values.last()["task_state"])
-        assertEquals(JsonPrimitive(true), (saved.values.last()["acceptance_ledger"] as JsonObject)["completion_verified"])
+        assertEquals(JsonPrimitive("COMPLETED"), saved.currentGitHubVerification()["task_state"])
+        assertEquals(JsonPrimitive(true), (saved.currentGitHubVerification()["acceptance_ledger"] as JsonObject)["completion_verified"])
     }
 
     private fun requirement(status: String, required: Boolean = true) = buildJsonObject {
@@ -162,7 +162,7 @@ class GitHubTaskLifecycleTest {
                 put("failure_code", "GITHUB_REVIEW_BLOCKED")
             }
         )
-        val verdict = saved.values.last()
+        val verdict = saved.currentGitHubVerification()
         assertEquals(JsonPrimitive(false), verdict["evidence_retention_complete"])
         assertEquals(JsonPrimitive("BLOCKED"), verdict["task_outcome"])
         assertEquals(JsonPrimitive("BLOCKED"), verdict["task_state"])

@@ -85,7 +85,10 @@ class GitHubExplicitBranchWriteTest {
                     if (mode == "wrong-lease") {
                         assertEquals("GITHUB_HEAD_CONFLICT", result.errorCode)
                         assertFalse(result.dispatched)
-                        val details = ToolResultEnvelope.element(result.content).jsonObject
+                        val envelope = ToolResultEnvelope.element(result.content).jsonObject
+                        assertEquals(JsonPrimitive("github.operation.v1"), envelope["schema"])
+                        assertEquals(JsonPrimitive("github_write"), envelope["operation"])
+                        val details = envelope.getValue("data").jsonObject
                         assertEquals(JsonPrimitive("e".repeat(40)), details["expected_head_sha"])
                         assertEquals(JsonPrimitive(head), details["observed_head_sha"])
                         assertEquals(JsonPrimitive(false), details["remote_mutation_performed"])

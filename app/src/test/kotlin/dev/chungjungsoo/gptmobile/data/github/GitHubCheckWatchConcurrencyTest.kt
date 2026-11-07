@@ -27,6 +27,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
@@ -144,6 +145,31 @@ class GitHubCheckWatchConcurrencyTest {
         assertTrue(GitHubWatchObservationFence.accepts(next, restoredNext))
     }
 
+    @Test fun legacyTimestampOmissionUsesDurableRowTimeAndSurvivesRepositoryRestart() = runBlocking {
+        val response = api {
+            delay(10)
+            run("in_progress")
+        }
+        val fixture = fixture(response)
+        val original = fixture.record.get()
+        val retainedAt = System.currentTimeMillis() - 1000
+        fixture.record.set(
+            original.copy(
+                payload = JsonObject(json.parseToJsonElement(original.payload).jsonObject - setOf("startedAt", "updatedAt")).toString(),
+                updatedAt = retainedAt
+            )
+        )
+        assertFalse(fixture.repository.poll(original.id, 0))
+        val first = fixture.retained()
+        assertEquals(1L, first.observationGeneration)
+        assertEquals(retainedAt, first.startedAt)
+
+        val restarted = fixture(response, initial = fixture.record.get().copy(payload = json.encodeToString(first.copy(retryAt = 0))))
+        assertFalse(restarted.repository.poll(original.id, 0))
+        assertEquals(2L, restarted.retained().observationGeneration)
+        assertEquals(retainedAt, restarted.retained().startedAt)
+    }
+
     private fun inlineArguments(seconds: Int): JsonObject = buildJsonObject {
         put("owner", "owner")
         put("repo", "repo")
@@ -167,9 +193,9 @@ class GitHubCheckWatchConcurrencyTest {
     private fun watch() = GitHubCheckWatch("watch", 1, "connection", "profile", "owner", "repo", runId = 42, headSha = head, connectionUpdatedAt = 1)
     private fun record(watch: GitHubCheckWatch) = WorkspaceRecord(watch.id, "github_checks", "watch", json.encodeToString(watch), 1)
 
-    private fun fixture(api: GitHubEngineeringApi, temporary: Boolean = false): Fixture {
+    private fun fixture(api: GitHubEngineeringApi, temporary: Boolean = false, initial: WorkspaceRecord = record(watch())): Fixture {
         val workspace = mockk<WorkspaceRepository>(relaxed = true)
-        val stored = AtomicReference(record(watch()))
+        val stored = AtomicReference(initial)
         val dao = mockk<WorkspaceDao>()
         every { workspace.dao } returns dao
         every { workspace.json } returns json

@@ -216,12 +216,14 @@ class GitHubWorkspaceClientTest {
         }
     }
 
-    @Test fun legacyWritesRejectMissingOrConflictingBranchBeforeAnyRequest() = runTest {
+    @Test fun legacyWritesRequireExplicitBranchAndRejectTheDefaultBranchBeforeMutation() = runTest {
         var requests = 0
         val http = HttpClient(
-            MockEngine {
+            MockEngine { request ->
                 requests++
-                error("Rejected write reached GitHub")
+                assertEquals(HttpMethod.Get, request.method)
+                assertEquals("/repos/owner/repo", request.url.encodedPath)
+                respond("""{"default_branch":"main"}""")
             }
         )
         try {
@@ -238,8 +240,11 @@ class GitHubWorkspaceClientTest {
                     }
                 )
                 assertTrue(result.isError)
+                assertEquals(if (branch == null) 0 else 1, requests)
+                assertFalse(result.dispatched)
             }
-            assertEquals(0, requests)
+            assertEquals(1, requests)
+            assertEquals("feature/read", tool.planningContext().repository?.ref)
         } finally {
             http.close()
         }

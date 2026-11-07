@@ -5,6 +5,7 @@ import java.util.Base64
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -711,6 +712,14 @@ class GitHubPersistentEvidenceTest {
     }
 
     @Test fun revisionChangeWhilePatchBodiesLoadCannotPublishAnOldStageOverTheNewSelection() = runTest {
+        verifyStageSelectionRace(explicitBranch = false)
+    }
+
+    @Test fun explicitStageKeepsItsPinnedTargetWhenSelectionChangesWhileBodiesLoad() = runTest {
+        verifyStageSelectionRace(explicitBranch = true)
+    }
+
+    private suspend fun verifyStageSelectionRace(explicitBranch: Boolean) = coroutineScope {
         val store = GitHubRepositoryStateStore()
         val readingBlob = CompletableDeferred<Unit>()
         val releaseBlob = CompletableDeferred<Unit>()
@@ -734,17 +743,19 @@ class GitHubPersistentEvidenceTest {
                     "stage_patch",
                     "owner",
                     "repo",
-                    args(
-                        "edits" to JsonArray(
-                            listOf(
-                                buildJsonObject {
-                                    put("path", "A.kt")
-                                    put("expected_blob_sha", sha(1))
-                                    put("old_text", "x=1")
-                                    put("new_text", "x=2")
-                                }
+                    JsonObject(
+                        args(
+                            "edits" to JsonArray(
+                                listOf(
+                                    buildJsonObject {
+                                        put("path", "A.kt")
+                                        put("expected_blob_sha", sha(1))
+                                        put("old_text", "x=1")
+                                        put("new_text", "x=2")
+                                    }
+                                )
                             )
-                        )
+                        ) + if (explicitBranch) mapOf("branch" to JsonPrimitive("work"), "expected_head_sha" to JsonPrimitive(head)) else emptyMap()
                     )
                 )
             }
@@ -752,8 +763,19 @@ class GitHubPersistentEvidenceTest {
         readingBlob.await()
         session(store, request = fetch).execute("resolve_context", "owner", "repo", args("ref" to JsonPrimitive("other")))
         releaseBlob.complete(Unit)
-        assertTrue(staged.await().exceptionOrNull()?.message.orEmpty().contains("Task revision changed"))
+        val outcome = staged.await()
+        if (explicitBranch) {
+            val receipt = outcome.getOrThrow().jsonObject
+            assertEquals(JsonPrimitive("work"), receipt["branch"])
+            assertEquals(JsonPrimitive(head), receipt["expected_head_sha"])
+            val recovery = client.execute("recovery_context", "owner", "repo", args("branch" to JsonPrimitive("work"))).jsonObject
+            assertTrue(recovery.toString().contains(receipt.getValue("stage_id").jsonPrimitive.content))
+        } else {
+            assertTrue(outcome.exceptionOrNull()?.message.orEmpty().contains("Task revision changed"))
+            assertEquals(null, store.read("account:connection:conversation:task", "staged-patches"))
+        }
         assertEquals(old, client.snapshot()!!.commitSha)
+        assertEquals("other", client.snapshot()!!.ref)
         assertEquals(null, client.snapshot()!!.stagedPatchId)
     }
 
@@ -832,7 +854,11 @@ class GitHubPersistentEvidenceTest {
         assertTrue(staged["preview"].toString().contains("42"))
         assertTrue(runCatching { client.execute("stage_patch", "owner", "repo", patch("duplicate")) }.isFailure)
         assertTrue(runCatching { client.execute("stage_patch", "owner", "repo", JsonObject(patch("41") + ("edits" to JsonArray(emptyList())))) }.isFailure)
-        assertTrue(runCatching { client.execute("stage_patch", "owner", "repo", JsonObject(patch("41") + ("branch" to JsonPrimitive("other")))) }.isFailure)
+        val otherBranchStage = client.execute("stage_patch", "owner", "repo", JsonObject(patch("41") + mapOf("branch" to JsonPrimitive("other"), "expected_head_sha" to JsonPrimitive(head)))).jsonObject
+        assertEquals(JsonPrimitive("other"), otherBranchStage["branch"])
+        assertEquals(head, otherBranchStage["expected_head_sha"]!!.jsonPrimitive.content)
+        assertEquals("work", client.snapshot()!!.ref)
+        assertTrue(runCatching { client.execute("stage_patch", "owner", "repo", JsonObject(patch("41") + mapOf("branch" to JsonPrimitive("other"), "expected_head_sha" to JsonPrimitive(old)))) }.isFailure)
         val absent = runCatching { client.execute("stage_patch", "owner", "repo", JsonObject(patch("41") + ("target_file" to JsonPrimitive("work/A.kt")))) }.exceptionOrNull()
         assertTrue(absent is IllegalArgumentException)
         assertTrue(absent?.message.orEmpty().contains("repository-relative"))
@@ -865,7 +891,15 @@ class GitHubPersistentEvidenceTest {
         assertEquals(false, restored["remote_state_changed"]!!.jsonPrimitive.booleanOrNull)
         assertEquals(0, writes)
         client.execute("task_context", "owner", "repo", args("ref" to JsonPrimitive("other")))
-        assertTrue(runCatching { client.execute("stage_patch", "owner", "repo", args("restore_stage_id" to first.getValue("stage_id"))) }.isFailure)
+        val selected = client.snapshot()
+        val reopened = client.execute("stage_patch", "owner", "repo", args("restore_stage_id" to first.getValue("stage_id"))).jsonObject
+        assertEquals(first["stage_id"], reopened["stage_id"])
+        assertEquals(JsonPrimitive("work"), reopened["branch"])
+        assertEquals(JsonPrimitive(false), reopened["remote_state_changed"])
+        assertEquals(selected, client.snapshot())
+        assertTrue(runCatching { client.execute("stage_patch", "owner", "repo", args("restore_stage_id" to first.getValue("stage_id"), "branch" to JsonPrimitive("other"))) }.isFailure)
+        assertTrue(runCatching { client.execute("stage_patch", "owner", "repo", args("restore_stage_id" to first.getValue("stage_id"), "commit_sha" to JsonPrimitive(old))) }.isFailure)
+        assertEquals(0, writes)
     }
 
     @Test fun stagedExactPatchPersistsOriginalBlobAndCommitsOnceAcrossRestart() = runTest {

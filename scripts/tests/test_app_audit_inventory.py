@@ -48,6 +48,20 @@ class AppAuditInventoryTest(unittest.TestCase):
             remapped = inventory.document(self.root)
         self.assertNotEqual(changed['source_digest'], remapped['source_digest'])
 
+    def test_gateway_installer_and_firewall_scripts_are_bound_to_the_source_digest(self):
+        install = self.write('gateway/install_gateway_v14.ps1', 'Write-Output "install fixture"\n')
+        self.write('gateway/desktop/Firewall.ps1', 'Write-Output "firewall fixture"\n')
+        self.write('gateway/desktop/Start-Gateway.ps1', 'Write-Output "launch fixture"\n')
+        self.write('gateway/tests/test_install.ps1')
+        self.write('gateway/desktop/Gateway.exe', 'binary excluded')
+        first = inventory.document(self.root)
+        self.assertEqual(3, first['file_count'])
+        self.assertEqual({'gateway_software'}, {row['area_id'] for row in first['files']})
+        self.assertFalse(first['line_coverage_available'])
+        self.assertNotIn('install fixture', json.dumps(first))
+        install.write_text('Write-Output "changed fixture"\n')
+        self.assertNotEqual(first['source_digest'], inventory.document(self.root)['source_digest'])
+
     def test_test_fixtures_and_dependencies_are_excluded_but_runtime_fixture_code_is_indexed(self):
         for path in ('gateway/tests/test_server.py', 'authentication/test_app.py', 'mcp/tests/probe.py',
                      'mcp/node_modules/vendor/main.js', 'mcp/research/bridge.test.mjs', 'mcp/research/fixtures/upstream.mjs'):

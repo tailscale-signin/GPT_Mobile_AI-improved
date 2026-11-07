@@ -16,7 +16,7 @@ PRODUCTION_ROOTS = (
     'core-domain/src/commonMain', 'core-domain/src/jvmMain',
     'gateway', 'authentication', 'mcp',
 )
-EXTENSIONS = {'.kt', '.java', '.c', '.cpp', '.h', '.hpp', '.py', '.js', '.mjs', '.ts', '.tsx', '.jsx', '.html', '.css', '.xml', '.sql', '.cmake'}
+EXTENSIONS = {'.kt', '.java', '.c', '.cpp', '.h', '.hpp', '.py', '.ps1', '.js', '.mjs', '.ts', '.tsx', '.jsx', '.html', '.css', '.xml', '.sql', '.cmake'}
 EXCLUDED_PARTS = {'tests', 'test', 'fixtures', 'node_modules', '__pycache__', '.venv', 'venv', 'build', 'dist', '.git'}
 MAX_FILES = 10_000
 MAX_FILE_BYTES = 16 * 1024 * 1024

@@ -150,7 +150,23 @@ class OpenAIResponsesAdapter @Inject constructor(
                     val keyIndex = ((startIndex + attempt) % candidateKeys.size + candidateKeys.size) % candidateKeys.size
                     keyIndexCounter.set(keyIndex)
                     val activeKey = candidateKeys[keyIndex]
-                    val config = ProviderRequestConfig(platform.apiUrl, activeKey, profileUid = platform.uid, providerType = platform.compatibleType.name, requestRole = constraints.requestRole ?: "primary", lockedModel = platform.model.takeIf { constraints.lockSelectedRoute }, lockedApiUrl = platform.apiUrl.takeIf { constraints.lockSelectedRoute }, contextCeiling = constraints.contextCeiling, permissionRevision = constraints.permissionRevision, requireKnownCapacity = constraints.requireKnownCapacity)
+                    val config = ProviderRequestConfig(
+                        apiUrl = platform.apiUrl,
+                        token = activeKey,
+                        profileUid = platform.uid,
+                        profileRevision = dev.chungjungsoo.gptmobile.data.context.ConfiguredDispatchAuthority.profileRevision(platform),
+                        configuredProfileReasoning = platform.reasoning,
+                        providerType = platform.compatibleType.name,
+                        requestRole = constraints.requestRole ?: "primary",
+                        lockedModel = platform.model.takeIf { constraints.lockSelectedRoute },
+                        lockedApiUrl = platform.apiUrl.takeIf { constraints.lockSelectedRoute },
+                        contextCeiling = constraints.contextCeiling,
+                        permissionRevision = constraints.permissionRevision,
+                        requireKnownCapacity = constraints.requireKnownCapacity,
+                        reasoningMode = constraints.reasoningModeOverride ?: dev.chungjungsoo.gptmobile.data.context.ReasoningMode.AUTO,
+                        allowReasoning = constraints.allowReasoning,
+                        maximizeReasoning = constraints.maximizeReasoning
+                    )
                     val assembler = OpenAIResponsesEventAssembler()
                     var roundFailed = false
                     var canRotate = false
@@ -1309,6 +1325,8 @@ class AnthropicMessagesAdapter @Inject constructor(
                     val config = ProviderRequestConfig(
                         apiUrl = platform.apiUrl,
                         profileUid = platform.uid,
+                        profileRevision = dev.chungjungsoo.gptmobile.data.context.ConfiguredDispatchAuthority.profileRevision(platform),
+                        configuredProfileReasoning = platform.reasoning,
                         providerType = platform.compatibleType.name,
                         requestRole = constraints.requestRole ?: "primary",
                         lockedModel = platform.model.takeIf { constraints.lockSelectedRoute },
@@ -1317,6 +1335,9 @@ class AnthropicMessagesAdapter @Inject constructor(
                         permissionRevision = constraints.permissionRevision,
                         requireKnownCapacity = constraints.requireKnownCapacity,
                         token = activeKey,
+                        reasoningMode = constraints.reasoningModeOverride ?: dev.chungjungsoo.gptmobile.data.context.ReasoningMode.AUTO,
+                        allowReasoning = constraints.allowReasoning,
+                        maximizeReasoning = constraints.maximizeReasoning,
                         anthropicBetaFeatures = thinkingPolicy.betaFeatures
                     )
                     val assembler = AnthropicEventAssembler()
@@ -1558,7 +1579,23 @@ class GeminiAdapter @Inject constructor(
                     val keyIndex = ((startIndex + attempt) % candidateKeys.size + candidateKeys.size) % candidateKeys.size
                     keyIndexCounter.set(keyIndex)
                     val activeKey = candidateKeys[keyIndex]
-                    val config = ProviderRequestConfig(platform.apiUrl, activeKey, profileUid = platform.uid, providerType = platform.compatibleType.name, requestRole = constraints.requestRole ?: "primary", lockedModel = platform.model.takeIf { constraints.lockSelectedRoute }, lockedApiUrl = platform.apiUrl.takeIf { constraints.lockSelectedRoute }, contextCeiling = constraints.contextCeiling, permissionRevision = constraints.permissionRevision, requireKnownCapacity = constraints.requireKnownCapacity)
+                    val config = ProviderRequestConfig(
+                        apiUrl = platform.apiUrl,
+                        token = activeKey,
+                        profileUid = platform.uid,
+                        profileRevision = dev.chungjungsoo.gptmobile.data.context.ConfiguredDispatchAuthority.profileRevision(platform),
+                        configuredProfileReasoning = platform.reasoning,
+                        providerType = platform.compatibleType.name,
+                        requestRole = constraints.requestRole ?: "primary",
+                        lockedModel = platform.model.takeIf { constraints.lockSelectedRoute },
+                        lockedApiUrl = platform.apiUrl.takeIf { constraints.lockSelectedRoute },
+                        contextCeiling = constraints.contextCeiling,
+                        permissionRevision = constraints.permissionRevision,
+                        requireKnownCapacity = constraints.requireKnownCapacity,
+                        reasoningMode = constraints.reasoningModeOverride ?: dev.chungjungsoo.gptmobile.data.context.ReasoningMode.AUTO,
+                        allowReasoning = constraints.allowReasoning,
+                        maximizeReasoning = constraints.maximizeReasoning
+                    )
                     var roundFailed = false
                     var canRotate = false
                     var terminalReceived = false

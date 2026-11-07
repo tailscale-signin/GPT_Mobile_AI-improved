@@ -83,6 +83,39 @@ absence is not permission to invent selectors or repeat writes.
 | F22 | Composer input ownership is released before send, at externally started runs, and on disposal without clearing the draft or stealing another editor's focus | Three added Compose lifecycle regressions; Android CI required |
 | F23 | Routine omissions become compact changes; bounded inventory snapshots are exported; actual authority failures retain detailed warnings | Snapshot/diff/clear/privacy tests and staged-export adapter tests |
 
+## CI integration follow-up
+
+The concurrent `b34c7dc01368584a480a20a83d15f0f573a11f15` update is preserved,
+including persisted check-watch identity, selected-revision staging, late tool
+admission, and the one-time output allowance for a newly admitted planner. Its
+test repairs use the same full verification snapshot contract as production;
+compact audit events are not substituted for saved verdicts. The subsequent
+`87709e6f5ff91befb4ede0f30fcbd1d48999afe7` update is also preserved: owned
+content fixtures may start from a selected feature branch, while exact source
+leases, same-task fixture ownership and guarded cleanup remain mandatory. The
+legacy fallback stays restricted to the default branch.
+
+The follow-up retains the existing schema and prompt-token budgets while restoring
+explicit integer bounds. Source ranges reject unknown selectors, wrong JSON types,
+nulls, and oversized offsets before backend dispatch. Path-only requests retain
+their existing bounded default read. This prevents an unrepresentable offset from
+silently becoming zero.
+
+Branch regressions inspect the actual operation envelope, distinguish selected
+reading context from an explicit review target, require a complete proposal and
+exact lease, and prove that rejected requests cause no mutations. Missing observed
+SHAs remain absent. A default-branch check may read repository metadata; the write
+still fails before mutation. User-message fixtures explicitly supply the required
+nullable `platformType`, matching the real Room entity constructor.
+
+Known-profile OpenAI Responses, Anthropic, Gemini, and OpenAI-compatible requests
+carry immutable profile provenance into the shared serialization boundary. The
+invocation ledger records bounded per-attempt settings from the final admitted
+payload, including a transport failure that never emits a usage event. Retries
+preserve earlier settings, and overflow has an explicit omission count. Only
+allowlisted reasoning controls are retained; prompt bodies, credentials, and
+unacknowledged effective settings are excluded.
+
 ## Measurement boundaries
 
 The gateway reports `completion_buffered` because generated content still passes
@@ -115,15 +148,24 @@ Focused JVM harnesses compile current production implementations with explicit
 Android/service boundaries. They do not establish a full Android build. The
 companion checkpoint records final run counts and canonical validation results.
 
-- Task/catalog/evidence/session suite: 218 passing tests, compiling 83 current
-  production files and 25 test files, with 26 explicit host boundary files and no
+- Task/catalog/evidence/session suite: 249 passing tests, compiling 90 current
+  production files and 29 repository test/helper files, with 27 explicit host
+  boundary files (including two extracted session checkpoint methods) and no
   source drift. Regressions include actual `GitHubVerifiedSession`,
   `GitHubEvidenceBook`, task continuity, budget parsing, readiness, operation facade,
   provenance, and acceptance code.
+- Focused schema/admission suite: 225 passing tests (overlapping the task/evidence
+  suite). Ordinary schemas measure 2,990 UTF-8 bytes / 997 estimated tokens under
+  the unchanged 1,000-token limit; the admitted prompt is 1,436 tokens under 1,500.
+- Actual HTTP/workspace branch suite: 23 passing tests, including exact leases,
+  explicit review targets, missing observed SHAs, and default-branch rejection.
 - Complete gateway gate: 49 Python suites, 560 passing cases and one declared
   network skip; all seven browser bridge tests pass. The 50,000-event / 782
   FULL-sync-commit durable stress test passes with unchanged watchdogs.
-- Gateway/provider focused Kotlin suite: 29 passing tests.
+- Gateway/provider focused Kotlin suite: 30 passing tests; admitted-request
+  provenance and retry retention: nine passing tests. Five receipt cases overlap
+  between those two batches. The full ledger and provider-adapter integration
+  regressions remain part of Android CI.
 - Gateway focused Python suites: 73 passing tests, comprising 16 message-contract,
   25 completion-recovery, 29 actual gateway-route, and 3 ASGI-observation cases.
 - Export/timeline core: 54 passing cases and one assumption-skipped heap case in
@@ -133,7 +175,7 @@ companion checkpoint records final run counts and canonical validation results.
   cases; bounded omission/frame helpers: 12 passing cases. These suites overlap
   and must not be summed into a unique-test count.
 - Canonical `bash scripts/validate-local.sh fast`: 398 script tests and every
-  fast gate pass, including 1,273 literal Android regex checks and 30 XML files.
+  fast gate pass, including 1,274 literal Android regex checks and 30 XML files.
 - Full Android compilation, Room/Compose/provider integration, DEX-size checks,
   and aggregate required verification belong to CI on the published commit.
 

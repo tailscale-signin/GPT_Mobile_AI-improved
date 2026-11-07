@@ -995,15 +995,15 @@ class ProviderAdaptersTest {
             )
         )
         val adapter = OpenAIResponsesAdapter(api, attachmentEncoder())
-
-        val events = adapter.openSession(turns(), platform(ClientType.OPENAI)).streamRound(emptyList(), emptyList()).toList()
+        val profile = platform(ClientType.OPENAI)
+        val events = adapter.openSession(turns(), profile).streamRound(emptyList(), emptyList()).toList()
 
         assertEquals(
             listOf(ProviderEvent.TextDelta("hello"), ProviderEvent.Completed),
             events
         )
         assertNull(api.responseRequests.single().tools)
-        assertEquals(ProviderRequestConfig("https://provider.example/v1", "secret", profileUid = "profile", providerType = "OPENAI"), api.configs.single())
+        assertEquals(ProviderRequestConfig(profile.apiUrl, profile.token, profileUid = profile.uid, profileRevision = dev.chungjungsoo.gptmobile.data.context.ConfiguredDispatchAuthority.profileRevision(profile), configuredProfileReasoning = profile.reasoning, providerType = "OPENAI"), api.configs.single())
     }
 
     @Test
@@ -1399,8 +1399,9 @@ class ProviderAdaptersTest {
                 )
             )
         )
+        val profile = platform(ClientType.ANTHROPIC)
         val session = AnthropicMessagesAdapter(api, attachmentEncoder())
-            .openSession(turns(), platform(ClientType.ANTHROPIC))
+            .openSession(turns(), profile)
 
         assertEquals(listOf(call, ProviderEvent.Completed), session.streamRound(listOf(definition), emptyList()).toList())
         assertEquals(
@@ -1412,6 +1413,8 @@ class ProviderAdaptersTest {
         val toolResult = continuation[1].content.single() as dev.chungjungsoo.gptmobile.data.dto.anthropic.common.ToolResultContent
         assertEquals("call_exact", toolUse.id)
         assertEquals("call_exact", toolResult.toolUseId)
+        assertEquals(List(2) { dev.chungjungsoo.gptmobile.data.context.ConfiguredDispatchAuthority.profileRevision(profile) }, api.configs.map { it.profileRevision })
+        assertEquals(List(2) { profile.reasoning }, api.configs.map { it.configuredProfileReasoning })
     }
 
     @Test
@@ -1701,8 +1704,9 @@ class ProviderAdaptersTest {
                 )
             )
         )
+        val profile = platform(ClientType.GOOGLE)
         val session = GeminiAdapter(api, attachmentEncoder())
-            .openSession(turns(), platform(ClientType.GOOGLE))
+            .openSession(turns(), profile)
 
         assertEquals(listOf(call, ProviderEvent.Usage(finishReason = "STOP"), ProviderEvent.Completed), session.streamRound(listOf(definition), emptyList()).toList())
         assertEquals(
@@ -1714,6 +1718,8 @@ class ProviderAdaptersTest {
         val continuation = api.requests.last().contents.takeLast(2)
         assertEquals("call_exact", continuation[0].parts.single().functionCall!!.id)
         assertEquals("call_exact", continuation[1].parts.single().functionResponse!!.id)
+        assertEquals(List(2) { dev.chungjungsoo.gptmobile.data.context.ConfiguredDispatchAuthority.profileRevision(profile) }, api.configs.map { it.profileRevision })
+        assertEquals(List(2) { profile.reasoning }, api.configs.map { it.configuredProfileReasoning })
     }
 
     @Test
@@ -2252,6 +2258,7 @@ class ProviderAdaptersTest {
         private val rounds: ArrayDeque<Flow<GenerateContentResponse>>
     ) : GoogleAPI {
         val requests = mutableListOf<GenerateContentRequest>()
+        val configs = mutableListOf<ProviderRequestConfig>()
 
         override fun streamGenerateContent(
             request: GenerateContentRequest,
@@ -2260,6 +2267,7 @@ class ProviderAdaptersTest {
             config: ProviderRequestConfig
         ): Flow<GenerateContentResponse> {
             requests += request
+            configs += config
             return rounds.removeFirst()
         }
 

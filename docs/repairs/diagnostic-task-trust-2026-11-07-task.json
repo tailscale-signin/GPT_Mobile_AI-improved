@@ -27,7 +27,7 @@
     "canonical_fast": {
       "passed": true,
       "python_tests": 398,
-      "android_regex_literals": 1273,
+      "android_regex_literals": 1274,
       "android_dynamic_patterns_not_evaluated": 75,
       "resource_xml_files": 30
     },
@@ -41,7 +41,7 @@
     },
     "gateway_focused_kotlin": {
       "passed": true,
-      "tests": 29,
+      "tests": 30,
       "scope": "current production source with explicit host dependency boundaries"
     },
     "diagnostic_export_core": {
@@ -66,10 +66,11 @@
     "full_android_local": "NOT_RUN_JDK21_AND_SDK37_UNAVAILABLE",
     "exact_published_head_ci": "IN_PROGRESS",
     "task_catalog_evidence_jvm": {
-      "passed": 218,
-      "production_files": 83,
-      "repository_test_files": 25,
-      "host_boundary_files": 26,
+      "passed": 249,
+      "production_files": 90,
+      "repository_test_helper_files": 29,
+      "host_boundary_files": 27,
+      "extracted_session_checkpoint_methods": 2,
       "source_drift": false
     },
     "gateway_full": {
@@ -91,10 +92,38 @@
       "gateway_matrix": "ALL_FOUR_PASSED",
       "windows_installer": "PASSED",
       "does_not_qualify_later_head": true
+    },
+    "branch_http_workspace_jvm": {
+      "passed": 23,
+      "compiled_source_files": 95,
+      "repository_source_files": 89,
+      "source_drift": false,
+      "source_manifest_sha256": "1d326d17fbada1e83fc7417c46b48464775b18e07370a414ffd46d68fe59f4d9"
+    },
+    "admitted_request_provenance_jvm": {
+      "passed": 9,
+      "overlap_with_gateway_kotlin": 5,
+      "source_drift": false,
+      "full_ledger_and_provider_adapter_tests": "ADDED_REQUIRE_ANDROID_CI"
+    },
+    "ci_followup_ktlint": {
+      "passed": true,
+      "files": 19,
+      "includes_generated_inventory": true
+    },
+    "catalog_admission_jvm": {
+      "passed": 225,
+      "schema_bytes": 2990,
+      "schema_estimated_tokens": 997,
+      "schema_limit_exclusive": 1000,
+      "admitted_prompt_estimated_tokens": 1436,
+      "prompt_limit_exclusive": 1500,
+      "source_drift": false,
+      "overlaps_task_evidence_suite": true
     }
   },
-  "reconciled_remote_head": "423b917196419605a6c789810d3d469c55d09ce8",
-  "reconciled_remote_change": "Preserved concurrent Kotlin SQL fixture typing repair and its existing task checkpoint; fixture source matched the local repair exactly.",
+  "reconciled_remote_head": "87709e6f5ff91befb4ede0f30fcbd1d48999afe7",
+  "reconciled_remote_change": "Preserved concurrent persisted-watch identity, selected-revision staging, late planner admission, one-time output allowance and full-checkpoint regression repairs; retained stronger local branch safety assertions. Also preserved guarded owned content fixtures on selected feature branches and the identical required-platformType test correction from 87709e6f5ff91befb4ede0f30fcbd1d48999afe7.",
   "verification_boundaries": [
     "Focused JVM suites compile current production implementations with explicit Android/service boundaries; full Android CI remains required.",
     "Diagnostic suite counts overlap and must not be summed into a unique-test count.",
@@ -115,5 +144,34 @@
     "tests_passed": 218,
     "source_drift": false,
     "continuity_source_sha256": "3e4b47453ab515b1473e8b91ef2a7f3bc97e557e2e194ccf34c71d14496d26de"
+  },
+  "reconciled_remote_history": [
+    "423b917196419605a6c789810d3d469c55d09ce8",
+    "b34c7dc01368584a480a20a83d15f0f573a11f15",
+    "87709e6f5ff91befb4ede0f30fcbd1d48999afe7"
+  ],
+  "ci_followup": {
+    "parent_head": "87709e6f5ff91befb4ede0f30fcbd1d48999afe7",
+    "observed_failures": [
+      {
+        "head": "a06bbe33d57c00d81a75aabefaa0d27fe50b96b9",
+        "job_id": 128523422101,
+        "result": "Seven assertion failures before cancellation: schema/admission budgets, range fixture, branch receipts/review, saved verification snapshot and Groq profile provenance."
+      },
+      {
+        "head": "458d5aca784361e5c83523e4385329e6ce13208f",
+        "job_id": 128528590525,
+        "result": "Production compiled; unit compilation failed because the new GitHubTaskTrustTest user-message fixtures omitted required nullable platformType. Test execution did not run."
+      }
+    ],
+    "repairs": [
+      "Consolidate current-verification fixture selection with the shared helper; retain all original acceptance, recovery and completion assertions.",
+      "Preserve ordinary schema and prompt budgets while keeping Int.MAX_VALUE limits and rejecting unknown, mistyped, null or oversized source-range selectors before dispatch.",
+      "Retain exact branch conflict receipts, missing-SHA honesty, explicit review target separation, default-branch metadata reads and zero-mutation guards.",
+      "Match required MessageV2 constructor fields in the new read-only task regression and local harness boundaries.",
+      "Persist immutable known-profile configuration and final admitted native-provider reasoning controls per physical attempt, including failures with no usage event; bound retained attempts and disclose omissions."
+    ],
+    "validation_state": "FOCUSED_AND_CANONICAL_FAST_PASSED",
+    "exact_head_android_ci": "REQUIRED_AFTER_PUBLICATION"
   }
 }

@@ -286,7 +286,13 @@ class InvocationLedger @Inject constructor(
                 put("output", outputCounter.evidence())
                 put("final_usage_complete", kotlinx.serialization.json.JsonPrimitive(!estimatedUsage()))
                 put("cost_confirmed", kotlinx.serialization.json.JsonPrimitive(costConfirmed))
-                requestSettings?.let { put("request_settings", it) }
+                val serializedSettings = dispatch.serializedRequestSettings
+                (dispatch.latestSerializedRequestSettings?.get("settings") ?: requestSettings)?.let { put("request_settings", it) }
+                if (serializedSettings.isNotEmpty()) put("serialized_requests", kotlinx.serialization.json.JsonArray(serializedSettings))
+                if (dispatch.omittedSerializedRequestSettings > 0) {
+                    put("serialized_requests_omitted", kotlinx.serialization.json.JsonPrimitive(dispatch.omittedSerializedRequestSettings))
+                    dispatch.latestSerializedRequestSettings?.let { put("latest_serialized_request", it) }
+                }
                 gatewayProvenance?.let { put("gateway_provenance", it) }
                 gatewayDelivery?.let { put("gateway_delivery", it) }
                 responseParsing?.let { put("response_parsing", it) }

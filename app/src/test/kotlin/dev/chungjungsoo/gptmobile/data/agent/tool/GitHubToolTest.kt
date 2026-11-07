@@ -1,17 +1,20 @@
 package dev.chungjungsoo.gptmobile.data.agent.tool
 
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
+import dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope
 import dev.chungjungsoo.gptmobile.data.database.entity.BuiltInAgentTool
 import dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryContext
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
 import io.ktor.http.HttpHeaders
+import io.ktor.http.HttpMethod
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -337,8 +340,12 @@ class GitHubToolTest {
                 }
             )
         )
+        var requests = 0
+        var mutations = 0
         val client = HttpClient(
             MockEngine { request ->
+                requests++
+                if (request.method != HttpMethod.Get) mutations++
                 when (request.url.encodedPath) {
                     "/repos/owner/repo/commits/working" -> respond("""{"sha":"$sha","commit":{"tree":{"sha":"$tree"}}}""", HttpStatusCode.OK)
                     "/repos/owner/repo/git/trees/$tree" -> respond("""{"tree":[],"truncated":false}""", HttpStatusCode.OK)
@@ -350,6 +357,7 @@ class GitHubToolTest {
         try {
             val tool = GitHubTool("token", client, repositoryContext = GitHubRepositoryContext("owner", "repo", "main"), engineeringPrepare = { _, arguments ->
                 assertEquals(files, arguments["files"])
+                assertEquals(JsonPrimitive(sha), arguments["expected_head_sha"])
                 proposedBranches += arguments.getValue("branch").jsonPrimitive.content
                 buildJsonObject { put("status", "AWAITING_APPROVAL") }
             })
@@ -361,6 +369,7 @@ class GitHubToolTest {
                 }
             )
             assertFalse(selected.isError)
+            val selectionReads = requests
             val proposed = tool.execute(
                 "propose",
                 buildJsonObject {
@@ -371,7 +380,9 @@ class GitHubToolTest {
                     put("files", files)
                 }
             )
-            assertFalse(proposed.isError)
+            assertFalse(proposed.toString(), proposed.isError)
+            assertFalse(proposed.dispatched)
+            assertEquals(JsonPrimitive("AWAITING_APPROVAL"), ToolResultEnvelope.element(proposed.content).jsonObject["status"])
             assertEquals(listOf("working"), proposedBranches)
             val explicit = tool.execute(
                 "explicit-branch",
@@ -384,6 +395,8 @@ class GitHubToolTest {
                 }
             )
             assertFalse(explicit.toString(), explicit.isError)
+            assertFalse(explicit.dispatched)
+            assertEquals(JsonPrimitive("AWAITING_APPROVAL"), ToolResultEnvelope.element(explicit.content).jsonObject["status"])
             assertEquals(listOf("working", "unselected"), proposedBranches)
             assertEquals("working", tool.planningContext().repository?.ref)
             for (missing in listOf("branch", "expected_head_sha", "message")) {
@@ -398,8 +411,12 @@ class GitHubToolTest {
                     }
                 )
                 assertTrue(missing, invalid.isError)
+                assertFalse(missing, invalid.dispatched)
+                assertEquals(missing, "INVALID_ARGUMENTS", invalid.errorCode)
             }
             assertEquals(listOf("working", "unselected"), proposedBranches)
+            assertEquals(selectionReads, requests)
+            assertEquals(0, mutations)
         } finally {
             client.close()
         }

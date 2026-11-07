@@ -629,7 +629,7 @@ internal class GitHubOperationTool(
             ) = buildJsonObject {
                 put("type", "integer")
                 put("minimum", min)
-                if (max != Int.MAX_VALUE) put("maximum", max)
+                put("maximum", max)
                 if (description.isNotBlank()) put("description", description)
                 default?.let { put("default", it) }
             }
@@ -704,6 +704,7 @@ internal class GitHubOperationTool(
                                     }
                                 )
                                 put("required", JsonArray(listOf("path").map(::JsonPrimitive)))
+                                put("additionalProperties", false)
                             }
                         )
                     }
@@ -927,8 +928,8 @@ internal class GitHubOperationTool(
             }
             if (operation in setOf("github_context", "github_ci", "github_pr", "github_read")) properties["response_detail"] = choice("compact", "full")
             val description = when (operation) {
-                "github_context" -> "Repo/commits/checks; changes needs base_sha. full adds metadata."
-                "github_search" -> "Search pinned code/paths. literal=text; paths/patterns=* glob. Check coverage."
+                "github_context" -> "Repo context; changes needs base_sha."
+                "github_search" -> "Search pinned code/paths; paths/patterns are globs. Check coverage."
                 "github_read" -> "Pinned evidence_id/ranges: 1-based, <=2000 lines; end_line (-1=bounded EOF) or max_lines. Find paths first; saved pages use view_cursor only."
                 "github_stage_patch" -> "Stage an exact replacement with target_file, search_snippet and replacement_snippet, or SHA-checked edits. Reads the pinned blob and rejects ambiguous anchors. Returns immutable version/stage_id and preserves publication receipts. Supply restore_stage_id alone to select a saved local patch at the same branch/base. Commit on a permitted working branch using its current expected_head_sha."
                 "github_commit" -> "Create a working branch, commit a validated stage_id, or delete_branch with expected_head_sha after dependency inspection. Ordinary deletion blocks selected/default/protected branches, unmerged commits, open PRs and active runs. delete_fixture_branch additionally requires durable same-task ownership from fixture_plan=content_v1, origin_head_sha and a verified chain containing only its exact synthetic file; it never grants generic unmerged-branch deletion. GitHub deletion is not an atomic SHA lease."

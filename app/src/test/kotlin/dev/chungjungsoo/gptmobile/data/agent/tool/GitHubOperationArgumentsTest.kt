@@ -32,6 +32,26 @@ class GitHubOperationArgumentsTest {
         }
     }
 
+    @Test fun sourceRangeNumbersAndFieldsCannotBeCoercedIntoDefaultReads() {
+        for (range in listOf(
+            """{"path":"README.md","start_line":"1"}""",
+            """{"path":"README.md","end_line":null}""",
+            """{"path":"README.md","max_lines":"20"}""",
+            """{"path":"README.md","start_offset":"0"}""",
+            """{"path":"README.md","start_offset":null}""",
+            """{"path":"README.md","start_offset":1.5}""",
+            """{"path":"README.md","start_offset":-1}""",
+            """{"path":"README.md","start_offset":2147483648}""",
+            """{"path":"README.md","endLine":20}""",
+            "null"
+        )) {
+            val request = args("{\"ranges\":[$range]}")
+            assertTrue(range, GitHubOperationArguments.errors("github_read", request).isNotEmpty())
+            assertTrue(range, dev.chungjungsoo.gptmobile.data.agent.ToolArgumentValidator.errors(request, GitHubOperationTool.definition("github_read").inputSchema).isNotEmpty())
+        }
+        assertTrue(GitHubOperationArguments.errors("github_read", args("""{"evidence_id":"saved","ranges":false}""")).isNotEmpty())
+    }
+
     @Test fun placeholderCommitIsRejectedForLookupAndReadsButRealHeadsRemainUsable() {
         for (operation in listOf("github_context", "github_read")) {
             val extra = if (operation == "github_read") ",\"ranges\":[{\"path\":\"README.md\",\"start_line\":1,\"end_line\":30}]" else ""

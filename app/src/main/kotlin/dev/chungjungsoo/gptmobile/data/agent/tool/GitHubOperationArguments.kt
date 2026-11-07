@@ -5,6 +5,7 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.put
 
 /** Action-specific admission after schema validation, before any repository request. */
@@ -64,16 +65,27 @@ internal object GitHubOperationArguments {
                 if ("wait_timeout_seconds" in args && text("wait_timeout_seconds").toIntOrNull()?.let { it in 1..30 } != true) errors += "wait_timeout_seconds must be 1..30; omit it for the existing background subscription"
             }
             "github_read" -> {
+                if ("ranges" in args && args["ranges"] !is JsonArray) errors += "ranges must be an array of source range objects"
                 if (text("evidence_id").isBlank() && (args["ranges"] as? JsonArray).isNullOrEmpty()) {
                     errors += "provide ranges=[{path, start_line, end_line or max_lines}] or a retained evidence_id; end_line=-1 reads to EOF within the output bound"
                 }
                 (args["ranges"] as? JsonArray).orEmpty().forEachIndexed { index, item ->
-                    val range = item as? JsonObject ?: return@forEachIndexed
-                    val path = (range["path"] as? JsonPrimitive)?.content.orEmpty()
+                    val range = item as? JsonObject
+                    if (range == null) {
+                        errors += "ranges[$index] must be a source range object"
+                        return@forEachIndexed
+                    }
+                    if (range.keys.any { it !in setOf("path", "start_line", "end_line", "max_lines", "start_offset") }) {
+                        errors += "ranges[$index] accepts only path, start_line, end_line, max_lines and start_offset"
+                    }
+                    val path = (range["path"] as? JsonPrimitive)?.takeIf { it.isString }?.content.orEmpty()
                     if (runCatching { GitHubWorkspaceClient.filePath(path) }.isFailure) errors += "ranges[$index].path must be a relative repository file path"
-                    val start = (range["start_line"] as? JsonPrimitive)?.content?.toIntOrNull() ?: 1.takeIf { "start_line" !in range }
-                    val end = (range["end_line"] as? JsonPrimitive)?.content?.toIntOrNull()
-                    val maximum = (range["max_lines"] as? JsonPrimitive)?.content?.toIntOrNull()
+                    fun number(key: String) = (range[key] as? JsonPrimitive)?.takeUnless { it.isString }?.intOrNull
+                    val start = number("start_line") ?: 1.takeIf { "start_line" !in range }
+                    val end = number("end_line")
+                    val maximum = number("max_lines")
+                    val offset = number("start_offset")
+                    if ("start_offset" in range && (offset == null || offset < 0)) errors += "ranges[$index].start_offset must be an integer from 0 through ${Int.MAX_VALUE}"
                     if (start == null ||
                         start < 1 ||
                         "end_line" in range &&

@@ -431,12 +431,41 @@ class GitHubOperationToolTest {
     @Test fun malformedSourceRangesAreRejectedBeforeTheBackendRuns() = runBlocking {
         val backend = Backend()
         val read = GitHubOperationTool("github_read", backend, "validation")
-        for (raw in listOf("""{"ranges":[{"path":"file.kt","start_line":"1","end_line":20}]}""", """{"ranges":[{"start_line":1}]}""", """{"ranges":false}""")) {
-            val result = read.execute("invalid", args(raw))
-            assertEquals("INVALID_ARGUMENTS", result.errorCode)
+        val invalid = listOf(
+            """{"ranges":[{"path":"file.kt","start_line":"1","end_line":20}]}""",
+            """{"ranges":[{"start_line":1}]}""",
+            """{"ranges":false}""",
+            """{"ranges":[null]}""",
+            """{"ranges":[{"path":"file.kt","end_line":null}]}""",
+            """{"ranges":[{"path":"file.kt","endLine":20}]}""",
+            """{"ranges":[{"path":"file.kt","start_offset":null}]}""",
+            """{"ranges":[{"path":"file.kt","start_offset":"0"}]}""",
+            """{"ranges":[{"path":"file.kt","start_offset":2147483648}]}"""
+        )
+        for ((index, raw) in invalid.withIndex()) {
+            val result = read.execute("invalid-$index", args(raw))
+            assertEquals(raw, "INVALID_ARGUMENTS", result.errorCode)
             assertFalse(result.dispatched)
         }
         assertTrue(backend.calls.isEmpty())
+    }
+
+    @Test fun boundedSourceDefaultsAndValidContinuationOffsetsReachTheBackend() = runBlocking {
+        val backend = Backend()
+        val read = GitHubOperationTool("github_read", backend, "bounded-source-defaults")
+        val ranges = listOf(
+            """{"path":"file.kt"}""",
+            """{"path":"file.kt","start_line":2,"end_line":-1}""",
+            """{"path":"file.kt","start_line":2,"max_lines":20}""",
+            """{"path":"file.kt","start_line":2,"end_line":4,"start_offset":300}"""
+        )
+        for ((index, range) in ranges.withIndex()) {
+            val request = args("{\"ranges\":[$range]}")
+            val result = read.execute("valid-$index", request)
+            assertFalse(result.content.toString(), result.isError)
+            assertEquals(request["ranges"], backend.calls.last()["ranges"])
+        }
+        assertEquals(ranges.size, backend.calls.size)
     }
 
     @Test fun activeSavedViewsSurviveEntryEvictionBeforeInactiveViews() = runBlocking {

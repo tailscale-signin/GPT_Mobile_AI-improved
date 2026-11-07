@@ -23,6 +23,39 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class InvocationLedgerTest {
+    @Test fun nativeTransportFailurePersistsEachAdmittedProfileWithoutNeedingAProviderUsageEvent() = runTest {
+        val saved = mutableListOf<ModelInvocation>()
+        val dao = mockk<InvocationDao>(relaxed = true)
+        every { dao.recent() } returns flowOf(emptyList())
+        coEvery { dao.save(any()) } answers { saved += firstArg<ModelInvocation>() }
+        val database = mockk<ChatDatabaseV2>()
+        every { database.invocationDao() } returns dao
+        val ledger = InvocationLedger(database)
+        val session = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow<ProviderEvent> {
+                val dispatch = requireNotNull(kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext])
+                val runtime = dev.chungjungsoo.gptmobile.data.context.RuntimeFingerprint("connection", "route", "credential", "model", "model", "epoch", "template", "allocation")
+                val admission = dev.chungjungsoo.gptmobile.data.context.RequestAdmission.prepare("payload", "primary", dev.chungjungsoo.gptmobile.data.context.CapacitySnapshot(runtime, 10000), dev.chungjungsoo.gptmobile.data.context.RequestMeasurement(1, 1, dev.chungjungsoo.gptmobile.data.context.TokenMeasurementKind.UTF8_ESTIMATE), 100, "permissions").receipt
+                val config = dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig("https://private.example", "secret-credential", profileRevision = "a".repeat(64), configuredProfileReasoning = true)
+                dispatch.serialized("""{"thinking":{"type":"adaptive"},"messages":"secret-prompt"}""", admission.copy(physicalAttemptId = "first"), config)
+                dispatch.serialized("""{"thinking":{"type":"disabled"},"messages":"secret-prompt"}""", admission.copy(physicalAttemptId = "second", outputTokens = 50), config.copy(profileRevision = "b".repeat(64), configuredProfileReasoning = false, allowReasoning = false))
+                throw java.io.IOException("Native transport failed before response headers")
+            }
+        }
+        val failure = runCatching { ledger.wrap(session, "run", "turn", "ANTHROPIC", "model", "primary", 10, 100, 1000).streamRound(emptyList(), emptyList()).toList() }.exceptionOrNull()
+        assertTrue(failure is java.io.IOException)
+        val retained = saved.last { it.status == "FAILED" }
+        val evidence = kotlinx.serialization.json.Json.parseToJsonElement(requireNotNull(retained.usageEvidenceJson)).jsonObject
+        val attempts = evidence.getValue("serialized_requests") as kotlinx.serialization.json.JsonArray
+        assertEquals(listOf("first", "second"), attempts.map { it.jsonObject.getValue("physical_attempt_id").jsonPrimitive.content })
+        assertEquals(listOf("a".repeat(64), "b".repeat(64)), attempts.map { it.jsonObject.getValue("settings").jsonObject.getValue("profile_revision").jsonPrimitive.content })
+        assertEquals(listOf("thinking.type=adaptive", "thinking.type=disabled"), attempts.map { it.jsonObject.getValue("settings").jsonObject.getValue("serialized_control").jsonPrimitive.content })
+        assertEquals(attempts.last().jsonObject["settings"], evidence["request_settings"])
+        assertTrue(attempts.all { it.jsonObject.getValue("settings").jsonObject["effective_reasoning"] == kotlinx.serialization.json.JsonNull })
+        assertTrue(!evidence.toString().contains("secret") && !evidence.toString().contains("private.example"))
+        assertEquals(null, retained.actualRuntime)
+    }
+
     @Test fun terminalEvidencePersistsRequestedSerializedAndBackendObservationsIndependently() = runTest {
         val dao = mockk<InvocationDao>(relaxed = true)
         every { dao.recent() } returns flowOf(emptyList())

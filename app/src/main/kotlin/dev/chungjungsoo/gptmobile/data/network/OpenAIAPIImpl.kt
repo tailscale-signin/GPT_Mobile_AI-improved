@@ -184,7 +184,7 @@ class OpenAIAPIImpl @Inject constructor(
                 config.freeDiagnostics?.stage = "preparation"
                 var admittedOutputTokens: Int? = null
                 val admittedPayload = requestPreparation.prepare(NetworkClient.openAIJson.encodeToString(preparedRequest), config.copy(onSerializedOutputTokens = { admittedOutputTokens = it }), preparedRequest.model, null)
-                val reasoningControlReceipt = ReasoningControlReceipt.fromPayload(admittedPayload, config.allowReasoning, config.reasoningMode, config.profileRevision, config.configuredProfileReasoning)
+                val reasoningControlReceipt = ReasoningControlReceipt.fromPayload(admittedPayload, config)
                 emit(ChatCompletionChunk(reasoningControlReceipt = reasoningControlReceipt))
                 // Continuation needs the admitted physical cap in every chat mode,
                 // including ordinary Free chats whose profile allows a larger output.

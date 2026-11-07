@@ -24,7 +24,7 @@ class GitHubExplicitBranchWriteTest {
     @Test fun explicitWorkingBranchIsIndependentOfSelectionAndStillRequiresItsExactLease() = runTest {
         val head = "a".repeat(40)
         val branch = "codex-self-test/" + "d".repeat(20)
-        for (mode in listOf("valid", "missing-branch", "missing-lease", "wrong-lease", "default-branch")) {
+        for (mode in listOf("valid", "missing-branch", "missing-lease", "wrong-lease", "unobserved-head", "default-branch")) {
             var mutations = 0
             var refUpdates = 0
             val client = HttpClient(
@@ -34,7 +34,7 @@ class GitHubExplicitBranchWriteTest {
                     val path = request.url.encodedPath
                     val response = when {
                         path == "/repos/o/r" -> """{"default_branch":"main"}"""
-                        request.method == HttpMethod.Get && path.contains("/git/ref/heads/") -> """{"ref":"refs/heads/$branch","object":{"sha":"$head"}}"""
+                        request.method == HttpMethod.Get && path.contains("/git/ref/heads/") -> if (mode == "unobserved-head") """{"ref":"refs/heads/$branch","object":{}}""" else """{"ref":"refs/heads/$branch","object":{"sha":"$head"}}"""
                         request.method == HttpMethod.Get && path.contains("/git/commits/") -> """{"sha":"$head","tree":{"sha":"${"1".repeat(40)}"},"parents":[],"message":"base"}"""
                         request.method == HttpMethod.Get && path.contains("/git/trees/") -> """{"sha":"${"1".repeat(40)}","truncated":false,"tree":[]}"""
                         request.method == HttpMethod.Post && path.endsWith("/git/trees") -> """{"sha":"${"2".repeat(40)}"}"""
@@ -82,16 +82,18 @@ class GitHubExplicitBranchWriteTest {
                     assertTrue(mode, result.isError)
                     assertEquals(mode, 0, mutations)
                     assertEquals(mode, 0, refUpdates)
-                    if (mode == "wrong-lease") {
+                    if (mode in setOf("wrong-lease", "unobserved-head")) {
                         assertEquals("GITHUB_HEAD_CONFLICT", result.errorCode)
                         assertFalse(result.dispatched)
                         val envelope = ToolResultEnvelope.element(result.content).jsonObject
                         assertEquals(JsonPrimitive("github.operation.v1"), envelope["schema"])
                         assertEquals(JsonPrimitive("github_write"), envelope["operation"])
                         val details = envelope.getValue("data").jsonObject
-                        assertEquals(JsonPrimitive("e".repeat(40)), details["expected_head_sha"])
-                        assertEquals(JsonPrimitive(head), details["observed_head_sha"])
+                        assertEquals(JsonPrimitive("github.branch-conflict.v1"), details["schema"])
+                        assertEquals(args["expected_head_sha"], details["expected_head_sha"])
+                        if (mode == "wrong-lease") assertEquals(JsonPrimitive(head), details["observed_head_sha"]) else assertFalse(details.containsKey("observed_head_sha"))
                         assertEquals(JsonPrimitive(false), details["remote_mutation_performed"])
+                        assertEquals(JsonPrimitive("PRE_DISPATCH"), details["phase"])
                         assertEquals(JsonPrimitive("CURRENT_INVOCATION"), details["observation_scope"])
                         assertFalse(details.containsKey("http_status"))
                     }

@@ -8,12 +8,14 @@ import kotlinx.serialization.json.Json
 @Serializable
 enum class ResponseTransport { UNKNOWN, DIRECT, GATEWAY }
 
+/** Gateway proof belongs to this response; legacy labels cannot establish its transport. */
 @Serializable
 data class ResponseSource(
     val transport: ResponseTransport = ResponseTransport.UNKNOWN,
     val executionLocation: String? = null,
     val profileUid: String? = null,
-    val modelId: String? = null
+    val modelId: String? = null,
+    val gatewayVerified: Boolean = false
 )
 
 class ResponseSourceConverter {

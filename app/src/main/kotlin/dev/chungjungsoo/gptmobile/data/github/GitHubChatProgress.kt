@@ -10,8 +10,9 @@ import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.isActive
 
-/** Public observable activity changes only; no model invocation or periodic filler. */
+/** Observed activity and explicitly selected-profile prose; no inference runs on the ticker. */
 internal class GitHubChatProgress(task: String = "", private val now: () -> Long = { System.nanoTime() / 1_000_000 }) {
+    private val taskLabel = GitHubProgressPresentation.taskLabel(task)
     private var activity = "Preparing to inspect the relevant repository details."
     private var nextStep = "inspect the request and identify the relevant repository evidence"
     private var completed = 0
@@ -22,6 +23,13 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
     private var initial = true
     private var summary = GitHubProgressPresentation.introduction(task)
     private val previews = mutableSetOf<String>()
+    private val livePreviews = mutableMapOf<String, String>()
+    private val recentSteps = ArrayDeque<String>()
+    private var revision = 0L
+    private var pendingSummary: ApiState.ActivitySummary? = null
+    private var pendingSummaryRevision = -1L
+    private var lastSummaryKey = ""
+    private var lastSummaryRevision = -1L
     private val terminalCalls = mutableSetOf<Pair<String, String>>()
     private val observedProgress = linkedSetOf<Triple<String, Int, String>>()
 
@@ -36,7 +44,8 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
     @Synchronized internal fun tick(): List<ApiState> = buildList {
         val at = now()
         if (initial || at - lastSummaryAt >= SUMMARY_INTERVAL_MS) {
-            if (!initial) {
+            val generated = pendingSummary.takeIf { pendingSummaryRevision == revision }
+            if (!initial && generated == null) {
                 summary = buildString {
                     if (completed == 0) {
                         append("I have received the request; no repository operation has completed yet. ")
@@ -44,17 +53,51 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
                         append("I have completed $completed repository operations. $lastCompleted ")
                     }
                     if (failures > 0) append("$failures operations need recovery. ")
-                    append("Next, I will $nextStep, check the available evidence, and distinguish confirmed results from work that still needs verification.")
+                    val details = recentSteps.takeLast(3).filter { it != lastCompleted }
+                    if (details.isNotEmpty()) append(details.joinToString(" ")).append(' ')
+                    append("Next, I will $nextStep. Any remaining checks or blocked operations stay visible until their results can be verified.")
                 }
             }
-            add(ApiState.ActivitySummary(summary))
+            if (!initial && generated != null) summary = generated.text
+            val summaryKey = GitHubProgressPresentation.lineKey(summary)
+            if (initial || (generated != null || revision != lastSummaryRevision) && summaryKey != lastSummaryKey) {
+                add(if (!initial && generated != null) generated else ApiState.ActivitySummary(summary))
+                lastSummaryKey = summaryKey
+                lastSummaryRevision = revision
+            }
+            pendingSummary = null
             initial = false
             lastSummaryAt = at
         }
         val key = GitHubProgressPresentation.lineKey(activity)
-        if (activity.isNotBlank() && at - lastPreviewAt >= PREVIEW_INTERVAL_MS && previews.add(key)) {
+        val liveKey = GitHubProgressPresentation.liveKey(activity)
+        val changed = if (liveKey != null) livePreviews[liveKey] != key else key !in previews
+        if (activity.isNotBlank() && at - lastPreviewAt >= PREVIEW_INTERVAL_MS && changed) {
             add(ApiState.ProgressCheckpoint(activity))
+            if (liveKey != null) livePreviews[liveKey] = key else previews.add(key)
+            if (previews.size > 256) previews.remove(previews.first())
             lastPreviewAt = at
+        }
+    }
+
+    /** A completed selected-profile update is public before the next tool round starts. */
+    @Synchronized fun forward(event: ApiState): ApiState? {
+        observe(event)
+        return when (event) {
+            is ApiState.ProgressCheckpoint -> null
+            is ApiState.ActivitySummary -> {
+                val generated = pendingSummary.takeIf { pendingSummaryRevision == revision } ?: return null
+                pendingSummary = null
+                val key = GitHubProgressPresentation.lineKey(generated.text)
+                if (key == lastSummaryKey) return null
+                summary = generated.text
+                lastSummaryKey = key
+                lastSummaryRevision = revision
+                lastSummaryAt = now()
+                initial = false
+                generated
+            }
+            else -> event
         }
     }
 
@@ -70,14 +113,16 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
                 val name = progress.toolName.orEmpty()
                 when (progress.event) {
                     "tool_started" -> {
-                        activity = sourceFocus(progress.toolArgs) + currentActivity(name)
-                        nextStep = "continue the current operation and inspect its result"
+                        activity = operationSummary(name, progress.toolArgs)
+                        nextStep = "finish this operation and compare its result with the remaining requirements"
+                        revision++
                     }
                     "tool_failed" -> {
                         if (terminalKey != null && !terminalCalls.add(terminalKey)) return
                         failures++
                         activity = "Checking how to continue after the problem."
                         nextStep = "inspect the recorded failure and choose a bounded recovery action"
+                        rememberStep(milestone(name, true, false, progress.toolArgs))
                     }
                     "tool_completed", "tool_finished" -> {
                         if (terminalKey != null && !terminalCalls.add(terminalKey)) return
@@ -85,10 +130,18 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
                         activity = milestone(name, false, false, progress.toolArgs)
                         lastCompleted = activity
                         nextStep = "review these results and continue the remaining requested work"
+                        rememberStep(activity)
                     }
                 }
             }
-            is ApiState.ProgressCheckpoint -> activity = event.text
+            is ApiState.ProgressCheckpoint -> {
+                if (activity != event.text) revision++
+                activity = event.text
+            }
+            is ApiState.ActivitySummary -> if (event.modelAuthored && event.text.isNotBlank()) {
+                pendingSummary = event
+                pendingSummaryRevision = revision
+            }
             is ApiState.Success -> {
                 activity = "Putting the response together."
                 nextStep = "present the supported findings and identify any remaining work"
@@ -98,6 +151,23 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
     }
 
     @Synchronized fun heartbeat(): String = summary
+
+    /** Only bounded public facts enter the optional prose request, never raw tool bodies or reasoning. */
+    @Synchronized fun summarySnapshot(): GitHubProgressSnapshot = GitHubProgressSnapshot(
+        revision,
+        taskLabel,
+        completed,
+        failures,
+        GitHubProgressPresentation.taskLabel(activity),
+        recentSteps.takeLast(6),
+        GitHubProgressPresentation.taskLabel(nextStep)
+    )
+
+    private fun rememberStep(step: String) {
+        if (recentSteps.lastOrNull() != step) recentSteps.addLast(step.take(220))
+        while (recentSteps.size > 8) recentSteps.removeFirst()
+        revision++
+    }
 
     companion object {
         const val PREVIEW_INTERVAL_MS = 3_000L
@@ -165,7 +235,7 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
             "github_pr" -> "I’m checking the proposed changes and review requirements before deciding the next step."
             "github_issue" -> "I’m comparing the issue details with the current investigation to identify unresolved requirements."
             "github_write", "github_stage_patch", "github_commit" -> "I’m checking the requested changes against the current branch; completion still needs an accepted result."
-            "web_search", "fetch_webpage" -> "I’m gathering supporting sources and checking whether they address the repository issue."
+            "web_search", "fetch_webpage" -> "I’m gathering supporting web sources and checking whether they address the repository issue."
             "github_decide" -> "The next operation depends on your choice; completed work remains available."
             else -> "I’m comparing the available information with the remaining requirements to select the next useful check."
         }
@@ -190,9 +260,14 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
 }
 
 /** Each round drafts fresh prose from retained results; earlier prose becomes public progress. */
-internal class GitHubProgressSession(private val delegate: AgentProviderSession, private val roundStarted: suspend () -> Unit) : AgentProviderSession by delegate {
+internal class GitHubProgressSession(
+    private val delegate: AgentProviderSession,
+    private val beforeRound: suspend (List<AgentToolExchange>) -> Unit = {},
+    private val roundStarted: suspend () -> Unit
+) : AgentProviderSession by delegate {
     override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> = flow {
         roundStarted()
+        beforeRound(exchanges)
         emitAll(delegate.streamRound(tools, exchanges))
     }
 }

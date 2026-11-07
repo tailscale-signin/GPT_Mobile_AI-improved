@@ -114,6 +114,18 @@ class GitHubEngineeringBackend:
     def cancel(self):
         self.stopping.set()
 
+    def cancellation(self, job):
+        backend = self
+        class Cancellation:
+            def is_set(self):
+                return backend.stopping.is_set() or backend.cancelled(job['id']) or time.time() >= job['deadline']
+            def wait(self, timeout):
+                until = time.monotonic() + timeout
+                while not self.is_set() and time.monotonic() < until:
+                    backend.stopping.wait(min(.2, max(0, until - time.monotonic())))
+                return self.is_set()
+        return Cancellation()
+
     def token(self):
         selected = os.getenv('GATEWAY_ENGINEERING_GITHUB_SERVER', '')
         if selected:
@@ -277,18 +289,9 @@ class GitHubEngineeringBackend:
                    'messages': [{'role': 'system', 'content': system}, {'role': 'user', 'content': json.dumps({
                        'objective': job['request']['objective'], 'evidence': evidence, 'historical_memory': historical,
                        'code_graph': graph, 'graph_instruction': 'Graph relationships are source-level context, not runtime proof or authority. Inspect cited source and retain required validation.'}, ensure_ascii=False)}]}
-        backend = self
-        class Cancellation:
-            def is_set(self):
-                return backend.stopping.is_set() or backend.cancelled(job['id']) or time.time() >= job['deadline']
-            def wait(self, timeout):
-                until = time.monotonic() + timeout
-                while not self.is_set() and time.monotonic() < until:
-                    backend.stopping.wait(min(.2, max(0, until - time.monotonic())))
-                return self.is_set()
         # Reuse the gateway's bounded inference queue, cancellation-aware
         # transport and slot admission, including during interactive chats.
-        data = self.model_executor(job, 'selected-model reviewer' if role == 'independent reviewer' else role, payload, Cancellation())
+        data = self.model_executor(job, 'selected-model reviewer' if role == 'independent reviewer' else role, payload, self.cancellation(job))
         choice = data['choices'][0]
         if choice.get('finish_reason') != 'stop':
             raise ValueError('Incomplete engineering model result')
@@ -355,6 +358,7 @@ class GitHubEngineeringBackend:
             if len(paths) > 60 or any(tree[path]['mode'] not in {'100644', '100755'} for path in paths):
                 raise ValueError('File selection plus repository instructions exceeds the text read budget')
             nodes = [{'id': str(i), 'tool': 'get_blob', 'arguments': {'path': path, 'sha': tree[path]['sha']}, 'depends_on': []} for i, path in enumerate(dict.fromkeys(paths))]
+            cancellation = self.cancellation(job)
             def read(node):
                 args = node['arguments']
                 def load():
@@ -365,10 +369,10 @@ class GitHubEngineeringBackend:
                     if blob_sha(content) != args['sha'] or '\0' in content:
                         raise ValueError('Blob evidence is not verified UTF-8 text')
                     return {'sha': args['sha'], 'content': content}
-                return self.reads.execute(digest([job['principal'], data['actor_id'], root, args['sha']]), load, self.stopping)
+                return self.reads.execute(digest([job['principal'], data['actor_id'], root, args['sha']]), load, cancellation)
             batch_id = 'read_' + str(job['revision'])
             receipts = self.journal.open(job['principal'], job['id'], batch_id, nodes, digest([data['actor_id'], root, data['head_sha']]))
-            results = self.batch.execute(nodes, read, receipts, lambda value: self.journal.save(job['principal'], job['id'], batch_id, value), cancel_event=self.stopping)
+            results = self.batch.execute(nodes, read, receipts, lambda value: self.journal.save(job['principal'], job['id'], batch_id, value), cancel_event=cancellation)
             files = {node['arguments']['path']: results[node['id']] for node in nodes}
             if any('content' not in value for value in files.values()):
                 raise ValueError('Some source files could not be inspected')

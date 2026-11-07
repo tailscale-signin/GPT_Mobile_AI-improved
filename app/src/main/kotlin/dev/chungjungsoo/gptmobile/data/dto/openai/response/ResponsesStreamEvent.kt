@@ -14,6 +14,14 @@ import kotlinx.serialization.json.JsonObject
 @JsonClassDiscriminator("type")
 sealed class ResponsesStreamEvent
 
+/** Local response-header observation; a provider body cannot supply this evidence. */
+@Serializable
+@SerialName("client.gateway_metadata")
+data class ResponseGatewayMetadataEvent(
+    @kotlinx.serialization.Transient
+    val metadata: dev.chungjungsoo.gptmobile.data.network.gateway.GatewayResponseMetadata? = null
+) : ResponsesStreamEvent()
+
 /**
  * Emitted when a delta is added to reasoning summary text.
  */

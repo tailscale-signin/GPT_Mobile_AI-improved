@@ -176,7 +176,7 @@ class OpenAIResponsesAdapter @Inject constructor(
                             canRotate = !dev.chungjungsoo.gptmobile.data.agent.GatewayOutcomeRecovery.requiresReconciliation(lastFailedMessage.orEmpty(), lastFailedCode) && previousResponseId == null && ApiCredentialRotator.isRotatableError(error)
                         }
                         .collect { event ->
-                            if (event !is dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseErrorEvent) responseObserved = true
+                            if (event !is dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseErrorEvent && event !is dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseGatewayMetadataEvent) responseObserved = true
                             when (event) {
                                 is ResponseCreatedEvent -> previousResponseId = event.response.id
                                 is ResponseInProgressEvent -> previousResponseId = event.response.id

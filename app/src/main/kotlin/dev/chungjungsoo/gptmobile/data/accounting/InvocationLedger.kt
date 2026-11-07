@@ -13,7 +13,6 @@ import dev.chungjungsoo.gptmobile.data.agent.AgentToolExchange
 import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
 import dev.chungjungsoo.gptmobile.data.agent.ProviderUsageCounter
 import dev.chungjungsoo.gptmobile.data.agent.measuredUsageSource
-import dev.chungjungsoo.gptmobile.data.context.ContextBudgetService
 import dev.chungjungsoo.gptmobile.data.database.ChatDatabaseV2
 import dev.chungjungsoo.gptmobile.data.diagnostics.LocalDiagnosticsPolicy
 import javax.inject.Inject
@@ -197,10 +196,7 @@ class InvocationLedger @Inject constructor(
                 emitAll(session.streamRound(tools, exchanges))
                 return@flow
             }
-            val replay = exchanges.sumOf { exchange ->
-                exchange.calls.sumOf { ContextBudgetService.estimate(it.arguments.toString()) } +
-                    exchange.results.sumOf { ContextBudgetService.estimate(it.content.toString()) }
-            }
+            val replay = InvocationReplayBudget.estimate(exchanges)
             spend.validate()
             val configured = spend.prices[profileUid]?.takeIf { it.model == model && System.currentTimeMillis() - it.checkedAt in 0..30L * 86400000 }
             val price = if (provider == "LITERT_LM") ModelPrice(model, 0, 0, "On-device inference", System.currentTimeMillis()) else configured
@@ -223,7 +219,7 @@ class InvocationLedger @Inject constructor(
             try {
                 if (retainAccounting) dao.reserve(record, totalLimit, spend)
             } catch (error: SpendAllowanceReached) {
-                if (kind == "benchmark") {
+                if (kind in setOf("benchmark", "github-progress-summary")) {
                     emit(ProviderEvent.Failed("${error.message} No model request was sent.", errorCode = "POLICY_BLOCKED"))
                 } else {
                     emit(ProviderEvent.TextDelta("\n\n${error.message} No model request was sent."))
@@ -231,8 +227,8 @@ class InvocationLedger @Inject constructor(
                 }
                 return@flow
             } catch (_: TokenAllowanceReached) {
-                if (kind == "benchmark") {
-                    emit(ProviderEvent.Failed("The benchmark reached its configured token allowance before dispatch. No model request was sent.", errorCode = "POLICY_BLOCKED"))
+                if (kind in setOf("benchmark", "github-progress-summary")) {
+                    emit(ProviderEvent.Failed("The request reached its configured token allowance before dispatch. No model request was sent.", errorCode = "POLICY_BLOCKED"))
                 } else if (combined != null) {
                     emit(ProviderEvent.Failed("The accepted Combined turn reached its configured total token ceiling before dispatch. Completed evidence is retained."))
                 } else {

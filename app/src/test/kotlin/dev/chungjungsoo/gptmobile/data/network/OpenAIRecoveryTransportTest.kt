@@ -3,6 +3,7 @@ package dev.chungjungsoo.gptmobile.data.network
 import dev.chungjungsoo.gptmobile.data.dto.openai.request.ChatCompletionRequest
 import dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponsesRequest
 import dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseCompletedEvent
+import dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseGatewayMetadataEvent
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
@@ -222,7 +223,10 @@ class OpenAIRecoveryTransportTest {
             }
         ) { api ->
             val events = api.streamResponses(ResponsesRequest(model = "fixture", input = listOf(dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponseInputMessage("user", dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponseInputContent.text("Transport fixture request."))), temperature = .4f, maxOutputTokens = 128), 5, config).toList()
-            assertTrue(events.single() is ResponseCompletedEvent)
+            assertEquals(2, events.size)
+            assertTrue(events.first() is ResponseGatewayMetadataEvent)
+            assertFalse(requireNotNull((events.first() as ResponseGatewayMetadataEvent).metadata).transportVerified)
+            assertTrue(events.last() is ResponseCompletedEvent)
             assertEquals(2, bodies.size)
             val second = NetworkClient.openAIJson.parseToJsonElement(bodies.last()).jsonObject
             assertFalse(second.containsKey("temperature"))
@@ -361,6 +365,7 @@ class OpenAIRecoveryTransportTest {
             assertEquals("Retained answer", chunks.single { it.choices != null }.choices!!.single().effectiveDelta.content)
             assertTrue(chunks.none { it.error != null })
             assertEquals("saved-job", chunks.single { it.choices != null }.gatewayMetadata?.jobId)
+            assertTrue(chunks.single { it.choices != null }.gatewayMetadata?.transportVerified == true)
             assertEquals("completed", chunks.single { it.choices != null }.gatewayMetadata?.terminalStatus)
             assertEquals(listOf("/v1/gateway/capabilities", "/v1/chat/completions", "/v1/gateway/jobs/saved-job/result"), paths)
         }

@@ -55,4 +55,39 @@ class GitHubFailureSummaryTest {
         )
         assertTrue(report.contains("BUDGET_EXHAUSTED | 1"))
     }
+
+    @Test fun authenticationAndGraphFailuresGetDistinctActionableRecoveryWithoutInventedExecution() {
+        fun report(code: String) = GitHubFailureSummary.render(
+            mapOf(
+                code to buildJsonObject {
+                    put("success", false)
+                    put("dispatched", false)
+                    put("error_code", code)
+                    put("result", "private credential payload")
+                }
+            )
+        )
+        val authentication = report("AUTH_REQUIRED")
+        assertTrue(authentication.contains("Reconnect the same GitHub account"))
+        assertFalse(authentication.contains("private credential"))
+        assertFalse(authentication.contains("reconcile an uncertain write"))
+        val graph = report("REPOSITORY_GRAPH_UNAVAILABLE")
+        assertTrue(graph.contains("authorized ordinary repository reads"))
+        assertTrue(graph.contains("graph-only analysis remains unavailable"))
+        assertFalse(graph.contains("private credential"))
+    }
+
+    @Test fun checklistRecoveryDoesNotPresentAuthenticationAsAnUnknownWrite() {
+        assertTrue(GitHubTestChecklist.recoveryAdvice(setOf("AUTH_REQUIRED")).contains("credential expiry"))
+        assertTrue(GitHubTestChecklist.recoveryAdvice(setOf("REPOSITORY_GRAPH_UNAVAILABLE")).contains("Do not switch AI profiles"))
+        assertTrue(GitHubTestChecklist.recoveryAdvice(setOf("GITHUB_VALIDATION_FAILED")).contains("required fields"))
+        assertTrue(GitHubTestChecklist.recoveryAdvice(setOf("GITHUB_SECONDARY_RATE_LIMITED")).contains("Retry-After"))
+    }
+
+    @Test fun recoveryGuidancePreservesRetryAndSelectedResourceBoundaries() {
+        assertTrue(GitHubFailurePolicy.recoveryHint("GITHUB_REF_UNAVAILABLE").contains("Do not silently switch"))
+        assertTrue(GitHubFailurePolicy.recoveryHint("UNKNOWN_OUTCOME").contains("do not blindly repeat"))
+        assertTrue(GitHubFailurePolicy.recoveryHint("GATEWAY_CAPABILITY_UNAVAILABLE").contains("selected gateway and model"))
+        assertTrue(GitHubFailurePolicy.recoveryHint("GITHUB_CIRCUIT_OPEN").contains("one bounded health probe"))
+    }
 }

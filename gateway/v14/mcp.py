@@ -336,15 +336,17 @@ def install_mcp_resilience(runtime):
     def call(server_name, method, params=None, progress_callback=None, cancel_event=None):
         session = runtime.get_mcp_session(server_name)
         cfg = session.cfg
+        catalogue = getattr(runtime, 'gateway_catalogue', None) if method == 'tools/call' else None
+        contract = catalogue.execution_contract(server_name, cfg, (params or {}).get('name')) if catalogue else None
         try:
             result = session.call(method, params, inactivity_timeout=float(cfg.get('timeoutSeconds', runtime.MCP_CALL_INACTIVITY_TIMEOUT_SECONDS)),
                                   absolute_timeout=float(cfg.get('absoluteTimeoutSeconds', runtime.MCP_CALL_ABSOLUTE_TIMEOUT_SECONDS)),
                                   progress_callback=progress_callback, cancel_event=cancel_event)
-            if method == 'tools/call' and hasattr(runtime, 'gateway_catalogue'):
-                runtime.gateway_catalogue.observe_execution(server_name, cfg, (params or {}).get('name'), result.get('isError') is not True)
+            if catalogue is not None:
+                catalogue.observe_execution(server_name, cfg, (params or {}).get('name'), result.get('isError') is not True, contract=contract)
             return result
         except Exception:
-            if method == 'tools/call' and hasattr(runtime, 'gateway_catalogue'):
-                runtime.gateway_catalogue.observe_execution(server_name, cfg, (params or {}).get('name'), False)
+            if catalogue is not None:
+                catalogue.observe_execution(server_name, cfg, (params or {}).get('name'), False, contract=contract)
             raise
     runtime.mcp_call = call

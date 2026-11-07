@@ -45,6 +45,9 @@ class OpenAIResponsesEventAssembler {
     private val pending = mutableMapOf<String, PendingCall>()
 
     fun accept(event: ResponsesStreamEvent): List<ProviderEvent> = when (event) {
+        is dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseGatewayMetadataEvent ->
+            event.metadata?.let { listOf(ProviderEvent.GatewayMetadataCaptured(it)) }.orEmpty()
+
         is ReasoningSummaryTextDeltaEvent -> listOf(ProviderEvent.ThinkingDelta(event.delta))
 
         is OutputTextDeltaEvent -> listOf(ProviderEvent.TextDelta(event.delta))

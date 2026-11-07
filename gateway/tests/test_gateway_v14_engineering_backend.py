@@ -1,8 +1,10 @@
 import copy
 import json
 import sys
+import threading
 import time
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
@@ -136,6 +138,37 @@ class EngineeringBackendTests(unittest.TestCase):
         self.assertNotIn('max_tokens', args[2])
         self.backend.cancelled = lambda job_id: True
         self.assertTrue(args[3].is_set())
+
+    def test_read_retry_backoff_observes_job_cancellation_and_deadline(self):
+        for stop in ('cancel', 'deadline'):
+            with self.subTest(stop=stop):
+                backend = GitHubEngineeringBackend(self.runtime)
+                backend.identity = Mock(return_value={'id': 1})
+                job = copy.deepcopy(self.job)
+                job['data']['plan'] = {'paths': ['file.py']}
+                backend.tree = Mock(return_value={'file.py': {'sha': 'a' * 40, 'mode': '100644'}})
+                backend.journal = SimpleNamespace(open=Mock(return_value={}), save=Mock())
+                cancelled = threading.Event()
+                backend.cancelled = lambda job_id: cancelled.is_set()
+                attempts = []
+                def read(*args, **kwargs):
+                    self.assertIn('/git/blobs/', args[0])
+                    attempts.append(1)
+                    if stop == 'cancel':
+                        cancelled.set()
+                    else:
+                        job['deadline'] = time.time() - 1
+                    raise TimeoutError('injected transport failure')
+                backend.api = read
+                with patch('v14.batch.retry_delay', return_value=120), ThreadPoolExecutor(1) as pool:
+                    result = pool.submit(backend.step, job, 'READ')
+                    try:
+                        with self.assertRaises(InterruptedError):
+                            result.result(timeout=2)
+                    finally:
+                        backend.stopping.set()
+                self.assertEqual([1], attempts)
+                backend.journal.save.assert_not_called()
 
     def test_log_excerpt_keeps_actual_failure_tail_with_a_download_bound(self):
         response = Mock()

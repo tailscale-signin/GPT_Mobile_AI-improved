@@ -31,6 +31,9 @@ import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.data.github.GitHubProgressPresentation
@@ -82,7 +85,8 @@ internal fun GitHubActivityPreview(raw: String, latest: Boolean, motion: State<F
         }
         Text(
             text,
-            modifier = Modifier.weight(1f).testTag(if (latest) "github_latest_preview" else "github_previous_preview"),
+            modifier = Modifier.weight(1f).testTag(if (latest) "github_latest_preview" else "github_previous_preview")
+                .semantics { if (latest || GitHubProgressPresentation.liveKey(text) != null) liveRegion = LiveRegionMode.Polite },
             style = MaterialTheme.typography.bodyMedium,
             color = previewColor,
             maxLines = 1,

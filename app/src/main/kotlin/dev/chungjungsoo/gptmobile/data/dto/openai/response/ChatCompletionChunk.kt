@@ -28,7 +28,8 @@ data class ChatCompletionChunk(
     @SerialName("gateway_progress")
     val gatewayProgress: GatewayProgress? = null,
 
-    @SerialName("gateway_metadata")
+    // Only response headers or a bound saved-job lookup can supply transport provenance.
+    @Transient
     val gatewayMetadata: GatewayResponseMetadata? = null,
 
     @SerialName("error")

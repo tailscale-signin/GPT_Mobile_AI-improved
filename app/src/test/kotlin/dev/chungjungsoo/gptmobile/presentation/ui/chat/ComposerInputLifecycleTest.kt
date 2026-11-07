@@ -6,16 +6,22 @@ import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.focus.FocusManager
 import androidx.compose.ui.input.InputMode
 import androidx.compose.ui.input.InputModeManager
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.node.RootForTest
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalInputModeManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.platform.SoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.SemanticsOwner
 import androidx.compose.ui.semantics.SemanticsProperties
@@ -46,7 +52,8 @@ class ComposerInputLifecycleTest {
     @Test fun sendingReleasesFocusBeforeDispatchAndPreservesTheExactDraft() {
         var focused = false
         var sent: String? = null
-        val input = TextFieldState("A complete draft")
+        val draft = "  A complete draft\nwith Unicode \uD83D\uDCAC and trailing spaces  \n"
+        val input = TextFieldState(draft)
         compose.setContent {
             val semanticsOwner = (LocalView.current as RootForTest).semanticsOwner
             MaterialTheme {
@@ -61,7 +68,11 @@ class ComposerInputLifecycleTest {
         compose.runOnIdle { assertTrue(focused) }
         compose.onNodeWithTag("chat_send").performClick()
         compose.onNodeWithContentDescription("Message input").assertIsNotFocused()
-        compose.runOnIdle { assertEquals("A complete draft", sent) }
+        compose.runOnIdle {
+            assertFalse(focused)
+            assertEquals(draft, sent)
+            assertEquals(draft, input.text.toString())
+        }
     }
 
     @Test fun runStartReleasesThePreviousSessionButAllowsAFreshFollowUpWhileRunning() {
@@ -73,9 +84,66 @@ class ComposerInputLifecycleTest {
         compose.onNodeWithContentDescription("Message input").performClick()
         compose.runOnIdle { running = true }
         compose.onNodeWithContentDescription("Message input").assertIsNotFocused()
+        compose.runOnIdle { assertEquals("Saved draft", input.text.toString()) }
         compose.onNodeWithContentDescription("Message input").performClick().performTextInput(" after start")
         compose.onNodeWithContentDescription("Message input").assertIsFocused()
-        compose.runOnIdle { assertTrue(input.text.toString().contains("after start")) }
+        compose.runOnIdle { assertEquals("Saved draft after start", input.text.toString()) }
+    }
+
+    @Test fun runStartAndSendDoNotDismissAnotherEditorsInputSession() {
+        var running by mutableStateOf(false)
+        var sent = false
+        var keyboardHides = 0
+        val keyboard = object : SoftwareKeyboardController {
+            override fun show() = Unit
+            override fun hide() {
+                keyboardHides++
+            }
+        }
+        compose.setContent {
+            CompositionLocalProvider(LocalSoftwareKeyboardController provides keyboard) {
+                MaterialTheme {
+                    Column {
+                        ChatInputBox(inputState = rememberTextFieldState("Retained"), attachmentsEnabled = false, isRunning = running) { sent = true }
+                        androidx.compose.foundation.text.BasicTextField(state = rememberTextFieldState("Other draft"), modifier = Modifier.testTag("other_editor"))
+                    }
+                }
+            }
+        }
+        compose.onNodeWithContentDescription("Message input").performClick()
+        compose.onNodeWithTag("other_editor").performClick()
+        compose.runOnIdle { running = true }
+        compose.onNodeWithTag("other_editor").assertIsFocused()
+        compose.onNodeWithTag("chat_send").performClick()
+        compose.onNodeWithTag("other_editor").assertIsFocused()
+        compose.onNodeWithContentDescription("Message input").assertIsNotFocused()
+        compose.runOnIdle {
+            assertTrue(sent)
+            assertEquals(0, keyboardHides)
+        }
+    }
+
+    @Test fun releasedComposerDoesNotAddAKeyboardTraversalStop() {
+        var running by mutableStateOf(false)
+        lateinit var focusManager: FocusManager
+        compose.setContent {
+            focusManager = LocalFocusManager.current
+            MaterialTheme {
+                Column {
+                    androidx.compose.foundation.text.BasicTextField(state = rememberTextFieldState("Other draft"), modifier = Modifier.testTag("other_editor"))
+                    ChatInputBox(inputState = rememberTextFieldState("Retained"), attachmentsEnabled = false, isRunning = running)
+                }
+            }
+        }
+        compose.onNodeWithContentDescription("Message input").performClick()
+        compose.runOnIdle { assertTrue(focusManager.moveFocus(FocusDirection.Previous)) }
+        compose.onNodeWithTag("other_editor").assertIsFocused()
+        compose.onNodeWithContentDescription("Message input").performClick()
+        compose.runOnIdle { running = true }
+        compose.onNodeWithContentDescription("Message input").assertIsNotFocused()
+        compose.onNodeWithContentDescription("Message input").performClick()
+        compose.runOnIdle { assertTrue(focusManager.moveFocus(FocusDirection.Previous)) }
+        compose.onNodeWithTag("other_editor").assertIsFocused()
     }
 
     @Test fun keyboardShortcutReleasesActualEditorFocusBeforeDispatchAndAllowsAFreshDraft() {

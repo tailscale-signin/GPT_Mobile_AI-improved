@@ -5,10 +5,10 @@
   "base_sha": "3ac89ceafd9083f67da30e92f9f93aae27be4600",
   "original_pr_head": "4ad5f7d35fd69b0ff274e2b27c1c83caecc721e1",
   "working_branch": "fix/diagnostic-remediation-8597579-2026-11-07",
-  "local_branch": "repair/pr813-published-followup3-2026-11-07",
+  "local_branch": "repair/pr813-published-followup4-2026-11-07",
   "pull_request": 813,
   "intent": "Repair all remaining PR blockers, integrate current main without losing diagnostic or app-audit changes, and merge after exact-head validation passes.",
-  "state": "READY_TO_PUBLISH_FIXTURE_AND_TEST_FOLLOWUP",
+  "state": "READY_TO_PUBLISH_CONSOLIDATED_TRANSPORT_COMPOSER_FOLLOWUP",
   "task_store": "engineering_agent_checkpoints",
   "task_store_key": "pr813-integration-2026-11-07",
   "merge_requested": true,
@@ -32,10 +32,10 @@
       "scope": "actual changed production with platform boundaries; Room/Android cases awaitCI"
     },
     "exact_head_ci": {
-      "head": "b34c7dc01368584a480a20a83d15f0f573a11f15",
-      "status": "PRODUCTION_COMPILED_TEST_COMPILATION_FAILED",
-      "run_url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/42415154171",
-      "qualification": "The corrected follow-up requires its own full Android and canonical checks. No full-unit or packaged-DEX pass is claimed for this ancestor."
+      "head": "41cb3135a417183b8a6638d4fa447524872ed57e",
+      "status": "FULL_UNIT_RESULTS_REQUIRE_FOLLOWUP",
+      "run_url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/42416901069",
+      "qualification": "All production and test compilation passed. The full unit suite has 20 failures outside the GitHub suites; this head is not merge-ready."
     },
     "device_tests": "NOT_RUN_NO_CONNECTED_DEVICE",
     "focused_github": {
@@ -63,11 +63,11 @@
     "canonical_fast": {
       "python_tests_passed": 398,
       "failures": 0,
-      "regex_literals_checked": 1273,
+      "regex_literals_checked": 1274,
       "regex_dynamic_calls_skipped": 75,
       "regex_errors": 0,
       "xml_files_validated": 30,
-      "scope": "Canonical host gate after the fixture production fix, test-constructor correction and inventory regeneration",
+      "scope": "Canonical host gate after transport/composer repairs and source inventory regeneration",
       "passed": true
     },
     "focused_engineering_transport": {
@@ -76,13 +76,13 @@
     },
     "kotlin_formatting": {
       "passed": true,
-      "changed_files_checked": 4,
+      "changed_files_checked": 6,
       "version": "1.3.1",
-      "scope": "Current fixture/test follow-up relative to b34c7dc0; preceding 24-file follow-up and initial157-file integration also passed"
+      "scope": "Consolidated follow-up relative to 9b0dc986, including regenerated source inventory"
     },
     "release_scope": {
       "passed": true,
-      "checked_paths": 991,
+      "checked_paths": 1024,
       "qualification": "scoped"
     },
     "generated_inventory": {
@@ -195,6 +195,87 @@
       "strict_host_boundary_used": true,
       "assertions_unchanged": true,
       "qualification": "Focused Kotlin host compilation/execution; full Android compilation and test execution require the next published head."
+    },
+    "android_41cb3135": {
+      "head": "41cb3135a417183b8a6638d4fa447524872ed57e",
+      "production_and_test_compilation": "PASSED",
+      "unit_suites": 1218,
+      "unit_tests": 7667,
+      "failures": 20,
+      "errors": 0,
+      "skipped": 5,
+      "github_suites": 203,
+      "github_tests_passed": 1370,
+      "github_failures": 0,
+      "github_skipped": 0,
+      "chat_repository_tests_passed": 54,
+      "research_incident_tests_passed": 1,
+      "failure_groups": {
+        "ChatCompletionTransportTest": 5,
+        "OpenAIRecoveryTransportTest": 8,
+        "ProviderToolRejectionTest": 5,
+        "ComposerInputLifecycleTest": 2
+      },
+      "artifact_id": 13592646537,
+      "artifact_sha256": "a0c157ebb6f45175811eed0db1e7304e9e5fbdebe5b3b09d77bf149f20faedb7",
+      "xml_integrity_verified": true,
+      "android_lint": "PASSED",
+      "api34_acceptance": "PASSED",
+      "api36_acceptance": "PASSED",
+      "gateway_matrix": "ALL_FOUR_PASSED",
+      "windows_installer": "PASSED",
+      "codeql": "PASSED",
+      "apk_catalog_download_contracts": "PASSED",
+      "packaged_dex": "PASSED",
+      "qualification": "Exact-head Android CI evidence, retained separately from focused host tests; failures must be corrected and the follow-up head fully qualified.",
+      "checkout_merge_sha": "02da6abe3734b2c8adccd01909b2e97164c83c7b",
+      "review_apk": "PASSED",
+      "packaged_dex_evidence": {
+        "run_url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/42416859371",
+        "apk_variants": [
+          "arm64-v8a",
+          "universal",
+          "x86_64"
+        ],
+        "checked_methods_per_variant": 2932,
+        "largest_method": "ChatRepositoryImpl.delegateToProfile",
+        "largest_code_units": 15900,
+        "limit_exclusive": 16383,
+        "threshold_unchanged": true
+      }
+    },
+    "strict_range_followup_review": {
+      "head": "41cb3135a417183b8a6638d4fa447524872ed57e",
+      "tests_passed": 11,
+      "ordinary_schema_estimated_tokens": 997,
+      "ordinary_plan_estimated_tokens": 1436,
+      "limits_unchanged": true
+    },
+    "transport_followup": {
+      "original_ci_failures_reproduced": 18,
+      "repaired_fixtures_before_production_fix": {
+        "tests": 46,
+        "passed": 45,
+        "failed": 1
+      },
+      "assigned_transport_tests_passed": 47,
+      "gateway_negotiation_tests_passed": 16,
+      "scope": "Actual HTTP transports, request preparation, gateway negotiation/recovery, connectivity and retry logic with real CIO loopback servers, Ktor fixtures and explicit Android/service boundaries.",
+      "production_fix": "Preserve 9b caller-level connectivity admission before gateway negotiation and its response/error-attached receipts. The redundant nested loader guard is removed to preserve the single recovery-probe lease.",
+      "fixture_repairs": "Preserve 9b independent routes and strict single-response contract. Strengthen zero pre-rejection events, auth/provenance receipts, exact retry/no-replay and one-tool-payload assertions.",
+      "reconciled_source_parent": "9b0dc9860858b3ef55008723ac63fe992e8c4aca",
+      "combined_tests_passed": 63,
+      "combined_run_seconds": 46.073,
+      "source_hashes_verified": true
+    },
+    "composer_followup": {
+      "ci_failures_before_fix": 2,
+      "original_tests_retained": 6,
+      "new_regressions": 2,
+      "focused_ui_execution": "NOT_RUN_LOCALLY_NO_COMPOSE_ROBOLECTRIC_OR_ANDROID_SDK",
+      "implementation": "Preserve 9b input capture release, low-level focus target, actual-focus-at-dispatch and disposal safeguards; make target eligibility temporary, reset on departure and synchronously report successful ownership release.",
+      "requires_current_head_ci": true,
+      "total_tests_pending_ci": 8
     }
   },
   "accepted_scope": [
@@ -213,18 +294,20 @@
     "line reads with max_lines or EOF continuation"
   ],
   "pending": [
-    "publish with the exact remote-head lease after reconciling any concurrent work",
-    "run all required checks and the unchanged packaged DEX gate on the published head",
-    "reconcile current draft/review state, mark ready, and merge only through normal GitHub rules with the exact-head precondition",
+    "publish with an exact remote-head lease after reconciling any concurrent work",
+    "qualify all required checks, eight composer regressions and the unchanged packaged DEX gate on the corrected head",
+    "reconcile draft/review state, mark ready, and merge through normal GitHub rules with the exact-head precondition",
     "verify resulting main and remaining open PR inventory"
   ],
   "checkpoint_semantics": "Source-validation snapshot. The exact published commit, required checks and merge outcome are authoritative in PR 813 and its current checks.",
-  "reconciled_remote_head": "b34c7dc01368584a480a20a83d15f0f573a11f15",
+  "reconciled_remote_head": "9b0dc9860858b3ef55008723ac63fe992e8c4aca",
   "reconciled_concurrent_work": {
     "source_commit": "d02f7f85824ab130b7c8c11c784bb960618eccb4",
     "documentation_commit": "a06bbe33d57c00d81a75aabefaa0d27fe50b96b9",
     "preserved": true,
     "scope": "Standard-chat GitHub task contracts, continuation, catalog/provenance, gateway streaming observations and UI lifecycle improvements from the concurrent branch writer.",
-    "additional_commit": "458d5aca784361e5c83523e4385329e6ce13208f"
+    "additional_commit": "458d5aca784361e5c83523e4385329e6ce13208f",
+    "latest_commit": "9b0dc9860858b3ef55008723ac63fe992e8c4aca",
+    "latest_scope": "Preserve response/error-attached provenance, early connectivity admission, isolated recovery routes, focus-target release and actual-focus assertions; consolidate overlapping repairs without nesting recovery-probe admission."
   }
 }

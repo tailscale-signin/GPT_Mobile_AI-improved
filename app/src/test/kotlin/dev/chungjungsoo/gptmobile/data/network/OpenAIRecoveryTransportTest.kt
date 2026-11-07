@@ -259,6 +259,12 @@ class OpenAIRecoveryTransportTest {
                 val chunks = api.streamChatCompletion(request, 5, config).toList()
                 assertEquals(if (toolStarted) 1 else 2, attempts)
                 assertEquals(toolStarted, chunks.any { it.error != null })
+                assertEquals(if (toolStarted) emptyList<Int>() else listOf(1), chunks.mapNotNull { it.retryAttempts })
+                assertEquals(if (toolStarted) "" else "recovered", chunks.flatMap { it.choices.orEmpty() }.mapNotNull { it.effectiveDelta.content }.joinToString(""))
+                val observations = chunks.filter { it.reasoningControlReceipt != null || it.providerResponseTiming != null }
+                assertTrue(observations.isNotEmpty())
+                assertTrue(observations.all { it.choices != null || it.error != null || it.gatewayProgress != null })
+                assertTrue(observations.all { it.reasoningControlReceipt != null && it.providerResponseTiming?.responseHeadersMs != null })
             }
         }
     }

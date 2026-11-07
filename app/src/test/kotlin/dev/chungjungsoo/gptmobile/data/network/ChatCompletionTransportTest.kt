@@ -142,6 +142,7 @@ class ChatCompletionTransportTest {
                 val chunks = runBlocking { api.streamChatCompletion(request(), 5, config).toList() }
                 assertEquals(done, chunks.any { it.streamFinished })
                 assertEquals(!done, chunks.any { it.error != null })
+                assertEquals(1, chunks.count { it.choices.orEmpty().any { choice -> !choice.effectiveDelta.toolCalls.isNullOrEmpty() } })
                 assertTrue(chunks.first().choices!!.single().effectiveDelta.toolCalls!!.isNotEmpty())
                 assertTrue(chunks.first().reasoningControlReceipt != null)
                 assertTrue(chunks.first().providerResponseTiming?.responseHeadersMs != null)

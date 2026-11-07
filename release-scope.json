@@ -834,6 +834,7 @@
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/ProviderErrorDiagnosticsTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/ProviderExceptionDetailsTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/ProviderResponseTimingTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/ProviderToolRejectionTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/ReasoningControlReceiptTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/ResilientStreamingClientTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/SelectedProfileRouteTest.kt",

@@ -84,8 +84,14 @@ The gateway aggregate, focused production-source checks and canonical local chec
 | GitHub catalogue/planning/pagination/narrator JVM host | 47 tests passed, plus six bound-target wrapper behavior tests. Initial, dynamic and LiteRtLm native dispatch hooks independently reviewed. |
 | UI policy JVM host | 19 tests passed. The pre-change parser fails the repository-clarification regression; the changed parser passes. |
 | Canonical fast | 378 script tests passed, plus CI policy, dependency catalogue, secret scan, Android regex, resources and whitespace. The regex checker handled 1,237 literal patterns and explicitly skipped 75 dynamic patterns. |
-| Formatting, release scope and generated metadata | All 87 changed Kotlin files passed ktlint 1.3.1. Exact changed paths fit the preserved release scope. The architecture index and gateway manifest were regenerated; all 166 gateway source entries still match the passing aggregate. |
+| Formatting, release scope and generated metadata | All 87 changed Kotlin files passed ktlint 1.3.1. Exact changed paths fit the preserved release scope. The architecture index and gateway manifest were regenerated. The Windows timing-fixture follow-up below changes one test entry; every production gateway entry remains identical to the passing aggregate. |
 | Complete Android build, native adapters/coordinator, Robolectric, heap gates and lint | Exact-head CI required. Local environment has Java 17 and no Android SDK; the project requires JDK 21 and Android SDK 37. |
+
+### Windows timing-fixture follow-up
+
+PR #813's Windows Python 3.12 gateway job (`128459511122`) exposed a test-clock assumption: a real 5 ms sleep produced equal zero-millisecond readings. Production timing remained valid; the fixture incorrectly required different clock ticks. The two affected fixtures now own controlled clocks and explicitly advance between synthetic chunks. Strict ordering, exact timing milestones, SSE retention and privacy assertions remain in place. All 15 message-contract tests passed after the change, followed by a fresh canonical fast validation with 378 script tests and all fast gates passing. Published fixture source: `a7c0be4b06d430854ec721cc31ab57b8e2853d57`.
+
+The complete local aggregate above predates this test-only refinement. The other 165 manifest entries, including all production gateway code, are unchanged. Exact-new-head Windows and Android CI remain pending; previous-head successes do not qualify the new revision automatically.
 
 The single gateway skip is `No bindable LAN IPv4 interface available on this host`; resolved nonloopback addresses failed binding with `EADDRNOTAVAIL`. Loopback/all-interface checks passed. Initial environment failures were resolved by providing pinned dependencies to isolated subprocesses. The active-cancellation test's timer-before-dispatch interleaving was reproduced and its synchronization repaired while preserving its cleanup and deadline assertions.
 

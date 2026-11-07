@@ -92,4 +92,27 @@ class GitHubSelfTestReadsTest {
         }
         assertEquals(JsonPrimitive("main"), GitHubSelfTestReads.next(listOf(tool("github_context", "branch")), listOf(status))?.arguments?.get("branch"))
     }
+
+    @Test fun successfulRunDoesNotHideAnObservedFailureAtTheSameRevision() {
+        val sha = "a".repeat(40)
+        val status = json("""{"trusted":true,"success":true,"tool":"github_context","arguments":{"action":"status"},"result":{"commit_sha":"$sha"}}""")
+        val runs = json("""{"trusted":true,"success":true,"tool":"github_ci","arguments":{"action":"runs"},"result":{"workflow_runs":[{"id":1,"head_sha":"$sha","status":"completed","conclusion":"success"},{"id":2,"head_sha":"$sha","status":"completed","conclusion":"failure"}]}}""")
+        assertEquals(json("""{"action":"failure","run_id":2,"expected_head_sha":"$sha"}"""), GitHubSelfTestReads.next(listOf(tool("github_ci", "failure")), listOf(status, runs))?.arguments)
+    }
+
+    @Test fun supersededFailureIsNotUsedToAnalyzeAnActiveRerun() {
+        val sha = "a".repeat(40)
+        val status = json("""{"trusted":true,"success":true,"tool":"github_context","arguments":{"action":"status"},"result":{"commit_sha":"$sha"}}""")
+        val runs = json("""{"trusted":true,"success":true,"tool":"github_ci","arguments":{"action":"runs"},"result":{"workflow_runs":[{"id":7,"run_attempt":1,"head_sha":"$sha","status":"completed","conclusion":"failure"}]}}""")
+        val newer = json("""{"trusted":true,"success":true,"tool":"github_ci","arguments":{"action":"run","run_id":7},"result":{"id":7,"run_attempt":2,"head_sha":"$sha","status":"in_progress","conclusion":null}}""")
+        assertEquals(null, GitHubSelfTestReads.next(listOf(tool("github_ci", "failure")), listOf(status, runs, newer)))
+    }
+
+    @Test fun historyPermissionDenialIsNotRetriedWithAnotherIssue() {
+        val issues = json("""{"trusted":true,"success":true,"tool":"github_issue","arguments":{"action":"list"},"result":{"items":[{"number":2}]}}""")
+        for (code in listOf("AUTH_REQUIRED", "PERMISSION_DENIED")) {
+            val rejected = json("""{"trusted":true,"success":false,"dispatched":false,"tool":"github_issue","arguments":{"action":"history","issue_number":1},"error_code":"$code"}""")
+            assertEquals(null, GitHubSelfTestReads.next(listOf(tool("github_issue", "history")), listOf(rejected, issues)))
+        }
+    }
 }

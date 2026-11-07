@@ -91,4 +91,32 @@ class RepositoryGraphFallbackTest {
         tool.execute("index", JsonObject(mapOf("action" to JsonPrimitive("index"))))
         assertEquals(1, nativeReads)
     }
+
+    @Test fun localGraphAdmissionRejectionDoesNotPretendDispatchOrGatewayOutage() = runTest {
+        for (code in listOf("PERMISSION_DENIED", "PERMISSION_REVOKED", "GRAPH_CONFIGURATION_REQUIRED")) {
+            var nativeReads = 0
+            val tool = RepositoryGraphTool("repository_graph", nativeStatus = { call ->
+                nativeReads++
+                AgentToolResult(call, ToolResultContent.Text("native"), false)
+            }) { throw dev.chungjungsoo.gptmobile.data.github.GatewayGraphAdmissionException(code, "Restore the selected configuration.") }
+            val result = tool.execute("denied", JsonObject(mapOf("action" to JsonPrimitive("status"))))
+            val body = (result.content as ToolResultContent.Json).value as JsonObject
+            assertEquals(code, result.errorCode)
+            assertFalse(result.dispatched)
+            assertEquals(JsonPrimitive("PRECHECK_REJECTED"), body["state"])
+            assertEquals(JsonPrimitive(false), body["automatic_retry"])
+            assertFalse(body.containsKey("native_read_alternatives"))
+            assertEquals(0, nativeReads)
+        }
+    }
+
+    @Test fun successfulNativeFallbackIsDegradedNotVerifiedGraphCoverage() = runTest {
+        val tool = RepositoryGraphTool("repository_graph", nativeStatus = { call -> AgentToolResult(call, ToolResultContent.Text("native"), false) }) { throw IOException("transport") }
+        val result = tool.execute("status", JsonObject(mapOf("action" to JsonPrimitive("status"))))
+        val body = (result.content as ToolResultContent.Json).value as JsonObject
+        assertTrue(result.isError)
+        assertEquals(JsonPrimitive("DEGRADED"), body["state"])
+        assertEquals(JsonPrimitive(false), body["graph_complete"])
+        assertTrue((body["next_action"] as JsonPrimitive).content.contains("host GitHub connection"))
+    }
 }

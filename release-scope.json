@@ -830,6 +830,14 @@
     "scripts/tests/test_staged_diagnostic_inspection.py",
     "scripts/validate-local.sh",
     "scripts/verify_published_release.py",
-    "scripts/verify_release_identity.py"
+    "scripts/verify_release_identity.py",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayGraphAdmissionException.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubObservedWorkflowRuns.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubVerificationRecovery.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubObservedWorkflowRunsTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubVerificationReportRecoveryTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/permissions/GitHubAuthorizationBoundaryTest.kt",
+    "docs/repairs/github-verification-recovery-2026-11-06-task.json",
+    "docs/repairs/github-verification-recovery-2026-11-06.md"
   ]
 }

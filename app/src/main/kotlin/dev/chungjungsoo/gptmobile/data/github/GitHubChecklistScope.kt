@@ -13,5 +13,11 @@ internal object GitHubChecklistScope {
             !negatedRequest.containsMatchIn(task.substring(0, request.range.first))
         }
 
-    fun exhaustive(task: String): Boolean = Regex("(?i)\\b(?:all|entire|complete|full)\\s+(?:(?:workflow|ci|run|issue)\\s+)?(?:branches|workflows|pull requests|issues|commits|runs|tags|releases|inventor(?:y|ies)|history)\\b").containsMatchIn(task)
+    private val pendingReads = Regex("(?i)\\b(?:finish|complete|resume)\\s+(?:(?:all|the)\\s+)?(?:(?:pending|remaining|unread)\\s+)(?:read(?:s| pages)?|pages|pagination)\\b")
+
+    fun exhaustive(task: String): Boolean = requested(pendingReads, task) || requested(Regex("(?i)\\b(?:all|entire|complete|full)\\s+(?:(?:workflow|ci|run|issue)\\s+)?(?:branches|workflows|pull requests|issues|commits|runs|tags|releases|inventor(?:y|ies)|history)\\b"), task)
+
+    private fun requested(pattern: Regex, task: String): Boolean = pattern.findAll(task).any { match ->
+        !negatedRequest.containsMatchIn(task.substring(0, match.range.first))
+    }
 }

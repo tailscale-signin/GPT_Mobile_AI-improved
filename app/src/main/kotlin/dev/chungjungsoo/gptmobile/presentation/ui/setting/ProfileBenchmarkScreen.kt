@@ -84,7 +84,13 @@ import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: ProfileBenchmarkViewModel = hiltViewModel(), embedded: Boolean = false) {
+fun ProfileBenchmarkScreen(
+    onBack: () -> Unit,
+    onUsage: () -> Unit,
+    viewModel: ProfileBenchmarkViewModel = hiltViewModel(),
+    embedded: Boolean = false,
+    onOpenAuditConnection: ((String) -> Unit)? = null
+) {
     val debugMode by viewModel.debugMode.collectAsStateWithLifecycle()
     val exporting by viewModel.exporting.collectAsStateWithLifecycle()
     val exportNotice by viewModel.exportNotice.collectAsStateWithLifecycle()
@@ -363,7 +369,7 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
                             onExport = { requestAuditExport(selectedAudit.id) }
                         )
                     }
-                    appAuditEvidenceContent(selectedAudit, auditTargetNames)
+                    appAuditEvidenceContent(selectedAudit, auditTargetNames, onOpenAuditConnection)
                 }
             } else if (tab == 6) {
                 item {

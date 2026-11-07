@@ -791,7 +791,8 @@ fun ToolConnectionEditorScreen(
     connectionUid: String? = null,
     viewModel: ToolConnectionsViewModel = hiltViewModel(),
     onNavigationClick: () -> Unit,
-    onSaveComplete: () -> Unit
+    onSaveComplete: () -> Unit,
+    probeAfterSave: Boolean = true
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val connection = connectionUid?.let { uid -> uiState.connections.firstOrNull { it.connectionUid == uid } }
@@ -911,7 +912,8 @@ fun ToolConnectionEditorScreen(
                 oauthClientId,
                 allowCleartext,
                 clearCredential,
-                onSaveComplete
+                onSaveComplete,
+                probeAfterSave = probeAfterSave
             )
         }
     }

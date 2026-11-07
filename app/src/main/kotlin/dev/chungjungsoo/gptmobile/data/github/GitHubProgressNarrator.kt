@@ -42,11 +42,12 @@ internal class GitHubProgressNarrator(
     private var lastRevision = -1L
     private var attempts = 0
     private var reservedTokens = 0
+    private var unavailableForRun = false
     private val published = mutableSetOf<String>()
 
     suspend fun beforeRound(workReplayTokens: Long = 0) {
         val at = now()
-        if (at - lastAttemptAt < GitHubChatProgress.SUMMARY_INTERVAL_MS || attempts >= 16) return
+        if (unavailableForRun || at - lastAttemptAt < GitHubChatProgress.SUMMARY_INTERVAL_MS || attempts >= 16) return
         val current = snapshot()
         if (current.revision == lastRevision || current.revision == 0L) return
         val prompt = current.prompt()
@@ -86,7 +87,13 @@ internal class GitHubProgressNarrator(
             null
         }
         validate()
-        val text = candidate?.let { validSummary(it, prompt) } ?: return
+        val text = candidate?.let { validSummary(it, prompt) }
+        if (text == null) {
+            // New repository evidence cannot repair a failed optional narrator. Keep
+            // this run's remaining budget for work; receipt-derived progress continues.
+            unavailableForRun = true
+            return
+        }
         if (published.add(GitHubProgressPresentation.lineKey(text))) publish(ApiState.ActivitySummary(text, modelAuthored = true))
     }
 

@@ -13,11 +13,16 @@ internal object GitHubTaskContinuity {
 
     fun diagnostic(text: String): Boolean {
         val prompt = request(text)
-        val question = Regex("(?i)\\b(?:why|explain|what happened|reason)\\b").containsMatchIn(prompt)
-        val previous = Regex("(?i)\\b(?:stopp?ed|stop|interrupt(?:ed|ion)?|incomplete|previous (?:run|response)|last (?:run|response))\\b").containsMatchIn(prompt)
-        val assistantFailure = Regex("(?i)\\b(?:you|your (?:answer|response)|the (?:assistant|answer|response|reviewer))\\b").containsMatchIn(prompt) &&
-            Regex("(?i)\\b(?:fail(?:ed|ing|ure|ures)?|blank|empty|withheld|blocked|stuck)\\b").containsMatchIn(prompt)
-        return question && (previous || assistantFailure)
+        // The subject must be the assistant or this conversation. A polite "can you
+        // explain why CI stopped" still asks for repository evidence, not old diagnostics.
+        val subject = "(?:you|your (?:(?:previous|last|current) )?(?:answer|response|run)|" +
+            "(?:the )?(?:previous|last) (?:answer|response)|the (?:assistant|answer|response|reviewer)|" +
+            "(?:this|the|our) (?:chat|conversation)(?: run)?)"
+        val auxiliary = "(?:(?:did|do|does|is|are|was|were|has|have|had|been|being|got|get|still|just|suddenly|unexpectedly)\\s+){0,3}"
+        val problem = "(?:stop(?:ped|ping)?|interrupt(?:ed|ion)?|incomplete|fail(?:ed|ing|ure|ures)?|blank|empty|withheld|blocked|stuck)"
+        val explanation = "(?:why\\s+$auxiliary|(?:explain|reason(?: for)?)\\s+)"
+        return Regex("(?i)\\b$explanation$subject\\s+$auxiliary$problem\\b").containsMatchIn(prompt) ||
+            Regex("(?i)\\bwhat happened to $subject\\s*[?.!]*$").containsMatchIn(prompt)
     }
 
     /** This identifies a resume request only. The claimed commit is verified by read receipts. */

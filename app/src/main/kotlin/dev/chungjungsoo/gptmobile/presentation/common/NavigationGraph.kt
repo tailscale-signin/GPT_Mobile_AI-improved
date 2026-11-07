@@ -533,7 +533,8 @@ fun NavGraphBuilder.settingNavigation(
         ) {
             dev.chungjungsoo.gptmobile.presentation.ui.setting.ProfileBenchmarkScreen(
                 onBack = { navController.navigateUp() },
-                onUsage = { navController.navigate(Route.USAGE_STATISTICS) }
+                onUsage = { navController.navigate(Route.USAGE_STATISTICS) },
+                onOpenAuditConnection = { uid -> navController.navigate(Route.AUDIT_CONNECTION_REPAIR.replace("{connectionUid}", android.net.Uri.encode(uid))) }
             )
         }
         composable(Route.DEBUG_DIAGNOSTICS + "?focus={focus}", arguments = listOf(navArgument("focus") { defaultValue = "" })) {
@@ -547,7 +548,8 @@ fun NavGraphBuilder.settingNavigation(
                 onStatisticsClick = { navController.navigate(Route.USAGE_STATISTICS) },
                 onBenchmarksClick = { navController.navigate(Route.PROFILE_BENCHMARKS.replace("{profileUid}", "")) },
                 initialFocus = it.arguments?.getString("focus").orEmpty(),
-                toolConnectionsViewModel = toolConnectionsViewModel
+                toolConnectionsViewModel = toolConnectionsViewModel,
+                onOpenAuditConnection = { uid -> navController.navigate(Route.AUDIT_CONNECTION_REPAIR.replace("{connectionUid}", android.net.Uri.encode(uid))) }
             )
         }
         composable(Route.AI_PLATFORMS) {
@@ -763,6 +765,30 @@ fun NavGraphBuilder.settingNavigation(
                 viewModel = toolConnectionsViewModel,
                 onNavigationClick = { navController.navigateUp() },
                 onSaveComplete = { navController.navigateUp() }
+            )
+        }
+        composable(
+            Route.AUDIT_CONNECTION_REPAIR,
+            arguments = listOf(navArgument("connectionUid") { type = NavType.StringType })
+        ) { entry ->
+            dev.chungjungsoo.gptmobile.presentation.ui.setting.AuditConnectionRepairScreen(
+                connectionUid = entry.arguments?.getString("connectionUid").orEmpty(),
+                viewModel = toolConnectionsViewModel,
+                onBack = { navController.navigateUp() },
+                onEdit = { uid -> navController.navigate(Route.AUDIT_CONNECTION_EDIT.replace("{connectionUid}", android.net.Uri.encode(uid))) },
+                onLaunchOAuth = onLaunchOAuth
+            )
+        }
+        composable(
+            Route.AUDIT_CONNECTION_EDIT,
+            arguments = listOf(navArgument("connectionUid") { type = NavType.StringType })
+        ) { entry ->
+            ToolConnectionEditorScreen(
+                connectionUid = entry.arguments?.getString("connectionUid"),
+                viewModel = toolConnectionsViewModel,
+                onNavigationClick = { navController.navigateUp() },
+                onSaveComplete = { navController.navigateUp() },
+                probeAfterSave = false
             )
         }
         composable(

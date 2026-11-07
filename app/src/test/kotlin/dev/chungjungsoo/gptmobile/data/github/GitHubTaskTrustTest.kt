@@ -132,6 +132,45 @@ class GitHubTaskTrustTest {
         assertEquals(ProviderEvent.Completed, events.last())
     }
 
+    @Test fun repositoryInterruptionQuestionsStartNewTasksAndKeepTheirOwnRecoveryIdentity() {
+        for (current in listOf("Why did CI stop on PR #813?", "Can you explain why workflow 42416901069 stopped?", "Why was the previous workflow run interrupted?")) {
+            val history = listOf(
+                MessageV2(id = 1, chatId = 7, content = "Test all GitHub tools", platformType = null),
+                MessageV2(id = 2, chatId = 7, content = current, platformType = null)
+            )
+            assertNull(current, resolveTaskRecovery(history))
+            val resumed = requireNotNull(resolveTaskRecovery(history + MessageV2(id = 3, chatId = 7, content = "continue", platformType = null)))
+            assertEquals(current, resumed.originalRequest)
+            assertEquals(2, resumed.sourceMessageId)
+        }
+    }
+
+    @Test fun repositoryInterruptionQuestionsReachLiveInvestigationInsteadOfHistoricalExplanation() = runBlocking {
+        val ci = AgentToolDefinition("github_ci", "Read the requested workflow", JsonObject(emptyMap()))
+        val call = ProviderEvent.ToolCall("current-workflow", ci.name, buildJsonObject { put("action", "runs") })
+        for (current in listOf("Why did CI stop on PR #813?", "Can you explain why workflow 42416901069 stopped?", "Why was the previous workflow run interrupted?")) {
+            var providerRounds = 0
+            val book = GitHubEvidenceBook("current", "o/r", "feature", setOf(ci.name), latestVerdict = {
+                buildJsonObject {
+                    put("binding", "current")
+                    put("verification_failure", "GITHUB_TASK_INCOMPLETE")
+                }
+            })
+            val provider = object : AgentProviderSession {
+                override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flowOf(call, ProviderEvent.Completed).also {
+                    providerRounds++
+                    assertEquals(listOf(ci), tools)
+                }
+            }
+            val gate = GitHubVerifiedSession(provider, book, current, { 8192 }, { error("A tool round does not need answer extraction") }, {}, {})
+            val events = gate.streamRound(listOf(ci), emptyList()).toList()
+            assertEquals(current, 1, providerRounds)
+            assertEquals(listOf(call), events.filterIsInstance<ProviderEvent.ToolCall>())
+            assertTrue(events.none { it is ProviderEvent.TextDelta })
+            assertEquals(ProviderEvent.Completed, events.last())
+        }
+    }
+
     @Test fun writingRetryRestoresSavedAnswerWithoutReplayingAcceptedOperations() = runBlocking {
         val saved = mutableMapOf<String, JsonObject>()
         fun book() = GitHubEvidenceBook("b", "o/r", "feature", setOf(read.name), load = { saved[it] }, save = { key, value -> saved[key] = value })

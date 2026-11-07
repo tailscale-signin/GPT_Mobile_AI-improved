@@ -31,7 +31,8 @@ internal data class AppAuditComponentPresentation(
 internal data class AppAuditPresentation(
     val summary: AppAuditSummary,
     val score: AppAuditScore,
-    val components: List<AppAuditComponentPresentation>
+    val components: List<AppAuditComponentPresentation>,
+    val evidenceText: String
 ) {
     val scoreText: String get() = "Measured check pass score: ${benchmarkMetricText(score.score, "/ 100", 1)}"
     val weightText: String get() = "Passing weight ${score.passedWeight} / measured weight ${score.measuredWeight}"
@@ -65,7 +66,11 @@ internal fun appAuditPresentation(run: AppAuditRun, currentTargetNames: Map<Stri
             appAuditSummary(run.copy(plan = plan))
         )
     }
-    return AppAuditPresentation(appAuditSummary(run), appAuditScore(run), components)
+    fun verified(kind: AppAuditEvidenceKind): Int = appAuditSummary(run.copy(plan = entries.filter { it.evidenceKind == kind })).verified
+    val evidenceText = "Verified measured evidence: ${verified(AppAuditEvidenceKind.LOCAL_CONTRACT)} local checks · " +
+        "${verified(AppAuditEvidenceKind.LIVE_METADATA)} metadata checks · ${verified(AppAuditEvidenceKind.TOOL_EXECUTION)} tool executions · " +
+        "${verified(AppAuditEvidenceKind.MODEL_EXECUTION)} model executions · ${verified(AppAuditEvidenceKind.DEVICE_MEASUREMENT)} device measurements"
+    return AppAuditPresentation(appAuditSummary(run), appAuditScore(run), components, evidenceText)
 }
 
 /** Display-only current labels. Exact UIDs never fall back to a name, URL or another target. */
@@ -76,6 +81,18 @@ internal fun appAuditCurrentTargetNames(profiles: List<Pair<String, String>>, co
             val name = matches.singleOrNull()?.second?.filterNot(Char::isISOControl)?.trim()?.take(120)?.takeIf(String::isNotBlank)
             name?.let { target to it }
         }.toMap()
+
+/** Navigation uses the exact surviving saved identity, never a historical alias or a matching name. */
+internal fun appAuditConnectionUid(item: AppAuditEntryPresentation): String? = item.entry.targetId
+    ?.takeIf { it.startsWith("connection:") && item.currentSavedName != null }
+    ?.removePrefix("connection:")
+    ?.takeIf { it.isNotBlank() && it.length <= 160 && it.none(Char::isISOControl) }
+
+internal fun appAuditRetryabilityText(retryable: Boolean?): String = when (retryable) {
+    true -> "Retryable: yes, after the connection's recovery conditions are met."
+    false -> "Retryable: no automatic retry. Correct the problem, then explicitly reconnect or check again."
+    null -> "Retryable: not determined. Inspect the connection before retrying."
+}
 
 internal fun AppAuditEvidenceKind.auditLabel(): String = when (this) {
     AppAuditEvidenceKind.CONFIGURATION -> "Configuration"
@@ -102,6 +119,9 @@ internal fun appAuditOutcomeLabel(outcome: AppAuditOutcome?): String = when (out
 internal fun appAuditReason(item: AppAuditEntryPresentation): String {
     if (item.active) return "This check is in progress."
     val entry = item.entry
+    if (item.result?.observation?.httpStatus == 403 && item.result.reasonCode == "MCP_AUTHENTICATION_REQUIRED") {
+        return "The service denied permission (HTTP 403). Review the account's access and server policy, then explicitly check the connection again."
+    }
     appAuditReasonCodeMessage(item.result?.reasonCode ?: entry.reasonCode)?.let { return it }
     if (!entry.selected) return "Not selected for this run."
     when (entry.prerequisite) {
@@ -142,8 +162,16 @@ internal fun appAuditReasonCodeMessage(code: String?): String? = when (code) {
     "PLUGIN_DISABLED" -> "This plugin was disabled for the accepted plan."
     "PLUGIN_NOT_INSTALLED" -> "This plugin is not installed. Its behavior remains untested."
     "PLUGIN_NOT_CONFIGURED" -> "Configure the plugin connection before starting a new audit."
+    "PLUGIN_CREDENTIAL_IDENTITY_UNAVAILABLE" -> "The saved credential configuration could not be verified. Save the intended credentials or sign in, refresh the connection, then explicitly check again. No current execution is qualified."
     "PLUGIN_PACKAGE_NOT_VERIFIED" -> "The installed plugin package could not be verified. Its runtime behavior remains untested."
     "MCP_RECONNECT_REQUIRED", "MCP_AUTHENTICATION_REQUIRED", "AUTHENTICATION_FAILED" -> "Reconnect or authenticate this service in Tool connections, then start a new audit."
+    "MCP_DISCOVERY_SCHEMA_INVALID" -> "The server's protocol-version discovery response failed validation. Inspect the recorded rule and field, correct the server or bridge compatibility, then explicitly check this connection again. This does not identify an individual tool's argument schema."
+    "MCP_DISCOVERY_CONFIGURATION" -> "Protocol discovery was rejected or its configuration was invalid. Inspect the recorded HTTP status and validation detail, correct the endpoint, server or bridge, then explicitly check this connection again."
+    "MCP_DISCOVERY_UNAVAILABLE" -> "Discovery did not produce a verified result. Its cause is not established. Inspect the failure phase and dispatch evidence, check the saved endpoint and authentication, then run an explicit connection check."
+    "MCP_LOCAL_ENDPOINT_INVALID", "MCP_ENDPOINT_CONFIGURATION" -> "The saved endpoint was rejected. Correct its URL and transport settings, then explicitly check this connection again."
+    "MCP_LOCAL_AUTH_TYPE_INVALID" -> "The saved authentication type is unsupported. Choose a supported authentication method in this connection's settings before checking again."
+    "MCP_LOCAL_CONNECTION_INVALID" -> "The saved connection identity is invalid. Open the intended connection's settings and save it again before checking discovery."
+    "MCP_LOCAL_CREDENTIAL_MISSING", "MCP_LOCAL_CREDENTIAL_INVALID" -> "The saved credential is missing or invalid. Replace it or sign in again in this connection's settings. This local rejection did not send an MCP request."
     "MCP_BACKOFF_ACTIVE" -> "The connection is still in its recovery cooldown. This audit does not bypass the retry policy."
     "GATEWAY_PROFILE_UNAVAILABLE", "GATEWAY_PROFILE_UNSUPPORTED" -> "The explicitly selected gateway profile is unavailable or unsupported. Select the intended saved gateway profile for a new audit."
     "CONNECTION_REFUSED", "DNS_FAILED", "DNS_RECOVERY", "ROUTE_UNAVAILABLE", "TLS_FAILURE" -> "The configured service could not be reached securely. Check its connection settings before retrying."

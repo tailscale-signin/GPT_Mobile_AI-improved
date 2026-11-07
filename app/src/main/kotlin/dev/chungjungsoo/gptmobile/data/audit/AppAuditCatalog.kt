@@ -92,7 +92,7 @@ class AppAuditCatalog @Inject constructor(sources: Set<@JvmSuppressWildcards App
         run.plan.map { it.id }.distinct().size != run.plan.size -> "INVALID_AUDIT_MANIFEST"
         run.results.map { it.entryId }.distinct().size != run.results.size || run.results.any { result -> run.plan.none { it.id == result.entryId } } -> "INVALID_AUDIT_RECEIPTS"
         run.activeProbeId != null && run.plan.none { it.id == run.activeProbeId } -> "INVALID_AUDIT_RECEIPTS"
-        run.executedProbes < run.results.count { it.attempted } || run.networkProbesDispatched !in 0..run.limits.maxNetworkProbes -> "INVALID_AUDIT_BUDGET"
+        run.executedProbes < run.results.count { it.attempted } || run.networkProbesDispatched !in 0..run.limits.maxNetworkProbes || run.networkProbesAttempted !in 0..run.limits.maxNetworkProbes -> "INVALID_AUDIT_BUDGET"
         else -> null
     }
 }

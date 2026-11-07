@@ -22,6 +22,29 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class McpOAuthClientTest {
+    @Test fun callbackErrorCannotExposeUntrustedTextOrTriggerATokenRequest() = runBlocking {
+        var requests = 0
+        HttpClient(
+            io.ktor.client.engine.mock.MockEngine {
+                requests++
+                error("Rejected callbacks must not dispatch")
+            }
+        ).use { http ->
+            val callback = "dev.chungjungsoo.gptmobile://oauth/mcp/connection"
+            val pending = McpOAuthPending(clientId = "client", tokenEndpoint = "https://oauth.example/token", resource = "https://mcp.example/mcp", redirectUri = callback, state = "expected-state", codeVerifier = "verifier")
+            for (errorValue in listOf("access_denied", "private-token%0AAuthorization%3ABearer%20private-credential%20https%3A%2F%2Fprivate.example%2F%3Fkey%3Dprivate-query")) {
+                val failure = runCatching {
+                    McpOAuthClient(http).completeAuthorization(pending, "$callback?state=expected-state&error=$errorValue")
+                }.exceptionOrNull()
+                assertTrue(failure is McpOAuthException)
+                assertEquals("OAuth authorization did not complete. Reconnect this service in Plugins/Tools and try again.", failure?.message)
+                assertEquals(null, failure?.cause)
+                assertFalse(failure?.message.orEmpty().contains("private"))
+            }
+            assertEquals(0, requests)
+        }
+    }
+
     @Test fun rejectedRefreshRequiresReauthorizationWithoutExposingResponseText() = runBlocking {
         HttpClient(
             io.ktor.client.engine.mock.MockEngine {

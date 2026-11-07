@@ -49,6 +49,8 @@ object Route {
     const val TOOL_CONNECTIONS = "tool_connections"
     const val ADD_TOOL_CONNECTION = "tool_connections/add"
     const val EDIT_TOOL_CONNECTION = "tool_connections/edit/{connectionUid}"
+    const val AUDIT_CONNECTION_REPAIR = "tool_connections/audit/{connectionUid}"
+    const val AUDIT_CONNECTION_EDIT = "tool_connections/audit/{connectionUid}/edit"
     const val MCP_MARKETPLACE = "tool_connections/marketplace"
     const val PLATFORM_SETTINGS = "platform_settings/{platformUid}"
     const val PROVIDER_CONNECTION_SETTINGS = "provider_settings/{connectionUid}"

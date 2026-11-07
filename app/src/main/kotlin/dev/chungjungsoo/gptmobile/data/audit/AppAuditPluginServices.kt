@@ -1,7 +1,10 @@
 package dev.chungjungsoo.gptmobile.data.audit
 
 import dev.chungjungsoo.gptmobile.data.agent.tool.AgentToolResolver
+import dev.chungjungsoo.gptmobile.data.agent.tool.McpBackoffException
 import dev.chungjungsoo.gptmobile.data.agent.tool.McpClientManager
+import dev.chungjungsoo.gptmobile.data.agent.tool.McpConnectionHealth
+import dev.chungjungsoo.gptmobile.data.agent.tool.mcpConfigurationRevision
 import dev.chungjungsoo.gptmobile.data.agent.tool.mcpFailurePresentation
 import dev.chungjungsoo.gptmobile.data.catalog.GitHubMarketplaceCatalog
 import dev.chungjungsoo.gptmobile.data.catalog.MarketplaceRuntime
@@ -112,7 +115,8 @@ internal class AppAuditPluginServices @Inject constructor(
                     (connection.type != ToolConnectionType.MCP || features.remoteMcpConnections)
                 val isMcp = connection.type == ToolConnectionType.MCP
                 val authReference = connection.secretRef.takeUnless { isMcp && connection.authType == ToolConnectionAuthType.NONE }
-                val credentialIdentity = credentialIdentity(listOfNotNull(authReference, EndpointSecrets.protectedReference(connection)))
+                val configurationRevision = if (isMcp) mcpConfigurationRevision(connection, secretVault) else null
+                val credentialIdentity = if (isMcp) configurationRevision else credentialIdentity(listOfNotNull(authReference, EndpointSecrets.protectedReference(connection)))
                 val ready = (!isMcp || !connection.endpointUrl.isNullOrBlank()) && (connection.authType == ToolConnectionAuthType.NONE || connection.secretRef != null) && credentialIdentity != null
                 add(
                     AppAuditPluginTarget(
@@ -121,10 +125,15 @@ internal class AppAuditPluginServices @Inject constructor(
                         if (isMcp) "mcp_connection" else "configured_connection",
                         ready,
                         enabled,
-                        appAuditTargetDigest("${connection.copy(secretRef = authReference)}:$enabled:$credentialIdentity"),
-                        unavailableReason = if (credentialIdentity == null) "PLUGIN_CREDENTIAL_IDENTITY_UNAVAILABLE" else "PLUGIN_NOT_CONFIGURED",
-                        liveReadPrecheck = if (isMcp) recoveryBlock(connection) else null,
-                        liveRead = if (isMcp) ({ discover(connection) }) else null
+                        if (isMcp) appAuditTargetDigest("$configurationRevision:$enabled") else appAuditTargetDigest("${connection.copy(secretRef = authReference)}:$enabled:$credentialIdentity"),
+                        unavailableReason = when {
+                            (isMcp && connection.endpointUrl.isNullOrBlank()) || (connection.authType != ToolConnectionAuthType.NONE && connection.secretRef == null) -> "PLUGIN_NOT_CONFIGURED"
+                            credentialIdentity == null -> "PLUGIN_CREDENTIAL_IDENTITY_UNAVAILABLE"
+                            else -> "PLUGIN_NOT_CONFIGURED"
+                        },
+                        liveReadPrecheck = if (isMcp) recoveryBlock(connection, configurationRevision) else null,
+                        liveRead = if (isMcp) ({ discover(connection, configurationRevision) }) else null,
+                        configurationRevision = configurationRevision
                     )
                 )
             }
@@ -170,26 +179,40 @@ internal class AppAuditPluginServices @Inject constructor(
         return appAuditTargetDigest(revisions.joinToString("\n"))
     }
 
-    private fun recoveryBlock(connection: ToolConnection): AppAuditObservation? {
+    private fun recoveryBlock(connection: ToolConnection, configurationRevision: String?): AppAuditObservation? {
         val previous = mcp.healthSnapshot(connection.connectionUid)
+        // A retained failure for a different saved configuration cannot veto a new plan.
+        // Legacy health has no revision proof: preserve its original time and unknown revision.
+        if (previous.failureConfigurationRevision != null && configurationRevision != null && previous.failureConfigurationRevision != configurationRevision) return null
         val retryAt = previous.nextRetryAtMs
         if (retryAt != null && retryAt > System.currentTimeMillis()) {
+            val presentation = mcpFailurePresentation(McpBackoffException(connection.connectionUid, retryAt), previous)
             return AppAuditObservation(
                 AppAuditOutcome.BLOCKED,
                 previous.lastErrorCode?.takeIf { it in AppAuditPluginProbeSource.reasonCodes } ?: if (retryAt == Long.MAX_VALUE) "MCP_RECONNECT_REQUIRED" else "MCP_BACKOFF_ACTIVE",
                 stage = "mcp_discovery",
                 evidenceKind = AppAuditEvidenceKind.LIVE_METADATA,
                 observationSource = AppAuditObservationSource.CACHE,
-                retryable = previous.failureRetryable
+                dispatchEvidence = AppAuditDispatchEvidence.NOT_DISPATCHED,
+                retryable = previous.failureRetryable,
+                httpStatus = presentation.httpStatus,
+                failurePhase = safeAuditFailurePhase(presentation.phase),
+                failureCategory = safeAuditFailureCategory(presentation.outcome),
+                validationRule = safeAuditValidationRule(presentation.validationRule),
+                validationField = safeAuditDiagnosticField(presentation.validationField),
+                observedAtEpochMs = previous.lastFailureAtMs?.takeIf { it >= 0 },
+                configurationRevision = safeAuditConfigurationRevision(previous.failureConfigurationRevision)
             )
         }
         return null
     }
 
-    private suspend fun discover(connection: ToolConnection): AppAuditObservation {
-        recoveryBlock(connection)?.let { return it }
+    private suspend fun discover(connection: ToolConnection, configurationRevision: String?): AppAuditObservation {
+        recoveryBlock(connection, configurationRevision)?.let { return it }
+        val startedAt = System.currentTimeMillis()
         return try {
             val tools = resolver.discoverMcpTools(connection, forceRefresh = true, awaitCompletion = true)
+            val stableRevision = configurationRevision?.takeIf { it == mcpConfigurationRevision(connection, secretVault) }
             AppAuditObservation(
                 AppAuditOutcome.PASS,
                 if (tools.isEmpty()) "MCP_EMPTY_CATALOG" else "MCP_DISCOVERY_VERIFIED",
@@ -197,20 +220,48 @@ internal class AppAuditPluginServices @Inject constructor(
                 evidenceKind = AppAuditEvidenceKind.LIVE_METADATA,
                 observationSource = AppAuditObservationSource.LIVE,
                 dispatchEvidence = AppAuditDispatchEvidence.CONFIRMED,
-                metrics = listOf(AppAuditMetric(AppAuditMetricName.TOOL_COUNT, tools.size.toDouble()))
+                metrics = listOf(AppAuditMetric(AppAuditMetricName.TOOL_COUNT, tools.size.toDouble())),
+                observedAtEpochMs = System.currentTimeMillis(),
+                configurationRevision = stableRevision
             )
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: Exception) {
-            val presentation = mcpFailurePresentation(failure, mcp.healthSnapshot(connection.connectionUid))
+            val cached = generateSequence<Throwable>(failure) { it.cause?.takeUnless { cause -> cause === it } }.take(8).any { it is McpBackoffException }
+            val health = mcp.healthSnapshot(connection.connectionUid)
+            // A new local rejection must not inherit an older server failure's HTTP status,
+            // timestamp or revision merely because its connection UID still matches.
+            val currentHealth = health.takeIf { cached || (it.lastFailureAtMs ?: -1) >= startedAt } ?: McpConnectionHealth()
+            val presentation = mcpFailurePresentation(failure, currentHealth)
+            val stableLocalRevision = configurationRevision?.takeIf {
+                presentation.phase == "local_validation" && it == mcpConfigurationRevision(connection, secretVault)
+            }
+            val dispatch = when {
+                cached || presentation.dispatchEvidence == "NOT_DISPATCHED" -> AppAuditDispatchEvidence.NOT_DISPATCHED
+                presentation.dispatchEvidence == "CONFIRMED" -> AppAuditDispatchEvidence.CONFIRMED
+                else -> AppAuditDispatchEvidence.UNKNOWN
+            }
             AppAuditObservation(
-                AppAuditOutcome.FAIL,
+                if (cached) AppAuditOutcome.BLOCKED else AppAuditOutcome.FAIL,
                 presentation.errorCode?.takeIf { it in AppAuditPluginProbeSource.reasonCodes } ?: "MCP_DISCOVERY_UNAVAILABLE",
                 stage = "mcp_discovery",
                 evidenceKind = AppAuditEvidenceKind.LIVE_METADATA,
-                observationSource = AppAuditObservationSource.LIVE,
-                dispatchEvidence = AppAuditDispatchEvidence.UNKNOWN,
-                retryable = presentation.retryable
+                observationSource = when {
+                    cached -> AppAuditObservationSource.CACHE
+                    dispatch == AppAuditDispatchEvidence.NOT_DISPATCHED -> AppAuditObservationSource.NONE
+                    else -> AppAuditObservationSource.LIVE
+                },
+                dispatchEvidence = dispatch,
+                retryable = presentation.retryable,
+                httpStatus = presentation.httpStatus,
+                failurePhase = safeAuditFailurePhase(presentation.phase),
+                failureCategory = safeAuditFailureCategory(presentation.outcome),
+                validationRule = safeAuditValidationRule(presentation.validationRule),
+                validationField = safeAuditDiagnosticField(presentation.validationField),
+                observedAtEpochMs = presentation.observedAtEpochMs?.takeIf { it >= 0 } ?: System.currentTimeMillis().takeUnless { cached },
+                // A null transport revision may mean the OAuth attempt crossed credential
+                // revisions. Only a proven local rejection can use the stable saved revision.
+                configurationRevision = safeAuditConfigurationRevision(presentation.configurationRevision) ?: stableLocalRevision.takeUnless { cached }
             )
         }
     }

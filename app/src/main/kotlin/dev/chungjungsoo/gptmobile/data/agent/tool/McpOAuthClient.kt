@@ -208,7 +208,7 @@ class McpOAuthClient internal constructor(
             throw McpOAuthException("OAuth callback repeated a parameter.")
         }
         val parameters = pairs.toMap()
-        parameters["error"]?.let { throw McpOAuthException("OAuth authorization failed: $it") }
+        if (parameters["error"] != null) throw McpOAuthException("OAuth authorization did not complete. Reconnect this service in Plugins/Tools and try again.")
         if (parameters["state"] != pending.state) throw McpOAuthException("OAuth callback state did not match.")
         val code = parameters["code"]?.takeIf { it.isNotBlank() && it.length <= MAX_AUTHORIZATION_CODE_LENGTH }
             ?: throw McpOAuthException("OAuth callback did not include an authorization code.")

@@ -280,6 +280,61 @@ class AppAuditExportTest {
         assertEquals(expected, appAuditInventoryDigest(listOf(record)))
     }
 
+    @Test
+    fun exportSeparatesBudgetAdmissionsFromConfirmedAndUnknownNetworkDispatch() = runBlocking {
+        val plan = listOf(entry("local"), entry("confirmed"), entry("unknown"), entry("cached"))
+        val receipts = listOf(
+            result("local", AppAuditOutcome.FAIL, "MCP_LOCAL_CREDENTIAL_INVALID").let { it.copy(observation = it.observation.copy(observationSource = AppAuditObservationSource.NONE, dispatchEvidence = AppAuditDispatchEvidence.NOT_DISPATCHED)) },
+            result("confirmed", AppAuditOutcome.PASS),
+            result("unknown", AppAuditOutcome.FAIL, "MCP_DISCOVERY_UNAVAILABLE").let { it.copy(observation = it.observation.copy(dispatchEvidence = AppAuditDispatchEvidence.UNKNOWN)) },
+            result("cached", AppAuditOutcome.BLOCKED, "MCP_DISCOVERY_SCHEMA_INVALID").let { it.copy(observation = it.observation.copy(observationSource = AppAuditObservationSource.CACHE, dispatchEvidence = AppAuditDispatchEvidence.NOT_DISPATCHED)) }
+        )
+        val document = export(batch(run(plan).copy(results = receipts, networkProbesDispatched = 3, networkProbesAttempted = 3)))
+        val counters = document["run"]!!.jsonObject
+        assertEquals(2, counters["networkAccountingVersion"]!!.jsonPrimitive.int)
+        assertEquals(3, counters["networkProbesAttempted"]!!.jsonPrimitive.int)
+        assertEquals(1, counters["networkProbesDispatched"]!!.jsonPrimitive.int)
+        assertEquals(1, counters["networkProbesConfirmed"]!!.jsonPrimitive.int)
+        assertEquals(1, counters["networkProbesDispatchUnknown"]!!.jsonPrimitive.int)
+        val kinds = document["evidenceByKind"]!!.jsonArray.map { it.jsonObject }.associateBy { it["evidenceKind"]!!.jsonPrimitive.content }
+        assertEquals(1, kinds.getValue("LIVE_METADATA")["verified"]!!.jsonPrimitive.int)
+        assertEquals(0, kinds.getValue("TOOL_EXECUTION")["verified"]!!.jsonPrimitive.int)
+    }
+
+    @Test
+    fun safeCachedFailureDetailIsPreservedAndPrivateDiagnosticKeysAreExcluded() = runBlocking {
+        val entry = entry().copy(configurationRevision = "a".repeat(64))
+        val known = result(entry.id, AppAuditOutcome.BLOCKED, "MCP_DISCOVERY_SCHEMA_INVALID").let {
+            it.copy(
+                observation = it.observation.copy(
+                    observationSource = AppAuditObservationSource.CACHE,
+                    dispatchEvidence = AppAuditDispatchEvidence.NOT_DISPATCHED,
+                    retryable = false, httpStatus = 200,
+                    failurePhase = "protocol_negotiation", failureCategory = "PROTOCOL_CONFIGURATION",
+                    validationRule = "PROTOCOL_VERSIONS_ARRAY_REQUIRED", validationField = "supportedVersions",
+                    observedAtEpochMs = 1, configurationRevision = "a".repeat(64)
+                )
+            )
+        }
+        val saved = export(batch(run(listOf(entry)).copy(results = listOf(known))))
+        val receipt = saved["results"]!!.jsonArray.single().jsonObject
+        assertEquals("protocol_negotiation", receipt["failurePhase"]!!.jsonPrimitive.content)
+        assertEquals("PROTOCOL_CONFIGURATION", receipt["failureCategory"]!!.jsonPrimitive.content)
+        assertEquals("PROTOCOL_VERSIONS_ARRAY_REQUIRED", receipt["validationRule"]!!.jsonPrimitive.content)
+        assertEquals("supportedVersions", receipt["validationField"]!!.jsonPrimitive.content)
+        assertEquals(1, receipt["observedAtEpochMs"]!!.jsonPrimitive.int)
+        assertEquals(10, receipt["startedAtEpochMs"]!!.jsonPrimitive.int)
+        assertEquals("a".repeat(64), receipt["configurationRevision"]!!.jsonPrimitive.content)
+        assertEquals("a".repeat(64), saved["checks"]!!.jsonArray.single().jsonObject["configurationRevision"]!!.jsonPrimitive.content)
+        val private = "PRIVATE_DIAGNOSTIC_VALUE"
+        val poisoned = known.copy(observation = known.observation.copy(failurePhase = private, failureCategory = private, validationRule = private, validationField = private))
+        val sanitized = export(batch(run(listOf(entry)).copy(results = listOf(poisoned))))
+        assertFalse(sanitized.toString().contains(private))
+        for (field in listOf("failurePhase", "failureCategory", "validationRule", "validationField")) {
+            assertEquals(JsonNull, sanitized["results"]!!.jsonArray.single().jsonObject[field])
+        }
+    }
+
     private fun entry(id: String = "entry") = AppAuditPlanEntry(
         id, "plugins", AppAuditPluginProbeSource.MCP_DISCOVERY, "mcp_connection", "MCP discovery",
         targetId = "private-target", sourceAreaIds = listOf("mcp_plugins"), evidenceKind = AppAuditEvidenceKind.LIVE_METADATA,

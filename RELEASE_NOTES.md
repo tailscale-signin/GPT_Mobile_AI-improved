@@ -51,6 +51,12 @@ The later diagnostic capture showed strict-template failures, interrupted client
 
 The [27-item coverage ledger and deployment checklist](docs/repairs/diagnostic-follow-through-c1466ca0-2026-11-07.md) distinguish implemented contracts from deployment and physical-device measurements. The existing release identity is unchanged; preparing this branch does not publish a release.
 
+## App audit and MCP follow-through — 7 November 2026
+
+Discovery now performs one eligible OAuth refresh for a confirmed 401 from either MCP transport, retains typed local failures without invented dispatch or HTTP status, and preserves safe protocol rules, original failure time and configuration revision. Audit evidence shows tailored recovery guidance and opens the exact saved connection for explicit repair. Stale configuration and credential changes invalidate pending connection checks and their health results.
+
+Network attempts, confirmed dispatches and unknown dispatches are separate. A build-bound qualification worklist describes the missing target and external-suite fixtures without executing tools or promoting historical results. The [repair and acceptance ledger](docs/repairs/app-audit-mcp-remediation-2026-11-07.md) maps the supplied findings to source changes, regressions and the required fresh observations. Diagnostic questions about repository jobs retain their repository intent; an unavailable optional narrator does not repeatedly consume the main task's model capacity.
+
 ## Implementation and verification
 
 Implementation reports: [diagnostic workflow](docs/repairs/diagnostic-workflow-evidence-2026-11-06.md), [gateway, acceptance and retention](docs/repairs/gateway-task-retention-2026-11-06.md), and [GraphQL recovery and dispatch correlation](docs/repairs/github-dispatch-graphql-2026-11-06.md).
@@ -58,6 +64,8 @@ Implementation reports: [diagnostic workflow](docs/repairs/diagnostic-workflow-e
 The existing signed-release pipeline verifies exact-commit tests, required main checks, packaged runtimes, privacy, signing-certificate continuity, APK/AAB identities, checksums, provenance and downloaded publication assets. Earlier green revisions do not qualify this candidate. No release, tag or successful device measurement is implied by preparation of these notes.
 
 ## Qualification and remaining work
+
+- The historical three MCP discovery problem targets and 49 execution/suite gaps require fresh affected-installation or authorized harness evidence. Source fixes, generated qualification plans and unrelated CI passes do not convert them into successful runtime checks.
 
 - The November 7 c1466ca0 repairs require matching Android/gateway deployment, live MCP endpoint and DNS checks, and physical-device handoff, reasoning, frame-time and IME qualification. Host tests do not establish those outcomes.
 - App audit inventories supported production files and executes named local or selected metadata probes; it does not establish complete file, line or branch coverage, arbitrary plugin tool execution, physical-device qualification or private service availability.

@@ -62,12 +62,13 @@ class GitHubProgressNarratorTest {
 
     @Test fun optionalGenerationFailureNeverRetriesOrBlocksRepositoryWork() = runTest {
         var clock = 0L
+        var revision = 1L
         var calls = 0
         val narrator = GitHubProgressNarrator(
-            snapshot = { state() },
+            snapshot = { state(revision) },
             openSelected = { _, _ ->
                 calls++
-                session(ProviderEvent.Failed("Selected model unavailable"))
+                session(ProviderEvent.Failed("Backend exhausted the output allowance", errorCode = "completion_repair_budget_exhausted"))
             },
             validate = {},
             admit = { _, _ -> true },
@@ -81,6 +82,50 @@ class GitHubProgressNarratorTest {
         clock = 30_000
         wrapped.streamRound(emptyList(), emptyList()).toList()
         assertEquals("No fallback or repeat attempt for unchanged evidence", 1, calls)
+        repeat(7) {
+            clock += 15_000
+            revision++
+            assertEquals(listOf(ProviderEvent.TextDelta("Repository result"), ProviderEvent.Completed), wrapped.streamRound(emptyList(), emptyList()).toList())
+        }
+        assertEquals("New repository evidence cannot repeat failed optional narration in this run", 1, calls)
+    }
+
+    @Test fun unusableNarrationStopsOptionalAttemptsButANewRunCanTryAgain() = runTest {
+        for (failure in listOf<suspend () -> AgentProviderSession>(
+            { error("REASONING_OFF_UNSUPPORTED") },
+            { session(ProviderEvent.Completed) },
+            { session(ProviderEvent.TextDelta("All tests passed. $prose"), ProviderEvent.Completed) },
+            { session(ProviderEvent.TextDelta(prose)) }
+        )) {
+            var clock = 0L
+            var revision = 1L
+            var calls = 0
+            val summaries = mutableListOf<ApiState.ActivitySummary>()
+            fun narrator() = GitHubProgressNarrator(
+                snapshot = { state(revision) },
+                openSelected = { _, _ ->
+                    calls++
+                    if (calls == 1) failure() else session(ProviderEvent.TextDelta(prose), ProviderEvent.Completed)
+                },
+                validate = {},
+                admit = { _, _ -> true },
+                publish = { summaries += it },
+                now = { clock }
+            )
+            val firstRun = narrator()
+            clock = 15_000
+            firstRun.beforeRound()
+            revision++
+            clock += 15_000
+            firstRun.beforeRound()
+            assertEquals(1, calls)
+            assertTrue(summaries.isEmpty())
+            val nextRun = narrator()
+            clock += 15_000
+            nextRun.beforeRound()
+            assertEquals(2, calls)
+            assertEquals(prose, summaries.single().text)
+        }
     }
 
     @Test fun finalResponseReservationAndBoundedNarrationBudgetPreventDispatch() = runTest {
@@ -132,10 +177,13 @@ class GitHubProgressNarratorTest {
     @Test
     fun slowSelectedModelTimesOutWithoutDelayingTheWorkIndefinitely() = runTest {
         var clock = 0L
-        var workStarted = false
+        var revision = 1L
+        var narrationCalls = 0
+        var workRounds = 0
         val narrator = GitHubProgressNarrator(
-            snapshot = { state() },
+            snapshot = { state(revision) },
             openSelected = { _, _ ->
+                narrationCalls++
                 object : AgentProviderSession {
                     override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
                         kotlinx.coroutines.delay(20_000)
@@ -151,13 +199,18 @@ class GitHubProgressNarratorTest {
         )
         val work = object : AgentProviderSession {
             override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
-                workStarted = true
+                workRounds++
                 emit(ProviderEvent.Completed)
             }
         }
         clock = 15_000
-        GitHubProgressSession(work, beforeRound = { narrator.beforeRound() }) {}.streamRound(emptyList(), emptyList()).toList()
-        assertTrue(workStarted)
+        val wrapped = GitHubProgressSession(work, beforeRound = { narrator.beforeRound() }) {}
+        wrapped.streamRound(emptyList(), emptyList()).toList()
+        revision++
+        clock += 15_000
+        wrapped.streamRound(emptyList(), emptyList()).toList()
+        assertEquals(2, workRounds)
+        assertEquals(1, narrationCalls)
         assertEquals(8000L, testScheduler.currentTime)
     }
 

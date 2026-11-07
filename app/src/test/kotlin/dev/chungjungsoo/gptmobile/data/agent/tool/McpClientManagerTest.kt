@@ -242,15 +242,26 @@ class McpClientManagerTest {
         }
         missing.start()
         val client = testClient()
-        val manager = McpClientManager(client)
+        var now = 1_000L
+        val manager = McpClientManager(client, nowMs = { now })
         try {
-            val config = McpConnectionConfig("missing-endpoint", "http://localhost:${missing.address.port}/mcp", true)
-            assertTrue(runCatching { manager.listTools(config) }.exceptionOrNull() is McpEndpointConfigurationException)
+            val config = McpConnectionConfig("missing-endpoint", "http://localhost:${missing.address.port}/mcp", true, configurationRevision = "c".repeat(64))
+            val first = runCatching { manager.listTools(config) }.exceptionOrNull()
+            assertEquals(404, (first as McpEndpointConfigurationException).httpStatus)
             val firstCalls = calls.get()
+            now = 40_000L
             repeat(3) {
-                assertTrue(runCatching { manager.listTools(config) }.exceptionOrNull() is McpEndpointConfigurationException)
+                val cached = runCatching { manager.listTools(config) }.exceptionOrNull()
+                assertTrue(cached is McpEndpointConfigurationException)
+                assertEquals(null, (cached as McpEndpointConfigurationException).httpStatus)
+                val presentation = mcpFailurePresentation(cached, manager.healthSnapshot(config.connectionUid))
+                assertEquals("NOT_DISPATCHED", presentation.dispatchEvidence)
+                assertEquals(404, presentation.httpStatus)
+                assertEquals(1_000L, presentation.observedAtEpochMs)
             }
             assertEquals(firstCalls, calls.get())
+            assertEquals(1, manager.healthSnapshot(config.connectionUid).consecutiveFailures)
+            assertEquals("c".repeat(64), manager.healthSnapshot(config.connectionUid).failureConfigurationRevision)
             assertEquals(Long.MAX_VALUE, manager.healthSnapshot(config.connectionUid).nextRetryAtMs)
             McpFixtureServer().use { healthy ->
                 assertTrue(manager.listTools(McpConnectionConfig(config.connectionUid, healthy.url, true)).isNotEmpty())

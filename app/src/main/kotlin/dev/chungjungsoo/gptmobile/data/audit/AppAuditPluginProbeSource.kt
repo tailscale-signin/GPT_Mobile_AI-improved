@@ -20,7 +20,8 @@ internal data class AppAuditPluginTarget(
     val unavailableReason: String = "PLUGIN_NOT_CONFIGURED",
     val liveReadPrecheck: AppAuditObservation? = null,
     val liveRead: (suspend () -> AppAuditObservation)? = null,
-    val snapshotCurrent: () -> Boolean = { true }
+    val snapshotCurrent: () -> Boolean = { true },
+    val configurationRevision: String? = null
 )
 
 /** Existing clients own transport, credentials, retries and their physical request limits. */
@@ -96,7 +97,8 @@ class AppAuditPluginProbeSource internal constructor(
                 !target.enabled -> "PLUGIN_DISABLED"
                 else -> null
             },
-            configFingerprint = target.fingerprint
+            configFingerprint = target.fingerprint,
+            configurationRevision = target.configurationRevision ?: appAuditConfigurationRevision(target.fingerprint)
         )
     }
 
@@ -120,6 +122,7 @@ class AppAuditPluginProbeSource internal constructor(
         if (entry.probeId == CONFIGURATION) {
             return observation(AppAuditOutcome.PASS, "PLUGIN_CONFIGURATION_ONLY", AppAuditEvidenceKind.CONFIGURATION).copy(
                 observationSource = AppAuditObservationSource.CONFIGURATION,
+                configurationRevision = entry.configurationRevision,
                 metrics = listOf(AppAuditMetric(AppAuditMetricName.TARGET_COUNT, 1.0))
             )
         }
@@ -147,6 +150,7 @@ class AppAuditPluginProbeSource internal constructor(
         return current?.takeIf {
             it.snapshotCurrent() &&
                 it.fingerprint == entry.configFingerprint &&
+                (it.configurationRevision ?: appAuditConfigurationRevision(it.fingerprint)) == entry.configurationRevision &&
                 it.componentId == entry.componentId &&
                 entry.id == "$SOURCE_ID:${entry.probeId}:${appAuditTargetDigest(it.key)}" &&
                 (entry.probeId != MCP_DISCOVERY || it.kind == AppAuditPluginKind.MCP) &&
@@ -195,7 +199,8 @@ class AppAuditPluginProbeSource internal constructor(
             "HTTP_ERROR", "MCP_HANDSHAKE_FAILED", "STREAM_INTERRUPTED", "STREAM_IDLE_TIMEOUT", "REQUEST_TIMEOUT",
             "MCP_AUTHENTICATION_REQUIRED", "MCP_ENDPOINT_CONFIGURATION", "MCP_CATALOG_TIMEOUT", "MCP_FAILURE_UNCLASSIFIED", "MCP_PROTOCOL_VERSION_UNSUPPORTED",
             "MCP_INITIALIZATION_SCHEMA_INVALID", "MCP_DISCOVERY_SCHEMA_INVALID", "MCP_DISCOVERY_CONFIGURATION",
-            "MCP_CATALOG_SCHEMA_INVALID", "MCP_CATALOG_LIMIT_EXCEEDED", "MCP_RESPONSE_ID_MISMATCH", "MCP_RESPONSE_SCHEMA_INVALID"
+            "MCP_CATALOG_SCHEMA_INVALID", "MCP_CATALOG_LIMIT_EXCEEDED", "MCP_RESPONSE_ID_MISMATCH", "MCP_RESPONSE_SCHEMA_INVALID",
+            "MCP_LOCAL_ENDPOINT_INVALID", "MCP_LOCAL_AUTH_TYPE_INVALID", "MCP_LOCAL_CREDENTIAL_MISSING", "MCP_LOCAL_CREDENTIAL_INVALID", "MCP_LOCAL_CONNECTION_INVALID"
         ) + gatewayDecodeReasons.map { "GATEWAY_CAPABILITY_DECODE_$it" }
         val stages = setOf("plugin_precheck", "plugin_configuration", "mcp_discovery", "gateway_capabilities")
     }

@@ -363,4 +363,68 @@ class AppAuditRunnerTest {
         worker.cancelAndJoin()
         assertTrue(worker.isCancelled)
     }
+
+    @Test fun localRejectionUsesItsReservationWithoutClaimingDispatchOrReleasingBudget() = runBlocking {
+        var reads = 0
+        val h = harness(
+            Source(listOf(entry("local", true), entry("confirmed", true), entry("unknown", true), entry("over-budget", true))) { e, context ->
+                context.beforeDispatch()
+                when (e.id) {
+                    "local" -> AppAuditObservation(
+                        AppAuditOutcome.FAIL, "MCP_LOCAL_CREDENTIAL_INVALID", evidenceKind = e.evidenceKind,
+                        observationSource = AppAuditObservationSource.NONE, dispatchEvidence = AppAuditDispatchEvidence.NOT_DISPATCHED,
+                        retryable = false, failurePhase = "local_validation", validationRule = "CREDENTIAL_FORMAT_INVALID", validationField = "credential"
+                    )
+                    "confirmed" -> {
+                        reads++
+                        passed(e)
+                    }
+                    else -> {
+                        reads++
+                        AppAuditObservation(AppAuditOutcome.FAIL, "MCP_DISCOVERY_UNAVAILABLE", evidenceKind = e.evidenceKind, observationSource = AppAuditObservationSource.LIVE, dispatchEvidence = AppAuditDispatchEvidence.UNKNOWN)
+                    }
+                }
+            },
+            network = true,
+            limits = AppAuditLimits(maxNetworkProbes = 3)
+        )
+        h.run()
+        assertEquals(2, reads)
+        assertEquals(3, h.audit.networkProbesAttempted)
+        assertEquals(3, h.audit.networkAttemptBudgetUsed)
+        assertEquals(1, h.audit.networkProbesConfirmed)
+        assertEquals(1, h.audit.networkProbesDispatchUnknown)
+        assertEquals(AppAuditDispatchEvidence.NOT_DISPATCHED, h.audit.results.first().dispatchEvidence)
+        assertEquals("NETWORK_BUDGET_EXHAUSTED", h.audit.results.first { it.entryId == "over-budget" }.reasonCode)
+    }
+
+    @Test fun aNetworkPassWithoutConfirmationRemainsUnknownAndStopsTheInvalidSource() = runBlocking {
+        var calls = 0
+        val h = harness(
+            Source(listOf(entry("unconfirmed", true), entry("remaining", true))) { e, context ->
+                calls++
+                context.beforeDispatch()
+                passed(e).copy(dispatchEvidence = AppAuditDispatchEvidence.UNKNOWN)
+            },
+            network = true
+        )
+        h.run()
+        assertEquals(1, calls)
+        assertEquals("DISPATCH_CONFIRMATION_MISSING", h.audit.results.first().reasonCode)
+        assertEquals(AppAuditDispatchEvidence.UNKNOWN, h.audit.results.first().dispatchEvidence)
+        assertEquals("PROBE_CONTRACT_INVALID", h.audit.results.first { it.entryId == "remaining" }.reasonCode)
+        assertEquals(1, h.audit.networkAttemptBudgetUsed)
+        assertEquals(0, h.audit.networkProbesConfirmed)
+        assertEquals(1, h.audit.networkProbesDispatchUnknown)
+        assertNull(appAuditScore(h.audit).score)
+    }
+
+    @Test fun aLegacyReservationCannotBecomeFreshBudgetAfterAStoredRunIsRead() = runBlocking {
+        val h = harness(Source(listOf(entry("pending", true))) { _, _ -> error("Legacy consumed budget must not be reused") }, network = true, limits = AppAuditLimits(maxNetworkProbes = 1))
+        h.batch = h.batch.copy(audit = h.audit.copy(networkProbesDispatched = 1, networkProbesAttempted = 0))
+        h.run()
+        assertEquals("NETWORK_BUDGET_EXHAUSTED", h.audit.results.first().reasonCode)
+        assertEquals(1, h.audit.networkAttemptBudgetUsed)
+        assertEquals(0, h.audit.networkProbesConfirmed)
+    }
 }

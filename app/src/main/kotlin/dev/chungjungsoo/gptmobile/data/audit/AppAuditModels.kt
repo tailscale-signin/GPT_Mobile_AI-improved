@@ -76,7 +76,8 @@ data class AppAuditPlanEntry(
     val reasonCode: String? = null,
     val configFingerprint: String? = null,
     val fixtureHash: String? = null,
-    val weight: Int = 1
+    val weight: Int = 1,
+    val configurationRevision: String? = null
 ) {
     init {
         require(listOf(id, sourceId, probeId, componentId).all(::appAuditIdentifier))
@@ -84,6 +85,7 @@ data class AppAuditPlanEntry(
         require(sourceAreaIds.all(::appAuditIdentifier))
         require(reasonCode == null || appAuditIdentifier(reasonCode))
         require(weight in 1..100)
+        require(configurationRevision == null || configurationRevision.matches(Regex("[a-f0-9]{64}")))
     }
 }
 
@@ -99,12 +101,21 @@ data class AppAuditObservation(
     val retryable: Boolean? = null,
     val httpStatus: Int? = null,
     val metrics: List<AppAuditMetric> = emptyList(),
-    val configChanged: Boolean = false
+    val configChanged: Boolean = false,
+    val failurePhase: String? = null,
+    val failureCategory: String? = null,
+    val validationRule: String? = null,
+    val validationField: String? = null,
+    val observedAtEpochMs: Long? = null,
+    val configurationRevision: String? = null
 ) {
     init {
         require(appAuditIdentifier(reasonCode) && appAuditIdentifier(stage))
         require(httpStatus == null || httpStatus in 100..599)
         require(metrics.size <= 32)
+        require(listOfNotNull(failurePhase, failureCategory, validationRule, validationField).all(::appAuditIdentifier))
+        require(observedAtEpochMs == null || observedAtEpochMs >= 0)
+        require(configurationRevision == null || configurationRevision.matches(Regex("[a-f0-9]{64}")))
     }
 }
 
@@ -148,13 +159,33 @@ data class AppAuditRun(
     val activeStartedAtEpochMs: Long? = null,
     val activeDispatchEvidence: AppAuditDispatchEvidence = AppAuditDispatchEvidence.NOT_ATTEMPTED,
     val executedProbes: Int = 0,
+    /** Legacy persisted budget reservations. This is not proof of remote dispatch. */
     val networkProbesDispatched: Int = 0,
     val updatedAtEpochMs: Long = startedAtEpochMs,
     val finishedAtEpochMs: Long? = null,
-    val stopReasonCode: String? = null
+    val stopReasonCode: String? = null,
+    val networkProbesAttempted: Int = networkProbesDispatched
 ) {
     val pendingEntries: List<AppAuditPlanEntry> get() = plan.filter { entry -> results.none { it.entryId == entry.id } && activeProbeId != entry.id }
     val deadlineAtEpochMs: Long get() = startedAtEpochMs + limits.totalTimeoutMs
+
+    /** Never release an uncertain reservation or reset a legacy run's consumed budget. */
+    val networkAttemptBudgetUsed: Int get() = maxOf(networkProbesAttempted, networkProbesDispatched)
+    val networkProbesConfirmed: Int get() = networkResults().count { it.dispatchEvidence == AppAuditDispatchEvidence.CONFIRMED }
+    val networkProbesDispatchUnknown: Int get() = networkResults().count { it.dispatchEvidence in setOf(AppAuditDispatchEvidence.ATTEMPTED, AppAuditDispatchEvidence.UNKNOWN) } +
+        if (plan.any { it.id == activeProbeId && it.safetyClass == AppAuditSafetyClass.NETWORK_READ } &&
+            results.none { it.entryId == activeProbeId } &&
+            activeDispatchEvidence in setOf(AppAuditDispatchEvidence.ATTEMPTED, AppAuditDispatchEvidence.UNKNOWN)
+        ) {
+            1
+        } else {
+            0
+        }
+
+    private fun networkResults(): List<AppAuditResult> {
+        val networkIds = plan.filter { it.safetyClass == AppAuditSafetyClass.NETWORK_READ }.map { it.id }.toSet()
+        return results.filter { it.entryId in networkIds && it.attempted && it.observationSource != AppAuditObservationSource.CACHE }.distinctBy { it.entryId }
+    }
 }
 
 data class AppAuditSummary(
@@ -213,10 +244,16 @@ private fun measuredAppAuditResults(run: AppAuditRun): List<Pair<AppAuditPlanEnt
     return run.results.distinctBy { it.entryId }.mapNotNull { result ->
         val entry = byId[result.entryId] ?: return@mapNotNull null
         if (result.attempted &&
+            entry.selected &&
+            entry.prerequisite == AppAuditPrerequisite.READY &&
+            entry.safetyClass != AppAuditSafetyClass.EXTERNAL_ONLY &&
+            !result.observation.configChanged &&
             result.outcome in setOf(AppAuditOutcome.PASS, AppAuditOutcome.FAIL) &&
             entry.evidenceKind == result.evidenceKind &&
             result.evidenceKind !in setOf(AppAuditEvidenceKind.CONFIGURATION, AppAuditEvidenceKind.EXTERNAL_SUITE) &&
-            result.observationSource in setOf(AppAuditObservationSource.LIVE, AppAuditObservationSource.FIXTURE)
+            result.observationSource in setOf(AppAuditObservationSource.LIVE, AppAuditObservationSource.FIXTURE) &&
+            (result.evidenceKind == AppAuditEvidenceKind.LOCAL_CONTRACT || result.observationSource == AppAuditObservationSource.LIVE) &&
+            (entry.safetyClass != AppAuditSafetyClass.NETWORK_READ || result.outcome != AppAuditOutcome.PASS || result.dispatchEvidence == AppAuditDispatchEvidence.CONFIRMED)
         ) {
             entry to result
         } else {

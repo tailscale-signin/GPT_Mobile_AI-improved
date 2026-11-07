@@ -10,6 +10,7 @@ import dev.chungjungsoo.gptmobile.data.security.SecretVault
 import java.net.URI
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.decodeFromString
@@ -27,8 +28,9 @@ class McpOAuthCoordinator @Inject constructor(
     private val rejectedCredentials = java.util.concurrent.ConcurrentHashMap<String, String>()
     private val refreshBackoff = java.util.concurrent.ConcurrentHashMap<String, Pair<String, Long>>()
 
-    suspend fun begin(connectionUid: String, redirectUri: String): String = credentialMutex(connectionUid).withLock {
+    suspend fun begin(connectionUid: String, redirectUri: String, expectedConnection: ToolConnection? = null): String = credentialMutex(connectionUid).withLock {
         val connection = requireOAuthConnection(connectionUid)
+        if (expectedConnection != null && connection != expectedConnection) throw McpLocalValidationException(McpLocalValidationRule.CONNECTION_CONFIGURATION_CHANGED)
         val discovery = oauthClient.discover(
             resourceUrl = dev.chungjungsoo.gptmobile.data.security.EndpointSecrets.resolve(connection, secretVault),
             allowCleartext = connection.allowCleartext
@@ -69,22 +71,22 @@ class McpOAuthCoordinator @Inject constructor(
         val credentialMutex = credentialMutex(connection.connectionUid)
         credentialMutex.lock()
         try {
-            require(connection.authType == ToolConnectionAuthType.OAUTH) { "OAuth connection required." }
-            val secretRef = connection.secretRef ?: throw McpOAuthException("MCP OAuth connection is not authorized. Reconnect this service in Plugins/Tools.", requiresReauthorization = true)
-            var credential = readSecret<McpOAuthCredential>(secretRef)
-                ?: throw McpOAuthException("MCP OAuth credential is missing. Reconnect this service in Plugins/Tools.", requiresReauthorization = true)
+            if (connection.authType != ToolConnectionAuthType.OAUTH) throw McpLocalValidationException(McpLocalValidationRule.AUTH_TYPE_UNSUPPORTED)
+            val secretRef = connection.secretRef ?: throw McpLocalValidationException(McpLocalValidationRule.CREDENTIAL_REQUIRED)
+            var credential = readCredential(secretRef)
             if (credential.requiresReauthorization) {
-                throw McpOAuthException("OAuth authorization is no longer valid. Reconnect this service in Plugins/Tools.", requiresReauthorization = true)
+                throw McpLocalValidationException(McpLocalValidationRule.CREDENTIAL_REAUTHORIZATION_REQUIRED)
             }
             val fingerprint = dev.chungjungsoo.gptmobile.data.workspace.WorkspaceRepository.digest(NetworkClient.json.encodeToString(credential))
             if (rejectedCredentials[connection.connectionUid] == fingerprint) {
-                throw McpOAuthException("OAuth authorization is no longer valid. Reconnect this service in Plugins/Tools.", requiresReauthorization = true)
+                throw McpLocalValidationException(McpLocalValidationRule.CREDENTIAL_REAUTHORIZATION_REQUIRED)
             }
             rejectedCredentials.remove(connection.connectionUid)
             val currentHeader = "${credential.tokenType} ${credential.accessToken}"
             val isExpired = credential.expiresAtEpochSeconds?.let { it <= nowEpochSeconds() + REFRESH_SKEW_SECONDS } == true
             val shouldRefreshRejected = forceRefresh && (rejectedAuthorizationHeader == null || rejectedAuthorizationHeader == currentHeader)
             if (isExpired || shouldRefreshRejected) {
+                if (credential.refreshToken.isNullOrBlank()) throw McpLocalValidationException(McpLocalValidationRule.CREDENTIAL_REAUTHORIZATION_REQUIRED)
                 refreshBackoff[connection.connectionUid]?.takeIf { it.first == fingerprint && it.second > System.currentTimeMillis() }?.let { throw McpBackoffException(connection.connectionUid, it.second) }
                 credential = try {
                     oauthClient.refresh(credential)
@@ -153,6 +155,24 @@ class McpOAuthCoordinator @Inject constructor(
             NetworkClient.json.decodeFromString<T>(bytes.decodeToString())
         } catch (error: Exception) {
             throw McpOAuthException("MCP OAuth credential is invalid.", error)
+        } finally {
+            bytes.fill(0)
+        }
+    }
+
+    private suspend fun readCredential(secretRef: String): McpOAuthCredential {
+        val bytes = try {
+            secretVault.read(secretRef)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            throw McpLocalValidationException(McpLocalValidationRule.CREDENTIAL_UNAVAILABLE)
+        } ?: throw McpLocalValidationException(McpLocalValidationRule.CREDENTIAL_REQUIRED)
+        return try {
+            NetworkClient.json.decodeFromString<McpOAuthCredential>(bytes.decodeToString())
+        } catch (_: Exception) {
+            // Serialization failures may embed the credential document; discard the source error.
+            throw McpLocalValidationException(McpLocalValidationRule.CREDENTIAL_FORMAT_INVALID)
         } finally {
             bytes.fill(0)
         }

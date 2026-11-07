@@ -4,6 +4,9 @@ import dev.chungjungsoo.gptmobile.data.agent.tool.AgentToolResolver
 import dev.chungjungsoo.gptmobile.data.agent.tool.McpClientManager
 import dev.chungjungsoo.gptmobile.data.agent.tool.McpConnectionHealth
 import dev.chungjungsoo.gptmobile.data.agent.tool.McpConnectionHealthState
+import dev.chungjungsoo.gptmobile.data.agent.tool.McpDiscoveryOAuthRefreshException
+import dev.chungjungsoo.gptmobile.data.agent.tool.McpLocalValidationException
+import dev.chungjungsoo.gptmobile.data.agent.tool.McpLocalValidationRule
 import dev.chungjungsoo.gptmobile.data.agent.tool.McpProtocolConfigurationException
 import dev.chungjungsoo.gptmobile.data.catalog.GitHubMarketplaceCatalog
 import dev.chungjungsoo.gptmobile.data.catalog.MarketplaceRuntime
@@ -370,12 +373,18 @@ class AppAuditPluginServicesTest {
         val setup = Setup()
         val connection = connection()
         setup.configure(listOf(connection))
-        coEvery { setup.resolver.discoverMcpTools(connection, forceRefresh = true, awaitCompletion = true) } throws McpProtocolConfigurationException("MCP_DISCOVERY_SCHEMA_INVALID", "PRIVATE_SERVER_VALUE")
+        coEvery { setup.resolver.discoverMcpTools(connection, forceRefresh = true, awaitCompletion = true) } throws McpProtocolConfigurationException("MCP_DISCOVERY_SCHEMA_INVALID", "PRIVATE_SERVER_VALUE", 200, "PROTOCOL_VERSIONS_ARRAY_REQUIRED", "supportedVersions")
         val entry = setup.source.plan(AppAuditOptions(allowNetworkReads = true)).single { it.probeId == AppAuditPluginProbeSource.MCP_DISCOVERY }
         val result = setup.source.execute(entry, context())
         assertEquals(AppAuditOutcome.FAIL, result.outcome)
         assertEquals("MCP_DISCOVERY_SCHEMA_INVALID", result.reasonCode)
         assertEquals(false, result.retryable)
+        assertEquals(200, result.httpStatus)
+        assertEquals("protocol_negotiation", result.failurePhase)
+        assertEquals("PROTOCOL_CONFIGURATION", result.failureCategory)
+        assertEquals("PROTOCOL_VERSIONS_ARRAY_REQUIRED", result.validationRule)
+        assertEquals("supportedVersions", result.validationField)
+        assertEquals(AppAuditDispatchEvidence.CONFIRMED, result.dispatchEvidence)
         assertFalse(result.toString().contains("PRIVATE_SERVER_VALUE"))
     }
 
@@ -548,6 +557,132 @@ class AppAuditPluginServicesTest {
         assertTrue(failure is CancellationException)
         assertEquals("caller canceled", failure?.message)
         coVerify(exactly = 1) { setup.gateway.getCapabilities(any(), forceRefresh = true) }
+    }
+
+    @Test
+    fun cachedProtocolFailureRetainsOriginalTimeRevisionAndSafeDetailWithoutAnotherDispatch() = runBlocking {
+        val setup = Setup()
+        val connection = connection()
+        setup.configure(listOf(connection))
+        val entry = setup.source.plan(AppAuditOptions(true)).single { it.probeId == AppAuditPluginProbeSource.MCP_DISCOVERY }
+        every { setup.mcp.healthSnapshot(connection.connectionUid) } returns McpConnectionHealth(
+            state = McpConnectionHealthState.UNREACHABLE, lastFailureAtMs = 7, nextRetryAtMs = Long.MAX_VALUE,
+            lastErrorCode = "MCP_DISCOVERY_SCHEMA_INVALID", lastError = "PRIVATE_SERVER_VALUE",
+            failedStage = "protocol_negotiation", failureConfigurationRevision = entry.configurationRevision,
+            lastHttpStatus = 200, lastValidationRule = "PROTOCOL_VERSIONS_ARRAY_REQUIRED", lastValidationField = "supportedVersions", lastDispatchEvidence = "CONFIRMED"
+        )
+        repeat(2) {
+            val observation = setup.source.execute(entry, context { error("Cached block must not request network admission") })
+            assertEquals(AppAuditObservationSource.CACHE, observation.observationSource)
+            assertEquals(AppAuditDispatchEvidence.NOT_DISPATCHED, observation.dispatchEvidence)
+            assertEquals(7L, observation.observedAtEpochMs)
+            assertEquals(entry.configurationRevision, observation.configurationRevision)
+            assertEquals("protocol_negotiation", observation.failurePhase)
+            assertEquals("PROTOCOL_CONFIGURATION", observation.failureCategory)
+            assertEquals("PROTOCOL_VERSIONS_ARRAY_REQUIRED", observation.validationRule)
+            assertEquals("supportedVersions", observation.validationField)
+            assertEquals(200, observation.httpStatus)
+            assertEquals(false, observation.retryable)
+            assertFalse(observation.toString().contains("PRIVATE_SERVER_VALUE"))
+        }
+        confirmVerified(setup.resolver)
+    }
+
+    @Test
+    fun cachedFailureForAnotherConfigurationCannotBlockAnExplicitNewPlan() = runBlocking {
+        val setup = Setup()
+        val connection = connection()
+        setup.configure(listOf(connection))
+        every { setup.mcp.healthSnapshot(connection.connectionUid) } returns McpConnectionHealth(
+            state = McpConnectionHealthState.UNREACHABLE,
+            lastFailureAtMs = 1,
+            nextRetryAtMs = Long.MAX_VALUE,
+            lastErrorCode = "MCP_DISCOVERY_SCHEMA_INVALID",
+            failureConfigurationRevision = "0".repeat(64)
+        )
+        coEvery { setup.resolver.discoverMcpTools(connection, forceRefresh = true, awaitCompletion = true) } returns emptyList()
+        val entry = setup.source.plan(AppAuditOptions(true)).single { it.probeId == AppAuditPluginProbeSource.MCP_DISCOVERY }
+        var markers = 0
+        val observation = setup.source.execute(entry, context { markers++ })
+        assertEquals(1, markers)
+        assertEquals(AppAuditOutcome.PASS, observation.outcome)
+        assertEquals(AppAuditObservationSource.LIVE, observation.observationSource)
+        assertEquals(AppAuditDispatchEvidence.CONFIRMED, observation.dispatchEvidence)
+        assertEquals(entry.configurationRevision, observation.configurationRevision)
+        coVerify(exactly = 1) { setup.resolver.discoverMcpTools(connection, forceRefresh = true, awaitCompletion = true) }
+    }
+
+    @Test
+    fun localValidationAfterAdmissionDoesNotInheritAnOlderHttpResponseOrClaimRemoteDispatch() = runBlocking {
+        val setup = Setup()
+        val connection = connection()
+        setup.configure(listOf(connection))
+        every { setup.mcp.healthSnapshot(connection.connectionUid) } returns McpConnectionHealth(
+            state = McpConnectionHealthState.DEGRADED,
+            lastFailureAtMs = 1,
+            lastErrorCode = "MCP_LOCAL_CREDENTIAL_INVALID",
+            lastHttpStatus = 403,
+            failedStage = "execution",
+            failureConfigurationRevision = "0".repeat(64),
+            lastDispatchEvidence = "CONFIRMED"
+        )
+        coEvery { setup.resolver.discoverMcpTools(connection, forceRefresh = true, awaitCompletion = true) } throws McpLocalValidationException(McpLocalValidationRule.CREDENTIAL_FORMAT_INVALID)
+        val entry = setup.source.plan(AppAuditOptions(true)).single { it.probeId == AppAuditPluginProbeSource.MCP_DISCOVERY }
+        val before = System.currentTimeMillis()
+        var markers = 0
+        val observation = setup.source.execute(entry, context { markers++ })
+        assertEquals(1, markers)
+        assertEquals(AppAuditOutcome.FAIL, observation.outcome)
+        assertEquals("MCP_LOCAL_CREDENTIAL_INVALID", observation.reasonCode)
+        assertEquals(AppAuditObservationSource.NONE, observation.observationSource)
+        assertEquals(AppAuditDispatchEvidence.NOT_DISPATCHED, observation.dispatchEvidence)
+        assertEquals("local_validation", observation.failurePhase)
+        assertEquals("LOCAL_VALIDATION", observation.failureCategory)
+        assertEquals("CREDENTIAL_FORMAT_INVALID", observation.validationRule)
+        assertEquals("credential", observation.validationField)
+        assertEquals(false, observation.retryable)
+        assertNull(observation.httpStatus)
+        assertTrue(requireNotNull(observation.observedAtEpochMs) >= before)
+        assertEquals(entry.configurationRevision, observation.configurationRevision)
+    }
+
+    @Test
+    fun localCredentialFailureDuringOAuthRefreshKeepsTheFirstConfirmedAuthenticationResponse() = runBlocking {
+        val setup = Setup()
+        val connection = connection()
+        setup.configure(listOf(connection))
+        coEvery { setup.resolver.discoverMcpTools(connection, forceRefresh = true, awaitCompletion = true) } throws McpDiscoveryOAuthRefreshException(McpLocalValidationRule.CREDENTIAL_UNAVAILABLE)
+        val entry = setup.source.plan(AppAuditOptions(true)).single { it.probeId == AppAuditPluginProbeSource.MCP_DISCOVERY }
+        val observation = setup.source.execute(entry, context())
+        assertEquals("MCP_AUTHENTICATION_REQUIRED", observation.reasonCode)
+        assertEquals(AppAuditObservationSource.LIVE, observation.observationSource)
+        assertEquals(AppAuditDispatchEvidence.CONFIRMED, observation.dispatchEvidence)
+        assertEquals(401, observation.httpStatus)
+        assertEquals("oauth_refresh", observation.failurePhase)
+        assertEquals("AUTHENTICATION_REQUIRED", observation.failureCategory)
+        assertEquals("CREDENTIAL_UNAVAILABLE", observation.validationRule)
+        assertEquals(false, observation.retryable)
+        assertNull(observation.configurationRevision)
+    }
+
+    @Test
+    fun credentialRotationDuringDiscoveryCannotAttributeTheResultToTheOriginalConfiguration() = runBlocking {
+        val setup = Setup()
+        val connection = connection().copy(authType = ToolConnectionAuthType.BEARER, secretRef = "connection_configured")
+        var revision = "a".repeat(64)
+        setup.configure(listOf(connection))
+        coEvery { setup.vault.recordRevision("connection_configured") } answers { revision }
+        coEvery { setup.resolver.discoverMcpTools(connection, forceRefresh = true, awaitCompletion = true) } coAnswers {
+            revision = "b".repeat(64)
+            emptyList()
+        }
+        val entry = setup.source.plan(AppAuditOptions(true)).single { it.probeId == AppAuditPluginProbeSource.MCP_DISCOVERY }
+        val observation = setup.source.execute(entry, context())
+        assertEquals(AppAuditOutcome.PASS, observation.outcome)
+        assertTrue(observation.configChanged)
+        assertNull(observation.configurationRevision)
+        val run = AppAuditRun("rotation", 1, "a".repeat(64), "b".repeat(40), "0.9.66.6", "debug", "c".repeat(64), 1, 1, listOf(entry), results = listOf(AppAuditResult(entry.id, observation, 1, 2, 1, true)))
+        assertNull(appAuditScore(run).score)
     }
 
     private class Setup(val gateway: GatewayAPI = mockk()) {

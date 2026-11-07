@@ -280,6 +280,48 @@ class ModernMcpTransportTest {
         }
     }
 
+    @Test fun negotiationFailuresPreserveOnlyTheObservedStatusAndSafeValidationRule() = runBlocking {
+        data class Rejection(val status: HttpStatusCode, val body: String, val rule: String, val field: String)
+        val cases = listOf(
+            Rejection(HttpStatusCode.OK, """{"capabilities":{}}""", "PROTOCOL_VERSIONS_ARRAY_REQUIRED", "supportedVersions"),
+            Rejection(HttpStatusCode.OK, """{"supportedVersions":[]}""", "PROTOCOL_VERSIONS_NONEMPTY_REQUIRED", "supportedVersions"),
+            Rejection(HttpStatusCode.OK, """{"supportedVersions":["private-token"]}""", "PROTOCOL_VERSION_FORMAT_REQUIRED", "supportedVersions"),
+            Rejection(HttpStatusCode.OK, """{"supportedVersions":["2099-01-01"]}""", "SUPPORTED_PROTOCOL_REQUIRED", "supportedVersions"),
+            Rejection(HttpStatusCode.BadRequest, """{"code":-32022,"message":"private-token","data":{"requested":"private-version","supported":["2025-06-18"]}}""", "REQUESTED_PROTOCOL_MATCH_REQUIRED", "error.data.requested"),
+            Rejection(HttpStatusCode.BadRequest, """{"code":-32022,"message":"private-token","data":{"requested":"2026-07-28","supported":[]}}""", "PROTOCOL_VERSIONS_NONEMPTY_REQUIRED", "error.data.supported"),
+            Rejection(HttpStatusCode.BadRequest, """{"code":-32602,"message":"private-token","data":{"private-field":"private-value"}}""", "REQUEST_PARAMETERS_ACCEPTANCE_REQUIRED", "params")
+        )
+        for (case in cases) {
+            HttpClient(
+                MockEngine { request ->
+                    val body = Json.parseToJsonElement((request.body as TextContent).text).jsonObject
+                    respond(
+                        buildJsonObject {
+                            put("jsonrpc", "2.0")
+                            put("id", body.getValue("id"))
+                            put(if (case.status == HttpStatusCode.OK) "result" else "error", obj(case.body))
+                        }.toString(),
+                        case.status,
+                        headersOf("Content-Type", "application/json")
+                    )
+                }
+            ).use { client ->
+                val failure = runCatching { ModernMcpTransport(client).supports(config) }.exceptionOrNull()
+                assertTrue(failure is McpProtocolConfigurationException)
+                failure as McpProtocolConfigurationException
+                assertEquals(case.status.value, failure.httpStatus)
+                assertEquals(case.rule, failure.validationRule)
+                assertEquals(case.field, failure.validationField)
+                assertFalse(failure.message.orEmpty().contains("private"))
+                assertEquals(null, failure.cause)
+                val presented = mcpFailurePresentation(failure, McpConnectionHealth())
+                assertEquals(case.status.value, presented.httpStatus)
+                assertEquals("CONFIRMED", presented.dispatchEvidence)
+                assertEquals(false, presented.retryable)
+            }
+        }
+    }
+
     @Test fun mismatchedDiscoveryErrorCannotSelectALegacyProtocol() = runBlocking {
         HttpClient(MockEngine { respond("""{"id":"different","error":{"code":-32000,"message":"Session missing"}}""", HttpStatusCode.BadRequest) }).use { client ->
             val failure = runCatching { ModernMcpTransport(client).supports(config) }.exceptionOrNull()

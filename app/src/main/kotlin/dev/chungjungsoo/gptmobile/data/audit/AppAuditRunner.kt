@@ -99,7 +99,7 @@ class AppAuditRunner internal constructor(
             entry.prerequisite == AppAuditPrerequisite.EXTERNAL_HARNESS_REQUIRED || entry.safetyClass == AppAuditSafetyClass.EXTERNAL_ONLY -> AppAuditOutcome.UNTESTED to (entry.reasonCode ?: "EXTERNAL_HARNESS_REQUIRED")
             entry.safetyClass == AppAuditSafetyClass.MODEL_REQUEST -> AppAuditOutcome.UNTESTED to "MODEL_EXECUTION_NOT_SELECTED"
             entry.safetyClass == AppAuditSafetyClass.NETWORK_READ && !run.options.allowNetworkReads -> AppAuditOutcome.SKIPPED to "NETWORK_READS_DISABLED"
-            entry.safetyClass == AppAuditSafetyClass.NETWORK_READ && run.networkProbesDispatched >= run.limits.maxNetworkProbes -> AppAuditOutcome.SKIPPED to "NETWORK_BUDGET_EXHAUSTED"
+            entry.safetyClass == AppAuditSafetyClass.NETWORK_READ && run.networkAttemptBudgetUsed >= run.limits.maxNetworkProbes -> AppAuditOutcome.SKIPPED to "NETWORK_BUDGET_EXHAUSTED"
             catalog.source(entry.sourceId) == null -> AppAuditOutcome.UNAVAILABLE to "PROBE_SOURCE_UNAVAILABLE"
             else -> null
         } ?: return null
@@ -122,8 +122,8 @@ class AppAuditRunner internal constructor(
             if (entry.safetyClass != AppAuditSafetyClass.NETWORK_READ || !current.options.allowNetworkReads) throw AppAuditAdmissionRejected("DISPATCH_NOT_ALLOWED")
             if (epochMs() >= current.deadlineAtEpochMs) throw AppAuditAdmissionRejected("RUN_DEADLINE_EXCEEDED")
             if (current.activeDispatchEvidence != AppAuditDispatchEvidence.ATTEMPTED) {
-                if (current.networkProbesDispatched >= current.limits.maxNetworkProbes) throw AppAuditAdmissionRejected("NETWORK_BUDGET_EXHAUSTED")
-                checkpoint(latest.copy(audit = current.copy(activeDispatchEvidence = AppAuditDispatchEvidence.ATTEMPTED, networkProbesDispatched = current.networkProbesDispatched + 1, updatedAtEpochMs = epochMs())), "AUDIT_DISPATCH_STARTED")
+                if (current.networkAttemptBudgetUsed >= current.limits.maxNetworkProbes) throw AppAuditAdmissionRejected("NETWORK_BUDGET_EXHAUSTED")
+                checkpoint(latest.copy(audit = current.copy(activeDispatchEvidence = AppAuditDispatchEvidence.ATTEMPTED, networkProbesDispatched = current.networkAttemptBudgetUsed + 1, networkProbesAttempted = current.networkAttemptBudgetUsed + 1, updatedAtEpochMs = epochMs())), "AUDIT_DISPATCH_STARTED")
             }
         }
         val observation = try {
@@ -170,10 +170,11 @@ class AppAuditRunner internal constructor(
         val normalized = when {
             observation.evidenceKind != entry.evidenceKind -> contractFailure("PROBE_EVIDENCE_MISMATCH")
             entry.safetyClass == AppAuditSafetyClass.NETWORK_READ && observation.observationSource == AppAuditObservationSource.LIVE && current.activeDispatchEvidence != AppAuditDispatchEvidence.ATTEMPTED -> contractFailure("DISPATCH_RECEIPT_MISSING")
+            entry.safetyClass == AppAuditSafetyClass.NETWORK_READ && observation.observationSource == AppAuditObservationSource.LIVE && observation.outcome == AppAuditOutcome.PASS && observation.dispatchEvidence != AppAuditDispatchEvidence.CONFIRMED -> contractFailure("DISPATCH_CONFIRMATION_MISSING")
             else -> observation.copy(metrics = observation.metrics.take(run.limits.maxMetricsPerProbe))
         }
         retain(latest, entry, normalized, started, (monotonicMs() - monotonicStart).coerceAtLeast(0), attempted = true)
-        if (normalized.configChanged || normalized.reasonCode in setOf("PROBE_EVIDENCE_MISMATCH", "DISPATCH_RECEIPT_MISSING")) {
+        if (normalized.configChanged || normalized.reasonCode in setOf("PROBE_EVIDENCE_MISMATCH", "DISPATCH_RECEIPT_MISSING", "DISPATCH_CONFIRMATION_MISSING")) {
             val stopped = checkNotNull(read(batch.id))
             val reason = if (normalized.configChanged) "CONFIGURATION_CHANGED" else "PROBE_CONTRACT_INVALID"
             checkpoint(stopped.copy(audit = checkNotNull(stopped.audit).accountRemaining(epochMs(), AppAuditOutcome.BLOCKED, reason)), "AUDIT_AUTHORITY_CHANGED")

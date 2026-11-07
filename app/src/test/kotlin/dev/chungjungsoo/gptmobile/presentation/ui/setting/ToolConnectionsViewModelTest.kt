@@ -19,6 +19,7 @@ import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
 import dev.chungjungsoo.gptmobile.data.network.NetworkClient
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import dev.chungjungsoo.gptmobile.data.repository.ToolConnectionRepository
+import dev.chungjungsoo.gptmobile.data.security.SecretVault
 import io.ktor.client.engine.cio.CIO
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -35,6 +36,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.job
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
@@ -68,7 +70,18 @@ class ToolConnectionsViewModelTest {
         dao.upsertConnection(connection)
         val snapshots = listOf(
             McpConnectionHealth(state = McpConnectionHealthState.UNREACHABLE, lastFailureAtMs = 1_000, nextRetryAtMs = Long.MAX_VALUE, lastErrorCode = "TLS_FAILURE", lastError = "TLS authentication handshake failed"),
-            McpConnectionHealth(state = McpConnectionHealthState.UNREACHABLE, lastFailureAtMs = 1_000, nextRetryAtMs = Long.MAX_VALUE, lastErrorCode = "MCP_DISCOVERY_SCHEMA_INVALID", lastError = "supportedVersions must be nonempty"),
+            McpConnectionHealth(
+                state = McpConnectionHealthState.UNREACHABLE,
+                lastFailureAtMs = 1_000,
+                nextRetryAtMs = Long.MAX_VALUE,
+                lastErrorCode = "MCP_DISCOVERY_SCHEMA_INVALID",
+                lastError = "supportedVersions must be nonempty",
+                lastHttpStatus = 400,
+                lastValidationRule = "PROTOCOL_VERSIONS_NONEMPTY_REQUIRED",
+                lastValidationField = "supportedVersions",
+                lastDispatchEvidence = "CONFIRMED",
+                failureConfigurationRevision = "a".repeat(64)
+            ),
             McpConnectionHealth(state = McpConnectionHealthState.AUTHENTICATION_REQUIRED, lastFailureAtMs = 1_000, nextRetryAtMs = Long.MAX_VALUE, lastErrorCode = "MCP_AUTHENTICATION_REQUIRED", lastError = "The saved credential was rejected"),
             McpConnectionHealth(state = McpConnectionHealthState.DEGRADED, lastFailureAtMs = 1_000, nextRetryAtMs = 30_000, lastErrorCode = "DNS_FAILED", lastError = "The MCP hostname could not be resolved")
         )
@@ -93,6 +106,11 @@ class ToolConnectionsViewModelTest {
                 assertEquals(snapshot.failureRetryable, shown.retryable)
                 assertTrue(shown.message.contains(requireNotNull(snapshot.lastError)))
                 assertTrue(shown.message.contains(requireNotNull(snapshot.lastErrorCode)))
+                assertEquals(snapshot.lastFailureAtMs, shown.observedAtEpochMs)
+                assertEquals(snapshot.failureConfigurationRevision, shown.configurationRevision)
+                assertEquals(snapshot.lastHttpStatus, shown.httpStatus)
+                assertEquals(snapshot.lastValidationRule, shown.validationRule)
+                assertEquals(snapshot.lastValidationField, shown.validationField)
                 if (snapshot.failureRetryable == false) {
                     assertTrue(shown.message.contains("reconnect"))
                     assertFalse(shown.message.contains("backoff", ignoreCase = true))
@@ -102,6 +120,310 @@ class ToolConnectionsViewModelTest {
                 }
             }
             coVerify(exactly = 4) { resolver.discoverMcpTools(connection, forceRefresh = true, awaitCompletion = true, passiveBackoff = false) }
+        } finally {
+            model.viewModelScope.cancel()
+        }
+    }
+
+    @Test fun mcpCheckRevalidatesTheSavedRowAfterEnteringIo() = runBlocking {
+        val connection = mcpConnectionForCheck()
+        val backing = FakeToolConnectionDao().apply { upsertConnection(connection) }
+        val readStarted = CompletableDeferred<Unit>()
+        val releaseRead = CompletableDeferred<Unit>()
+        val dao = object : ToolConnectionDao by backing {
+            override suspend fun getConnection(connectionUid: String): ToolConnection? {
+                readStarted.complete(Unit)
+                releaseRead.await()
+                return backing.getConnection(connectionUid)
+            }
+        }
+        val resolver = mockk<AgentToolResolver>()
+        val model = toolConnectionsModelForCheck(dao, resolver = resolver)
+        try {
+            withTimeout(5000) { model.uiState.first { it.connections == listOf(connection) } }
+            model.probeConnection(connection)
+            withTimeout(5000) { readStarted.await() }
+            backing.upsertConnection(connection.copy(endpointUrl = "https://changed.example/mcp"))
+            releaseRead.complete(Unit)
+            val state = withTimeout(5000) { model.uiState.first { it.errorMessage?.contains("saved connection changed") == true } }
+            assertNull(state.connectionHealth[connection.connectionUid])
+            coVerify(exactly = 0) { resolver.discoverMcpTools(any(), any(), any(), any()) }
+        } finally {
+            releaseRead.complete(Unit)
+            model.viewModelScope.cancel()
+        }
+    }
+
+    @Test fun credentialReplacementAfterTheReviewedSnapshotPreventsMcpDispatch() = runBlocking {
+        val connection = mcpConnectionForCheck().copy(authType = ToolConnectionAuthType.BEARER, secretRef = "connection_mcp")
+        val dao = FakeToolConnectionDao().apply { upsertConnection(connection) }
+        val vault = RevisionedConnectionTestVault().apply { put("connection_mcp", "first".encodeToByteArray()) }
+        val resolver = mockk<AgentToolResolver>()
+        val model = toolConnectionsModelForCheck(dao, vault, resolver)
+        try {
+            withTimeout(5000) { model.uiState.first { it.connections == listOf(connection) } }
+            vault.put("connection_mcp", "replacement".encodeToByteArray())
+            model.probeConnection(connection)
+            val state = withTimeout(5000) { model.uiState.first { it.errorMessage?.contains("saved connection changed") == true } }
+            assertNull(state.connectionHealth[connection.connectionUid])
+            coVerify(exactly = 0) { resolver.discoverMcpTools(any(), any(), any(), any()) }
+        } finally {
+            model.viewModelScope.cancel()
+        }
+    }
+
+    @Test fun unknownCredentialRevisionProducesAnHonestLocalResult() = runBlocking {
+        val connection = mcpConnectionForCheck().copy(authType = ToolConnectionAuthType.BEARER, secretRef = "connection_mcp")
+        val dao = FakeToolConnectionDao().apply { upsertConnection(connection) }
+        val vault = FakeSecretVault().apply { put("connection_mcp", "saved".encodeToByteArray()) }
+        val resolver = mockk<AgentToolResolver>()
+        val model = toolConnectionsModelForCheck(dao, vault, resolver)
+        try {
+            withTimeout(5000) { model.uiState.first { it.connections == listOf(connection) } }
+            model.probeConnection(connection)
+            val shown = model.uiState.value.connectionHealth.getValue(connection.connectionUid)
+            assertEquals(ToolConnectionHealthStatus.LIMITED, shown.status)
+            assertEquals("PLUGIN_CREDENTIAL_IDENTITY_UNAVAILABLE", shown.errorCode)
+            assertEquals("NOT_DISPATCHED", shown.dispatchEvidence)
+            assertNull(shown.configurationRevision)
+            assertTrue(shown.message.contains("Save credentials or sign in"))
+            coVerify(exactly = 0) { resolver.discoverMcpTools(any(), any(), any(), any()) }
+        } finally {
+            model.viewModelScope.cancel()
+        }
+    }
+
+    @Test fun aCompletedMcpCheckIsInvalidatedWhenTheSavedEndpointChanges() = runBlocking {
+        val connection = mcpConnectionForCheck()
+        val dao = FakeToolConnectionDao().apply { upsertConnection(connection) }
+        val resolver = mockk<AgentToolResolver>()
+        coEvery { resolver.discoverMcpTools(any(), any(), any(), any()) } returns emptyList()
+        val model = toolConnectionsModelForCheck(dao, resolver = resolver)
+        try {
+            withTimeout(5000) { model.uiState.first { it.connections == listOf(connection) } }
+            model.probeConnection(connection)
+            withTimeout(5000) { model.uiState.first { it.connectionHealth[connection.connectionUid]?.toolCount == 0 } }
+            val changed = connection.copy(endpointUrl = "https://changed.example/mcp")
+            dao.upsertConnection(changed)
+            model.refresh()
+            val refreshed = withTimeout(5000) { model.uiState.first { it.connections == listOf(changed) } }
+            assertNull(refreshed.connectionHealth[connection.connectionUid])
+            coVerify(exactly = 1) { resolver.discoverMcpTools(any(), any(), any(), any()) }
+        } finally {
+            model.viewModelScope.cancel()
+        }
+    }
+
+    @Test fun anOlderMcpCheckCannotReplaceHealthFromNewCredentials() = runBlocking {
+        val connection = mcpConnectionForCheck().copy(authType = ToolConnectionAuthType.BEARER, secretRef = "connection_mcp")
+        val dao = FakeToolConnectionDao().apply { upsertConnection(connection) }
+        val vault = RevisionedConnectionTestVault().apply { put("connection_mcp", "first".encodeToByteArray()) }
+        val firstStarted = CompletableDeferred<Unit>()
+        val releaseFirst = CompletableDeferred<Unit>()
+        val resolver = mockk<AgentToolResolver>()
+        var calls = 0
+        coEvery { resolver.discoverMcpTools(any(), any(), any(), any()) } coAnswers {
+            if (++calls == 1) {
+                firstStarted.complete(Unit)
+                releaseFirst.await()
+                throw IllegalStateException("Old endpoint failure")
+            }
+            emptyList()
+        }
+        val model = toolConnectionsModelForCheck(dao, vault, resolver)
+        try {
+            withTimeout(5000) { model.uiState.first { it.connections == listOf(connection) } }
+            val existingJobs = model.viewModelScope.coroutineContext.job.children.toSet()
+            model.probeConnection(connection)
+            withTimeout(5000) { firstStarted.await() }
+            val olderCheck = model.viewModelScope.coroutineContext.job.children.single { it !in existingJobs }
+            vault.put("connection_mcp", "replacement".encodeToByteArray())
+            model.refresh()
+            withTimeout(5000) { model.uiState.first { it.connectionHealth[connection.connectionUid] == null } }
+            model.probeConnection(connection)
+            val newerHealth = withTimeout(5000) { model.uiState.first { it.connectionHealth[connection.connectionUid]?.toolCount == 0 } }
+                .connectionHealth.getValue(connection.connectionUid)
+            assertTrue(newerHealth.configurationRevision?.matches(Regex("[a-f0-9]{64}")) == true)
+            releaseFirst.complete(Unit)
+            withTimeout(5000) { olderCheck.join() }
+            assertEquals(newerHealth, model.uiState.value.connectionHealth[connection.connectionUid])
+            coVerify(exactly = 2) { resolver.discoverMcpTools(any(), any(), any(), any()) }
+        } finally {
+            releaseFirst.complete(Unit)
+            model.viewModelScope.cancel()
+        }
+    }
+
+    @Test fun anMcpResultIsDiscardedWhenItsCredentialChangesWithoutARefresh() = runBlocking {
+        val connection = mcpConnectionForCheck().copy(authType = ToolConnectionAuthType.BEARER, secretRef = "connection_mcp")
+        val dao = FakeToolConnectionDao().apply { upsertConnection(connection) }
+        val vault = RevisionedConnectionTestVault().apply { put("connection_mcp", "first".encodeToByteArray()) }
+        val started = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val resolver = mockk<AgentToolResolver>()
+        coEvery { resolver.discoverMcpTools(any(), any(), any(), any()) } coAnswers {
+            started.complete(Unit)
+            release.await()
+            emptyList()
+        }
+        val model = toolConnectionsModelForCheck(dao, vault, resolver)
+        try {
+            withTimeout(5000) { model.uiState.first { it.connections == listOf(connection) } }
+            model.probeConnection(connection)
+            withTimeout(5000) { started.await() }
+            vault.put("connection_mcp", "replacement".encodeToByteArray())
+            release.complete(Unit)
+            val state = withTimeout(5000) { model.uiState.first { it.errorMessage?.contains("saved connection changed") == true } }
+            assertNull(state.connectionHealth[connection.connectionUid])
+            coVerify(exactly = 1) { resolver.discoverMcpTools(any(), any(), any(), any()) }
+        } finally {
+            release.complete(Unit)
+            model.viewModelScope.cancel()
+        }
+    }
+
+    @Test fun auditSavePersistsWithoutDiscoveryUntilTheExplicitCheck() = runBlocking {
+        val dao = FakeToolConnectionDao()
+        val vault = RevisionedConnectionTestVault()
+        val resolver = mockk<AgentToolResolver>()
+        coEvery { resolver.discoverMcpTools(any(), any(), any(), any()) } returns emptyList()
+        val model = toolConnectionsModelForCheck(dao, vault, resolver)
+        try {
+            val saved = CompletableDeferred<Unit>()
+            model.saveConnection(
+                existing = null,
+                provider = ToolConnectionsViewModel.providers.first { it.type == ToolConnectionType.MCP },
+                name = "MCP", alias = "mcp", endpointUrl = "https://server.example/mcp",
+                authType = ToolConnectionAuthType.BEARER, credential = "saved-token", oauthClientId = "",
+                allowCleartext = false, clearCredential = false, onSuccess = { saved.complete(Unit) }, probeAfterSave = false
+            )
+            withTimeout(5000) { saved.await() }
+            val connection = withTimeout(5000) { model.uiState.first { it.connections.size == 1 } }.connections.single()
+            assertTrue(connection.secretRef != null)
+            assertTrue(model.uiState.value.connectionHealth.isEmpty())
+            coVerify(exactly = 0) { resolver.discoverMcpTools(any(), any(), any(), any()) }
+            model.probeConnection(connection)
+            withTimeout(5000) { model.uiState.first { it.connectionHealth[connection.connectionUid]?.toolCount == 0 } }
+            coVerify(exactly = 1) { resolver.discoverMcpTools(connection, forceRefresh = true, awaitCompletion = true, passiveBackoff = false) }
+
+            val updated = CompletableDeferred<Unit>()
+            model.saveConnection(
+                existing = connection,
+                provider = ToolConnectionsViewModel.providers.first { it.type == ToolConnectionType.MCP },
+                name = "MCP", alias = "mcp", endpointUrl = "https://server.example/mcp",
+                authType = ToolConnectionAuthType.BEARER, credential = "replacement-token", oauthClientId = "",
+                allowCleartext = false, clearCredential = false, onSuccess = { updated.complete(Unit) }, probeAfterSave = false
+            )
+            withTimeout(5000) { updated.await() }
+            assertNull(model.uiState.value.connectionHealth[connection.connectionUid])
+            coVerify(exactly = 1) { resolver.discoverMcpTools(any(), any(), any(), any()) }
+        } finally {
+            model.viewModelScope.cancel()
+        }
+    }
+
+    @Test fun ordinarySaveChecksThePersistedCredentialReference() = runBlocking {
+        val dao = FakeToolConnectionDao()
+        val resolver = mockk<AgentToolResolver>()
+        coEvery { resolver.discoverMcpTools(any(), any(), any(), any()) } returns emptyList()
+        val model = toolConnectionsModelForCheck(dao, RevisionedConnectionTestVault(), resolver)
+        try {
+            model.saveConnection(
+                existing = null,
+                provider = ToolConnectionsViewModel.providers.first { it.type == ToolConnectionType.MCP },
+                name = "MCP", alias = "mcp", endpointUrl = "https://server.example/mcp",
+                authType = ToolConnectionAuthType.BEARER, credential = "saved-token", oauthClientId = "",
+                allowCleartext = false, clearCredential = false
+            )
+            withTimeout(5000) { model.uiState.first { it.connectionHealth.values.any { health -> health.toolCount == 0 } } }
+            val connection = dao.listConnections().single()
+            assertTrue(connection.secretRef != null)
+            coVerify(exactly = 1) { resolver.discoverMcpTools(connection, forceRefresh = true, awaitCompletion = true, passiveBackoff = false) }
+        } finally {
+            model.viewModelScope.cancel()
+        }
+    }
+
+    @Test fun anOlderSaveCannotAuthorizeACheckOfANewerReadOnlySave() = runBlocking {
+        val connection = mcpConnectionForCheck()
+        val dao = FakeToolConnectionDao().apply { upsertConnection(connection) }
+        val firstCloseStarted = CompletableDeferred<Unit>()
+        val releaseFirstClose = CompletableDeferred<Unit>()
+        val firstSaved = CompletableDeferred<Unit>()
+        val secondSaved = CompletableDeferred<Unit>()
+        val manager = mockk<McpClientManager>(relaxed = true)
+        var closes = 0
+        coEvery { manager.close(connection.connectionUid) } coAnswers {
+            if (++closes == 1) {
+                firstCloseStarted.complete(Unit)
+                releaseFirstClose.await()
+            }
+        }
+        val resolver = mockk<AgentToolResolver>()
+        val model = toolConnectionsModelForCheck(dao, resolver = resolver, manager = manager)
+        try {
+            withTimeout(5000) { model.uiState.first { it.connections == listOf(connection) } }
+            model.saveConnection(
+                existing = connection,
+                provider = ToolConnectionsViewModel.providers.first { it.type == ToolConnectionType.MCP },
+                name = "MCP", alias = "mcp", endpointUrl = "https://first.example/mcp",
+                authType = ToolConnectionAuthType.NONE, credential = "", oauthClientId = "",
+                allowCleartext = false, clearCredential = false, onSuccess = { firstSaved.complete(Unit) }
+            )
+            withTimeout(5000) { firstCloseStarted.await() }
+            model.saveConnection(
+                existing = requireNotNull(dao.getConnection(connection.connectionUid)),
+                provider = ToolConnectionsViewModel.providers.first { it.type == ToolConnectionType.MCP },
+                name = "MCP", alias = "mcp", endpointUrl = "https://second.example/mcp",
+                authType = ToolConnectionAuthType.NONE, credential = "", oauthClientId = "",
+                allowCleartext = false, clearCredential = false, onSuccess = { secondSaved.complete(Unit) }, probeAfterSave = false
+            )
+            withTimeout(5000) { secondSaved.await() }
+            releaseFirstClose.complete(Unit)
+            withTimeout(5000) { firstSaved.await() }
+            assertEquals("https://second.example/mcp", dao.getConnection(connection.connectionUid)?.endpointUrl)
+            assertNull(model.uiState.value.connectionHealth[connection.connectionUid])
+            coVerify(exactly = 0) { resolver.discoverMcpTools(any(), any(), any(), any()) }
+        } finally {
+            releaseFirstClose.complete(Unit)
+            model.viewModelScope.cancel()
+        }
+    }
+
+    @Test fun auditSignInDoesNotDispatchForARowChangedDuringPermission() = runBlocking {
+        val connection = mcpConnectionForCheck().copy(authType = ToolConnectionAuthType.OAUTH)
+        val dao = FakeToolConnectionDao().apply { upsertConnection(connection) }
+        val coordinator = mockk<McpOAuthCoordinator>()
+        val model = toolConnectionsModelForCheck(dao, coordinator = coordinator)
+        try {
+            withTimeout(5000) { model.uiState.first { it.connections == listOf(connection) } }
+            dao.upsertConnection(connection.copy(endpointUrl = "https://changed.example/mcp"))
+            model.startOAuth(connection.connectionUid, expectedConnection = connection)
+            val state = withTimeout(5000) { model.uiState.first { !it.isOAuthBusy && it.errorMessage?.contains("saved connection changed") == true } }
+            assertTrue(state.errorMessage.orEmpty().contains("Refresh"))
+            coVerify(exactly = 0) { coordinator.begin(any(), any(), any()) }
+        } finally {
+            model.viewModelScope.cancel()
+        }
+    }
+
+    @Test fun oauthAndBrowserErrorsAreRedactedBeforeTheyReachConnectionUi() = runBlocking {
+        val connection = mcpConnectionForCheck().copy(authType = ToolConnectionAuthType.OAUTH)
+        val dao = FakeToolConnectionDao().apply { upsertConnection(connection) }
+        val coordinator = mockk<McpOAuthCoordinator>()
+        val secret = "private-token-".repeat(300)
+        val error = "OAuth failed at https://auth.example/callback?code=private-code&state=private-state Authorization: Bearer $secret"
+        coEvery { coordinator.begin(any(), any(), any()) } throws IllegalStateException(error)
+        val model = toolConnectionsModelForCheck(dao, coordinator = coordinator)
+        try {
+            withTimeout(5000) { model.uiState.first { it.connections == listOf(connection) } }
+            model.startOAuth(connection.connectionUid, expectedConnection = connection)
+            val state = withTimeout(5000) { model.uiState.first { !it.isOAuthBusy && it.errorMessage != null } }
+            for (secretPart in listOf("private-code", "private-state", "private-token")) assertFalse(state.errorMessage.orEmpty().contains(secretPart))
+            assertTrue(state.errorMessage.orEmpty().length <= 2048)
+            coVerify(exactly = 1) { coordinator.begin(connection.connectionUid, any(), connection) }
+            model.failOAuthLaunch(error)
+            for (secretPart in listOf("private-code", "private-state", "private-token")) assertFalse(model.uiState.value.errorMessage.orEmpty().contains(secretPart))
         } finally {
             model.viewModelScope.cancel()
         }
@@ -722,6 +1044,35 @@ class ToolConnectionsViewModelTest {
 
 private fun fakeSettingRepository(): SettingRepository = mockk(relaxed = true) {
     coEvery { getFeatureSettings() } returns AppFeatureSettings()
+}
+
+private fun mcpConnectionForCheck() = ToolConnection("mcp", "MCP", "mcp", ToolConnectionType.MCP, "https://server.example/mcp", ToolConnectionAuthType.NONE, null, null)
+
+private fun toolConnectionsModelForCheck(
+    dao: ToolConnectionDao,
+    vault: SecretVault = FakeSecretVault(),
+    resolver: AgentToolResolver? = null,
+    coordinator: McpOAuthCoordinator = mockk(relaxed = true),
+    manager: McpClientManager = mockk(relaxed = true)
+): ToolConnectionsViewModel {
+    val settings = fakeSettingRepository()
+    every { settings.observeFeatureSettings() } returns kotlinx.coroutines.flow.flowOf(AppFeatureSettings())
+    return ToolConnectionsViewModel(dao, vault, coordinator, manager, settings, agentToolResolver = resolver)
+}
+
+/** Opaque replacement identities model vault metadata without fingerprinting plaintext. */
+private class RevisionedConnectionTestVault(private val backing: FakeSecretVault = FakeSecretVault()) : SecretVault by backing {
+    private val revisions = java.util.concurrent.ConcurrentHashMap<String, String>()
+    private val replacements = java.util.concurrent.atomic.AtomicLong()
+    override suspend fun put(secretRef: String, secret: ByteArray) {
+        backing.put(secretRef, secret)
+        revisions[secretRef] = replacements.incrementAndGet().toString(16).padStart(64, '0')
+    }
+    override suspend fun delete(secretRef: String) {
+        backing.delete(secretRef)
+        revisions.remove(secretRef)
+    }
+    override suspend fun recordRevision(secretRef: String): String? = revisions[secretRef]
 }
 
 private fun String.formValues(): Map<String, String> = split('&')

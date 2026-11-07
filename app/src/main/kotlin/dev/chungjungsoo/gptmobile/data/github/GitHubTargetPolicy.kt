@@ -55,6 +55,7 @@ internal class GitHubTargetPolicy(private val request: String?) {
     companion object {
         private val REPOSITORY_DISCOVERY = setOf("search_repositories", "list_repositories", "list_installation_repositories")
         private val ACCOUNT_ACTIONS = REPOSITORY_DISCOVERY + setOf("plan_change", "rate_limit_status", "efficiency", "get_account", "list_installations", "search_issues", "search_code")
+        internal fun isAccountAction(action: String): Boolean = action in ACCOUNT_ACTIONS
         private fun JsonObject.text(key: String) = (get(key) as? JsonPrimitive)?.contentOrNull.orEmpty()
     }
 }

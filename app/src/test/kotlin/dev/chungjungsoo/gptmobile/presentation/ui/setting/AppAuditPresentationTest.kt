@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.setting
 
+import dev.chungjungsoo.gptmobile.data.audit.AppAuditDispatchEvidence
 import dev.chungjungsoo.gptmobile.data.audit.AppAuditEvidenceKind
 import dev.chungjungsoo.gptmobile.data.audit.AppAuditObservationSource
 import dev.chungjungsoo.gptmobile.data.audit.AppAuditOutcome
@@ -81,6 +82,31 @@ class AppAuditPresentationTest {
         val item = appAuditPresentation(auditRun(listOf(entry))).components.single().entries.single()
         assertEquals("Service reads were disabled for this plan. Enable them and start a new audit to measure this connection.", appAuditReason(item))
         assertFalse(item.includedInScore)
+    }
+
+    @Test fun serviceInterruptionExplainsRecoveryWithoutErasingEvidenceOrMeasuringPendingChecks() {
+        val passed = auditEntry("passed")
+        val interrupted = auditEntry("interrupted")
+        val pending = auditEntry("pending")
+        val passedResult = auditResult(passed)
+        val interruptedResult = auditResult(interrupted, AppAuditOutcome.CANCELED, AppAuditObservationSource.NONE, reason = "SERVICE_INTERRUPTION").let {
+            it.copy(observation = it.observation.copy(dispatchEvidence = AppAuditDispatchEvidence.UNKNOWN), durationMs = null)
+        }
+        val run = auditRun(listOf(passed, interrupted, pending), listOf(passedResult, interruptedResult)).copy(stopReasonCode = "SERVICE_INTERRUPTION")
+        val presentation = appAuditPresentation(run)
+        val item = presentation.components.single().entries.single { it.entry.id == interrupted.id }
+        val explanation = "Android background tracking was interrupted. Recorded evidence is retained; only remaining checks can resume."
+        assertEquals(explanation, appAuditReasonCodeMessage(run.stopReasonCode))
+        assertEquals(explanation, appAuditReason(item))
+        assertEquals(listOf(pending), run.pendingEntries)
+        assertEquals(listOf(passedResult, interruptedResult), run.results)
+        assertEquals("Exercised 1/3 planned checks · Verified passes 1/3 planned checks", presentation.coverageText)
+        assertEquals(1, presentation.score.measuredWeight)
+        assertEquals(1, presentation.summary.canceled)
+        assertEquals(1, presentation.summary.untested)
+        assertFalse(item.includedInScore)
+        assertEquals(AppAuditDispatchEvidence.UNKNOWN, item.result?.dispatchEvidence)
+        assertNull(item.result?.durationMs)
     }
 
     @Test fun foreignAndDuplicateResultsCannotReplaceTheFrozenPlanOrItsFirstObservation() {

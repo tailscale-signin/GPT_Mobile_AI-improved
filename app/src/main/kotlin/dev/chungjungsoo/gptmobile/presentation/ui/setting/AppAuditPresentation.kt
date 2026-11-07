@@ -132,6 +132,7 @@ internal fun appAuditReasonCodeMessage(code: String?): String? = when (code) {
     "RUN_BUDGET_EXHAUSTED", "NETWORK_BUDGET_EXHAUSTED", "AUDIT_BUDGET_EXHAUSTED", "PLUGIN_TARGET_LIMIT" -> "The accepted request budget was exhausted. Remaining checks stay unmeasured."
     "PROBE_EVIDENCE_MISMATCH", "PROBE_CONTRACT_INVALID", "DISPATCH_RECEIPT_MISSING" -> "The observation did not establish the required evidence for this check."
     "PROCESS_INTERRUPTION", "DISPATCH_OUTCOME_UNKNOWN", "CHILD_OPERATION_ABORTED" -> "The check was interrupted. An uncertain operation is retained and is not automatically repeated."
+    "SERVICE_INTERRUPTION" -> "Android background tracking was interrupted. Recorded evidence is retained; only remaining checks can resume."
     "EXTERNAL_HARNESS_REQUIRED" -> "Requires an external test harness; this in-app audit has not measured it."
     "INVENTORY_UNAVAILABLE" -> "The configured inventory could not be inspected. Its runtime behavior is unverified."
     "MCP_DISCOVERY_VERIFIED", "MCP_EMPTY_CATALOG" -> "This check covers catalogue metadata. Individual plugin tools were not executed."

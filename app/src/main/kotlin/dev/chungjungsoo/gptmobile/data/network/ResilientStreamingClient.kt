@@ -90,8 +90,7 @@ object ResilientStreamingClient {
         val causes = generateSequence(throwable) { it.cause?.takeUnless { cause -> cause === it } }.take(8).toList()
         // Older gateways wrapped model contract failures as HTTP 502. Replaying
         // those requests restarts the entire budget after the bounded repair.
-        val terminalContracts = listOf("missing_required_tool_call", "backend omitted the required tool call", "completion_repair_budget_exhausted", "completion_repair_usage_unavailable", "terminal_job_not_resumable", "context_budget_exceeded", "invalid_v14_request", "mixed_tool_batch", "empty_completion", "unauthorized_tool_call", "invalid_tool_arguments")
-        if (causes.any { cause -> terminalContracts.any { cause.message.orEmpty().contains(it, true) } }) return false
+        if (dev.chungjungsoo.gptmobile.data.network.error.ProviderContractFailure.find(*causes.map { it.message }.toTypedArray()) != null) return false
         if (causes.any { it is ProviderConnectivityPendingException || it.message.orEmpty().contains("LOCAL_SERVICE_UNREACHABLE", true) }) return false
         if (causes.any { it is CancellationException || it is javax.net.ssl.SSLHandshakeException || it is javax.net.ssl.SSLPeerUnverifiedException || it is java.security.cert.CertificateException }) return false
         var current: Throwable? = throwable

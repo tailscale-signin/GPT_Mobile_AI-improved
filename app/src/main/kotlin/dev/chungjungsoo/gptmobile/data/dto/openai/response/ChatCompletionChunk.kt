@@ -40,6 +40,8 @@ data class ChatCompletionChunk(
 
     @SerialName("timings")
     val timings: ChatCompletionTimings? = null,
+    @SerialName("gateway_timing")
+    val gatewayTiming: GatewayGenerationTiming? = null,
 
     // Transport-owned signal: only an explicit SSE [DONE], never an arbitrary socket EOF.
     @Transient
@@ -294,4 +296,25 @@ data class ChatCompletionTimings(
             ?: predictedMs?.takeIf { it.isFinite() && it > 0 }?.let { ms ->
                 predictedTokens?.takeIf { it > 0 }?.let { it * 1000.0 / ms }
             }
+}
+
+/** Backend observation is separate from first text actually published by Android. */
+@Serializable
+data class GatewayGenerationTiming(
+    @SerialName("measurement_scope") val measurementScope: String? = null,
+    @SerialName("backend_first_output_ms") val firstOutputMs: Double? = null,
+    @SerialName("backend_first_visible_output_ms") val firstVisibleOutputMs: Double? = null,
+    @SerialName("backend_first_reasoning_output_ms") val firstReasoningOutputMs: Double? = null,
+    @SerialName("backend_completion_ms") val completionMs: Double? = null
+) {
+    fun observedFields(): Map<String, Double> = if (measurementScope != "physical_backend_request") {
+        emptyMap()
+    } else {
+        mapOf(
+            "backend_first_output_ms" to firstOutputMs,
+            "backend_first_visible_output_ms" to firstVisibleOutputMs,
+            "backend_first_reasoning_output_ms" to firstReasoningOutputMs,
+            "backend_completion_ms" to completionMs
+        ).mapNotNull { (name, value) -> value?.takeIf { it.isFinite() && it in 0.0..86_400_000.0 }?.let { name to it } }.toMap()
+    }
 }

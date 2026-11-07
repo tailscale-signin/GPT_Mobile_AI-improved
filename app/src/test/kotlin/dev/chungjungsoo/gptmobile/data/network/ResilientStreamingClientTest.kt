@@ -6,6 +6,20 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ResilientStreamingClientTest {
+    @Test fun deterministicTemplateFailuresNeverDispatchASecondAttempt() = kotlinx.coroutines.test.runTest {
+        for (message in listOf("HTTP 500: Jinja Exception: System message must be at the beginning", "HTTP 502: backend_template_invalid", "HTTP 409: client_tool_results_required", "HTTP 404: gateway_job_unavailable", "HTTP 422: unsupported_instruction_content", "HTTP 422: invalid_tool_history", "HTTP 409: client_tool_result_identity_mismatch", "HTTP 502: completion_repair_budget_unavailable", "HTTP 502: completion_repair_usage_unavailable")) {
+            var attempts = 0
+            val failure = runCatching {
+                ResilientStreamingClient.executeWithRetry(ResilientStreamingClient.RetryConfig(maxAttempts = 3)) {
+                    attempts++
+                    throw IOException(message)
+                }
+            }.exceptionOrNull()
+            org.junit.Assert.assertEquals(1, attempts)
+            assertTrue(failure is IOException)
+        }
+    }
+
     @Test fun wrappedSerializationFailuresNeverEnterTransportRetry() {
         assertFalse(ResilientStreamingClient.isRetryable(IOException("wrapped", kotlinx.serialization.SerializationException("Serializer for subclass TreeMap is not found"))))
     }

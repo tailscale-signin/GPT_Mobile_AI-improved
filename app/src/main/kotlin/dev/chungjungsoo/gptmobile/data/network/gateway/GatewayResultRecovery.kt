@@ -38,7 +38,7 @@ val GatewayJobResult.recoveryDisposition: GatewayResultDisposition
     get() = when {
         status.lowercase() in setOf("failed", "cancelled", "canceled", "interrupted") -> GatewayResultDisposition.FAILED
         status.lowercase() in setOf("running", "resuming", "waiting_for_client_tool") -> GatewayResultDisposition.WAITING
-        !status.equals("completed", true) || error != null || result?.error != null || recoverableContent == null -> GatewayResultDisposition.UNAVAILABLE
+        !status.equals("completed", true) || error != null || structuredError != null || result?.error != null || recoverableContent == null -> GatewayResultDisposition.UNAVAILABLE
         result?.choices.orEmpty().any { !it.effectiveDelta.toolCalls.isNullOrEmpty() } -> GatewayResultDisposition.UNAVAILABLE
         resultQuality == "partial" || result?.choices.orEmpty().any { it.finishReason == "length" } -> GatewayResultDisposition.PARTIAL
         resultQuality == "complete" -> GatewayResultDisposition.COMPLETE
@@ -73,7 +73,7 @@ internal class GatewayTerminalRecovery(private val api: GatewayAPI) {
     ): ChatCompletionChunk? {
         if (httpStatus != 409) return null
         val rejection = failure ?: return null
-        if ((rejection["code"] as? JsonPrimitive)?.contentOrNull != "terminal_job_not_resumable") return null
+        if (!(rejection["code"] as? JsonPrimitive)?.contentOrNull.equals("terminal_job_not_resumable", true)) return null
         val requested = config.extraHeaders.entries.firstOrNull { it.key.equals("X-Gateway-Job-ID", true) }?.value
         val reported = (rejection["job_id"] as? JsonPrimitive)?.contentOrNull
         val bound = requested?.matches(Regex("[A-Za-z0-9_-]{1,128}")) == true && requested == reported && (responseJobId == null || responseJobId == requested)
@@ -81,6 +81,7 @@ internal class GatewayTerminalRecovery(private val api: GatewayAPI) {
         val verified = saved?.takeIf { it.jobId == requested && it.matchesRequestedModel(model) }
         val disposition = verified?.recoveryDisposition ?: GatewayResultDisposition.UNAVAILABLE
         val retainedText = verified?.takeIf { it.status.lowercase() in setOf("completed", "failed", "cancelled", "canceled", "interrupted") }?.recoverableContent
+        val original = verified?.savedFailure()
         return ChatCompletionChunk(
             model = model,
             gatewayMetadata = requested?.takeIf { bound }?.let {
@@ -91,17 +92,50 @@ internal class GatewayTerminalRecovery(private val api: GatewayAPI) {
                 null
             } else {
                 ErrorDetail(
-                    message = when (disposition) {
+                    message = original?.message ?: when (disposition) {
                         GatewayResultDisposition.PARTIAL -> "The gateway saved a partial answer. That text was recovered; the terminal job was not restarted. Resume only its unfinished work."
                         GatewayResultDisposition.FAILED -> "The saved gateway job ended without a complete answer. Its terminal result was read; the request was not replayed."
                         else -> "The terminal gateway job has no verified complete result available on this connection. Reconnect to its saved job; the request was not replayed."
                     },
-                    code = "terminal_job_not_resumable",
-                    type = "gateway_terminal_result",
+                    code = original?.code ?: "TERMINAL_JOB_NOT_RESUMABLE",
+                    type = original?.type ?: "gateway_terminal_result",
                     retryable = false,
-                    failureDetails = rejection
+                    failureDetails = JsonObject(
+                        (original?.failureDetails ?: rejection) + mapOf(
+                            "retryable" to JsonPrimitive(false),
+                            "recovery_code" to JsonPrimitive("TERMINAL_JOB_NOT_RESUMABLE"),
+                            "recovery_http_status" to JsonPrimitive(httpStatus),
+                            "recovery_disposition" to JsonPrimitive(disposition.name)
+                        )
+                    )
                 )
             }
         )
     }
+}
+
+/** The saved cause outranks a later continuation rejection; text is bounded and credential-redacted. */
+internal fun GatewayJobResult.savedFailure(): ErrorDetail? {
+    val source = structuredError ?: result?.error?.let { failure ->
+        kotlinx.serialization.json.buildJsonObject {
+            put("message", JsonPrimitive(failure.message))
+            failure.code?.let { put("code", JsonPrimitive(it)) }
+            failure.type?.let { put("type", JsonPrimitive(it)) }
+            failure.failureDetails?.forEach { (key, value) -> put(key, value) }
+        }
+    } ?: error?.takeIf(String::isNotBlank)?.let { kotlinx.serialization.json.buildJsonObject { put("message", JsonPrimitive(it)) } }
+        ?: return null
+    val envelope = JsonObject(mapOf("error" to source)).toString()
+    val details = dev.chungjungsoo.gptmobile.data.network.structuredProviderFailure(envelope, job?.statusCode?.takeIf { it in 400..599 })
+    val contract = dev.chungjungsoo.gptmobile.data.network.error.ProviderContractFailure.find(
+        (source["code"] as? JsonPrimitive)?.contentOrNull,
+        (source["message"] as? JsonPrimitive)?.contentOrNull
+    )
+    return ErrorDetail(
+        message = contract?.message ?: dev.chungjungsoo.gptmobile.data.network.providerErrorDetails(envelope, "The saved gateway job failed."),
+        code = contract?.code ?: (source["code"] as? JsonPrimitive)?.contentOrNull?.take(128) ?: "GATEWAY_JOB_FAILED",
+        type = "gateway_saved_failure",
+        retryable = false,
+        failureDetails = JsonObject(details.orEmpty() + mapOf("job_id" to JsonPrimitive(jobId), "retryable" to JsonPrimitive(false)))
+    )
 }

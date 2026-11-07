@@ -21,7 +21,7 @@ import org.junit.Test
 @OptIn(ExperimentalCoroutinesApi::class)
 class GatewayDashboardMonitorTest {
     private val selected = PlatformV2(uid = "selected", name = "Selected local profile", compatibleType = ClientType.LLAMA, apiUrl = "http://192.168.1.2:8090/v1")
-    private fun target(profile: PlatformV2 = selected) = requireNotNull(gatewayDashboardTarget(profile.uid, listOf(profile), null))
+    private fun target(profile: PlatformV2 = selected) = requireNotNull(gatewayDashboardTarget(profile.uid, listOf(profile), profile.uid))
     private fun source(read: suspend (ProviderRequestConfig) -> GatewayDashboardObservation?) = object : GatewayDashboardSource {
         override suspend fun read(config: ProviderRequestConfig) = read.invoke(config)
     }
@@ -147,13 +147,15 @@ class GatewayDashboardMonitorTest {
     }
 
     @Test fun explicitGatewayUsesItsOwnCredentialsWithoutChangingTheSelectedAiProfile() {
-        val gateway = selected.copy(uid = "gateway", apiUrl = "http://gateway.local:9000/v1", token = "gateway-token")
+        val gateway = selected.copy(uid = "gateway", apiUrl = "http://192.168.1.3:9000/v1", token = "gateway-token")
         val chosen = requireNotNull(gatewayDashboardTarget(selected.uid, listOf(selected, gateway), gateway.uid))
         assertEquals(selected.uid, chosen.selectedProfileUid)
         assertEquals(gateway.uid, chosen.config?.profileUid)
         assertEquals(gateway.token, chosen.config?.token)
         assertEquals(gateway.apiUrl, chosen.config?.apiUrl)
-        assertNull(gatewayDashboardTarget("cloud", listOf(selected.copy(uid = "cloud", compatibleType = ClientType.OPENAI, apiUrl = "https://api.provider.example/v1")), null))
+        val unconfigured = requireNotNull(gatewayDashboardTarget("cloud", listOf(selected.copy(uid = "cloud", compatibleType = ClientType.OPENAI, apiUrl = "https://api.provider.example/v1")), null))
+        assertNull(unconfigured.config)
+        assertTrue(unconfigured.problem.orEmpty().contains("Select an engineering gateway"))
     }
 
     @Test fun failedRefreshKeepsSavedMeasurementsButStopsClaimingLiveJobsAndDevices() = runTest {

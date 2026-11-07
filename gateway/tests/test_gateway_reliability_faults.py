@@ -115,6 +115,34 @@ class BatchDrainFaultTest(unittest.TestCase):
         if calls:
             self.assertEqual({'one': {'ok': True}}, saved[-1])
 
+    def test_coordinator_failure_drains_success_but_keeps_interrupted_worker_resumable(self):
+        started = threading.Barrier(3)
+        saved, calls = [], []
+        executor = BatchExecutor(maximum=2)
+        def invoke(node):
+            calls.append(node['id'])
+            started.wait(timeout=3)
+            if node['id'] == 'one':
+                raise InterruptedError('fixture read stopped before a result')
+            return {'content': node['id']}
+        def progress(event):
+            if event['active'] == 2:
+                started.wait(timeout=3)
+                raise RuntimeError('fixture coordinator failed')
+        with self.assertRaisesRegex(RuntimeError, 'coordinator'):
+            executor.execute(self.nodes(), invoke, checkpoint=lambda results: saved.append(copy.deepcopy(results)),
+                             progress=progress)
+        self.assertEqual({'one', 'two'}, set(calls))
+        self.assertEqual({'two': {'content': 'two'}}, saved[-1])
+        resumed = []
+        result = executor.execute(self.nodes(), lambda node: resumed.append(node['id']) or {'ok': True}, saved[-1])
+        self.assertEqual(['one', 'three'], resumed)
+        self.assertEqual(3, len(result))
+        self.assertTrue(executor.admission.acquire(blocking=False))
+        self.assertTrue(executor.admission.acquire(blocking=False))
+        executor.admission.release()
+        executor.admission.release()
+
     def test_tls_failure_has_one_physical_attempt(self):
         calls = []
         def invoke(node):

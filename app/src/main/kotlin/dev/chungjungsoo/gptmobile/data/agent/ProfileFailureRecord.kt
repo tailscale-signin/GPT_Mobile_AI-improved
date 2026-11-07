@@ -33,9 +33,27 @@ data class ProfileFailureRecord(
 
         /** Preserve typed stage/dispatch facts; arbitrary provider text is never promoted to evidence. */
         fun fromProvider(message: String, errorCode: String? = null, details: JsonObject? = null): ProfileFailureRecord {
-            val legacy = classify(listOfNotNull(errorCode?.takeIf { it in typedCodes }, message).joinToString(": "))
+            val code = errorCode?.takeIf { it in typedCodes || it in dev.chungjungsoo.gptmobile.data.github.GitHubFailurePolicy.codes }
+            val observed = classify(listOfNotNull(code, message).joinToString(": "))
             // A local rejection must not replace an already ambiguous remote operation.
-            if (legacy.category == GatewayOutcomeRecovery.ERROR_CODE) return legacy
+            if (observed.category == GatewayOutcomeRecovery.ERROR_CODE) return observed
+            if (observed.category == "TOOL_OUTCOME_UNKNOWN") {
+                // A later local rejection cannot establish that the earlier
+                // uncertain tool operation was never sent.
+                return observed.copy(dispatched = true.takeIf { details?.get("dispatched") == JsonPrimitive(true) })
+            }
+            val authoritative = code?.let { classify(it) }
+            val legacy = if (authoritative != null) {
+                // The current typed failure outranks incidental codes in provider
+                // prose. Preserve any additional retry restriction and timing facts.
+                observed.copy(
+                    category = authoritative.category,
+                    retryAllowed = authoritative.retryAllowed && observed.retryAllowed,
+                    phase = authoritative.phase.takeUnless { it == "stage_not_recorded" } ?: observed.phase
+                )
+            } else {
+                observed
+            }
             val stage = (details?.get("failed_stage") as? JsonPrimitive)?.contentOrNull?.takeIf { it in phases }
             val dispatchFact = details?.get("dispatched")
                 ?: details?.get("inference_dispatched")?.takeIf { stage == "connection_preflight" }
@@ -70,8 +88,16 @@ data class ProfileFailureRecord(
             val billing = "402" in statuses || details.trim() == "402" || Regex("(?i)credit balance|insufficient (?:credits|funds|balance)|billing.{0,30}(?:required|disabled|exhausted)|payment required").containsMatchIn(details)
             val reviewBlocked = details.contains("GITHUB_REVIEW_INCOMPATIBLE", true) || details.contains("GITHUB_REVIEW_INDETERMINATE", true) || details.contains("REVIEW_INPUT_REQUIRED", true) || details.contains("Saved review requires new evidence", true) || details.contains("GITHUB_REVIEW_BLOCKED", true) || details.contains("unchanged draft will not be reviewed again", true)
             val privacyBlocked = details.contains("POLICY_RESTRICTED", true) || details.contains("PERSONAL_DATA_LOCAL_ONLY", true)
+            val githubCode = dev.chungjungsoo.gptmobile.data.github.GitHubFailurePolicy.recordedCode(details)
             val category = when {
                 listOf("TOOL_OUTCOME_UNKNOWN", "TIMEOUT_OUTCOME_UNKNOWN", "DISPATCH_OUTCOME_UNKNOWN", "TOOL_RESULT_ID_MISMATCH", "RECONCILIATION_REQUIRED", "GATEWAY_TOOL_OUTCOME_UNKNOWN").any { details.contains(it, true) } -> "TOOL_OUTCOME_UNKNOWN"
+                githubCode != null -> when {
+                    githubCode == "AUTH_REQUIRED" -> "AUTHENTICATION_FAILED"
+                    dev.chungjungsoo.gptmobile.data.github.GitHubFailurePolicy.isRateLimited(githubCode) -> "RATE_LIMIT"
+                    githubCode == "GITHUB_TRANSIENT_SERVER" -> "UPSTREAM_UNAVAILABLE"
+                    githubCode in setOf("PERMISSION_DENIED", "PERMISSION_REVOKED", "GITHUB_SSO_REQUIRED", "GITHUB_ENDPOINT_PERMISSION_REQUIRED", "GITHUB_FORBIDDEN_UNKNOWN", "GITHUB_BRANCH_RULES_BLOCKED") -> "ACCESS_FORBIDDEN"
+                    else -> githubCode
+                }
                 circuit -> "CIRCUIT_BREAKER_OPEN"
                 reviewBlocked -> "REVIEW_INPUT_REQUIRED"
                 details.contains("GITHUB_REVIEW_", true) -> "ANSWER_REVIEW"
@@ -108,7 +134,7 @@ data class ProfileFailureRecord(
             }
             return ProfileFailureRecord(
                 category,
-                !incompatible && !unavailablePolicy && category !in setOf("REVIEW_INPUT_REQUIRED", "PRIVACY_CONFIGURATION", "QUEUED_JOB", "CACHED_UNUSABLE_RESPONSE", "ENDPOINT_RETIRED", "BILLING_UNAVAILABLE", "TOOL_OUTCOME_UNKNOWN", "TLS_FAILURE", "CLIENT_CANCELLED", "AUTHENTICATION_FAILED", "ACCESS_FORBIDDEN", "SERIALIZATION_ERROR"),
+                !incompatible && !unavailablePolicy && githubCode?.let { dev.chungjungsoo.gptmobile.data.github.GitHubFailurePolicy.requiresCorrection(it) } != true && category !in setOf("REVIEW_INPUT_REQUIRED", "PRIVACY_CONFIGURATION", "QUEUED_JOB", "CACHED_UNUSABLE_RESPONSE", "ENDPOINT_RETIRED", "BILLING_UNAVAILABLE", "TOOL_OUTCOME_UNKNOWN", "TLS_FAILURE", "CLIENT_CANCELLED", "AUTHENTICATION_FAILED", "ACCESS_FORBIDDEN", "SERIALIZATION_ERROR"),
                 retryAt,
                 dispatched = false.takeIf { !circuit && (details.contains("dispatched=false", true) || details.contains("No request was dispatched", true)) },
                 phase = when {

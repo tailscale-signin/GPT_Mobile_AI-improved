@@ -18,6 +18,31 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubChatProgressTest {
+    @Test fun dynamicCountsUpdateTheSameKeyIncludingARevisedEarlierCount() {
+        var clock = 0L
+        val progress = GitHubChatProgress { clock }
+        progress.tick()
+        listOf("Check 2/8", "Check 3/8", "Check 2/8").forEach { text ->
+            progress.observe(ApiState.ProgressCheckpoint(text))
+            clock += 3000
+            val update = progress.tick().filterIsInstance<ApiState.ProgressCheckpoint>().single()
+            assertEquals(text, update.text)
+            assertEquals("github-check-counts", GitHubProgressPresentation.liveKey(update.text))
+        }
+    }
+
+    @Test fun selectedModelSummariesKeepAuthorshipAndUnchangedWorkDoesNotProduceFiller() {
+        var clock = 0L
+        val progress = GitHubChatProgress { clock }
+        assertFalse(progress.tick().filterIsInstance<ApiState.ActivitySummary>().single().modelAuthored)
+        progress.observe(ApiState.ProgressCheckpoint("Reading the build file"))
+        progress.observe(ApiState.ActivitySummary("The build file identifies the required checks. I am comparing those checks with the selected revision before reading the failed job output and preparing the next change.", modelAuthored = true))
+        clock = 15_000
+        assertTrue(progress.tick().filterIsInstance<ApiState.ActivitySummary>().single().modelAuthored)
+        clock = 30_000
+        assertTrue(progress.tick().none { it is ApiState.ActivitySummary })
+    }
+
     @Test fun summaryIsImmediateThenAtFifteenSecondsWithTwentyWords() {
         var clock = 0L
         val progress = GitHubChatProgress("status") { clock }
@@ -133,5 +158,35 @@ class GitHubChatProgressTest {
         }
         clock = 15_000
         assertTrue(progress.tick().filterIsInstance<ApiState.ActivitySummary>().single().text.contains("completed 2 repository operations"))
+    }
+
+    @Test fun newerFailureReplacesPendingProseWithCurrentRecoveryFacts() {
+        var clock = 0L
+        val progress = GitHubChatProgress("Inspect the repository") { clock }
+        progress.tick()
+        progress.observe(ApiState.ActivitySummary("The source read is available. I will compare its implementation with the request before deciding what remains to inspect.", modelAuthored = true))
+        progress.observe(ApiState.GatewayProgressChanged(GatewayProgress(event = "tool_failed", toolName = "github_read", toolCallId = "failed-read")))
+        clock = 15_000
+        val summary = progress.tick().filterIsInstance<ApiState.ActivitySummary>().single()
+        assertFalse(summary.modelAuthored)
+        assertTrue(summary.text.contains("1 operations need recovery"))
+    }
+
+    @Test fun selectedProseIsDeliveredBeforeTheNextToolEventWithoutWaitingForTheTicker() {
+        var clock = 0L
+        val progress = GitHubChatProgress("Inspect the repository") { clock }
+        progress.tick()
+        clock = 15_000
+        progress.tick()
+        clock = 18_000
+        val prose = ApiState.ActivitySummary("The workflow definition identifies the relevant validation jobs. I will now inspect the failed step and compare its output with the repository changes.", modelAuthored = true)
+        assertEquals(prose, progress.forward(prose))
+        val started = ApiState.GatewayProgressChanged(GatewayProgress(event = "tool_started", toolName = "github_ci", toolCallId = "job-log"))
+        assertEquals(started, progress.forward(started))
+        clock = 18_250
+        assertTrue(progress.tick().none { it is ApiState.ActivitySummary })
+        assertEquals(prose.text, progress.heartbeat())
+        assertEquals(null, progress.forward(prose))
+        assertEquals(null, progress.forward(ApiState.ProgressCheckpoint("Check 3/8")))
     }
 }

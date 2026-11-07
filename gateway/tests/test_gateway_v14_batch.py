@@ -1,4 +1,5 @@
 import contextvars
+import copy
 import sqlite3
 import sys
 import tempfile
@@ -84,6 +85,62 @@ class IntelligentBatchTests(unittest.TestCase):
         with self.assertRaises(InterruptedError):
             BatchExecutor(1).execute([node(i) for i in range(10)], invoke, progress=progress.append, cancel_event=cancellation)
         self.assertLessEqual(progress[-1]['progress'], 1)
+
+    def test_cancel_drains_every_completed_read_before_resuming(self):
+        cancellation, checkpointed = threading.Event(), threading.Event()
+        barrier = threading.Barrier(2)
+        saved, calls = [], []
+        def invoke(call):
+            calls.append(call['id'])
+            barrier.wait(2)
+            if call['id'] == 'a':
+                cancellation.set()
+            else:
+                self.assertTrue(checkpointed.wait(2))
+            return {'value': call['id']}
+        def checkpoint(results):
+            saved.append(copy.deepcopy(results))
+            if 'a' in results:
+                checkpointed.set()
+        plan = [node('a'), node('b'), node('c', ['a', 'b'])]
+        executor = BatchExecutor(2)
+        with self.assertRaises(InterruptedError):
+            executor.execute(plan, invoke, checkpoint=checkpoint, cancel_event=cancellation)
+        self.assertEqual({'a', 'b'}, set(calls))
+        self.assertEqual({'a': {'value': 'a'}, 'b': {'value': 'b'}}, saved[-1])
+        resumed_calls = []
+        result = executor.execute(plan, lambda call: resumed_calls.append(call['id']) or {'value': call['id']}, receipts=saved[-1])
+        self.assertEqual(['c'], resumed_calls)
+        self.assertEqual({'a', 'b', 'c'}, set(result))
+
+    def test_interrupted_worker_is_not_saved_as_failure_or_loses_peer_receipts(self):
+        barrier = threading.Barrier(2)
+        saved = []
+        def invoke(call):
+            barrier.wait(2)
+            if call['id'] == 'a':
+                raise InterruptedError('job stopped')
+            return {'value': 'b'}
+        plan = [node('a'), node('b'), node('c', ['a'])]
+        with self.assertRaises(InterruptedError):
+            BatchExecutor(2).execute(plan, invoke, checkpoint=lambda results: saved.append(copy.deepcopy(results)))
+        self.assertEqual({'b': {'value': 'b'}}, saved[-1])
+        calls = []
+        result = BatchExecutor(2).execute(plan, lambda call: calls.append(call['id']) or {'ok': True}, receipts=saved[-1])
+        self.assertEqual(['a', 'c'], calls)
+        self.assertEqual({'a', 'b', 'c'}, set(result))
+
+    def test_cancel_during_backoff_keeps_node_unfinished_without_replay(self):
+        cancellation, calls, saved = threading.Event(), [], []
+        def invoke(call):
+            calls.append(call['id'])
+            cancellation.set()
+            raise TimeoutError('read transport interrupted')
+        with patch('v14.batch.retry_delay', return_value=120):
+            with self.assertRaises(InterruptedError):
+                BatchExecutor(1).execute([node('a')], invoke, checkpoint=saved.append, cancel_event=cancellation)
+        self.assertEqual(['a'], calls)
+        self.assertEqual([], saved)
 
     def test_entire_graph_and_authorized_schema_are_validated_before_dispatch(self):
         schema = {'type': 'object', 'required': ['path'], 'properties': {'path': {'type': 'string'}}, 'additionalProperties': False}

@@ -92,3 +92,26 @@ Executed locally before submission:
 - Android compilation, the three added Kotlin reporting tests and the complete exact-head CI must execute in repository CI. Source preparation or passing Python tests are not substitutes.
 
 Physical-device jank, app-caused StrictMode counts, local NPU/GPU behavior, private port-8090/MCP availability, live authorized app operations and a physical application relaunch remain NOT_MEASURED. An unavailable attachment is not proof of an Android export defect. No guarantee of permanent failure-free operation is made.
+
+
+## Combined draft integration — 2026-11-07
+
+The integration candidate combines PR #808 at `d8dd1fdcf56da159669308917ba300d6d267199f` and PR #809 at `1feca10547e2ea8d1f2cebc31299bd4b977a51de`. Their common base is `c313a9897afe6e0a7cff609cdcf33d83fad83a90`. Both parents must remain in the source merge history. This section records the later integration validation separately from the original branch results above.
+
+The batch executor retains #808's bounded cooldown/TLS policy, admission cleanup and draining after a coordinator exception. It also retains #809's immediate halt on worker interruption and cancellation-aware backoff. An interrupted read produces no durable failed receipt. Successful siblings remain checkpointed, and explicit resume dispatches only missing work. A combined behavior regression forces a coordinator failure while one worker is interrupted and another succeeds; it verifies sibling receipt retention, resumability, dependency completion and release of both admission permits.
+
+Evidence projection retains #808's aggregate text and property-name limits, 64-item container limits and decreasing node budgets. It combines these with #809's once-computed source digest, explicit markers for root fields omitted from the view, reported node limit and capped omission-overflow ledger. Two #809 fixtures now use nested lists so node exhaustion and omission overflow are exercised independently of the stricter key/item admission rules. Their original behavioral assertions remain in force, and source inputs remain unchanged.
+
+Android failure guidance combines the typed permission/configuration classifications with the existing auth, graph, exact-ref, rate and unknown-outcome recovery actions. Duplicate branches introduced by the automatic merge were removed. MCP catalog/readiness changes and Android interrupted-session read recovery remain present. The release-scope arrays are the deduplicated union of both parents; required workflows and scalar policy fields are unchanged. The Windows diagnostic stress watchdog remains 600 seconds, with ordinary suite deadlines unchanged.
+
+Integration validation:
+
+- Fault suite: **27 passed**, including the combined coordinator/worker interruption regression.
+- Batch suite: **11 passed**; selected execution suite: **17 passed**.
+- `bash scripts/validate-local.sh fast`: **passed**, including all **329** host regression cases, policy, dependency catalog, secret scan, regex and resource preflight checks.
+- Gateway validation covered **44 Python suites / 528 cases**, with **one environment skip** because no bindable LAN IPv4 interface is available. The initial aggregate invocation returned failure because four startup suites saw the stale generated manifest after the new regression edits. After manifest regeneration, all four affected suites were rerun through the same isolated runner and passed. Every other suite passed, including the code-graph parser suites. The final combined results contain no failed suite.
+- Durable stress: **50,000 events / 782 commits**, restart and eviction verification passed. Browser bridge: **7 passed**.
+- ktlint **1.3.1** passed on both Kotlin conflict-resolution files. Full Android compilation and emulator qualification remain exact-head CI requirements.
+- All **158** gateway payload hashes match the merged source. Whitespace checks pass.
+
+Publication is owned by the coordinating agent. The manifest's source commit is deliberately still the previously published parent while the source tree is prepared. After the remote source merge commit is created, its returned SHA must be written into `manifest-v14.json` in a second metadata commit before a single branch update. An unpublished local candidate SHA must not be used as release provenance. These local checks do not authorize bypassing fresh required CI on the final PR head.

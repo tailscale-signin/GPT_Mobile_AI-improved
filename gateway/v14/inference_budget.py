@@ -58,8 +58,12 @@ def compact_evidence(value, text_limit, *, nodes=2048):
     text_remaining = [text_limit * 4]
     omissions = []
     def omit(path, reason, **details):
-        if len(omissions) < 256:
+        if len(omissions) < 255:
             omissions.append(dict(pointer=path, reason=reason, **details))
+        elif len(omissions) == 255:
+            omissions.append({'pointer': '', 'reason': 'VIEW_OMISSION_LIMIT', 'additional_omissions': 1})
+        else:
+            omissions[-1]['additional_omissions'] += 1
     def visit(item, path, depth):
         remaining[0] -= 1
         if depth > 16:
@@ -115,20 +119,23 @@ def fit_engineering_payload(payload, capability, counter):
     envelope = json.loads(original['messages'][-1]['content'])
     retained = {name: envelope.get(name) for name in ('evidence', 'historical_memory', 'code_graph')}
     # Bounded, strictly decreasing views. There is no identical oversized replay.
+    source_digest = fingerprint(retained)
     for limit in (4096, 2048, 1024, 512, 256):
+        nodes = min(2048, max(32, limit // 8))
         candidate = copy.deepcopy(original)
         body = copy.deepcopy(envelope)
-        projected, omissions = compact_evidence(retained, limit, nodes=min(2048, max(32, limit // 8)))
-        for name in retained:
-            body.pop(name, None)
+        projected, omissions = compact_evidence(retained, limit, nodes=nodes)
+        # Replace every retained source, including fields omitted at the root,
+        # so exhaustion never restores the unbounded original into the view.
+        projected = {name: projected.get(name, {'available_in_retained_evidence': True, 'view_omitted': True}) for name in retained}
         body.update(projected)
-        body['evidence_view'] = {'complete': False, 'retained_digest': fingerprint(retained), 'omissions': omissions,
+        body['evidence_view'] = {'complete': False, 'retained_digest': source_digest, 'omissions': omissions,
                                  'instruction': 'Omitted evidence remains stored. Do not claim it was inspected or that uncovered requirements passed.'}
         candidate['messages'][-1]['content'] = canonical(body)
         try:
             budget = plan_tokens(candidate, capability, counter, **reserves)
-            return candidate, budget, {'reason': 'CONTEXT_BUDGET', 'source_digest': fingerprint(retained),
-                                      'view_digest': fingerprint(projected), 'text_slice_bytes': limit,
+            return candidate, budget, {'reason': 'CONTEXT_BUDGET', 'source_digest': source_digest,
+                                      'view_digest': fingerprint(projected), 'text_slice_bytes': limit, 'view_node_limit': nodes,
                                       'omissions': omissions, 'objective_preserved': True, 'completion_reserves_preserved': True}
         except ExecutionBindingError as error:
             if error.code != 'EXECUTION_CONTEXT_EXHAUSTED':

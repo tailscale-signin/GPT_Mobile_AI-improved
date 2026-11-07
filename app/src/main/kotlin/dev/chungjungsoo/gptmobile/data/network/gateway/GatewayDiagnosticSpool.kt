@@ -9,8 +9,10 @@ import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import java.security.MessageDigest
 import java.util.UUID
+import java.util.concurrent.locks.ReentrantLock
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
+import kotlin.concurrent.withLock
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -50,6 +52,30 @@ internal class GatewayDiagnosticSpool(
     private val now: () -> Long = System::currentTimeMillis,
     private val write: (File, String, List<String>) -> Unit = ::writeDiagnosticGeneration
 ) {
+    /** Keep a bounded serialized row and index; parse only records selected by a reader. */
+    private class Row(event: JsonObject) {
+        val line = event.toString()
+        val bytes = line.toByteArray(Charsets.UTF_8).size + 1
+        val id = event.diagnosticText("event_id")!!
+        val origin = event.diagnosticText("origin_device_pseudonym")!!
+        val boot = event.diagnosticText("origin_boot_id")!!
+        val sequence = event.diagnosticLong("origin_sequence")!!
+        val operation = event.diagnosticText("operation_id")
+        val incident = incidentKey(event).takeIf { event.diagnosticText("severity") in failureSeverities }
+        val owner = event.diagnosticText("owner")
+        val stage = event.diagnosticText("stage")
+        val trace = event.diagnosticText("trace_id")
+        val appRevision = (event["bounded_attributes"] as? JsonObject)?.diagnosticText("app_revision")
+        val gatewayRevision = (event["bounded_attributes"] as? JsonObject)?.diagnosticText("gateway_revision")
+        val appVersion = (event["bounded_attributes"] as? JsonObject)?.diagnosticLong("app_version_code")
+        val androidSdk = (event["bounded_attributes"] as? JsonObject)?.diagnosticLong("android_sdk")
+
+        // The immutable line was sanitized before admission and is never edited in place.
+        fun json(): JsonObject = Json.parseToJsonElement(line) as JsonObject
+    }
+
+    private data class Summary(val pending: Int = 0, val dropped: Long = 0, val incidents: Int = 0, val operations: Int = 0, val gateway: Boolean = false)
+
     private data class State(
         val session: String,
         val origin: String,
@@ -58,7 +84,8 @@ internal class GatewayDiagnosticSpool(
         val acknowledged: MutableMap<String, Long> = linkedMapOf(),
         val gaps: MutableList<JsonObject> = mutableListOf(),
         val remoteGaps: MutableList<JsonObject> = mutableListOf(),
-        val rows: MutableList<String> = mutableListOf(),
+        val rows: MutableList<Row> = mutableListOf(),
+        var summary: Summary = Summary(),
         var evicted: Long = 0,
         var queueDropped: Long = 0,
         var rejected: Long = 0,
@@ -68,13 +95,15 @@ internal class GatewayDiagnosticSpool(
         fun detached() = copy(sequences = sequences.toMutableMap(), acknowledged = acknowledged.toMutableMap(), gaps = gaps.toMutableList(), remoteGaps = remoteGaps.toMutableList(), rows = rows.toMutableList())
     }
 
+    private val writer = ReentrantLock()
+
     @Volatile private var state: State
 
     @Volatile private var storageError: String? = null
 
     init {
         require(GatewayDiagnosticEvent.hex32.matches(bootId))
-        state = if (file.isFile) load() else State(randomId(), randomId(), now()).also(::persist)
+        state = (if (file.isFile) load() else State(randomId(), randomId(), now()).also(::persist)).also(::summarize)
     }
 
     // Header construction never waits for disk writes or a long export/status read.
@@ -83,7 +112,7 @@ internal class GatewayDiagnosticSpool(
     val captureStartedAt: Long get() = state.created
     val cursor: Long get() = state.remoteCursor
 
-    @Synchronized fun append(events: List<Pair<Long, JsonObject>>, queueDropped: Long = 0) = mutate { next ->
+    fun append(events: List<Pair<Long, JsonObject>>, queueDropped: Long = 0) = mutate { next ->
         checkCapture(next)
         if (bootId !in next.sequences && next.sequences.size >= 16) throw DiagnosticSyncFailure("DIAGNOSTIC_SOURCE_LIMIT")
         next.queueDropped += queueDropped.coerceAtLeast(0)
@@ -94,38 +123,37 @@ internal class GatewayDiagnosticSpool(
                 next.rejected++
             } else {
                 next.sequences[bootId] = sequence
-                next.rows += event.toString()
+                next.rows += Row(event)
                 trim(next)
             }
         }
     }
 
-    @Synchronized fun batch(): JsonObject {
-        checkCapture(state)
-        val pendingGaps = state.gaps.filter { (it.diagnosticLong("last") ?: 0) > (state.acknowledged[it.diagnosticText("origin_boot_id")] ?: 0) }.take(32)
-            .map { JsonObject(it + ("origin_device_pseudonym" to JsonPrimitive(state.origin))) }
+    fun batch(): JsonObject {
+        val snapshot = state
+        checkCapture(snapshot)
+        val pendingGaps = snapshot.gaps.filter { (it.diagnosticLong("last") ?: 0) > (snapshot.acknowledged[it.diagnosticText("origin_boot_id")] ?: 0) }.take(32)
+            .map { JsonObject(it + ("origin_device_pseudonym" to JsonPrimitive(snapshot.origin))) }
         val selected = mutableListOf<JsonObject>()
         var bytes = JsonArray(pendingGaps).toString().toByteArray().size + 512
-        for (line in state.rows) {
-            val event = GatewayDiagnosticEvent.parse(line) ?: continue
-            if (event.diagnosticText("origin_device_pseudonym") != state.origin) continue
-            val acknowledged = state.acknowledged[event.diagnosticText("origin_boot_id")] ?: 0
-            if ((event.diagnosticLong("origin_sequence") ?: 0) <= acknowledged) continue
-            val size = GatewayDiagnosticEvent.bytes(event) + 1
-            if (selected.size >= GatewayDiagnosticEvent.MAX_BATCH_EVENTS || bytes + size > GatewayDiagnosticEvent.MAX_BATCH_BYTES) break
-            selected += event
-            bytes += size
+        for (row in snapshot.rows) {
+            if (row.origin != snapshot.origin) continue
+            val acknowledged = snapshot.acknowledged[row.boot] ?: 0
+            if (row.sequence <= acknowledged) continue
+            if (selected.size >= GatewayDiagnosticEvent.MAX_BATCH_EVENTS || bytes + row.bytes > GatewayDiagnosticEvent.MAX_BATCH_BYTES) break
+            selected += row.json()
+            bytes += row.bytes
         }
         return buildJsonObject {
             put("schema_version", 2)
-            put("session_id", state.session)
-            put("capture_started_at_utc", state.created)
+            put("session_id", snapshot.session)
+            put("capture_started_at_utc", snapshot.created)
             put("events", JsonArray(selected))
             put("gaps", JsonArray(pendingGaps))
         }
     }
 
-    @Synchronized fun acknowledge(receipt: JsonObject, submitted: JsonObject? = null) = mutate { next ->
+    fun acknowledge(receipt: JsonObject, submitted: JsonObject? = null) = mutate { next ->
         if (receipt.diagnosticLong("schema_version") != 2L || receipt.diagnosticText("session_id") != next.session || receipt.diagnosticText("storage_state") != "committed") throw DiagnosticSyncFailure("INVALID_DIAGNOSTIC_ACK")
         val watermarks = receipt["watermarks"] as? JsonArray ?: throw DiagnosticSyncFailure("INVALID_DIAGNOSTIC_ACK")
         if (watermarks.size > 16) throw DiagnosticSyncFailure("INVALID_DIAGNOSTIC_ACK")
@@ -153,7 +181,7 @@ internal class GatewayDiagnosticSpool(
         next.lastSync = now()
     }
 
-    @Synchronized fun importPage(page: JsonObject) = mutate { next ->
+    fun importPage(page: JsonObject) = mutate { next ->
         if (page.diagnosticLong("schema_version") != 2L || page.diagnosticText("session_id") != next.session) throw DiagnosticSyncFailure("INVALID_DIAGNOSTIC_PAGE")
         val cursor = page.diagnosticLong("next_cursor")?.takeIf { it in 0..(1L shl 53) } ?: throw DiagnosticSyncFailure("INVALID_DIAGNOSTIC_CURSOR")
         val maximum = page.diagnosticLong("last_ingest_sequence")?.takeIf { it in 0..(1L shl 53) } ?: throw DiagnosticSyncFailure("INVALID_DIAGNOSTIC_CURSOR")
@@ -161,7 +189,7 @@ internal class GatewayDiagnosticSpool(
         val rows = page["events"] as? JsonArray ?: throw DiagnosticSyncFailure("INVALID_DIAGNOSTIC_PAGE")
         if (rows.size > GatewayDiagnosticEvent.MAX_BATCH_EVENTS) throw DiagnosticSyncFailure("DIAGNOSTIC_BATCH_LIMIT")
         var priorCursor = 0L
-        val existing = next.rows.mapNotNull { GatewayDiagnosticEvent.parse(it)?.diagnosticText("event_id") }.toMutableSet()
+        val existing = next.rows.mapTo(HashSet(next.rows.size)) { it.id }
         rows.forEach { raw ->
             val event = (raw as? JsonObject)?.let(GatewayDiagnosticEvent::sanitize) ?: throw DiagnosticSyncFailure("INVALID_DIAGNOSTIC_EVENT")
             val receivedCursor = event.diagnosticLong("gateway_ingest_sequence") ?: throw DiagnosticSyncFailure("INVALID_DIAGNOSTIC_CURSOR")
@@ -169,7 +197,7 @@ internal class GatewayDiagnosticSpool(
             priorCursor = receivedCursor
             if (receivedCursor <= next.remoteCursor) return@forEach
             if (event.diagnosticText("origin_device_pseudonym") == next.origin) return@forEach
-            if (existing.add(event.diagnosticText("event_id")!!)) next.rows += event.toString()
+            if (existing.add(event.diagnosticText("event_id")!!)) next.rows += Row(event)
             trim(next)
         }
         val gap = page["cursor_gap"] as? JsonObject
@@ -200,53 +228,55 @@ internal class GatewayDiagnosticSpool(
         }
     }
 
-    @Synchronized fun status(): GatewayDiagnosticStatus {
-        val events = state.rows.mapNotNull(GatewayDiagnosticEvent::parse)
-        val failures = events.filter { it.diagnosticText("severity") in setOf("warning", "error", "critical") }
+    // Reads pin the last committed generation, including while an fsync is blocked.
+    fun status(): GatewayDiagnosticStatus {
+        val snapshot = state
+        val error = storageError
+        val summary = snapshot.summary
         return GatewayDiagnosticStatus(
-            captureState = if (storageError == null) "recording" else "storage_unavailable",
-            retained = state.rows.size,
-            pending = events.count { it.diagnosticText("origin_device_pseudonym") == state.origin && (it.diagnosticLong("origin_sequence") ?: 0) > (state.acknowledged[it.diagnosticText("origin_boot_id")] ?: 0) },
-            evicted = state.evicted,
-            dropped = state.queueDropped + state.gaps.sumOf { (it.diagnosticLong("last") ?: 0) - (it.diagnosticLong("first") ?: 0) + 1 },
-            rejected = state.rejected,
-            lastSyncAt = state.lastSync.takeIf { it > 0 },
-            storageError = storageError,
-            sessionId = state.session,
-            remoteCursor = state.remoteCursor,
-            sourceAvailability = if (events.none { it.diagnosticText("owner") == "gateway" }) {
+            captureState = if (error == null) "recording" else "storage_unavailable",
+            retained = snapshot.rows.size,
+            pending = summary.pending,
+            evicted = snapshot.evicted,
+            dropped = summary.dropped,
+            rejected = snapshot.rejected,
+            lastSyncAt = snapshot.lastSync.takeIf { it > 0 },
+            storageError = error,
+            sessionId = snapshot.session,
+            remoteCursor = snapshot.remoteCursor,
+            sourceAvailability = if (!summary.gateway) {
                 "not_observed"
-            } else if (now() - state.lastSync > 30_000) {
+            } else if (now() - snapshot.lastSync > 30_000) {
                 "disconnected_or_idle"
             } else {
                 "observed_recently"
             },
-            incidents = failures.map(::incidentKey).distinct().size,
-            operationCount = events.mapNotNull { it.diagnosticText("operation_id") }.distinct().size
+            incidents = summary.incidents,
+            operationCount = summary.operations
         )
     }
 
-    @Synchronized fun page(offset: Int, limit: Int, failuresOnly: Boolean, traceId: String? = null, stages: Set<String> = emptySet()): GatewayDiagnosticPage {
+    fun page(offset: Int, limit: Int, failuresOnly: Boolean, traceId: String? = null, stages: Set<String> = emptySet()): GatewayDiagnosticPage {
         require(offset >= 0 && limit in 1..64)
-        val matching = state.rows.asReversed().asSequence().mapNotNull(GatewayDiagnosticEvent::parse)
-            .filter { !failuresOnly || it.diagnosticText("severity") in setOf("warning", "error", "critical") }
-            .filter { traceId == null || it.diagnosticText("trace_id") == traceId }
-            .filter { stages.isEmpty() || it.diagnosticText("stage") in stages }.toList()
-        val selected = matching.drop(offset).take(limit)
+        val snapshot = state
+        val matching = snapshot.rows.asReversed().asSequence()
+            .filter { !failuresOnly || it.incident != null }
+            .filter { traceId == null || it.trace == traceId }
+            .filter { stages.isEmpty() || it.stage in stages }.toList()
+        val selected = matching.drop(offset).take(limit).map(Row::json)
         return GatewayDiagnosticPage(selected, (offset + selected.size).takeIf { it < matching.size }, matching.size)
     }
 
     fun export(destination: File): File {
-        val snapshot = synchronized(this) { state.detached() }
+        val snapshot = state
         val digest = MessageDigest.getInstance("SHA-256")
         var byteCount = 0L
         var count = 0
-        val parsed = snapshot.rows.mapNotNull(GatewayDiagnosticEvent::parse)
         destination.parentFile?.mkdirs()
         ZipOutputStream(FileOutputStream(destination)).use { zip ->
             zip.putNextEntry(ZipEntry("events.jsonl"))
-            parsed.forEach { event ->
-                val bytes = (event.toString() + "\n").toByteArray(Charsets.UTF_8)
+            snapshot.rows.forEach { row ->
+                val bytes = (row.line + "\n").toByteArray(Charsets.UTF_8)
                 digest.update(bytes)
                 zip.write(bytes)
                 byteCount += bytes.size
@@ -277,27 +307,30 @@ internal class GatewayDiagnosticSpool(
                 put(
                     "source_versions",
                     buildJsonObject {
-                        parsed.mapNotNull { it["bounded_attributes"] as? JsonObject }.forEach { attrs ->
-                            listOf("app_revision", "gateway_revision", "app_version_code", "android_sdk").forEach { key -> attrs[key]?.let { put(key, it) } }
+                        snapshot.rows.forEach { row ->
+                            row.appRevision?.let { put("app_revision", it) }
+                            row.gatewayRevision?.let { put("gateway_revision", it) }
+                            row.appVersion?.let { put("app_version_code", it) }
+                            row.androidSdk?.let { put("android_sdk", it) }
                         }
                     }
                 )
                 put(
                     "sources",
                     JsonArray(
-                        parsed.groupBy { it.diagnosticText("origin_device_pseudonym") to it.diagnosticText("origin_boot_id") }.map { (key, events) ->
+                        snapshot.rows.groupBy { it.origin to it.boot }.map { (key, events) ->
                             buildJsonObject {
                                 put("origin_device_pseudonym", key.first)
                                 put("origin_boot_id", key.second)
                                 put("retained_count", events.size)
-                                put("first_retained_sequence", events.minOf { it.diagnosticLong("origin_sequence")!! })
-                                put("last_retained_sequence", events.maxOf { it.diagnosticLong("origin_sequence")!! })
+                                put("first_retained_sequence", events.minOf { it.sequence })
+                                put("last_retained_sequence", events.maxOf { it.sequence })
                                 if (key.first == snapshot.origin) put("accounted_through", snapshot.acknowledged[key.second] ?: 0)
                             }
                         }
                     )
                 )
-                put("missing_sources", JsonArray(listOf("android", "gateway").filter { owner -> parsed.none { it.diagnosticText("owner") == owner } }.map(::JsonPrimitive)))
+                put("missing_sources", JsonArray(listOf("android", "gateway").filter { owner -> snapshot.rows.none { it.owner == owner } }.map(::JsonPrimitive)))
                 put("complete", false)
                 put("coverage_note", "Bounded device mirror. The paired gateway export certifies committed combined coverage; unacknowledged events and absent vendor logs remain explicit.")
                 put("capture_policy", "allowlisted_metadata_only; private_sessions_excluded; full_job_evidence_separate")
@@ -324,11 +357,11 @@ internal class GatewayDiagnosticSpool(
 
     private fun trim(next: State) {
         while (next.rows.size > GatewayDiagnosticEvent.MAX_EVENTS) {
-            val removed = GatewayDiagnosticEvent.parse(next.rows.removeAt(0))
+            val removed = next.rows.removeAt(0)
             next.evicted++
-            if (removed?.diagnosticText("origin_device_pseudonym") == next.origin) {
-                val boot = removed.diagnosticText("origin_boot_id")!!
-                val sequence = removed.diagnosticLong("origin_sequence")!!
+            if (removed.origin == next.origin) {
+                val boot = removed.boot
+                val sequence = removed.sequence
                 if (sequence > (next.acknowledged[boot] ?: 0)) gap(next, boot, sequence, sequence, "OFFLINE_EVICTED")
             }
         }
@@ -354,11 +387,12 @@ internal class GatewayDiagnosticSpool(
         if (now() - next.created > GatewayDiagnosticEvent.CAPTURE_DURATION_MILLIS || next.created > now() + 300_000) throw DiagnosticSyncFailure("DIAGNOSTIC_CAPTURE_EXPIRED")
     }
 
-    private fun mutate(change: (State) -> Unit) {
+    private fun mutate(change: (State) -> Unit) = writer.withLock {
         val next = state.detached()
         // A rejected ACK/page is a protocol failure, not a recoverable disk fault.
         // Validate the detached generation before any persistent state can change.
         change(next)
+        summarize(next)
         try {
             persist(next)
             state = next
@@ -369,6 +403,26 @@ internal class GatewayDiagnosticSpool(
             storageError = "DEBUG_STORAGE_UNAVAILABLE"
             throw DiagnosticSyncFailure("DEBUG_STORAGE_UNAVAILABLE")
         }
+    }
+
+    private fun summarize(next: State) {
+        val incidents = hashSetOf<String>()
+        val operations = hashSetOf<String>()
+        var pending = 0
+        var gateway = false
+        next.rows.forEach { row ->
+            if (row.origin == next.origin && row.sequence > (next.acknowledged[row.boot] ?: 0)) pending++
+            row.incident?.let(incidents::add)
+            row.operation?.let(operations::add)
+            gateway = gateway || row.owner == "gateway"
+        }
+        next.summary = Summary(
+            pending = pending,
+            dropped = next.queueDropped + next.gaps.sumOf { (it.diagnosticLong("last") ?: 0) - (it.diagnosticLong("first") ?: 0) + 1 },
+            incidents = incidents.size,
+            operations = operations.size,
+            gateway = gateway
+        )
     }
 
     private fun persist(next: State) {
@@ -388,7 +442,7 @@ internal class GatewayDiagnosticSpool(
             put("last_sync", next.lastSync)
         }.toString()
         if (header.toByteArray().size > 128 * 1024) throw DiagnosticSyncFailure("DIAGNOSTIC_METADATA_LIMIT")
-        write(file, header, next.rows)
+        write(file, header, next.rows.map { it.line })
     }
 
     private fun load(): State {
@@ -443,14 +497,13 @@ internal class GatewayDiagnosticSpool(
                     result.rejected++
                 } else {
                     if (result.rows.size >= GatewayDiagnosticEvent.MAX_EVENTS) throw DiagnosticSyncFailure("DIAGNOSTIC_SPOOL_CORRUPT")
-                    result.rows += event.toString()
+                    result.rows += Row(event)
                 }
             }
             // A damaged row never causes allocated-but-unacknowledged identity reuse or a stalled ACK.
             result.sequences.forEach { (boot, last) ->
-                val present = result.rows.mapNotNull(GatewayDiagnosticEvent::parse)
-                    .filter { it.diagnosticText("origin_device_pseudonym") == origin && it.diagnosticText("origin_boot_id") == boot }
-                    .map { it.diagnosticLong("origin_sequence")!! to it.diagnosticLong("origin_sequence")!! }
+                val present = result.rows.filter { it.origin == origin && it.boot == boot }
+                    .map { it.sequence to it.sequence }
                 val covered = present + result.gaps.filter { it.diagnosticText("origin_boot_id") == boot }.map { it.diagnosticLong("first")!! to it.diagnosticLong("last")!! }
                 var cursor = (result.acknowledged[boot] ?: 0) + 1
                 covered.sortedBy { it.first }.forEach { (first, end) ->
@@ -463,6 +516,8 @@ internal class GatewayDiagnosticSpool(
         }
     }
 }
+
+private val failureSeverities = setOf("warning", "error", "critical")
 
 private fun incidentKey(event: JsonObject): String = (event.diagnosticText("incident_id") ?: event.diagnosticText("operation_id") ?: event.diagnosticText("request_id") ?: event.diagnosticText("trace_id") ?: event.diagnosticText("event_id")).orEmpty()
 private fun randomId(): String = UUID.randomUUID().toString().replace("-", "")

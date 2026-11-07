@@ -941,7 +941,11 @@ private fun Throwable.isMcpUnauthorized(): Boolean = generateSequence(this) { it
 /** Only replay discovery/resource reads after a dropped connection, never tools/call. */
 internal fun Throwable.isMcpInterruptedRead(): Boolean = generateSequence(this) { it.cause?.takeUnless { cause -> cause === it } }.take(8)
     .any { error ->
+        // The SDK uses this exact lifecycle exception. Subclasses also include
+        // cancellation and provider errors, which must not become retryable.
+        val sdkDisconnected = error.javaClass == IllegalStateException::class.java && error.message == "Not connected"
         error is java.io.EOFException ||
+            sdkDisconnected ||
             listOf("unexpected end of stream", "broken pipe", "connection reset", "software caused connection abort", "socket closed").any { error.message.orEmpty().contains(it, ignoreCase = true) }
     }
 

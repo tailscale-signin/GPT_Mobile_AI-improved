@@ -82,10 +82,10 @@ internal fun GitHubRepositoryStatusPanel(connection: ToolConnection, selection: 
     }
     val uri = androidx.compose.ui.platform.LocalUriHandler.current
     var selectedRun by remember(selection) { androidx.compose.runtime.mutableStateOf<String?>(null) }
-    var query by remember { androidx.compose.runtime.mutableStateOf("") }
-    var details by remember { mutableStateOf(false) }
-    var searching by remember { mutableStateOf(false) }
-    var confirmation by remember { androidx.compose.runtime.mutableStateOf<Pair<GitHubLiveProcess, String>?>(null) }
+    var query by remember(selection) { androidx.compose.runtime.mutableStateOf("") }
+    var details by remember(selection) { mutableStateOf(false) }
+    var searching by remember(selection) { mutableStateOf(false) }
+    var confirmation by remember(selection) { androidx.compose.runtime.mutableStateOf<Pair<GitHubLiveProcess, String>?>(null) }
     fun open(url: String) {
         if (url.startsWith("https://github.com/")) uri.openUri(url)
     }
@@ -106,7 +106,6 @@ internal fun GitHubRepositoryStatusPanel(connection: ToolConnection, selection: 
     val summary = gitHubStatusSummary(state, now)
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         GitHubRepositoryStatusSummary(selection, summary, pulls.size, profile?.name, model::refresh) { open("https://github.com/${selection.fullName}/actions") }
-        profile?.let { GitHubGatewayStatusPanel(it, now) }
         if (graphContext != null) {
             dev.chungjungsoo.gptmobile.presentation.ui.chat.RepositoryGraphStatusMap(graphContext, profile)
         } else {
@@ -116,11 +115,12 @@ internal fun GitHubRepositoryStatusPanel(connection: ToolConnection, selection: 
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(Modifier.padding(18.dp)) {
-                    Text("Repository network", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+                    Text("Repository map", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
                     Text("Choose a repository, revision and private gateway AI profile to visualize its source graph.", style = MaterialTheme.typography.bodySmall)
                 }
             }
         }
+        profile?.let { GitHubGatewayStatusPanel(it, now) }
         state.notice?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text("Checks", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)

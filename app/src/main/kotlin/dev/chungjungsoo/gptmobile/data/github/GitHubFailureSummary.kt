@@ -28,6 +28,7 @@ internal object GitHubFailureSummary {
                     "GITHUB_NOT_FOUND_OR_HIDDEN", "GITHUB_NOT_FOUND_OR_INACCESSIBLE" -> "Verify the observed resource ID and access once. Active-job logs remain pending; do not invent IDs or blindly retry a 404."
                     in GitHubFailurePolicy.codes, "REPOSITORY_GRAPH_UNAVAILABLE", "GATEWAY_CAPABILITY_UNAVAILABLE", "GITHUB_REF_UNAVAILABLE", "GITHUB_CIRCUIT_OPEN", "CIRCUIT_BREAKER_OPEN", "RECONCILIATION_REQUIRED", "UNKNOWN_OUTCOME" -> GitHubFailurePolicy.recoveryHint(code)
                     "BUDGET_EXHAUSTED" -> "Resume unfinished work with a fresh bounded allowance; preserve completed receipts."
+                    in dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.unknownOutcomeCodes -> "Reconcile the exact saved remote operation before another mutation. A lost response is not permission to repeat the write."
                     else -> "Inspect the retained error receipt and correct its cause before retrying."
                 }
                 append("| ").append(code.replace(Regex("[^A-Za-z0-9_]"), "").take(80)).append(" | ").append(count).append(" | ").append(action).append(" |\n")

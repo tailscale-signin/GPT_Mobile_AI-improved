@@ -85,5 +85,77 @@
     "requested_in_this_change": false,
     "version_changed": false,
     "prior_release_task_unchanged": true
+  },
+  "integration_review": {
+    "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+    "base_branch": "fix/reliability-fault-recovery-2026-11-06",
+    "base_sha": "d8dd1fdcf56da159669308917ba300d6d267199f",
+    "working_branch": "local integration candidate (detached worktree)",
+    "parent_pr": 809,
+    "parent_sha": "1feca10547e2ea8d1f2cebc31299bd4b977a51de",
+    "intent": "Preserve both reviewed recovery branches and repair conflicts before fresh exact-head CI",
+    "state": "LOCAL_VERIFIED_PENDING_REMOTE_SOURCE_BINDING_AND_EXACT_HEAD_CI",
+    "merge_base_sha": "c313a9897afe6e0a7cff609cdcf33d83fad83a90",
+    "resolutions": [
+      "Preserve bounded retry/TLS admission and coordinator drain while interrupted workers remain resumable without failed receipts",
+      "Preserve aggregate text/key limits with bounded omission overflow, explicit omitted-root markers and one source digest",
+      "Union typed Android recovery guidance without duplicate branches",
+      "Union both release scopes and regenerate every gateway payload hash"
+    ],
+    "validation": {
+      "fault_suite": {
+        "tests": 27,
+        "status": "PASSED"
+      },
+      "batch_suite": {
+        "tests": 11,
+        "status": "PASSED"
+      },
+      "selected_execution_suite": {
+        "tests": 17,
+        "status": "PASSED"
+      },
+      "canonical_fast": {
+        "tests": 329,
+        "status": "PASSED"
+      },
+      "gateway_complete": {
+        "suites": 44,
+        "tests": 528,
+        "skipped": 1,
+        "status": "PASSED_AFTER_MANIFEST_REGENERATION_AND_AFFECTED_SUITE_RECHECK",
+        "initial_command_exit": 1,
+        "initial_failure": "Four startup suites observed stale generated hashes after the new regression edits; payload manifest regenerated",
+        "rechecked_suites": [
+          "test_gateway_desktop.py",
+          "test_gateway_network.py",
+          "test_gateway_v14.py",
+          "test_gateway_v14_browser.py"
+        ],
+        "skip_reason": "No bindable LAN IPv4 interface available on this host",
+        "browser_bridge_tests": 7,
+        "browser_bridge_status": "PASSED",
+        "diagnostic_stress_events": 50000,
+        "diagnostic_stress_commits": 782,
+        "diagnostic_stress_status": "PASSED"
+      },
+      "ktlint_conflict_files": {
+        "files": 2,
+        "version": "1.3.1",
+        "status": "PASSED"
+      },
+      "manifest_payload_hashes": {
+        "files": 158,
+        "status": "VERIFIED"
+      },
+      "android": {
+        "status": "PENDING_EXACT_HEAD_CI"
+      }
+    },
+    "publication": {
+      "status": "PENDING_ROOT_PUBLICATION",
+      "manifest_source_commit": "TEMPORARY_PARENT_VALUE_PENDING_REMOTE_SOURCE_MERGE_COMMIT",
+      "required_next_step": "Create remote source merge commit with both pinned PR parents, bind manifest sourceCommit to its returned SHA in a second metadata commit, then advance the PR branch once and validate exact-head CI"
+    }
   }
 }

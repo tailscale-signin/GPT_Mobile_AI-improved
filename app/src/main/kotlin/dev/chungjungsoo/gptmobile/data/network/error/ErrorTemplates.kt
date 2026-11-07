@@ -50,6 +50,12 @@ object ErrorTemplates {
             actionButtonLabel = "Review Access",
             autoRetry = false
         )
+        ErrorCategory.REQUEST_REJECTED -> UiErrorTemplate(
+            title = "Repository Request Needs Attention",
+            description = error.userMessage,
+            actionButtonLabel = "Review Details",
+            autoRetry = false
+        )
         ErrorCategory.RESOURCE_DEADLINE -> UiErrorTemplate(
             title = "Resource Wait Expired",
             description = error.userMessage,
@@ -100,9 +106,9 @@ object ErrorTemplates {
         )
         ErrorCategory.RATE_LIMIT_EXCEEDED -> UiErrorTemplate(
             title = "Rate Limit Reached",
-            description = "Too many requests sent in a short window. Please wait a moment before trying again.",
+            description = error.userMessage,
             actionButtonLabel = "Wait & Retry",
-            autoRetry = true
+            autoRetry = error.isRetryable
         )
         ErrorCategory.ACCESS_FORBIDDEN, ErrorCategory.BUDGET_RESTRICTED -> UiErrorTemplate(
             title = "Provider access blocked",
@@ -111,8 +117,8 @@ object ErrorTemplates {
             autoRetry = false
         )
         ErrorCategory.AUTHENTICATION_FAILED -> UiErrorTemplate(
-            title = "API Key Error",
-            description = "Authentication failed. Check your API key under Settings.",
+            title = if (error.errorCode == "AUTH_REQUIRED") "GitHub Access Needs Attention" else "API Key Error",
+            description = error.userMessage,
             actionButtonLabel = "Open Settings",
             autoRetry = false
         )
@@ -124,9 +130,9 @@ object ErrorTemplates {
         )
         ErrorCategory.SERVICE_UNAVAILABLE, ErrorCategory.CIRCUIT_BREAKER_OPEN -> UiErrorTemplate(
             title = "Service Temporarily Unavailable",
-            description = "The upstream model service is having temporary issues. Please try again in a few moments.",
+            description = error.userMessage,
             actionButtonLabel = "Retry Later",
-            autoRetry = true
+            autoRetry = error.isRetryable
         )
         ErrorCategory.CLIENT_CANCELLED -> UiErrorTemplate(
             title = "Generation Cancelled",

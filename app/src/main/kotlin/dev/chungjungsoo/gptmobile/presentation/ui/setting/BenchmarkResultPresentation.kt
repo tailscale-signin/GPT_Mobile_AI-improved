@@ -57,7 +57,7 @@ internal fun benchmarkResultPresentations(
     runs: List<BenchmarkRun>,
     batches: List<BenchmarkBatch>,
     rows: List<BenchmarkScoreRow>
-): List<BenchmarkResultPresentation> = BenchmarkMode.entries.filter { it !in setOf(BenchmarkMode.DELEGATION, BenchmarkMode.AGENT) }.flatMap { mode ->
+): List<BenchmarkResultPresentation> = BenchmarkMode.entries.filter { it !in setOf(BenchmarkMode.DELEGATION, BenchmarkMode.AGENT, BenchmarkMode.APP_AUDIT) }.flatMap { mode ->
     val relevantRuns = runs.filter { it.mode == mode }
     val queueEntries = batches.filter { it.mode == mode }.flatMap { batch -> batch.items.map { Triple(it.startedAt ?: batch.createdAt, it, batch.executionPolicy) } }
     val runById = relevantRuns.associateBy { it.id }

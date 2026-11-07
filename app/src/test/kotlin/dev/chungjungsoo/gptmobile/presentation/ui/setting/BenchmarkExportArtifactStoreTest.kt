@@ -4,6 +4,7 @@ import java.io.File
 import java.io.IOException
 import java.io.OutputStream
 import java.io.RandomAccessFile
+import java.util.Properties
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
@@ -23,6 +24,42 @@ import org.junit.rules.TemporaryFolder
 class BenchmarkExportArtifactStoreTest {
     @get:Rule val temporary = TemporaryFolder()
     private fun store() = BenchmarkExportArtifactStore(directory = { File(temporary.root, "private-exports") }, now = { 1000L })
+
+    @Test fun auditExportKeepsItsIdentityAndCompleteEvidenceAcrossFailedSaveAndRestart(): Unit = runBlocking {
+        val body = "{\"audit\":{\"planned\":8,\"passed\":2,\"untested\":6}}"
+        val artifacts = store()
+        val artifact = artifacts.prepare(false, BenchmarkExportContent.APP_AUDIT) { it.write(body.toByteArray()) }
+        assertTrue(artifact.fileName.startsWith("app-audit-"))
+        assertThrows(IOException::class.java) {
+            runBlocking {
+                artifacts.saveTo(artifact) {
+                    object : OutputStream() {
+                        override fun write(value: Int): Unit = throw IOException("destination full")
+                    }
+                }
+            }
+        }
+        val restarted = store()
+        val retained = checkNotNull(restarted.latest())
+        assertEquals(artifact, retained)
+        val destination = File(temporary.root, "audit-retry.json")
+        saveBenchmarkExportArtifact(restarted, retained, currentDebugMode = { false }) { destination.outputStream() }
+        assertEquals(body, destination.readText())
+        assertNull(restarted.latest())
+    }
+
+    @Test fun historicalReceiptWithoutContentKindRemainsARecoverableModelExport(): Unit = runBlocking {
+        val artifacts = store()
+        val artifact = artifacts.prepare(true) { it.write("{\"modelEvidence\":true}".toByteArray()) }
+        val receipt = File(temporary.root, "private-exports/${artifact.id}.receipt")
+        val properties = Properties().apply { receipt.inputStream().use { load(it) } }
+        properties.remove("content")
+        receipt.outputStream().use { properties.store(it, "Historical receipt") }
+        val retained = checkNotNull(store().latest())
+        assertEquals(artifact, retained)
+        assertTrue(retained.detailed)
+        assertTrue(retained.fileName.startsWith("benchmark-debug-"))
+    }
 
     @Test fun completeExportCopiesInBoundedChunksWithoutTruncatingItsFinalRecord(): Unit = runBlocking {
         val artifacts = store()

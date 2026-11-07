@@ -14,6 +14,16 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class BenchmarkResultPresentationTest {
+    @Test fun profileIndependentAuditNeverCreatesAModelScorePopulation() {
+        val profile = PlatformV2(uid = "p", name = "Profile", model = "model")
+        val run = auditRun(listOf(auditEntry("storage")))
+        val batch = BenchmarkBatch(run.id, BenchmarkMode.APP_AUDIT, run.startedAtEpochMs, emptyList(), audit = run)
+        val results = benchmarkResultPresentations(listOf(profile), emptyList(), listOf(batch), emptyList())
+        assertTrue(results.none { it.mode == BenchmarkMode.APP_AUDIT })
+        assertTrue(results.any { it.mode == BenchmarkMode.QUICK && it.profileUid == profile.uid })
+        assertTrue(benchmarkResultPresentations(emptyList(), emptyList(), listOf(batch), emptyList()).isEmpty())
+    }
+
     @Test fun blockedQueueItemWithoutARunOrScoreStillSupersedesAnOlderAttempt() {
         val profile = PlatformV2(uid = "p", name = "Profile", model = "model")
         val noHistory = profile.copy(uid = "q", name = "Untested")

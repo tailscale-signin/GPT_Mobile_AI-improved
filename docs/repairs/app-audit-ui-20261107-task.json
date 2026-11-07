@@ -1,0 +1,72 @@
+{
+  "schema": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "fix/diagnostic-remediation-8597579-2026-11-07",
+  "base_sha": "c980ad3b4c13f8d9dd8bb4b5a393f4263d3b197f",
+  "parent_pr": 811,
+  "working_branch": "work/app-audit-ui-20261107",
+  "integration_branch": "feat/comprehensive-app-benchmark-2026-11-07",
+  "intent": "Integrate comprehensive app and plugin audit controls, truthful measured score and frozen-plan coverage, per-category evidence, cancellation and recoverable export into the existing Performance lab without requiring an AI model profile.",
+  "state": "FOCUSED_VALIDATED_PENDING_FULL_ANDROID_CI",
+  "owned_paths": [
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/common/BenchmarkExecutionStatus.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/BenchmarkControls.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/BenchmarkExportArtifactStore.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/BenchmarkResultPresentation.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ProfileBenchmarkScreen.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ProfileBenchmarkViewModel.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/BenchmarkExportArtifactStoreTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/BenchmarkResultPresentationTest.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/AppAuditContent.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/AppAuditPresentation.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/AppAuditContentTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/AppAuditIdentityExportTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/AppAuditPresentationTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/AppAuditTestFixtures.kt"
+  ],
+  "constraints": [
+    "Core and probe contracts owned by other agents; no parallel store, runner, foreground service or plugin mechanism.",
+    "No change to existing model benchmark score populations.",
+    "Show score denominator and exercised/planned coverage together; retain all untested, unavailable and canceled results.",
+    "No private endpoint, credential or raw provider payload in audit export.",
+    "No remote mutations; parent integrates and publishes."
+  ],
+  "validation": {
+    "focused": "PASS: 24 actual-source JUnit cases, no adapters: 8 audit presentation/identity cases + 16 existing and extended bounded export/artifact/destination cases. Assertions and coroutine stacktrace recovery enabled. Input hashes still match after final ktlint/canonical run.",
+    "privacy_integration": "PASS: 1 actual-writer behavior case; display-only private name, raw UID and config fingerprint are absent from audit JSON; the exported target alias matches UI. Uses the gateway agent production jar SHA256 04e269c38a5cc65ffaee0489eb0d9ee18ee458cb90b8c4adaf85fb25ae17685e with its source-hashed actual writer/catalogue/gate. Subsequent upstream changes only raise inventory/export count caps and require exact combined Android CI.",
+    "compose_api_compile": "PASS: new audit cards/presentation plus actual audit models and BenchmarkBatch lifecycle predicates compile with repository-checksum-verified Compose 1.12.1, Material3 1.4.0 and Kotlin Compose compiler 2.4.20. Compile-only boundaries: Android Parcelable and unused profile/delegation/benchmark DTOs; exact mode/date declarations copied from production. No Android rendering claimed.",
+    "android_cases": "Written, awaiting full-app Android CI: 9 Robolectric audit UI cases for navigation, no-profile start, explicit network option, duplicate-start guard, removed targets, partial results/export, stop/resume, cached evidence/unknown duration and current-name changes; plus 1 model-score population regression.",
+    "canonical_fast": "PASS: bash scripts/validate-local.sh fast, 387 Python tests and CI/dependency/secret/regex/resource/icon/provenance checks. Inventory regenerated against the final UI + core worktree for this check, then restored and excluded from UI commit per parent ownership.",
+    "ktlint": "PASS: ktlint 1.3.1 on all changed Kotlin production/test files.",
+    "dex_inspection": "PASS for the actual-source gateway audit jar above: 103 production AppAudit classes, 900 methods; largest writer continuation 2052 code units, services.inventory 2028. Pinned D8 9.4.24; unchanged repository parser with an inspection-only AppAudit class filter, compared with unchanged exclusive 16383 limit. No repository gate/dependency edits; does not replace packaged-APK validation.",
+    "limits": "No local Android SDK, emulator, physical device or private service access. Full-app compilation, Compose execution, packaged APK checks and runtime performance remain for exact-head Android CI."
+  },
+  "private_diagnostics_committed": false,
+  "task_store": "engineering_agent_checkpoints",
+  "recorded_at_utc": "2026-11-07T14:33:47.098475+00:00",
+  "dependency_commits": {
+    "audit_contract": "e5212d8b501f3e809434dde9a701a500b6e3b16c",
+    "source_inventory": "acc16c7075e1fecad875a4440cf043f4e46e665c",
+    "frozen_source_and_fixture_identity": "325f8b0fb90b8f0d3155301ceef54d8c5447b216",
+    "unknown_duration": "bed29798a8418e24bcf4a8df317bbd322e7f710a",
+    "durable_runner": "2463af00397d76c80d60fb5f865f3defd45e6a11"
+  },
+  "plugin_contract": "AppAuditAliases.appAuditTargetAliases; AppAuditPluginServices.appAuditGatewayProfileEligible; suspend writeAppAuditExport(OutputStream,BenchmarkBatch,InputStream?). Parent integrates the plugin source commit separately.",
+  "implementation": [
+    "Always-visible App audit navigation before any selected-model guard.",
+    "Existing coordinator/foreground execution owns preparation, cancellation, resume and retained batch lifecycle; no new worker/store.",
+    "Measured weighted score appears with frozen-plan exercised/verified-pass coverage and every outcome category.",
+    "Stable per-run target aliases and display-only current saved names resolve by exact typed UID; renames/removals never rewrite evidence or route to another connection.",
+    "Audit-only allowlisted export uses the existing bounded hash-verified private artifact and SAF save/retry lifecycle; legacy receipts remain readable.",
+    "Model benchmark score populations exclude APP_AUDIT."
+  ],
+  "remote_recheck": {
+    "parent_pr": 811,
+    "head": "c980ad3b4c13f8d9dd8bb4b5a393f4263d3b197f",
+    "base": "91dfce15bc481c4bbdb088bcadd28489436dbb1b",
+    "state": "open",
+    "merged": false
+  },
+  "evidence_directory": "/workspace/scratch/22f000a845c8/app-audit-ui-host",
+  "updated_at_utc": "2026-11-07T15:15:54.700941+00:00"
+}

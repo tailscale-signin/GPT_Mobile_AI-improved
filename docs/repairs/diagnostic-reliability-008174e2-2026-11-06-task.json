@@ -3,6 +3,7 @@
   "repository": "tailscale-signin/GPT_Mobile_AI-improved",
   "base_branch": "main",
   "base_sha": "223b7c9f1dbf1ecaa77b65936ca112817cfb6a9b",
+  "integrated_main_sha": "c313a9897afe6e0a7cff609cdcf33d83fad83a90",
   "working_branch": "fix/diagnostic-reliability-008174e2-2026-11-06",
   "intent": "Repair confirmed failures in diagnostic archive 008174e2 and close remaining source-backed gaps across the twelve requested reliability areas on a new branch.",
   "state": "IMPLEMENTATION_COMPLETE",
@@ -42,6 +43,7 @@
   "final_followup": [
     "Publish completed authored prose in the observing flow before the next tool round can invalidate it",
     "Preserve source paths and quoted identifiers in readable previews; classify singular Check counters consistently",
-    "Allow 600 seconds for the isolated 50,000-event FULL-sync durability stress after measured Windows commit latency exceeded its watchdog; preserve all assertions and ordinary suite limits"
+    "Allow 600 seconds for the isolated 50,000-event FULL-sync durability stress after measured Windows commit latency exceeded its watchdog; preserve all assertions and ordinary suite limits",
+    "Keep repository map bubbles and Canvas relationship arrows in the same physical coordinates in RTL locales, with a Compose coordinate and selection regression"
   ]
 }

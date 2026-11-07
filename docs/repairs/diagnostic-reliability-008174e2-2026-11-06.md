@@ -10,6 +10,9 @@ state transitions.
 The starting revision is `223b7c9f1dbf1ecaa77b65936ca112817cfb6a9b`.
 The reviewed verification-recovery work from PR #807 at
 `68f31592e395858f2c03c68ff485fe29b8ac626a` is included without changing its branch.
+Its subsequent squash merge into main at `c313a9897afe6e0a7cff609cdcf33d83fad83a90`
+is incorporated as a parent of the final integration. The overlap retains this
+branch's tested unknown-write-outcome precedence and deduplicated release inventory.
 
 The previously inaccessible diagnostic ZIP was recovered and inspected. Its
 SHA-256 is `10b5e1faf604790f35320ef7a236e826eb463c2a6ef85eae175204370fb3e600`;
@@ -65,6 +68,11 @@ bubbles, search, paging, source details and source links pinned to the selected
 commit. Repository changes reset selection state. Failed refreshes retain the last
 valid map, accompanied by the failure; old repository results must not appear under
 a new revision label.
+
+Bubble placement and Canvas arrows share physical coordinates in both left-to-right
+and right-to-left layouts. A Compose regression changes the layout direction and
+checks each bubble's position and selection, preventing mirrored nodes from
+displaying relationships to the wrong files. Text retains its locale direction.
 
 Indexing consumes issued cursors with a finite page/time allowance, detects missing
 or repeated cursors, and can continue retained progress. The client cursor belongs

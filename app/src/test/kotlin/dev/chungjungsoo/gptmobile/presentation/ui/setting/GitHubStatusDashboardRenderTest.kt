@@ -16,6 +16,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.assertIsDisplayed
@@ -27,12 +28,14 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextMeasurer
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext
@@ -89,10 +92,13 @@ class GitHubStatusDashboardRenderTest {
         )
         val edges = listOf(Json.parseToJsonElement("""{"source":"app","target":"gateway","relation":"calls"}""") as JsonObject)
         var selected = ""
+        var direction by mutableStateOf(LayoutDirection.Ltr)
         compose.setContent {
             GPTMobileTheme(themeMode = ThemeMode.DARK) {
                 Surface {
-                    GraphMiniMap(nodes, edges) { selected = it["id"]?.jsonPrimitive?.content.orEmpty() }
+                    CompositionLocalProvider(LocalLayoutDirection provides direction) {
+                        GraphMiniMap(nodes, edges) { selected = it["id"]?.jsonPrimitive?.content.orEmpty() }
+                    }
                 }
             }
         }
@@ -102,6 +108,17 @@ class GitHubStatusDashboardRenderTest {
         compose.runOnIdle { assertEquals("", selected) }
         compose.onNodeWithTag("github_repository_node_app").performClick()
         compose.runOnIdle { assertEquals("app", selected) }
+        val ids = listOf("app", "gateway", "tests")
+        val positions = ids.map { compose.onNodeWithTag("github_repository_node_$it").fetchSemanticsNode().boundsInRoot }
+        compose.runOnIdle { direction = LayoutDirection.Rtl }
+        ids.forEachIndexed { index, id ->
+            assertEquals("$id must stay at its Canvas edge coordinate in RTL", positions[index], compose.onNodeWithTag("github_repository_node_$id").fetchSemanticsNode().boundsInRoot)
+        }
+        val rtlLabels = mutableListOf<TextLayoutResult>()
+        compose.onNodeWithText("Gateway", useUnmergedTree = true).performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(rtlLabels) }
+        assertEquals(LayoutDirection.Rtl, rtlLabels.single().layoutInput.layoutDirection)
+        compose.onNodeWithTag("github_repository_node_gateway").performClick()
+        compose.runOnIdle { assertEquals("gateway", selected) }
     }
 
     @Test fun statusArchitectureMapPagesSearchesAndInspectsRealFilesAtLargeFontSize() {

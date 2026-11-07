@@ -50,12 +50,12 @@ class GitHubContentFixtureTest {
         put("arguments", call.arguments)
         put("result", result)
     }
-    private fun initial() = linkedMapOf(
+    private fun initial(sourceBranch: String = "main", sourceSha: String = origin) = linkedMapOf(
         "source" to receipt(
             ProviderEvent.ToolCall("source", "github_context", buildJsonObject { put("action", "status") }),
             buildJsonObject {
-                put("branch", "main")
-                put("commit_sha", origin)
+                put("branch", sourceBranch)
+                put("commit_sha", sourceSha)
                 put("repository", buildJsonObject { put("default_branch", "main") })
             }
         )
@@ -172,8 +172,8 @@ class GitHubContentFixtureTest {
             else -> error("Unexpected fixture call $call")
         }
     }
-    private fun completed(): LinkedHashMap<String, JsonObject> {
-        val records = initial()
+    private fun completed(sourceBranch: String = "main"): LinkedHashMap<String, JsonObject> {
+        val records = initial(sourceBranch)
         repeat(11) {
             val call = requireNotNull(GitHubSelfTestFixtures.next("Test all GitHub tools with writes", tools, records)) { "Fixture stopped at $it" }
             records[call.callId] = receipt(call, result(call))
@@ -194,6 +194,52 @@ class GitHubContentFixtureTest {
         val writes = records.values.filter { it["tool"] == JsonPrimitive("github_write") || it["tool"] == JsonPrimitive("github_stage_patch") }
         assertTrue(writes.all { it["arguments"]?.jsonObject?.get("branch") == JsonPrimitive(branch) })
         assertTrue(records.values.none { it["arguments"]?.jsonObject?.get("action") in listOf(JsonPrimitive("resolve"), JsonPrimitive("merge")) })
+    }
+
+    @Test fun selectedFeatureBranchCanFinishOwnedContentFixtureWithoutSwitchingOrTouchingItsSource() {
+        val sourceBranch = "feature/in-progress"
+        val records = completed(sourceBranch)
+        val creation = records.values.single { it["arguments"]?.jsonObject?.get("action") == JsonPrimitive("branch") }
+        val creationArguments = creation.getValue("arguments").jsonObject
+        assertEquals(JsonPrimitive(sourceBranch), creationArguments["from_branch"])
+        assertEquals(JsonPrimitive(origin), creationArguments["expected_head_sha"])
+        assertEquals(JsonPrimitive(GitHubOwnedFixtures.PLAN), creationArguments["fixture_plan"])
+        assertEquals(JsonPrimitive(false), creationArguments["select_created_branch"])
+        assertEquals(JsonPrimitive(sourceBranch), records.getValue("source").getValue("result").jsonObject["branch"])
+
+        val staged = records.values.single { it["tool"] == JsonPrimitive("github_stage_patch") }.getValue("arguments").jsonObject
+        assertEquals(JsonPrimitive(branch), staged["branch"])
+        assertEquals(JsonPrimitive(first), staged["expected_head_sha"])
+        val commit = records.values.single { it["arguments"]?.jsonObject?.get("action") == JsonPrimitive("commit_staged_patch") }.getValue("arguments").jsonObject
+        assertEquals(JsonPrimitive("stage-owned"), commit["stage_id"])
+        assertEquals(JsonPrimitive(first), commit["expected_head_sha"])
+        val cleanup = records.values.last().getValue("arguments").jsonObject
+        assertEquals(JsonPrimitive("delete_fixture_branch"), cleanup["action"])
+        assertEquals(JsonPrimitive(branch), cleanup["branch"])
+        assertEquals(JsonPrimitive(origin), cleanup["origin_head_sha"])
+        assertEquals(JsonPrimitive(second), cleanup["expected_head_sha"])
+        assertTrue(
+            records.values.drop(1).all { record ->
+                val arguments = record.getValue("arguments").jsonObject
+                arguments["branch"] == null || arguments["branch"] == JsonPrimitive(branch)
+            }
+        )
+        assertTrue(records.values.none { it["arguments"]?.jsonObject?.get("action") in listOf(JsonPrimitive("resolve"), JsonPrimitive("merge"), JsonPrimitive("delete_branch")) })
+        val fixture = GitHubSelfTestFixtures.checkpoint(records).single().jsonObject
+        assertEquals(JsonPrimitive(true), fixture["ownership_verified"])
+        assertEquals(JsonPrimitive(true), fixture["content_verified"])
+        assertEquals(JsonPrimitive(true), fixture["final_state_verified"])
+        assertTrue(GitHubSelfTestFixtures.complete(records))
+    }
+
+    @Test fun featureBranchStartupRequiresPinnedSourceAndOwnedCleanupWhileLegacyFallbackRemainsDefaultOnly() {
+        val legacyTools = tools.map { if (it.name == "github_commit") tool("github_commit", "branch", "commit_staged_patch", "delete_branch") else it }
+        assertNull(GitHubSelfTestFixtures.next("Test all tools", legacyTools, initial("feature/in-progress")))
+        assertNotNull(GitHubSelfTestFixtures.next("Test all tools", legacyTools, initial()))
+        for (sha in listOf("", "a".repeat(39), "branch-name")) {
+            assertNull(GitHubSelfTestFixtures.next("Test all tools", tools, initial("feature/in-progress", sha)))
+        }
+        assertNull(GitHubSelfTestFixtures.next("Test all tools read only", tools, initial("feature/in-progress")))
     }
 
     @Test fun jsonCheckpointRestorationResumesTheNextStageWithoutReplayingWrites() {

@@ -47,13 +47,15 @@ internal object GitHubSelfTestFixtures {
         val branch = status.text("branch")
         val sha = status.text("commit_sha")
         val default = (status["repository"] as? JsonObject)?.text("default_branch")
-        // Existing deletion policy requires the fixture to be merged into default.
-        if (branch != default || !sha.matches(Regex("[a-fA-F0-9]{40}"))) return null
+        if (branch.isBlank() || !sha.matches(Regex("[a-fA-F0-9]{40}"))) return null
         val fixture = "codex-self-test/" + GitHubEvidenceBook.digest(source.text("binding") + source.text("receipt_id")).take(20)
         val creation = observed.firstOrNull { it.text("tool").substringBefore("__") == "github_commit" && args(it)?.text("action") == "branch" && args(it)?.text("branch") == fixture }
         if (creation?.let(GitHubContentFixture::isCreation) == true || creation == null && GitHubContentFixture.available(tools, fixture, branch, sha)) {
             return GitHubContentFixture.next(source, creation, tools, receipts, allowCreate, cleanupOnly, abortIncomplete)
         }
+        // Only the legacy empty-branch fixture relies on ordinary merged-branch deletion.
+        // The owned content lifecycle separately proves its exact chain before cleanup.
+        if (branch != default) return null
         val recipes = buildList<Pair<String, JsonObject>> {
             if (creation == null) {
                 if (!allowCreate) return null

@@ -99,7 +99,7 @@ class GitHubTaskTrustTest {
     @Test fun newReadOnlyTaskCannotScheduleAnOlderTasksFixtureWrite() = runBlocking {
         val previous = "Test all GitHub tools"
         val current = "Test all GitHub tools, read-only; do not create fixtures"
-        val history = listOf(MessageV2(id = 1, chatId = 7, content = previous), MessageV2(id = 2, chatId = 7, content = current))
+        val history = listOf(MessageV2(id = 1, chatId = 7, content = previous, platformType = null), MessageV2(id = 2, chatId = 7, content = current, platformType = null))
         val effectiveTask = resolveTaskRecovery(history)?.originalRequest ?: current
         fun json(text: String) = Json.parseToJsonElement(text) as JsonObject
         val commit = AgentToolDefinition("github_commit", "fixture lifecycle", json("""{"type":"object","properties":{"action":{"enum":["branch","delete_branch"]},"branch":{"type":"string"},"from_branch":{"type":"string"},"expected_head_sha":{"type":"string"},"select_created_branch":{"type":"boolean"}}}"""))

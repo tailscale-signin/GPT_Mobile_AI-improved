@@ -337,5 +337,70 @@
       },
       "independent_review": "CLEAR on frozen source commit05ca97f0060b52b4eb83f475f57013b2aa80bc59; AOSP34/36 formats, bounded deadlines, native dump timeouts and diagnostics failure preservation verified. Runtime effectiveness requires new-head CI."
     }
+  },
+  "api34_boot_resource_followup": {
+    "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+    "base_branch": "main",
+    "base_sha": "c313a9897afe6e0a7cff609cdcf33d83fad83a90",
+    "parent_head": "a8ed1e63a2d1338e0411250ec250a55d3058b343",
+    "working_branch": "repair/emulator-resource-qualification",
+    "remote_branch": "fix/reliability-fault-recovery-2026-11-06",
+    "parent_prs": [
+      808,
+      809
+    ],
+    "intent": "Match both emulator guests to the observed successful four-core/4096MB allocation, preserving all readiness and acceptance guards, then qualify the new exact head before merging.",
+    "state": "IMPLEMENTED_LOCAL_VALIDATION_PASSED_PENDING_EXACT_HEAD_CI",
+    "api36_evidence": {
+      "job": 128307859557,
+      "artifact": 13562480446,
+      "result": "SUCCESS",
+      "executed_tests": 55,
+      "instrumentation_invocations": 20,
+      "all_readiness_phases": {
+        "home": "PREPARED",
+        "initial_display": "READY",
+        "wide_display": "READY",
+        "restore_display": "READY"
+      },
+      "last_anr": "No ANR since boot",
+      "strict_artifact_validation": "PASSED"
+    },
+    "api34_failure": {
+      "job": 128307859313,
+      "artifact": 13561963120,
+      "phase": "Before instrumentation; readiness correctly BLOCKED",
+      "process": "com.google.android.apps.nexuslauncher",
+      "reason": "Input dispatching timed out; application did not have a focused window",
+      "action_unlock_utc": "2026-11-07T05:19:49.599Z",
+      "anr_utc": "2026-11-07T05:19:54Z",
+      "acceptance_script_started_utc": "2026-11-07T05:19:56.465Z",
+      "guest_cores": 2,
+      "effective_ram_mb": 2560,
+      "cpu_total_percent": 100,
+      "cpu_pressure_some_avg10": 71.24,
+      "memory_pressure_some_avg10": 6.31,
+      "kswapd_peak_percent": 28
+    },
+    "planned_settings": {
+      "cores": 4,
+      "ram_size": "4096M",
+      "scope": "Both existing API34/API36 targets; pinned action unchanged"
+    },
+    "preserved": [
+      "No app or test source changes",
+      "No readiness guard or ANR reporting changes",
+      "No test, watchdog, protocol or pixel assertion changes",
+      "No wrapper, patch or suppression of the action unlock command"
+    ],
+    "new_exact_head_ci_required": true,
+    "checkpoint_utc": "2026-11-07T05:28:14.557279+00:00",
+    "local_validation": {
+      "canonical_fast": {
+        "passed": 346,
+        "status": "PASSED"
+      },
+      "independent_review": "CLEAR; exact global resource inputs and unchanged action/tests verified; literal readiness statuses recorded accurately."
+    }
   }
 }

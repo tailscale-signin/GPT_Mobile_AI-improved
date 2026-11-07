@@ -1,0 +1,135 @@
+name: Prepare verification recovery repair
+on:
+  push:
+    branches: [fix/github-verification-recovery-2026-11-06]
+    paths: ['.github/workflows/verification-repair-prepare.yml']
+permissions:
+  contents: write
+concurrency:
+  group: verification-repair-prepare-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Verify and apply the reviewed source patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64, gzip, hashlib, io, json, os, pathlib, re, subprocess
+          expected = ['1a0b998c946a24ad166f08638f77f528ede2bcab', '7b78dc62aa5ebf1fa7d0cd44c78335d590fbf238', 'ee2a57c2a32835e45934afdbfd4275d337984cb1']
+          # Correct only known transcription artifacts in the temporary encoded
+          # transport. Each resulting blob and the decoded patch must match the
+          # independently reviewed local bytes; no source repair is inferred.
+          corrections = {
+              2: [('g3xnbX9/cfHPiavcg', 'g3xnbX9/cHPiavcg')],
+              3: [('fWRntr/sSetG87ecGdvd', 'fWRntr/s7ecGdvd'), ('TSM9TgWGNR7Y', 'TSM9tWGNR7Y'), ('YjfuieT9l734', 'Yjfuie9l734'), ('O0eHpceHp9wf9', 'O0eHpce+wf9')],
+          }
+          chunks = []
+          for i, digest in enumerate(expected, 1):
+              text = pathlib.Path(f'.github/repairs/verification-recovery-{i:03}.b64').read_text()
+              for before, after in corrections.get(i, []):
+                  if before in text:
+                      assert text.count(before) == 1
+                      text = text.replace(before, after)
+              data = text.encode()
+              actual = hashlib.sha1(f'blob {len(data)}\0'.encode() + data).hexdigest()
+              assert actual == digest, f'Encoded chunk {i} differs: {actual}'
+              chunks.append(text)
+          encoded = ''.join(chunks)
+          with gzip.GzipFile(fileobj=io.BytesIO(base64.b64decode(encoded, validate=True))) as stream:
+              patch = stream.read(1024 * 1024)
+              assert not stream.read(1), 'Patch too large'
+          assert hashlib.sha256(patch).hexdigest() == '7044ce93109b073473ae739f34c67690e3b5883b02bcb7d235049d87ba4cf815'
+          pairs = re.findall(r'^diff --git a/(\S+) b/(\S+)$', patch.decode(), re.M)
+          assert len(pairs) == 21 and all(a == b for a, b in pairs)
+          paths = [a for a, _ in pairs]
+          assert len(set(paths)) == 21
+          assert all('..' not in pathlib.PurePosixPath(p).parts and (p.startswith(('app/src/', 'docs/')) or p == 'release-scope.json') for p in paths)
+          out = pathlib.Path(os.environ['RUNNER_TEMP']) / 'prepared-verification-repair'
+          out.mkdir()
+          patchfile = out / 'reviewed.patch'; patchfile.write_bytes(patch)
+          subprocess.run(['git', 'apply', '--check', '--index', str(patchfile)], check=True)
+          subprocess.run(['git', 'apply', '--index', str(patchfile)], check=True)
+          temporary = [f'.github/repairs/verification-recovery-{i:03}.b64' for i in range(1, 4)] + [f'.github/workflows/verification-repair-{name}.yml' for name in ('source', 'toolchain', 'prepare')]
+          subprocess.run(['git', 'rm', '--', *temporary], check=True)
+          (out / 'source-hashes.json').write_text(json.dumps({p: hashlib.sha256(pathlib.Path(p).read_bytes()).hexdigest() for p in paths}, indent=2))
+          (out / 'changed-paths.json').write_text(json.dumps(paths))
+          PY
+      - name: Check changed Kotlin formatting and complete source scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 3 https://github.com/ktlint/ktlint/releases/download/1.3.1/ktlint -o "$RUNNER_TEMP/ktlint"
+          mapfile -d '' kotlin < <(git diff --cached --name-only --diff-filter=ACMR -z -- 'app/src/**/*.kt')
+          java -jar "$RUNNER_TEMP/ktlint" "${kotlin[@]}"
+          git diff --cached --check
+          python3 - <<'PY'
+          import json, pathlib, sys
+          sys.path.insert(0, 'scripts')
+          from check_release_scope import validate
+          import os
+          changed = json.loads((pathlib.Path(os.environ['RUNNER_TEMP']) / 'prepared-verification-repair/changed-paths.json').read_text())
+          print(validate(pathlib.Path.cwd(), json.loads(pathlib.Path('release-scope.json').read_text()), changed))
+          PY
+      - name: Canonical host validation on the complete checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install --require-hashes -r gateway/requirements.txt
+          bash scripts/validate-local.sh fast 2>&1 | tee "$RUNNER_TEMP/prepared-verification-repair/validation.log"
+      - name: Prepare exact commit objects without moving any branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib, subprocess, tarfile, urllib.request
+          root = pathlib.Path.cwd()
+          out = pathlib.Path(os.environ['RUNNER_TEMP']) / 'prepared-verification-repair'
+          parent = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
+          assert parent == os.environ['GITHUB_SHA']
+          base_tree = subprocess.check_output(['git', 'rev-parse', 'HEAD^{tree}'], text=True).strip()
+          local_tree = subprocess.check_output(['git', 'write-tree'], text=True).strip()
+          files = subprocess.check_output(['git', 'diff', '--cached', '--name-only', '-z']).decode().split('\0')
+          entries = []
+          for path in filter(None, files):
+              file = root / path
+              entry = {'path': path, 'mode': '100644', 'type': 'blob'}
+              if file.exists():
+                  entry['content'] = file.read_text()
+              else:
+                  entry['sha'] = None
+              entries.append(entry)
+          def post(endpoint, body):
+              request = urllib.request.Request('https://api.github.com/repos/' + os.environ['GITHUB_REPOSITORY'] + endpoint, data=json.dumps(body).encode(), method='POST', headers={'Authorization': 'Bearer ' + os.environ['GH_TOKEN'], 'Accept': 'application/vnd.github+json', 'Content-Type': 'application/json', 'X-GitHub-Api-Version': '2022-11-28'})
+              with urllib.request.urlopen(request, timeout=60) as response:
+                  return json.load(response)
+          tree = post('/git/trees', {'base_tree': base_tree, 'tree': entries})['sha']
+          assert tree == local_tree, 'Remote tree differs from reviewed working tree'
+          commit = post('/git/commits', {'message': 'Repair verification permission reporting, workflow dependencies and safe pagination', 'tree': tree, 'parents': [parent]})['sha']
+          (out / 'prepared.json').write_text(json.dumps({'parent': parent, 'commit': commit, 'tree': tree, 'canonical_host': 'passed', 'paths': json.loads((out / 'changed-paths.json').read_text())}, indent=2))
+          (out / 'prepared.patch').write_bytes(subprocess.check_output(['git', 'diff', '--cached', '--binary']))
+          with tarfile.open(out / 'candidate-sources.tar.gz', 'w:gz') as archive:
+              for path in json.loads((out / 'changed-paths.json').read_text()):
+                  archive.add(path, arcname=path, recursive=False)
+          print('Prepared commit', commit, 'tree', tree, 'without changing any branch')
+          PY
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: prepared-verification-recovery
+          path: ${{ runner.temp }}/prepared-verification-repair/
+          retention-days: 1
+          if-no-files-found: warn

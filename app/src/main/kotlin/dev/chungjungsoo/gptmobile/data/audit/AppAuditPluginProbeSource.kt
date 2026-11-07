@@ -19,7 +19,8 @@ internal data class AppAuditPluginTarget(
     val fingerprint: String,
     val unavailableReason: String = "PLUGIN_NOT_CONFIGURED",
     val liveReadPrecheck: AppAuditObservation? = null,
-    val liveRead: (suspend () -> AppAuditObservation)? = null
+    val liveRead: (suspend () -> AppAuditObservation)? = null,
+    val snapshotCurrent: () -> Boolean = { true }
 )
 
 /** Existing clients own transport, credentials, retries and their physical request limits. */
@@ -31,6 +32,7 @@ class AppAuditPluginProbeSource internal constructor(
 
     override suspend fun plan(options: AppAuditOptions): List<AppAuditPlanEntry> {
         val targets = inventory(options.selectedProfileIds.distinct()).distinctBy { it.key }.sortedBy { it.key }
+        check(targets.all { it.snapshotCurrent() }) { "Plugin configuration changed during inventory." }
         return buildList {
             targets.take(MAX_TARGETS).forEach { target ->
                 add(entry(target, CONFIGURATION, options))
@@ -128,12 +130,13 @@ class AppAuditPluginProbeSource internal constructor(
         // The durable marker can suspend. Revalidate the frozen identity again afterwards.
         context.beforeDispatch()
         val admitted = currentTarget(entry) ?: return changed(entry)
+        if (!target.snapshotCurrent()) return changed(entry)
         val read = admitted.liveRead ?: return changed(entry)
         if (!admitted.configured || !admitted.enabled) return changed(entry)
         admitted.liveReadPrecheck?.let { return it }
         val result = read()
         context.ensureActive()
-        if (currentTarget(entry) == null) return result.copy(configChanged = true)
+        if (!admitted.snapshotCurrent() || currentTarget(entry) == null) return result.copy(configChanged = true)
         return result
     }
 
@@ -142,7 +145,8 @@ class AppAuditPluginProbeSource internal constructor(
         val profiles = if (key.startsWith(GATEWAY_TARGET_PREFIX)) listOf(key.removePrefix(GATEWAY_TARGET_PREFIX)) else emptyList()
         val current = if (targetLookup != null) targetLookup.invoke(key) else inventory(profiles).singleOrNull { it.key == key }
         return current?.takeIf {
-            it.fingerprint == entry.configFingerprint &&
+            it.snapshotCurrent() &&
+                it.fingerprint == entry.configFingerprint &&
                 it.componentId == entry.componentId &&
                 entry.id == "$SOURCE_ID:${entry.probeId}:${appAuditTargetDigest(it.key)}" &&
                 (entry.probeId != MCP_DISCOVERY || it.kind == AppAuditPluginKind.MCP) &&
@@ -181,6 +185,7 @@ class AppAuditPluginProbeSource internal constructor(
         internal val gatewayDecodeReasons = setOf("MALFORMED_JSON", "SCHEMA_MISMATCH", "NULL_NOT_ALLOWED", "EXPECTED_BOOLEAN", "EXPECTED_INTEGER", "EXPECTED_STRING", "EXPECTED_OBJECT", "MISSING_REQUIRED_FIELD", "EXPECTED_ARRAY")
         val reasonCodes = setOf(
             "PLUGIN_NOT_CONFIGURED", "PLUGIN_NOT_INSTALLED", "PLUGIN_DISABLED", "PLUGIN_CONFIGURATION_ONLY", "PLUGIN_CONFIGURATION_CHANGED",
+            "PLUGIN_CREDENTIAL_IDENTITY_UNAVAILABLE",
             "PLUGIN_EXECUTION_NOT_EXERCISED", "PLUGIN_TARGET_LIMIT", "NETWORK_READS_NOT_SELECTED",
             "PLUGIN_REGISTRY_UNAVAILABLE", "PLUGIN_PACKAGE_NOT_VERIFIED", "GATEWAY_PROFILE_UNSUPPORTED",
             "GATEWAY_PROFILE_UNAVAILABLE", "MCP_DISCOVERY_VERIFIED", "MCP_EMPTY_CATALOG", "MCP_DISCOVERY_UNAVAILABLE",

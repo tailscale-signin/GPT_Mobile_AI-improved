@@ -134,5 +134,67 @@
       "Health, location or microphone access",
       "Runtime file/line/branch code coverage"
     ]
+  },
+  "follow_up": {
+    "base_sha": "b707073ccc86bbad7c15a2e9197f210782af0524",
+    "intent": "Replace persisted process-local readiness epochs with restart-stable bounded encrypted-record revisions while retaining transient mutation checks and frozen-plan no-replay semantics.",
+    "authorization": "Root authorizes narrow SecretVault revision adapter and owned audit changes; no root worktree or remote mutations.",
+    "findings": [
+      "ReadinessInvalidation.epoch resets on process start and cannot be persisted as configuration identity.",
+      "ToolConnectionRepository and SettingRepositoryImpl overwrite credentials under stable secret references; timestamps and references alone do not detect replacement.",
+      "SecretVault has no stable record revision API; a read-only encrypted-record digest can detect overwrites without hashing plaintext or creating/decrypting a key."
+    ],
+    "planned_tests": [
+      "Same configuration after recreated services and changed process epoch remains admissible.",
+      "Same-reference credential and endpoint-secret overwrites block before dispatch.",
+      "Absent or unsupported record identities fail closed.",
+      "Concurrent snapshot/marker/read invalidation preserves no-dispatch or observed receipts.",
+      "Encrypted-record revision survives reopened vault, detects overwrite, rejects bounded malformed records and does not require or create a key."
+    ],
+    "status": "PASSED_HOST_AND_REVIEW_ANDROID_ACCEPTANCE_PENDING",
+    "changes": [
+      "Persist only relevant saved configuration and opaque encrypted-record revisions; process-local epochs are never frozen as audit authority.",
+      "Keep an ephemeral generation guard from the start of inventory through dispatch and after reads, preserving observed receipts when authority changes.",
+      "Bind MCP auth/OAuth plus protected endpoint-query references, native credential and endpoint references, and the effective gateway credential with provider-owner consistency.",
+      "Return explicit PLUGIN_CREDENTIAL_IDENTITY_UNAVAILABLE when an identity is absent, unsupported, malformed or cannot be read; untracked plaintext credentials cannot be admitted.",
+      "Reuse existing vault framing limits and mutex. Revision inspection neither decrypts nor looks up or creates a key, and the allowlisted exporter still omits all fingerprints/revisions.",
+      "An OAuth refresh or same-value credential rewrite changes the encrypted record; a completed observation remains truthful and pending probes stop conservatively. Frozen plans are never rewritten or replayed."
+    ],
+    "baseline": {
+      "result": "Reproduced expected PASS versus actual BLOCKED after only service recreation and a process-local generation change.",
+      "production_sha": "b707073ccc86bbad7c15a2e9197f210782af0524",
+      "log": "/workspace/scratch/22f000a845c8/app-audit-plugin-host/restart-baseline/baseline.log"
+    },
+    "validation": {
+      "host_tests": 81,
+      "host_passed": 81,
+      "host_failed": 0,
+      "host_seconds": 8.528,
+      "jvm": "Java17 with -ea, coroutine debug and stacktrace recovery enabled",
+      "vault_record_probes": 5,
+      "vault_record_passed": 5,
+      "vault_record_seconds": 1.159,
+      "ktlint": "PASS (seven changed Kotlin files)",
+      "diff_check": "PASS",
+      "independent_review": "diagnostic_execution: no blocker; no core changes required",
+      "canonical_fast": "Integration owner runs the canonical gate after final source inventory regeneration; no duplicate broad suite in this follow-up.",
+      "android": "Existing SecretVaultInstrumentedTest expanded; actual Keystore/AtomicFile API34/API36 execution remains pending feature CI.",
+      "scope": "81 actual-source audit/gateway/export/endpoint cases with controlled service boundaries; 5 additional probes run complete production vault revision/framing code through file-backed Android API boundaries, without Android KeyStore availability. No live private service or physical device claim."
+    },
+    "evidence": {
+      "harness": "/workspace/scratch/22f000a845c8/app-audit-plugin-host/durable-authority/run.py",
+      "source_manifest_sha256": "b2ea8f9d2925be4f27ac5d3d655df88ca9c10a1c007b0ad9643a63022acf3dce",
+      "compiled_jar_sha256": "26244591da2fcd36aa8a241020686df36ca724bc95e8cfb9e3b3adf9b8222ecd",
+      "vault_probe_manifest_sha256": "a9f4264596584f50e363e84f379c058d6aacee058ec14a5b2fa7d4ef7c019634",
+      "source_sha256": {
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditPluginProbeSource.kt": "15f408c5fcf93b4ce2099a5d35b3f46462f191df976e534b662e5c121a0b6a37",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditPluginServices.kt": "25542305fbb857005276265b0c48696d22b5965751f21b7154cc258c3ffba1dd",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/security/SecretVault.kt": "ce5692a56e43fdf80f92e3a25d379ef981bf32f4aa28152a17055a1b44b5ca63",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/security/EndpointSecrets.kt": "8ca68b139def70e468d43c2fe4b7707b22f8c461c624035432525e8ccedc760c",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditPluginServicesTest.kt": "2cbcc1c3502c2ed44dc808f5130472a77a39a5970420d145ec81abd5de15d0bd",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/security/EndpointSecretsTest.kt": "217ceefe0a0c62df3900b4866acb674f326a4b101f5e0d1b0e66b3a726b99ad7",
+        "app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/data/security/SecretVaultInstrumentedTest.kt": "c8aafa6d47525554e89d0ce3c21f5144101b7c7c7edf094934799f7b0b494069"
+      }
+    }
   }
 }

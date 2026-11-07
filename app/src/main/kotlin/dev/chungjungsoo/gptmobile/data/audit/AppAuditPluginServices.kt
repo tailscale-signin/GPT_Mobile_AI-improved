@@ -22,6 +22,8 @@ import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayCapabilityDiscover
 import dev.chungjungsoo.gptmobile.data.readiness.ReadinessInvalidation
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import dev.chungjungsoo.gptmobile.data.repository.ToolConnectionRepository
+import dev.chungjungsoo.gptmobile.data.security.EndpointSecrets
+import dev.chungjungsoo.gptmobile.data.security.SecretVault
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CancellationException
@@ -37,7 +39,8 @@ internal class AppAuditPluginServices @Inject constructor(
     private val packages: MarketplacePackageStore,
     private val resolver: AgentToolResolver,
     private val mcp: McpClientManager,
-    private val gateway: GatewayAPI
+    private val gateway: GatewayAPI,
+    private val secretVault: SecretVault
 ) {
     suspend fun inventory(selectedProfileIds: List<String>): List<AppAuditPluginTarget> = inventory(selectedProfileIds, null)
 
@@ -47,8 +50,8 @@ internal class AppAuditPluginServices @Inject constructor(
     ).singleOrNull { it.key == key }
 
     private suspend fun inventory(selectedProfileIds: List<String>, targetKey: String?): List<AppAuditPluginTarget> {
-        val features = settings.getFeatureSettings()
         val epoch = ReadinessInvalidation.epoch
+        val features = settings.getFeatureSettings()
         val nativeSelected = targetKey == null || targetKey.startsWith("native:")
         val native = if (nativeSelected) safely { nativePlugins.load() } else emptyMap()
         val verifiedPackages = if (!nativeSelected) {
@@ -75,14 +78,15 @@ internal class AppAuditPluginServices @Inject constructor(
                         service.id,
                         configured = true,
                         enabled = enabled,
-                        fingerprint = appAuditTargetDigest("integrated:${service.id}:$enabled:$epoch")
+                        fingerprint = appAuditTargetDigest("integrated:${service.id}:$enabled")
                     )
                 )
             }
             GitHubMarketplaceCatalog.packages.filter { it.runtime == MarketplaceRuntime.NATIVE && (targetKey == null || targetKey == "native:${it.id}") }.forEach { entry ->
                 val installation = native?.get(entry.id)
                 val packageVerified = verifiedPackages?.contains(entry.id) == true
-                val ready = installation?.ready(entry) == true && packageVerified
+                val credentialIdentity = credentialIdentity(listOfNotNull(installation?.credentialRef) + installation?.endpointConfigs?.values.orEmpty().mapNotNull { it.secretRef })
+                val ready = installation?.ready(entry) == true && packageVerified && credentialIdentity != null
                 val enabled = installation?.enabled == true && features.isToolPluginEnabled(entry.id) && features.isToolPluginEnabled(ToolServiceCatalog.forPackage(entry).id)
                 add(
                     AppAuditPluginTarget(
@@ -91,11 +95,12 @@ internal class AppAuditPluginServices @Inject constructor(
                         "marketplace:${entry.id}",
                         ready,
                         enabled,
-                        appAuditTargetDigest("${entry.id}:${installation?.copy(usageDay = "", usageCount = 0, nextRequestAt = 0)}:$packageVerified:$enabled:$epoch"),
+                        appAuditTargetDigest("${entry.id}:${installation?.copy(usageDay = "", usageCount = 0, nextRequestAt = 0)}:$packageVerified:$enabled:$credentialIdentity"),
                         unavailableReason = when {
                             native == null || verifiedPackages == null -> "PLUGIN_REGISTRY_UNAVAILABLE"
                             installation == null -> "PLUGIN_NOT_INSTALLED"
                             !packageVerified -> "PLUGIN_PACKAGE_NOT_VERIFIED"
+                            credentialIdentity == null -> "PLUGIN_CREDENTIAL_IDENTITY_UNAVAILABLE"
                             else -> "PLUGIN_NOT_CONFIGURED"
                         }
                     )
@@ -106,7 +111,8 @@ internal class AppAuditPluginServices @Inject constructor(
                     features.isToolPluginEnabled(ToolPluginId.connection(connection.connectionUid)) &&
                     (connection.type != ToolConnectionType.MCP || features.remoteMcpConnections)
                 val isMcp = connection.type == ToolConnectionType.MCP
-                val ready = (!isMcp || !connection.endpointUrl.isNullOrBlank()) && (connection.authType == ToolConnectionAuthType.NONE || connection.secretRef != null)
+                val credentialIdentity = credentialIdentity(listOfNotNull(connection.secretRef, EndpointSecrets.protectedReference(connection)))
+                val ready = (!isMcp || !connection.endpointUrl.isNullOrBlank()) && (connection.authType == ToolConnectionAuthType.NONE || connection.secretRef != null) && credentialIdentity != null
                 add(
                     AppAuditPluginTarget(
                         "connection:${connection.connectionUid}",
@@ -114,7 +120,8 @@ internal class AppAuditPluginServices @Inject constructor(
                         if (isMcp) "mcp_connection" else "configured_connection",
                         ready,
                         enabled,
-                        appAuditTargetDigest("$connection:$enabled:$epoch"),
+                        appAuditTargetDigest("$connection:$enabled:$credentialIdentity"),
+                        unavailableReason = if (credentialIdentity == null) "PLUGIN_CREDENTIAL_IDENTITY_UNAVAILABLE" else "PLUGIN_NOT_CONFIGURED",
                         liveReadPrecheck = if (isMcp) recoveryBlock(connection) else null,
                         liveRead = if (isMcp) ({ discover(connection) }) else null
                     )
@@ -123,21 +130,43 @@ internal class AppAuditPluginServices @Inject constructor(
             selectedProfileIds.distinct().sorted().forEach { uid ->
                 val profile = profiles.singleOrNull { it.uid == uid }
                 val eligible = profile?.let(::appAuditGatewayProfileEligible) == true
+                val credentialIdentity = if (eligible) gatewayCredentialIdentity(requireNotNull(profile)) else "not-selected"
                 add(
                     AppAuditPluginTarget(
                         AppAuditPluginProbeSource.GATEWAY_TARGET_PREFIX + uid,
                         AppAuditPluginKind.GATEWAY,
                         "gateway_connection",
+                        eligible && credentialIdentity != null,
                         eligible,
-                        eligible,
-                        // The credential value is never serialized or hashed into an audit record.
-                        appAuditTargetDigest("${profile?.copy(token = null)}:$epoch"),
-                        unavailableReason = if (profile == null) "GATEWAY_PROFILE_UNAVAILABLE" else "GATEWAY_PROFILE_UNSUPPORTED",
+                        // Credential plaintext is never serialized or hashed into an audit record.
+                        appAuditTargetDigest("${profile?.copy(token = null)}:$credentialIdentity"),
+                        unavailableReason = when {
+                            profile == null -> "GATEWAY_PROFILE_UNAVAILABLE"
+                            !eligible -> "GATEWAY_PROFILE_UNSUPPORTED"
+                            else -> "PLUGIN_CREDENTIAL_IDENTITY_UNAVAILABLE"
+                        },
                         liveRead = if (eligible) ({ capabilities(requireNotNull(profile)) }) else null
                     )
                 )
             }
+        }.map { target -> target.copy(snapshotCurrent = { ReadinessInvalidation.epoch == epoch }) }
+    }
+
+    private suspend fun gatewayCredentialIdentity(profile: PlatformV2): String? {
+        // fetchPlatformV2s resolves the provider-owned reference. Check its owner too so a
+        // stale cached profile cannot silently substitute another connection or credential.
+        val owner = profile.providerConnectionUid?.let { uid -> safely { settings.getProviderConnection(uid) } ?: return null }
+        if (owner != null && (owner.apiUrl != profile.apiUrl || owner.secretRef != profile.secretRef)) return null
+        if (profile.token != null && profile.secretRef == null) return null
+        return credentialIdentity(listOfNotNull(profile.secretRef))
+    }
+
+    private suspend fun credentialIdentity(references: List<String>): String? {
+        val revisions = references.distinct().sorted().map { reference ->
+            val revision = safely { secretVault.recordRevision(reference) }?.takeIf { it.matches(RECORD_REVISION) } ?: return null
+            "$reference:$revision"
         }
+        return appAuditTargetDigest(revisions.joinToString("\n"))
     }
 
     private fun recoveryBlock(connection: ToolConnection): AppAuditObservation? {
@@ -224,5 +253,9 @@ internal class AppAuditPluginServices @Inject constructor(
         throw cancelled
     } catch (_: Exception) {
         null
+    }
+
+    private companion object {
+        val RECORD_REVISION = Regex("[a-f0-9]{64}")
     }
 }

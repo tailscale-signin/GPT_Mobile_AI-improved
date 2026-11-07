@@ -6,6 +6,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -25,7 +26,9 @@ class EndpointSecretsTest {
             }
         }
         val connection = ToolConnection("c", "Server", "server", "MCP", url, "NONE", null, null)
+        assertNull(EndpointSecrets.protectedReference(connection))
         val protected = EndpointSecrets.protect(connection, storage)
+        assertEquals(EndpointSecrets.reference("c"), EndpointSecrets.protectedReference(protected))
         assertFalse(protected.toString().contains(sentinel))
         assertEquals(url, EndpointSecrets.resolve(protected, storage))
         assertFalse(DiagnosticRedactor.redact("GET $url").contains(sentinel))

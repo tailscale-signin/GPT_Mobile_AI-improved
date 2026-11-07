@@ -16,14 +16,21 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 
+internal enum class BenchmarkExportContent { BENCHMARKS, APP_AUDIT }
+
 internal data class BenchmarkExportArtifact(
     val id: String,
     val detailed: Boolean,
     val createdAt: Long,
     val bytes: Long,
-    val sha256: String
+    val sha256: String,
+    val content: BenchmarkExportContent = BenchmarkExportContent.BENCHMARKS
 ) {
-    val fileName: String get() = "${if (detailed) "benchmark-debug" else "benchmarks"}-$createdAt-${id.take(8)}.json"
+    val fileName: String get() = "${when {
+        content == BenchmarkExportContent.APP_AUDIT -> "app-audit"
+        detailed -> "benchmark-debug"
+        else -> "benchmarks"
+    }}-$createdAt-${id.take(8)}.json"
 }
 
 internal class BenchmarkExportIntegrityFailure(message: String) : IOException(message)
@@ -33,7 +40,8 @@ internal class BenchmarkExportArtifactStore(
     private val directory: () -> File,
     private val now: () -> Long = System::currentTimeMillis
 ) {
-    suspend fun prepare(detailed: Boolean, write: suspend (OutputStream) -> Unit): BenchmarkExportArtifact = withContext(Dispatchers.IO) {
+    suspend fun prepare(detailed: Boolean, contentKind: BenchmarkExportContent = BenchmarkExportContent.BENCHMARKS, write: suspend (OutputStream) -> Unit): BenchmarkExportArtifact = withContext(Dispatchers.IO) {
+        require(contentKind != BenchmarkExportContent.APP_AUDIT || !detailed)
         val folder = directory()
         check(folder.isDirectory || folder.mkdirs()) { "Unable to create the private export folder." }
         val id = UUID.randomUUID().toString()
@@ -75,13 +83,14 @@ internal class BenchmarkExportArtifactStore(
                         }
                         check(bytes > 0) { "The benchmark export was empty." }
                         Files.move(partial.toPath(), content.toPath(), StandardCopyOption.ATOMIC_MOVE)
-                        val artifact = BenchmarkExportArtifact(id, detailed, now(), bytes, digest.digest().hex())
+                        val artifact = BenchmarkExportArtifact(id, detailed, now(), bytes, digest.digest().hex(), contentKind)
                         val properties = Properties().apply {
                             setProperty("id", artifact.id)
                             setProperty("detailed", artifact.detailed.toString())
                             setProperty("createdAt", artifact.createdAt.toString())
                             setProperty("bytes", artifact.bytes.toString())
                             setProperty("sha256", artifact.sha256)
+                            setProperty("content", artifact.content.name)
                         }
                         FileOutputStream(receiptPartial).use { output ->
                             properties.store(output, "Complete benchmark export")
@@ -174,8 +183,10 @@ internal class BenchmarkExportArtifactStore(
             requireNotNull(properties.getProperty("detailed").toBooleanStrictOrNull()),
             properties.getProperty("createdAt").toLong(),
             properties.getProperty("bytes").toLong(),
-            requireNotNull(properties.getProperty("sha256"))
+            requireNotNull(properties.getProperty("sha256")),
+            properties.getProperty("content")?.let(BenchmarkExportContent::valueOf) ?: BenchmarkExportContent.BENCHMARKS
         )
+        require(artifact.content != BenchmarkExportContent.APP_AUDIT || !artifact.detailed)
         require(artifact.createdAt > 0 && artifact.bytes > 0 && artifact.sha256.matches(Regex("[0-9a-f]{64}")))
         require(File(folder, "$id.json").length() == artifact.bytes)
         artifact

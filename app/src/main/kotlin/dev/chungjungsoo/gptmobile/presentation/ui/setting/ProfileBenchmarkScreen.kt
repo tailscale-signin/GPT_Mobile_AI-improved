@@ -61,6 +61,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.chungjungsoo.gptmobile.data.audit.AppAuditOptions
 import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkExecutionPolicy
 import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkMode
 import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkOutcome
@@ -92,29 +93,57 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
     var detailedExport by rememberSaveable { mutableStateOf(false) }
     var choosingExportDestination by rememberSaveable { mutableStateOf(false) }
     var retainedArtifactId by rememberSaveable { mutableStateOf<String?>(null) }
+    var auditExportBatchId by rememberSaveable { mutableStateOf<String?>(null) }
     val exportLauncher = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.CreateDocument("application/json")) { uri ->
         choosingExportDestination = false
-        if (uri != null) viewModel.exportBenchmarks(uri, detailedExport, retainedArtifactId) else viewModel.exportDestinationCanceled()
+        if (uri != null) viewModel.exportBenchmarks(uri, detailedExport, retainedArtifactId, auditExportBatchId) else viewModel.exportDestinationCanceled()
         retainedArtifactId = null
+        auditExportBatchId = null
     }
-    val requestExport: (Boolean, BenchmarkExportArtifact?) -> Unit = { detailed, retained ->
+    val launchExport: (Boolean, BenchmarkExportArtifact?, String?) -> Unit = { detailed, retained, auditId ->
         if (!viewModel.exporting.value && !choosingExportDestination) {
             detailedExport = detailed
             retainedArtifactId = retained?.id
+            auditExportBatchId = auditId
             choosingExportDestination = true
-            val fileName = retained?.fileName ?: "${if (detailed) "benchmark-debug" else "benchmarks"}-${System.currentTimeMillis()}.json"
+            val fileName = retained?.fileName ?: "${if (auditId != null) {
+                "app-audit"
+            } else if (detailed) {
+                "benchmark-debug"
+            } else {
+                "benchmarks"
+            }}-${System.currentTimeMillis()}.json"
             if (!launchBenchmarkExportDestination(fileName, { exportLauncher.launch(it) }, viewModel::exportDestinationFailed)) {
                 choosingExportDestination = false
                 retainedArtifactId = null
+                auditExportBatchId = null
             }
         }
     }
+    val requestExport: (Boolean, BenchmarkExportArtifact?) -> Unit = { detailed, retained -> launchExport(detailed, retained, null) }
+    val requestAuditExport: (String) -> Unit = { id -> launchExport(false, null, id) }
     val profiles by viewModel.profiles.collectAsStateWithLifecycle()
     val profile by viewModel.selected.collectAsStateWithLifecycle()
     val history by viewModel.history.collectAsStateWithLifecycle()
     val legacyReport by viewModel.legacyReport.collectAsStateWithLifecycle()
     val batches by viewModel.batches.collectAsStateWithLifecycle()
     val session by viewModel.benchmarkSession.collectAsStateWithLifecycle()
+    val auditGatewayCandidates by viewModel.auditGatewayCandidates.collectAsStateWithLifecycle()
+    val auditTargetNames by viewModel.auditTargetNames.collectAsStateWithLifecycle()
+    val auditLabelWarning by viewModel.auditLabelWarning.collectAsStateWithLifecycle()
+    var allowAuditNetworkReads by rememberSaveable { mutableStateOf(false) }
+    var auditProfileIds by rememberSaveable { mutableStateOf(emptyList<String>()) }
+    var selectedAuditId by rememberSaveable { mutableStateOf<String?>(null) }
+    var cancellationRequestedFor by rememberSaveable { mutableStateOf<String?>(null) }
+    androidx.compose.runtime.LaunchedEffect(session) {
+        if (session == null) cancellationRequestedFor = null
+    }
+    val auditBatches = remember(batches) { batches.filter { it.mode == BenchmarkMode.APP_AUDIT }.sortedByDescending { it.createdAt } }
+    val selectedAudit = auditBatches.firstOrNull { it.id == selectedAuditId } ?: auditBatches.firstOrNull { it.id == session } ?: auditBatches.firstOrNull()
+    val requestCancel: () -> Unit = {
+        cancellationRequestedFor = session
+        viewModel.cancel()
+    }
     val retests by viewModel.retests.collectAsStateWithLifecycle()
     val scoreboardRuns by viewModel.scoreboardRuns.collectAsStateWithLifecycle()
     val localEnvironment by viewModel.localEnvironment.collectAsStateWithLifecycle()
@@ -187,9 +216,9 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
         }
     }) { padding ->
         LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            item { SettingsHero("Performance lab", "Measure. Compare. Improve.", "${history.size} recorded runs · ${profiles.size} profiles") }
+            item { SettingsHero("Performance lab", "Measure. Compare. Improve.", "${history.size} model runs · ${auditBatches.size} app audits · ${profiles.size} profiles") }
             item { BenchmarkNavigation(tab, debugMode) { tab = it } }
-            if (tab != 2 && tab != 5 && tab != 6 && !(tab == 4 && delegationBoard)) item { BenchmarkProfilePicker(profiles, selected, progress == null, viewModel::select) }
+            if (tab != 2 && tab != 5 && tab != 6 && tab != APP_AUDIT_TAB && !(tab == 4 && delegationBoard)) item { BenchmarkProfilePicker(profiles, selected, progress == null, viewModel::select) }
             if (storageWarning != null && storageWarning != error) {
                 item { Text(storageWarning.orEmpty(), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
             }
@@ -217,40 +246,64 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
             retainedExport?.takeUnless { exporting }?.let { retained ->
                 item {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("A retained benchmark export is available to save.", style = MaterialTheme.typography.titleSmall)
+                        Text(if (retained.content == BenchmarkExportContent.APP_AUDIT) "A retained app audit export is available to save." else "A retained benchmark export is available to save.", style = MaterialTheme.typography.titleSmall)
                         Text(retained.fileName, style = MaterialTheme.typography.bodySmall)
                         TextButton(onClick = { requestExport(retained.detailed, retained) }, enabled = !choosingExportDestination) { Text("Save retained export") }
                     }
                 }
             }
-            progress?.let { current ->
+            progress?.takeUnless { tab == APP_AUDIT_TAB && selectedAudit?.id == session && selectedAudit?.audit != null }?.let { current ->
                 item {
                     BenchmarkPanel(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_73d63d9b5c, current.profileName)) {
-                        LinearProgressIndicator(progress = { current.completed.toFloat() / current.total.coerceAtLeast(1) }, modifier = Modifier.fillMaxWidth(), color = tint)
-                        Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_ad2d56e844, current.completed, current.total, current.testName))
-                        OutlinedButton(onClick = viewModel::cancel) {
+                        if (current.total > 0) {
+                            LinearProgressIndicator(progress = { (current.completed.toFloat() / current.total).coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth(), color = tint)
+                            Text(androidx.compose.ui.res.stringResource(dev.chungjungsoo.gptmobile.R.string.v0950_text_ad2d56e844, current.completed, current.total, current.testName))
+                        } else {
+                            Text(current.testName)
+                        }
+                        OutlinedButton(onClick = requestCancel, enabled = session == null || cancellationRequestedFor != session) {
                             Icon(Icons.Rounded.Stop, null)
-                            Text("Stop all")
+                            Text(if (session != null && cancellationRequestedFor == session) "Stopping…" else "Stop all")
                         }
                     }
                 }
             }
             if (tab == 0 || tab == 3) {
                 items(if (tab == 0) batches.take(1) else batches.take(100), key = { "queue.${it.id}" }) { batch ->
-                    BenchmarkQueueCard(
-                        batch,
-                        session == batch.id,
-                        viewModel::skipProfile,
-                        viewModel::cancel,
-                        onResume = { viewModel.resumeRemaining(batch.id) },
-                        onRetry = { viewModel.retryFailed(batch.id) },
-                        onResults = {
-                            mode = batch.mode
-                            tab = 5
-                        },
-                        runs = history,
-                        onExport = { requestExport(false, null) }
-                    )
+                    if (batch.mode == BenchmarkMode.APP_AUDIT) {
+                        AppAuditResultCard(
+                            batch = batch,
+                            active = session == batch.id,
+                            cancellationRequested = cancellationRequestedFor == batch.id,
+                            exportEnabled = ready && !exporting && !choosingExportDestination,
+                            resumeEnabled = ready && session == null,
+                            onCancel = requestCancel,
+                            onResume = {
+                                cancellationRequestedFor = null
+                                viewModel.resumeRemaining(batch.id)
+                            },
+                            onExport = { requestAuditExport(batch.id) },
+                            onDetails = {
+                                selectedAuditId = batch.id
+                                tab = APP_AUDIT_TAB
+                            }
+                        )
+                    } else {
+                        BenchmarkQueueCard(
+                            batch,
+                            session == batch.id,
+                            viewModel::skipProfile,
+                            requestCancel,
+                            onResume = { viewModel.resumeRemaining(batch.id) },
+                            onRetry = { viewModel.retryFailed(batch.id) },
+                            onResults = {
+                                mode = batch.mode
+                                tab = 5
+                            },
+                            runs = history,
+                            onExport = { requestExport(false, null) }
+                        )
+                    }
                 }
             }
             if (tab == 4) {
@@ -261,7 +314,58 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
                     }
                 }
             }
-            if (tab == 6) {
+            if (tab == APP_AUDIT_TAB) {
+                auditLabelWarning?.let { warning -> item { Text(warning, style = MaterialTheme.typography.bodySmall) } }
+                item(key = "app_audit_controls") {
+                    AppAuditControls(
+                        ready = ready,
+                        busy = session != null || progress != null,
+                        allowNetworkReads = allowAuditNetworkReads,
+                        onAllowNetworkReads = { allowAuditNetworkReads = it },
+                        gatewayProfiles = auditGatewayCandidates,
+                        selectedProfileIds = auditProfileIds,
+                        onToggleProfile = { id -> auditProfileIds = if (id in auditProfileIds) auditProfileIds - id else auditProfileIds + id },
+                        onStart = {
+                            if (viewModel.startAppAudit(AppAuditOptions(allowNetworkReads = allowAuditNetworkReads, selectedProfileIds = auditProfileIds))) {
+                                selectedAuditId = null
+                                cancellationRequestedFor = null
+                            }
+                        }
+                    )
+                }
+                if (selectedAudit == null) {
+                    item { Text("No app audit has been recorded. Run an audit to see its accepted plan, measured coverage and category results.") }
+                } else {
+                    if (auditBatches.size > 1) {
+                        item {
+                            val index = auditBatches.indexOf(selectedAudit)
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text("Saved audit ${index + 1} of ${auditBatches.size}", style = MaterialTheme.typography.labelMedium)
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    TextButton(onClick = { selectedAuditId = auditBatches[index - 1].id }, enabled = index > 0) { Text("Newer audit") }
+                                    TextButton(onClick = { selectedAuditId = auditBatches[index + 1].id }, enabled = index < auditBatches.lastIndex) { Text("Older audit") }
+                                }
+                            }
+                        }
+                    }
+                    item(key = "audit.${selectedAudit.id}.result") {
+                        AppAuditResultCard(
+                            batch = selectedAudit,
+                            active = session == selectedAudit.id,
+                            cancellationRequested = cancellationRequestedFor == selectedAudit.id,
+                            exportEnabled = ready && !exporting && !choosingExportDestination,
+                            resumeEnabled = ready && session == null,
+                            onCancel = requestCancel,
+                            onResume = {
+                                cancellationRequestedFor = null
+                                viewModel.resumeRemaining(selectedAudit.id)
+                            },
+                            onExport = { requestAuditExport(selectedAudit.id) }
+                        )
+                    }
+                    appAuditEvidenceContent(selectedAudit, auditTargetNames)
+                }
+            } else if (tab == 6) {
                 item {
                     SettingsPanel("Export benchmark data") {
                         Text("Save every stored run, sample, score table and local runtime qualification. Includes all profiles and dates, regardless of the current filters.")
@@ -276,13 +380,14 @@ fun ProfileBenchmarkScreen(onBack: () -> Unit, onUsage: () -> Unit, viewModel: P
                                 }
                             )
                         }
+                        TextButton(onClick = { tab = APP_AUDIT_TAB }) { Text("Choose an app audit to export its evidence") }
                     }
                 }
             } else if (tab == 7 && debugMode) {
                 item {
-                    SettingsPanel("Diagnostic benchmark") {
-                        Text("Runs the full test suite and records per-test memory, thermal and battery samples alongside timings, tokens, tool results and score dimensions. Provider usage is billed normally.")
-                        Button(onClick = viewModel::startDebugBenchmark, enabled = selected != null && ready && progress == null) { Text("Run full diagnostic benchmark") }
+                    SettingsPanel("Model diagnostic benchmark") {
+                        Text("Runs the selected model's full benchmark suite and records per-test memory, thermal and battery samples alongside timings, tokens, tool results and score dimensions. Provider usage is billed normally.")
+                        Button(onClick = viewModel::startDebugBenchmark, enabled = selected != null && ready && progress == null) { Text("Run full model diagnostics") }
                         TextButton(onClick = { requestExport(true, null) }, enabled = !exporting && !choosingExportDestination && ready) { Text("Export diagnostic data & score breakdown") }
                     }
                 }

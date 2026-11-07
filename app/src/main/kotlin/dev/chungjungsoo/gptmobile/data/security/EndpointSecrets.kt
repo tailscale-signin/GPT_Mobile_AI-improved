@@ -11,6 +11,8 @@ import kotlinx.serialization.json.JsonPrimitive
 object EndpointSecrets {
     private const val MARKER = "__vault__"
     fun reference(uid: String) = "endpoint_$uid"
+    fun protectedReference(connection: ToolConnection): String? =
+        reference(connection.connectionUid).takeIf { connection.endpointUrl?.contains(MARKER) == true }
     fun masked(url: String): String = runCatching {
         val uri = URI(url)
         if (uri.rawQuery == null) return url
@@ -19,8 +21,8 @@ object EndpointSecrets {
 
     suspend fun resolve(connection: ToolConnection, vault: SecretVault): String {
         val visible = connection.endpointUrl.orEmpty()
-        if (!visible.contains(MARKER)) return visible
-        val bytes = vault.read(reference(connection.connectionUid)) ?: error("Re-enter the saved endpoint credentials.")
+        val reference = protectedReference(connection) ?: return visible
+        val bytes = vault.read(reference) ?: error("Re-enter the saved endpoint credentials.")
         return try {
             bytes.decodeToString().also { require(masked(it) == visible) { "Saved endpoint does not match this connection." } }
         } finally {

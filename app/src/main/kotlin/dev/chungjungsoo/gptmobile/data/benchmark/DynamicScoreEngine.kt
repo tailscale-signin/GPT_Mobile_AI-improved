@@ -91,7 +91,7 @@ internal object DynamicScoreEngine {
     ).let { fields -> if (run.local && run.measurementVersion >= 4) fields + "observed-execution:${benchmarkTimingRuntimeContexts(run).joinToString(",")}" else fields }.joinToString("|")
 
     fun snapshot(history: List<BenchmarkRun>, generation: Long, now: Long, activeRevisions: Map<String, String>? = null): BenchmarkScoreSnapshot {
-        val fresh = history.filter { it.suiteVersion in 3..BenchmarkSuiteRegistry.VERSION && it.measurementVersion in setOf(2, 3, 4) && it.mode !in setOf(BenchmarkMode.DELEGATION, BenchmarkMode.CPU_EXPERIMENT, BenchmarkMode.PERFORMANCE) && now - it.startedAt in 0..FRESHNESS_MS }
+        val fresh = history.filter { it.suiteVersion in 3..BenchmarkSuiteRegistry.VERSION && it.measurementVersion in setOf(2, 3, 4) && it.mode !in setOf(BenchmarkMode.DELEGATION, BenchmarkMode.CPU_EXPERIMENT, BenchmarkMode.PERFORMANCE, BenchmarkMode.APP_AUDIT) && now - it.startedAt in 0..FRESHNESS_MS }
         // The most recently enrolled revision is active; previous revisions remain in history.
         val revisions = activeRevisions ?: fresh.groupBy { benchmarkEnrollmentKey(it.profileUid, it.executionPolicy) }.mapValues { (_, runs) -> runs.maxBy { it.startedAt }.configKey }
         val compatible = fresh.filter { benchmarkEnrolledRevision(revisions, it) == it.configKey }

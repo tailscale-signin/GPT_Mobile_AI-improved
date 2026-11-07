@@ -11,8 +11,33 @@ import time
 # These are system-image home applications, never the app being qualified.
 LAUNCHERS = {'com.google.android.apps.nexuslauncher', 'com.android.launcher3'}
 TEST_HOME = 'dev.melo.gptmobile.improved.test/dev.chungjungsoo.gptmobile.test.EmulatorHomeActivity'
+ANDROID_RESOLVER = 'android/com.android.internal.app.ResolverActivity'
 BROADCAST_IDLE = 'All broadcast queues are idle!'
 APPLICATION_IDLE = 'Finished application barriers!'
+
+
+def resolver_home_candidates(output):
+    # API 34/36 PackageManagerShellCommand.runQueryIntentActivities omits the
+    # count and Activity headers with --components; printResolveInfo also omits
+    # priority metadata. --brief alone does not have this output contract.
+    # https://android.googlesource.com/platform/frameworks/base/+/android-14.0.0_r1/services/core/java/com/android/server/pm/PackageManagerShellCommand.java
+    # https://android.googlesource.com/platform/frameworks/base/+/android-16.0.0_r1/services/core/java/com/android/server/pm/PackageManagerShellCommand.java
+    if len(output) > 8192:
+        raise ValueError('Emulator home candidate output exceeded its bound; no package was changed')
+    if not output or output == 'No activities found':
+        return None
+    candidates = output.splitlines()
+    if (len(candidates) > 16 or len(set(candidates)) != len(candidates) or
+            any(not re.fullmatch(r'[A-Za-z0-9_.]+/[A-Za-z0-9_.$]+', candidate) for candidate in candidates)):
+        raise ValueError('Malformed or ambiguous emulator home candidates; no package was changed')
+    # A resolver alone does not prove boot readiness. Accept only the installed
+    # fixture alongside stock launchers, never FallbackHome or an unknown app.
+    # An incomplete boot candidate set may settle within the original deadline.
+    if (TEST_HOME not in candidates or
+            not any(candidate.split('/')[0] in LAUNCHERS for candidate in candidates) or
+            any(candidate != TEST_HOME and candidate.split('/')[0] not in LAUNCHERS for candidate in candidates)):
+        return None
+    return candidates
 
 
 def require_barrier(output, marker):
@@ -69,6 +94,7 @@ def prepare(run=subprocess.run, now=time.monotonic, wait=time.sleep, ready_timeo
             raise TimeoutError('Emulator preparation exceeded its readiness budget')
         return result.stdout.strip()
     attempts, delay, component = 0, 1, 'not observed'
+    resolver_candidates = None
     while True:
         remaining = deadline - now()
         if remaining <= 0:
@@ -77,6 +103,9 @@ def prepare(run=subprocess.run, now=time.monotonic, wait=time.sleep, ready_timeo
         try:
             home = shell('cmd', 'package', 'resolve-activity', '--brief', '-a', 'android.intent.action.MAIN', '-c', 'android.intent.category.HOME')
             component = home.splitlines()[-1] if home else 'No activity found'
+            resolver_candidates = None
+            if component == ANDROID_RESOLVER:
+                resolver_candidates = resolver_home_candidates(shell('cmd', 'package', 'query-activities', '--components', '--user', '0', '-a', 'android.intent.action.MAIN', '-c', 'android.intent.category.HOME'))
         except subprocess.CalledProcessError as failure:
             # Only read-only boot discovery can retry transport readiness. A
             # failed home selection/start below is never replayed.
@@ -90,7 +119,7 @@ def prepare(run=subprocess.run, now=time.monotonic, wait=time.sleep, ready_timeo
             if component != 'No activity found' and not re.fullmatch(r'[A-Za-z0-9_.]+/[A-Za-z0-9_.$]+', component):
                 raise ValueError('Malformed emulator home component; no package was changed')
             package = component.split('/')[0]
-            if package in LAUNCHERS or component == TEST_HOME:
+            if package in LAUNCHERS or component == TEST_HOME or resolver_candidates is not None:
                 break
         # sys.boot_completed can precede user unlock and the real home. Android's
         # FallbackHome itself waits for that transition; observe it read-only.
@@ -124,6 +153,7 @@ def prepare(run=subprocess.run, now=time.monotonic, wait=time.sleep, ready_timeo
     if not re.search(r'^Status: ok\s*$', launch, re.MULTILINE) or not re.search(r'^Activity: ' + re.escape(TEST_HOME) + r'\s*$', launch, re.MULTILINE):
         raise ValueError('The instrumentation home did not report a successful launch; inspect emulator state before retrying')
     return {'schema_version': 3, 'status': 'PREPARED', 'home_component': component,
+            'resolver_home_candidates': resolver_candidates,
             'readiness_attempts': attempts, 'readiness_seconds': round(now() - started, 3),
             'boot_barrier_seconds': boot_barrier_seconds, 'home_selection_seconds': selection_seconds,
             'selected_test_home': TEST_HOME, 'stopped_system_launcher': None,

@@ -4,6 +4,8 @@ import android.content.Context
 import android.content.SharedPreferences
 import androidx.room.Room
 import dagger.hilt.android.qualifiers.ApplicationContext
+import dev.chungjungsoo.gptmobile.data.audit.interrupted
+import dev.chungjungsoo.gptmobile.data.audit.recoverAppAuditBatch
 import dev.chungjungsoo.gptmobile.data.localruntime.QualificationStatus
 import dev.chungjungsoo.gptmobile.data.localruntime.RuntimePlanDecisionRecord
 import dev.chungjungsoo.gptmobile.data.localruntime.RuntimeQualificationResult
@@ -236,7 +238,7 @@ class BenchmarkStore @Inject constructor(@param:ApplicationContext context: Cont
                 loadLocked()
                 val saved = dao.batches().firstOrNull { it.id == batch.id }?.let { json.decodeFromString<BenchmarkBatch>(it.payload) }
                 // A concurrent Stop action cannot be overwritten by a case checkpoint.
-                val accepted = if (saved == null && event == "MANIFEST_SAVED" && batch.suiteVersion >= 9) {
+                val accepted = if (saved == null && event == "MANIFEST_SAVED" && batch.suiteVersion >= 9 && batch.mode != BenchmarkMode.APP_AUDIT) {
                     val current = batch.copy(measurementVersion = 4, scoringVersion = 4, recoveryPolicy = "INDEPENDENT_CASES_AFTER_CONFIRMED_CLEANUP_V1")
                     if (batch.suiteVersion >= 10) {
                         val policy = batch.executionPolicy ?: BenchmarkExecutionPolicy.DETERMINISTIC_CAPABILITY_V1
@@ -256,7 +258,13 @@ class BenchmarkStore @Inject constructor(@param:ApplicationContext context: Cont
                 } else {
                     batch
                 }
-                val effectiveBatch = if (event in setOf("CASE_STARTED", "CASE_FINISHED", "CASE_NOT_ADMITTED", "CASE_INTERRUPTED", "PREFLIGHT", "PREFLIGHT_CLEANUP", "PREFLIGHT_INTERRUPTED", "READINESS_CHECKPOINT", "READINESS_FINISHED")) accepted.copy(stopOrigin = saved?.stopOrigin ?: accepted.stopOrigin) else accepted
+                if (saved?.audit != null) {
+                    val before = saved.audit
+                    val after = requireNotNull(accepted.audit) { "The accepted app audit manifest cannot be removed." }
+                    require(before.id == after.id && before.startedAtEpochMs == after.startedAtEpochMs && before.schemaVersion == after.schemaVersion && before.catalogVersion == after.catalogVersion && before.lineCoverageAvailable == after.lineCoverageAvailable && before.plan == after.plan && before.catalogHash == after.catalogHash && before.options == after.options && before.limits == after.limits && before.sourceInventoryDigest == after.sourceInventoryDigest && before.sourceCommit == after.sourceCommit && before.buildVersion == after.buildVersion && before.buildVariant == after.buildVariant && before.sourceFileCount == after.sourceFileCount && before.sourceLineCount == after.sourceLineCount && before.sourceAreas == after.sourceAreas) { "The accepted app audit manifest cannot change." }
+                    require(after.executedProbes >= before.executedProbes && after.networkProbesDispatched >= before.networkProbesDispatched && after.results.take(before.results.size) == before.results) { "Committed app audit evidence and budgets cannot be replaced." }
+                }
+                val effectiveBatch = if (event.startsWith("AUDIT_") || event in setOf("CASE_STARTED", "CASE_FINISHED", "CASE_NOT_ADMITTED", "CASE_INTERRUPTED", "PREFLIGHT", "PREFLIGHT_CLEANUP", "PREFLIGHT_INTERRUPTED", "READINESS_CHECKPOINT", "READINESS_FINISHED")) accepted.copy(stopOrigin = saved?.stopOrigin ?: accepted.stopOrigin) else accepted
                 var effectiveRun = run?.copy(samples = run.samples.map { sample -> sample.copy(attemptId = sample.attemptId ?: "${run.id}:${sample.testId}:0") })
                 val existing = dao.attempts(batch.id).map { json.decodeFromString<BenchmarkAttempt>(it.payload) }.associateBy { it.id }.toMutableMap()
                 val changed = attempts.map { it.id }.toMutableSet()
@@ -328,6 +336,31 @@ class BenchmarkStore @Inject constructor(@param:ApplicationContext context: Cont
         scheduleMirror()
     }
 
+    /** Startup never admitted execution; retain the latest manifest before releasing its owner. */
+    internal suspend fun interruptBeforeExecution(id: String, event: String): BenchmarkBatch? = withContext(Dispatchers.IO) {
+        require(event in setOf("PREPARATION_TIMEOUT", "FOREGROUND_READINESS_TIMEOUT"))
+        mutex.withLock {
+            try {
+                loadLocked()
+                val batch = dao.batches().firstOrNull { it.id == id }?.let { json.decodeFromString<BenchmarkBatch>(it.payload) } ?: return@withLock null
+                if (batch.state != BenchmarkBatchState.QUEUED || batch.activeOrdinal != null || batch.items.any { it.state == BenchmarkQueueState.RUNNING } || batch.audit?.activeProbeId != null) return@withLock null
+                val now = System.currentTimeMillis()
+                val origin = batch.stopOrigin ?: BenchmarkStopOrigin.SERVICE_INTERRUPTION
+                val interrupted = batch.copy(
+                    state = if (origin == BenchmarkStopOrigin.USER_STOP) BenchmarkBatchState.STOPPED else BenchmarkBatchState.INTERRUPTED,
+                    stopOrigin = origin,
+                    endedAt = now,
+                    audit = batch.audit?.interrupted(now, origin.name)
+                )
+                checkpointLocked(interrupted, null, emptyList(), event)
+                interrupted
+            } catch (failure: Exception) {
+                if (failure is kotlinx.coroutines.CancellationException) throw failure
+                throw BenchmarkStorageFailure(failure)
+            }
+        }
+    }
+
     internal suspend fun recordStop(id: String, origin: BenchmarkStopOrigin, ordinal: Int?): Boolean = withContext(Dispatchers.IO) {
         mutex.withLock {
             loadLocked()
@@ -352,7 +385,11 @@ class BenchmarkStore @Inject constructor(@param:ApplicationContext context: Cont
 
     internal suspend fun recoverBatches() {
         load()
-        batches.value.filter { it.state in setOf(BenchmarkBatchState.RUNNING, BenchmarkBatchState.QUEUED) || it.items.any { item -> item.state == BenchmarkQueueState.RUNNING } }.forEach { old ->
+        batches.value.filter { it.state in setOf(BenchmarkBatchState.RUNNING, BenchmarkBatchState.QUEUED) || it.audit?.activeProbeId != null || it.items.any { item -> item.state == BenchmarkQueueState.RUNNING } }.forEach { old ->
+            if (old.mode == BenchmarkMode.APP_AUDIT || old.audit != null) {
+                checkpoint(recoverAppAuditBatch(old, System.currentTimeMillis()), event = "AUDIT_RECOVERED")
+                return@forEach
+            }
             val savedAttempts = dao.attempts(old.id).map { json.decodeFromString<BenchmarkAttempt>(it.payload) }
             val active = old.items.firstOrNull { it.state == BenchmarkQueueState.RUNNING }
             val savedRun = active?.let { item -> history.value.firstOrNull { it.id == item.runId } }

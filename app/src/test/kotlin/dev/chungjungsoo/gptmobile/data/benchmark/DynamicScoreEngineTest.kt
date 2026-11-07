@@ -6,6 +6,15 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class DynamicScoreEngineTest {
+    @Test fun appAuditRecordsCannotEnterOrRescaleTheModelScorePopulation() {
+        val model = run("model", 150)
+        val malformedImportedAudit = run("app-audit", 999999).copy(mode = BenchmarkMode.APP_AUDIT)
+        val before = DynamicScoreEngine.snapshot(listOf(model), 1, 2000).rows
+        val after = DynamicScoreEngine.snapshot(listOf(model, malformedImportedAudit), 1, 2000).rows
+        assertEquals(before, after)
+        assertTrue(DynamicScoreEngine.snapshot(listOf(malformedImportedAudit), 1, 2000).rows.isEmpty())
+    }
+
     @Test fun estimatedProviderCountsNeverReplaceReferenceDeliveryMeasurements() {
         val original = run("profile", 150)
         val estimates = original.copy(samples = original.samples.map { it.copy(outputTokens = 999999, inputTokenSource = "unknown", outputTokenSource = "estimated", outputTokenConfidence = "estimated", estimatedTokens = true) })

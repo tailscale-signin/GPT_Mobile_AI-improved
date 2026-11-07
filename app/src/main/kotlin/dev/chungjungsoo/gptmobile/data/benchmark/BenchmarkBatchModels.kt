@@ -1,5 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.benchmark
 
+import dev.chungjungsoo.gptmobile.data.audit.AppAuditOutcome
+import dev.chungjungsoo.gptmobile.data.audit.AppAuditRun
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.model.ModelDelegationSettings
 import java.security.MessageDigest
@@ -77,12 +79,14 @@ data class BenchmarkBatch(
     val recoveryPolicy: String? = null,
     val executionPolicy: BenchmarkExecutionPolicy? = null,
     val fixtureRotationSeed: Long? = null,
-    val caseManifest: List<BenchmarkCase>? = null
+    val caseManifest: List<BenchmarkCase>? = null,
+    val audit: AppAuditRun? = null
 ) {
     val pending: List<BenchmarkQueueItem> get() = items.filter { it.state == BenchmarkQueueState.QUEUED }
     val handled: Int get() = items.count { it.terminal }
     val failed: Int get() = items.count { it.state in setOf(BenchmarkQueueState.FAILED, BenchmarkQueueState.BLOCKED, BenchmarkQueueState.INTERRUPTED) }
-    val canResume: Boolean get() = state in setOf(BenchmarkBatchState.STOPPED, BenchmarkBatchState.INTERRUPTED, BenchmarkBatchState.STORAGE_PAUSED) && pending.isNotEmpty()
+    val canResume: Boolean get() = state in setOf(BenchmarkBatchState.STOPPED, BenchmarkBatchState.INTERRUPTED, BenchmarkBatchState.STORAGE_PAUSED) &&
+        if (mode == BenchmarkMode.APP_AUDIT) audit?.pendingEntries?.isNotEmpty() == true else pending.isNotEmpty()
 }
 
 @Serializable
@@ -109,6 +113,10 @@ data class BenchmarkAttempt(
 data class BenchmarkBatchEvent(val batchId: String, val sequence: Long, val type: String, val timestamp: Long, val runId: String? = null, val attemptId: String? = null)
 
 internal fun BenchmarkBatch.completionState(): BenchmarkBatchState = when {
+    mode == BenchmarkMode.APP_AUDIT && (audit == null || audit.id != id || items.isNotEmpty()) -> BenchmarkBatchState.COMPLETED_WITH_FAILURES
+    mode == BenchmarkMode.APP_AUDIT && (audit?.pendingEntries?.isNotEmpty() == true || audit?.activeProbeId != null) -> state
+    mode == BenchmarkMode.APP_AUDIT && audit?.results?.any { it.outcome in setOf(AppAuditOutcome.FAIL, AppAuditOutcome.BLOCKED, AppAuditOutcome.CANCELED) } == true -> BenchmarkBatchState.COMPLETED_WITH_FAILURES
+    mode == BenchmarkMode.APP_AUDIT -> BenchmarkBatchState.COMPLETED
     items.any { !it.terminal } -> state
     items.any { it.failure != null || it.state in setOf(BenchmarkQueueState.FAILED, BenchmarkQueueState.BLOCKED, BenchmarkQueueState.INTERRUPTED) } -> BenchmarkBatchState.COMPLETED_WITH_FAILURES
     else -> BenchmarkBatchState.COMPLETED

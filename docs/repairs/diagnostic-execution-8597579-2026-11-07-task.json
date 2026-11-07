@@ -97,7 +97,11 @@
     "validation": {
       "ktlint": "PASSED",
       "behavioral_execution": "PENDING_HOST_HARNESS",
-      "android_full": "PENDING_ROOT_EXACT_HEAD_CI"
+      "android_full": "PENDING_ROOT_EXACT_HEAD_CI",
+      "github_session_classifier_tests": 85,
+      "github_source_hashes_stable": true,
+      "canonical_fast_tests": 361,
+      "source_checkpoint": "7cf03c0"
     },
     "constraints": [
       "Precheck=false only at proven pre-invocation boundaries",
@@ -113,7 +117,7 @@
       "GitHub acceptance checkpoint policy failure preserves original unknown failure provenance"
     ],
     "source_sha256": {
-      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunner.kt": "7fc159c09caba1c3bd376c8c10c39b5cf34fc10f538e85449a0f561d0d9ccd24",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunner.kt": "0652584696c33f614a771a6b02cb93e8787d01ffde25947961b968bc3221d34b",
       "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProfileFailureRecord.kt": "79247729d5721d5427399b59cd6db0f746f11b268901ea78e8f7c2585e26f499",
       "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolExecutionBudget.kt": "ec9e013a2e230145a4ccd46f3e1547ae1012f936f1434e539a214b7659909d3f",
       "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolFailureMetadata.kt": "333162e8e0e4fa760181610e325b6b2a1dbbcade18912c9730d6b2eb3232c974",
@@ -121,8 +125,17 @@
       "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubVerifiedSession.kt": "b80f57a5b9c0b5d74ac6d015e565819bdd2d9ab7c1c5f315466435355866ceab",
       "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProfileFailureRecordTest.kt": "62226e613f56112dcbbd72bd9295d662f57fe7d89ea38f261cf9b24c42e4b958",
       "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubPolicyInvalidationTest.kt": "24ba123a93d10c68652f3b617ed4720532b2e50f9f1e3c66f15847cb13cf8149",
-      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentPolicyInvalidationTest.kt": "0e8b7bf8299ef075c15e40625fb24df5d93a15aead0107d47480d42d9a1e4e5e",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentPolicyInvalidationTest.kt": "8c88c7d7d43990df1c5fff9311f056fc96f347bcddcf129ed1162582209ce35a",
       "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolPolicyInvalidationTest.kt": "cad0506bf839af2e2146c9b41ac259e0f57dfa5802ec8d24784d74cdb77e5dd5"
+    },
+    "provider_guard_followup": {
+      "base_sha": "7cf03c0",
+      "intent": "Preserve earlier unknown tool outcomes when a provider session throws authority invalidation; keep ordinary preparation rebuild and downstream collector transparency.",
+      "state": "SOURCE_CHECKPOINT_PENDING_EXECUTION",
+      "validation": {
+        "ktlint": "PASSED",
+        "behavioral_execution": "PENDING_HOST_HARNESS_AND_ANDROID_CI"
+      }
     }
   }
 }

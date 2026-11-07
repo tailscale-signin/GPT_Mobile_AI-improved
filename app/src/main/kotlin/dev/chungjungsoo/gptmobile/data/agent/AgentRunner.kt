@@ -255,7 +255,7 @@ class AgentRunner(
             val roundDefinitions = fitProviderToolSchemas(selectDefinitions(exposedDefinitions), limits, initialSchemaTokens, replayTokens)
             reconcileDiscoveryExchange(exchanges, roundDefinitions)
             val restoringBatch = restoredCalls.isNotEmpty()
-            val round = if (restoringBatch) RoundResult(calls = restoredCalls, completed = true, observedCalls = restoredCalls.size).also { restoredCalls = emptyList() } else collectRound(session, roundDefinitions, exchanges, (observedLimit - observedToolCalls).coerceAtLeast(0), searchContext.successful, searchContext.names, consumedCallIds)
+            val round = if (restoringBatch) RoundResult(calls = restoredCalls, completed = true, observedCalls = restoredCalls.size).also { restoredCalls = emptyList() } else collectRound(session, roundDefinitions, exchanges, (observedLimit - observedToolCalls).coerceAtLeast(0), searchContext.successful, searchContext.names, consumedCallIds, retainedUnknownOutcome || unknownOutcomes.isNotEmpty())
             observedToolCalls += round.observedCalls
             if (round.batchRejected) {
                 if (limits.combined?.requested?.singlePass == true) {
@@ -1043,7 +1043,8 @@ class AgentRunner(
         remainingObserved: Int,
         successfulSearch: Boolean,
         searchToolNames: Set<String>,
-        consumedCallIds: MutableSet<String>
+        consumedCallIds: MutableSet<String>,
+        hasUnknownOutcome: Boolean
     ): RoundResult {
         val calls = mutableListOf<ProviderEvent.ToolCall>()
         val admission = ToolRoundAdmission(minOf(MAX_BUFFERED_TOOL_CALLS, remainingObserved), maxSameTool = MAX_SAME_TOOL_CALLS_PER_RUN)
@@ -1157,7 +1158,11 @@ class AgentRunner(
                 emitAll(session.streamRound(exposedDefinitions, preparedExchanges).withAssistantTextMarkupGuard(successfulSearch || session.hasPreparedSearchEvidence, searchToolNames, allowControlJsonText = session.allowsControlJsonText))
             }
         }.catch { error ->
-            if (error is CancellationException || error is VirtualMachineError || error is ThreadDeath || error is IllegalStateException && error.message?.startsWith("DISPATCH_POLICY_CHANGED:") == true) throw error
+            if (error is CancellationException || error is VirtualMachineError || error is ThreadDeath) throw error
+            // Preparation may rebuild before any work. Once an earlier operation
+            // is uncertain, retain this upstream failure for reconciliation instead
+            // of losing the journal context at an outer preparation boundary.
+            if (!hasUnknownOutcome && error is IllegalStateException && error.message?.startsWith("DISPATCH_POLICY_CHANGED:") == true) throw error
             if (error is ToolBatchOversizeException) {
                 batchRejection = error.message
                 batchRejected = true
@@ -1189,7 +1194,7 @@ class AgentRunner(
                 failure = if (toolDefinitionsRejected) {
                     error.message ?: "Tools are unavailable for this model."
                 } else {
-                    failureCode = if (gatewayOutcomeUnknown) GatewayOutcomeRecovery.ERROR_CODE else ToolFailureMetadata.classify(error)
+                    failureCode = if (gatewayOutcomeUnknown) GatewayOutcomeRecovery.ERROR_CODE else ToolFailureMetadata.authorityCode(error) ?: ToolFailureMetadata.classify(error)
                     classified.userMessage
                 }
             }

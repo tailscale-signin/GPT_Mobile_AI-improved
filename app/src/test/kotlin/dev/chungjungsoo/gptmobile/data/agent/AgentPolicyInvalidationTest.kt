@@ -2,6 +2,7 @@ package dev.chungjungsoo.gptmobile.data.agent
 
 import dev.chungjungsoo.gptmobile.data.context.DispatchPolicyChangedException
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
@@ -11,6 +12,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -246,6 +248,62 @@ class AgentPolicyInvalidationTest {
                 assertFalse(events.providerEvents().any { it is ProviderEvent.Completed })
             }
         }
+    }
+
+    @Test fun thrownProviderGuardKeepsPriorUncertaintyAndPreservesPreparationPropagationOtherwise() = runTest {
+        for (unknown in listOf(false, true)) {
+            for (github in listOf(false, true)) {
+                val checkpoint = ToolBatchCheckpoint(null, "thrown-provider-$unknown-$github")
+                val prior = ProviderEvent.ToolCall("prior", "write_fixture", args)
+                if (unknown) {
+                    checkpoint.enqueue(listOf(prior))
+                    checkpoint.execute(prior) { AgentToolResult(prior.callId, ToolResultContent.Text("retained uncertain operation"), true, errorCode = "TOOL_OUTCOME_UNKNOWN") }
+                }
+                val policy = DispatchPolicyChangedException(listOf("profile"))
+                var rounds = 0
+                val provider = object : AgentProviderSession {
+                    override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> {
+                        rounds++
+                        throw policy
+                    }
+                }
+                val observed = runCatching { AgentRunner(AgentRunLimits(githubTask = github), checkpoint).run(provider, emptyList()).toList() }
+                if (unknown) {
+                    val failure = terminal(observed.getOrThrow())
+                    assertEquals("RECONCILIATION_REQUIRED", failure.errorCode)
+                    assertEquals("PARTIAL", failure.taskOutcome)
+                    assertEquals(JsonPrimitive("DISPATCH_POLICY_CHANGED"), failure.failureDetails?.get("authority_invalidation_code"))
+                    assertFalse(failure.failureDetails?.get("dispatched") == JsonPrimitive(false))
+                    assertEquals(1, checkpoint.recoverySnapshot().unknownCount)
+                } else {
+                    assertSame(policy, observed.exceptionOrNull())
+                }
+                assertEquals(1, rounds)
+            }
+        }
+    }
+
+    @Test fun downstreamPolicyExceptionStillPropagatesWithPriorUncertainty() = runTest {
+        val checkpoint = ToolBatchCheckpoint(null, "downstream-policy")
+        val prior = ProviderEvent.ToolCall("prior", "write_fixture", args)
+        checkpoint.enqueue(listOf(prior))
+        checkpoint.execute(prior) { AgentToolResult(prior.callId, ToolResultContent.Text("retained uncertain operation"), true, errorCode = "TOOL_OUTCOME_UNKNOWN") }
+        val policy = DispatchPolicyChangedException(listOf("engineering"))
+        var rounds = 0
+        val observed = runCatching {
+            AgentRunner(AgentRunLimits(githubTask = true), checkpoint).run(
+                session {
+                    rounds++
+                    listOf(ProviderEvent.TextDelta("delivery"), ProviderEvent.Completed)
+                },
+                emptyList()
+            ).collect { event ->
+                if (event is AgentRunEvent.Provider && event.event is ProviderEvent.TextDelta) throw policy
+            }
+        }
+        assertSame(policy, observed.exceptionOrNull())
+        assertEquals(1, rounds)
+        assertEquals(1, checkpoint.recoverySnapshot().unknownCount)
     }
 
     private fun tool(name: String, execute: suspend (String) -> AgentToolResult) = object : AgentTool {

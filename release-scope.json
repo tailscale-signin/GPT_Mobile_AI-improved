@@ -33,7 +33,9 @@
     "Validate MCP catalogs before publishing tool readiness, separate connection/catalog/gateway/inference evidence and add explicit bounded generation probes.",
     "Bind gateway answer colour and badges to locally observed response headers or a matching saved job; clear stale proof per response, preserve historical source ranges and require capability confirmation for recognized gateway software even without debug controls.",
     "Close the final release-dispatch changed-argument replay gap with protected payload reconciliation, and verify exact draft release identities and downloaded assets before publication.",
-    "Preserve the merged emulator boot/display readiness and diagnostics, while rejecting an exiting test HOME window as readiness evidence."
+    "Preserve the merged emulator boot/display readiness and diagnostics, while rejecting an exiting test HOME window as readiness evidence.",
+    "Inspect structured diagnostic JSONL with bounded parsing, content-free failure signatures, reconciled source counts and explicit verification limits.",
+    "Keep cross-authority research sharing limited to receipted public captures; retain accepted task identity and spent-work counters without transferring private derived context or completion authority."
   ],
   "limitations": [
     "Android GPU qualification requires compatible-device receipts for actual offload, prefill, decode, repeated requests and cancel/recovery; host tests do not establish those results.",
@@ -877,6 +879,11 @@
     "scripts/verify_release_identity.py",
     "docs/repairs/diagnostic-final-reconciliation-2026-11-07.md",
     "scripts/tests/test_published_release.py",
-    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubDispatchReceiptTest.kt"
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubDispatchReceiptTest.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/research/ResearchEvidenceTransfer.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/research/ResearchEvidenceTransferTest.kt",
+    "docs/repairs/diagnostic-remediation-8597579-2026-11-07-task.json",
+    "docs/repairs/diagnostic-remediation-8597579-observations.json",
+    "scripts/tests/test_structured_diagnostic_inspection.py"
   ]
 }

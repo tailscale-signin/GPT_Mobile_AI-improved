@@ -1,0 +1,75 @@
+{
+  "schema": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "91dfce15bc481c4bbdb088bcadd28489436dbb1b",
+  "working_branch": "fix/diagnostic-remediation-8597579-2026-11-07",
+  "intent": "Implement the requested diagnostic-driven reliability and usability improvements on a new branch, preserve existing safety and verification contracts, and qualify the exact resulting revision.",
+  "state": "DIAGNOSIS_AND_IMPLEMENTATION",
+  "inputs": {
+    "diagnostic_sha256": "b539a1e3f3f9642ac5b1ecf779d08e9baa1d65f28dadec4001a415bbc638127d",
+    "diagnostic_app_commit": "91dfce15bc481c4bbdb088bcadd28489436dbb1b",
+    "diagnostic_schema": 7,
+    "primary_events": 3500,
+    "continuation_records": 2758,
+    "duplicate_reference_batches": 8,
+    "issue_records": 79,
+    "issue_records_are_not_distinct_defects": true,
+    "user_named_backlog_items": 26,
+    "user_category_only_backlog_items": 19,
+    "raw_diagnostics_committed": false
+  },
+  "work_packages": [
+    {
+      "id": "github_execution_and_recovery",
+      "state": "INVESTIGATING"
+    },
+    {
+      "id": "gateway_mcp_and_model_routing",
+      "state": "INVESTIGATING"
+    },
+    {
+      "id": "android_performance_and_ui",
+      "state": "INVESTIGATING"
+    },
+    {
+      "id": "diagnostic_coverage_and_acceptance",
+      "state": "INVESTIGATING"
+    },
+    {
+      "id": "research_public_capture_transfer",
+      "state": "SOURCE_GAP_CONFIRMED",
+      "finding": "Cross-authority transfer filters captured sources but retains run-derived context and completion state; use an explicit public evidence projection."
+    }
+  ],
+  "preserved": [
+    "selected profile and destination identity",
+    "unknown mutation outcome reconciliation without replay",
+    "authorization, TLS verification and privacy boundaries",
+    "bounded call, storage, retry and time budgets",
+    "required verification and release provenance",
+    "existing coordinators, transport managers and memory stores"
+  ],
+  "validation": {
+    "offline_inspection": {
+      "tests": 24,
+      "status": "PASSED",
+      "scope": "13 structured-log regressions plus 11 existing conversation and staged-capture tests"
+    },
+    "canonical_fast_initial": {
+      "tests": 374,
+      "status": "PASSED",
+      "source_scope": "Root JSONL inspector before integration of parallel source repairs"
+    }
+  },
+  "not_yet_measured": [
+    "physical Android device rendering and installation",
+    "private gateway and MCP deployment connectivity",
+    "physical GPU and NPU execution",
+    "prolonged live disconnection and process-restart soak"
+  ],
+  "release": {
+    "version_changed": false,
+    "publication_requested": false
+  }
+}

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Inspect legacy conversation or bounded staged diagnostics without a model runtime.
+"""Inspect conversations, staged captures or structured app logs without a model runtime.
 
 This replays retained committed segments only. Missing provider deltas or reducer
 events are reported as unavailable, never synthesized from the saved answer.
@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import codecs
+from collections import Counter, defaultdict
 import hashlib
 import json
 import re
@@ -17,6 +18,250 @@ import zipfile
 MAX_BYTES = 64 * 1024 * 1024
 FILES = {"manifest.json", "conversation.json", "events.jsonl", "context-manifests.json", "provenance.json"}
 STAGED_SCHEMA = "gptmobile.staged-diagnostics.v1"
+LOG_INSPECTION_SCHEMA = "gptmobile.offline-log-inspection.v1"
+MAX_LOG_LINE_BYTES = 256 * 1024
+MAX_LOG_ROWS = 100_000
+MAX_SIGNATURE_LINES = 64
+LOG_SOURCES = {"current.log", "previous.log", "critical.log", "critical-previous.log"}
+
+
+def _diagnostic_signature(row: dict) -> str:
+    """Return a fixed vocabulary, never a message, endpoint, model or private argument."""
+    fields = row.get("fields", {})
+    code = row.get("errorCode")
+    if row.get("tag") == "Tool" and isinstance(code, str) and code in {"INVALID_ARGUMENTS", "POLICY_STALE", "STALE_INVENTORY"}:
+        return "tool." + code.lower().replace("_", "-")
+    event = row.get("eventName", "")
+    if row.get("tag") == "Agent" and event == "RUN_TERMINAL":
+        reason = fields.get("reason")
+        if isinstance(reason, str) and reason in {"TASK_INCOMPLETE", "TLS_FAILURE", "INCOMPLETE"}:
+            return "execution." + reason.lower().replace("_", "-")
+        return "execution.reported-failure"
+    if event == "FRAME_TIMING":
+        return "rendering.frame-deadline-miss"
+    if event == "TOOL_CANCELED":
+        return "tool.canceled"
+    if event == "TOOL_RESOLUTION_FAILED":
+        return "mcp.discovery-failure"
+    if row.get("category") == "main_thread_disk_io":
+        return "android.main-thread-disk-io"
+    if row.get("category") == "input_lifecycle":
+        return "android.inactive-input-connection"
+    if row.get("tag") == "Android" and event.startswith("Skipped ") and "frames!" in event:
+        return "rendering.skipped-frames"
+    if row.get("category") == "transport_availability":
+        return "network.transport-unavailable"
+    if row.get("tag") == "Model":
+        return "model.reported-failure"
+    return "other.observed-failure"
+
+
+def load_diagnostic_log(path: Path) -> dict:
+    """Stream schema-7 JSONL into a bounded, content-free evidence inventory.
+
+    Counts describe observations, not independently proven bugs. Continuations and
+    duplicate references are structural evidence only: their source payload hashes
+    cannot be recomputed from redacted exported messages.
+    """
+    def integer(value, description):
+        if type(value) is not int or value < 0:
+            raise ValueError("Invalid diagnostic " + description)
+        return value
+
+    def identity(value):
+        if not isinstance(value, str) or not 1 <= len(value) <= 256:
+            raise ValueError("Invalid diagnostic identity")
+        return value
+
+    def unique_object(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError("Duplicate diagnostic JSON key")
+            result[key] = value
+        return result
+
+    def invalid_constant(_):
+        raise ValueError("Non-finite diagnostic JSON number")
+
+    counts = Counter()
+    signatures = {}
+    primary = {}
+    identity_sources = defaultdict(set)
+    continuations = defaultdict(set)
+    references = []
+    reference_positions = set()
+    issue_ids = set()
+    frame_totals = Counter()
+    frame_screens = defaultdict(Counter)
+    frame_identities = {}
+    capture = None
+    source_sha = None
+    fingerprint = hashlib.sha256()
+    byte_count = 0
+    with path.open("rb") as stream:
+        while line := stream.readline(MAX_LOG_LINE_BYTES + 1):
+            counts["rows"] += 1
+            byte_count += len(line)
+            if len(line) > MAX_LOG_LINE_BYTES or byte_count > MAX_BYTES or counts["rows"] > MAX_LOG_ROWS:
+                raise ValueError("Diagnostic inspection bound exceeded")
+            if not line.endswith(b"\n"):
+                raise ValueError("Incomplete diagnostic final line")
+            fingerprint.update(line)
+            try:
+                row = json.loads(line.decode("utf-8"), object_pairs_hook=unique_object, parse_constant=invalid_constant)
+            except (UnicodeError, ValueError, RecursionError):
+                raise ValueError(f"Invalid diagnostic JSON at line {counts['rows']}") from None
+            if not isinstance(row, dict) or type(row.get("schema")) is not int or row["schema"] != 7:
+                raise ValueError("Unsupported structured diagnostic schema")
+            kind = row.get("kind")
+            if not isinstance(kind, str) or kind not in {"event", "continuation", "duplicate_reference_batch"}:
+                raise ValueError("Unsupported structured diagnostic record")
+            if type(row.get("countAsIssue")) is not bool or type(row.get("duplicate")) is not bool:
+                raise ValueError("Invalid diagnostic issue flags")
+            counts[kind] += 1
+            if kind == "duplicate_reference_batch":
+                batch = row.get("references")
+                if (not isinstance(batch, list) or not 1 <= len(batch) <= 32
+                        or integer(row.get("referenceCount"), "reference count") != len(batch)
+                        or row["countAsIssue"] or not row["duplicate"]):
+                    raise ValueError("Invalid diagnostic duplicate-reference batch")
+                for reference in batch:
+                    if not isinstance(reference, dict):
+                        raise ValueError("Invalid diagnostic duplicate reference")
+                    target = identity(reference.get("eventId"))
+                    source = identity(reference.get("captureSource"))
+                    canonical_source = identity(reference.get("canonicalSource"))
+                    source_line = integer(reference.get("sourceLine"), "source line")
+                    canonical_line = integer(reference.get("canonicalLine"), "canonical line")
+                    sha = reference.get("payloadSha256")
+                    position = (source, source_line)
+                    if (source_line == 0 or canonical_line == 0 or position in reference_positions
+                            or not isinstance(sha, str) or re.fullmatch(r"[a-f0-9]{64}", sha) is None):
+                        raise ValueError("Invalid or repeated diagnostic duplicate reference")
+                    reference_positions.add(position)
+                    references.append((target, canonical_source))
+                    if len(references) > MAX_LOG_ROWS:
+                        raise ValueError("Diagnostic duplicate-reference bound exceeded")
+                    if source in LOG_SOURCES:
+                        counts["retainedSourceRecords"] += 1
+                continue
+            event_id = identity(row.get("eventId"))
+            sequence = integer(row.get("sequence"), "sequence")
+            source = identity(row.get("captureSource"))
+            if event_id in identity_sources:
+                counts["repeatedEventIdentities"] += 1
+            identity_sources[event_id].add(source)
+            if source in LOG_SOURCES:
+                counts["retainedSourceRecords"] += 1
+            for flag in ("truncatedAtSource", "truncatedAtExport"):
+                if type(row.get(flag)) is not bool:
+                    raise ValueError("Invalid diagnostic truncation flag")
+                counts[flag] += row[flag]
+            if kind == "continuation":
+                parent = identity(row.get("parentEventId"))
+                if (sequence < 1 or sequence > MAX_LOG_ROWS or row["countAsIssue"]
+                        or event_id != f"{parent}:{sequence}"):
+                    raise ValueError("Invalid or repeated diagnostic continuation")
+                continuations[parent].add(sequence)
+                continue
+            if sequence != 0:
+                raise ValueError("Invalid primary diagnostic sequence")
+            primary.setdefault(event_id, source)
+            fields = row.get("fields")
+            if not isinstance(fields, dict) or not isinstance(row.get("eventName"), str):
+                raise ValueError("Invalid diagnostic event fields")
+            if row.get("tag") == "Export" and "appCommit" in fields:
+                candidate = fields["appCommit"]
+                if isinstance(candidate, str) and re.fullmatch(r"[a-f0-9]{40}", candidate):
+                    if source_sha is not None and source_sha != candidate:
+                        raise ValueError("Conflicting diagnostic application commits")
+                    source_sha = candidate
+            if row.get("tag") == "DiagnosticLogCapture" and "retainedRecords" in fields:
+                if capture is not None:
+                    raise ValueError("Duplicate diagnostic capture summary")
+                capture = {key: integer(fields.get(key), key) for key in (
+                    "retainedRecords", "sourceFailures", "droppedRecords", "droppedCriticalRecords"
+                )}
+                capture["omissionsReported"] = fields.get("omissionReason") != "none"
+                capture["trackingEnabled"] = fields.get("trackingEnabled") is True
+            if row["countAsIssue"]:
+                if row["duplicate"] or row.get("classification") != "OBSERVED_FAILURE":
+                    raise ValueError("Diagnostic issue flags contradict record classification")
+                issue_id = identity(row.get("incidentId"))
+                issue_ids.add(issue_id)
+                counts["issueRecords"] += 1
+                signature = _diagnostic_signature(row)
+                group = signatures.setdefault(signature, {"observations": 0, "sourceLines": [], "sourceLinesOmitted": 0})
+                group["observations"] += 1
+                if len(group["sourceLines"]) < MAX_SIGNATURE_LINES:
+                    group["sourceLines"].append(counts["rows"])
+                else:
+                    group["sourceLinesOmitted"] += 1
+            if row.get("eventName") == "FRAME_TIMING" and not row["duplicate"]:
+                values = {key: integer(fields.get(key), "frame counter") for key in (
+                    "frames", "jankFrames", "stallsOver100Ms", "stallsOver500Ms", "droppedSamples", "fallbackDeadlines"
+                )}
+                if (values["jankFrames"] > values["frames"]
+                        or not 0 <= values["stallsOver500Ms"] <= values["stallsOver100Ms"] <= values["frames"]):
+                    raise ValueError("Inconsistent diagnostic frame denominator")
+                # Screen names outside this static vocabulary may contain user text.
+                screen = fields.get("screen")
+                if not isinstance(screen, str) or screen not in {"Chat", "Debug/Logs", "MainActivity"}:
+                    screen = "other"
+                previous = frame_identities.get(event_id)
+                if previous is not None:
+                    if previous != (screen, values):
+                        counts["divergentFrameIdentities"] += 1
+                    continue
+                frame_identities[event_id] = (screen, values.copy())
+                values["windows"] = 1
+                frame_totals.update(values)
+                frame_screens[screen].update(values)
+    if counts["event"] == 0:
+        raise ValueError("Empty diagnostic log")
+    for parent, sequences in continuations.items():
+        if parent not in primary or max(sequences) != len(sequences):
+            raise ValueError("Orphan or incomplete diagnostic continuation sequence")
+    for target, source in references:
+        if source not in identity_sources.get(target, set()):
+            raise ValueError("Diagnostic duplicate reference lacks its canonical event")
+    warnings = []
+    if capture is None:
+        warnings.append("capture-summary-unavailable")
+    else:
+        capture["reconciledSourceRecords"] = counts["retainedSourceRecords"]
+        capture["recordCountMatches"] = capture["retainedRecords"] == counts["retainedSourceRecords"]
+        if not capture["recordCountMatches"]:
+            warnings.append("retained-source-count-mismatch")
+        if any(capture[key] for key in ("sourceFailures", "droppedRecords", "droppedCriticalRecords", "omissionsReported")):
+            warnings.append("source-capture-has-gaps")
+        if not capture["trackingEnabled"]:
+            warnings.append("diagnostic-tracking-disabled")
+    if counts["truncatedAtSource"] or counts["truncatedAtExport"]:
+        warnings.append("truncated-records")
+    if counts["repeatedEventIdentities"]:
+        warnings.append("repeated-event-identities")
+    if counts["divergentFrameIdentities"]:
+        warnings.append("divergent-frame-identities")
+    return {
+        "schema": LOG_INSPECTION_SCHEMA,
+        "result": "partial" if warnings else "retained-log-records-inspected",
+        "inputSha256": fingerprint.hexdigest(),
+        "inputBytes": byte_count,
+        "appCommit": source_sha,
+        "counts": dict(counts, duplicateReferences=len(references), distinctIssueIdentities=len(issue_ids)),
+        "capture": capture,
+        "warnings": warnings,
+        "failureSignatures": [{"signature": key, **value} for key, value in sorted(signatures.items())],
+        "frameObservations": {"totals": dict(frame_totals), "screens": {key: dict(value) for key, value in sorted(frame_screens.items())}},
+        "taskCompletion": "not-verified",
+        "causalAttribution": "not-established",
+        "physicalDeviceQualification": "not-established",
+        "providerDeltaReplay": "unavailable",
+        "reducerReplay": "unavailable",
+        "scope": "Retained schema-7 observations and structural references only; signature groups are not a count of distinct defects, and redacted source payload digests are not reverified.",
+    }
 
 
 def load_staged_snapshot(archive: zipfile.ZipFile, manifest: dict) -> dict:
@@ -87,6 +332,8 @@ def digest(text: str) -> str:
 def load_snapshot(path: Path) -> dict:
     if path.stat().st_size > MAX_BYTES:
         raise ValueError("Export exceeds the inspection memory limit")
+    if path.suffix.lower() == ".jsonl":
+        return load_diagnostic_log(path)
     if not zipfile.is_zipfile(path):
         root = json.loads(path.read_text(encoding="utf-8"))
     else:
@@ -141,6 +388,8 @@ def load_snapshot(path: Path) -> dict:
 
 
 def inspect_snapshot(root: dict) -> dict:
+    if root.get("schema") == LOG_INSPECTION_SCHEMA:
+        return root
     if root.get("schema") == STAGED_SCHEMA:
         return {
             "schema": "gptmobile.offline-staged-inspection.v1",

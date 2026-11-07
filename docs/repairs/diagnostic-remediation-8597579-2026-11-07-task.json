@@ -5,7 +5,7 @@
   "base_sha": "91dfce15bc481c4bbdb088bcadd28489436dbb1b",
   "working_branch": "fix/diagnostic-remediation-8597579-2026-11-07",
   "intent": "Implement the requested diagnostic-driven reliability and usability improvements on a new branch, preserve existing safety and verification contracts, and qualify the exact resulting revision.",
-  "state": "SOURCE_VALIDATED_ANDROID_CI_PENDING",
+  "state": "FOLLOWUP_SOURCE_VALIDATED_ANDROID_CI_PENDING",
   "inputs": {
     "diagnostic_sha256": "b539a1e3f3f9642ac5b1ecf779d08e9baa1d65f28dadec4001a415bbc638127d",
     "diagnostic_app_commit": "91dfce15bc481c4bbdb088bcadd28489436dbb1b",
@@ -17,7 +17,10 @@
     "issue_records_are_not_distinct_defects": true,
     "user_named_backlog_items": 26,
     "user_category_only_backlog_items": 19,
-    "raw_diagnostics_committed": false
+    "raw_diagnostics_committed": false,
+    "capability_archive_sha256": "e06fbb698864aaf5824642f536d5e7c13c4367331bb80da7cff514ea50930f4a",
+    "capability_archive_independently_inspected": true,
+    "capability_response_body_available": false
   },
   "work_packages": [
     {
@@ -85,7 +88,7 @@
       "source_scope": "Root JSONL inspector before integration of parallel source repairs"
     },
     "gateway_full": {
-      "status": "PASSED",
+      "status": "PASSED_WITH_ENVIRONMENT_SKIP",
       "command": "PYTHONPATH=gateway/tests:gateway <isolated-python-with-pinned-gateway-dependencies> gateway/check_gateway.py",
       "python_suites": 45,
       "python_test_executions": 529,
@@ -94,7 +97,10 @@
       "durable_stress_commits": 782,
       "scope": "Production gateway paths with deterministic model/endpoint fixtures; the existing process-death regression uses a real subprocess. No live private deployment or prolonged device qualification.",
       "local_source_commit": "70e18125039e471ef1db3ac87ac10aa9072766c5",
-      "equivalent_published_source_commit": "17a7c4475606774a3752d22acd1a6bd3ca69e09d"
+      "equivalent_published_source_commit": "17a7c4475606774a3752d22acd1a6bd3ca69e09d",
+      "python_tests_passed": 528,
+      "python_tests_skipped": 1,
+      "skip_reason": "No bindable LAN IPv4 interface on this host; actual LAN listener case was not executed."
     },
     "research_transfer": {
       "status": "PASSED",
@@ -135,6 +141,46 @@
       "source_commit": "fde06d7c7d6b4bb177ef56cab94435af696184dc",
       "command": "bash scripts/validate-local.sh fast",
       "scope": "Integrated final source, generated index, package manifest and explicit release scope; policy/dependency/secret/regex/resource/icon/provenance/whitespace gates passed."
+    },
+    "gateway_capability_followup": {
+      "status": "PASSED_WITH_ENVIRONMENT_SKIP",
+      "python_suites": 46,
+      "python_tests_discovered": 532,
+      "python_tests_passed": 531,
+      "python_tests_skipped": 1,
+      "skip_reason": "No bindable LAN IPv4 interface on this host; loopback/HTTP capability tests did run.",
+      "browser_tests_passed": 7,
+      "durable_events": 50000,
+      "durable_commits": 782,
+      "stress_seconds": 10.035,
+      "source_scope": "Integrated gateway server commit540213d; production gateway full suite, current and legacy route fixtures, and source changes stable during run. Temporary manifest validated normally and was restored; published source manifest is regenerated before final CI."
+    },
+    "gateway_status_host": {
+      "status": "PASSED",
+      "tests": 17,
+      "scope": "Actual production viewmodel, monitor, selection helper and PlatformV2/ProviderRequestConfig; Android lifecycle/DI/settings DTO and HTTP-source/diagnostic adapters declared. Exact previous resolver fails the new no-selection regression."
+    },
+    "gateway_capability_android_host": {
+      "status": "PASSED",
+      "tests": 31,
+      "independent_review_probes": 3,
+      "scope": "Production decoder/API/network/negotiation; complete legacy and corrected route fixtures; original acceptance parser retained; typed schema-only diagnostics; no actual model or physical-device claim.",
+      "integrated_local_commit": "874c82fddeb6efdc5c4c3fc2783db5170afdfe63",
+      "equivalent_published_commit": "84c61c7f77c313ae554b6893b17ecf0c08d23ae7"
+    },
+    "compose_snapshot_ci_repair": {
+      "status": "PASSED_HOST_REPRODUCER",
+      "cases": 2,
+      "scope": "Pinned Compose 1.12.1 runtime, animation, test frame clock and interceptors with unchanged production motion helper; old sequence retains0.5, synchronized sequence progresses then freezes. Actual Robolectric assertion remains a required next-head CI gate.",
+      "source_commit": "1e0207babcff8a7a75e822de27f7a4574cb190af",
+      "production_helper_changed": false
+    },
+    "canonical_fast_followup": {
+      "status": "PASSED",
+      "tests": 378,
+      "command": "bash scripts/validate-local.sh fast",
+      "duration_seconds": 17.524,
+      "scope": "Integrated source, full route fixtures, status selection, test-clock repair, release scope and documentation; CI/dependency/secret/regex/resource/icon/provenance gates. Explicit diff against91dfce15 also passes."
     }
   },
   "not_yet_measured": [
@@ -151,7 +197,13 @@
   "independent_reviews": [
     "MCP resolver/settings presentation and regression API usage: no blocking findings.",
     "Research transfer/delivery: mixed-provenance source metadata fixed and baseline failing regression preserved.",
-    "Execution observer, provider-guard and measured-wrapper defects were reproduced and fixed. Final focused behavior regressions pass; no concrete independent-review finding remains open. Full Android CI remains required."
+    "Execution observer, provider-guard and measured-wrapper defects were reproduced and fixed. Final focused behavior regressions pass; no concrete independent-review finding remains open. Full Android CI remains required.",
+    {
+      "scope": "Gateway capability decoding, strict feature truth, full-route negotiation and bounded schema diagnostics",
+      "reviewer": "diagnostic_gateway",
+      "status": "NO_FINDINGS",
+      "production_api_probes": 3
+    }
   ],
   "source_publication": {
     "source_branch_head": "fde06d7c7d6b4bb177ef56cab94435af696184dc",
@@ -237,7 +289,56 @@
         "local_sha": "8dedc5bd3192f27737b31e1804f55e6d1fb29fbf",
         "remote_sha": "fde06d7c7d6b4bb177ef56cab94435af696184dc",
         "tree": "3c9ee7c0133e91ef7bc6c42cf458fcf1dcdc65b9"
+      },
+      {
+        "local_sha": "56de2367158efdee3be953bab9f78a813c24c8b6",
+        "remote_sha": "bf8e5f764bbbc8cac942e31ee0709344e0b02ac5",
+        "tree": "aef70cd024a92a30f45bc7af427cf297a83d7916"
+      },
+      {
+        "local_sha": "540213db298377e8513fc00aa316c0e721e0b589",
+        "remote_sha": "bce547900465e0f2a887424e704cb0384883844c",
+        "tree": "51dea886e5bd140e850ffc481dad312019651c67"
+      },
+      {
+        "local_sha": "fed839c15444253bcad6a05b5453839bd553f8e8",
+        "remote_sha": "4442fd164852169cb5de6c91e75f0303fb022d59",
+        "tree": "a5569ae21d605b7e4a5e34d8bc02d16dc2263351"
+      },
+      {
+        "local_sha": "874c82fddeb6efdc5c4c3fc2783db5170afdfe63",
+        "remote_sha": "84c61c7f77c313ae554b6893b17ecf0c08d23ae7",
+        "tree": "6c06ba40048631c1e8aef1290cd58a5986fee660"
+      },
+      {
+        "local_sha": "fdaef8e2bcb7b2d586b2b477ff6040333a5e867c",
+        "remote_sha": "f32a7f2d6f1ebea03247fd1d004ca6174cbb8177",
+        "tree": "f031aa1c8e3ff35c39585829108adcf525f9d69c"
       }
     ]
+  },
+  "pull_request": {
+    "number": 811,
+    "head_sha": "bf8e5f764bbbc8cac942e31ee0709344e0b02ac5",
+    "draft": false,
+    "merged": false
+  },
+  "followup": {
+    "intent": "Legacy capability compatibility, typed server metadata, full actual-route Android fixtures, sanitized schema diagnostics and explicit gateway status selection.",
+    "base_head_sha": "bf8e5f764bbbc8cac942e31ee0709344e0b02ac5",
+    "first_ci_findings": [
+      "Two trailing-whitespace lines in repair report: corrected.",
+      "UI Review APK could not resolve Kotlin plugin; identical version resolved and production compilation started in other jobs. Updated-head rerun required.",
+      "Full Android units: 7,295 discovered / 7,289 passed / 5 explicit heap-gate assumption skips / 1 resumed-motion assertion failure. Both API 34/36 emulator runs pass 55 tests each. The dedicated heap step did not execute after the failure; old-head evidence cannot qualify this follow-up. The test synchronization repair is integrated; no production motion change or gate waiver."
+    ],
+    "merge_requires": "All applicable exact-head CI gates and current head/base/policy checks; no bypass.",
+    "motion_diagnosis": "Pinned Compose test APIs synchronize before runOnIdle actions; the initial disabled state has no animation coroutine to publish the scale Snapshot write during a manual clock advance. Explicit idle synchronization after changing scale is verified by the actual-source host reproducer while preserving stationary and resumed-motion assertions. No production motion change is proposed.",
+    "prepared_source_commit": "f32a7f2d6f1ebea03247fd1d004ca6174cbb8177",
+    "original_work_package_commits": {
+      "server": "608f0d61a84e3984df111e7dd433548dde5f4afe",
+      "status": "cffa12334684743283e3d59fc1d2dd4ddad7391c",
+      "android_capabilities": "d3ed6a83d66d83f0b88456752f18baadd9eeee53",
+      "compose_test": "1e0207babcff8a7a75e822de27f7a4574cb190af"
+    }
   }
 }

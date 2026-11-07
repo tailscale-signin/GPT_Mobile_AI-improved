@@ -1,7 +1,7 @@
 # Diagnostic remediation and improvement coverage
 
-Repository: `tailscale-signin/GPT_Mobile_AI-improved`  
-Base: `main` at `91dfce15bc481c4bbdb088bcadd28489436dbb1b`  
+Repository: `tailscale-signin/GPT_Mobile_AI-improved`
+Base: `main` at `91dfce15bc481c4bbdb088bcadd28489436dbb1b`
 Branch: `fix/diagnostic-remediation-8597579-2026-11-07`
 
 This branch addresses the supplied November 7 diagnostic capture and the requested reliability, gateway and usability backlog. The application that produced the capture identifies the exact base above. Existing coordinators, journals, permission boundaries, gateway transport and UI components are extended; no replacement scheduler, transport manager or memory store is introduced.
@@ -75,6 +75,25 @@ The retained overall rate is approximately 3.19%, with approximately 4.88% in Ch
 
 **Repeated disconnect qualification:** The gateway's existing production registration, journal, orphan handling and result routes are exercised over 48 jobs, 144 disconnect notifications, six SQLite journal reloads and 336 result reads. The deterministic fixture completes each job once and verifies zero extra inference during result retrieval. Existing process-death tests separately use a real subprocess exit.
 
+## Capability handshake follow-up from the 12:37 UTC archive
+
+The additional diagnostic ZIP was located and inspected independently after the follow-up request. Its SHA-256 is `e06fbb698864aaf5824642f536d5e7c13c4367331bb80da7cff514ea50930f4a`; its context identifies version 0.9.66.6, build 140 and the same `91dfce15bc48` application source. It contains 4,385 recent-log rows, 205 critical-log rows, retained run/invocation records and a current profile snapshot. The private ZIP, conversation, profiles, endpoints and credentials are not committed.
+
+| Evidence | Independently observed result |
+| --- | --- |
+| `recent-app-logs.jsonl`, rows 3324–3826 | Fifteen `/gateway/ready` requests and fifteen `/gateway/dashboard` requests used port 8080 between 12:35:04 and 12:35:49 UTC. All thirty responses were HTTP 404 and identified the server as llama.cpp. |
+| Rows 4165–4191 | The primary chat requested `/gateway/capabilities` on port 8090 at 12:36:55.050 UTC, received HTTP 200 with JSON at 12:36:55.075 and recorded `GATEWAY_CAPABILITY_UNAVAILABLE` at 12:36:55.081. |
+| `invocations.jsonl` and `runs.jsonl` | The selected Llama / `qwen3.5-9b` invocation failed after 71 ms with zero visible output and no actual-runtime receipt. Its terminal error explicitly says no model request was sent; the run became failed at 12:36:55.099 UTC. |
+| Recent-log rows 4116–4381 | Four successful capability responses were followed by four discovery failures, including the primary chat and three progress-summary attempts. A separate capability GET encountered an unexpected end of stream at 12:37:11.733, then retried and received HTTP 200 before the same discovery failure. |
+
+The response body and underlying decoding exception were not retained. The archive therefore establishes the HTTP-success/discovery-failure boundary, but cannot prove which response field failed in that particular attempt. The matching source independently confirms that Android required Boolean feature values while the real gateway emitted an icon string and a numeric disconnect grace period in that map. A complete response captured from the production gateway route reproduces that compatibility defect. The configured profile snapshot uses port 8090, but a current snapshot cannot establish whether settings changed between the earlier status checks and the chat request.
+
+The follow-up repair covers both sides of the contract. Android accepts legacy JSON feature values while enabling a feature only for an actual JSON Boolean `true`; strings, numbers, nulls, arrays and objects cannot grant a capability. The server keeps the existing icon in `ui_contract.gateway_tool_icon` and places the grace period in typed `singleflight.disconnect_grace_seconds` metadata, leaving only Boolean flags in `features`. Complete legacy and corrected production-route fixtures are shared with Android's decoder tests, with repository checks preventing fixture copies from drifting.
+
+Capability schema failures retain a bounded schema reason and field path without retaining the raw response or decoder exception text. Transport failures, cancellation, unsupported routes and malformed successful responses remain distinct. The status panel and engineering operations use the same explicit gateway-selection policy, preserving the selected gateway's exact URL and credentials. An unconfigured or unavailable gateway produces actionable status rather than probing an inference profile or inventing another port.
+
+These fixes require an updated Android build; the server schema change additionally requires deploying the updated gateway software. Legacy-response compatibility lets the corrected client work with the earlier mixed-feature gateway contract. Automated contract tests do not establish that the private PC deployment has been upgraded or that physical Android-to-PC inference has completed.
+
 ## Coverage of the 26 explicitly named requests
 
 “Existing” means the implementation was present at the inspected base and was reviewed against its tests. “Strengthened” identifies relevant changes in this branch. Neither label substitutes for exact-revision CI or physical/private deployment acceptance. Detailed execution and gateway mappings are in the [execution audit](diagnostic-execution-8597579-2026-11-07.md) and [gateway audit](diagnostic-gateway-8597579-2026-11-07.md).
@@ -96,14 +115,14 @@ The retained overall rate is approximately 3.19%, with approximately 4.88% in Ch
 
 | # | Request | Implementation and verification |
 | --- | --- | --- |
-| 9 | Gateway connectivity | Existing readiness/liveness separation, supervisor and bounded reconnect are retained. Wrapped preflight failures no longer extend cooldown; permanent TLS/configuration failures retain actionable identity. |
+| 9 | Gateway connectivity | Existing readiness/liveness separation, supervisor and bounded reconnect are retained. Mixed legacy capability values now decode without granting non-Boolean features; the server publishes typed metadata. Status uses the explicitly selected gateway. Wrapped preflight failures no longer extend cooldown; permanent TLS/configuration failures retain actionable identity. |
 | 10 | Actual model identity | Existing `execution_binding.py`, inference capabilities/execution and Android transport receipts distinguish requested from observed model/provider/route. Selected-execution tests cover fixture requests, changed configuration and contradictory/missing identity. |
 | 11 | Batch inference/cache/context | Existing `inference_scheduler.py`, `inference_budget.py`, batch journal and capability cache remain bounded. Correctness tests cover admission/cancellation/cache identity; no unmeasured throughput gain is claimed. |
 | 12 | Streaming reliability | Existing singleflight/replay cursors/durable results prevent duplicate inference for the same admitted attempt. New repeated-disconnect coverage supplements jobs, interrupted-read and subprocess-death cases. Arbitrary providers without a resume protocol do not gain token-for-token replay. |
 | 13 | Context/output budgets | Existing completion reservation and context admission reject unsupported/oversized requests before inference. Selected-model/budget tests retain positive output allowance and primary/final-response reserves. |
 | 14 | GPU/NPU compatibility | Existing local-runtime router, capability observation, runtime fallback and memory admission remain. The capture does not establish a hardware-runtime fault. Actual QNN/GPU execution and thermal/memory performance require compatible-device receipts. |
 | 15 | Listener/network security | Existing gateway configuration, identity and endpoint authorization support explicit binding. No wildcard listener, insecure TLS mode, silent route change or credential logging is introduced. Existing configuration/network/security tests remain. |
-| 16 | Correlated bounded diagnostics | Existing Android/gateway journals, correlation, privacy and retention limits remain. Typed MCP cause/retry metadata and the offline JSONL inspector improve diagnosis. Dedicated heap and 50,000-event durable-retention tests remain separate gates. |
+| 16 | Correlated bounded diagnostics | Existing Android/gateway journals, correlation, privacy and retention limits remain. Typed MCP cause/retry metadata, bounded schema-only capability reasons/paths and the offline JSONL inspector improve diagnosis. Dedicated heap and 50,000-event durable-retention tests remain separate gates. |
 
 ### Android/GitHub experience — ten named requests
 
@@ -116,7 +135,7 @@ The retained overall rate is approximately 3.19%, with approximately 4.88% in Ch
 | 21 | Animation/icon alignment | Existing fixed leading icon column and centered row alignment remain. Live-progress coordinate tests are retained; reduced-motion visibility is additionally repaired. |
 | 22 | Scrolling and 250 ms release | Existing anchor requires 250 ms of continuous intentional manual motion, accounts for gaps/reversal and does not consume the user's gesture. Six anchor and four bottom-follow host cases pass; Compose/device frame behavior has separate gates. |
 | 23 | Gateway response theme | Existing `ResponseSourceAppearance` requires per-response gateway source and verified gateway provenance. Transport/header/job binding and renderer contrast tests remain. Provider-body labels or generic request IDs do not establish gateway attribution. |
-| 24 | Live status/warnings/decisions | Existing decision cards, persistent run notices and progress status retain warnings and terminal state. Policy/MCP repairs improve typed blocked/reconnect outcomes rather than hiding failures. |
+| 24 | Live status/warnings/decisions | Existing decision cards, persistent run notices and progress status retain warnings and terminal state. Policy/MCP repairs improve typed blocked/reconnect outcomes. Gateway status and execution share explicit selection; an absent or invalid connection produces setup guidance without inference-server probes. |
 | 25 | Loading/main-thread performance | Existing cached workspace bootstrap and asynchronous optional inventories remain. The confirmed export chooser MIME lookup is removed from the UI thread; file sharing preserves its permission contract. |
 | 26 | Accessibility | Existing spoken status, graph semantics, large-font/RTL and contrast coverage remain. Added system-animation-scale regression keeps active progress visible when animation is disabled and when the setting changes. Physical/custom-theme qualification remains separate. |
 
@@ -148,7 +167,7 @@ These entries define the implementation interpretation used for the collapsed ca
 
 ## Qualification and handoff
 
-The integrated host check passes 377 script tests plus policy, dependency, secret, Android regex, resource, icon and source-provenance checks. The full gateway check passes 529 Python test executions across 45 isolated suites and all seven browser tests. Focused production-source host runs additionally pass 85 GitHub/session/classifier, 76 MCP/network, 24 UI-policy, ten research-transfer/delivery and 23 final runner/budget/measurement-wrapper cases; these overlap later full-app suites and are not a unique combined test count. Platform adapters and each work package's exact boundaries are recorded in the linked audits and task checkpoints. Those results do not substitute for the integrated branch's exact-revision required workflows. The pull request's current checks and retained artifacts are the authoritative remote qualification record; a later source or base change invalidates earlier merge evidence.
+The integrated follow-up host check passes 378 script tests plus policy, dependency, secret, Android regex, resource, icon and source-provenance checks. After the capability follow-up, the full gateway check completes 46 isolated Python suites: 531 tests pass and one existing LAN-interface test is skipped because this host has no bindable LAN IPv4 interface. All seven browser tests pass. The earlier 529-test run likewise included that one environment skip; it did not qualify actual LAN access. Focused production-source host runs additionally pass 85 GitHub/session/classifier, 76 MCP/network, 24 UI-policy, ten research-transfer/delivery and 23 final runner/budget/measurement-wrapper cases; these overlap later full-app suites and are not a unique combined test count. The follow-up additionally passes 31 capability/API/negotiation cases, three independent diagnostic/privacy probes and 17 status-selection/viewmodel cases, with the new no-selection regression failing against the previous resolver. Platform adapters and each work package's exact boundaries are recorded in the linked audits and task checkpoints. Those results do not substitute for the integrated branch's exact-revision required workflows. The pull request's current checks and retained artifacts are the authoritative remote qualification record; a later source or base change invalidates earlier merge evidence.
 
 Run the canonical checks from a configured JDK 21/Android SDK 37 checkout:
 
@@ -158,6 +177,12 @@ bash scripts/validate-local.sh full
 ```
 
 The full gateway check includes the new bounded connection test and the existing 50,000-event/782-commit durable diagnostic stress suite. Model generation in the new connection test is deterministic; registration, journals, disconnect handling, restoration and result routes are production code. The existing subprocess-death case verifies real termination separately. These measurements do not certify an hours-long live deployment.
+
+### Android CI repair and required rerun
+
+The first PR revision completed 7,295 ordinary Android unit cases: 7,289 passed, one reduced-motion test failed and five dedicated heap cases were skipped by explicit assumption gates. Both API 34 and API 36 emulator jobs passed 55 instrumentation cases each. These results belong to the earlier `bf8e5f7` revision and do not qualify the subsequent capability/status changes. The five skipped cases require the separate constrained-heap step, which did not execute after the unit failure; they are not counted as passed.
+
+The motion failure was a test synchronization defect. Starting with animation disabled leaves no animation coroutine to publish a raw Snapshot change during a manually advanced clock. Pinned Compose 1.12.1 runtime, animation and test-clock classes reproduce the old sequence retaining phase `0.5`; publishing the Snapshot before advancing gives a changing phase and then a stationary `0.5` when disabled again. The regression now synchronizes after both setting changes and checks two successive moving samples as well as stationary visibility. The production motion helper is unchanged. The PR also corrects two documentation whitespace errors. The final exact-head workflows must independently pass ordinary units, the constrained-heap gates, APK verification and both emulator targets before merge.
 
 ### Prolonged device/gateway acceptance procedure
 

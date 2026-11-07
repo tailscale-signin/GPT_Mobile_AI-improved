@@ -37,7 +37,8 @@
     "Inspect structured diagnostic JSONL with bounded parsing, content-free failure signatures, reconciled source counts and explicit verification limits.",
     "Keep cross-authority research sharing limited to receipted public captures; retain accepted task identity and spent-work counters without transferring private derived context or completion authority.",
     "Repair November 7 saved-page recovery, stale-authority execution boundaries, MCP recovery guidance and export MIME lookup; retain completed and uncertain receipts when later authorization changes.",
-    "Keep GitHub progress visible with system animations disabled and qualify bounded repeated gateway disconnect, journal reload and result retrieval."
+    "Keep GitHub progress visible with system animations disabled and qualify bounded repeated gateway disconnect, journal reload and result retrieval.",
+    "Restore mixed-type gateway feature compatibility with literal-Boolean feature negotiation, sanitized schema diagnostics, complete actual-route Android fixtures and shared explicit gateway status selection."
   ],
   "limitations": [
     "Android GPU qualification requires compatible-device receipts for actual offload, prefill, decode, repeated requests and cancel/recovery; host tests do not establish those results.",
@@ -906,6 +907,22 @@
     "docs/repairs/diagnostic-research-public-captures-8597579-2026-11-07-task.json",
     "docs/repairs/diagnostic-ui-8597579-2026-11-07-task.json",
     "gateway/tests/test_gateway_connection_soak.py",
-    "docs/repairs/diagnostic-remediation-8597579-2026-11-07.md"
+    "docs/repairs/diagnostic-remediation-8597579-2026-11-07.md",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayDashboardTargetTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubGatewayStatusViewModelTest.kt",
+    "app/src/test/resources/gateway-v15-capabilities-full.json",
+    "app/src/test/resources/gateway-v15-capabilities-legacy-mixed.json",
+    "docs/repairs/diagnostic-gateway-status-8597579-2026-11-07-task.json",
+    "docs/repairs/gateway-capability-schema-8597579-2026-11-07-task.json",
+    "gateway/contracts/v15/README-capability-fixtures.md",
+    "gateway/contracts/v15/gateway-v15-capabilities-full.json",
+    "gateway/contracts/v15/gateway-v15-capabilities-legacy-mixed.json",
+    "gateway/tests/gateway_capability_fixture.py",
+    "gateway/tests/test_gateway_capabilities.py",
+    "scripts/tests/test_gateway_capability_fixtures.py",
+    "docs/repairs/gateway-capability-compat-8597579-2026-11-07-task.json",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayV14CapabilitiesTest.kt",
+    "docs/repairs/gateway-capability-compat-8597579-2026-11-07.md",
+    "docs/repairs/diagnostic-motion-ci-8597579-2026-11-07-task.json"
   ]
 }

@@ -6,7 +6,7 @@ Repository: `tailscale-signin/GPT_Mobile_AI-improved`. Parent PR: `811`. This wo
 
 The reported Android build uses `GatewayCapabilities.features: Map<String, Boolean>`, while the full gateway route includes `gateway_server_icon: "gateway_server"` and numeric `disconnect_grace` in that map. This mismatch can reject an HTTP 200 capability response before control negotiation permits inference. The supplied diagnostics record the HTTP success followed by a generic discovery failure; they do not include the response body or original decoder exception. The complete server response fixtures provide separate, reproducible evidence of the mixed field types. The separately observed stale-socket read/retry is not treated as the same failure.
 
-The server owner captured both fixtures from the actual Uvicorn capability route, including middleware and startup. They are supplied by commit `608f0d61a84e3984df111e7dd433548dde5f4afe`:
+The server owner captured both fixtures from the actual Uvicorn capability route, including middleware and startup. They are integrated in published commit `bce547900465e0f2a887424e704cb0384883844c` (original work-package commit `608f0d61a84e3984df111e7dd433548dde5f4afe`):
 
 - `app/src/test/resources/gateway-v15-capabilities-legacy-mixed.json`: 26 top-level fields and 94 feature entries, including the two mixed values.
 - `app/src/test/resources/gateway-v15-capabilities-full.json`: 27 top-level fields and 92 Boolean feature flags after the server metadata correction.

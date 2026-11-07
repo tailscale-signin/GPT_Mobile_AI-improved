@@ -12,6 +12,7 @@ GROUPS = {
     'workspace_ui': ('app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/workspace',),
     'gateway': ('gateway', 'authentication'),
     'local_inference': ('app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/localruntime',),
+    'benchmark_and_app_audit': ('app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark', 'app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit', 'app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/audit'),
     'workflows': ('.github/workflows',),
 }
 

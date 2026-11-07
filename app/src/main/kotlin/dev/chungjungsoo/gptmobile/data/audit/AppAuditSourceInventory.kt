@@ -9,9 +9,9 @@ data class AppAuditSourceArea(val id: String, val label: String, val fileCount: 
 object AppAuditSourceInventory {
     val schemaVersion: Int = 1
     val assetPath: String = "diagnostics/app-code-inventory.json"
-    val sourceDigest: String = "7f70e90ddec5c026256b740dbaf077a65a2c1c3cdabcb2bf1ecd9bae3118800e"
-    val fileCount: Int = 2184
-    val lineCount: Int = 337721
+    val sourceDigest: String = "b049a8d5e9c2f16e1c80a9e758e4234b640884fc81d20c9c67701ea8030e1316"
+    val fileCount: Int = 2207
+    val lineCount: Int = 340394
     val lineCoverageAvailable: Boolean = false
     val areas: List<AppAuditSourceArea> = listOf(
         AppAuditSourceArea("android_shell", "Android application and lifecycle", 68, 7089),
@@ -31,12 +31,12 @@ object AppAuditSourceInventory {
         AppAuditSourceArea("memory_and_rag", "Memory, retrieval and indexing", 40, 4794),
         AppAuditSourceArea("persistence", "Databases, backup and storage", 96, 13515),
         AppAuditSourceArea("diagnostics_and_export", "Diagnostics, statistics and sharing", 57, 5921),
-        AppAuditSourceArea("benchmark", "Benchmarks and app audit", 79, 11645),
-        AppAuditSourceArea("auth_and_security", "Permissions, privacy and credentials", 18, 1587),
+        AppAuditSourceArea("benchmark", "Benchmarks and app audit", 97, 14156),
+        AppAuditSourceArea("auth_and_security", "Permissions, privacy and credentials", 18, 1619),
         AppAuditSourceArea("voice_and_media", "Voice and media", 7, 1102),
         AppAuditSourceArea("portable_domain", "Portable domain contracts", 2, 68),
         AppAuditSourceArea("native_bridge", "Native runtime bridge and policies", 39, 4075),
-        AppAuditSourceArea("gateway_software", "Companion gateway software", 86, 56537),
+        AppAuditSourceArea("gateway_software", "Companion gateway software", 91, 56667),
         AppAuditSourceArea("authentication_service", "Authentication broker software", 4, 509),
         AppAuditSourceArea("external_integrations", "External integration servers", 60, 6386),
         AppAuditSourceArea("other_production", "Additional production source", 60, 2685)

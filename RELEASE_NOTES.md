@@ -4,6 +4,8 @@ A separate post-PR-806 branch repairs server-cooldown/TLS retry admission, durab
 
 The November 7 diagnostic follow-up repairs mixed-type gateway capabilities, explicit gateway status routing, receipt preservation, sanitized schema diagnostics, the completed MCP discovery refresh race, and the oversized agent execution loop. Complete evidence and qualification limits are in [the diagnostic repair report](docs/repairs/diagnostic-remediation-8597579-2026-11-07.md). These remain unreleased changes until separately published.
 
+The new App audit in the Performance lab runs durable application checks, inventories plugins and production source, reports measured pass scores beside explicit coverage, and exports selected debugging evidence. It can run without an AI profile. See [App audit](docs/benchmark/app-audit.md) for its measured scope, recovery and export contract.
+
 # GPT Mobile 0.9.66.6
 
 Android build 140. Scoped diagnostic-reliability release candidate.
@@ -43,6 +45,8 @@ Implementation reports: [diagnostic workflow](docs/repairs/diagnostic-workflow-e
 The existing signed-release pipeline verifies exact-commit tests, required main checks, packaged runtimes, privacy, signing-certificate continuity, APK/AAB identities, checksums, provenance and downloaded publication assets. Earlier green revisions do not qualify this candidate. No release, tag or successful device measurement is implied by preparation of these notes.
 
 ## Qualification and remaining work
+
+- App audit inventories supported production files and executes named local or selected metadata probes; it does not establish complete file, line or branch coverage, arbitrary plugin tool execution, physical-device qualification or private service availability.
 
 - The November7 c285 emulator statistics workload retained API34 gaps of one unacknowledged start and one recorded-in-progress entry, and API36 one unacknowledged start. Functional acceptance passed but performance remains unqualified; later exact-head evidence must be inspected independently.
 

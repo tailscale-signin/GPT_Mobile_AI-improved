@@ -37,11 +37,13 @@ import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkExecutionPolicy
 import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkMode
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 
+internal const val APP_AUDIT_TAB = 8
+
 @Composable
 internal fun BenchmarkNavigation(selected: Int, debugMode: Boolean = false, onSelect: (Int) -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf(Triple(0, "Queue", Icons.Rounded.PlayArrow), Triple(5, "Results", Icons.Rounded.BarChart), Triple(3, "History", Icons.Rounded.History)).forEach { (id, label, icon) -> BenchmarkAction(label, icon, selected == id, { onSelect(id) }) }
+            listOf(Triple(APP_AUDIT_TAB, "App audit", Icons.Rounded.Science), Triple(0, "Queue", Icons.Rounded.PlayArrow), Triple(5, "Results", Icons.Rounded.BarChart), Triple(3, "History", Icons.Rounded.History)).forEach { (id, label, icon) -> BenchmarkAction(label, icon, selected == id, { onSelect(id) }) }
         }
         dev.chungjungsoo.gptmobile.presentation.common.DetailsSection {
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {

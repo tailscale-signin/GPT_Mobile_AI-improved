@@ -13,6 +13,7 @@ import dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticDatabaseSource
 import dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticExportMemory
 import dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticLogSnapshot
 import dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticLogSource
+import dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticValueProjector
 import dev.chungjungsoo.gptmobile.data.diagnostics.LocalRuntimeIncidentHistory
 import dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics
 import dev.chungjungsoo.gptmobile.data.diagnostics.RuntimeIncidentCapture
@@ -89,8 +90,12 @@ class StagedChatDebugExportTest {
             }
             DiagnosticLogSnapshot(sources, 123, true, 0, snapshotDirectory = directory)
         }
-        coEvery { database.capture(any(), any(), any(), any(), any(), any(), any(), any()) } coAnswers {
-            readSection(arg(1), arg(3), arg(4))
+        coEvery { database.capture(any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) } coAnswers {
+            val consume = arg<suspend (JsonObject) -> Unit>(4)
+            val omitted = arg<(String) -> Unit>(5)
+            // The real database producer projects each bounded row before passing it to the adapter.
+            val maximumSourceBytes = arg<Int>(6)
+            readSection(arg(1), arg(3)) { consume(DiagnosticValueProjector(maximumSourceBytes, omitted).element(it) as JsonObject) }
         }
     }
 
@@ -137,6 +142,25 @@ class StagedChatDebugExportTest {
         assertEquals(2, captureCount)
         assertTrue(archive(resumed).getValue("critical-app-logs.jsonl").contains("tool-failure"))
         assertEquals(JsonPrimitive(true), stage(resumed, "critical_logs")["reusedCheckpoint"])
+    }
+
+    @Test fun failedDestinationCopyDeliversItsPendingArchiveBeforeCapturingAnotherPart() = runBlocking {
+        destination.writeText("destination is temporarily unavailable")
+        assertTrue(runCatching { capture() }.isFailure)
+        val work = DiagnosticCaptureStorage.directory(context, chatId)
+        val session = requireNotNull(StagedDiagnosticCapture.findResumableSession(work, diagnosticCaptureIdentity(chatId)))
+        val pending = requireNotNull(StagedDiagnosticCapture.pendingArchive(work, diagnosticCaptureIdentity(chatId), session))
+        val manifest = pending.manifest
+        assertEquals(JsonPrimitive(1L), manifest["archivePart"])
+        every { AppLogRecorder.captureForExport(any(), any()) } answers { error("Pending archive handoff must not recapture logs") }
+        readSection = { _, _, _ -> error("Pending archive handoff must not advance history") }
+        assertTrue(destination.delete())
+        val delivered = capture(resume = true)
+        assertEquals(manifest, delivered.manifest)
+        assertEquals(2, captureCount)
+        assertTrue(delivered.file.isFile)
+        assertEquals(delivered.manifest, StagedDiagnosticCapture.verify(delivered.file))
+        assertEquals(null, StagedDiagnosticCapture.pendingArchive(work, diagnosticCaptureIdentity(chatId), session))
     }
 
     @Test fun recentMetadataWithoutLogEvidenceIsExplicitlyPartial() = runBlocking {

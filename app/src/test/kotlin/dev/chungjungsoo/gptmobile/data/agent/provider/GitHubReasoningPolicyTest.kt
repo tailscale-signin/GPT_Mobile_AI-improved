@@ -24,12 +24,12 @@ class GitHubReasoningPolicyTest {
         val off = ReasoningPolicy.forRequest(ReasoningMode.OFF, allowed = true, maximize = true, helper = false, control = ReasoningTemplateControl.ENABLE_THINKING)
         assertEquals(ReasoningMode.OFF, off.requested)
         assertEquals(ReasoningMode.OFF, off.effective)
-        val auto = ReasoningPolicy.forRequest(ReasoningMode.AUTO, allowed = false, maximize = false, helper = true, control = null)
+        val auto = ReasoningPolicy.forRequest(ReasoningMode.AUTO, allowed = true, maximize = false, helper = true, control = null)
         assertEquals(ReasoningMode.AUTO, auto.effective)
         assertTrue(runCatching { ReasoningPolicy.forRequest(ReasoningMode.OFF, true, true, true, null) }.isFailure)
     }
 
-    @Test fun extractionDoesNotRequireAnUnverifiedReasoningToggle() {
+    @Test fun optionalHelperPreferenceDoesNotRequireAnUnverifiedReasoningToggle() {
         val auto = ReasoningPolicy.boundedHelper(null)
         assertEquals(ReasoningMode.AUTO, auto.effective)
         assertNull(auto.transmittedControl)
@@ -52,6 +52,25 @@ class GitHubReasoningPolicyTest {
         org.junit.Assert.assertFalse(original.forRole("github-review-verdict").maximizeReasoning)
         org.junit.Assert.assertFalse(original.forRole("github-review-verdict").allowReasoning)
         org.junit.Assert.assertTrue(original.forRole("github-review-repair").allowReasoning)
+    }
+
+    @Test fun helperRoleChangesAndTextContinuationsRetainAnExplicitOffContract() {
+        for (originalMode in ReasoningMode.entries) {
+            val original = RequestConstraints(reasoningModeOverride = originalMode, maximizeReasoning = true, lockSelectedRoute = true, permissionRevision = "accepted", contextCeiling = 8192)
+            for (role in listOf("answer_contract_rewrite", "github-claim-extraction", "github-progress-summary", "github-review-preflight", "github-review-verdict")) {
+                val helper = original.forRole(role).withoutTools()
+                assertFalse(helper.allowReasoning)
+                assertEquals(ReasoningMode.OFF, helper.reasoningModeOverride)
+                assertFalse(helper.maximizeReasoning)
+                assertEquals(ReasoningMode.OFF, helper.forRole("primary").reasoningModeOverride)
+                assertFalse(helper.forRole("primary").allowReasoning)
+                assertEquals(original.permissionRevision, helper.permissionRevision)
+                assertEquals(original.contextCeiling, helper.contextCeiling)
+                assertTrue(helper.lockSelectedRoute)
+                assertTrue(runCatching { ReasoningPolicy.forRequest(requireNotNull(helper.reasoningModeOverride), helper.allowReasoning, helper.maximizeReasoning, true, null) }.isFailure)
+            }
+            assertEquals(originalMode, original.forRole("primary").reasoningModeOverride)
+        }
     }
 
     @Test fun primaryEngineeringControlsDoNotInheritLightweightDelegateDefaults() {

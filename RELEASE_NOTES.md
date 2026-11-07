@@ -1,8 +1,12 @@
 ## Unreleased reliability follow-up
 
+The PR 813 integration repair adds independent GitHub acceptance criteria, a measured integration report, complete preset discovery, explicit branch targeting, durable stage-and-commit, bounded inline CI watching and flexible line reads. Owned synthetic content fixtures retain cleanup authority across interruptions. Forced live reads bypass source caches, oversized diagnostic exports resume with durable cursors and complete logical records, and current verification snapshots replace repeated full history. Reasoning-OFF remains a hard request policy; task incompleteness is separate from provider failure. Completed responses use smaller visual pages and frame reports retain lifecycle coverage. See [the integration repair and verification ledger](docs/repairs/pr813-integration-2026-11-07.md). This work does not publish a release or claim physical-device performance qualification.
+
 A separate post-PR-806 branch repairs server-cooldown/TLS retry admission, durable retry timing, cancellation-safe batch receipts, schema-bound MCP readiness, missing event replay and bounded context projection. Android reports now distinguish authentication and graph recovery. Gateway answer colour and badges now require response-bound gateway evidence, clear stale attribution between responses, and confirm recognized gateway capabilities with diagnostics disabled. No new version is published by this change; full current-head CI and physical deployment qualification remain separate requirements. See `docs/repairs/reliability-fault-recovery-2026-11-06.md`.
 
 The November 7 diagnostic follow-up repairs mixed-type gateway capabilities, explicit gateway status routing, receipt preservation, sanitized schema diagnostics, the completed MCP discovery refresh race, and the oversized agent execution loop. Complete evidence and qualification limits are in [the diagnostic repair report](docs/repairs/diagnostic-remediation-8597579-2026-11-07.md). These remain unreleased changes until separately published.
+
+The new App audit in the Performance lab runs durable application checks, inventories plugins and production source, reports measured pass scores beside explicit coverage, and exports selected debugging evidence. It can run without an AI profile. See [App audit](docs/benchmark/app-audit.md) for its measured scope, recovery and export contract.
 
 # GPT Mobile 0.9.66.6
 
@@ -56,6 +60,7 @@ The existing signed-release pipeline verifies exact-commit tests, required main 
 ## Qualification and remaining work
 
 - The November 7 c1466ca0 repairs require matching Android/gateway deployment, live MCP endpoint and DNS checks, and physical-device handoff, reasoning, frame-time and IME qualification. Host tests do not establish those outcomes.
+- App audit inventories supported production files and executes named local or selected metadata probes; it does not establish complete file, line or branch coverage, arbitrary plugin tool execution, physical-device qualification or private service availability.
 
 - The November7 c285 emulator statistics workload retained API34 gaps of one unacknowledged start and one recorded-in-progress entry, and API36 one unacknowledged start. Functional acceptance passed but performance remains unqualified; later exact-head evidence must be inspected independently.
 

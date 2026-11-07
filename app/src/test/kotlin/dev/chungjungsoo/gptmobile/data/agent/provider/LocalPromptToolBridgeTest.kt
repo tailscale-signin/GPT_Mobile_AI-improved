@@ -5,14 +5,61 @@ import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
 import dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope
+import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LocalPromptToolBridgeTest {
+    @Test fun catalogNamesSurviveEvidenceCompactionAfterUnknownDiscovery() = runBlocking {
+        val lookup = AgentToolDefinition("lookup", "Look things up", buildJsonObject { put("type", "object") })
+        val catalog = ProgressiveToolCatalog(listOf(lookup), "Use lookup")
+        for ((name, allowance) in listOf("not_registered" to 1856, "lookup" to 935)) {
+            val result = catalog.execute("discovery-$name", buildJsonObject { put("names", JsonArray(listOf(JsonPrimitive(name)))) })
+            val compacted = LocalPromptToolBridge.compactResult(catalog.definition.name, result, allowance)
+            assertTrue(ToolResultEnvelope.element(compacted).toString().toByteArray(Charsets.UTF_8).size <= allowance)
+            val names = LocalPromptToolBridge.discoveredToolNames(ToolResultEnvelope.encode(catalog.definition.name, result.copy(content = compacted)))
+            assertEquals(if (name == "lookup") setOf("lookup") else emptySet<String>(), names)
+            if (name == "not_registered") assertEquals(JsonArray(listOf(JsonPrimitive(name))), (ToolResultEnvelope.element(compacted) as JsonObject)["unknown_names"])
+        }
+    }
+
+    @Test fun catalogProjectionPreservesReturnedNamesAndExclusionsWithinItsBudget() {
+        val payload = buildJsonObject {
+            put(
+                "available_next_round",
+                JsonArray(
+                    listOf(
+                        buildJsonObject {
+                            put("name", "lookup")
+                            put("description", "large".repeat(1000))
+                        }
+                    )
+                )
+            )
+            put("schema_budget_excluded", JsonArray(listOf(JsonPrimitive("oversized"))))
+            put("coverage", buildJsonObject { put("interpretation", "metadata".repeat(1000)) })
+        }
+        val original = ToolResultContent.Json(payload)
+        val retained = AgentToolResult("discovery", ToolResultContent.Text("Compacted display"), false, dispatched = false, retainedContent = original)
+        val compacted = LocalPromptToolBridge.compactResult(ProgressiveToolCatalog.NAME, retained, 512)
+        val data = ToolResultEnvelope.element(compacted) as JsonObject
+        assertEquals(JsonArray(listOf(JsonPrimitive("oversized"))), data["schema_budget_excluded"])
+        assertEquals(setOf("lookup"), LocalPromptToolBridge.discoveredToolNames(ToolResultEnvelope.encode(ProgressiveToolCatalog.NAME, retained.copy(content = compacted))))
+        assertTrue(data.toString().toByteArray(Charsets.UTF_8).size <= 512)
+        assertEquals(original, retained.retainedContent)
+        for ((tool, result) in listOf("other_tool" to retained, ProgressiveToolCatalog.NAME to retained.copy(isError = true))) {
+            val projected = LocalPromptToolBridge.compactResult(tool, result, 512)
+            assertEquals(emptySet<String>(), LocalPromptToolBridge.discoveredToolNames(ToolResultEnvelope.encode(tool, result.copy(content = projected))))
+        }
+    }
+
     @Test fun discoveryUsesOnlySuccessfulCatalogEnvelopeData() {
         val payload = buildJsonObject {
             put("available_next_round", JsonArray(listOf(buildJsonObject { put("name", "lookup") }, buildJsonObject { put("name", 42) })))

@@ -400,6 +400,13 @@ class GitHubTool(
                     )
                     put("select_created_branch", buildJsonObject { put("type", "boolean") })
                     put(
+                        "fixture_plan",
+                        buildJsonObject {
+                            put("type", "string")
+                            put("enum", JsonArray(listOf(JsonPrimitive(dev.chungjungsoo.gptmobile.data.github.GitHubOwnedFixtures.PLAN))))
+                        }
+                    )
+                    put(
                         "base",
                         buildJsonObject {
                             put("type", "string")
@@ -651,18 +658,11 @@ class GitHubTool(
 
         return try {
             if (action in GitHubWorkspaceClient.actions) {
-                if (action == "delete_branch") {
+                if (action in setOf("delete_branch", "delete_fixture_branch")) {
                     (selectedRepository())?.let { selected ->
                         val sameRepo = arguments["owner"]?.jsonPrimitive?.content.orEmpty().equals(selected.owner, true) &&
                             arguments["repo"]?.jsonPrimitive?.content.orEmpty().equals(selected.repo, true)
                         require(!sameRepo || arguments["branch"]?.jsonPrimitive?.content != selected.ref) { "Cannot delete the selected workspace branch. Select another branch first." }
-                    }
-                }
-                if (action == "commit_files") {
-                    (selectedRepository())?.let { selected ->
-                        val sameRepo = arguments["owner"]?.jsonPrimitive?.content.orEmpty().equals(selected.owner, true) &&
-                            arguments["repo"]?.jsonPrimitive?.content.orEmpty().equals(selected.repo, true)
-                        require(!sameRepo || arguments["branch"]?.jsonPrimitive?.content == selected.ref) { "The write branch disagrees with the selected workspace. Select the intended branch first." }
                     }
                 }
                 val result = workspaceClient.execute(action, arguments)
@@ -1634,6 +1634,11 @@ class GitHubTool(
         val repo = arguments["repo"]?.jsonPrimitive?.content?.trim().orEmpty()
         val branch = dev.chungjungsoo.gptmobile.data.github.normalizeGitHubBranch(arguments["branch"]?.jsonPrimitive?.content.orEmpty())
         val base = dev.chungjungsoo.gptmobile.data.github.normalizeGitHubBranch(arguments["base"]?.jsonPrimitive?.content.orEmpty().ifBlank { "main" })
+        if (arguments["fixture_plan"] != null) {
+            require(arguments["fixture_plan"] == JsonPrimitive(dev.chungjungsoo.gptmobile.data.github.GitHubOwnedFixtures.PLAN) && branch.matches(Regex("codex-self-test/[a-f0-9]{20}")) && arguments["select_created_branch"] == JsonPrimitive(false) && arguments["expected_head_sha"]?.jsonPrimitive?.content?.matches(Regex("[a-f0-9]{40}")) == true) {
+                "Content fixtures require their dedicated branch, explicit source head and preserved workspace selection."
+            }
+        }
         if (owner.isEmpty() || repo.isEmpty() || branch.isEmpty()) {
             return errorResult(callId, "Parameters 'owner', 'repo', and 'branch' are required.")
         }
@@ -1649,6 +1654,9 @@ class GitHubTool(
         require(arguments["expected_head_sha"]?.jsonPrimitive?.content.let { it.isNullOrBlank() || it == sha }) { "The base branch changed; resolve its current head before creating a branch." }
         // A previous acknowledgement may have been lost. Resolve the target before
         // another POST; a branch collision is a state observation, not a retry signal.
+        // Creating this exact branch is a new intent that must recheck its absence.
+        // Keep every other ref rejection and the publication fence intact.
+        refAvailability.revalidateBranch("/repos/$owner/$repo", branch)
         val existingResponse = getGitHubApi("$BASE_URL/repos/$owner/$repo/git/ref/heads/${GitHubWorkspaceClient.segment(branch)}")
         val existingText = existingResponse.bodyAsText()
         if (existingResponse.status.isSuccess()) return existingBranchResult(callId, branch, sha, jsonParser.parseToJsonElement(existingText).jsonObject, arguments)
@@ -1687,31 +1695,30 @@ class GitHubTool(
             } catch (_: Exception) {
                 null
             }
-            successResult(
-                callId,
-                buildJsonObject {
-                    put("branch", branch)
-                    put("receipt", receipt)
-                    put("head_sha", receipt["object"]?.jsonObject?.get("sha") ?: JsonNull)
-                    put("expected_head_sha", receipt["object"]?.jsonObject?.get("sha") ?: JsonNull)
-                    put("base_sha", sha)
-                    put("receipt_verified", receipt["object"]?.jsonObject?.get("sha")?.jsonPrimitive?.content == sha && receipt["ref"]?.jsonPrimitive?.content == "refs/heads/$branch")
-                    put("created", true)
-                    val selected = selectCreated && selection?.get("commit_sha") == JsonPrimitive(sha) && selection?.get("ref") == JsonPrimitive(branch)
-                    val fixtureVerified = !selectCreated &&
-                        selection?.get("ref") == JsonPrimitive("refs/heads/$branch") &&
-                        (selection?.get("object") as? JsonObject)?.get("sha") == JsonPrimitive(sha)
-                    put("remote_state_verified", selected || fixtureVerified)
-                    put("context_selected", selected)
-                    put("upstream_completed", true)
-                    if (selectCreated) {
-                        selection?.let { put("context", it) } ?: put("context_refresh_required", true)
-                    } else {
-                        put("selection_preserved", true)
-                        selection?.let { put("ref_observation", it) }
-                    }
-                }.toString()
-            )
+            val created = buildJsonObject {
+                put("branch", branch)
+                put("receipt", receipt)
+                put("head_sha", receipt["object"]?.jsonObject?.get("sha") ?: JsonNull)
+                put("expected_head_sha", receipt["object"]?.jsonObject?.get("sha") ?: JsonNull)
+                put("base_sha", sha)
+                put("receipt_verified", receipt["object"]?.jsonObject?.get("sha")?.jsonPrimitive?.content == sha && receipt["ref"]?.jsonPrimitive?.content == "refs/heads/$branch")
+                put("created", true)
+                val selected = selectCreated && selection?.get("commit_sha") == JsonPrimitive(sha) && selection?.get("ref") == JsonPrimitive(branch)
+                val fixtureVerified = !selectCreated &&
+                    selection?.get("ref") == JsonPrimitive("refs/heads/$branch") &&
+                    (selection?.get("object") as? JsonObject)?.get("sha") == JsonPrimitive(sha)
+                put("remote_state_verified", selected || fixtureVerified)
+                put("context_selected", selected)
+                put("upstream_completed", true)
+                if (selectCreated) {
+                    selection?.let { put("context", it) } ?: put("context_refresh_required", true)
+                } else {
+                    put("selection_preserved", true)
+                    selection?.let { put("ref_observation", it) }
+                }
+            }
+            val retained = workspaceClient.retainFixtureCreation(JsonObject(arguments + mapOf("branch" to JsonPrimitive(branch), "base" to JsonPrimitive(base))), created)
+            successResult(callId, retained.toString())
         } else {
             classifyGitHubHttpFailure(callId, "create_branch", arguments, response, text)
         }
@@ -1746,11 +1753,6 @@ class GitHubTool(
         val branch = arguments["branch"]?.jsonPrimitive?.content?.trim()
             ?.takeIf(String::isNotBlank)
             ?: return errorResult(callId, "An explicit working branch and expected_head_sha are required for update_file.")
-        repositoryContext?.let { selected ->
-            if (owner.equals(selected.owner, true) && repo.equals(selected.repo, true) && branch != selected.ref) {
-                return errorResult(callId, "The write branch disagrees with the selected workspace. Select the intended branch first.")
-            }
-        }
         if (owner.isEmpty() || repo.isEmpty() || path.isEmpty()) {
             return errorResult(callId, "Parameters 'owner', 'repo', and 'path' are required.")
         }

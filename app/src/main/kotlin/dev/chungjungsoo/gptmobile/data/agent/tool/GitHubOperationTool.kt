@@ -345,18 +345,14 @@ internal class GitHubOperationTool(
         if (!result.isError && data != null) {
             val assessment = pagination.assessPage(operation, native, data)
             if (assessment.errorCode != null) {
-                return result.copy(
-                    content = ToolResultContent.Json(assessment.data),
-                    retainedContent = result.retainedContent ?: result.content,
+                return withPaginationState(result, assessment.data).copy(
                     executionReceipt = JsonObject(result.executionReceipt.orEmpty() + mapOf("traversal_state" to assessment.data.getValue("traversal_state"), "has_more" to JsonPrimitive(false), "pagination_progress" to assessment.data.getValue("pagination_progress"))),
                     isError = true,
                     errorCode = assessment.errorCode
                 )
             }
             if (assessment.data != data) {
-                result = result.copy(
-                    content = ToolResultContent.Json(assessment.data),
-                    retainedContent = result.retainedContent ?: result.content,
+                result = withPaginationState(result, assessment.data).copy(
                     executionReceipt = JsonObject(result.executionReceipt.orEmpty() + ("pagination_progress" to assessment.data.getValue("pagination_progress")))
                 )
                 data = assessment.data
@@ -365,7 +361,7 @@ internal class GitHubOperationTool(
             }
         }
         val paged = if (!result.isError && data?.get("has_more") == JsonPrimitive(true) && "continuation" !in data && operation != "github_search") {
-            result.copy(content = ToolResultContent.Json(JsonObject(data + ("continuation" to JsonObject(native + ("page" to JsonPrimitive(((arguments["page"] as? JsonPrimitive)?.content?.toIntOrNull() ?: 1) + 1)))))))
+            withPaginationState(result, JsonObject(data + ("continuation" to JsonObject(native + ("page" to JsonPrimitive(((arguments["page"] as? JsonPrimitive)?.content?.toIntOrNull() ?: 1) + 1))))))
         } else {
             result
         }
@@ -378,6 +374,19 @@ internal class GitHubOperationTool(
             paged
         }
         return retainSavedView(views.present(scope, operation, definition.name, presented, arguments, maxPageBytes = outputAllowance))
+    }
+
+    /** Original rows stay intact, but every consumer must see the same traversal state and exact recipe. */
+    private fun withPaginationState(result: AgentToolResult, data: JsonObject): AgentToolResult {
+        val retained = result.retainedContent ?: result.content
+        val source = when (retained) {
+            is ToolResultContent.Json -> retained.value as? JsonObject
+            is ToolResultContent.Text -> runCatching { kotlinx.serialization.json.Json.parseToJsonElement(retained.text) as? JsonObject }.getOrNull()
+            else -> null
+        }
+        val stateFields = setOf("pagination_progress", "has_more", "complete", "continuation", "continuation_call", "remote_continuations", "next_page", "traversal_state", "upstream_has_more", "reason", "message")
+        val evidence = source?.let { JsonObject(it.filterKeys { key -> key !in stateFields } + data.filterKeys { key -> key in stateFields }) }
+        return result.copy(content = ToolResultContent.Json(data), retainedContent = evidence?.let { ToolResultContent.Json(it) } ?: retained)
     }
 
     private suspend fun retainSavedView(result: AgentToolResult, requestedCursor: String? = null): AgentToolResult {
@@ -477,6 +486,7 @@ internal class GitHubOperationTool(
                     "", "commit", "commit_staged_patch" -> "commit_staged_patch"
                     "branch" -> "create_branch"
                     "delete_branch" -> "delete_branch"
+                    "delete_fixture_branch" -> "delete_fixture_branch"
                     else -> return null
                 }
                 "github_write" -> when (requested) {
@@ -670,17 +680,23 @@ internal class GitHubOperationTool(
                                     buildJsonObject {
                                         put("path", field("string"))
                                         put("start_line", integer())
-                                        put("end_line", integer())
+                                        put("end_line", integer(-1, description = "Inclusive last line, or -1 for EOF bounded by the read/output limits. Omit when using max_lines."))
+                                        put("max_lines", integer(1, 2000, "Maximum lines from start_line; omit end_line when using this field."))
                                         put("start_offset", integer(0))
                                     }
                                 )
-                                put("required", JsonArray(listOf("path", "start_line", "end_line").map(::JsonPrimitive)))
+                                put("required", JsonArray(listOf("path").map(::JsonPrimitive)))
                             }
                         )
                     }
                 }
                 "github_stage_patch" -> {
                     listOf("target_file", "search_snippet", "replacement_snippet").forEach { properties[it] = field("string") }
+                    properties["commit_immediately"] = buildJsonObject {
+                        put("type", "boolean")
+                        put("description", "Persist the exact stage, then submit its guarded commit in the same invocation. Requires branch, expected_head_sha and message. Recovery reuses the durable stage/publication fence; this is not a cross-endpoint GitHub transaction.")
+                    }
+                    properties["message"] = field("string")
                     properties["restore_stage_id"] = field("string")
                     properties["expected_head_sha"] = field("string")
                     properties["branch"] = field("string")
@@ -704,8 +720,9 @@ internal class GitHubOperationTool(
                     }
                 }
                 "github_commit" -> {
-                    properties["action"] = choice("commit", "commit_staged_patch", "branch", "delete_branch")
-                    listOf("stage_id", "branch", "message", "expected_head_sha", "from_branch").forEach { properties[it] = field("string") }
+                    properties["action"] = choice("commit", "commit_staged_patch", "branch", "delete_branch", "delete_fixture_branch")
+                    listOf("stage_id", "branch", "message", "expected_head_sha", "from_branch", "origin_head_sha").forEach { properties[it] = field("string") }
+                    properties["fixture_plan"] = choice(dev.chungjungsoo.gptmobile.data.github.GitHubOwnedFixtures.PLAN)
                     properties["select_created_branch"] = buildJsonObject {
                         put("type", "boolean")
                         put("description", "For action=branch only. Defaults to true. Use false for an explicitly authorized disposable fixture; read back its ref without changing the selected workspace.")
@@ -855,6 +872,7 @@ internal class GitHubOperationTool(
                     properties["pr_number"] = field("integer")
                     properties["run_id"] = field("integer")
                     properties["commit_sha"] = field("string")
+                    properties["wait_timeout_seconds"] = integer(1, 30, "Bound initial reads and inline polling to this interval; returns observed outcomes without creating a background subscription. Omit for background watching.")
                 }
                 "github_release" -> {
                     properties["execution_id"] = buildJsonObject {
@@ -895,11 +913,11 @@ internal class GitHubOperationTool(
                 "github_search" -> "Search pinned code/paths. literal=text; paths/patterns=* glob. Check coverage."
                 "github_read" -> "Read pinned ranges (1-based, <=2000 lines) or evidence_id. Find paths first; saved pages: view_cursor only."
                 "github_stage_patch" -> "Stage an exact replacement with target_file, search_snippet and replacement_snippet, or SHA-checked edits. Reads the pinned blob and rejects ambiguous anchors. Returns immutable version/stage_id and preserves publication receipts. Supply restore_stage_id alone to select a saved local patch at the same branch/base. Commit on a permitted working branch using its current expected_head_sha."
-                "github_commit" -> "Create a working branch, commit a validated stage_id, or delete_branch with expected_head_sha after dependency inspection. Deletion blocks selected/default/protected branches, unmerged commits, open PRs and active runs. GitHub deletion is not an atomic SHA lease."
+                "github_commit" -> "Create a working branch, commit a validated stage_id, or delete_branch with expected_head_sha after dependency inspection. Ordinary deletion blocks selected/default/protected branches, unmerged commits, open PRs and active runs. delete_fixture_branch additionally requires durable same-task ownership from fixture_plan=content_v1, origin_head_sha and a verified chain containing only its exact synthetic file; it never grants generic unmerged-branch deletion. GitHub deletion is not an atomic SHA lease."
                 "github_write" -> "Every files item requires a repository-relative path (for example app/src/main/kotlin/.../MainActivity.kt), never an absolute path or directory. Stage up to 20 UTF-8 file creations, replacements or deletions for exact user approval and one atomic commit on a working branch. Supply expected_head_sha and expected_blob_sha for existing files. Replacements require content; deletions require delete=true and no content. Never write to the default branch."
                 "github_pr" -> "Canonical pull-request tool (also known as github_pull_request). Start with {\"action\":\"list\"} when the PR number is unknown. For one known PR use {\"action\":\"context\",\"pull_number\":<observed positive number>}. Use list to discover pull_number. Prefer headers for title/state/head/base only; it uses a minimal API field selection with no bodies or threads. Use context for files/checks and include_health=true for merge readiness. Use github_watch_checks once for ongoing CI; do not repeatedly poll from the model. Writes require the current expected head SHA."
                 "github_ci" -> "For repository summaries, inspect the selected branch/head and recent relevant runs; traverse full history only when requested. Discover workflows, then runs (100/page), then jobs using run_id. job/logs require job_id; artifacts requires run_id. status inspects run_id/job_id or selected commit/ref checks. Empty collections are valid. definitions reads pinned YAML outlines. Logs use start_line/end_line/start_offset continuations. dispatch requires a discovered workflow_id and explicit ref; a run_id is not a workflow_id. rerun/rerun_failed_jobs retries failed jobs only; rerun_all retries the full completed run. Never cancel an active run to force a retry. Follow continuation_call exactly."
-                "github_watch_checks" -> "Subscribe once to background CI updates for pr_number and/or run_id in this saved chat. Pins the current head and posts native chat updates without model polling. Optional follow_pr=true with pr_number follows new revisions, preserves historical results and invalidates previous merge evidence."
+                "github_watch_checks" -> "Watch pr_number and/or run_id at its exact head. Omit wait_timeout_seconds for background updates in a saved chat; supply 1..30 for bounded inline reads and polling, returning an observed outcome or pending timeout without creating a subscription. Optional follow_pr=true follows new PR revisions."
                 "github_issue" -> "List issues (PRs excluded). Prefer headers for title/state/updated_at without bodies or comments; use context/comments/history only when those details are needed. Create/update requires exact approval; update needs expected_updated_at. Timeline is not a full body-edit history."
                 else -> "Inspect release notes (detail), tags/annotations (tag), paginated tags/list, create_tag or explicitly publish the selected release."
             } + " Exact continuation_call; owner+repo."

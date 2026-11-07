@@ -11,12 +11,16 @@ import xml.etree.ElementTree as ET
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import prepare_emulator_ui as emulator
 
+ANDROID_RESOLVER = 'android/com.android.internal.app.ResolverActivity'
+
 
 class HomeDevice:
     """Stateful ADB stand-in: selecting HOME changes subsequent resolution."""
     def __init__(self, homes=(), installed=True, fault=None):
         self.home = 'com.android.launcher3/.Launcher'
         self.homes = list(homes)
+        self.home_candidates = f'com.android.launcher3/.Launcher\n{emulator.TEST_HOME}'
+        self.candidate_outputs = []
         self.installed = installed
         self.calls = []
         self.fault = fault
@@ -46,6 +50,10 @@ class HomeDevice:
                 output = self.homes.pop(0) if self.homes else self.home
                 if isinstance(output, BaseException):
                     raise output
+        elif 'query-activities' in command:
+            output = self.candidate_outputs.pop(0) if self.candidate_outputs else self.home_candidates
+            if isinstance(output, BaseException):
+                raise output
         elif 'set-home-activity' in command:
             if self.accept_selection:
                 self.home = emulator.TEST_HOME
@@ -76,13 +84,154 @@ class HomeDevice:
                  ('dumpsys', 'window', '-a'), ('wm', 'size'), ('wm', 'density'),
                  ('settings', 'get', 'system', 'font_scale')]
         return [command for command, _ in self.calls
-                if 'resolve-activity' not in command and tuple(command[2:]) not in reads]
+                if 'resolve-activity' not in command and 'query-activities' not in command and tuple(command[2:]) not in reads]
 
 
 class EmulatorReadinessTest(unittest.TestCase):
     def clock(self):
         elapsed = [0.0]
         return (lambda: elapsed[0]), (lambda seconds: elapsed.__setitem__(0, elapsed[0] + seconds))
+
+    def resolver_device(self, candidates=None):
+        device = HomeDevice()
+        device.home = ANDROID_RESOLVER
+        if candidates is not None:
+            device.home_candidates = candidates
+        return device
+
+    def test_exact_android_resolver_with_allowlisted_candidates_selects_fixture_once(self):
+        device = self.resolver_device()
+        now, wait = self.clock()
+        report = emulator.prepare(device, now=now, wait=wait, ready_timeout=3)
+        self.assertEqual('PREPARED', report['status'])
+        self.assertEqual(ANDROID_RESOLVER, report['home_component'])
+        self.assertEqual(device.home_candidates.splitlines(), report['resolver_home_candidates'])
+        query = next(command for command, _ in device.calls if 'query-activities' in command)
+        self.assertEqual(['adb', 'shell', 'cmd', 'package', 'query-activities', '--components', '--user', '0', '-a', 'android.intent.action.MAIN', '-c', 'android.intent.category.HOME'], query)
+        self.assertEqual(1, sum('set-home-activity' in command for command, _ in device.calls))
+        self.assertEqual(1, sum('start' in command for command, _ in device.calls))
+        barrier = next(i for i, (command, _) in enumerate(device.calls) if 'wait-for-broadcast-idle' in command)
+        selection = next(i for i, (command, _) in enumerate(device.calls) if 'set-home-activity' in command)
+        self.assertLess(barrier, selection)
+        self.assertEqual(emulator.TEST_HOME, device.home)
+        self.assertFalse(report['system_error_dialogs_suppressed'])
+
+    def test_resolver_accepts_only_stock_launcher_packages_and_exact_packaged_fixture(self):
+        for launchers in (
+                ['com.google.android.apps.nexuslauncher/.NexusLauncherActivity'],
+                ['com.android.launcher3/com.android.launcher3.Launcher', 'com.google.android.apps.nexuslauncher/.NexusLauncherActivity']):
+            with self.subTest(launchers=launchers):
+                device = self.resolver_device('\n'.join([emulator.TEST_HOME] + launchers))
+                now, wait = self.clock()
+                self.assertEqual('PREPARED', emulator.prepare(device, now=now, wait=wait, ready_timeout=3)['status'])
+                self.assertEqual(1, sum('set-home-activity' in command for command, _ in device.calls))
+
+    def test_resolver_without_exclusive_fixture_and_stock_candidates_never_mutates(self):
+        allowed = f'com.android.launcher3/.Launcher\n{emulator.TEST_HOME}'
+        for candidates in ('', 'No activities found', 'com.android.launcher3/.Launcher', emulator.TEST_HOME,
+                           allowed + '\ncom.android.settings/.FallbackHome',
+                           allowed + '\ncom.example.unexpected/.Home',
+                           'com.android.launcher3/.Launcher\ndev.melo.gptmobile.improved/.MainActivity'):
+            with self.subTest(candidates=candidates):
+                device = self.resolver_device(candidates)
+                now, wait = self.clock()
+                with self.assertRaises((ValueError, TimeoutError)):
+                    emulator.prepare(device, now=now, wait=wait, ready_timeout=3)
+                self.assertEqual([], device.mutations())
+                self.assertTrue(any('query-activities' in command for command, _ in device.calls))
+                self.assertLessEqual(now(), 3)
+
+    def test_malformed_duplicate_or_oversized_resolver_candidates_fail_before_mutation(self):
+        allowed = f'com.android.launcher3/.Launcher\n{emulator.TEST_HOME}'
+        for candidates in ('2 activities found:\n' + allowed,
+                           'priority=0 preferredOrder=0\n' + allowed,
+                           allowed + '\nError: package query failed',
+                           allowed + '\ncom.android.launcher3/.Home; touch file',
+                           allowed + '\n' + emulator.TEST_HOME,
+                           allowed + '\n\ncom.android.launcher3/.OtherHome',
+                           allowed + '\n' + 'x' * 8192,
+                           '\n'.join([emulator.TEST_HOME] + [f'com.android.launcher3/.Home{i}' for i in range(17)])):
+            with self.subTest(candidates=candidates[:100]):
+                device = self.resolver_device(candidates)
+                now, wait = self.clock()
+                with self.assertRaises(ValueError):
+                    emulator.prepare(device, now=now, wait=wait, ready_timeout=3)
+                self.assertEqual([], device.mutations())
+                self.assertEqual(1, sum('query-activities' in command for command, _ in device.calls))
+
+    def test_resolver_recovery_does_not_apply_to_similar_or_arbitrary_components(self):
+        for home in ('android/.ResolverActivity', 'android/com.android.internal.app.ChooserActivity', 'com.example/.ResolverActivity'):
+            with self.subTest(home=home):
+                device = HomeDevice()
+                device.home = home
+                now, wait = self.clock()
+                with self.assertRaises(TimeoutError):
+                    emulator.prepare(device, now=now, wait=wait, ready_timeout=3)
+                self.assertFalse(any('query-activities' in command for command, _ in device.calls))
+                self.assertEqual([], device.mutations())
+
+    def test_fallback_resolver_candidate_can_settle_read_only_before_one_selection(self):
+        device = self.resolver_device()
+        device.candidate_outputs = [device.home_candidates + '\ncom.android.settings/.FallbackHome']
+        now, wait = self.clock()
+        report = emulator.prepare(device, now=now, wait=wait, ready_timeout=3)
+        self.assertEqual(2, report['readiness_attempts'])
+        self.assertEqual(1, now())
+        self.assertEqual(2, sum('query-activities' in command for command, _ in device.calls))
+        self.assertEqual(1, sum('set-home-activity' in command for command, _ in device.calls))
+
+    def test_only_transient_candidate_query_transport_failure_can_retry(self):
+        for failure in (subprocess.CalledProcessError(1, ['adb'], stderr='error: device offline'), subprocess.TimeoutExpired(['adb'], 1)):
+            with self.subTest(failure=type(failure).__name__):
+                device = self.resolver_device()
+                device.candidate_outputs = [failure]
+                now, wait = self.clock()
+                report = emulator.prepare(device, now=now, wait=wait, ready_timeout=3)
+                self.assertEqual(2, report['readiness_attempts'])
+                self.assertEqual(1, sum('set-home-activity' in command for command, _ in device.calls))
+                self.assertTrue(all(options['timeout'] <= 3 for _, options in device.calls))
+
+    def test_candidate_query_permission_failure_is_not_retried_or_hidden(self):
+        device = self.resolver_device()
+        device.candidate_outputs = [subprocess.CalledProcessError(1, ['adb'], stderr='Permission Denial: package query')]
+        now, wait = self.clock()
+        with self.assertRaises(subprocess.CalledProcessError):
+            emulator.prepare(device, now=now, wait=wait, ready_timeout=3)
+        self.assertEqual(1, sum('query-activities' in command for command, _ in device.calls))
+        self.assertEqual([], device.mutations())
+        self.assertEqual(0, now())
+
+    def test_candidate_query_timeout_or_late_acknowledgment_cannot_extend_the_deadline(self):
+        for late_reply in (False, True):
+            with self.subTest(late_reply=late_reply):
+                device = self.resolver_device()
+                now, wait = self.clock()
+                def delayed_query(command, **options):
+                    response = device(command, **options)
+                    if 'query-activities' in command:
+                        self.assertEqual(3, options['timeout'])
+                        wait(options['timeout'])
+                        if not late_reply:
+                            raise subprocess.TimeoutExpired(command, options['timeout'])
+                    return response
+                with self.assertRaises(TimeoutError):
+                    emulator.prepare(delayed_query, now=now, wait=wait, ready_timeout=3)
+                self.assertEqual(3, now())
+                self.assertEqual([], device.mutations())
+                self.assertEqual(1, sum('query-activities' in command for command, _ in device.calls))
+
+    def test_resolver_candidates_do_not_bypass_fixture_or_process_error_checks(self):
+        for fault in ('missing_fixture', 'process_error'):
+            with self.subTest(fault=fault):
+                device = self.resolver_device()
+                if fault == 'missing_fixture':
+                    device.installed = False
+                else:
+                    device.process_dump = device.process_dump.replace('mNotResponding=false', 'mNotResponding=true')
+                now, wait = self.clock()
+                with self.assertRaises(ValueError):
+                    emulator.prepare(device, now=now, wait=wait, ready_timeout=3)
+                self.assertEqual([], device.mutations())
 
     def test_boot_work_drains_before_selecting_home_without_stopping_quickstep(self):
         device = HomeDevice(homes=['com.google.android.apps.nexuslauncher/.NexusLauncherActivity'])

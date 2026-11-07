@@ -23,9 +23,10 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
         return operation + JsonObject(normalized.toSortedMap())
     }
     private fun page(args: JsonObject) = (args["page"] as? JsonPrimitive)?.content?.toIntOrNull() ?: 1
+    private fun numberedRemotePage(args: JsonObject) = "view_cursor" !in args && "index_cursor" !in args && args["action"] !in setOf(JsonPrimitive("workflow_catalog"), JsonPrimitive("search_repository"))
 
     @Synchronized fun completedPage(operation: String, args: JsonObject): Int? {
-        if ("view_cursor" in args) return null
+        if (!numberedRemotePage(args)) return null
         val key = key(operation, args)
         val end = ends[key]
         if (page(args) == 1 && (end != null || args["verify_live"] == JsonPrimitive(true))) {
@@ -55,7 +56,7 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
 
     /** Compare stable record identifiers, including earlier nonadjacent pages and reordered rows. */
     @Synchronized fun assessPage(operation: String, args: JsonObject, result: JsonObject): Assessment {
-        if ("view_cursor" in args || "has_more" !in result) return Assessment(result)
+        if (!numberedRemotePage(args) || "has_more" !in result) return Assessment(result)
         val collections = rows(result)
         if (collections.isEmpty()) return Assessment(result)
         val key = key(operation, args)
@@ -156,7 +157,7 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
     @Synchronized fun completionError(operation: String, args: JsonObject): String? = ends[key(operation, args)]?.errorCode
 
     @Synchronized fun observe(operation: String, args: JsonObject, result: JsonObject) {
-        if ("view_cursor" in args || result["has_more"] != JsonPrimitive(false)) return
+        if (!numberedRemotePage(args) || result["has_more"] != JsonPrimitive(false)) return
         ends[key(operation, args)] = End(page(args), now())
         while (ends.size > 128) ends.remove(ends.keys.first())
     }

@@ -44,8 +44,13 @@ class GatewayAPIImpl @Inject constructor(
     }
 
     /** Null means a definite unsupported endpoint; transport/auth failures must not remove isolation controls. */
-    override suspend fun getCapabilities(config: ProviderRequestConfig): GatewayCapabilities? {
-        if (GatewaySurfacePolicy.shared.rememberedStatus(GatewaySurfacePolicy.identity(config), GatewaySurfacePolicy.Surface.CAPABILITIES) != null) return null
+    override suspend fun getCapabilities(config: ProviderRequestConfig, forceRefresh: Boolean): GatewayCapabilities? {
+        val surfaceIdentity = GatewaySurfacePolicy.identity(config)
+        if (forceRefresh) {
+            GatewaySurfacePolicy.shared.invalidate(surfaceIdentity, GatewaySurfacePolicy.Surface.CAPABILITIES)
+        } else if (GatewaySurfacePolicy.shared.rememberedStatus(surfaceIdentity, GatewaySurfacePolicy.Surface.CAPABILITIES) != null) {
+            return null
+        }
         val endpoint = config.buildEndpoint("gateway/capabilities")
         return try {
             val responseBody = LocalEndpointConnectionPolicy.probe(endpoint, networkClient::evictIdleConnections) {

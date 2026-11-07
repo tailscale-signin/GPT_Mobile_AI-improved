@@ -16,6 +16,8 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
     override val coordinatesChildWork = true
     private var advanced = advancedTask(task)
     private val conversational = CurrentRequestContract.from(task).conversational
+    private val integrationPreset = task.lineSequence().any { it.trim() == "[github-workflow-preset:test_integration]" }
+    private fun integrationTool(tool: AgentToolDefinition): Boolean = tool.name.substringBefore("__").let { it.startsWith("github_") || it == "repository_graph" }
     private val toolAllowance get() = if (advanced) 16 else INITIAL_TOOLS
     private val schemaAllowance get() = if (advanced) MAX_SCHEMA_TOKEN_ALLOWANCE else SCHEMA_TOKEN_ALLOWANCE
     private val taskText = task
@@ -35,7 +37,15 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
     }
     private val requiredCapabilities = if (Regex("(?i)\\b(research|search|sources|papers|studies|latest|news|verify|article|citations)\\b").containsMatchIn(task)) setOf(AgentToolCapability.WEB_SEARCH, AgentToolCapability.PAGE_READER) else emptySet()
     private val omissions = mutableMapOf<String, String>()
-    private val active = (if (conversational) emptyList() else window(taskRequired + ranked(task).filter { (initialNames == null || it.name in initialNames) && dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it.name) !in deferredEngineering })).map { it.name }.toMutableSet()
+    private val active = (
+        if (conversational) {
+            emptyList()
+        } else if (integrationPreset) {
+            candidates.values.filter(::integrationTool) + window(taskRequired)
+        } else {
+            window(taskRequired + ranked(task).filter { (initialNames == null || it.name in initialNames) && dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it.name) !in deferredEngineering })
+        }
+        ).map { it.name }.toMutableSet()
     private val discovered = active.toMutableSet()
     private val advertisedContracts = mutableSetOf<String>()
 
@@ -189,7 +199,10 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
                 if (key !in acquiredQueryKeys && unknownNameVersions[key] != version) {
                     val acquired = acquireCold.invoke(query, names).filter { it.modelVisible }
                     if (acquired.isNotEmpty()) {
-                        synchronized(this) { acquired.forEach { candidates[it.name] = it } }
+                        synchronized(this) {
+                            acquired.forEach { candidates[it.name] = it }
+                            if (integrationPreset) active.addAll(acquired.filter(::integrationTool).map { it.name })
+                        }
                         if (acquiredQueryKeys.size >= 128) acquiredQueryKeys.clear()
                         acquiredQueryKeys += key
                     } else if (query.isBlank() && names.isNotEmpty() && names.none { synchronized(this) { it in candidates } }) {
@@ -252,7 +265,9 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
             if ((cursor > 0 && expectedVersion == null) || (expectedVersion != null && expectedVersion != version)) {
                 return@synchronized AgentToolResult(callId, ToolResultContent.Text("Tool inventory changed or its version is missing; restart inventory at the first page."), true, errorCode = "STALE_INVENTORY", dispatched = false)
             }
-            val items = inventory.drop(cursor).take(12)
+            // The explicit integration preset mounts all authorized GitHub schemas at
+            // admission. Its compact inventory is listed in one bounded batch when possible.
+            val items = inventory.drop(cursor).take(if (integrationPreset) 256 else 12)
             val next = cursor + items.size
             if (listedInventoryVersion != version) {
                 listedInventoryVersion = version
@@ -341,6 +356,7 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
                             )
                         }
                         put("permissions_changed", false)
+                        put("mount_policy", if (integrationPreset) "AUTHORIZED_GITHUB_UPFRONT" else "PROGRESSIVE_WINDOW")
                         put("note", "Observations describe dispatched calls in this run, not a live probe or a guarantee of current health. Workflow links are optional evidence relationships and never grant access. Tools outside this authorized catalog are not executable.")
                     }
                 ),
@@ -360,7 +376,7 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
         }
         val explicit = names.mapNotNull(candidates::get) + listOfNotNull(exact)
         val retained = ranked(taskText).filter { it.name in active }
-        val selected = (window(explicit + pinned + found + taskRequired + retained + active.mapNotNull(candidates::get))).distinctBy { it.name }
+        val selected = ((if (integrationPreset) candidates.values.filter(::integrationTool) else emptyList()) + window(explicit + pinned + found + taskRequired + retained + active.mapNotNull(candidates::get))).distinctBy { it.name }
         active.clear()
         active.addAll(selected.map { it.name })
         val admitted = found.filter { it.name in active }

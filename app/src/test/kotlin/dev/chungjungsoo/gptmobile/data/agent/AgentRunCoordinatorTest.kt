@@ -37,6 +37,9 @@ class AgentRunCoordinatorTest {
         assertEquals(AgentRunStatus.EVIDENCE_MISSING, recoveredGatewayRunStatus(complete, true))
         assertEquals(AgentRunStatus.PARTIAL, recoveredGatewayRunStatus(partial, false))
         assertEquals(AgentRunStatus.EVIDENCE_MISSING, recoveredGatewayRunStatus(partial, true))
+        val failed = dev.chungjungsoo.gptmobile.data.network.gateway.GatewayResultDisposition.FAILED
+        assertEquals(AgentRunStatus.FAILED, recoveredGatewayRunStatus(failed, false))
+        assertEquals(AgentRunStatus.FAILED, recoveredGatewayRunStatus(failed, true))
     }
 
     @Test fun reviewInputBlockKeepsItsOwnTerminalStateAndStage() {

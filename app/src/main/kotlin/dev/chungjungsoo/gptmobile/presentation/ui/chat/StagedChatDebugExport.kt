@@ -27,6 +27,7 @@ import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
 import dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig
 import dev.chungjungsoo.gptmobile.data.research.ResearchSessionStore
 import java.io.File
+import java.io.FileOutputStream
 import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -38,7 +39,7 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.encodeToJsonElement
 import kotlinx.serialization.json.put
 
-internal fun diagnosticCaptureIdentity(chatId: Int): String = "${BuildConfig.APPLICATION_ID}:$chatId:${BuildConfig.APP_COMMIT}:staged-v2"
+internal fun diagnosticCaptureIdentity(chatId: Int): String = "${BuildConfig.APPLICATION_ID}:$chatId:${BuildConfig.APP_COMMIT}:staged-v3"
 
 /** UI snapshots are small references; history comes from bounded database/file producers. */
 internal suspend fun writeStagedChatDiagnostics(
@@ -70,7 +71,8 @@ internal suspend fun writeStagedChatDiagnostics(
                 stillAuthorized()
             },
             onSessionReady = { sessionDirectory = it },
-            resumable = !room.isTemporary
+            resumable = !room.isTemporary,
+            deferArchiveHandoff = !room.isTemporary
         )
         val maximumCharacters = if (reducedMemory) 12 * 1024 else 96 * 1024
         // A single measured source row may exceed one JSONL record; redact it once, then chunk.
@@ -83,16 +85,19 @@ internal suspend fun writeStagedChatDiagnostics(
             guard()
             stillAuthorized()
         }
-        suspend fun DiagnosticStageSink.emit(value: kotlinx.serialization.json.JsonElement, evidence: Boolean = true) {
-            authorized()
-            checkBudget()
-            val bounded = DiagnosticValueProjector(maximumSourceCharacters) { omit(it) }.element(value)
-            val redacted = redactChatDebugData(bounded, credentials).toString()
-            if (redacted.length <= maximumCharacters / 2) {
-                record(redacted, evidence)
-            } else {
-                // Escaping can expand a character six-fold; leave space for envelope metadata.
-                DiagnosticRecordChunks.encode(redacted, maximumCharacters / 8).forEach { record(it.toString(), evidence) }
+        suspend fun DiagnosticStageSink.emit(value: kotlinx.serialization.json.JsonElement, evidence: Boolean = true, projected: Boolean = false) {
+            logicalRecord {
+                authorized()
+                checkBudget()
+                // Database cells already share one bounded projector. Do not parse or expand them again.
+                val bounded = if (projected) value else DiagnosticValueProjector(maximumSourceCharacters) { omit(it) }.element(value)
+                val redacted = redactChatDebugData(bounded, credentials).toString()
+                if (redacted.length <= maximumCharacters / 2) {
+                    record(redacted, evidence)
+                } else {
+                    // Escaping can expand a character six-fold; leave space for envelope metadata.
+                    DiagnosticRecordChunks.encode(redacted, maximumCharacters / 8).forEach { record(it.toString(), evidence) }
+                }
             }
         }
         suspend fun captureLogs(sink: DiagnosticStageSink, critical: Boolean) {
@@ -145,6 +150,20 @@ internal suspend fun writeStagedChatDiagnostics(
             }
         }
         val stages = mutableListOf(
+            DiagnosticCaptureStage("latest_state", "latest-state.jsonl", refreshOnResume = true) { sink ->
+                sink.emit(
+                    buildJsonObject {
+                        put("kind", "latest_state_projection")
+                        put("scope", "Latest retained run verdict, accepted policy fragments, tool receipt, pending work, and GitHub verification/review/budget/output/task checkpoints. Full history follows in independently cursor-backed stages.")
+                        put("capturedAtMillis", System.currentTimeMillis())
+                    },
+                    evidence = false
+                )
+                database.capture(room.id, "latest_state", maximumCharacters, {
+                    authorized()
+                    sink.checkBudget()
+                }, { sink.emit(it, projected = true) }, { sink.omit(it) }, maximumSourceBytes = maximumSourceCharacters, metadata = { sink.emit(it, evidence = false, projected = true) })
+            },
             DiagnosticCaptureStage("critical_logs", "critical-app-logs.jsonl", critical = true, lowMemorySafe = true, emptyReason = "NO_RETAINED_CRITICAL_LOGS") { captureLogs(it, critical = true) },
             DiagnosticCaptureStage("capture_context", "capture-context.jsonl", lowMemorySafe = true) { sink ->
                 sink.emit(
@@ -159,6 +178,7 @@ internal suspend fun writeStagedChatDiagnostics(
                         put("representation", "Independent JSONL sections; database field names and bounded decoded storage values. Combined text is retained as durable blocks.")
                         put("consistency", "Each stage has its own timestamp and table high-watermark. Live changes and resumed stages are not a transaction snapshot.")
                         put("recordChunking", "diagnostic_record_chunk records reassemble by recordId/chunkIndex; verify each chunkSha256 and the recordSha256 over concatenated UTF-8 content before parsing JSON.")
+                        put("captureParts", "All chunks of a logical record stay in one archive part. Resume advances frozen database table cursors and references earlier archive/section digests; retain previous parts to reconstruct complete captured history.")
                         put("timelineKeys", "Journal eventId/runId/invocationId and database run_id/parentRunId/call_id join source records. Sequence orders each journal stream; stage intervals qualify cross-section comparisons.")
                         put("sourceDigests", "Record digests describe their original stored representations. Credential redaction can change text; stage file hashes certify the bytes in this export.")
                         put("logSnapshotScope", "Logs are frozen independently per log section and capture session, then retained for interrupted stages. Resume does not replace captured evidence after ring rotation. Start a new capture to collect newer logs.")
@@ -193,11 +213,11 @@ internal suspend fun writeStagedChatDiagnostics(
             }
         )
         listOf("tool_receipts", "invocations", "runs", "conversation", "workspace", "answer_segments", "combined_documents", "research_database").forEach { section ->
-            stages += DiagnosticCaptureStage(section, "${section.replace('_', '-')}.jsonl") { sink ->
+            stages += DiagnosticCaptureStage(section, "${section.replace('_', '-')}.jsonl", resumableRecords = true) { sink ->
                 database.capture(room.id, section, maximumCharacters, {
                     authorized()
                     sink.checkBudget()
-                }, { sink.emit(it) }, { sink.omit(it) }, maximumSourceBytes = maximumSourceCharacters, metadata = { sink.emit(it, evidence = false) })
+                }, { sink.emit(it, projected = true) }, { sink.omit(it) }, maximumSourceBytes = maximumSourceCharacters, metadata = { sink.emit(it, evidence = false, projected = true) }, resumeCursor = sink.resumeCursor, checkpoint = sink::checkpoint)
             }
         }
         stages += DiagnosticCaptureStage("live_messages", "live-messages.jsonl") { sink ->
@@ -338,17 +358,22 @@ internal suspend fun writeStagedChatDiagnostics(
         try {
             authorized()
             val session = if (resume && !room.isTemporary) StagedDiagnosticCapture.findResumableSession(workDirectory, identity) ?: error("No unfinished diagnostic capture is available for this conversation.") else null
-            val result = StagedDiagnosticCapture.capture(workDirectory, identity, stages, options, session)
+            if (session != null) sessionDirectory = File(workDirectory, "diagnostic-capture-checkpoints/$session")
+            val result = session?.let { StagedDiagnosticCapture.pendingArchive(workDirectory, identity, it) }
+                ?: StagedDiagnosticCapture.capture(workDirectory, identity, stages, options, session)
             authorized()
             check(destinationDirectory.mkdirs() || destinationDirectory.isDirectory)
             val destination = File(destinationDirectory, result.file.name)
             val partial = File(destinationDirectory, "${destination.name}.partial")
             try {
-                result.file.inputStream().use { source -> partial.outputStream().buffered(options.bufferBytes).use { source.copyTo(it, options.bufferBytes) } }
+                FileOutputStream(partial).use { output ->
+                    result.file.inputStream().use { source -> source.copyTo(output, options.bufferBytes) }
+                    output.fd.sync()
+                }
                 authorized()
                 check(partial.renameTo(destination)) { "Unable to publish diagnostic archive" }
                 publishedFile = destination
-                result.file.delete()
+                if (room.isTemporary) result.file.delete() else StagedDiagnosticCapture.acknowledgeArchiveHandoff(workDirectory, result)
                 result.copy(file = destination)
             } finally {
                 partial.delete()

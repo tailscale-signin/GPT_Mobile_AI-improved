@@ -1084,6 +1084,7 @@ internal const val DEFAULT_GATEWAY_RECOVERY_MAX_AGE_SECONDS = 10 * 60L
 
 /** A saved model response cannot certify GitHub acceptance or a combined synthesis. */
 internal fun recoveredGatewayRunStatus(disposition: GatewayResultDisposition, requiresVerification: Boolean): String = when {
+    disposition == GatewayResultDisposition.FAILED -> AgentRunStatus.FAILED
     requiresVerification -> AgentRunStatus.EVIDENCE_MISSING
     disposition == GatewayResultDisposition.COMPLETE -> AgentRunStatus.COMPLETED
     disposition == GatewayResultDisposition.PARTIAL -> AgentRunStatus.PARTIAL

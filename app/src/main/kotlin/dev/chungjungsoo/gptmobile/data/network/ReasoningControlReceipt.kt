@@ -14,14 +14,16 @@ data class ReasoningControlReceipt(
     val providerSupport: String
 ) {
     companion object {
-        internal fun fromPayload(payload: String, allowReasoning: Boolean): ReasoningControlReceipt {
+        internal fun fromPayload(payload: String, allowReasoning: Boolean, requestedMode: dev.chungjungsoo.gptmobile.data.context.ReasoningMode = dev.chungjungsoo.gptmobile.data.context.ReasoningMode.AUTO): ReasoningControlReceipt {
             val root = runCatching { Json.parseToJsonElement(payload) as? JsonObject }.getOrNull()
             val enabled = ((root?.get("reasoning") as? JsonObject)?.get("enabled") as? JsonPrimitive)?.booleanOrNull
-            val thinking = ((root?.get("chat_template_kwargs") as? JsonObject)?.get("enable_thinking") as? JsonPrimitive)?.booleanOrNull
+            val template = root?.get("chat_template_kwargs") as? JsonObject
+            val thinkingKey = listOf("enable_thinking", "thinking").firstOrNull { (template?.get(it) as? JsonPrimitive)?.booleanOrNull != null }
+            val thinking = (template?.get(thinkingKey) as? JsonPrimitive)?.booleanOrNull
             val effort = (root?.get("reasoning_effort") as? JsonPrimitive)?.contentOrNull?.takeIf { it in setOf("none", "minimal", "low", "medium", "high", "xhigh") }
             val control = when {
                 enabled != null -> "reasoning.enabled=$enabled"
-                thinking != null -> "chat_template_kwargs.enable_thinking=$thinking"
+                thinking != null -> "chat_template_kwargs.$thinkingKey=$thinking"
                 effort != null -> "reasoning_effort=$effort"
                 else -> null
             }
@@ -31,7 +33,7 @@ data class ReasoningControlReceipt(
                 !disables && effort != null -> "EFFORT_ONLY"
                 else -> "UNVERIFIED"
             }
-            return ReasoningControlReceipt(!allowReasoning, control, disables, support)
+            return ReasoningControlReceipt(!allowReasoning || requestedMode == dev.chungjungsoo.gptmobile.data.context.ReasoningMode.OFF, control, disables, support)
         }
     }
 }

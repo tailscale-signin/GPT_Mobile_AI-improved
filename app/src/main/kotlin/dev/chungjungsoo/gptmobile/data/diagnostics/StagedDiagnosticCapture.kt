@@ -29,6 +29,8 @@ data class DiagnosticCaptureStage(
     val critical: Boolean = false,
     val lowMemorySafe: Boolean = false,
     val emptyReason: String = "NO_RETAINED_RECORDS",
+    val resumableRecords: Boolean = false,
+    val refreshOnResume: Boolean = false,
     val capture: suspend (DiagnosticStageSink) -> Unit
 )
 
@@ -42,7 +44,8 @@ data class DiagnosticCaptureOptions(
     val memorySampler: () -> DiagnosticExportMemory = DiagnosticExportMemory::sample,
     val guard: () -> Unit = {},
     val onSessionReady: (File) -> Unit = {},
-    val resumable: Boolean = true
+    val resumable: Boolean = true,
+    val deferArchiveHandoff: Boolean = false
 ) {
     init {
         require(bufferBytes in 1024..64 * 1024 && maxRecordBytes in 1..1024 * 1024)
@@ -67,17 +70,77 @@ class DiagnosticStageSink internal constructor(
     private val output: FileOutputStream,
     private val options: DiagnosticCaptureOptions,
     private val maxBytes: Long,
-    private val minimumHeadroom: Long
+    private val minimumHeadroom: Long,
+    initialProgress: JsonObject? = null,
+    initialCursor: JsonObject? = null,
+    private val saveProgress: ((JsonObject) -> Unit)? = null
 ) {
     private val writer = BufferedWriter(OutputStreamWriter(output, Charsets.UTF_8), options.bufferBytes / 2)
-    var records: Long = 0
+    var records: Long = initialProgress?.number("records") ?: 0
         private set
-    var bytes: Long = 0
+    var bytes: Long = initialProgress?.number("bytes") ?: 0
         private set
-    var evidenceRecords: Long = 0
+    var evidenceRecords: Long = initialProgress?.number("evidenceRecords") ?: 0
         private set
-    private val omitted = linkedMapOf<String, Long>()
+    private var recordChain = initialProgress?.value("recordChainSha256") ?: DiagnosticRecordChunks.sha256("")
+    private val omitted = linkedMapOf<String, Long>().apply {
+        (initialProgress?.get("omissions") as? JsonObject)?.forEach { (key, value) ->
+            (value as? JsonPrimitive)?.content?.toLongOrNull()?.takeIf { it > 0 }?.let { put(key, it) }
+        }
+    }
     val omissions: Map<String, Long> get() = omitted.toMap()
+    var resumeCursor: JsonObject? = initialCursor ?: initialProgress?.get("cursor") as? JsonObject
+        private set
+    private var committed = progress()
+
+    /** The byte boundary and source cursor are committed together after a complete logical row. */
+    fun checkpoint(cursor: JsonObject) {
+        val saved = progress(cursor)
+        writer.flush()
+        output.fd.sync()
+        saveProgress?.invoke(saved)
+        resumeCursor = cursor
+        committed = saved
+    }
+
+    /** A multi-chunk logical record is either complete in this part or absent from it. */
+    suspend fun logicalRecord(write: suspend () -> Unit) {
+        val before = progress()
+        try {
+            write()
+        } catch (failure: Throwable) {
+            restore(before)
+            throw failure
+        }
+    }
+
+    internal fun discardUncommitted() {
+        if (saveProgress != null) restore(committed)
+    }
+
+    internal fun progress(cursor: JsonObject? = resumeCursor): JsonObject = buildJsonObject {
+        put("records", records)
+        put("bytes", bytes)
+        put("evidenceRecords", evidenceRecords)
+        put("recordChainSha256", recordChain)
+        put("omissions", JsonObject(omitted.mapValues { JsonPrimitive(it.value) }))
+        put("cursor", cursor ?: JsonNull)
+    }
+
+    private fun restore(saved: JsonObject) {
+        writer.flush()
+        bytes = requireNotNull(saved.number("bytes"))
+        output.channel.truncate(bytes)
+        output.channel.position(bytes)
+        records = requireNotNull(saved.number("records"))
+        evidenceRecords = requireNotNull(saved.number("evidenceRecords"))
+        recordChain = requireNotNull(saved.value("recordChainSha256"))
+        resumeCursor = saved["cursor"] as? JsonObject
+        omitted.clear()
+        (saved["omissions"] as? JsonObject)?.forEach { (key, value) ->
+            (value as? JsonPrimitive)?.content?.toLongOrNull()?.let { omitted[key] = it }
+        }
+    }
 
     fun omit(reason: String, count: Long = 1) {
         require(count > 0 && reason.matches(Regex("[A-Z][A-Z0-9_: -]{0,127}")))
@@ -108,6 +171,7 @@ class DiagnosticStageSink internal constructor(
         bytes += size
         records++
         if (evidence) evidenceRecords++
+        recordChain = DiagnosticRecordChunks.sha256("$recordChain:${DiagnosticRecordChunks.sha256(redactedRecord)}")
     }
 
     /** Does not use readLine, which can allocate an unbounded string for a damaged log. */
@@ -158,6 +222,9 @@ class DiagnosticStageSink internal constructor(
         }
         return bytes
     }
+
+    private fun JsonObject.value(key: String): String? = (get(key) as? JsonPrimitive)?.takeUnless { it == JsonNull }?.content
+    private fun JsonObject.number(key: String): Long? = value(key)?.toLongOrNull()
 }
 
 /** Disk checkpoints are bounded, private working artifacts. Explicit retries reuse the same source identity. */
@@ -181,27 +248,33 @@ object StagedDiagnosticCapture {
         require(options.resumable || resumeSessionId == null) { "DIAGNOSTIC_RESUME_NOT_SUPPORTED" }
         require(stages.size in 1..32 && stages.map { it.id }.distinct().size == stages.size)
         require(stages.map { it.fileName }.distinct().size == stages.size)
-        require(stages.all { safeId.matches(it.id) && safeFile.matches(it.fileName) && it.fileName !in setOf("manifest.json", "session.json") && !it.fileName.endsWith(".partial") && !it.fileName.endsWith(".receipt.json") })
+        require(stages.all { safeId.matches(it.id) && safeFile.matches(it.fileName) && it.fileName !in setOf("manifest.json", "session.json") && !it.fileName.endsWith(".partial") && !it.fileName.endsWith(".receipt.json") && !it.fileName.endsWith(".progress.json") })
         check(directory.mkdirs() || directory.isDirectory)
         val workRoot = File(directory, "diagnostic-capture-checkpoints").apply { check(mkdirs() || isDirectory) }
         pruneCheckpoints(workRoot, resumeSessionId)
         val identity = digestText(sourceIdentity)
-        val plan = digestText(stages.joinToString("\n") { "${it.id}:${it.fileName}:${it.critical}:${it.lowMemorySafe}" })
+        val plan = digestText(stages.joinToString("\n") { "${it.id}:${it.fileName}:${it.critical}:${it.lowMemorySafe}:${it.resumableRecords}:${it.refreshOnResume}" })
         val sessionId = resumeSessionId ?: UUID.randomUUID().toString()
         require(sessionPattern.matches(sessionId)) { "INVALID_DIAGNOSTIC_SESSION" }
         val session = File(workRoot, sessionId)
         require(session.canonicalFile.parentFile == workRoot.canonicalFile)
         val sessionFile = File(session, "session.json")
         val now = System.currentTimeMillis()
-        val start = if (resumeSessionId != null) {
+        val savedSession = if (resumeSessionId != null) {
             require(sessionFile.isFile) { "DIAGNOSTIC_SESSION_NOT_FOUND" }
-            val saved = readObject(sessionFile, CHECKPOINT_LIMIT)
-            require(saved.text("sourceIdentityHash") == identity && saved.text("stagePlanHash") == plan) { "DIAGNOSTIC_SOURCE_CHANGED" }
-            saved.long("startedAtMillis") ?: now
+            readObject(sessionFile, CHECKPOINT_LIMIT).also {
+                require(it.text("sourceIdentityHash") == identity && it.text("stagePlanHash") == plan) { "DIAGNOSTIC_SOURCE_CHANGED" }
+            }
         } else {
             check(session.mkdir())
-            now
+            null
         }
+        val start = savedSession?.long("startedAtMillis") ?: now
+        val published = savedSession?.get("publishedArchive") as? JsonObject
+        require(published?.get("handedOff") != JsonPrimitive(false)) { "DIAGNOSTIC_ARCHIVE_HANDOFF_PENDING" }
+        val nextPart = stages.any { it.resumableRecords } && published != null
+        val archivePart = (savedSession?.long("archivePart") ?: 1L) + if (nextPart) 1 else 0
+        val previousArchive = if (nextPart) published else savedSession?.get("previousArchive") as? JsonObject
         atomicJson(
             sessionFile,
             buildJsonObject {
@@ -212,6 +285,8 @@ object StagedDiagnosticCapture {
                 put("startedAtMillis", start)
                 put("updatedAtMillis", now)
                 put("captureCompleted", false)
+                put("archivePart", archivePart)
+                put("previousArchive", previousArchive ?: JsonNull)
             }
         )
         options.guard()
@@ -222,107 +297,8 @@ object StagedDiagnosticCapture {
         for (stage in ordered) {
             currentCoroutineContext().ensureActive()
             options.guard()
-            val existing = readReceipt(session, stage)
-            val remainingBytes = options.maxArchiveBytes - MANIFEST_LIMIT - receipts.sumOf { it.long("bytes") ?: 0 }
-            if (existing != null &&
-                existing.text("status") == "COMPLETED" &&
-                (existing.long("bytes") ?: Long.MAX_VALUE) <= minOf(options.maxStageBytes, remainingBytes) &&
-                validStageFile(session, existing)
-            ) {
-                receipts += JsonObject(existing + ("reusedCheckpoint" to JsonPrimitive(true)))
-                continue
-            }
-            val started = System.currentTimeMillis()
-            val memoryBefore = options.memorySampler()
-            val receiptFile = File(session, "${stage.id}.receipt.json")
-            val part = File(session, "${stage.fileName}.partial")
-            val destination = File(session, stage.fileName)
-            var failure: Throwable? = null
-            var sink: DiagnosticStageSink? = null
             val available = options.maxArchiveBytes - MANIFEST_LIMIT - receipts.sumOf { it.long("bytes") ?: 0 }
-            try {
-                FileOutputStream(part).use { output ->
-                    sink = DiagnosticStageSink(output, options, minOf(options.maxStageBytes, available.coerceAtLeast(0)), if (stage.critical || stage.lowMemorySafe) minOf(options.minimumHeadroomBytes, 1024L * 1024) else options.minimumHeadroomBytes)
-                    val target = requireNotNull(sink)
-                    target.checkBudget()
-                    stage.capture(target)
-                    target.finish()
-                }
-            } catch (cancelled: CancellationException) {
-                failure = cancelled
-            } catch (pressure: OutOfMemoryError) {
-                // Retain only completed records. Do not run an unbounded fallback or manufacture evidence.
-                failure = pressure
-            } catch (problem: Exception) {
-                failure = problem
-            }
-            options.guard()
-            val records = sink?.records ?: 0
-            val evidenceRecords = sink?.evidenceRecords ?: 0
-            val omissions = sink?.omissions.orEmpty()
-            val bytes = sink?.bytes ?: 0
-            if (part.isFile) {
-                java.io.RandomAccessFile(part, "rw").use { output ->
-                    output.setLength(bytes)
-                    output.fd.sync()
-                }
-                check(part.renameTo(destination)) { "DIAGNOSTIC_STAGE_PUBLISH_FAILED" }
-            } else if (destination.isFile) {
-                check(destination.delete())
-            }
-            val status = when {
-                failure == null && omissions.isNotEmpty() -> "PARTIAL"
-                failure == null && stage.critical && evidenceRecords == 0L -> "EMPTY"
-                failure == null && records > 0 -> "COMPLETED"
-                failure == null -> "EMPTY"
-                records > 0 -> "PARTIAL"
-                else -> "FAILED"
-            }
-            val reason = when (val problem = failure) {
-                null -> when {
-                    omissions.isNotEmpty() -> "RETAINED_SOURCE_OMISSIONS"
-                    records == 0L || stage.critical && evidenceRecords == 0L -> stage.emptyReason.take(128)
-                    else -> null
-                }
-                is CancellationException -> "CAPTURE_CANCELLED"
-                is OutOfMemoryError, is JavaHeapWorkDeferred -> "JAVA_HEAP_PRESSURE"
-                is DiagnosticCaptureLimit -> problem.reason
-                is IOException -> "SOURCE_IO_FAILURE"
-                else -> "SOURCE_CAPTURE_FAILURE"
-            }
-            val summary = if (destination.isFile) measure(destination, options.maxArchiveBytes) else FileMeasure(0, 0, digestText(""))
-            check(summary.bytes == bytes && summary.records == records) { "DIAGNOSTIC_STAGE_VALIDATION_FAILED" }
-            val receipt = buildJsonObject {
-                put("id", stage.id)
-                put("fileName", stage.fileName)
-                put("status", status)
-                put("collectionCompleted", failure == null)
-                put(
-                    "availability",
-                    when {
-                        failure != null && records == 0L -> "UNAVAILABLE"
-                        failure != null || omissions.isNotEmpty() -> "PARTIAL"
-                        evidenceRecords == 0L -> "EMPTY_RETAINED"
-                        else -> "AVAILABLE"
-                    }
-                )
-                put("critical", stage.critical)
-                put("records", records)
-                put("evidenceRecords", evidenceRecords)
-                put("omissions", JsonObject(omissions.mapValues { JsonPrimitive(it.value) }))
-                put("bytes", bytes)
-                put("sha256", summary.sha256)
-                put("startedAtMillis", started)
-                put("completedAtMillis", System.currentTimeMillis())
-                put("omissionReason", reason?.let(::JsonPrimitive) ?: JsonNull)
-                put("errorClass", failure?.javaClass?.simpleName?.take(96)?.let(::JsonPrimitive) ?: JsonNull)
-                put("reusedCheckpoint", false)
-                put("memoryBefore", memoryBefore.json())
-                put("memoryAfter", options.memorySampler().json())
-            }
-            atomicJson(receiptFile, receipt)
-            receipts += receipt
-            if (failure is CancellationException) throw failure
+            receipts += captureStage(session, stage, options, available.coerceAtLeast(0), archivePart, previousArchive)
         }
         val complete = receipts.all { it.text("status") in setOf("COMPLETED", "EMPTY") }
         val usefulRecords = receipts.sumOf { it.long("evidenceRecords") ?: 0 }
@@ -335,9 +311,15 @@ object StagedDiagnosticCapture {
             put("startedAtMillis", start)
             put("completedAtMillis", System.currentTimeMillis())
             put("captureCompleted", complete)
+            put("archivePart", archivePart)
+            put("previousArchive", previousArchive ?: JsonNull)
+            put("externalPartsRequired", archivePart > 1)
+            put("recordAtomicity", "A logical record and all of its chunks are retained together in one archive part. A durable source cursor advances only after their byte boundary is committed.")
+            put("continuationAvailable", options.resumable && receipts.any { it["resumableRecords"] == JsonPrimitive(true) && it["collectionCompleted"] != JsonPrimitive(true) && it["cursor"] is JsonObject })
+            put("stageBytePolicy", "Ordinary stages use maxStageBytes. Cursor-backed stages automatically stream successive bounded records within maxArchiveBytes, then continue in the next archive part; earlier parts are referenced by digest, not duplicated.")
             val completedStageCount = receipts.count { it.text("status") in setOf("COMPLETED", "EMPTY") }
             put("captureCompletionPercent", completedStageCount * 100 / receipts.size)
-            put("captureCompletionBasis", "Stages collected without omissions divided by requested stages; this is not a claim about uncaptured application history.")
+            put("captureCompletionBasis", "Stages collected or explicitly referenced without omissions divided by requested stages; this is not the percentage of application history captured. Earlier archive parts remain required where referenced.")
             put(
                 "missingEvidence",
                 JsonArray(
@@ -362,7 +344,7 @@ object StagedDiagnosticCapture {
             put(
                 "recovery",
                 when {
-                    retry && options.resumable -> "Retained stages can be resumed using this sessionId and unchanged source identity. Reduced-memory retry is available."
+                    retry && options.resumable -> "Resume with this sessionId and unchanged source identity. Cursor-backed stages export the next tail without repeating an earlier part; keep earlier archives identified by previousArchive and continuedFrom digests. Reduced-memory retry is available."
                     retry -> "This capture does not retain resumable checkpoints. Start a new reduced-memory capture to retry."
                     else -> "All requested stages reached a recorded terminal state; source completeness remains bounded by retention."
                 }
@@ -377,7 +359,7 @@ object StagedDiagnosticCapture {
         }
         val manifestFile = File(session, "manifest.json")
         atomicJson(manifestFile, manifest, MANIFEST_LIMIT)
-        val output = File(directory, "${if (retry) "partial-diagnostics" else "diagnostics"}-$sessionId-${UUID.randomUUID()}.zip")
+        val output = File(directory, "${if (retry) "partial-diagnostics" else "diagnostics"}-$sessionId-part-$archivePart-${UUID.randomUUID()}.zip")
         val zipPart = File(directory, "${output.name}.partial")
         try {
             ZipOutputStream(zipPart.outputStream().buffered(options.bufferBytes)).use { zip ->
@@ -417,9 +399,266 @@ object StagedDiagnosticCapture {
                 put("updatedAtMillis", System.currentTimeMillis())
                 put("captureCompleted", complete)
                 put("retryRecommended", retry)
+                put("archivePart", archivePart)
+                put("previousArchive", previousArchive ?: JsonNull)
+                put(
+                    "publishedArchive",
+                    buildJsonObject {
+                        put("fileName", output.name)
+                        put("sha256", binaryDigest(output))
+                        put("archivePart", archivePart)
+                        put("handedOff", !options.deferArchiveHandoff)
+                    }
+                )
             }
         )
         DiagnosticCaptureResult(output, sessionId, complete, usefulRecords, retry, manifest)
+    }
+
+    private suspend fun captureStage(
+        session: File,
+        stage: DiagnosticCaptureStage,
+        options: DiagnosticCaptureOptions,
+        available: Long,
+        archivePart: Long,
+        previousArchive: JsonObject?
+    ): JsonObject {
+        val existing = readReceipt(session, stage)
+        require(!stage.resumableRecords || archivePart == 1L || existing != null) { "DIAGNOSTIC_CONTINUATION_CHECKPOINT_INVALID" }
+        val olderPart = existing != null && (existing.long("archivePart") ?: 1) < archivePart
+        val sourceReference = existing?.get("sourceReference") as? JsonObject ?: if (
+            stage.resumableRecords && olderPart && existing["collectionCompleted"] == JsonPrimitive(true)
+        ) {
+            stageReference(requireNotNull(existing), requireNotNull(previousArchive))
+        } else {
+            null
+        }
+        val limit = if (stage.resumableRecords) available else minOf(options.maxStageBytes, available)
+        if (!stage.refreshOnResume &&
+            sourceReference == null &&
+            existing != null &&
+            existing.text("status") == "COMPLETED" &&
+            (!stage.resumableRecords || !olderPart) &&
+            (existing.long("bytes") ?: Long.MAX_VALUE) <= limit &&
+            validStageFile(session, existing)
+        ) {
+            return JsonObject(existing + ("reusedCheckpoint" to JsonPrimitive(true)))
+        }
+        val started = System.currentTimeMillis()
+        val memoryBefore = options.memorySampler()
+        val progressFile = File(session, "${stage.id}.progress.json")
+        val receiptFile = File(session, "${stage.id}.receipt.json")
+        val part = File(session, "${stage.fileName}.partial")
+        val destination = File(session, stage.fileName)
+        val progress = if (stage.resumableRecords && !stage.refreshOnResume) {
+            runCatching { readObject(progressFile, CHECKPOINT_LIMIT) }.getOrNull()?.takeIf {
+                it.long("archivePart") == archivePart &&
+                    it.text("id") == stage.id &&
+                    it["cursor"] is JsonObject &&
+                    validProgressFile(if (part.isFile) part else destination, it)
+            }
+        } else {
+            null
+        }
+        // An unpublished committed prefix has no external archive to reference yet.
+        // Preserve it when a smaller retry cannot hold it, rather than restarting its source.
+        require(progress == null || (progress.long("bytes") ?: Long.MAX_VALUE) <= limit) { "DIAGNOSTIC_RESUME_BUDGET_TOO_SMALL" }
+        val initialCursor = progress?.get("cursor") as? JsonObject ?: if (stage.resumableRecords && olderPart) existing["cursor"] as? JsonObject else null
+        val continuedFrom = progress?.get("continuedFrom") as? JsonObject ?: if (stage.resumableRecords && olderPart) {
+            stageReference(requireNotNull(existing), requireNotNull(previousArchive))
+        } else {
+            null
+        }
+        if (progress != null) {
+            if (!part.isFile) check(destination.renameTo(part)) { "DIAGNOSTIC_CHECKPOINT_RESUME_FAILED" }
+            java.io.RandomAccessFile(part, "rw").use { it.setLength(requireNotNull(progress.long("bytes"))) }
+        }
+        var failure: Throwable? = null
+        var sink: DiagnosticStageSink? = null
+        try {
+            FileOutputStream(part, progress != null).use { output ->
+                sink = DiagnosticStageSink(
+                    output,
+                    options,
+                    limit,
+                    if (stage.critical || stage.lowMemorySafe) minOf(options.minimumHeadroomBytes, 1024L * 1024) else options.minimumHeadroomBytes,
+                    progress,
+                    initialCursor,
+                    if (stage.resumableRecords) {
+                        { state ->
+                            atomicJson(
+                                progressFile,
+                                JsonObject(
+                                    state + mapOf(
+                                        "id" to JsonPrimitive(stage.id),
+                                        "archivePart" to JsonPrimitive(archivePart),
+                                        "continuedFrom" to (continuedFrom ?: JsonNull)
+                                    )
+                                )
+                            )
+                        }
+                    } else {
+                        null
+                    }
+                )
+                val target = requireNotNull(sink)
+                try {
+                    if (initialCursor != null && progress == null) {
+                        (existing?.get("omissions") as? JsonObject)?.forEach { (reason, count) ->
+                            (count as? JsonPrimitive)?.content?.toLongOrNull()?.takeIf { it > 0 }?.let { target.omit(reason, it) }
+                        }
+                        target.checkpoint(initialCursor)
+                    }
+                    target.checkBudget()
+                    if (sourceReference != null) {
+                        target.note(
+                            buildJsonObject {
+                                put("kind", "diagnostic_stage_reference")
+                                put("source", sourceReference)
+                                put("meaning", "This completed source stage is in the identified earlier archive part; its payload is not duplicated here.")
+                            }.toString()
+                        )
+                        initialCursor?.let(target::checkpoint)
+                    } else {
+                        stage.capture(target)
+                    }
+                } catch (problem: Throwable) {
+                    target.discardUncommitted()
+                    throw problem
+                } finally {
+                    target.finish()
+                }
+            }
+        } catch (cancelled: CancellationException) {
+            failure = cancelled
+        } catch (pressure: OutOfMemoryError) {
+            failure = pressure
+        } catch (problem: Exception) {
+            failure = problem
+        }
+        options.guard()
+        val records = sink?.records ?: 0
+        val evidenceRecords = sink?.evidenceRecords ?: 0
+        val omissions = sink?.omissions.orEmpty()
+        val bytes = sink?.bytes ?: 0
+        if (part.isFile) {
+            java.io.RandomAccessFile(part, "rw").use { output ->
+                output.setLength(bytes)
+                output.fd.sync()
+            }
+            check(part.renameTo(destination)) { "DIAGNOSTIC_STAGE_PUBLISH_FAILED" }
+        } else if (destination.isFile) {
+            check(destination.delete())
+        }
+        val status = when {
+            failure == null && sourceReference != null -> existing?.text("status") ?: "COMPLETED"
+            failure == null && omissions.isNotEmpty() -> "PARTIAL"
+            failure == null && stage.critical && evidenceRecords == 0L -> "EMPTY"
+            failure == null && records > 0 -> "COMPLETED"
+            failure == null -> "EMPTY"
+            records > 0 -> "PARTIAL"
+            else -> "FAILED"
+        }
+        val reason = when (val problem = failure) {
+            null -> when {
+                sourceReference != null -> existing?.text("omissionReason")
+                omissions.isNotEmpty() -> "RETAINED_SOURCE_OMISSIONS"
+                records == 0L || stage.critical && evidenceRecords == 0L -> stage.emptyReason.take(128)
+                else -> null
+            }
+            is CancellationException -> "CAPTURE_CANCELLED"
+            is OutOfMemoryError, is JavaHeapWorkDeferred -> "JAVA_HEAP_PRESSURE"
+            is DiagnosticCaptureLimit -> problem.reason
+            is IOException -> "SOURCE_IO_FAILURE"
+            else -> "SOURCE_CAPTURE_FAILURE"
+        }
+        val summary = if (destination.isFile) measure(destination, options.maxArchiveBytes) else FileMeasure(0, 0, digestText(""))
+        check(summary.bytes == bytes && summary.records == records) { "DIAGNOSTIC_STAGE_VALIDATION_FAILED" }
+        val receipt = buildJsonObject {
+            put("id", stage.id)
+            put("fileName", stage.fileName)
+            put("status", status)
+            put("collectionCompleted", failure == null)
+            put(
+                "availability",
+                if (failure != null || omissions.isNotEmpty()) if (records == 0L) "UNAVAILABLE" else "PARTIAL" else if (sourceReference != null) {
+                    "REFERENCED"
+                } else if (evidenceRecords == 0L) {
+                    "EMPTY_RETAINED"
+                } else {
+                    "AVAILABLE"
+                }
+            )
+            put("critical", stage.critical)
+            put("records", records)
+            put("evidenceRecords", evidenceRecords)
+            put("omissions", JsonObject(omissions.mapValues { JsonPrimitive(it.value) }))
+            put("bytes", bytes)
+            put("sha256", summary.sha256)
+            put("recordChainSha256", summary.recordChainSha256)
+            put("startedAtMillis", started)
+            put("completedAtMillis", System.currentTimeMillis())
+            put("omissionReason", reason?.let(::JsonPrimitive) ?: JsonNull)
+            put("errorClass", failure?.javaClass?.simpleName?.take(96)?.let(::JsonPrimitive) ?: JsonNull)
+            put("reusedCheckpoint", progress != null)
+            put("archivePart", archivePart)
+            put("resumableRecords", stage.resumableRecords)
+            put("cursor", sink?.resumeCursor ?: initialCursor ?: JsonNull)
+            put("continuedFrom", continuedFrom ?: JsonNull)
+            put("sourceReference", sourceReference ?: JsonNull)
+            put("memoryBefore", memoryBefore.json())
+            put("memoryAfter", options.memorySampler().json())
+        }
+        atomicJson(receiptFile, receipt)
+        if (failure is CancellationException) throw failure
+        return receipt
+    }
+
+    private fun stageReference(receipt: JsonObject, archive: JsonObject): JsonObject = buildJsonObject {
+        put("archive", archive)
+        put("stage", receipt["id"] ?: JsonNull)
+        put("fileName", receipt["fileName"] ?: JsonNull)
+        put("sha256", receipt["sha256"] ?: JsonNull)
+        put("records", receipt["records"] ?: JsonNull)
+        put("bytes", receipt["bytes"] ?: JsonNull)
+        put("omissions", receipt["omissions"] ?: JsonObject(emptyMap()))
+    }
+
+    /** A failed copy/share preparation must deliver its existing part before advancing source cursors. */
+    fun pendingArchive(directory: File, sourceIdentity: String, sessionId: String): DiagnosticCaptureResult? {
+        require(sessionPattern.matches(sessionId)) { "INVALID_DIAGNOSTIC_SESSION" }
+        val session = File(directory, "diagnostic-capture-checkpoints/$sessionId")
+        val saved = readObject(File(session, "session.json"), CHECKPOINT_LIMIT)
+        require(saved.text("sourceIdentityHash") == digestText(sourceIdentity)) { "DIAGNOSTIC_SOURCE_CHANGED" }
+        val published = saved["publishedArchive"] as? JsonObject ?: return null
+        if (published["handedOff"] != JsonPrimitive(false)) return null
+        val name = requireNotNull(published.text("fileName"))
+        require(name == File(name).name && name.endsWith(".zip") && sessionId in name) { "INVALID_DIAGNOSTIC_ARCHIVE" }
+        val archive = File(directory, name)
+        require(archive.isFile && archive.canonicalFile.parentFile == directory.canonicalFile) { "DIAGNOSTIC_PENDING_ARCHIVE_UNAVAILABLE" }
+        require(archive.length() in 1..256L * 1024 * 1024) { "DIAGNOSTIC_ARCHIVE_BYTE_LIMIT" }
+        require(binaryDigest(archive) == published.text("sha256")) { "DIAGNOSTIC_PENDING_ARCHIVE_CORRUPT" }
+        val manifest = verify(archive, 256L * 1024 * 1024)
+        require(manifest.text("sessionId") == sessionId && manifest.text("sourceIdentityHash") == saved.text("sourceIdentityHash")) { "DIAGNOSTIC_SOURCE_CHANGED" }
+        return DiagnosticCaptureResult(
+            archive,
+            sessionId,
+            manifest["captureCompleted"] == JsonPrimitive(true),
+            requireNotNull(manifest.long("usefulRecords")),
+            manifest["retryRecommended"] == JsonPrimitive(true),
+            manifest
+        )
+    }
+
+    /** Call only after the archive is durable at the user-facing export destination. */
+    fun acknowledgeArchiveHandoff(directory: File, result: DiagnosticCaptureResult) {
+        require(sessionPattern.matches(result.sessionId)) { "INVALID_DIAGNOSTIC_SESSION" }
+        val sessionFile = File(directory, "diagnostic-capture-checkpoints/${result.sessionId}/session.json")
+        val saved = readObject(sessionFile, CHECKPOINT_LIMIT)
+        val published = requireNotNull(saved["publishedArchive"] as? JsonObject)
+        require(published.text("fileName") == result.file.name && saved.text("sourceIdentityHash") == result.manifest.text("sourceIdentityHash")) { "DIAGNOSTIC_ARCHIVE_HANDOFF_CHANGED" }
+        atomicJson(sessionFile, JsonObject(saved + ("publishedArchive" to JsonObject(published + ("handedOff" to JsonPrimitive(true))))))
+        result.file.delete()
     }
 
     fun findResumableSession(directory: File, sourceIdentity: String): String? {
@@ -428,7 +667,10 @@ object StagedDiagnosticCapture {
             .filter { it.isDirectory && sessionPattern.matches(it.name) }
             .mapNotNull { folder ->
                 runCatching { readObject(File(folder, "session.json"), CHECKPOINT_LIMIT) }.getOrNull()
-                    ?.takeIf { it.text("sourceIdentityHash") == expected && (it["captureCompleted"] != JsonPrimitive(true) || it["retryRecommended"] == JsonPrimitive(true)) }
+                    ?.takeIf {
+                        it.text("sourceIdentityHash") == expected &&
+                            (it["captureCompleted"] != JsonPrimitive(true) || it["retryRecommended"] == JsonPrimitive(true) || (it["publishedArchive"] as? JsonObject)?.get("handedOff") == JsonPrimitive(false))
+                    }
                     ?.let { folder.name to (it.long("updatedAtMillis") ?: 0) }
             }.maxByOrNull { it.second }?.first
     }
@@ -511,6 +753,15 @@ object StagedDiagnosticCapture {
         measured.bytes == row.long("bytes") && measured.records == row.long("records") && measured.sha256 == row.text("sha256")
     }.getOrDefault(false)
 
+    private fun validProgressFile(file: File, progress: JsonObject): Boolean = runCatching {
+        val bytes = requireNotNull(progress.long("bytes"))
+        val records = requireNotNull(progress.long("records"))
+        val evidence = requireNotNull(progress.long("evidenceRecords"))
+        require(bytes in 0..256L * 1024 * 1024 && records >= 0 && evidence in 0..records && file.length() >= bytes)
+        val measured = file.inputStream().use { measure(it, bytes, stopAfter = bytes) }
+        measured.bytes == bytes && measured.records == records && measured.recordChainSha256 == progress.text("recordChainSha256")
+    }.getOrDefault(false)
+
     private fun readObject(file: File, limit: Int): JsonObject = file.inputStream().use { Json.parseToJsonElement(readBounded(it, limit).decodeToString(throwOnInvalidSequence = true)).jsonObject }
 
     private fun atomicJson(file: File, data: JsonObject, limit: Int = CHECKPOINT_LIMIT) {
@@ -529,27 +780,51 @@ object StagedDiagnosticCapture {
         }
     }
 
-    private data class FileMeasure(val bytes: Long, val records: Long, val sha256: String)
+    private data class FileMeasure(val bytes: Long, val records: Long, val sha256: String, val recordChainSha256: String = digestText(""))
 
     private fun measure(file: File, limit: Long): FileMeasure = file.inputStream().use { measure(it, limit) }
 
-    private fun measure(input: java.io.InputStream, limit: Long): FileMeasure {
+    private fun measure(input: java.io.InputStream, limit: Long, stopAfter: Long? = null): FileMeasure {
         val digest = MessageDigest.getInstance("SHA-256")
+        val lineDigest = MessageDigest.getInstance("SHA-256")
+        var chain = digestText("")
         val buffer = ByteArray(8192)
         var bytes = 0L
         var records = 0L
         var last = -1
         while (true) {
-            val count = input.read(buffer)
+            if (stopAfter != null && bytes == stopAfter) break
+            val requested = stopAfter?.let { minOf(buffer.size.toLong(), it - bytes).toInt() } ?: buffer.size
+            val count = input.read(buffer, 0, requested)
             if (count < 0) break
             bytes += count
             require(bytes <= limit) { "DIAGNOSTIC_ARCHIVE_BYTE_LIMIT" }
             digest.update(buffer, 0, count)
-            for (index in 0 until count) if (buffer[index] == '\n'.code.toByte()) records++
+            var lineStart = 0
+            for (index in 0 until count) {
+                if (buffer[index] == '\n'.code.toByte()) {
+                    lineDigest.update(buffer, lineStart, index - lineStart)
+                    chain = digestText("$chain:${hex(lineDigest.digest())}")
+                    records++
+                    lineStart = index + 1
+                }
+            }
+            if (lineStart < count) lineDigest.update(buffer, lineStart, count - lineStart)
             if (count > 0) last = buffer[count - 1].toInt()
         }
         require(bytes == 0L || last == '\n'.code) { "INCOMPLETE_DIAGNOSTIC_RECORD" }
-        return FileMeasure(bytes, records, hex(digest.digest()))
+        return FileMeasure(bytes, records, hex(digest.digest()), chain)
+    }
+
+    private fun binaryDigest(file: File): String = file.inputStream().use { input ->
+        val digest = MessageDigest.getInstance("SHA-256")
+        val buffer = ByteArray(8192)
+        while (true) {
+            val count = input.read(buffer)
+            if (count < 0) break
+            digest.update(buffer, 0, count)
+        }
+        hex(digest.digest())
     }
 
     private fun readBounded(input: java.io.InputStream, limit: Int): ByteArray {

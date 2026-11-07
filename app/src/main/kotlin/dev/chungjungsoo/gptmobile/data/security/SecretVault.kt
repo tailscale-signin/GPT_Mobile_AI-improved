@@ -10,6 +10,7 @@ import java.io.File
 import java.io.FileNotFoundException
 import java.nio.ByteBuffer
 import java.security.KeyStore
+import java.security.MessageDigest
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
@@ -28,6 +29,13 @@ interface SecretVault {
 
     /** Physical bytes for retention accounting; null means an implementation has no metadata. */
     suspend fun storedSize(secretRef: String): Long? = null
+
+    /**
+     * Opaque identity of the encrypted record, stable across process restarts and changed by
+     * replacement. This is neither a credential-validity proof nor a plaintext fingerprint.
+     * Null means missing or unsupported. Callers requiring an identity must fail closed.
+     */
+    suspend fun recordRevision(secretRef: String): String? = null
 }
 
 class SecretVaultException(message: String, cause: Throwable? = null) : Exception(message, cause)
@@ -81,30 +89,8 @@ class AndroidSecretVault private constructor(
         requireValidReference(secretRef)
 
         mutex.withLock {
-            val atomicFile = AtomicFile(recordFile(secretRef))
-
             try {
-                val record = try {
-                    atomicFile.openRead().use { input ->
-                        val length = input.channel.size()
-                        if (length !in MIN_RECORD_BYTES.toLong()..MAX_RECORD_BYTES.toLong()) {
-                            throw SecretVaultException("Credential record is invalid.")
-                        }
-                        val bytes = ByteArray(length.toInt())
-                        var offset = 0
-                        while (offset < bytes.size) {
-                            val count = input.read(bytes, offset, bytes.size - offset)
-                            if (count < 0) {
-                                bytes.fill(0)
-                                throw SecretVaultException("Credential record is incomplete.")
-                            }
-                            offset += count
-                        }
-                        bytes
-                    }
-                } catch (_: FileNotFoundException) {
-                    return@withLock null
-                }
+                val record = readRecord(secretRef) ?: return@withLock null
                 try {
                     val (iv, ciphertextOffset) = decodeRecord(record)
                     try {
@@ -154,6 +140,26 @@ class AndroidSecretVault private constructor(
                 AtomicFile(recordFile(secretRef)).openRead().use { it.channel.size() }
             } catch (_: FileNotFoundException) {
                 null
+            }
+        }
+    }
+
+    override suspend fun recordRevision(secretRef: String): String? = withContext(Dispatchers.IO) {
+        requireValidReference(secretRef)
+        mutex.withLock {
+            try {
+                val record = readRecord(secretRef) ?: return@withLock null
+                try {
+                    // Validate the bounded framing without decrypting or consulting/creating a key.
+                    decodeRecord(record).first.fill(0)
+                    MessageDigest.getInstance("SHA-256").digest(record).joinToString("") { "%02x".format(it) }
+                } finally {
+                    record.fill(0)
+                }
+            } catch (error: SecretVaultException) {
+                throw error
+            } catch (error: Exception) {
+                throw SecretVaultException("Unable to inspect the credential record.", error)
             }
         }
     }
@@ -211,6 +217,30 @@ class AndroidSecretVault private constructor(
         } finally {
             record.fill(0)
         }
+    }
+
+    private fun readRecord(secretRef: String): ByteArray? = try {
+        AtomicFile(recordFile(secretRef)).openRead().use { input ->
+            val length = input.channel.size()
+            if (length !in MIN_RECORD_BYTES.toLong()..MAX_RECORD_BYTES.toLong()) {
+                throw SecretVaultException("Credential record is invalid.")
+            }
+            val bytes = ByteArray(length.toInt())
+            try {
+                var offset = 0
+                while (offset < bytes.size) {
+                    val count = input.read(bytes, offset, bytes.size - offset)
+                    if (count <= 0) throw SecretVaultException("Credential record is incomplete.")
+                    offset += count
+                }
+                bytes
+            } catch (error: Exception) {
+                bytes.fill(0)
+                throw error
+            }
+        }
+    } catch (_: FileNotFoundException) {
+        null
     }
 
     private fun decodeRecord(record: ByteArray): Pair<ByteArray, Int> {

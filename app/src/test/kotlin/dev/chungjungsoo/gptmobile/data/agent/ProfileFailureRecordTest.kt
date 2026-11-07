@@ -6,6 +6,23 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ProfileFailureRecordTest {
+    @Test fun taskVerificationNeverCreatesProviderRetryOrCooldownEligibility() {
+        for (code in listOf("GITHUB_TASK_INCOMPLETE", "GITHUB_EVIDENCE_REQUIRED", "GITHUB_EVIDENCE_RETENTION_INCOMPLETE", "REPLAY_EVIDENCE_REQUIRED")) {
+            val failure = ProfileFailureRecord.fromProvider("Retained task evidence mentions a prior HTTP 429; cooldown remaining: 60000", code)
+            assertTrue(failure.isTaskVerification)
+            assertFalse(failure.retryAllowed)
+            assertEquals(null, failure.retryAfterMillis)
+            val task = requireNotNull(TaskVerificationFailure.from(failure))
+            val restored = kotlinx.serialization.json.Json.decodeFromString<TaskVerificationFailure>(kotlinx.serialization.json.Json.encodeToString(TaskVerificationFailure.serializer(), task))
+            assertEquals(failure.category, restored.category)
+            assertEquals("verification", restored.phase)
+        }
+        val uncertain = ProfileFailureRecord.fromProvider("TOOL_OUTCOME_UNKNOWN: reconcile the submitted mutation", "GITHUB_TASK_INCOMPLETE")
+        assertEquals(null, TaskVerificationFailure.from(uncertain))
+        assertEquals("TOOL_OUTCOME_UNKNOWN", uncertain.category)
+        assertFalse(uncertain.retryAllowed)
+    }
+
     @Test fun gatewayContractReceiptsRetainStageAndDoNotBecomeRetryableConnectionFailures() {
         val details = kotlinx.serialization.json.Json.parseToJsonElement("""{"failed_stage":"tool_continuation","dispatch_state":"not_dispatched","retryable":false}""") as kotlinx.serialization.json.JsonObject
         val failure = ProfileFailureRecord.fromProvider("The saved connection needs tool results", "client_tool_results_required", details)

@@ -14,8 +14,18 @@ class AssistantResponsePresentationTest {
     }
 
     @Test fun renderingUsesBoundedPagesBeforeTheDurableStorageLimit() {
-        assertFalse(requiresPagedAssistantResponse(8192))
-        assertTrue(requiresPagedAssistantResponse(8193))
+        assertFalse(requiresPagedAssistantResponse(4096))
+        assertTrue(requiresPagedAssistantResponse(4097))
+        assertTrue(requiresPagedAssistantResponse(5892))
         assertTrue(requiresPagedAssistantResponse(32_768))
+    }
+
+    @Test fun completedReportUsesSmallerVisualPagesWithoutDroppingTextOrChangingStoragePages() {
+        val report = ("## Verified evidence\n\nA measured result with a complete receipt.\n\n".repeat(100)).take(5892)
+        val frames = dev.chungjungsoo.gptmobile.data.agent.CombinedMarkdownPaging.frames(report, ASSISTANT_RENDER_PAGE_CHARACTERS).toList()
+        assertTrue(frames.size >= 3)
+        assertTrue(frames.all { it.end - it.start <= ASSISTANT_RENDER_PAGE_CHARACTERS })
+        assertEquals(report, frames.joinToString("") { report.substring(it.start, it.end) })
+        assertEquals(1, dev.chungjungsoo.gptmobile.data.agent.CombinedPayload.pages(report).count())
     }
 }

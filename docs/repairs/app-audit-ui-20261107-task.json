@@ -1,0 +1,115 @@
+{
+  "schema": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "fix/diagnostic-remediation-8597579-2026-11-07",
+  "base_sha": "c980ad3b4c13f8d9dd8bb4b5a393f4263d3b197f",
+  "parent_pr": 811,
+  "working_branch": "work/app-audit-ui-20261107",
+  "integration_branch": "feat/comprehensive-app-benchmark-2026-11-07",
+  "intent": "Integrate comprehensive app and plugin audit controls, truthful measured score and frozen-plan coverage, per-category evidence, cancellation and recoverable export into the existing Performance lab without requiring an AI model profile.",
+  "state": "FOCUSED_VALIDATED_PENDING_FULL_ANDROID_CI",
+  "owned_paths": [
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/common/BenchmarkExecutionStatus.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/BenchmarkControls.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/BenchmarkExportArtifactStore.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/BenchmarkResultPresentation.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ProfileBenchmarkScreen.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ProfileBenchmarkViewModel.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/BenchmarkExportArtifactStoreTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/BenchmarkResultPresentationTest.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/AppAuditContent.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/AppAuditPresentation.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/AppAuditContentTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/AppAuditIdentityExportTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/AppAuditPresentationTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/AppAuditTestFixtures.kt"
+  ],
+  "constraints": [
+    "Core and probe contracts owned by other agents; no parallel store, runner, foreground service or plugin mechanism.",
+    "No change to existing model benchmark score populations.",
+    "Show score denominator and exercised/planned coverage together; retain all untested, unavailable and canceled results.",
+    "No private endpoint, credential or raw provider payload in audit export.",
+    "No remote mutations; parent integrates and publishes."
+  ],
+  "validation": {
+    "focused": "PASS: 24 actual-source JUnit cases, no adapters: 8 audit presentation/identity cases + 16 existing and extended bounded export/artifact/destination cases. Assertions and coroutine stacktrace recovery enabled. Input hashes still match after final ktlint/canonical run.",
+    "privacy_integration": "PASS: 1 actual-writer behavior case; display-only private name, raw UID and config fingerprint are absent from audit JSON; the exported target alias matches UI. Uses the gateway agent production jar SHA256 04e269c38a5cc65ffaee0489eb0d9ee18ee458cb90b8c4adaf85fb25ae17685e with its source-hashed actual writer/catalogue/gate. Subsequent upstream changes only raise inventory/export count caps and require exact combined Android CI.",
+    "compose_api_compile": "PASS: new audit cards/presentation plus actual audit models and BenchmarkBatch lifecycle predicates compile with repository-checksum-verified Compose 1.12.1, Material3 1.4.0 and Kotlin Compose compiler 2.4.20. Compile-only boundaries: Android Parcelable and unused profile/delegation/benchmark DTOs; exact mode/date declarations copied from production. No Android rendering claimed.",
+    "android_cases": "Written, awaiting full-app Android CI: 9 Robolectric audit UI cases for navigation, no-profile start, explicit network option, duplicate-start guard, removed targets, partial results/export, stop/resume, cached evidence/unknown duration and current-name changes; plus 1 model-score population regression.",
+    "canonical_fast": "PASS: bash scripts/validate-local.sh fast, 387 Python tests and CI/dependency/secret/regex/resource/icon/provenance checks. Inventory regenerated against the final UI + core worktree for this check, then restored and excluded from UI commit per parent ownership.",
+    "ktlint": "PASS: ktlint 1.3.1 on all changed Kotlin production/test files.",
+    "dex_inspection": "PASS for the actual-source gateway audit jar above: 103 production AppAudit classes, 900 methods; largest writer continuation 2052 code units, services.inventory 2028. Pinned D8 9.4.24; unchanged repository parser with an inspection-only AppAudit class filter, compared with unchanged exclusive 16383 limit. No repository gate/dependency edits; does not replace packaged-APK validation.",
+    "limits": "No local Android SDK, emulator, physical device or private service access. Full-app compilation, Compose execution, packaged APK checks and runtime performance remain for exact-head Android CI."
+  },
+  "private_diagnostics_committed": false,
+  "task_store": "engineering_agent_checkpoints",
+  "recorded_at_utc": "2026-11-07T14:33:47.098475+00:00",
+  "dependency_commits": {
+    "audit_contract": "e5212d8b501f3e809434dde9a701a500b6e3b16c",
+    "source_inventory": "acc16c7075e1fecad875a4440cf043f4e46e665c",
+    "frozen_source_and_fixture_identity": "325f8b0fb90b8f0d3155301ceef54d8c5447b216",
+    "unknown_duration": "bed29798a8418e24bcf4a8df317bbd322e7f710a",
+    "durable_runner": "2463af00397d76c80d60fb5f865f3defd45e6a11"
+  },
+  "plugin_contract": "AppAuditAliases.appAuditTargetAliases; AppAuditPluginServices.appAuditGatewayProfileEligible; suspend writeAppAuditExport(OutputStream,BenchmarkBatch,InputStream?). Parent integrates the plugin source commit separately.",
+  "implementation": [
+    "Always-visible App audit navigation before any selected-model guard.",
+    "Existing coordinator/foreground execution owns preparation, cancellation, resume and retained batch lifecycle; no new worker/store.",
+    "Measured weighted score appears with frozen-plan exercised/verified-pass coverage and every outcome category.",
+    "Stable per-run target aliases and display-only current saved names resolve by exact typed UID; renames/removals never rewrite evidence or route to another connection.",
+    "Audit-only allowlisted export uses the existing bounded hash-verified private artifact and SAF save/retry lifecycle; legacy receipts remain readable.",
+    "Model benchmark score populations exclude APP_AUDIT."
+  ],
+  "remote_recheck": {
+    "parent_pr": 811,
+    "head": "c980ad3b4c13f8d9dd8bb4b5a393f4263d3b197f",
+    "base": "91dfce15bc481c4bbdb088bcadd28489436dbb1b",
+    "state": "open",
+    "merged": false
+  },
+  "evidence_directory": "/workspace/scratch/22f000a845c8/app-audit-ui-host",
+  "updated_at_utc": "2026-11-07T15:15:54.700941+00:00",
+  "ci_followups": [
+    {
+      "base_sha": "0dec13431c7639a6206e6f92e029f5fe8ce7cd17",
+      "base_branch": "feat/comprehensive-app-benchmark-2026-11-07",
+      "parent_pr": 812,
+      "working_branch": "work/app-audit-compose-ci-20261107",
+      "intent": "Repair only AppAuditContentTest's pinned Compose v1 dispatcher, snapshot synchronization and bounded test-container scrolling; retain all behavior assertions.",
+      "failure_evidence": {
+        "workflow_run": 42389318283,
+        "job": 128453339064,
+        "suite": "AppAuditContentTest",
+        "cases": 9,
+        "passed": 6,
+        "failed": 3,
+        "observed": "Current saved-name assertion failed; stop test exhausted the heap while coroutine test events accumulated, followed by a second OOM. Other suites later reported OOM failures; causal attribution of those later failures remains for fresh CI."
+      },
+      "pinned_source_contract": "Compose ui-test-junit4-android 1.12.1 v1 rule sets useStandardTestDispatcherForComposition=false. The idling resource only runs queued current tasks when that support is true; v1's default is UnconfinedTestDispatcher. performScrollTo repeats asynchronous ScrollBy actions until layout moves.",
+      "changes": [
+        "Use the v1 rule's supported default dispatcher.",
+        "Publish renamed/removed name state with explicit waitForIdle after runOnIdle writes.",
+        "Measure the known test container and target once; dispatchRawDelta once, wait for layout and assertIsDisplayed before the unchanged interactions."
+      ],
+      "validation": {
+        "original_assertions": "All nine method names and 41 original assertion lines retained; one displayed assertion added in the bounded scroll helper.",
+        "host_reproduction": "Same two behavior expectations: original dispatcher/scroll pattern fails 2/2 (stale original name; scroll=0, 8 attempts and 8 pending jobs); corrected setup passes 2/2 in 0.556 seconds (rename/removal retains target-1, scroll=600 after one movement with zero queued actions).",
+        "actual_runtime": "Checksum-verified Compose runtime/ui-test/foundation/runtime-saveable 1.12.1, actual Recomposer, ApplyingContinuationInterceptor, TestMonotonicFrameClock, AbstractMainTestClock, ScrollState and unchanged production AppAuditPresentation/models.",
+        "host_limits": "JVM host probe; Android trace/Looper/Parcelable adapters and pinned v1 idling predicate without Android view tree. No actual Robolectric AppAuditContentTest execution or rendering is claimed.",
+        "ktlint": "PASS: ktlint 1.3.1 on the one changed test file.",
+        "canonical": "Parent runs final canonical integration checks; no duplicate broad run.",
+        "android": "Pending fresh corrected-head full Android CI; first-head failures remain historical evidence."
+      },
+      "candidate_test_sha256": "2ee252f27db1b4ced89bb121300e4bd2ad12960950848cf0de13e6b5ca0054b9",
+      "evidence_directory": "/workspace/scratch/22f000a845c8/app-audit-ui-ci-host",
+      "source_archive": {
+        "url": "https://dl.google.com/dl/android/maven2/androidx/compose/ui/ui-test-junit4-android/1.12.1/ui-test-junit4-android-1.12.1-sources.jar",
+        "sha256": "539a431371af2ac92028ec061b29cc371f96197cd4fd9a5ab1291698f2440313"
+      },
+      "production_changes": false,
+      "timeout_heap_dependency_gate_changes": false,
+      "remote_mutations": false,
+      "recorded_at_utc": "2026-11-07T16:43:53.581Z"
+    }
+  ]
+}

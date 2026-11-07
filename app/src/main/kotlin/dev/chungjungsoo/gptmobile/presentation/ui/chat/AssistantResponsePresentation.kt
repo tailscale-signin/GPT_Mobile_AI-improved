@@ -1,7 +1,10 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
 /** Rendering has a smaller work budget than durable inline storage. No answer bytes are discarded. */
-internal const val INLINE_RESPONSE_RENDER_CHARACTERS = 8192
+internal const val INLINE_RESPONSE_RENDER_CHARACTERS = 4096
+
+/** UI pages remain smaller than durable storage pages, preserving the complete answer. */
+internal const val ASSISTANT_RENDER_PAGE_CHARACTERS = 2048
 
 internal fun requiresPagedAssistantResponse(characters: Int): Boolean = characters > INLINE_RESPONSE_RENDER_CHARACTERS
 

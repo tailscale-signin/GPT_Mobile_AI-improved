@@ -8,7 +8,10 @@ import java.util.UUID
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertArrayEquals
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -35,6 +38,10 @@ class SecretVaultInstrumentedTest {
         val second = "replacement-secret".encodeToByteArray()
 
         vault.put(secretRef, first)
+        val firstRevision = vault.recordRevision(secretRef)
+        assertNotNull(firstRevision)
+        assertTrue(requireNotNull(firstRevision).matches(Regex("[a-f0-9]{64}")))
+        assertEquals(firstRevision, AndroidSecretVault(context, keyAlias, directoryName).recordRevision(secretRef))
 
         assertArrayEquals(first, vault.read(secretRef))
         assertTrue(File(context.noBackupFilesDir, "$directoryName/$secretRef.vault").isFile)
@@ -42,15 +49,23 @@ class SecretVaultInstrumentedTest {
 
         vault.put(secretRef, second)
         assertArrayEquals(second, vault.read(secretRef))
+        val secondRevision = vault.recordRevision(secretRef)
+        assertNotEquals(firstRevision, secondRevision)
+
+        // The identity follows the encrypted record, including a same-value replacement.
+        vault.put(secretRef, second)
+        assertNotEquals(secondRevision, vault.recordRevision(secretRef))
 
         vault.delete(secretRef)
         assertNull(vault.read(secretRef))
+        assertNull(vault.recordRevision(secretRef))
     }
 
     @Test
     fun rejectsUnsafeReferencesAndOversizedSecrets() = runBlocking {
         assertFails<IllegalArgumentException> { vault.put("../secret", byteArrayOf(1)) }
         assertFails<IllegalArgumentException> { vault.read("") }
+        assertFails<IllegalArgumentException> { vault.recordRevision("../secret") }
         assertFails<IllegalArgumentException> {
             vault.put("profile_oversized", ByteArray(AndroidSecretVault.MAX_SECRET_BYTES + 1))
         }
@@ -64,6 +79,7 @@ class SecretVaultInstrumentedTest {
         record.writeBytes(byteArrayOf(1, 2, 3, 4))
 
         assertFails<SecretVaultException> { vault.read(secretRef) }
+        assertFails<SecretVaultException> { vault.recordRevision(secretRef) }
     }
 
     @Test
@@ -74,6 +90,7 @@ class SecretVaultInstrumentedTest {
         java.io.RandomAccessFile(record, "rw").use { it.setLength(32L * 1024 * 1024) }
         assertTrue(vault.storedSize(secretRef) == 32L * 1024 * 1024)
         assertFails<SecretVaultException> { vault.read(secretRef) }
+        assertFails<SecretVaultException> { vault.recordRevision(secretRef) }
         assertTrue(record.exists())
     }
 
@@ -94,10 +111,20 @@ class SecretVaultInstrumentedTest {
     fun missingKeystoreKey_preservesEncryptedRecord() = runBlocking {
         val secretRef = "profile_missing_key"
         vault.put(secretRef, "secret".encodeToByteArray())
+        val revision = vault.recordRevision(secretRef)
         KeyStore.getInstance("AndroidKeyStore").apply { load(null) }.deleteEntry(keyAlias)
 
+        assertEquals(revision, AndroidSecretVault(context, keyAlias, directoryName).recordRevision(secretRef))
+        assertFalse(KeyStore.getInstance("AndroidKeyStore").apply { load(null) }.containsAlias(keyAlias))
         assertFails<SecretVaultException> { vault.read(secretRef) }
         assertTrue(File(context.noBackupFilesDir, "$directoryName/$secretRef.vault").exists())
+    }
+
+    @Test
+    fun revisionWithoutStoredRecordDoesNotCreateKeyOrDirectory() = runBlocking {
+        assertNull(vault.recordRevision("not_stored"))
+        assertFalse(File(context.noBackupFilesDir, directoryName).exists())
+        assertFalse(KeyStore.getInstance("AndroidKeyStore").apply { load(null) }.containsAlias(keyAlias))
     }
 
     private suspend inline fun <reified T : Throwable> assertFails(crossinline block: suspend () -> Unit) {

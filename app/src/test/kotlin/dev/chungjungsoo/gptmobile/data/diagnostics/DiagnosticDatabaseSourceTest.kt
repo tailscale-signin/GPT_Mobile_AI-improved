@@ -15,6 +15,7 @@ import dev.chungjungsoo.gptmobile.data.workspace.WorkspaceRepository
 import dev.chungjungsoo.gptmobile.presentation.ui.chat.writeStagedChatDiagnostics
 import java.io.File
 import java.util.zip.ZipFile
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -95,6 +96,121 @@ class DiagnosticDatabaseSourceTest {
         assertEquals(20, rows.size)
         assertFalse(rows.toString().contains("later row"))
         assertEquals(1, rows.map { it["tableHighWatermark"] }.distinct().size)
+    }
+
+    @Test fun durableDatabaseCursorResumesAfterCommittedRowsWithoutMovingItsBoundary() = runBlocking {
+        val chat = database.chatRoomDao().addChatRoom(ChatRoomV2(title = "Cursor resume")).toInt()
+        repeat(40) { database.messageDao().addMessages(MessageV2(chatId = chat, content = "original-$it", platformType = null)) }
+        val prefix = mutableListOf<JsonObject>()
+        var cursor: JsonObject? = null
+        val interrupted = runCatching {
+            source.capture(chat, "conversation", 4096, {}, { row ->
+                if (prefix.size == 17) throw CancellationException("pause before next row")
+                prefix += row
+            }, {}, checkpoint = { cursor = it })
+        }.exceptionOrNull()
+        assertTrue(interrupted is CancellationException)
+        assertEquals(17, prefix.size)
+        database.messageDao().addMessages(MessageV2(chatId = chat, content = "inserted after first part", platformType = null))
+        val tail = mutableListOf<JsonObject>()
+        val coverage = mutableListOf<JsonObject>()
+        source.capture(chat, "conversation", 4096, {}, { tail += it }, {}, metadata = { coverage += it }, resumeCursor = requireNotNull(cursor))
+        val prefixIds = prefix.map { it.getValue("rowId") }.toSet()
+        val tailIds = tail.map { it.getValue("rowId") }.toSet()
+        assertEquals(23, tail.size)
+        assertTrue(prefixIds.intersect(tailIds).isEmpty())
+        assertEquals(40, (prefixIds + tailIds).size)
+        assertFalse(tail.toString().contains("inserted after first part"))
+        assertEquals(40L, coverage.single().getValue("emittedRows").jsonPrimitive.long)
+        assertEquals(23L, coverage.single().getValue("emittedRowsThisPart").jsonPrimitive.long)
+        assertEquals(1, (prefix + tail).map { it["tableHighWatermark"] }.distinct().size)
+        val wrongChat = runCatching { source.capture(chat + 1, "conversation", 4096, {}, {}, {}, resumeCursor = cursor) }.exceptionOrNull()
+        assertEquals("DIAGNOSTIC_DATABASE_CURSOR_SCOPE_CHANGED", wrongChat?.message)
+    }
+
+    @Test fun newestWorkspaceRowsAreFirstAndResumePreservesTheOrderingBoundary() = runBlocking {
+        val chat = database.chatRoomDao().addChatRoom(ChatRoomV2(title = "Newest first")).toInt()
+        repeat(30) { index ->
+            workspace.saveSynthesisCheckpoint("history-$index", chat, "run", buildJsonObject { put("history", index) })
+            database.openHelper.writableDatabase.execSQL("UPDATE workspace_records SET updatedAt = ? WHERE id = ?", arrayOf(index.toLong(), "history-$index"))
+        }
+        var cursor: JsonObject? = null
+        val prefix = mutableListOf<String>()
+        runCatching {
+            source.capture(chat, "workspace", 4096, {}, { row ->
+                if (prefix.size == 8) throw CancellationException("next part")
+                prefix += row.getValue("fields").jsonObject.getValue("id").jsonPrimitive.content
+            }, {}, checkpoint = { cursor = it })
+        }
+        val tail = mutableListOf<String>()
+        source.capture(chat, "workspace", 4096, {}, { row ->
+            tail += row.getValue("fields").jsonObject.getValue("id").jsonPrimitive.content
+        }, {}, resumeCursor = requireNotNull(cursor))
+        assertEquals((29 downTo 0).map { "history-$it" }, prefix + tail)
+        assertTrue(prefix.toSet().intersect(tail.toSet()).isEmpty())
+    }
+
+    @Test fun largeWorkspaceIncludesNewestVerdictPolicyBudgetCleanupAndRemainingWorkBeforeHistory() = runBlocking {
+        val chat = database.chatRoomDao().addChatRoom(ChatRoomV2(title = "Large workspace")).toInt()
+        val user = database.agentPersistenceDao().insertMessage(MessageV2(chatId = chat, content = "request", platformType = null)).toInt()
+        val assistant = database.agentPersistenceDao().insertMessage(MessageV2(chatId = chat, content = "partial response", platformType = null)).toInt()
+        database.agentPersistenceDao().insertRun(AgentRun("latest-run", chat, user, assistant, "profile", "provider", "actual-model", status = "PARTIAL", terminalError = "GITHUB_TASK_INCOMPLETE"))
+        database.openHelper.writableDatabase.execSQL(
+            "INSERT INTO run_policy_snapshots (chatId, digest, schemaVersion, kind, policyRevision, taskDigest, authorityDigest, payload) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            arrayOf(chat, "accepted-policy", 1, "github", "revision", "task", "authority", "{\"policy\":\"latest accepted policy\"}")
+        )
+        database.openHelper.writableDatabase.execSQL("INSERT INTO agent_run_policy_refs (runId, chatId, digest) VALUES (?, ?, ?)", arrayOf("latest-run", chat, "accepted-policy"))
+        val history = buildJsonObject { put("historical_payload", "x".repeat(128 * 1024)) }
+        repeat(144) { workspace.saveSynthesisCheckpoint("history-$it", chat, "old-run", history) }
+        workspace.saveProtectedSynthesisCheckpoint("github-tool-budget:latest", chat, "latest-run", buildJsonObject { put("remaining_calls", 17) })
+        workspace.saveProtectedSynthesisCheckpoint(
+            "github-evidence:task:verification_latest",
+            chat,
+            "latest-run",
+            buildJsonObject {
+                put("verification_failure", "GITHUB_TASK_INCOMPLETE")
+                put("cleanup_status", "OWNED_FIXTURE_REMOVED")
+                put("remaining_requirements", JsonArray(listOf(kotlinx.serialization.json.JsonPrimitive("verify exact CI head"))))
+                put("token", "never-export-this-secret")
+            },
+            appendOnly = true
+        )
+        workspace.saveProtectedSynthesisCheckpoint(
+            "github-evidence:task:verification_event_after",
+            chat,
+            "latest-run",
+            buildJsonObject {
+                put("phase", "TERMINAL_EVENT")
+                put("snapshot_id", "verification_latest")
+            },
+            appendOnly = true
+        )
+        val context = RuntimeEnvironment.getApplication()
+        val destination = File(context.cacheDir, "latest-large-workspace-export").apply { mkdirs() }
+        try {
+            val result = writeStagedChatDiagnostics(context, destination, ChatRoomV2(id = chat, title = "Large workspace"), emptyList(), ChatMcpToolConfig(), AppFeatureSettings(), "", emptyList(), source, null, false, false) {}
+            ZipFile(result.file).use { zip ->
+                val names = zip.entries().asSequence().map { it.name }.toList()
+                assertTrue(names.indexOf("latest-state.jsonl") < names.indexOf("workspace.jsonl"))
+                val latest = zip.getInputStream(zip.getEntry("latest-state.jsonl")).bufferedReader().use { it.readText() }
+                assertTrue(latest.contains("GITHUB_TASK_INCOMPLETE"))
+                assertTrue(latest.contains("latest accepted policy"))
+                assertTrue(latest.contains("remaining_calls"))
+                assertTrue(latest.contains("OWNED_FIXTURE_REMOVED"))
+                assertTrue(latest.contains("verify exact CI head"))
+                assertFalse(latest.contains("historical_payload"))
+                assertFalse(latest.contains("never-export-this-secret"))
+                assertTrue(zip.getEntry("workspace.jsonl").size > 16L * 1024 * 1024)
+                val first = zip.getInputStream(zip.getEntry("workspace.jsonl")).bufferedReader().use { it.readLine() }
+                assertTrue(first.contains("verification_event_after"))
+            }
+            val workspaceReceipt = (result.manifest.getValue("stages") as JsonArray).map { it.jsonObject }.single { it["id"]?.jsonPrimitive?.content == "workspace" }
+            assertEquals("COMPLETED", workspaceReceipt.getValue("status").jsonPrimitive.content)
+            assertEquals(result.manifest, StagedDiagnosticCapture.verify(result.file))
+        } finally {
+            DiagnosticCaptureStorage.deleteChat(context, chat)
+            destination.deleteRecursively()
+        }
     }
 
     @Test fun protectedEvidenceIsRestoredWithinBudgetInsteadOfExportingOnlyChunkReferences() = runBlocking {

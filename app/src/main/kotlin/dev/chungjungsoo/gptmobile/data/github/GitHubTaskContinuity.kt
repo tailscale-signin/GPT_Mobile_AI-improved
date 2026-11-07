@@ -65,6 +65,9 @@ internal object GitHubTaskContinuity {
                 }
             )
             append("\n\nRetained operations: ${receipts.size}; successful: ${receipts.values.count { it["success"] == kotlinx.serialization.json.JsonPrimitive(true) }}.")
+            (verdict["stop_reason"] as? kotlinx.serialization.json.JsonObject)?.let { stop ->
+                append("\nScheduler stop: ${stop.text("code").replace(Regex("[^A-Z0-9_]"), " ")}. ${stop.text("detail").replace(Regex("[\\p{Cntrl}<>`*\\[\\]]"), " ")}")
+            }
             last?.let { append(" Last successful operation: `${it.text("tool").replace(Regex("[^A-Za-z0-9_]"), "")}`.") }
             if (unfinished.isNotEmpty()) append(" ${unfinished.size} checklist capabilities remained without a passing observation.")
             (verdict["execution_ledger"] as? kotlinx.serialization.json.JsonObject)?.let { ledger ->

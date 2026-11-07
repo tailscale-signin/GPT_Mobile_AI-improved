@@ -38,13 +38,36 @@ class DiagnosticDatabaseSource @Inject constructor(
         consume: suspend (JsonObject) -> Unit,
         omitted: (String) -> Unit,
         maximumSourceBytes: Int = maximumCharacters,
-        metadata: suspend (JsonObject) -> Unit = {}
+        metadata: suspend (JsonObject) -> Unit = {},
+        resumeCursor: JsonObject? = null,
+        checkpoint: (JsonObject) -> Unit = {}
     ) = withContext(Dispatchers.IO) {
         require(chatId > 0 && maximumCharacters in 1024..1_048_576 && maximumSourceBytes in maximumCharacters..1_048_576)
+        require(
+            resumeCursor == null ||
+                resumeCursor.number("schema") == 1L &&
+                resumeCursor.text("section") == section &&
+                resumeCursor.number("chatId") == chatId.toLong() &&
+                resumeCursor["tables"] is JsonObject
+        ) { "DIAGNOSTIC_DATABASE_CURSOR_SCOPE_CHANGED" }
+        val tableStates = (resumeCursor?.get("tables") as? JsonObject).orEmpty().toMutableMap()
+        fun save(table: String, state: JsonObject) {
+            tableStates[table] = state
+            checkpoint(
+                buildJsonObject {
+                    put("schema", 1)
+                    put("section", section)
+                    put("chatId", chatId)
+                    put("tables", JsonObject(tableStates))
+                }
+            )
+        }
         val source = if (section == "research_database") researchDatabase.openHelper.readableDatabase else database.openHelper.readableDatabase
         for (table in tables(section)) {
+            val state = tableStates[table.name] as? JsonObject
+            if (state?.get("completed") == JsonPrimitive(true)) continue
             try {
-                captureTable(source, table, chatId, maximumSourceBytes, beforeRead, consume, omitted, metadata)
+                captureTable(source, table, chatId, maximumSourceBytes, beforeRead, consume, omitted, metadata, state) { save(table.name, it) }
             } catch (_: SQLException) {
                 omitted("DIAGNOSTIC_TABLE_READ_FAILED")
                 consume(
@@ -66,14 +89,16 @@ class DiagnosticDatabaseSource @Inject constructor(
         beforeRead: suspend () -> Unit,
         consume: suspend (JsonObject) -> Unit,
         omitted: (String) -> Unit,
-        metadata: suspend (JsonObject) -> Unit
+        metadata: suspend (JsonObject) -> Unit,
+        saved: JsonObject?,
+        checkpoint: (JsonObject) -> Unit
     ) {
-        var omissionCount = 0L
+        var omissionCount = saved?.number("omissionCount") ?: 0L
         fun recordOmission(reason: String) {
             omissionCount++
             omitted(reason)
         }
-        val startedAt = System.currentTimeMillis()
+        val startedAt = saved?.number("startedAtMillis") ?: System.currentTimeMillis()
         beforeRead()
         val schemaColumns = database.query("PRAGMA table_info(${table.name})").use { cursor ->
             buildList { while (cursor.moveToNext()) add(cursor.getString(cursor.getColumnIndexOrThrow("name"))) }
@@ -94,30 +119,58 @@ class DiagnosticDatabaseSource @Inject constructor(
         }
         val rowLength = columns.joinToString(" + ") { "COALESCE(length(CAST(t.\"$it\" AS BLOB)), 0)" }
         val where = table.where.replace(":chatId", chatId.toString())
-        val highWatermark = database.query("SELECT COALESCE(MAX(t.rowid), 0) FROM ${table.name} t WHERE $where").use { cursor ->
+        val highWatermark = saved?.number("highWatermark") ?: database.query("SELECT COALESCE(MAX(t.rowid), 0) FROM ${table.name} t WHERE $where").use { cursor ->
             check(cursor.moveToFirst())
             cursor.getLong(0)
         }
-        val expectedRows = database.query("SELECT COUNT(*) FROM ${table.name} t WHERE ($where) AND t.rowid <= $highWatermark").use { cursor ->
+        val expectedRows = saved?.number("expectedRows") ?: database.query("SELECT COUNT(*) FROM ${table.name} t WHERE ($where) AND t.rowid <= $highWatermark").use { cursor ->
             check(cursor.moveToFirst())
             cursor.getLong(0)
         }
-        var inspectedRows = 0L
-        var emittedRows = 0L
-        var after = Long.MIN_VALUE
+        var inspectedRows = saved?.number("inspectedRows") ?: 0L
+        var emittedRows = saved?.number("emittedRows") ?: 0L
+        val previousEmittedRows = emittedRows
+        var after = saved?.number("afterRowId") ?: if (table.newestFirst) Long.MAX_VALUE else Long.MIN_VALUE
+        var afterSort = saved?.number("afterSort") ?: after
+        val sort = if (table.newestFirst && "updatedAt" in schemaColumns) "COALESCE(t.updatedAt, 0)" else "t.rowid"
+        fun save(completed: Boolean = false) {
+            checkpoint(
+                buildJsonObject {
+                    put("highWatermark", highWatermark)
+                    put("expectedRows", expectedRows)
+                    put("inspectedRows", inspectedRows)
+                    put("emittedRows", emittedRows)
+                    put("omissionCount", omissionCount)
+                    put("afterRowId", after)
+                    put("afterSort", afterSort)
+                    put("newestFirst", table.newestFirst)
+                    put("completed", completed)
+                    put("startedAtMillis", startedAt)
+                }
+            )
+        }
+        fun advance(rowId: Long, order: Long) {
+            after = rowId
+            afterSort = order
+            save()
+        }
+        save()
         while (true) {
             currentCoroutineContext().ensureActive()
             beforeRead()
             val page = database.query(
                 SimpleSQLiteQuery(
-                    "SELECT t.rowid, $rowLength FROM ${table.name} t WHERE ($where) AND t.rowid > ? AND t.rowid <= ? ORDER BY t.rowid LIMIT 16",
-                    arrayOf<Any?>(after, highWatermark)
+                    if (table.newestFirst) {
+                        "SELECT t.rowid, $rowLength, $sort FROM ${table.name} t WHERE ($where) AND ($sort < ? OR ($sort = ? AND t.rowid < ?)) AND t.rowid <= ? ORDER BY $sort DESC, t.rowid DESC LIMIT 16"
+                    } else {
+                        "SELECT t.rowid, $rowLength, t.rowid FROM ${table.name} t WHERE ($where) AND t.rowid > ? AND t.rowid <= ? ORDER BY t.rowid LIMIT 16"
+                    },
+                    if (table.newestFirst) arrayOf<Any?>(afterSort, afterSort, after, highWatermark) else arrayOf<Any?>(after, highWatermark)
                 )
-            ).use { cursor -> buildList { while (cursor.moveToNext()) add(cursor.getLong(0) to cursor.getLong(1)) } }
+            ).use { cursor -> buildList { while (cursor.moveToNext()) add(Triple(cursor.getLong(0), cursor.getLong(1), cursor.getLong(2))) } }
             if (page.isEmpty()) break
-            for ((rowId, sourceBytes) in page) {
+            for ((rowId, sourceBytes, order) in page) {
                 beforeRead()
-                after = rowId
                 inspectedRows++
                 if (sourceBytes > maximumCharacters) {
                     recordOmission("RECORD_BYTE_LIMIT")
@@ -131,6 +184,7 @@ class DiagnosticDatabaseSource @Inject constructor(
                             put("maximumBytes", maximumCharacters)
                         }
                     )
+                    advance(rowId, order)
                     continue
                 }
                 // Recheck the bound in this query too: a live generation may update the row.
@@ -155,6 +209,7 @@ class DiagnosticDatabaseSource @Inject constructor(
                 }
                 if (fields == null) {
                     recordOmission("SOURCE_CHANGED_DURING_CAPTURE")
+                    advance(rowId, order)
                     continue
                 }
                 // Protected receipts are expanded only after the bounded row cursor is closed.
@@ -194,6 +249,7 @@ class DiagnosticDatabaseSource @Inject constructor(
                     }
                 )
                 emittedRows++
+                advance(rowId, order)
             }
         }
         if (inspectedRows != expectedRows) recordOmission("DATABASE_ROW_COUNT_CHANGED")
@@ -215,6 +271,9 @@ class DiagnosticDatabaseSource @Inject constructor(
                 put("expectedRows", expectedRows)
                 put("inspectedRows", inspectedRows)
                 put("emittedRows", emittedRows)
+                put("emittedRowsThisPart", emittedRows - previousEmittedRows)
+                put("resumed", saved != null)
+                put("newestFirst", table.newestFirst)
                 put("omittedValuesOrRows", omissionCount)
                 put("pageSize", 16)
                 put("rowLimit", kotlinx.serialization.json.JsonNull)
@@ -223,6 +282,7 @@ class DiagnosticDatabaseSource @Inject constructor(
                 put("consistency", "Frozen row-id boundary; values observed during this table capture. Changes and resumed stages are not a transaction snapshot.")
             }
         )
+        save(completed = true)
     }
 
     private fun cell(cursor: Cursor, index: Int, projector: DiagnosticValueProjector, omitted: (String) -> Unit): JsonElement = when (cursor.getType(index)) {
@@ -236,13 +296,42 @@ class DiagnosticDatabaseSource @Inject constructor(
         else -> projector.text(cursor.getString(index))
     }
 
-    private data class Table(val name: String, val where: String, val columns: List<String>? = null, val parentRunColumn: String? = null)
+    private data class Table(val name: String, val where: String, val columns: List<String>? = null, val parentRunColumn: String? = null, val newestFirst: Boolean = false)
+
+    private fun JsonObject.text(key: String): String? = (get(key) as? JsonPrimitive)?.takeUnless { it == JsonNull }?.content
+    private fun JsonObject.number(key: String): Long? = text(key)?.toLongOrNull()
 
     private fun tables(section: String): List<Table> {
         val runs = "SELECT run_id FROM agent_runs WHERE chat_id = :chatId"
+        val latestRun = "SELECT run_id FROM agent_runs WHERE chat_id = :chatId ORDER BY created_at DESC, rowid DESC LIMIT 1"
+        val latestWorkspace = listOf(
+            "w.id GLOB 'github-evidence:*:verification_*' AND w.id NOT GLOB 'github-evidence:*:verification_plan_*' AND w.id NOT GLOB 'github-evidence:*:verification_progress_*' AND w.id NOT GLOB 'github-evidence:*:verification_event_*'",
+            "w.id GLOB 'github-evidence:*:verification_progress_*'",
+            "w.id GLOB 'github-evidence:*:verification_event_*'",
+            "w.id GLOB 'github-evidence:*:checklist_*'",
+            "w.id GLOB 'github-evidence:*:policy_*'",
+            "w.id GLOB 'github-review:*'",
+            "w.id GLOB 'github-active-task:*'",
+            "w.id GLOB 'github-tool-budget:*'",
+            "w.id GLOB 'github-output:*'"
+        ).joinToString(" OR ") { predicate ->
+            "t.rowid IN (SELECT w.rowid FROM workspace_records w WHERE w.chatId = :chatId AND ($predicate) ORDER BY w.updatedAt DESC, w.rowid DESC LIMIT 1)"
+        }
         val invocationScope = "t.parentRunId IN ($runs) OR (t.turnKey LIKE CAST(:chatId AS TEXT) || ':%' AND NOT EXISTS (SELECT 1 FROM agent_runs ar WHERE ar.run_id = t.parentRunId AND ar.chat_id != :chatId))"
         val researchWorks = "SELECT workId FROM research_save_receipts WHERE chatId = :chatId UNION SELECT workId FROM research_jobs WHERE chatId = :chatId"
         return when (section) {
+            "latest_state" -> listOf(
+                Table(
+                    "agent_runs",
+                    "t.run_id IN ($latestRun)",
+                    listOf("run_id", "profile_uid", "provider_snapshot", "model_snapshot", "status", "created_at", "started_at", "completed_at", "terminal_error", "gateway_job_id", "gateway_last_sequence", "input_tokens", "output_tokens", "total_tokens", "ownership_fence")
+                ),
+                Table("agent_run_policy_refs", "t.runId IN ($latestRun)"),
+                Table("run_policy_snapshots", "t.chatId = :chatId AND t.digest IN (SELECT digest FROM agent_run_policy_refs WHERE runId IN ($latestRun))"),
+                Table("workspace_records", "t.chatId = :chatId AND ($latestWorkspace)", newestFirst = true),
+                Table("tool_events", "t.rowid IN (SELECT rowid FROM tool_events WHERE run_id IN ($latestRun) ORDER BY rowid DESC LIMIT 1)"),
+                Table("pending_prompts", "t.rowid IN (SELECT rowid FROM pending_prompts WHERE chatId = :chatId ORDER BY rowid DESC LIMIT 1)")
+            )
             "run_index" -> listOf(Table("agent_runs", "t.chat_id = :chatId", listOf("run_id")))
             "timeline" -> listOf(
                 Table("agent_runs", "t.chat_id = :chatId", listOf("run_id", "status", "created_at", "started_at", "completed_at")),
@@ -253,7 +342,7 @@ class DiagnosticDatabaseSource @Inject constructor(
             "tool_receipts" -> listOf(Table("tool_events", "t.run_id IN ($runs)"))
             "runs" -> listOf(Table("agent_runs", "t.chat_id = :chatId"), Table("run_policy_snapshots", "t.chatId = :chatId"), Table("agent_run_policy_refs", "t.chatId = :chatId"))
             "invocations" -> listOf(Table("model_invocations", invocationScope))
-            "workspace" -> listOf(Table("workspace_records", "t.chatId = :chatId"), Table("pending_prompts", "t.chatId = :chatId"))
+            "workspace" -> listOf(Table("workspace_records", "t.chatId = :chatId", newestFirst = true), Table("pending_prompts", "t.chatId = :chatId", newestFirst = true))
             "answer_segments" -> listOf(Table("answer_segments", "t.runId IN ($runs)"))
             "combined_documents" -> listOf(
                 Table("combined_durable_blocks", "t.runId IN ($runs)"),

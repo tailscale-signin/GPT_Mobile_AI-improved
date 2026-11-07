@@ -660,6 +660,17 @@ private fun ChatMarkdownContent(
             val parserFailed = renderedDigest != null && parserState !is MarkdownParseState.Loading && parserState !is MarkdownParseState.Success
             val animations = markdownAnimations(animateTextSize = { this })
             val layoutOwner = remember(outputTrace, rendered.contentDigest) { CombinedOperationOwner(runId = outputTrace?.runId, revisionId = rendered.contentDigest, blockId = outputTrace?.partId, digest = rendered.contentDigest, messageId = outputTrace?.messageId, profileUid = outputTrace?.profileUid) }
+            // Replacing a layout lambda invalidates measurement even when its content
+            // and constraints are unchanged. Retain it across unrelated chat updates;
+            // Compose still invalidates text for width, density, font scale and style.
+            val measurementModifier = remember(layoutOwner) {
+                Modifier.layout { measurable, constraints ->
+                    val measured = CombinedOperationTrace.measure("text_measure", layoutOwner) { measurable.measure(constraints) }
+                    layout(measured.width, measured.height) {
+                        CombinedOperationTrace.measure("text_layout", layoutOwner) { measured.placeRelative(0, 0) }
+                    }
+                }
+            }
 
             Box(Modifier.heightIn(min = if (awaitingContent) minimumPendingHeight else 0.dp), propagateMinConstraints = true) {
                 if (formattingFailed || parserTimedOut || parserFailed) {
@@ -692,12 +703,7 @@ private fun ChatMarkdownContent(
                             components = components,
                             typography = chatMarkdownTypography(answerForeground),
                             animations = animations,
-                            modifier = modifier.layout { measurable, constraints ->
-                                val measured = CombinedOperationTrace.measure("text_measure", layoutOwner) { measurable.measure(constraints) }
-                                layout(measured.width, measured.height) {
-                                    CombinedOperationTrace.measure("text_layout", layoutOwner) { measured.placeRelative(0, 0) }
-                                }
-                            }.drawWithContent {
+                            modifier = modifier.then(measurementModifier).drawWithContent {
                                 drawContent()
                                 if (interactionOwner.accepts(renderedDigest) && !awaitingContent && parserState is MarkdownParseState.Success && combinedMarkdown.isNotBlank()) {
                                     onContentDrawn?.invoke()

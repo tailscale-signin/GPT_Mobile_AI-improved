@@ -1,0 +1,43 @@
+{
+  "schema": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "fix/diagnostic-remediation-8597579-2026-11-07",
+  "base_sha": "c980ad3b4c13f8d9dd8bb4b5a393f4263d3b197f",
+  "parent_pr": 811,
+  "working_branch": "work/app-audit-core-2026-11-07",
+  "intent": "Add a profile-independent app audit catalogue and bounded probe engine under the existing durable benchmark coordinator/store, with explicit evidence, status, coverage and score denominators.",
+  "state": "IMPLEMENTED_AND_FOCUSED_VERIFIED_FOR_INTEGRATION",
+  "owned_paths": [
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditModels.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditCatalog.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditRunner.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditLocalProbeSource.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkModels.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkBatchModels.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkBatchRunner.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkExecutionCoordinator.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkStore.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/audit",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditLifecycle.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/di/AppAuditCoreModule.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/DynamicScoreEngine.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/DynamicScoreEngineTest.kt"
+  ],
+  "preservation": [
+    "No new coordinator, database or model profile is invented for app audits.",
+    "Save the frozen catalogue before probes and retain attempted/unknown outcomes through cancellation, storage failures and process recovery.",
+    "Use stable allowlisted probes and selected authority; never generically invoke all tools or replay uncertain work.",
+    "Keep pass/fail separate from skipped, blocked, unavailable and untested and never claim source-line coverage from functional probes.",
+    "Leave existing benchmark scores and model benchmark behavior unchanged."
+  ],
+  "task_store": "engineering_agent_checkpoints (existing engineering task store)",
+  "remote_mutations": false,
+  "validation": {
+    "actual_source_host": "PASS: 19 tests in 0.920 seconds with -ea, coroutine debug and stacktrace recovery enabled; complete audit engine, lifecycle, catalogue, models and exercised production helpers; source hashes stable. Android/Room/unrelated DTO boundaries are explicit.",
+    "canonical_fast": "PASS: 387 tests in 27.028 seconds; generated source inventory checked, existing 73 dynamic regex cases not evaluated, physical QNN device execution unverified.",
+    "ktlint": "PASS: pinned ktlint 1.3.1 on all owned Kotlin changes; git diff --check clean.",
+    "independent_review": "No dispatch/replay blocker. Reviewed omission in frozen build version/variant fields corrected and covered by immutable-checkpoint regression.",
+    "full_android": "Four Room/coordinator integration regressions and one model score regression added but not run locally; full Android CI required. No local Android SDK/device.",
+    "publication": "No remote writes; parent owns integration and generated inventory refresh."
+  }
+}

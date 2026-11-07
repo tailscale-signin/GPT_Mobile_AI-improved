@@ -6,6 +6,10 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import dev.chungjungsoo.gptmobile.data.audit.AppAuditOptions
+import dev.chungjungsoo.gptmobile.data.audit.AppAuditSourceInventory
+import dev.chungjungsoo.gptmobile.data.audit.appAuditGatewayProfileEligible
+import dev.chungjungsoo.gptmobile.data.audit.writeAppAuditExport
 import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkBatch
 import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkExecutionCoordinator
 import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkExecutionPolicy
@@ -29,6 +33,7 @@ import dev.chungjungsoo.gptmobile.data.repository.ChatRepository
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import dev.chungjungsoo.gptmobile.data.security.DiagnosticRedactor
 import java.io.File
+import java.io.IOException
 import java.util.UUID
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
@@ -37,10 +42,12 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -76,6 +83,19 @@ class ProfileBenchmarkViewModel @Inject constructor(
     internal val backendComparisons = history.map { dev.chungjungsoo.gptmobile.data.benchmark.benchmarkComparisonMatrix(it) }
         .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
     val benchmarkSession = execution.sessionId
+    val auditGatewayCandidates = profiles.map { list -> list.filter(::appAuditGatewayProfileEligible) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    private val mutableAuditLabelWarning = MutableStateFlow<String?>(null)
+    val auditLabelWarning = mutableAuditLabelWarning.asStateFlow()
+    private val auditConnections = database.toolConnectionDao().observeConnections()
+        .onEach { mutableAuditLabelWarning.value = null }
+        .catch {
+            mutableAuditLabelWarning.value = "Current connection names could not be loaded. Historical target aliases and audit evidence remain available."
+            emit(emptyList())
+        }
+    internal val auditTargetNames = combine(profiles, auditConnections) { currentProfiles, connections ->
+        appAuditCurrentTargetNames(currentProfiles.map { it.uid to it.name }, connections.map { it.connectionUid to it.name })
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
     private val finishedRuns = history.map { runs -> runs.filter { it.finished } }.distinctUntilChanged()
     internal val retests = finishedRuns.map { dev.chungjungsoo.gptmobile.data.benchmark.benchmarkRetests(it) }
         .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -292,25 +312,47 @@ class ProfileBenchmarkViewModel @Inject constructor(
         if (debugMode.value) start(BenchmarkMode.FULL, diagnostics = true)
     }
 
-    fun exportBenchmarks(uri: android.net.Uri, detailed: Boolean = false, retainedArtifactId: String? = null) {
+    fun startAppAudit(options: AppAuditOptions): Boolean {
+        if (execution.isRunning || !mutableReady.value) return false
+        mutableError.value = null
+        mutableProgress.value = BenchmarkProgress("App audit", "Preparing accepted plan", 0, 0)
+        val accepted = execution.startAudit(options)
+        if (!accepted) {
+            mutableProgress.value = null
+            if (mutableError.value == null) mutableError.value = "The app audit could not be started. Check the saved benchmark state and try again."
+        }
+        return accepted
+    }
+
+    fun exportBenchmarks(uri: android.net.Uri, detailed: Boolean = false, retainedArtifactId: String? = null, auditBatchId: String? = null) {
         if (mutableExporting.value) return
         mutableExporting.value = true
-        mutableExportNotice.value = "Preparing a complete benchmark export…"
+        mutableExportNotice.value = if (auditBatchId != null) "Preparing app audit evidence…" else "Preparing a complete benchmark export…"
         mutableExportError.value = null
         viewModelScope.launch {
             var artifact: BenchmarkExportArtifact? = null
             try {
                 val prepared = if (retainedArtifactId != null) {
                     checkNotNull(exportArtifacts.find(retainedArtifactId)) { "The retained export is unavailable. Export the current benchmark data again." }
+                } else if (auditBatchId != null) {
+                    val batch = checkNotNull(batches.value.firstOrNull { it.id == auditBatchId && it.mode == BenchmarkMode.APP_AUDIT && it.audit != null }) { "The saved app audit is unavailable. Run the audit again." }
+                    exportArtifacts.prepare(false, BenchmarkExportContent.APP_AUDIT) { output ->
+                        val inventory = try {
+                            context.assets.open(AppAuditSourceInventory.assetPath)
+                        } catch (_: IOException) {
+                            null
+                        }
+                        if (inventory == null) writeAppAuditExport(output, batch) else inventory.use { writeAppAuditExport(output, batch, it) }
+                    }
                 } else {
                     check(!detailed || settings.getDebugMode()) { "Enable Debug Mode to export diagnostic benchmark data." }
                     exportArtifacts.prepare(detailed) { output -> store.writeExport(output, detailed) }
                 }
                 artifact = prepared
                 mutableRetainedExport.value = prepared
-                mutableExportNotice.value = "Saving the complete benchmark export…"
+                mutableExportNotice.value = if (prepared.content == BenchmarkExportContent.APP_AUDIT) "Saving app audit evidence…" else "Saving the complete benchmark export…"
                 saveBenchmarkExportArtifact(exportArtifacts, prepared, settings::getDebugMode) { context.contentResolver.openOutputStream(uri, "wt") }
-                mutableExportNotice.value = "Exported all stored benchmark runs, scores and runtime evidence."
+                mutableExportNotice.value = if (prepared.content == BenchmarkExportContent.APP_AUDIT) "Exported the selected app audit, including partial coverage, measured score inputs and safe diagnostic evidence." else "Exported all stored benchmark runs, scores and runtime evidence."
             } catch (cancelled: CancellationException) {
                 mutableExportNotice.value = "Export interrupted. Any complete export is retained and can be saved again."
                 throw cancelled

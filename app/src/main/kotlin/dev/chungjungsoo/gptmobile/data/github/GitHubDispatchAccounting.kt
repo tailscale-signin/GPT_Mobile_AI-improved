@@ -20,7 +20,7 @@ internal class GitHubDispatchAccounting(
         suspend fun started(mutation: Boolean): String? = currentCoroutineContext()[Key]?.start(mutation)
         suspend fun responded(mutation: Boolean, status: Int, requestId: String? = null, serverRequestId: String? = null) =
             currentCoroutineContext()[Key]?.response(mutation, status, requestId, serverRequestId)
-        suspend fun cached(observedAt: Long, immutable: Boolean = false) = currentCoroutineContext()[Key]?.cache(observedAt, immutable)
+        suspend fun cached(observedAt: Long?, immutable: Boolean = false) = currentCoroutineContext()[Key]?.cache(observedAt, immutable)
     }
 
     private data class Pending(val mutation: Boolean, val startedAt: Long)
@@ -46,8 +46,9 @@ internal class GitHubDispatchAccounting(
         runCatching { record(value) }
     }
 
-    @Synchronized private fun cache(observedAt: Long, immutable: Boolean) {
+    @Synchronized private fun cache(observedAt: Long?, immutable: Boolean) {
         cachedReads++
+        if (observedAt == null) return
         if (immutable) {
             oldestImmutableObservation = minOf(oldestImmutableObservation ?: observedAt, observedAt)
         } else {
@@ -138,6 +139,16 @@ internal class GitHubDispatchAccounting(
                 put("invocation_id", invocationId)
                 put("phase", phase)
                 put("live_read_requested", forceLiveReads)
+                put("live_read_performed", reads > 0 && readResponses == reads && observationMismatches == 0)
+                put(
+                    "live_read_status",
+                    when {
+                        reads > 0 && readResponses == reads && observationMismatches == 0 -> "PERFORMED"
+                        reads > 0 -> "RESPONSE_NOT_FULLY_OBSERVED"
+                        forceLiveReads -> "NOT_PERFORMED"
+                        else -> "NOT_REQUESTED"
+                    }
+                )
                 put("read_requests", reads)
                 put("read_response_observations", readResponses)
                 put("read_http_failures", readHttpFailures)

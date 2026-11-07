@@ -1,0 +1,229 @@
+{
+  "schema": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "fix/diagnostic-remediation-8597579-2026-11-07",
+  "base_sha": "c980ad3b4c13f8d9dd8bb4b5a393f4263d3b197f",
+  "working_branch": "work/app-audit-gateway-20261107",
+  "integration_branch": "feat/comprehensive-app-benchmark-2026-11-07",
+  "parent_pr": 811,
+  "intent": "Implement an allowlisted app-audit debug export and bounded plugin checks through existing authorized services, with explicit evidence scope and unavailable or untested outcomes.",
+  "state": "READY_FOR_INTEGRATION",
+  "ownership": [
+    "New app-audit sanitized export and focused regression tests",
+    "New app-audit plugin inventory and bounded service probes with focused regression tests"
+  ],
+  "coordination": {
+    "core_models_runner_store": "diagnostic_execution",
+    "presentation": "diagnostic_ui",
+    "source_inventory_and_integration": "root"
+  },
+  "source_inspection": {
+    "revision": "a3a54ae5d52993d821ab007739b3e0f056284ad1",
+    "tree": "1a413a3f225bab65df6f69e37078a0daff3e05b6",
+    "instructions_rechecked_against_base": true,
+    "findings": [
+      "Existing model benchmarks use canonical Room persistence and streaming raw evidence exports; the app audit needs a separate allowlisted support projection.",
+      "MCP live discovery proves protocol and catalog readiness, not arbitrary tool execution; cached inventory remains explicitly cached.",
+      "Static native plugin configuration readiness is distinct from live provider access and paid or quota-consuming requests.",
+      "Existing Android unit-test JaCoCo instrumentation does not establish line coverage for an in-app component probe catalogue."
+    ]
+  },
+  "constraints": [
+    "No changes to established model benchmark score populations or raw export compatibility.",
+    "No automatic installation, permission grants, credential repairs, provider rerouting or arbitrary tool calls.",
+    "No raw secrets, private endpoint paths, tool bodies or arbitrary exception messages in the default audit export.",
+    "Cancellation, deadlines, rate limits, selected-route identity and existing connection supervisors remain authoritative."
+  ],
+  "validation": {
+    "status": "PASSED_WITH_EXPLICIT_PLATFORM_LIMITS",
+    "planned": [
+      "Real production serializers/export under secret and size boundary fixtures",
+      "Plugin probe behavior with production service boundaries and controlled fake network responses",
+      "Cancellation and configuration changes before dispatch",
+      "Canonical fast validation and Kotlin formatting"
+    ],
+    "limits": [
+      "No Android SDK or physical device in the child environment.",
+      "Host fixture tests do not qualify live private accounts, hardware inference, or general app line coverage."
+    ],
+    "host": {
+      "command": "python3 /workspace/scratch/22f000a845c8/app-audit-plugin-host/run.py",
+      "jvm": "Java 17, -ea, coroutine debug and stacktrace recovery enabled",
+      "tests": 70,
+      "passed": 70,
+      "failed": 0,
+      "seconds": 4.574,
+      "composition": {
+        "existing_gateway_contract_tests": 31,
+        "new_plugin_control_tests": 14,
+        "new_real_service_adapter_tests": 9,
+        "new_export_boundary_tests": 15,
+        "new_actual_fixture_plan_export_tests": 1
+      },
+      "scope": "Complete production audit adapter/planner/export, gateway client/serializer, catalog identities, shared export gate and DTOs. Controlled repository/MCP owner/Android boundaries; eleven actual compiled fixture plans are inspected, their behavior has separate owner tests. No physical device, live private service, Room/Hilt runtime, inference or line coverage claim.",
+      "source_manifest_sha256": "e6a5591f671e58d0e39c211c9637693538d19bfe9b84ae8656d9126bf6a24210",
+      "compiled_jar_sha256": "7f1f5e1376ae2d3c755f7a6179618454b5d9fc998e006290003e0cbded3a5413"
+    },
+    "canonical_fast": {
+      "command": "bash scripts/validate-local.sh fast",
+      "tests": 387,
+      "passed": 387,
+      "failed": 0,
+      "seconds": 24.185,
+      "inventory": "Generated locally for the gate, then restored byte-for-byte; integration owner regenerates final inventory."
+    },
+    "ktlint": {
+      "version": "1.3.1",
+      "changed_kotlin_files": 9,
+      "result": "PASS"
+    },
+    "diff_check": "PASS",
+    "independent_review": {
+      "owner": "diagnostic_ui",
+      "current_saved_names_export_test": "PASS against the actual writer; final hash refresh requested",
+      "dex_snapshot": "Before final cap constants and file-plugin gap correction; no larger methods were introduced by those changes. Final Android CI remains required.",
+      "dex_method_code_units": {
+        "writeAppAuditExport_coroutine": 2052,
+        "services_inventory": 2028
+      },
+      "dex_exclusive_limit": 16383
+    }
+  },
+  "dependencies": [
+    "e5212d8",
+    "acc16c7075e1fecad875a4440cf043f4e46e665c",
+    "325f8b0",
+    "bed2979",
+    "adff280ff3f33d647a523418ede39ba67cf5dd56",
+    "2463af00397d76c80d60fb5f865f3defd45e6a11",
+    "e7c52e7",
+    "e2372d4"
+  ],
+  "review_fixes": [
+    "Preserve observed metadata result and set configChanged after a post-read configuration change; do not replace failure or success receipts.",
+    "Verify unique source paths and recomputed canonical digest without assuming raw-string order matches generator Path order.",
+    "Reject an optional inventory stream after eight consecutive zero-progress reads.",
+    "Include all eleven behavior, appearance, research and memory fixture identities in the strict compiled export dictionary.",
+    "Retain every ordinary configured target up to 512 and all accepted ordinary plan entries up to 4096 on export; physical/logical execution budgets are unchanged.",
+    "Keep an explicit file-plugin execution gap because text-slice fixture evidence does not verify Android file/provider permissions."
+  ],
+  "bounds": {
+    "planned_plugin_targets": 512,
+    "maximum_plugin_plan_entries": 1537,
+    "exported_checks": 4096,
+    "export_bytes": 8388608,
+    "inventory_input_bytes": 2097152,
+    "inventory_files": 10000,
+    "consecutive_no_progress_reads": 8,
+    "default_executed_probes": 128,
+    "default_network_probes": 16,
+    "per_probe_timeout_ms": 15000,
+    "total_timeout_ms": 180000
+  },
+  "evidence_scope": {
+    "baseline_integrated_services": 18,
+    "baseline_current_native_packages": 12,
+    "remote_operations": [
+      "Fresh awaited MCP protocol/tool metadata discovery through existing resolver and connection supervisor",
+      "Capability metadata GET through the exact selected eligible gateway profile and production decoder"
+    ],
+    "not_exercised": [
+      "Arbitrary MCP tools/call or native provider actions",
+      "Model inference or GPU/NPU hardware execution",
+      "Android file access/provider/permission pipeline (text-slice local contract is separate)",
+      "Health, location or microphone access",
+      "Runtime file/line/branch code coverage"
+    ]
+  },
+  "follow_up": {
+    "base_sha": "b707073ccc86bbad7c15a2e9197f210782af0524",
+    "intent": "Replace persisted process-local readiness epochs with restart-stable bounded encrypted-record revisions while retaining transient mutation checks and frozen-plan no-replay semantics.",
+    "authorization": "Root authorizes narrow SecretVault revision adapter and owned audit changes; no root worktree or remote mutations.",
+    "findings": [
+      "ReadinessInvalidation.epoch resets on process start and cannot be persisted as configuration identity.",
+      "ToolConnectionRepository and SettingRepositoryImpl overwrite credentials under stable secret references; timestamps and references alone do not detect replacement.",
+      "SecretVault has no stable record revision API; a read-only encrypted-record digest can detect overwrites without hashing plaintext or creating/decrypting a key."
+    ],
+    "planned_tests": [
+      "Same configuration after recreated services and changed process epoch remains admissible.",
+      "Same-reference credential and endpoint-secret overwrites block before dispatch.",
+      "Absent or unsupported record identities fail closed.",
+      "Concurrent snapshot/marker/read invalidation preserves no-dispatch or observed receipts.",
+      "Encrypted-record revision survives reopened vault, detects overwrite, rejects bounded malformed records and does not require or create a key."
+    ],
+    "status": "PASSED_HOST_AND_REVIEW_ANDROID_ACCEPTANCE_PENDING",
+    "changes": [
+      "Persist only relevant saved configuration and opaque encrypted-record revisions; process-local epochs are never frozen as audit authority.",
+      "Keep an ephemeral generation guard from the start of inventory through dispatch and after reads, preserving observed receipts when authority changes.",
+      "Bind MCP auth/OAuth plus protected endpoint-query references, native credential and endpoint references, and the effective gateway credential with provider-owner consistency.",
+      "Return explicit PLUGIN_CREDENTIAL_IDENTITY_UNAVAILABLE when an identity is absent, unsupported, malformed or cannot be read; untracked plaintext credentials cannot be admitted.",
+      "Reuse existing vault framing limits and mutex. Revision inspection neither decrypts nor looks up or creates a key, and the allowlisted exporter still omits all fingerprints/revisions.",
+      "An OAuth refresh or same-value credential rewrite changes the encrypted record; a completed observation remains truthful and pending probes stop conservatively. Frozen plans are never rewritten or replayed."
+    ],
+    "baseline": {
+      "result": "Reproduced expected PASS versus actual BLOCKED after only service recreation and a process-local generation change.",
+      "production_sha": "b707073ccc86bbad7c15a2e9197f210782af0524",
+      "log": "/workspace/scratch/22f000a845c8/app-audit-plugin-host/restart-baseline/baseline.log"
+    },
+    "validation": {
+      "host_tests": 81,
+      "host_passed": 81,
+      "host_failed": 0,
+      "host_seconds": 8.528,
+      "jvm": "Java17 with -ea, coroutine debug and stacktrace recovery enabled",
+      "vault_record_probes": 5,
+      "vault_record_passed": 5,
+      "vault_record_seconds": 1.159,
+      "ktlint": "PASS (seven changed Kotlin files)",
+      "diff_check": "PASS",
+      "independent_review": "diagnostic_execution: no blocker; no core changes required",
+      "canonical_fast": "Integration owner runs the canonical gate after final source inventory regeneration; no duplicate broad suite in this follow-up.",
+      "android": "Existing SecretVaultInstrumentedTest expanded; actual Keystore/AtomicFile API34/API36 execution remains pending feature CI.",
+      "scope": "81 actual-source audit/gateway/export/endpoint cases with controlled service boundaries; 5 additional probes run complete production vault revision/framing code through file-backed Android API boundaries, without Android KeyStore availability. No live private service or physical device claim."
+    },
+    "evidence": {
+      "harness": "/workspace/scratch/22f000a845c8/app-audit-plugin-host/durable-authority/run.py",
+      "source_manifest_sha256": "b2ea8f9d2925be4f27ac5d3d655df88ca9c10a1c007b0ad9643a63022acf3dce",
+      "compiled_jar_sha256": "26244591da2fcd36aa8a241020686df36ca724bc95e8cfb9e3b3adf9b8222ecd",
+      "vault_probe_manifest_sha256": "a9f4264596584f50e363e84f379c058d6aacee058ec14a5b2fa7d4ef7c019634",
+      "source_sha256": {
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditPluginProbeSource.kt": "15f408c5fcf93b4ce2099a5d35b3f46462f191df976e534b662e5c121a0b6a37",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditPluginServices.kt": "25542305fbb857005276265b0c48696d22b5965751f21b7154cc258c3ffba1dd",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/security/SecretVault.kt": "ce5692a56e43fdf80f92e3a25d379ef981bf32f4aa28152a17055a1b44b5ca63",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/security/EndpointSecrets.kt": "8ca68b139def70e468d43c2fe4b7707b22f8c461c624035432525e8ccedc760c",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditPluginServicesTest.kt": "2cbcc1c3502c2ed44dc808f5130472a77a39a5970420d145ec81abd5de15d0bd",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/security/EndpointSecretsTest.kt": "217ceefe0a0c62df3900b4866acb674f326a4b101f5e0d1b0e66b3a726b99ad7",
+        "app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/data/security/SecretVaultInstrumentedTest.kt": "c8aafa6d47525554e89d0ce3c21f5144101b7c7c7edf094934799f7b0b494069"
+      }
+    }
+  },
+  "auth_absence_follow_up": {
+    "base_sha": "7e2ca401ea17c0436490f8d1a2b7f1f391363ffe",
+    "intent": "Match actual gateway blank-token and MCP NONE credential semantics without omitting protected endpoint authority.",
+    "authorization": "Root explicitly requests a narrow adapter follow-up and behavioral regressions.",
+    "findings": [
+      "GatewayAPIImpl adds Authorization only for a nonblank token.",
+      "AgentToolResolver.mcpConfig ignores secretRef for MCP AuthType.NONE but always resolves masked endpoint-query credentials."
+    ],
+    "status": "PASSED",
+    "changes": [
+      "Allow null, empty and whitespace gateway tokens with no saved reference as unauthenticated metadata requests, matching GatewayAPIImpl. Nonblank untracked plaintext remains blocked.",
+      "For MCP AuthType.NONE, omit the unused auth reference from both opaque revision lookup and the durable descriptor. Protected endpoint-query credentials remain bound."
+    ],
+    "baseline": {
+      "failed_before": 2,
+      "reason": "Both new cases expected READY but received NOT_CONFIGURED against the previously verified7e2 source jar.",
+      "log": "/workspace/scratch/22f000a845c8/app-audit-plugin-host/durable-authority/auth-absence-baseline/baseline.log"
+    },
+    "validation": {
+      "focused_service_tests": 21,
+      "passed": 21,
+      "seconds": 16.118,
+      "ktlint": "PASS for both changed Kotlin files",
+      "diff_check": "PASS",
+      "scope": "Complete updated production service adapter and actual test class; unchanged planner, vault, real gateway client, serializer and full route fixtures verified against the81-case dependency manifest. No broad suite rerun before parent final integration.",
+      "source_manifest_sha256": "77f87117f6879e77effb099a19ed674d219d46f2235c8c8b8e6fd4a59de50027",
+      "compiled_jar_sha256": "3554645d2282479b3940b270e659d7886e0dcfa0ce1d32a65237a117dc6704a8"
+    }
+  }
+}

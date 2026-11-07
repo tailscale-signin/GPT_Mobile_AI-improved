@@ -7,6 +7,20 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ReasoningControlReceiptTest {
+    @Test fun explicitOffAndEitherSupportedTemplateParameterRemainObservableWithoutClaimingServerSupport() {
+        for (parameter in listOf("enable_thinking", "thinking")) {
+            val receipt = ReasoningControlReceipt.fromPayload("""{"chat_template_kwargs":{"$parameter":false}}""", allowReasoning = true, requestedMode = dev.chungjungsoo.gptmobile.data.context.ReasoningMode.OFF)
+            assertTrue(receipt.disableRequested)
+            assertEquals("chat_template_kwargs.$parameter=false", receipt.transmittedControl)
+            assertTrue(receipt.transmitsDisable)
+            assertEquals("UNVERIFIED", receipt.providerSupport)
+        }
+        val absent = ReasoningControlReceipt.fromPayload("{}", allowReasoning = true, requestedMode = dev.chungjungsoo.gptmobile.data.context.ReasoningMode.OFF)
+        assertTrue(absent.disableRequested)
+        assertFalse(absent.transmitsDisable)
+        assertEquals("NOT_TRANSMITTED", absent.providerSupport)
+    }
+
     @Test fun requestedDisableDoesNotInventATransmittedControl() {
         val receipt = ReasoningControlReceipt.fromPayload("""{"model":"automatic"}""", allowReasoning = false)
         assertTrue(receipt.disableRequested)

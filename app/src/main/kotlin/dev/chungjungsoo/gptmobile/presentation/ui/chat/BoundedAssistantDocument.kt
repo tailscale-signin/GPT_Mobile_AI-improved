@@ -123,7 +123,7 @@ internal fun BoundedInlineAssistantDocument(
         snapshotFlow { latest }.presentationSnapshots(streaming = { it.second }, useful = { it.first.isNotBlank() }).prepareConflatedRender { (body, _, presentation) ->
             withContext(Dispatchers.Default) {
                 val replacement = (prior?.replacement ?: 0) + if (prior?.text?.let(body::startsWith) == false) 1 else 0
-                InlineDocumentSnapshot(body, CombinedMarkdownPaging.frames(body).toList(), presentation, replacement).also { prior = it }
+                InlineDocumentSnapshot(body, CombinedMarkdownPaging.frames(body, ASSISTANT_RENDER_PAGE_CHARACTERS).toList(), presentation, replacement).also { prior = it }
             }
         }.collect { value = it }
     }

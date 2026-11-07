@@ -4,7 +4,8 @@ import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
 import kotlinx.coroutines.flow.Flow
 
 interface GatewayAPI {
-    suspend fun getCapabilities(config: ProviderRequestConfig): GatewayCapabilities?
+    /** Explicit probes may refresh a remembered unsupported route; ordinary requests reuse it. */
+    suspend fun getCapabilities(config: ProviderRequestConfig, forceRefresh: Boolean = false): GatewayCapabilities?
 
     fun resumeEvents(
         jobId: String,

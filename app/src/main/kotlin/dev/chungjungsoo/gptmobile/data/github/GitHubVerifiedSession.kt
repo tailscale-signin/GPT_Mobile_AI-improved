@@ -119,11 +119,17 @@ internal class GitHubVerifiedSession(
                 )
             }
             val discovery = tools.firstOrNull { it.name == "discover_available_tools" }
-            val discovered = receipts.values.any { it["tool"] == kotlinx.serialization.json.JsonPrimitive("discover_available_tools") }
-            val discoveryArgs = if (!discovered) JsonObject(emptyMap()) else buildJsonObject { put("names", JsonArray(missing.map { kotlinx.serialization.json.JsonPrimitive(it.name) })) }
+            val catalogNext = GitHubAuthorizedCatalog.next(tools, receipts, authorizedTools)
+            val catalogComplete = GitHubAuthorizedCatalog.snapshot(receipts, authorizedTools)["complete"] == kotlinx.serialization.json.JsonPrimitive(true)
+            val discoveryArgs = buildJsonObject { put("names", JsonArray(missing.map { kotlinx.serialization.json.JsonPrimitive(it.name) })) }
             val discoveryAlreadyTried = receipts.values.any { it["tool"] == kotlinx.serialization.json.JsonPrimitive("discover_available_tools") && it["arguments"] == discoveryArgs }
             val acquisitionAllowed = GitHubChecklistBudget.remaining(receipts, remainingToolCalls())?.let { it > GitHubChecklistBudget.VERIFICATION_RESERVE } != false
-            val next = if (acquisitionAllowed && discovery != null && (!discovered || planned == null && missing.isNotEmpty()) && !discoveryAlreadyTried) ProviderEvent.ToolCall("checklist-discovery-" + GitHubEvidenceBook.digest(discoveryArgs.toString()).take(20), discovery.name, discoveryArgs) else planned
+            val next = when {
+                planned != null && planned.name.substringBefore("__") == "github_commit" && planned.arguments["action"] in setOf(kotlinx.serialization.json.JsonPrimitive("delete_branch"), kotlinx.serialization.json.JsonPrimitive("delete_fixture_branch")) -> planned
+                acquisitionAllowed && catalogNext != null -> catalogNext
+                acquisitionAllowed && catalogComplete && discovery != null && planned == null && missing.isNotEmpty() && !discoveryAlreadyTried -> ProviderEvent.ToolCall("checklist-discovery-" + GitHubEvidenceBook.digest(discoveryArgs.toString()).take(20), discovery.name, discoveryArgs)
+                else -> planned
+            }
             if (checkpoint != lastChecklist) {
                 if (receipts.isNotEmpty()) withContext(computationDispatcher) { evidence.retainChecklist(checkpoint) }
                 lastChecklist = checkpoint
@@ -300,7 +306,7 @@ internal class GitHubVerifiedSession(
             }
             val coverage = if (GitHubTaskCoverage.matches(task)) {
                 withContext(computationDispatcher) {
-                    GitHubEvidencePolicy.testing(receipts, now(), epoch, task, authorizedTools)
+                    GitHubEvidencePolicy.testing(receipts, now(), epoch, task, authorizedTools, remainingToolCalls())
                 }
             } else {
                 null
@@ -336,6 +342,20 @@ internal class GitHubVerifiedSession(
                 report + buildJsonObject {
                     progressDigest?.let { put("checklist_progress_digest", it) }
                     put("progress_state", if (stalled) "BLOCKED_UNCHANGED" else "ADVANCED_OR_FIRST_REPORT")
+                    if (checklist != null) {
+                        put("test_checklist", checklist)
+                        val stop = if (originalFailure != null || failureCode != null) {
+                            buildJsonObject {
+                                put("code", originalFailure?.errorCode ?: failureCode ?: "RECORDED_EXECUTION_FAILURE")
+                                put("detail", originalFailure?.message ?: "The recorded failure interrupted this verification stage.")
+                                put("source", "RECORDED_EXECUTION_FAILURE")
+                                remainingToolCalls()?.let { put("remaining_tool_calls", it) }
+                            }
+                        } else {
+                            GitHubIntegrationReport.stopReason(task, receipts, authorizedTools, remainingToolCalls())
+                        }
+                        put("stop_reason", stop)
+                    }
                     retention.forEach { (key, value) -> put(key, value) }
                     put("partial", partial)
                     put("resume_required", partial)

@@ -41,14 +41,18 @@ data class RequestConstraints(
     }
 
     /** Extraction is bounded formatting; engineering reasoning must leave room for visible JSON. */
-    fun forRole(role: String): RequestConstraints = copy(
-        requestRole = role,
-        restoredGatewayJob = restoredGatewayJob.takeIf { role == "primary" },
-        gatewayNewStageAfterTerminal = gatewayNewStageAfterTerminal && role == "primary",
-        maxOutputTokens = if (role == "github-review-preflight") minOf(maxOutputTokens ?: 512, 512) else maxOutputTokens,
-        allowReasoning = allowReasoning && role != "answer_contract_rewrite" && role !in setOf("github-claim-extraction", "github-progress-summary") && (!role.startsWith("github-review") || role.endsWith("repair")),
-        maximizeReasoning = maximizeReasoning && role != "answer_contract_rewrite" && !role.startsWith("github-review") && role !in setOf("github-claim-extraction", "github-progress-summary")
-    )
+    fun forRole(role: String): RequestConstraints {
+        val roleAllowsReasoning = allowReasoning && role != "answer_contract_rewrite" && role !in setOf("github-claim-extraction", "github-progress-summary") && (!role.startsWith("github-review") || role.endsWith("repair"))
+        return copy(
+            requestRole = role,
+            restoredGatewayJob = restoredGatewayJob.takeIf { role == "primary" },
+            gatewayNewStageAfterTerminal = gatewayNewStageAfterTerminal && role == "primary",
+            maxOutputTokens = if (role == "github-review-preflight") minOf(maxOutputTokens ?: 512, 512) else maxOutputTokens,
+            allowReasoning = roleAllowsReasoning,
+            reasoningModeOverride = if (roleAllowsReasoning) reasoningModeOverride else dev.chungjungsoo.gptmobile.data.context.ReasoningMode.OFF,
+            maximizeReasoning = maximizeReasoning && roleAllowsReasoning && !role.startsWith("github-review")
+        )
+    }
 
     /** Text-only continuation changes tool access, never the accepted reasoning policy. */
     fun withoutTools(): RequestConstraints = copy(allowTools = false, allowGatewayLocalTools = false)

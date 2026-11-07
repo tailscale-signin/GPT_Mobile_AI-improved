@@ -30,7 +30,6 @@ object ReasoningPolicy {
 
     fun forRequest(requested: ReasoningMode, allowed: Boolean, maximize: Boolean, helper: Boolean, control: ReasoningTemplateControl?): ReasoningDecision = when {
         requested == ReasoningMode.OFF -> resolve(requested, true, control)
-        !allowed && helper -> boundedHelper(control).copy(requested = requested)
         !allowed -> resolve(requested, false, control)
         requested != ReasoningMode.AUTO -> resolve(requested, allowed, control)
         helper -> boundedHelper(control).copy(requested = requested)
@@ -48,7 +47,7 @@ object ReasoningPolicy {
     fun strongestSupported(allowed: Boolean, control: ReasoningTemplateControl?): ReasoningDecision =
         resolve(if (allowed && control != null) ReasoningMode.ON else ReasoningMode.AUTO, allowed, control)
 
-    /** Internal JSON helpers prefer OFF, but an unverified route must remain usable in Auto. */
+    /** When reasoning is permitted, helpers prefer verified OFF and otherwise preserve AUTO. */
     fun boundedHelper(control: ReasoningTemplateControl?): ReasoningDecision =
         resolve(if (control != null) ReasoningMode.OFF else ReasoningMode.AUTO, true, control)
 

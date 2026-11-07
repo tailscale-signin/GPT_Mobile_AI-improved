@@ -51,7 +51,7 @@ fun BenchmarkExecutionBanner(
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Column(Modifier.weight(1f)) {
-                Text(stringResource(R.string.active_work_benchmark, current.completed.coerceAtMost(current.total), current.total), style = MaterialTheme.typography.labelMedium)
+                Text(if (current.total > 0) stringResource(R.string.active_work_benchmark, current.completed.coerceAtMost(current.total), current.total) else stringResource(R.string.attachment_preparing), style = MaterialTheme.typography.labelMedium)
                 Text("${current.profileName} · ${current.testName}", style = MaterialTheme.typography.bodySmall)
                 TextButton(onClick = onOpen) { Text(stringResource(R.string.active_work_open)) }
             }

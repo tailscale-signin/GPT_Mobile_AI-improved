@@ -1,16 +1,23 @@
 package dev.chungjungsoo.gptmobile.data.agent.tool
 
+import java.io.IOException
 import java.util.concurrent.TimeUnit
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
+import okhttp3.Call
+import okhttp3.Callback
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.Response
 import org.json.JSONObject
 
 /** Fixed host, no redirects, bounded responses, and a fresh credential for every request. */
@@ -69,16 +76,7 @@ internal open class GitHubEngineeringApi(private val token: suspend () -> String
                 .apply { cached?.etag?.takeIf(String::isNotBlank)?.let { header("If-None-Match", it) } }
                 .method(method, requestBody)
                 .build()
-            scheduler.recordRequest()
-            val firstResponse = http.newCall(request).execute()
-            val finalResponse = if (method == "GET" && firstResponse.code == 304 && cached == null) {
-                firstResponse.close()
-                scheduler.recordRequest()
-                http.newCall(request.newBuilder().removeHeader("If-None-Match").build()).execute()
-            } else {
-                firstResponse
-            }
-            finalResponse.use { response ->
+            fun readResponse(response: Response): String {
                 check(response.code != 304 || cached != null) { "GITHUB_CACHE_BODY_MISSING: unconditional revalidation returned no body." }
                 limits.record(io.ktor.http.Headers.build { response.headers.names().forEach { name -> appendAll(name, response.headers.values(name)) } }, response.code)
                 if (response.code == 401) authentication.set(true)
@@ -86,7 +84,7 @@ internal open class GitHubEngineeringApi(private val token: suspend () -> String
                 if (response.code == 304 && cached != null) {
                     cache.put(key, cached.etag, cached.value)
                     scheduler.recordCacheHit()
-                    return@execute cached.value.toString()
+                    return cached.value.toString()
                 }
                 if (response.code !in 200..299) {
                     // Error text is inspected locally and bounded; never include response
@@ -122,7 +120,15 @@ internal open class GitHubEngineeringApi(private val token: suspend () -> String
                 } else if (!readOnlyHealthQuery) {
                     cache.invalidateMutable()
                 }
-                text
+                return text
+            }
+            scheduler.recordRequest()
+            val first = http.newCall(request).awaitEngineeringResponse { response ->
+                if (method == "GET" && response.code == 304 && cached == null) null else readResponse(response)
+            }
+            first ?: run {
+                scheduler.recordRequest()
+                http.newCall(request.newBuilder().removeHeader("If-None-Match").build()).awaitEngineeringResponse(::readResponse)
             }
         }
     }
@@ -146,6 +152,29 @@ internal open class GitHubEngineeringApi(private val token: suspend () -> String
             return "/repos/$owner/$repo"
         }
     }
+}
+
+/** Keep cancellation attached until bounded body consumption has closed the response. */
+private suspend fun <T> Call.awaitEngineeringResponse(read: (Response) -> T): T = suspendCancellableCoroutine { continuation ->
+    continuation.invokeOnCancellation { cancel() }
+    enqueue(object : Callback {
+        override fun onFailure(call: Call, e: IOException) {
+            if (continuation.isActive) continuation.resumeWithException(e)
+        }
+
+        override fun onResponse(call: Call, response: Response) {
+            try {
+                if (!continuation.isActive) {
+                    response.close()
+                    return
+                }
+                val result = response.use(read)
+                if (continuation.isActive) continuation.resume(result)
+            } catch (failure: Throwable) {
+                if (continuation.isActive) continuation.resumeWithException(failure)
+            }
+        }
+    })
 }
 
 /** Injectable transport construction also permits end-to-end controller tests without credentials. */

@@ -295,7 +295,7 @@ class GitHubVerifiedSessionTest {
         )
         val events = session.streamRound(emptyList(), emptyList()).toList()
         val text = events.filterIsInstance<ProviderEvent.TextDelta>().single().text
-        assertTrue(text.contains("partial verification"))
+        assertTrue(text.contains("partial acceptance"))
         assertTrue(text.contains("github_read / source read"))
         assertFalse(text.contains("all tests passed"))
         assertEquals("PARTIAL", (events.last() as ProviderEvent.Failed).taskOutcome)

@@ -9,7 +9,7 @@ import kotlin.math.sqrt
 import kotlinx.serialization.Serializable
 
 @Serializable
-enum class BenchmarkMode(val label: String) { QUICK("Quick"), FULL("Full"), DIAGNOSTIC("Capability diagnostics"), CPU_EXPERIMENT("CPU thread comparison"), PERFORMANCE("Performance diagnostics"), DELEGATION("Delegation"), AGENT("Legacy Agent") }
+enum class BenchmarkMode(val label: String) { QUICK("Quick"), FULL("Full"), DIAGNOSTIC("Capability diagnostics"), CPU_EXPERIMENT("CPU thread comparison"), PERFORMANCE("Performance diagnostics"), DELEGATION("Delegation"), AGENT("Legacy Agent"), APP_AUDIT("App audit") }
 
 @Serializable
 enum class BenchmarkOutcome { PASSED, FAILED, ERROR, TIMED_OUT, CANCELED, UNSUPPORTED, QUOTA_BLOCKED, POLICY_BLOCKED, PARTIAL, SKIPPED }

@@ -21,12 +21,12 @@ internal object GitHubChecklistBudget {
         }
     }
 
-    fun checkpoint(receipts: Map<String, JsonObject>, current: Int? = null): JsonObject = buildJsonObject {
+    fun checkpoint(receipts: Map<String, JsonObject>, current: Int? = null, fixtureCalls: Int = FIXTURE_CALLS): JsonObject = buildJsonObject {
         val remaining = remaining(receipts, current)
         remaining?.let { put("remaining_calls", it) }
         put("remaining_known", remaining != null)
         put("verification_reserve", minOf(remaining ?: VERIFICATION_RESERVE, VERIFICATION_RESERVE))
-        put("fixture_start_minimum", FIXTURE_CALLS + VERIFICATION_RESERVE)
+        put("fixture_start_minimum", fixtureCalls + VERIFICATION_RESERVE)
         put("acquisition_allowed", remaining == null || remaining > VERIFICATION_RESERVE)
         put("hard_limit_policy", "Use the authorized execution ceiling; never expand it to finish a checklist.")
         put("reporting", "Final response capacity remains separately reserved by the run budget.")

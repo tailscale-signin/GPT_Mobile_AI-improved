@@ -8,15 +8,38 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 
-/** A disposable, unchanged branch tests authorized writes without merging unrelated work. */
+/** Owned disposable resources exercise authorized writes without merging unrelated work. */
 internal object GitHubSelfTestFixtures {
     private fun root(receipt: JsonObject): JsonObject? = (receipt["result"] as? JsonObject)?.let { (it["data"] as? JsonObject) ?: it }
     private fun JsonObject.text(key: String) = (get(key) as? JsonPrimitive)?.contentOrNull.orEmpty()
     private fun args(receipt: JsonObject) = receipt["arguments"] as? JsonObject
 
-    fun next(task: String, tools: List<AgentToolDefinition>, receipts: Map<String, JsonObject>, allowCreate: Boolean = true): ProviderEvent.ToolCall? {
+    fun supports(tool: String, action: String): Boolean = when (tool.substringBefore("__")) {
+        "github_commit" -> action in setOf("branch", "delete_branch", "delete_fixture_branch", "commit", "commit_staged_patch", "")
+        "github_write" -> action in setOf("commit", "")
+        "github_stage_patch" -> action in setOf("", "default")
+        else -> false
+    }
+
+    fun prerequisite(tool: String, action: String): String = when (tool.substringBefore("__")) {
+        "github_pr" -> when (action) {
+            "comment", "reply", "review" -> "An owned disposable PR and an authorized deletion/dismissal operation for every created comment or review are required; the current client cannot clean these resources."
+            "create", "update" -> "An owned disposable PR with an exact head lease, verified close operation and dependency-free branch cleanup plan is required; the content fixture does not create PRs."
+            "merge" -> "An independently authorized disposable merge target and final-state verification are required; merging changes the base and is outside reversible content fixtures."
+            else -> "A matching observed PR identifier and a separately authorized resource lifecycle are required."
+        }
+        "github_issue" -> "An owned disposable issue, its current expected_updated_at lease, verified close operation and cleanup for any comments/reactions are required; the content fixture does not create issues."
+        "github_release" -> "An owned disposable release/tag with authorized deletion and remote absence verification is required; the current fixture has no release/tag cleanup lifecycle."
+        "github_ci", "github_watch_checks" -> "An explicitly authorized disposable workflow/ref, owned dispatch receipt, terminal run verification and cancellation/cleanup policy are required; existing workflow history is read evidence only."
+        else -> if (supports(tool, action)) "A verified task-owned fixture, exact origin/current head, authorized cleanup and enough remaining calls to finish the lifecycle are required." else "An authorized disposable resource with durable ownership, exact mutation leases and a supported verified cleanup operation is required."
+    }
+
+    fun minimumCalls(tools: List<AgentToolDefinition>): Int = if (GitHubContentFixture.available(tools, "codex-self-test/" + "a".repeat(20), "main", "a".repeat(40))) 11 else 4
+
+    fun next(task: String, tools: List<AgentToolDefinition>, receipts: Map<String, JsonObject>, allowCreate: Boolean = true, cleanupOnly: Boolean = false, abortIncomplete: Boolean = false): ProviderEvent.ToolCall? {
         if (GitHubChecklistScope.readOnly(task) || !Regex("(?i)\\b(?:all|full|complete|writes|mutations|fixtures)\\b").containsMatchIn(task)) return null
         val observed = receipts.values.filter { it["trusted"] == JsonPrimitive(true) && it["verification_eligible"] != JsonPrimitive(false) }
         val source = observed.firstOrNull { it.text("tool").substringBefore("__") == "github_context" && args(it)?.text("action") == "status" && it["success"] == JsonPrimitive(true) } ?: return null
@@ -28,6 +51,9 @@ internal object GitHubSelfTestFixtures {
         if (branch != default || !sha.matches(Regex("[a-fA-F0-9]{40}"))) return null
         val fixture = "codex-self-test/" + GitHubEvidenceBook.digest(source.text("binding") + source.text("receipt_id")).take(20)
         val creation = observed.firstOrNull { it.text("tool").substringBefore("__") == "github_commit" && args(it)?.text("action") == "branch" && args(it)?.text("branch") == fixture }
+        if (creation?.let(GitHubContentFixture::isCreation) == true || creation == null && GitHubContentFixture.available(tools, fixture, branch, sha)) {
+            return GitHubContentFixture.next(source, creation, tools, receipts, allowCreate, cleanupOnly, abortIncomplete)
+        }
         val recipes = buildList<Pair<String, JsonObject>> {
             if (creation == null) {
                 if (!allowCreate) return null
@@ -100,6 +126,7 @@ internal object GitHubSelfTestFixtures {
         receipts.values.filter {
             it["trusted"] == JsonPrimitive(true) && it.text("tool").substringBefore("__") == "github_commit" && args(it)?.text("action") == "branch" && args(it)?.text("branch")?.startsWith("codex-self-test/") == true
         }.map { creation ->
+            if (GitHubContentFixture.isCreation(creation)) return@map GitHubContentFixture.checkpoint(creation, receipts)
             val branch = args(creation)?.text("branch").orEmpty()
             val sha = args(creation)?.text("expected_head_sha").orEmpty()
             val source = receipts.values.firstOrNull { receipt ->
@@ -162,12 +189,34 @@ internal object GitHubSelfTestFixtures {
     fun complete(receipts: Map<String, JsonObject>): Boolean {
         val fixtures = checkpoint(receipts).filterIsInstance<JsonObject>()
         if (fixtures.isEmpty() || fixtures.any { it.text("cleanup_status") != "CLEANED" }) return false
-        val proved = fixtures.flatMap { listOfNotNull(it["creation_receipt"], it["cleanup_receipt"]) }.toSet()
+        if (fixtures.any { it.text("fixture_plan") == GitHubOwnedFixtures.PLAN && it["content_verified"] != JsonPrimitive(true) }) return false
+        val proved = fixtures.flatMap { listOfNotNull(it["creation_receipt"], it["cleanup_receipt"]) + (it["mutation_receipts"] as? JsonArray).orEmpty() }.toSet()
         return receipts.values.filter {
             it["trusted"] == JsonPrimitive(true) &&
                 it["verification_eligible"] != JsonPrimitive(false) &&
-                it.text("tool").substringBefore("__") == "github_commit" &&
-                args(it)?.text("action") in setOf("branch", "delete_branch")
-        }.all { eligible(it) && it["receipt_id"] in proved }
+                (it.text("tool").startsWith("github") || it.text("tool").substringBefore("__") == "repository_graph") &&
+                requiresFixtureProof(it)
+        }.all { supports(it.text("tool"), args(it)?.text("action").orEmpty()) && eligible(it) && it["receipt_id"] in proved }
+    }
+
+    private fun requiresFixtureProof(receipt: JsonObject): Boolean {
+        val execution = receipt["execution"] as? JsonObject
+        val sent = listOf("mutation_requests", "accepted_mutations", "unknown_mutations").any { ((execution?.get(it) as? JsonPrimitive)?.longOrNull ?: 0) > 0 }
+        if (receipt["success"] != JsonPrimitive(true) && receipt["dispatched"] == JsonPrimitive(false) && !sent) return false
+        if (sent || receipt["remote_mutation"] == JsonPrimitive(true)) return true
+        // Legacy receipts predate explicit remote_mutation. Local watch/decide
+        // operations create no GitHub resource and need no deletion lifecycle.
+        val action = args(receipt)?.text("action").orEmpty()
+        return when (receipt.text("tool").substringBefore("__")) {
+            "github_stage_patch" -> true
+            "github_commit" -> action in setOf("branch", "commit", "commit_staged_patch", "delete_branch", "delete_fixture_branch", "")
+            "github_write" -> action in setOf("commit", "")
+            "github_pr" -> action in setOf("create", "update", "comment", "reply", "review", "merge")
+            "github_issue" -> action in setOf("create", "update")
+            "github_release" -> action in setOf("create_tag", "publish")
+            "github_ci" -> action in setOf("dispatch", "rerun", "rerun_failed_jobs", "rerun_all", "cancel")
+            "github" -> action in GitHubWorkspaceClient.writeActions || action in setOf("create_branch", "update_file", "create_pull_request", "create_issue_comment", "dispatch_workflow", "rerun_workflow", "rerun_failed_jobs", "cancel_workflow")
+            else -> false
+        }
     }
 }

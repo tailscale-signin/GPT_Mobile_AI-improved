@@ -80,7 +80,9 @@ class AgentPolicyInvalidationTest {
             val checkpoint = ToolBatchCheckpoint(null, "same-profile-$github")
             val session = session {
                 check(rounds++ == 0) { "No finalization using invalidated authority" }
-                (1..3).map { ProviderEvent.ToolCall("write-$it", write.definition.name, args) } + ProviderEvent.Completed
+                // Distinct operations exercise the authority latch; identical writes
+                // are already blocked by the independent unknown-outcome replay fence.
+                (1..3).map { ProviderEvent.ToolCall("write-$it", write.definition.name, buildJsonObject { put("operation_id", it) }) } + ProviderEvent.Completed
             }
             val events = AgentRunner(AgentRunLimits(githubTask = github, maxConcurrentTools = 1), checkpoint)
                 .run(session, listOf(write), dynamicTools = {
@@ -98,7 +100,11 @@ class AgentPolicyInvalidationTest {
             assertEquals(0, discoveries)
             assertEquals("RECONCILIATION_REQUIRED", terminal(events).errorCode)
             assertEquals(1, checkpoint.recoverySnapshot().unknownCount)
-            assertTrue(events.filterIsInstance<AgentRunEvent.ToolFinished>().drop(1).all { !it.result.dispatched })
+            assertTrue(
+                events.filterIsInstance<AgentRunEvent.ToolFinished>().drop(1).all {
+                    !it.result.dispatched && it.result.errorCode == "DISPATCH_POLICY_CHANGED" && ToolResultEnvelope.executionState(it.result) == "PRECHECK_REJECTED"
+                }
+            )
         }
     }
 

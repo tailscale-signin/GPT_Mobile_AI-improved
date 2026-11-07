@@ -29,6 +29,7 @@ internal fun mcpFailurePresentation(error: Throwable, health: McpConnectionHealt
         protocolFailure != null -> "PROTOCOL_CONFIGURATION"
         causes.any { it is McpEndpointConfigurationException } -> "ENDPOINT_CONFIGURATION"
         LocalServiceHealth.classify(error) == ConnectionHealth.TLS_FAILED -> "TLS_FAILURE"
+        LocalServiceHealth.classify(error) == ConnectionHealth.DNS_FAILED -> "DNS_FAILURE"
         else -> null
     }
     val directCode = when (directOutcome) {
@@ -36,6 +37,7 @@ internal fun mcpFailurePresentation(error: Throwable, health: McpConnectionHealt
         "PROTOCOL_CONFIGURATION" -> protocolFailure?.diagnosticCode
         "ENDPOINT_CONFIGURATION" -> "MCP_ENDPOINT_CONFIGURATION"
         "TLS_FAILURE" -> "TLS_FAILURE"
+        "DNS_FAILURE" -> "DNS_FAILED"
         else -> null
     }
     val errorCode = (directCode ?: observedFailure?.lastErrorCode)?.takeIf {
@@ -57,12 +59,13 @@ internal fun mcpFailurePresentation(error: Throwable, health: McpConnectionHealt
     }
     val retryable = when (outcome) {
         "AUTHENTICATION_REQUIRED", "TLS_FAILURE", "PROTOCOL_CONFIGURATION", "ENDPOINT_CONFIGURATION", "RECONNECT_REQUIRED" -> false
-        "WAITING_RECOVERY" -> true
+        "WAITING_RECOVERY", "DNS_FAILURE" -> true
         else -> observedFailure?.failureRetryable
     }
     val guidance = when (outcome) {
         "AUTHENTICATION_REQUIRED" -> "Authentication is required. Update this server's credentials or sign in again, then reconnect. Automatic discovery is paused."
         "TLS_FAILURE" -> "The secure connection to the MCP server failed. Check its certificate and TLS configuration, then reconnect. Automatic discovery is paused."
+        "DNS_FAILURE" -> "This MCP server's hostname could not be resolved. Check its configured address, DNS and VPN connection, then retry. Other connections and the saved catalogue remain available."
         "PROTOCOL_CONFIGURATION" -> "The MCP server's protocol response is invalid or unsupported. Check the server or bridge configuration, then reconnect. Automatic discovery is paused."
         "ENDPOINT_CONFIGURATION" -> "The MCP endpoint path or server configuration is invalid. Check the configured URL and running service, then reconnect. Automatic discovery is paused."
         "RECONNECT_REQUIRED" -> "MCP discovery is paused. Check the connection configuration, then reconnect."

@@ -6,6 +6,7 @@ import dev.chungjungsoo.gptmobile.data.network.NetworkClient
 import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
 import dev.chungjungsoo.gptmobile.data.network.boundedMetadata
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayClientDiagnostics
+import dev.chungjungsoo.gptmobile.data.network.gateway.GatewaySurfacePolicy
 import dev.chungjungsoo.gptmobile.data.network.gateway.gatewayClientExchange
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.timeout
@@ -81,6 +82,7 @@ class GatewayEngineeringClient internal constructor(private val http: HttpClient
 
     suspend fun capabilities(config: ProviderRequestConfig): GatewayEngineeringCapabilities =
         capabilityCache.getOrLoad(capabilityKey(config)) {
+            if (GatewaySurfacePolicy.shared.rememberedStatus(GatewaySurfacePolicy.identity(config), GatewaySurfacePolicy.Surface.CAPABILITIES) != null) return@getOrLoad null
             val payload = try {
                 request(config, "capabilities")
             } catch (_: UnsupportedEngineeringGateway) {

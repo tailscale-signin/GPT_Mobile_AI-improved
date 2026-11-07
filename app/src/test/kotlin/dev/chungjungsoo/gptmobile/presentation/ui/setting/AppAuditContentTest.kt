@@ -1,9 +1,9 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.setting
 
 import android.app.Application
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
@@ -11,10 +11,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.SemanticsNodeInteraction
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
@@ -24,7 +26,6 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
-import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.data.audit.AppAuditEvidenceKind
 import dev.chungjungsoo.gptmobile.data.audit.AppAuditObservationSource
@@ -35,7 +36,6 @@ import dev.chungjungsoo.gptmobile.data.audit.AppAuditRun
 import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkBatch
 import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkBatchState
 import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkMode
-import kotlinx.coroutines.test.StandardTestDispatcher
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -49,14 +49,26 @@ import org.robolectric.annotation.Config
 @Config(application = Application::class, sdk = [34])
 @OptIn(ExperimentalTestApi::class)
 class AppAuditContentTest {
-    @get:Rule val compose = createComposeRule(effectContext = StandardTestDispatcher())
+    // The v1 rule's idle synchronization uses its default unconfined dispatcher.
+    @get:Rule val compose = createComposeRule()
+    private val scrollState = ScrollState(0)
 
     private fun show(content: @Composable () -> Unit) {
         compose.setContent {
             MaterialTheme {
-                Column(Modifier.height(600.dp).verticalScroll(rememberScrollState())) { content() }
+                Column(Modifier.height(600.dp).testTag("app_audit_test_scroll").verticalScroll(scrollState)) { content() }
             }
         }
+    }
+
+    private fun SemanticsNodeInteraction.scrollIntoView(): SemanticsNodeInteraction {
+        val viewport = compose.onNodeWithTag("app_audit_test_scroll").fetchSemanticsNode().boundsInRoot
+        val target = fetchSemanticsNode()
+        val delta = target.positionInRoot.y + target.size.height / 2f - viewport.center.y
+        // Move the known test container once, without repeatedly scheduling ScrollBy actions.
+        compose.runOnIdle { scrollState.dispatchRawDelta(delta) }
+        compose.waitForIdle()
+        return assertIsDisplayed()
     }
 
     private fun batch(run: AppAuditRun, state: BenchmarkBatchState = BenchmarkBatchState.COMPLETED) = BenchmarkBatch(run.id, BenchmarkMode.APP_AUDIT, run.startedAtEpochMs, emptyList(), state = state, audit = run)
@@ -77,10 +89,10 @@ class AppAuditContentTest {
             AppAuditControls(true, false, network, { network = it }, emptyList(), emptyList(), {}, { accepted = AppAuditOptions(network) })
         }
         compose.onNodeWithText("Include configured service read checks").assertIsOff()
-        compose.onNodeWithTag("app_audit_start").performScrollTo().assertIsEnabled().performClick()
+        compose.onNodeWithTag("app_audit_start").scrollIntoView().assertIsEnabled().performClick()
         assertEquals(AppAuditOptions(), accepted)
-        compose.onNodeWithText("Include configured service read checks").performScrollTo().performClick()
-        compose.onNodeWithTag("app_audit_start").performScrollTo().performClick()
+        compose.onNodeWithText("Include configured service read checks").scrollIntoView().performClick()
+        compose.onNodeWithTag("app_audit_start").scrollIntoView().performClick()
         assertTrue(checkNotNull(accepted).allowNetworkReads)
         assertTrue(checkNotNull(accepted).selectedProfileIds.isEmpty())
     }
@@ -89,8 +101,8 @@ class AppAuditContentTest {
         var started = false
         var changed = false
         show { AppAuditControls(true, true, false, { changed = true }, emptyList(), emptyList(), {}, { started = true }) }
-        compose.onNodeWithTag("app_audit_start").performScrollTo().assertIsNotEnabled()
-        compose.onNodeWithText("Include configured service read checks").performScrollTo().assertIsNotEnabled()
+        compose.onNodeWithTag("app_audit_start").scrollIntoView().assertIsNotEnabled()
+        compose.onNodeWithText("Include configured service read checks").scrollIntoView().assertIsNotEnabled()
         assertFalse(started)
         assertFalse(changed)
     }
@@ -100,12 +112,12 @@ class AppAuditContentTest {
         show {
             AppAuditControls(true, false, false, {}, emptyList(), selected, { id -> selected = selected - id }, {})
         }
-        compose.onNodeWithText("Optional gateway targets (1 selected)").performScrollTo().performClick()
+        compose.onNodeWithText("Optional gateway targets (1 selected)").scrollIntoView().performClick()
         compose.onNodeWithText("1 selected target is no longer available", substring = true).assertExists()
-        compose.onNodeWithText("Clear gateway targets").performScrollTo().performClick()
+        compose.onNodeWithText("Clear gateway targets").scrollIntoView().performClick()
         assertTrue(selected.isEmpty())
         compose.onNodeWithText("1 selected target is no longer available", substring = true).assertDoesNotExist()
-        compose.onNodeWithTag("app_audit_start").performScrollTo().assertIsEnabled()
+        compose.onNodeWithTag("app_audit_start").scrollIntoView().assertIsEnabled()
     }
 
     @Test fun completedPartialAuditDisplaysCoverageBesideScoreAndExportsThatAudit() {
@@ -120,7 +132,7 @@ class AppAuditContentTest {
         compose.onNodeWithText("Exercised 1/4 planned checks · Verified passes 1/4 planned checks").assertExists()
         compose.onNodeWithText("Partial coverage: 3", substring = true).assertExists()
         compose.onNodeWithText("Untested or pending 3", substring = true).assertExists()
-        compose.onNodeWithText("Export audit evidence").performScrollTo().performClick()
+        compose.onNodeWithText("Export audit evidence").scrollIntoView().performClick()
         assertTrue(exported)
     }
 
@@ -136,7 +148,7 @@ class AppAuditContentTest {
             }, onResume = {}, onExport = {})
         }
         compose.onNodeWithText("App audit running").assert(SemanticsMatcher.expectValue(SemanticsProperties.LiveRegion, LiveRegionMode.Polite))
-        compose.onNodeWithText("Stop app audit").performScrollTo().performClick()
+        compose.onNodeWithText("Stop app audit").scrollIntoView().performClick()
         compose.onNodeWithText("Stopping…").assertIsNotEnabled()
         compose.onNodeWithText("Stopping app audit…").assertExists()
         assertEquals(1, stops)
@@ -148,7 +160,7 @@ class AppAuditContentTest {
         var resumed = false
         show { AppAuditResultCard(saved, active = false, onCancel = {}, onResume = { resumed = true }, onExport = {}) }
         compose.onNodeWithText("Measured check pass score: Not measured").assertExists()
-        compose.onNodeWithText("Resume remaining checks").performScrollTo().performClick()
+        compose.onNodeWithText("Resume remaining checks").scrollIntoView().performClick()
         assertTrue(resumed)
         compose.onNodeWithText("Skip profile").assertDoesNotExist()
         compose.onNodeWithText("Profile 1 of 0").assertDoesNotExist()
@@ -161,7 +173,7 @@ class AppAuditContentTest {
         compose.onNodeWithText("Observed evidence: Cached information; live behavior not verified").assertExists()
         compose.onNodeWithText("Excluded from measured score").assertExists()
         compose.onNodeWithText("Included in measured score", substring = true).assertDoesNotExist()
-        compose.onNodeWithText("Evidence details").performScrollTo().performClick()
+        compose.onNodeWithText("Evidence details").scrollIntoView().performClick()
         compose.onNodeWithText("Duration: Not measured").assertExists()
     }
 
@@ -173,9 +185,11 @@ class AppAuditContentTest {
         compose.onNodeWithText("Target: target-1").assertExists()
         compose.onNodeWithText("Current saved name: Original connection").assertExists()
         compose.runOnIdle { names = mapOf("connection:one" to "Renamed connection") }
+        compose.waitForIdle()
         compose.onNodeWithText("Current saved name: Renamed connection").assertExists()
         compose.onNodeWithText("Target: target-1").assertExists()
         compose.runOnIdle { names = emptyMap() }
+        compose.waitForIdle()
         compose.onNodeWithText("Current saved name unavailable; the historical target alias is retained.").assertExists()
         compose.onNodeWithText("Target: target-1").assertExists()
     }

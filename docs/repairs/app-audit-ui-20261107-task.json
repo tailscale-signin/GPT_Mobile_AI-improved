@@ -68,5 +68,48 @@
     "merged": false
   },
   "evidence_directory": "/workspace/scratch/22f000a845c8/app-audit-ui-host",
-  "updated_at_utc": "2026-11-07T15:15:54.700941+00:00"
+  "updated_at_utc": "2026-11-07T15:15:54.700941+00:00",
+  "ci_followups": [
+    {
+      "base_sha": "0dec13431c7639a6206e6f92e029f5fe8ce7cd17",
+      "base_branch": "feat/comprehensive-app-benchmark-2026-11-07",
+      "parent_pr": 812,
+      "working_branch": "work/app-audit-compose-ci-20261107",
+      "intent": "Repair only AppAuditContentTest's pinned Compose v1 dispatcher, snapshot synchronization and bounded test-container scrolling; retain all behavior assertions.",
+      "failure_evidence": {
+        "workflow_run": 42389318283,
+        "job": 128453339064,
+        "suite": "AppAuditContentTest",
+        "cases": 9,
+        "passed": 6,
+        "failed": 3,
+        "observed": "Current saved-name assertion failed; stop test exhausted the heap while coroutine test events accumulated, followed by a second OOM. Other suites later reported OOM failures; causal attribution of those later failures remains for fresh CI."
+      },
+      "pinned_source_contract": "Compose ui-test-junit4-android 1.12.1 v1 rule sets useStandardTestDispatcherForComposition=false. The idling resource only runs queued current tasks when that support is true; v1's default is UnconfinedTestDispatcher. performScrollTo repeats asynchronous ScrollBy actions until layout moves.",
+      "changes": [
+        "Use the v1 rule's supported default dispatcher.",
+        "Publish renamed/removed name state with explicit waitForIdle after runOnIdle writes.",
+        "Measure the known test container and target once; dispatchRawDelta once, wait for layout and assertIsDisplayed before the unchanged interactions."
+      ],
+      "validation": {
+        "original_assertions": "All nine method names and 41 original assertion lines retained; one displayed assertion added in the bounded scroll helper.",
+        "host_reproduction": "Same two behavior expectations: original dispatcher/scroll pattern fails 2/2 (stale original name; scroll=0, 8 attempts and 8 pending jobs); corrected setup passes 2/2 in 0.556 seconds (rename/removal retains target-1, scroll=600 after one movement with zero queued actions).",
+        "actual_runtime": "Checksum-verified Compose runtime/ui-test/foundation/runtime-saveable 1.12.1, actual Recomposer, ApplyingContinuationInterceptor, TestMonotonicFrameClock, AbstractMainTestClock, ScrollState and unchanged production AppAuditPresentation/models.",
+        "host_limits": "JVM host probe; Android trace/Looper/Parcelable adapters and pinned v1 idling predicate without Android view tree. No actual Robolectric AppAuditContentTest execution or rendering is claimed.",
+        "ktlint": "PASS: ktlint 1.3.1 on the one changed test file.",
+        "canonical": "Parent runs final canonical integration checks; no duplicate broad run.",
+        "android": "Pending fresh corrected-head full Android CI; first-head failures remain historical evidence."
+      },
+      "candidate_test_sha256": "2ee252f27db1b4ced89bb121300e4bd2ad12960950848cf0de13e6b5ca0054b9",
+      "evidence_directory": "/workspace/scratch/22f000a845c8/app-audit-ui-ci-host",
+      "source_archive": {
+        "url": "https://dl.google.com/dl/android/maven2/androidx/compose/ui/ui-test-junit4-android/1.12.1/ui-test-junit4-android-1.12.1-sources.jar",
+        "sha256": "539a431371af2ac92028ec061b29cc371f96197cd4fd9a5ab1291698f2440313"
+      },
+      "production_changes": false,
+      "timeout_heap_dependency_gate_changes": false,
+      "remote_mutations": false,
+      "recorded_at_utc": "2026-11-07T16:43:53.581Z"
+    }
+  ]
 }

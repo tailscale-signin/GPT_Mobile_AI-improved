@@ -75,6 +75,7 @@ data class AppAuditPlanEntry(
     val prerequisite: AppAuditPrerequisite = AppAuditPrerequisite.READY,
     val reasonCode: String? = null,
     val configFingerprint: String? = null,
+    val fixtureHash: String? = null,
     val weight: Int = 1
 ) {
     init {
@@ -136,6 +137,7 @@ data class AppAuditRun(
     val sourceFileCount: Int,
     val sourceLineCount: Int,
     val plan: List<AppAuditPlanEntry>,
+    val sourceAreas: List<AppAuditSourceArea> = emptyList(),
     val options: AppAuditOptions = AppAuditOptions(),
     val limits: AppAuditLimits = AppAuditLimits(),
     val schemaVersion: Int = 1,
@@ -193,7 +195,7 @@ fun appAuditSummary(run: AppAuditRun): AppAuditSummary {
         canceled = count(AppAuditOutcome.CANCELED),
         exercised = measured.size,
         verified = measured.count { it.second.outcome == AppAuditOutcome.PASS },
-        sourceAreasPlanned = run.plan.flatMap { it.sourceAreaIds }.distinct().size,
+        sourceAreasPlanned = run.sourceAreas.map { it.id }.ifEmpty { run.plan.flatMap { it.sourceAreaIds } }.distinct().size,
         sourceAreasExercised = run.plan.filter { it.id in exercisedIds }.flatMap { it.sourceAreaIds }.distinct().size
     )
 }

@@ -125,7 +125,7 @@
       "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubVerifiedSession.kt": "b80f57a5b9c0b5d74ac6d015e565819bdd2d9ab7c1c5f315466435355866ceab",
       "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProfileFailureRecordTest.kt": "62226e613f56112dcbbd72bd9295d662f57fe7d89ea38f261cf9b24c42e4b958",
       "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubPolicyInvalidationTest.kt": "24ba123a93d10c68652f3b617ed4720532b2e50f9f1e3c66f15847cb13cf8149",
-      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentPolicyInvalidationTest.kt": "31f3585004b7d6e775c06c91e4e727914bc472c6b8031670f22d0032ba1f2979",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentPolicyInvalidationTest.kt": "7c089954b037467d0c627117a38d99d53dae626fea21858bad7791fc3aea1353",
       "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolPolicyInvalidationTest.kt": "cad0506bf839af2e2146c9b41ac259e0f57dfa5802ec8d24784d74cdb77e5dd5"
     },
     "provider_guard_followup": {
@@ -137,6 +137,6 @@
         "behavioral_execution": "PENDING_HOST_HARNESS_AND_ANDROID_CI"
       }
     },
-    "fixture_adjustment": "Queued mutation arguments are distinct so the regression isolates authority invalidation rather than the existing duplicate-mutation reconciliation fence; no journal accounting behavior was changed."
+    "fixture_adjustment": "Distinct queued mutations expect DISPATCH_POLICY_CHANGED from the legacy queue and the intelligent scheduler's earlier DEPENDENCY_FAILED precheck. Both retain exactly one invocation/unknown outcome, one round, no discovery and false-dispatch sibling receipts. The observed-success case separately requires a typed authority-latch rejection. No journal or scheduler production semantics changed."
   }
 }

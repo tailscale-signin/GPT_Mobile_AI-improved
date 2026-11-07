@@ -100,9 +100,12 @@ class AgentPolicyInvalidationTest {
             assertEquals(0, discoveries)
             assertEquals("RECONCILIATION_REQUIRED", terminal(events).errorCode)
             assertEquals(1, checkpoint.recoverySnapshot().unknownCount)
+            // The intelligent scheduler rejects dependent writes before invoking
+            // the dispatch callback; the legacy queue reaches the authority latch.
+            val blockedCode = if (github) "DEPENDENCY_FAILED" else "DISPATCH_POLICY_CHANGED"
             assertTrue(
                 events.filterIsInstance<AgentRunEvent.ToolFinished>().drop(1).all {
-                    !it.result.dispatched && it.result.errorCode == "DISPATCH_POLICY_CHANGED" && ToolResultEnvelope.executionState(it.result) == "PRECHECK_REJECTED"
+                    !it.result.dispatched && it.result.errorCode == blockedCode && ToolResultEnvelope.executionState(it.result) == "PRECHECK_REJECTED"
                 }
             )
         }
@@ -137,6 +140,12 @@ class AgentPolicyInvalidationTest {
                 assertEquals(original.content, retained.content)
                 assertEquals(original.errorCode, retained.errorCode)
                 assertEquals(1, writes)
+                if (!unknown) {
+                    val queued = events.filterIsInstance<AgentRunEvent.ToolFinished>().single { it.call.callId == "queued" }.result
+                    assertEquals(code, queued.errorCode)
+                    assertFalse(queued.dispatched)
+                    assertEquals("PRECHECK_REJECTED", ToolResultEnvelope.executionState(queued))
+                }
             }
         }
     }

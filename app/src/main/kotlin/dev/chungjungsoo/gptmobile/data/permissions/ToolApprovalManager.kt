@@ -145,6 +145,12 @@ class ToolApprovalManager @Inject constructor(private val database: ChatDatabase
                     connection?.let { dao.previousMatchingAction(runId, it.name, tool, ScopedToolGrant.canonicalHash(arguments), "$runId:$callId") } != null
                 )
         if (duplicate) throw ToolAuthorizationRejected("DUPLICATE_ACTION", "A matching action is already pending, dispatched or has an uncertain outcome. Inspect its saved receipt before repeating it; changing permission will not repeat it.")
+        if (connection == null && (tool == "github" || dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(tool) != null)) {
+            throw ToolAuthorizationRejected("PERMISSION_REVOKED", "The selected GitHub connection is unavailable. Restore the original authorized connection before retrying; no GitHub request was sent.")
+        }
+        if (connection?.let(GitHubAuthorizationBoundary::applies) == true) {
+            throw ToolAuthorizationRejected("PERMISSION_DENIED", "This GitHub tool's local source or destination permission was denied or is no longer available. Review the selected connection and conversation grants before retrying. No GitHub request was sent; this is not evidence of an expired GitHub credential.")
+        }
         throw ToolAuthorizationRejected("AUTH_REQUIRED", "Tool permission was denied or is no longer available. Review this tool's source and destination grants before retrying.")
     }
 

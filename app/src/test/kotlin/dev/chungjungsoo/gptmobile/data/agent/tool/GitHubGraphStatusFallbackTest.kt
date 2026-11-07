@@ -69,7 +69,7 @@ class GitHubGraphStatusFallbackTest {
         val result = graph.execute("graph", arguments)
         val recovery = ((result.content as ToolResultContent.Json).value as JsonObject)["native_fallback"] as JsonObject
         assertEquals(JsonPrimitive(false), recovery["dispatched"])
-        assertEquals(JsonPrimitive("AUTH_REQUIRED"), recovery["error_code"])
+        assertEquals(JsonPrimitive("PERMISSION_DENIED"), recovery["error_code"])
         assertEquals(0, reads)
         assertEquals(0, approvals)
     }
@@ -112,7 +112,7 @@ class GitHubGraphStatusFallbackTest {
             }
         )
         val result = fallback.execute("native-status")
-        assertEquals("AUTH_REQUIRED", result.errorCode)
+        assertEquals("PERMISSION_DENIED", result.errorCode)
         assertFalse(result.dispatched)
         assertTrue(finished)
     }

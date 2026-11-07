@@ -174,4 +174,60 @@ class GitHubAuthorizationBoundaryTest {
         assertTrue(manager.authorize("github", "run", "call", "github", buildJsonObject { put("action", "get_file_contents") }))
         coVerify(exactly = 0) { dao.insert(any()) }
     }
+
+    @Test fun deniedIssueHistoryIsALocalPermissionFailureNotTokenExpiry() = runTest {
+        coEvery { connections.getConnection("github") } returns connection.copy(toolPolicy = "READ_ONLY", approvedReadTools = "")
+        every { dao.observe(any()) } returns MutableStateFlow(null)
+        val failure = runCatching {
+            manager.authorizeOrThrow(
+                "github",
+                "run",
+                "history",
+                "github_issue__github_api",
+                buildJsonObject {
+                    put("action", "history")
+                    put("issue_number", 7)
+                }
+            )
+        }.exceptionOrNull() as? ToolAuthorizationRejected
+        assertEquals("PERMISSION_DENIED", failure?.code)
+        assertTrue(failure?.message.orEmpty().contains("No GitHub request was sent"))
+        coVerify(exactly = 0) { dao.insert(any()) }
+    }
+
+    @Test fun approvedIssueHistoryUsesTheExistingReadGrant() = runTest {
+        coEvery { connections.getConnection("github") } returns connection.copy(toolPolicy = "READ_ONLY", approvedReadTools = "github")
+        assertTrue(
+            manager.authorizeOrThrow(
+                "github",
+                "run",
+                "history",
+                "github_issue__github_api",
+                buildJsonObject {
+                    put("action", "history")
+                    put("issue_number", 7)
+                }
+            )
+        )
+        coVerify(exactly = 0) { dao.insert(any()) }
+    }
+
+    @Test fun removedGitHubConnectionCannotLookLikeExpiredRemoteCredentials() = runTest {
+        coEvery { connections.getConnection("github") } returns null
+        every { dao.observe(any()) } returns MutableStateFlow(null)
+        val failure = runCatching {
+            manager.authorizeOrThrow(
+                "github",
+                "run",
+                "history",
+                "github_issue__github_api",
+                buildJsonObject {
+                    put("action", "history")
+                    put("issue_number", 7)
+                }
+            )
+        }.exceptionOrNull() as? ToolAuthorizationRejected
+        assertEquals("PERMISSION_REVOKED", failure?.code)
+        coVerify(exactly = 0) { dao.insert(any()) }
+    }
 }

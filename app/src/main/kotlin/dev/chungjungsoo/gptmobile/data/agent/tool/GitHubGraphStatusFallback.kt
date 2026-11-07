@@ -58,7 +58,7 @@ internal class GitHubGraphStatusFallback(
             callId,
             ToolResultContent.Text("Native GitHub status authorization is unavailable or changed. Review the native operation's current grants before retrying."),
             true,
-            errorCode = "AUTH_REQUIRED",
+            errorCode = "PERMISSION_DENIED",
             dispatched = false
         )
     }

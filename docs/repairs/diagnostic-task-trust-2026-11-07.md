@@ -134,5 +134,5 @@ companion checkpoint records final run counts and canonical validation results.
 
 Generated architecture and app-audit source inventories, the complete gateway
 package manifest, and the exact allowed release paths are refreshed. Dependency
-checksums, configured build-memory limits, release identity, and the 16,383-byte
-DEX warning boundary remain unchanged.
+checksums, configured build-memory limits, release identity, and the warning boundary of 16,383
+DEX code units remain unchanged.

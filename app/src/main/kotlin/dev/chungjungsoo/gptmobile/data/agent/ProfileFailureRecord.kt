@@ -29,7 +29,7 @@ data class ProfileFailureRecord(
         }
 
         private val phases = setOf("planning", "provider_admission", "connection_preflight", "dns_resolution", "dns", "connection", "response_stream", "tls", "cancelled", "transport", "provider_generation", "model_invocation", "tool_precheck", "tool_dispatch", "tool_execution", "gateway_dispatch", "answer_review", "claim_extraction", "claim_verification", "verification", "final_synthesis", "delivery", "lifecycle")
-        private val typedCodes = setOf("CIRCUIT_BREAKER_OPEN", "DNS_RESOLUTION_FAILED", "NETWORK_TIMEOUT", "NETWORK_DISCONNECTED", "CONNECTION_ABORTED", "TRANSPORT_EOF", "TLS_FAILURE", "CLIENT_CANCELLED", "AUTHENTICATION_FAILED", "ACCESS_FORBIDDEN", "SERIALIZATION_ERROR", "PARSING_ERROR", "SERVICE_UNAVAILABLE", "PROVIDER_UNAVAILABLE", "GITHUB_TASK_INCOMPLETE", "GITHUB_EVIDENCE_REQUIRED", "GITHUB_EVIDENCE_RETENTION_INCOMPLETE", "REPLAY_EVIDENCE_REQUIRED", "TOOL_OUTCOME_UNKNOWN", "TIMEOUT_OUTCOME_UNKNOWN", "DISPATCH_OUTCOME_UNKNOWN", "TOOL_RESULT_ID_MISMATCH", "RECONCILIATION_REQUIRED", "GATEWAY_OUTCOME_UNKNOWN", "GATEWAY_TOOL_OUTCOME_UNKNOWN", "REMOTE_OUTCOME_UNKNOWN")
+        private val typedCodes = setOf("CIRCUIT_BREAKER_OPEN", "DNS_RESOLUTION_FAILED", "NETWORK_TIMEOUT", "NETWORK_DISCONNECTED", "CONNECTION_ABORTED", "TRANSPORT_EOF", "TLS_FAILURE", "CLIENT_CANCELLED", "AUTHENTICATION_FAILED", "ACCESS_FORBIDDEN", "DISPATCH_POLICY_CHANGED", "POLICY_STALE", "STALE_INVENTORY", "SERIALIZATION_ERROR", "PARSING_ERROR", "SERVICE_UNAVAILABLE", "PROVIDER_UNAVAILABLE", "GITHUB_TASK_INCOMPLETE", "GITHUB_EVIDENCE_REQUIRED", "GITHUB_EVIDENCE_RETENTION_INCOMPLETE", "REPLAY_EVIDENCE_REQUIRED", "TOOL_OUTCOME_UNKNOWN", "TIMEOUT_OUTCOME_UNKNOWN", "DISPATCH_OUTCOME_UNKNOWN", "TOOL_RESULT_ID_MISMATCH", "RECONCILIATION_REQUIRED", "GATEWAY_OUTCOME_UNKNOWN", "GATEWAY_TOOL_OUTCOME_UNKNOWN", "REMOTE_OUTCOME_UNKNOWN")
 
         /** Preserve typed stage/dispatch facts; arbitrary provider text is never promoted to evidence. */
         fun fromProvider(message: String, errorCode: String? = null, details: JsonObject? = null): ProfileFailureRecord {
@@ -59,11 +59,12 @@ data class ProfileFailureRecord(
                 ?: details?.get("inference_dispatched")?.takeIf { stage == "connection_preflight" }
             val dispatched = (dispatchFact as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull ?: legacy.dispatched
             val localCircuitRejection = legacy.category == "CIRCUIT_BREAKER_OPEN" && stage == "provider_admission" && dispatched == false
+            val authorityPrecheck = legacy.category in setOf("POLICY_STALE", "STALE_INVENTORY") && stage in setOf("provider_admission", "tool_precheck") && dispatched == false
             val retryAfter = (details?.get("retry_after_ms") as? JsonPrimitive)?.takeUnless { it.isString }?.longOrNull?.takeIf { it in 0L..86_400_000L }
             return legacy.copy(
                 phase = stage ?: legacy.phase.ifBlank { "stage_not_recorded" },
                 dispatched = dispatched,
-                remoteAcceptance = if (localCircuitRejection) RemoteRequestAcceptance.NO else legacy.remoteAcceptance,
+                remoteAcceptance = if (localCircuitRejection || authorityPrecheck) RemoteRequestAcceptance.NO else legacy.remoteAcceptance,
                 retryAfterMillis = if (localCircuitRejection && retryAfter != null) System.currentTimeMillis() + retryAfter else legacy.retryAfterMillis
             )
         }
@@ -91,6 +92,8 @@ data class ProfileFailureRecord(
             val githubCode = dev.chungjungsoo.gptmobile.data.github.GitHubFailurePolicy.recordedCode(details)
             val category = when {
                 listOf("TOOL_OUTCOME_UNKNOWN", "TIMEOUT_OUTCOME_UNKNOWN", "DISPATCH_OUTCOME_UNKNOWN", "TOOL_RESULT_ID_MISMATCH", "RECONCILIATION_REQUIRED", "GATEWAY_TOOL_OUTCOME_UNKNOWN").any { details.contains(it, true) } -> "TOOL_OUTCOME_UNKNOWN"
+                details.contains("DISPATCH_POLICY_CHANGED", true) || details.contains("POLICY_STALE", true) -> "POLICY_STALE"
+                details.contains("STALE_INVENTORY", true) -> "STALE_INVENTORY"
                 githubCode != null -> when {
                     githubCode == "AUTH_REQUIRED" -> "AUTHENTICATION_FAILED"
                     dev.chungjungsoo.gptmobile.data.github.GitHubFailurePolicy.isRateLimited(githubCode) -> "RATE_LIMIT"
@@ -134,19 +137,20 @@ data class ProfileFailureRecord(
             }
             return ProfileFailureRecord(
                 category,
-                !incompatible && !unavailablePolicy && githubCode?.let { dev.chungjungsoo.gptmobile.data.github.GitHubFailurePolicy.requiresCorrection(it) } != true && category !in setOf("REVIEW_INPUT_REQUIRED", "PRIVACY_CONFIGURATION", "QUEUED_JOB", "CACHED_UNUSABLE_RESPONSE", "ENDPOINT_RETIRED", "BILLING_UNAVAILABLE", "TOOL_OUTCOME_UNKNOWN", "TLS_FAILURE", "CLIENT_CANCELLED", "AUTHENTICATION_FAILED", "ACCESS_FORBIDDEN", "SERIALIZATION_ERROR"),
+                !incompatible && !unavailablePolicy && githubCode?.let { dev.chungjungsoo.gptmobile.data.github.GitHubFailurePolicy.requiresCorrection(it) } != true && category !in setOf("POLICY_STALE", "STALE_INVENTORY", "REVIEW_INPUT_REQUIRED", "PRIVACY_CONFIGURATION", "QUEUED_JOB", "CACHED_UNUSABLE_RESPONSE", "ENDPOINT_RETIRED", "BILLING_UNAVAILABLE", "TOOL_OUTCOME_UNKNOWN", "TLS_FAILURE", "CLIENT_CANCELLED", "AUTHENTICATION_FAILED", "ACCESS_FORBIDDEN", "SERIALIZATION_ERROR"),
                 retryAt,
-                dispatched = false.takeIf { !circuit && (details.contains("dispatched=false", true) || details.contains("No request was dispatched", true)) },
+                dispatched = false.takeIf { !circuit && category !in setOf("POLICY_STALE", "STALE_INVENTORY") && (details.contains("dispatched=false", true) || details.contains("No request was dispatched", true)) },
                 phase = when {
                     category == "DNS_RESOLUTION_FAILED" -> "dns_resolution"
                     category == "TLS_FAILURE" -> "tls"
                     category == "CLIENT_CANCELLED" -> "cancelled"
                     category in setOf("CONNECTION", "TIMEOUT", "TRANSPORT_EOF") -> "transport"
                     category == "TOOL_OUTCOME_UNKNOWN" -> "tool_dispatch"
+                    category == "STALE_INVENTORY" -> "tool_precheck"
                     category in setOf("TASK_INCOMPLETE", "EVIDENCE_REQUIRED") -> "verification"
                     category in setOf("ANSWER_REVIEW", "REVIEW_INPUT_REQUIRED") -> "answer_review"
                     category == "APP_EXECUTION" -> "lifecycle"
-                    category in setOf("PRIVACY_CONFIGURATION", "SAVED_POLICY_UNAVAILABLE", "INCOMPATIBLE_CONFIGURATION", "ADMISSION_EXPIRED", "AUTHENTICATION_FAILED", "ACCESS_FORBIDDEN") -> "provider_admission"
+                    category in setOf("POLICY_STALE", "PRIVACY_CONFIGURATION", "SAVED_POLICY_UNAVAILABLE", "INCOMPATIBLE_CONFIGURATION", "ADMISSION_EXPIRED", "AUTHENTICATION_FAILED", "ACCESS_FORBIDDEN") -> "provider_admission"
                     category == "NO_VISIBLE_ANSWER" -> "delivery"
                     category in setOf("REASONING_BUDGET_EXHAUSTED", "OUTPUT_PROTOCOL_INVALID") -> "final_synthesis"
                     else -> "stage_not_recorded"

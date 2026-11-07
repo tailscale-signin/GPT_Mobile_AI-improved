@@ -60,7 +60,15 @@ internal class GitHubVerifiedSession(
                     it is dev.chungjungsoo.gptmobile.data.context.ProviderWaitAuthorityChanged ||
                     it is dev.chungjungsoo.gptmobile.data.agent.SavedEvidenceAccessDenied
             }
-            if (accessFailure != null) throw accessFailure
+            if (accessFailure != null) {
+                if (accessFailure is dev.chungjungsoo.gptmobile.data.context.DispatchPolicyChangedException &&
+                    failure != null &&
+                    dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.fromProvider(failure.message, failure.errorCode, failure.failureDetails).category in setOf("TOOL_OUTCOME_UNKNOWN", "GATEWAY_OUTCOME_UNKNOWN")
+                ) {
+                    throw ProgressCheckpointFailure(error, failure)
+                }
+                throw accessFailure
+            }
             throw ProgressCheckpointFailure(error, failure)
         }
     }
@@ -224,6 +232,18 @@ internal class GitHubVerifiedSession(
         // progress checkpoint stops work before any further provider/tool action.
         val policy = failureCauses(error)
             .filterIsInstance<dev.chungjungsoo.gptmobile.data.context.DispatchPolicyChangedException>().firstOrNull()
+        val original = (error as? ProgressCheckpointFailure)?.originalFailure
+        if (original != null) {
+            val checkpoint = buildJsonObject {
+                put("acceptance_checkpoint", "UNAVAILABLE")
+                if (policy != null) {
+                    put("checkpoint_failure_code", "DISPATCH_POLICY_CHANGED")
+                    put("resume_required", true)
+                }
+            }
+            emit(original.copy(failureDetails = JsonObject(original.failureDetails.orEmpty() + checkpoint)))
+            return@catch
+        }
         if (policy != null) {
             // Do not ask the old profile to regenerate or acquire more evidence.
             // Earlier durable receipts remain available to a newly authorized run.
@@ -231,19 +251,14 @@ internal class GitHubVerifiedSession(
             return@catch
         }
         if (error !is ProgressCheckpointFailure) throw error
-        val original = error.originalFailure
-        if (original != null) {
-            emit(original.copy(failureDetails = JsonObject(original.failureDetails.orEmpty() + ("acceptance_checkpoint" to kotlinx.serialization.json.JsonPrimitive("UNAVAILABLE")))))
-        } else {
-            val dispatched = evidence.snapshot().first.values.any { it["dispatched"] == kotlinx.serialization.json.JsonPrimitive(true) }
-            emit(
-                ProviderEvent.Failed(
-                    "The GitHub acceptance checkpoint could not be retained. No completion is claimed. Restore local storage and reconcile recorded operations before resuming.",
-                    errorCode = "GITHUB_EVIDENCE_RETENTION_INCOMPLETE",
-                    taskOutcome = if (dispatched) "PARTIAL" else "BLOCKED"
-                )
+        val dispatched = evidence.snapshot().first.values.any { it["dispatched"] == kotlinx.serialization.json.JsonPrimitive(true) }
+        emit(
+            ProviderEvent.Failed(
+                "The GitHub acceptance checkpoint could not be retained. No completion is claimed. Restore local storage and reconcile recorded operations before resuming.",
+                errorCode = "GITHUB_EVIDENCE_RETENTION_INCOMPLETE",
+                taskOutcome = if (dispatched) "PARTIAL" else "BLOCKED"
             )
-        }
+        )
     }
 
     override fun retainedFailureResponse(failure: ProviderEvent.Failed): Flow<ProviderEvent> = flow {
@@ -390,7 +405,7 @@ internal class GitHubVerifiedSession(
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: Exception) {
-            val policy = generateSequence<Throwable>(failure) { it.cause }.filterIsInstance<dev.chungjungsoo.gptmobile.data.context.DispatchPolicyChangedException>().firstOrNull()
+            val policy = failureCauses(failure).filterIsInstance<dev.chungjungsoo.gptmobile.data.context.DispatchPolicyChangedException>().firstOrNull()
             if (policy != null) {
                 evidence.retainVerdict(
                     buildJsonObject {

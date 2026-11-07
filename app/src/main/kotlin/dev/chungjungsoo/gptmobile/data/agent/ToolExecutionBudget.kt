@@ -2,6 +2,7 @@ package dev.chungjungsoo.gptmobile.data.agent
 
 import dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.currentCoroutineContext
@@ -25,6 +26,7 @@ class ToolExecutionBudget(
     initialCalls: Int = 0,
     private val durableCalls: ToolCallBudgetCheckpoint? = null
 ) {
+    private val invalidatedAuthority = AtomicReference<AgentToolResult?>(null)
     private val terminalToolFailures = java.util.concurrent.ConcurrentHashMap<String, String>()
     private val unknownOutcomes = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     private val calls = AtomicInteger(initialCalls.coerceAtLeast(0))
@@ -91,6 +93,7 @@ class ToolExecutionBudget(
             val replayableRead = ToolReplaySafety.isReplayableRead(tool.definition.name, arguments, tool) ||
                 AgentToolCapability.USER_DECISION in tool.definition.capabilities
             if (!replayableRead && signature in unknownOutcomes) return { withBudgetState(ToolResultEnvelope.error(callId, "RECONCILIATION_REQUIRED", "Previous dispatch outcome is unknown. Reconcile it before repeating this action.")) }
+            invalidatedAuthority.get()?.let { prior -> return { withBudgetState(ToolFailureMetadata.authorityBlocked(callId, definition.name, prior)) } }
             if ((failures[signature]?.get() ?: 0) >= 2) return { withBudgetState(ToolResultEnvelope.error(callId, "REPEATED_FAILURE", "An unchanged call failed twice. Stop repeating it; use retained evidence or correct the request.")) }
             terminalToolFailures[tool.definition.name]?.let { code ->
                 return { withBudgetState(ToolResultEnvelope.error(callId, code, "This tool's permission or authentication failed earlier in this turn. Review its grants or credentials before starting a new turn; changing arguments will not retry it.")) }
@@ -125,9 +128,15 @@ class ToolExecutionBudget(
             }
             val authorized = try {
                 authorize(callId, arguments)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (rejected: dev.chungjungsoo.gptmobile.data.permissions.ToolAuthorizationRejected) {
+                authorityPrecheck(callId, definition.name, rejected)?.let { return { bounded(it) } }
                 if (ToolResultEnvelope.isAuthorizationRejection(rejected.code)) terminalToolFailures[tool.definition.name] = rejected.code
                 return { bounded(ToolResultEnvelope.error(callId, rejected.code, rejected.message.orEmpty())) }
+            } catch (error: Exception) {
+                authorityPrecheck(callId, definition.name, error)?.let { return { bounded(it) } }
+                throw error
             }
             if (!authorized) {
                 terminalToolFailures[tool.definition.name] = "AUTH_REQUIRED"
@@ -137,9 +146,8 @@ class ToolExecutionBudget(
                 alreadyBudgeted || tryAcquireCall(enforceResearchLimit = executionContext != null)
             } catch (cancelled: CancellationException) {
                 throw cancelled
-            } catch (changed: dev.chungjungsoo.gptmobile.data.context.DispatchPolicyChangedException) {
-                throw changed
-            } catch (_: Exception) {
+            } catch (error: Exception) {
+                authorityPrecheck(callId, definition.name, error)?.let { return { bounded(it) } }
                 return { withBudgetState(ToolResultEnvelope.error(callId, "BUDGET_CHECKPOINT_UNAVAILABLE", "The durable tool allowance could not be saved. No action was dispatched; restore its checkpoint before resuming.")) }
             }
             if (!acquired) {
@@ -179,6 +187,10 @@ class ToolExecutionBudget(
                 suspend fun invokeObserved(): AgentToolResult {
                     // Admission and semaphore waiting do not count as uses.
                     currentCoroutineContext().ensureActive()
+                    invalidatedAuthority.get()?.let { return ToolFailureMetadata.authorityBlocked(callId, definition.name, it) }
+                    // A prepared call may have waited behind another invocation.
+                    // Validate before any physical tool work or shared reservation.
+                    currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestAuthorizationGuard]?.validate?.invoke()
                     if (executionContext != null && !alreadyBudgeted) {
                         val store = combinedBudgets ?: CombinedTurnBudgetStore.installedOrNull()
                             ?: throw CombinedBudgetExceeded("Combined budget store is unavailable; no tool was dispatched.")
@@ -216,9 +228,10 @@ class ToolExecutionBudget(
                     // A receipt with another call ID cannot establish this call's outcome,
                     // even if that unrelated receipt claims it was not dispatched.
                     val result = AgentContractValidation.receipt(callId, observed)
+                    combinedResult = result
+                    recordAuthorityFailure(result)
                     currentCoroutineContext()[ToolReceiptObserver]?.observe?.invoke(ProviderEvent.ToolCall(callId, tool.definition.name, arguments), result)
                     return result.also { raw ->
-                        combinedResult = raw
                         if (!raw.dispatched) {
                             statistics?.rejectedBeforeDispatch(statisticsId)
                             statisticsId = null
@@ -310,25 +323,57 @@ class ToolExecutionBudget(
                 } catch (error: CombinedBudgetExceeded) {
                     reason = "COMBINED_BUDGET_EXHAUSTED"
                     return@execution failure("Combined work allowance exhausted: ${error.reason}. Use retained evidence.").copy(combinedWorkBudgetExhausted = true)
-                } catch (rejected: dev.chungjungsoo.gptmobile.data.permissions.ToolAuthorizationRejected) {
-                    // A deterministic refusal proves the child did not dispatch. It is
-                    // neither an unknown write nor a provider reliability failure.
-                    reason = rejected.code
-                    physicalToolStarted = false
-                    statistics?.rejectedBeforeDispatch(statisticsId)
-                    statisticsId = null
-                    if (ToolResultEnvelope.isAuthorizationRejection(rejected.code)) terminalToolFailures[tool.definition.name] = rejected.code
-                    val result = bounded(ToolResultEnvelope.error(callId, rejected.code, rejected.message.orEmpty()))
-                    combinedResult = result
-                    return@execution result
                 } catch (error: Exception) {
+                    if (error is dev.chungjungsoo.gptmobile.data.permissions.ToolAuthorizationRejected && ToolFailureMetadata.authorityCode(error) == null) {
+                        // Ordinary deterministic permission refusals keep their local
+                        // rejection contract. Authority invalidation follows the actual
+                        // invocation/receipt boundary below, including observer failures.
+                        reason = error.code
+                        physicalToolStarted = false
+                        statistics?.rejectedBeforeDispatch(statisticsId)
+                        statisticsId = null
+                        if (ToolResultEnvelope.isAuthorizationRejection(error.code)) terminalToolFailures[tool.definition.name] = error.code
+                        val result = bounded(ToolResultEnvelope.error(callId, error.code, error.message.orEmpty()))
+                        combinedResult = result
+                        return@execution result
+                    }
+                    if (!physicalToolStarted) {
+                        authorityPrecheck(callId, definition.name, error)?.let { rejected ->
+                            reason = rejected.errorCode
+                            combinedResult = rejected
+                            deliveryOutcome = dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolDelivery.DELIVERED
+                            return@execution bounded(rejected)
+                        }
+                    }
+                    combinedResult?.let { observed -> ToolFailureMetadata.withAuthorityFailure(observed, error, "delivery") }?.let { retained ->
+                        // The observation predates the failed authorization check.
+                        // Its completed/unknown outcome must not be overwritten.
+                        combinedResult = retained
+                        recordAuthorityFailure(retained)
+                        if (retained.errorCode in ToolResultEnvelope.unknownOutcomeCodes && !replayableRead) unknownOutcomes += signature
+                        reason = ToolFailureMetadata.authorityCode(retained)
+                        executionOutcome = when {
+                            retained.errorCode in ToolResultEnvelope.unknownOutcomeCodes -> dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolOutcome.UNKNOWN
+                            retained.isError -> dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolOutcome.FAILURE
+                            else -> dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolOutcome.SUCCESS
+                        }
+                        deliveryOutcome = dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolDelivery.DELIVERED
+                        success = !retained.isError
+                        return@execution bounded(retained)
+                    }
                     val readOnly = replayableRead
                     reason = if (readOnly) "READ_FAILED" else "DISPATCH_OUTCOME_UNKNOWN"
                     if (readOnly) executionOutcome = dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolOutcome.FAILURE
                     deliveryOutcome = dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolDelivery.DELIVERED
                     failures.computeIfAbsent(signature) { AtomicInteger() }.incrementAndGet()
                     if (!readOnly) unknownOutcomes += signature
-                    val boundedResult = bounded(ToolResultEnvelope.error(callId, if (readOnly) "READ_FAILED" else "DISPATCH_OUTCOME_UNKNOWN", failureMessage(error) + if (readOnly) " Completed evidence remains available; a bounded read retry may continue." else " Dispatch outcome is unknown; reconcile before repeating an action.", dispatched = true))
+                    val readGuidance = if (ToolFailureMetadata.authorityCode(error) == null) " Completed evidence remains available; a bounded read retry may continue." else " Completed evidence remains available."
+                    val failure = ToolResultEnvelope.error(callId, if (readOnly) ToolFailureMetadata.authorityCode(error) ?: "READ_FAILED" else "DISPATCH_OUTCOME_UNKNOWN", failureMessage(error) + if (readOnly) readGuidance else " Dispatch outcome is unknown; reconcile before repeating an action.", dispatched = true)
+                    val observed = ToolFailureMetadata.withAuthorityFailure(failure, error, "tool_execution")?.let {
+                        ToolFailureMetadata.receipt(it, definition.name, diagnosticCode = ToolFailureMetadata.authorityCode(error), replaySafe = readOnly)
+                    } ?: failure
+                    recordAuthorityFailure(observed)
+                    val boundedResult = bounded(observed)
                     if (readOnly) combinedResult = boundedResult
                     success = !boundedResult.isError
                     return@execution boundedResult
@@ -389,6 +434,13 @@ class ToolExecutionBudget(
             }
         }
     }
+
+    private fun recordAuthorityFailure(result: AgentToolResult) {
+        if (ToolFailureMetadata.authorityCode(result) != null) invalidatedAuthority.compareAndSet(null, result)
+    }
+
+    private fun authorityPrecheck(callId: String, tool: String, error: Throwable): AgentToolResult? =
+        ToolFailureMetadata.authorityPrecheck(callId, tool, error)?.also(::recordAuthorityFailure)
 
     private suspend fun tryAcquireCall(enforceResearchLimit: Boolean = false): Boolean {
         durableCalls?.let { checkpoint ->

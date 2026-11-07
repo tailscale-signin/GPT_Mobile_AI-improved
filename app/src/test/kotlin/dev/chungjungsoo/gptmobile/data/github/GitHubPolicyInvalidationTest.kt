@@ -7,18 +7,58 @@ import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
 import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubPolicyInvalidationTest {
+    @Test fun policyFailureWhileSavingProgressCannotReplaceTheOriginalUnknownOutcome() = runBlocking {
+        var changed = false
+        val retained = linkedMapOf<String, JsonObject>()
+        val book = GitHubEvidenceBook("b", "o/r", "main", setOf("github_prs"), save = { key, value ->
+            if (changed) throw dev.chungjungsoo.gptmobile.data.context.DispatchPolicyChangedException(listOf("engineering"))
+            retained[key] = value
+        })
+        val call = ProviderEvent.ToolCall("prior-write", "github_prs", buildJsonObject { put("action", "create") })
+        book.observe(call, AgentToolResult(call.callId, ToolResultContent.Text("retained uncertain receipt"), true, errorCode = "TOOL_OUTCOME_UNKNOWN"))
+        val receiptBefore = book.snapshot().first
+        val original = ProviderEvent.Failed(
+            "The earlier tool outcome remains unknown",
+            errorCode = "TOOL_OUTCOME_UNKNOWN",
+            taskOutcome = "PARTIAL",
+            failureDetails = buildJsonObject {
+                put("failed_stage", "tool_dispatch")
+                put("dispatched", true)
+            }
+        )
+        val delegate = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                changed = true
+                emit(original)
+            }
+        }
+        val gate = GitHubVerifiedSession(delegate, book, "Explain the repository", { 8192 }, { error("No verifier after policy invalidation") }, {}, {}, onPublication = { error("No completion publication") })
+        val failed = gate.streamRound(emptyList(), emptyList()).toList().single() as ProviderEvent.Failed
+        assertEquals(original.message, failed.message)
+        assertEquals("TOOL_OUTCOME_UNKNOWN", failed.errorCode)
+        assertEquals("PARTIAL", failed.taskOutcome)
+        assertEquals(JsonPrimitive(true), failed.failureDetails?.get("dispatched"))
+        assertEquals(JsonPrimitive("tool_dispatch"), failed.failureDetails?.get("failed_stage"))
+        assertEquals(JsonPrimitive("UNAVAILABLE"), failed.failureDetails?.get("acceptance_checkpoint"))
+        assertEquals(JsonPrimitive("DISPATCH_POLICY_CHANGED"), failed.failureDetails?.get("checkpoint_failure_code"))
+        assertEquals(receiptBefore, book.snapshot().first)
+    }
+
     @Test fun policyInvalidationWhileCheckpointingStopsBeforeProviderOrToolPlanning() = runBlocking {
         val policy = dev.chungjungsoo.gptmobile.data.context.DispatchPolicyChangedException(listOf("profile.disableAllTools"))
         val retained = linkedMapOf<String, JsonObject>()

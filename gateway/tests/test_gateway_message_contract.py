@@ -2,9 +2,9 @@
 import copy
 import json
 import sys
-import time
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from gateway_v13_runtime import (GatewayContractError, compact_history, completion_chunks,
@@ -21,6 +21,18 @@ class StrictTemplateSession(Session):
             if message['role'] == 'developer' or message['role'] == 'system' and index != 0:
                 raise AssertionError('Strict backend rejected a late or unsupported instruction role')
         return super().post(url, **kwargs)
+
+
+class FixtureClock:
+    """Clock for this transport fixture; never patch the shared time module."""
+    def __init__(self):
+        self.now = 1000.0
+
+    def monotonic(self):
+        return self.now
+
+    def advance(self, seconds):
+        self.now += seconds
 
 
 class MessageContractTests(unittest.TestCase):
@@ -233,13 +245,20 @@ class MessageContractTests(unittest.TestCase):
 
     def test_backend_reasoning_visible_and_publication_timings_are_distinct_and_survive_sse(self):
         events = []
+        clock = FixtureClock()
         def stream():
+            clock.advance(0.010)
             yield from lines({'model': 'local', 'choices': [{'delta': {'reasoning_content': 'fixture-private'}}]}, done=False)
-            time.sleep(0.005)
+            clock.advance(0.015)
             yield from lines({'choices': [{'delta': {'content': 'Answer'}, 'finish_reason': 'stop'}]},
                              {'choices': [], 'usage': {'prompt_tokens': 2, 'completion_tokens': 3}})
-        result = self.run_chat(Session(Response(stream=stream())), payload(), progress=events.append).json()
+        # Replace only the transport module's binding, so threading and other
+        # modules retain their actual clocks and timeout behavior.
+        with patch('gateway_v13_transport.time', clock):
+            result = self.run_chat(Session(Response(stream=stream())), payload(), progress=events.append).json()
         timing = result['gateway_timing']
+        self.assertEqual((10.0, 10.0, 25.0), tuple(timing[key] for key in (
+            'backend_first_output_ms', 'backend_first_reasoning_output_ms', 'backend_first_visible_output_ms')))
         self.assertLessEqual(timing['backend_first_output_ms'], timing['backend_first_reasoning_output_ms'])
         self.assertLess(timing['backend_first_reasoning_output_ms'], timing['backend_first_visible_output_ms'])
         self.assertLessEqual(timing['backend_first_visible_output_ms'], timing['backend_completion_ms'])
@@ -254,14 +273,18 @@ class MessageContractTests(unittest.TestCase):
 
     def test_fragmented_inline_reasoning_does_not_count_as_first_visible_answer(self):
         events = []
+        clock = FixtureClock()
         def stream():
+            clock.advance(0.005)
             yield from lines({'choices': [{'delta': {'content': '<thi'}}]}, done=False)
-            time.sleep(0.005)
+            clock.advance(0.005)
             yield from lines({'choices': [{'delta': {'content': 'nk>fixture-private</think>'}}]}, done=False)
-            time.sleep(0.005)
+            clock.advance(0.005)
             yield from lines({'choices': [{'delta': {'content': 'Answer'}, 'finish_reason': 'stop'}]})
-        result = self.run_chat(Session(Response(stream=stream())), payload(), progress=events.append).json()
+        with patch('gateway_v13_transport.time', clock):
+            result = self.run_chat(Session(Response(stream=stream())), payload(), progress=events.append).json()
         timing = result['gateway_timing']
+        self.assertEqual((5.0, 15.0), (timing['backend_first_output_ms'], timing['backend_first_visible_output_ms']))
         self.assertLess(timing['backend_first_output_ms'], timing['backend_first_visible_output_ms'])
         self.assertEqual(1, sum(event['event'] == 'backend_first_visible_output' for event in events))
         self.assertNotIn('fixture-private', json.dumps(events))

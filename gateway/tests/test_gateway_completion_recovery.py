@@ -149,7 +149,7 @@ class CompletionRecoveryTests(unittest.TestCase):
         self.assertEqual(payload()["tools"], repair["tools"])
         self.assertFalse(repair["parallel_tool_calls"])
         self.assertEqual(60, repair["max_tokens"])
-        self.assertEqual(["user", "system"], [item["role"] for item in repair["messages"]])
+        self.assertEqual(["system", "user"], [item["role"] for item in repair["messages"]])
         self.assertEqual(55, actual["usage"]["completion_tokens"])
 
     def test_repeated_multi_call_batch_fails_without_executing_any_call(self):
@@ -295,13 +295,16 @@ class CompletionRecoveryTests(unittest.TestCase):
         self.assertEqual("empty_completion", json.loads(chunks[0][6:])["error"]["code"])
         self.assertEqual("data: [DONE]\n\n", chunks[-1])
 
-    def test_unknown_repair_usage_is_not_presented_as_exact_combined_total(self):
+    def test_missing_admitted_output_budget_cannot_start_an_unbudgeted_repair(self):
         body = payload()
         body.pop("max_tokens")
         session = Session(Response(completion("", used=None)), Response(completion("answer", used=12)))
-        result = self.run_chat(session, body).json()
-        self.assertNotIn("usage", result)
-        self.assertFalse(result["gateway_recovery"]["usage_complete"])
+        with self.assertRaises(GatewayContractError) as error:
+            self.run_chat(session, body)
+        self.assertEqual('completion_repair_budget_unavailable', error.exception.code)
+        self.assertEqual(1, len(session.calls))
+        self.assertEqual([{}], error.exception.details['gateway_recovery']['attempt_usage'])
+        self.assertFalse(error.exception.details['gateway_recovery']['usage_estimated'])
 
 
 if __name__ == "__main__":

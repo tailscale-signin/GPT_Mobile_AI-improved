@@ -20,7 +20,7 @@ import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 
 /** An observed rejection proves this request did not apply; a lost response does not. */
-internal class GitHubRequestRejected(val status: Int, message: String) : IllegalStateException(message)
+internal class GitHubRequestRejected(val status: Int, message: String, val evidence: JsonObject? = null) : IllegalStateException(message)
 
 /** Nested HTTP claims report to the enclosing compound operation before any write can escape. */
 internal class GitHubMutationAttempts(private val parent: GitHubMutationAttempts?) : AbstractCoroutineContextElement(Key) {

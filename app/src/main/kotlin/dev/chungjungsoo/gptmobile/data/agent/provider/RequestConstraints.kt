@@ -5,9 +5,13 @@ data class RequestConstraints(
     val maxOutputTokens: Int? = null,
     val allowTools: Boolean = true,
     val allowReasoning: Boolean = true,
+    val reasoningModeOverride: dev.chungjungsoo.gptmobile.data.context.ReasoningMode? = null,
     val maximizeReasoning: Boolean = false,
     val allowGatewayLocalTools: Boolean = false,
     val lockSelectedRoute: Boolean = false,
+    val restoredGatewayJob: dev.chungjungsoo.gptmobile.data.network.gateway.GatewayContinuationBinding? = null,
+    /** Set only after a same-task terminal result was read under the current authority. */
+    val gatewayNewStageAfterTerminal: Boolean = false,
     val requestRole: String? = null,
     val attemptId: String? = null,
     val queueScope: String? = null,
@@ -31,16 +35,24 @@ data class RequestConstraints(
             require(schema.toByteArray().size <= 32 * 1024) { "Final-response schema exceeds 32 KiB" }
             require(kotlinx.serialization.json.Json.parseToJsonElement(schema) is kotlinx.serialization.json.JsonObject) { "Final-response schema must be an object" }
         }
+        require(restoredGatewayJob == null || !gatewayNewStageAfterTerminal)
         require(maxOutputTokens == null || maxOutputTokens > 0)
         require(continuationPrefixDigest == null || continuationPrefixDigest.matches(Regex("[a-f0-9]{64}")))
     }
 
     /** Extraction is bounded formatting; engineering reasoning must leave room for visible JSON. */
-    fun forRole(role: String): RequestConstraints = copy(
-        requestRole = role,
-        allowReasoning = allowReasoning && role != "answer_contract_rewrite" && role !in setOf("github-claim-extraction", "github-progress-summary") && (!role.startsWith("github-review") || role.endsWith("repair")),
-        maximizeReasoning = maximizeReasoning && role != "answer_contract_rewrite" && !role.startsWith("github-review") && role !in setOf("github-claim-extraction", "github-progress-summary")
-    )
+    fun forRole(role: String): RequestConstraints {
+        val roleAllowsReasoning = allowReasoning && role != "answer_contract_rewrite" && role !in setOf("github-claim-extraction", "github-progress-summary") && (!role.startsWith("github-review") || role.endsWith("repair"))
+        return copy(
+            requestRole = role,
+            restoredGatewayJob = restoredGatewayJob.takeIf { role == "primary" },
+            gatewayNewStageAfterTerminal = gatewayNewStageAfterTerminal && role == "primary",
+            maxOutputTokens = if (role == "github-review-preflight") minOf(maxOutputTokens ?: 512, 512) else maxOutputTokens,
+            allowReasoning = roleAllowsReasoning,
+            reasoningModeOverride = if (roleAllowsReasoning) reasoningModeOverride else dev.chungjungsoo.gptmobile.data.context.ReasoningMode.OFF,
+            maximizeReasoning = maximizeReasoning && roleAllowsReasoning && !role.startsWith("github-review")
+        )
+    }
 
     /** Text-only continuation changes tool access, never the accepted reasoning policy. */
     fun withoutTools(): RequestConstraints = copy(allowTools = false, allowGatewayLocalTools = false)

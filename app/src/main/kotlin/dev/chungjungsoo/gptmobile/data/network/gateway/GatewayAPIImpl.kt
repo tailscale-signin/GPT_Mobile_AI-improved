@@ -44,7 +44,13 @@ class GatewayAPIImpl @Inject constructor(
     }
 
     /** Null means a definite unsupported endpoint; transport/auth failures must not remove isolation controls. */
-    override suspend fun getCapabilities(config: ProviderRequestConfig): GatewayCapabilities? {
+    override suspend fun getCapabilities(config: ProviderRequestConfig, forceRefresh: Boolean): GatewayCapabilities? {
+        val surfaceIdentity = GatewaySurfacePolicy.identity(config)
+        if (forceRefresh) {
+            GatewaySurfacePolicy.shared.invalidate(surfaceIdentity, GatewaySurfacePolicy.Surface.CAPABILITIES)
+        } else if (GatewaySurfacePolicy.shared.rememberedStatus(surfaceIdentity, GatewaySurfacePolicy.Surface.CAPABILITIES) != null) {
+            return null
+        }
         val endpoint = config.buildEndpoint("gateway/capabilities")
         return try {
             val responseBody = LocalEndpointConnectionPolicy.probe(endpoint, networkClient::evictIdleConnections) {
@@ -61,6 +67,7 @@ class GatewayAPIImpl @Inject constructor(
                         }
                     }.execute { response ->
                         GatewayClientDiagnostics.observe(config, response.status.value) { response.headers[it] }
+                        GatewaySurfacePolicy.shared.observe(GatewaySurfacePolicy.identity(config), GatewaySurfacePolicy.Surface.CAPABILITIES, response.status.value)
                         when {
                             response.status.value in setOf(404, 501) -> null
                             response.status.isSuccess() -> response.boundedMetadata(256 * 1024)
@@ -73,6 +80,7 @@ class GatewayAPIImpl @Inject constructor(
                 if (it.version.isNullOrBlank() && it.gatewayVersion.isNullOrBlank()) {
                     throw GatewayCapabilityDiscoveryException("GATEWAY_CAPABILITY_UNAVAILABLE: The selected connection returned an unverified gateway capability document. No model request was sent.")
                 }
+                GatewayClientDiagnostics.observeInstance(config, it.instanceId)
             }
         } catch (cancellation: CancellationException) {
             throw cancellation
@@ -194,10 +202,24 @@ class GatewayAPIImpl @Inject constructor(
                     }.execute { response ->
                         GatewayClientDiagnostics.observe(config, response.status.value) { response.headers[it] }
                         when {
-                            response.status == HttpStatusCode.Accepted -> GatewayJobResult(jobId = jobId, status = "RUNNING")
                             response.status.isSuccess() -> {
                                 val body = response.boundedMetadata(4 * 1024 * 1024)
-                                json.decodeFromString<GatewayJobResult>(body).takeIf { it.jobId == jobId }
+                                val saved = try {
+                                    json.decodeFromString<GatewayJobResult>(body)
+                                } catch (failure: kotlinx.serialization.SerializationException) {
+                                    // Legacy 202 endpoints can omit their envelope. Keep only
+                                    // transport-level waiting; never invent handoff or completion proof.
+                                    if (response.status == HttpStatusCode.Accepted) return@execute GatewayJobResult(jobId = jobId, status = "RUNNING")
+                                    throw failure
+                                }
+                                if (saved.jobId != jobId || saved.job?.jobId?.let { it != jobId } == true) return@execute null
+                                if (response.status == HttpStatusCode.Accepted && saved.status.lowercase() !in setOf("running", "resuming", "waiting_for_client_tool")) {
+                                    GatewayJobResult(jobId = jobId, status = "RUNNING")
+                                } else {
+                                    // A waiting result can contain the original assistant call.
+                                    // It is retained evidence and cannot authorize tool execution.
+                                    saved
+                                }
                             }
                             else -> null
                         }

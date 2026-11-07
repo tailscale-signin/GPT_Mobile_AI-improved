@@ -18,6 +18,39 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ChatCompletionTransportTest {
+    @Test fun deterministicTemplateFailuresKeepJobIdentityAndNeverRetryHttpOrSse() {
+        for (status in listOf(500, 200)) {
+            var requests = 0
+            val error = """{"error":{"message":"Jinja Exception: System message must be at the beginning. PRIVATE SOURCE","code":"backend_template_invalid","failed_stage":"backend_template","backend_status":500,"retryable":false}}"""
+            withResponse(
+                if (status == 200) "text/event-stream" else "application/json",
+                if (status == 200) "data: $error\n\ndata: [DONE]\n\n" else error,
+                status = status,
+                onRequest = { requests++ }
+            ) { api, config, _ ->
+                val chunks = runBlocking { api.streamChatCompletion(request(), 5, config).toList() }
+                assertEquals(1, requests)
+                assertEquals("job-1", chunks.firstNotNullOfOrNull { it.gatewayMetadata?.jobId })
+                val failure = chunks.single { it.error != null }.error!!
+                assertEquals("BACKEND_TEMPLATE_INVALID", failure.code)
+                assertEquals(false, failure.retryable)
+                assertEquals(kotlinx.serialization.json.JsonPrimitive(status), failure.failureDetails?.get("http_status"))
+                assertFalse(failure.message.contains("PRIVATE SOURCE"))
+            }
+        }
+    }
+
+    @Test fun backendFirstOutputTimingIsKeptSeparateFromUserVisibleText() = withResponse(
+        "application/json",
+        """{"choices":[{"message":{"content":"Answer."}}],"gateway_timing":{"measurement_scope":"physical_backend_request","backend_first_output_ms":10.5,"backend_first_reasoning_output_ms":10.5,"backend_first_visible_output_ms":100.0,"backend_completion_ms":150.0,"first_user_visible_text_ms":9999}}"""
+    ) { api, config, _ ->
+        val timing = runBlocking { api.streamChatCompletion(request(false), 5, config).toList().single().gatewayTiming!! }
+        assertEquals(10.5, timing.observedFields()["backend_first_output_ms"]!!, 0.01)
+        assertFalse(timing.observedFields().containsKey("first_user_visible_text_ms"))
+        assertTrue(timing.copy(measurementScope = "unverified").observedFields().isEmpty())
+        assertFalse(timing.copy(firstOutputMs = -1.0).observedFields().containsKey("backend_first_output_ms"))
+    }
+
     @Test
     fun `non streaming completion exposes location calls usage and gateway metadata`() = withResponse(
         "application/json",
@@ -152,16 +185,17 @@ class ChatCompletionTransportTest {
 
     private fun request(stream: Boolean = true) = ChatCompletionRequest(model = "llama", messages = listOf(dev.chungjungsoo.gptmobile.data.dto.openai.request.ChatMessage(role = dev.chungjungsoo.gptmobile.data.dto.openai.common.Role.USER, content = listOf(dev.chungjungsoo.gptmobile.data.dto.openai.common.TextContent("Transport fixture request.")))), stream = stream)
 
-    private fun withResponse(contentType: String, body: String, headers: Map<String, String> = mapOf("X-Gateway-Job-ID" to "job-1"), block: (OpenAIAPI, ProviderRequestConfig, () -> String?) -> Unit) {
+    private fun withResponse(contentType: String, body: String, headers: Map<String, String> = mapOf("X-Gateway-Job-ID" to "job-1"), status: Int = 200, onRequest: () -> Unit = {}, block: (OpenAIAPI, ProviderRequestConfig, () -> String?) -> Unit) {
         var accept: String? = null
         val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
         server.createContext("/") { exchange ->
+            onRequest()
             accept = exchange.requestHeaders.getFirst("Accept")
             exchange.requestBody.close()
             exchange.responseHeaders.add("Content-Type", contentType)
             headers.forEach { (key, value) -> exchange.responseHeaders.add(key, value) }
             val bytes = body.toByteArray()
-            exchange.sendResponseHeaders(200, bytes.size.toLong())
+            exchange.sendResponseHeaders(status, bytes.size.toLong())
             exchange.responseBody.use { it.write(bytes) }
         }
         server.start()

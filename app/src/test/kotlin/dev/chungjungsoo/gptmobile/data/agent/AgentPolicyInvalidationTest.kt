@@ -195,33 +195,41 @@ class AgentPolicyInvalidationTest {
         }
     }
 
-    @Test fun actualStaleInventoryPrecheckStopsWithoutImplicitRediscovery() = runTest {
+    @Test fun staleInventoryAllowsExplicitCorrectedDiscoveryWithoutChangingAuthority() = runTest {
         val definitions = (1..20).map { AgentToolDefinition("selected_$it", "Selected tool", args) }
-        val catalog = ProgressiveToolCatalog(definitions, "tools", acquireCold = { _, _ -> error("Do not implicitly rediscover after inventory rejection") })
+        val catalog = ProgressiveToolCatalog(definitions, "tools")
         var rounds = 0
         val session = session {
-            check(rounds++ == 0)
-            listOf(
-                ProviderEvent.ToolCall(
-                    "stale-page",
-                    catalog.definition.name,
-                    buildJsonObject {
-                        put("inventory_cursor", 12)
-                        put("inventory_version", "old-version")
-                    }
-                ),
-                ProviderEvent.Completed
-            )
+            when (rounds++) {
+                0 -> listOf(
+                    ProviderEvent.ToolCall(
+                        "stale-page",
+                        catalog.definition.name,
+                        buildJsonObject {
+                            put("inventory_cursor", 12)
+                            put("inventory_version", "old-version")
+                        }
+                    ),
+                    ProviderEvent.Completed
+                )
+                1 -> listOf(ProviderEvent.ToolCall("corrected-page", catalog.definition.name, args), ProviderEvent.Completed)
+                2 -> listOf(ProviderEvent.TextDelta("The first inventory page was discovered; coverage remains incomplete."), ProviderEvent.Completed)
+                else -> error("No repeated discovery repair")
+            }
         }
-        val events = AgentRunner(AgentRunLimits(githubTask = true)).run(session, listOf(catalog), dynamicTools = { error("No implicit catalog replacement") }).toList()
-        val rejected = events.filterIsInstance<AgentRunEvent.ToolFinished>().single().result
+        val events = AgentRunner(AgentRunLimits(githubTask = true)).run(session, listOf(catalog)).toList()
+        val results = events.filterIsInstance<AgentRunEvent.ToolFinished>()
+        assertEquals(listOf("stale-page", "corrected-page"), results.map { it.call.callId })
+        val rejected = results.first().result
         assertFalse(rejected.dispatched)
         assertEquals("STALE_INVENTORY", rejected.errorCode)
-        assertEquals("PRECHECK_REJECTED", ToolResultEnvelope.executionState(rejected))
-        assertEquals(JsonPrimitive("tool_precheck"), rejected.executionReceipt?.get("phase"))
-        assertEquals("STALE_INVENTORY", terminal(events).errorCode)
-        assertFalse(ProfileFailureRecord.fromProvider(terminal(events).message, terminal(events).errorCode, terminal(events).failureDetails).retryAllowed)
-        assertEquals(1, rounds)
+        assertEquals(null, ToolFailureMetadata.authorityCode(rejected))
+        assertEquals(JsonPrimitive("inventory_pagination"), rejected.executionReceipt?.get("failed_stage"))
+        assertEquals(JsonPrimitive(false), rejected.executionReceipt?.get("permissions_changed"))
+        assertFalse(results.last().result.isError)
+        assertTrue(events.providerEvents().any { it is ProviderEvent.Completed })
+        assertFalse(events.providerEvents().any { it is ProviderEvent.Failed })
+        assertEquals(3, rounds)
     }
 
     @Test fun policyFailureWhileRestoringEvidenceRetainsUnknownOutcomeWithoutAnotherRound() = runTest {
@@ -248,7 +256,7 @@ class AgentPolicyInvalidationTest {
 
     @Test fun typedPolicyFailureCannotEnterTransportRetryOrToolFreeFinalization() = runTest {
         for (github in listOf(false, true)) {
-            for (code in listOf("DISPATCH_POLICY_CHANGED", "POLICY_STALE", "STALE_INVENTORY")) {
+            for (code in listOf("DISPATCH_POLICY_CHANGED", "POLICY_STALE")) {
                 var rounds = 0
                 val events = AgentRunner(AgentRunLimits(githubTask = github)).run(
                     session {

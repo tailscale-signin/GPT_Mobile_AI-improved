@@ -22,6 +22,7 @@ import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.model.ToolServiceCatalog
 import dev.chungjungsoo.gptmobile.data.network.ConnectionHealth
 import dev.chungjungsoo.gptmobile.data.network.NetworkClient
+import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayAPI
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayAPIImpl
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayCapabilityDiscoveryException
@@ -45,6 +46,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -73,7 +75,7 @@ class AppAuditPluginServicesTest {
         restarted.configure(listOf(connection))
         coEvery { restarted.settings.fetchPlatformV2s() } returns listOf(profile())
         coEvery { restarted.resolver.discoverMcpTools(connection, forceRefresh = true, awaitCompletion = true) } returns emptyList()
-        coEvery { restarted.gateway.getCapabilities(any()) } returns null
+        coEvery { restarted.gateway.getCapabilities(any(), forceRefresh = true) } returns null
         var markers = 0
         val results = entries.map { restarted.source.execute(it, context { markers++ }) }
         assertEquals(2, results.size)
@@ -280,7 +282,7 @@ class AppAuditPluginServicesTest {
             val setup = Setup()
             coEvery { setup.settings.fetchPlatformV2s() } returns listOf(profile())
             val entry = setup.source.plan(AppAuditOptions(true, listOf("selected"))).single { it.probeId == AppAuditPluginProbeSource.GATEWAY_CAPABILITIES }
-            coEvery { setup.gateway.getCapabilities(any()) } coAnswers {
+            coEvery { setup.gateway.getCapabilities(any(), forceRefresh = true) } coAnswers {
                 ReadinessInvalidation.advance()
                 if (tlsFailure) throw SSLHandshakeException("PRIVATE_CERTIFICATE")
                 null
@@ -292,7 +294,7 @@ class AppAuditPluginServicesTest {
             assertEquals(AppAuditEvidenceKind.LIVE_METADATA, result.evidenceKind)
             assertEquals(AppAuditObservationSource.LIVE, result.observationSource)
             assertTrue(result.configChanged)
-            coVerify(exactly = 1) { setup.gateway.getCapabilities(any()) }
+            coVerify(exactly = 1) { setup.gateway.getCapabilities(any(), forceRefresh = true) }
         }
     }
 
@@ -436,16 +438,99 @@ class AppAuditPluginServicesTest {
     }
 
     @Test
+    fun explicitGatewayAuditRefreshesUnsupportedCacheAndRetainsActualDispatchEvidence() = runBlocking {
+        for (warmStatus in listOf(HttpStatusCode.NotFound, HttpStatusCode.NotImplemented)) {
+            for (recovers in listOf(false, true)) {
+                val profile = profile().copy(apiUrl = "http://127.0.0.1:${29_000 + warmStatus.value + if (recovers) 1_000 else 0}/private/v1")
+                val config = ProviderRequestConfig(profile.apiUrl, profile.token, profileUid = profile.uid)
+                var calls = 0
+                var marked = false
+                HttpClient(
+                    MockEngine { request ->
+                        calls++
+                        assertEquals("GET", request.method.value)
+                        assertEquals("/private/v1/gateway/capabilities", request.url.encodedPath)
+                        assertEquals("127.0.0.1", request.url.host)
+                        assertEquals(java.net.URI(profile.apiUrl).port, request.url.port)
+                        assertEquals("Bearer private-credential", request.headers["Authorization"])
+                        if (calls > 1) assertTrue("The audit marker must precede its fresh network read", marked)
+                        if (calls > 1 && recovers) {
+                            respond("""{"gatewayVersion":"15.0.0","contractVersion":1}""", HttpStatusCode.OK)
+                        } else {
+                            respond("not supported", warmStatus)
+                        }
+                    }
+                ).use { client ->
+                    val network = mockk<NetworkClient>()
+                    every { network() } returns client
+                    val gateway = GatewayAPIImpl(network)
+                    repeat(2) { assertNull(gateway.getCapabilities(config)) }
+                    assertEquals("Ordinary calls reuse the unsupported route observation", 1, calls)
+
+                    val setup = Setup(gateway)
+                    coEvery { setup.settings.fetchPlatformV2s() } returns listOf(profile)
+                    val entry = setup.source.plan(AppAuditOptions(true, listOf(profile.uid))).single { it.probeId == AppAuditPluginProbeSource.GATEWAY_CAPABILITIES }
+                    val result = setup.source.execute(entry, context { marked = true })
+                    assertEquals("A live audit must perform a new capability read", 2, calls)
+                    assertEquals(if (recovers) AppAuditOutcome.PASS else AppAuditOutcome.UNAVAILABLE, result.outcome)
+                    assertEquals(if (recovers) "GATEWAY_CAPABILITY_VERIFIED" else "GATEWAY_NOT_SUPPORTED", result.reasonCode)
+                    assertEquals(AppAuditObservationSource.LIVE, result.observationSource)
+                    assertEquals(AppAuditEvidenceKind.LIVE_METADATA, result.evidenceKind)
+                    assertEquals(AppAuditDispatchEvidence.CONFIRMED, result.dispatchEvidence)
+                    assertFalse(result.toString().contains("private-credential"))
+
+                    val following = gateway.getCapabilities(config)
+                    if (recovers) {
+                        assertEquals("15.0.0", following?.gatewayVersion)
+                        assertEquals("A successful refresh clears the unsupported observation", 3, calls)
+                    } else {
+                        assertNull(following)
+                        assertEquals("An unsupported refresh remains cached for ordinary calls", 2, calls)
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
+    fun explicitGatewayAuditCannotReuseUnsupportedStatusAfterFreshAuthenticationFailure() = runBlocking {
+        val profile = profile().copy(apiUrl = "http://127.0.0.1:31545/private/v1")
+        val config = ProviderRequestConfig(profile.apiUrl, profile.token, profileUid = profile.uid)
+        var calls = 0
+        HttpClient(
+            MockEngine { request ->
+                calls++
+                assertEquals("Bearer private-credential", request.headers["Authorization"])
+                respond("private response", if (calls == 1) HttpStatusCode.NotFound else HttpStatusCode.Forbidden)
+            }
+        ).use { client ->
+            val network = mockk<NetworkClient>()
+            every { network() } returns client
+            val gateway = GatewayAPIImpl(network)
+            assertNull(gateway.getCapabilities(config))
+            val setup = Setup(gateway)
+            coEvery { setup.settings.fetchPlatformV2s() } returns listOf(profile)
+            val entry = setup.source.plan(AppAuditOptions(true, listOf(profile.uid))).single { it.probeId == AppAuditPluginProbeSource.GATEWAY_CAPABILITIES }
+            val result = setup.source.execute(entry, context())
+            assertEquals(AppAuditOutcome.FAIL, result.outcome)
+            assertEquals(2, calls)
+            assertTrue(runCatching { gateway.getCapabilities(config) }.exceptionOrNull() is GatewayCapabilityDiscoveryException)
+            assertEquals("A fresh authentication failure cannot restore a previous unsupported-route shortcut", 3, calls)
+            assertFalse(result.toString().contains("private response"))
+        }
+    }
+
+    @Test
     fun gatewaySchemaAndTlsFailuresKeepTypedReasonsWithoutPrivateMessages() = runBlocking {
         val setup = Setup()
         coEvery { setup.settings.fetchPlatformV2s() } returns listOf(profile())
         val entry = setup.source.plan(AppAuditOptions(true, listOf("selected"))).single { it.probeId == AppAuditPluginProbeSource.GATEWAY_CAPABILITIES }
-        coEvery { setup.gateway.getCapabilities(any()) } throws GatewayCapabilityDiscoveryException("PRIVATE_DECODER_VALUE", decodeReason = "EXPECTED_INTEGER", fieldPath = "PRIVATE_KEY")
+        coEvery { setup.gateway.getCapabilities(any(), forceRefresh = true) } throws GatewayCapabilityDiscoveryException("PRIVATE_DECODER_VALUE", decodeReason = "EXPECTED_INTEGER", fieldPath = "PRIVATE_KEY")
         val decode = setup.source.execute(entry, context())
         assertEquals("GATEWAY_CAPABILITY_DECODE_EXPECTED_INTEGER", decode.reasonCode)
         assertEquals(AppAuditDispatchEvidence.CONFIRMED, decode.dispatchEvidence)
         assertFalse(decode.toString().contains("PRIVATE"))
-        coEvery { setup.gateway.getCapabilities(any()) } throws SSLHandshakeException("PRIVATE_CERTIFICATE_VALUE")
+        coEvery { setup.gateway.getCapabilities(any(), forceRefresh = true) } throws SSLHandshakeException("PRIVATE_CERTIFICATE_VALUE")
         val tls = setup.source.execute(entry, context())
         assertEquals("TLS_FAILURE", tls.reasonCode)
         assertEquals(false, tls.retryable)
@@ -457,12 +542,12 @@ class AppAuditPluginServicesTest {
     fun gatewayCancellationPropagatesWithoutRetry() = runBlocking {
         val setup = Setup()
         coEvery { setup.settings.fetchPlatformV2s() } returns listOf(profile())
-        coEvery { setup.gateway.getCapabilities(any()) } throws CancellationException("caller canceled")
+        coEvery { setup.gateway.getCapabilities(any(), forceRefresh = true) } throws CancellationException("caller canceled")
         val entry = setup.source.plan(AppAuditOptions(true, listOf("selected"))).single { it.probeId == AppAuditPluginProbeSource.GATEWAY_CAPABILITIES }
         val failure = runCatching { setup.source.execute(entry, context()) }.exceptionOrNull()
         assertTrue(failure is CancellationException)
         assertEquals("caller canceled", failure?.message)
-        coVerify(exactly = 1) { setup.gateway.getCapabilities(any()) }
+        coVerify(exactly = 1) { setup.gateway.getCapabilities(any(), forceRefresh = true) }
     }
 
     private class Setup(val gateway: GatewayAPI = mockk()) {

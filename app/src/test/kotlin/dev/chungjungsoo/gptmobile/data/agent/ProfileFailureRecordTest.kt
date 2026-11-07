@@ -6,7 +6,43 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ProfileFailureRecordTest {
-    @Test fun typedAuthorityRejectionRetainsItsActualPrecheckFactsAfterPersistence() {
+    @Test fun taskVerificationNeverCreatesProviderRetryOrCooldownEligibility() {
+        for (code in listOf("GITHUB_TASK_INCOMPLETE", "GITHUB_EVIDENCE_REQUIRED", "GITHUB_EVIDENCE_RETENTION_INCOMPLETE", "REPLAY_EVIDENCE_REQUIRED")) {
+            val failure = ProfileFailureRecord.fromProvider("Retained task evidence mentions a prior HTTP 429; cooldown remaining: 60000", code)
+            assertTrue(failure.isTaskVerification)
+            assertFalse(failure.retryAllowed)
+            assertEquals(null, failure.retryAfterMillis)
+            val task = requireNotNull(TaskVerificationFailure.from(failure))
+            val restored = kotlinx.serialization.json.Json.decodeFromString<TaskVerificationFailure>(kotlinx.serialization.json.Json.encodeToString(TaskVerificationFailure.serializer(), task))
+            assertEquals(failure.category, restored.category)
+            assertEquals("verification", restored.phase)
+        }
+        val uncertain = ProfileFailureRecord.fromProvider("TOOL_OUTCOME_UNKNOWN: reconcile the submitted mutation", "GITHUB_TASK_INCOMPLETE")
+        assertEquals(null, TaskVerificationFailure.from(uncertain))
+        assertEquals("TOOL_OUTCOME_UNKNOWN", uncertain.category)
+        assertFalse(uncertain.retryAllowed)
+    }
+
+    @Test fun gatewayContractReceiptsRetainStageAndDoNotBecomeRetryableConnectionFailures() {
+        val details = kotlinx.serialization.json.Json.parseToJsonElement("""{"failed_stage":"tool_continuation","dispatch_state":"not_dispatched","retryable":false}""") as kotlinx.serialization.json.JsonObject
+        val failure = ProfileFailureRecord.fromProvider("The saved connection needs tool results", "client_tool_results_required", details)
+        val restored = kotlinx.serialization.json.Json.decodeFromString<ProfileFailureRecord>(kotlinx.serialization.json.Json.encodeToString(ProfileFailureRecord.serializer(), failure))
+        assertEquals("CLIENT_TOOL_RESULTS_REQUIRED", restored.category)
+        assertEquals("tool_continuation", restored.phase)
+        assertEquals(false, restored.dispatched)
+        assertEquals(RemoteRequestAcceptance.NO, restored.remoteAcceptance)
+        assertFalse(restored.retryAllowed)
+        val terminal = ProfileFailureRecord.fromProvider("Terminal result unavailable on this connection", "terminal_job_not_resumable")
+        assertEquals("TERMINAL_JOB_NOT_RESUMABLE", terminal.category)
+        assertFalse(terminal.retryAllowed)
+        assertFalse(ProfileFailureRecord.fromProvider("Temporary connection problem", details = details).retryAllowed)
+        val newRejection = ProfileFailureRecord.fromProvider("A connection cannot accept this request", "future_contract_error", kotlinx.serialization.json.Json.parseToJsonElement("""{"http_status":422,"failed_stage":"request_validation","retryable":false}""") as kotlinx.serialization.json.JsonObject)
+        assertEquals("REQUEST_REJECTED", newRejection.category)
+        assertEquals("request_validation", newRejection.phase)
+        assertFalse(newRejection.retryAllowed)
+    }
+
+    @Test fun typedLocalRejectionRetainsItsActualPrecheckFactsAfterPersistence() {
         for (code in listOf("DISPATCH_POLICY_CHANGED", "POLICY_STALE", "STALE_INVENTORY")) {
             val details = kotlinx.serialization.json.buildJsonObject {
                 put("failed_stage", kotlinx.serialization.json.JsonPrimitive("tool_precheck"))
@@ -23,13 +59,40 @@ class ProfileFailureRecordTest {
         }
     }
 
-    @Test fun authorityCodeAndProviderProseCannotInventARejectionReceipt() {
+    @Test fun localFailureCodeAndProviderProseCannotInventARejectionReceipt() {
         for (code in listOf("DISPATCH_POLICY_CHANGED", "POLICY_STALE", "STALE_INVENTORY")) {
             val failure = ProfileFailureRecord.fromProvider("dispatched=false; No request was dispatched", code)
             assertFalse(failure.retryAllowed)
             assertEquals(null, failure.dispatched)
             assertEquals(RemoteRequestAcceptance.UNKNOWN, failure.remoteAcceptance)
         }
+    }
+
+    @Test fun inventoryPaginationAndReadinessRetainTheirOwnStagesAfterPersistence() {
+        val pending = RequiredToolReadinessFailure("ACQUISITION_PENDING", "github_ci__github_api", "Catalog acquisition is pending.")
+        val timedOut = RequiredToolReadinessFailure("ACQUISITION_TIMED_OUT", "github_ci__github_api", "Catalog acquisition timed out.")
+        for (blocked in listOf(pending, timedOut)) {
+            val record = ProfileFailureRecord.fromProvider("The connection is still selected", blocked.errorCode, blocked.failureDetails)
+            val restored = kotlinx.serialization.json.Json.decodeFromString<ProfileFailureRecord>(kotlinx.serialization.json.Json.encodeToString(ProfileFailureRecord.serializer(), record))
+            assertEquals(blocked.errorCode, restored.category)
+            assertEquals("tool_readiness", restored.phase)
+            assertEquals(false, restored.dispatched)
+            assertEquals(RemoteRequestAcceptance.NO, restored.remoteAcceptance)
+            assertEquals(blocked === timedOut, restored.retryAllowed)
+        }
+        val pagination = ProfileFailureRecord.fromProvider(
+            "Restart with the exact correction call",
+            "STALE_INVENTORY",
+            kotlinx.serialization.json.buildJsonObject {
+                put("failed_stage", kotlinx.serialization.json.JsonPrimitive("inventory_pagination"))
+                put("dispatched", kotlinx.serialization.json.JsonPrimitive(false))
+                put("retryable", kotlinx.serialization.json.JsonPrimitive(false))
+            }
+        )
+        assertEquals("inventory_pagination", pagination.phase)
+        assertEquals("STALE_INVENTORY", pagination.category)
+        assertEquals(RemoteRequestAcceptance.NO, pagination.remoteAcceptance)
+        assertFalse(pagination.retryAllowed)
     }
 
     @Test fun earlierUnknownOutcomeOutranksAConflictingAuthorityPrecheck() {

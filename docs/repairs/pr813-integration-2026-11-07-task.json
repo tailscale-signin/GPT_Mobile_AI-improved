@@ -1,0 +1,136 @@
+{
+  "schema": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "3ac89ceafd9083f67da30e92f9f93aae27be4600",
+  "original_pr_head": "4ad5f7d35fd69b0ff274e2b27c1c83caecc721e1",
+  "working_branch": "fix/diagnostic-remediation-8597579-2026-11-07",
+  "local_branch": "repair/pr813-merge-2026-11-07",
+  "pull_request": 813,
+  "intent": "Repair all remaining PR blockers, integrate current main without losing diagnostic or app-audit changes, and merge after exact-head validation passes.",
+  "state": "SOURCE_VALIDATED_AWAITING_PUBLICATION",
+  "task_store": "engineering_agent_checkpoints",
+  "task_store_key": "pr813-integration-2026-11-07",
+  "merge_requested": true,
+  "validation": {
+    "focused_runtime": {
+      "catalog_tests_passed": 29,
+      "reasoning_tests_passed": 17,
+      "failure_taxonomy_tests_passed": 25,
+      "scope": "JVM with platform/provider boundaries; full Android CI still required"
+    },
+    "focused_export": {
+      "executed_tests_passed": 41,
+      "additional_assumption_skipped": 1,
+      "heap_limit_mib": 96,
+      "independent_heap_gate": {
+        "passed": true,
+        "heap_limit_mib": 64,
+        "streamed_bytes": 163840000,
+        "records": 20000
+      },
+      "scope": "actual changed production with platform boundaries; Room/Android cases awaitCI"
+    },
+    "exact_head_ci": {
+      "head": "daf4f82f86137445f2eab8d34bfa4efd881e1145",
+      "status": "COMPILATION_FAILED",
+      "job_url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/42408253695/job/128510554721",
+      "cause": "The extracted admission/runner widened the non-null resolved output-token allowance to Int?, causing two TokenBudgetSettings.copy argument errors. Restore Int at both helper boundaries."
+    },
+    "device_tests": "NOT_RUN_NO_CONNECTED_DEVICE",
+    "focused_github": {
+      "tests_passed": 125,
+      "scope": "actual acceptance/catalog/evidence/pagination/facade and watch repository sources with explicit platform/transport boundaries; includes initial deadline and persisted observation generation races",
+      "suite_runs": [
+        120,
+        9
+      ],
+      "overlapping_tests": 4
+    },
+    "focused_session_render": {
+      "tests_passed": 19,
+      "scope": "actual source cache/read bounds, diskrestart stagedpublication/reconciliation, offline recovery, tailrepair, contentpaging andframecoverage"
+    },
+    "focused_fixture": {
+      "tests_passed": 17,
+      "scope": "actual ownedfixture ledger, persistence, reconciliation, cleanup andplanner withtransport boundaries"
+    },
+    "canonical_fast_initial": {
+      "python_tests": 398,
+      "failures": 1,
+      "reason": "generated source inventory stale before final regeneration"
+    },
+    "canonical_fast": {
+      "python_tests_passed": 398,
+      "failures": 0,
+      "regex_literals_checked": 1255,
+      "regex_dynamic_calls_skipped": 75,
+      "regex_errors": 0,
+      "xml_files_validated": 30,
+      "scope": "canonical host gate after all production edits and inventory regeneration",
+      "passed": true
+    },
+    "focused_engineering_transport": {
+      "tests_passed": 5,
+      "scope": "actual GitHub API with real loopback stalled-header/body cancellation, credential rejection, enterprise origin and orphan-304 retry; not live GitHub qualification"
+    },
+    "kotlin_formatting": {
+      "passed": true,
+      "changed_files_checked": 157,
+      "version": "1.3.1"
+    },
+    "release_scope": {
+      "passed": true,
+      "checked_paths": 991,
+      "qualification": "scoped"
+    },
+    "generated_inventory": {
+      "production_files": 2229,
+      "areas": 26,
+      "refreshed": true
+    },
+    "compilation_followup": {
+      "change": "Preserve non-null output allowance at both extracted helper boundaries.",
+      "canonical_fast_passed": true,
+      "python_tests_passed": 398,
+      "changed_source_ktlint_passed": true,
+      "inventories_refreshed": true
+    },
+    "android_compilation": {
+      "head": "156ca471af822bc6a0619fb7395ab869d151a535",
+      "passed": true,
+      "job_url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/42408948092/job/128512673813"
+    },
+    "room_test_compilation_followup": {
+      "head": "156ca471af822bc6a0619fb7395ab869d151a535",
+      "status": "COMPILATION_FAILED",
+      "cause": "Three heterogeneous SQL bind arrays inferred a reified intersection. Explicit arrayOf<Any> preserves the same bound values.",
+      "exact_expressions_kotlin_2_4_20_compiled": true,
+      "changed_test_ktlint_passed": true,
+      "canonical_fast_passed": true,
+      "python_tests_passed": 398
+    }
+  },
+  "accepted_scope": [
+    "repair the only open PR and merge after exact-head required checks",
+    "independent criterion acceptance and measured GitHub integration report",
+    "complete authorized catalog and full test preset bundling",
+    "owned content/stage/commit fixtures with durable interrupted cleanup",
+    "forced-live reads across all source caches",
+    "resumable bounded diagnostic export with latest critical state first",
+    "reasoning OFF through restored drafts, continuation and rewrite",
+    "task verification separated from provider failure",
+    "bounded completed-answer rendering and frame coverage",
+    "explicit write branch without changing workspace selection",
+    "single-invocation durable stage-and-commit option",
+    "bounded inline CI watch",
+    "line reads with max_lines or EOF continuation"
+  ],
+  "pending": [
+    "publish the validated diagnostic test typing correction",
+    "mark the repaired draft ready for review",
+    "run required checks on the next published head",
+    "merge with exact-head precondition and verify resulting main"
+  ],
+  "checkpoint_semantics": "Source-validation snapshot. The exact published commit, required checks and merge outcome are authoritative in PR 813 and its current checks."
+}

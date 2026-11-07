@@ -399,10 +399,37 @@ class OpenAIRecoveryTransportTest {
                 val chunks = api.streamChatCompletion(request, 5, config.copy(extraHeaders = mapOf("X-Gateway-Job-ID" to "saved-job", "X-Gateway-Allow-Local-Tools" to "true"))).toList()
                 assertEquals(kind, 1, posts)
                 assertEquals(kind, 1, reads)
-                assertEquals(kind, "terminal_job_not_resumable", chunks.last().error?.code)
+                assertEquals(kind, "TERMINAL_JOB_NOT_RESUMABLE", chunks.last().error?.code)
+                assertEquals(kind, kotlinx.serialization.json.JsonPrimitive("TERMINAL_JOB_NOT_RESUMABLE"), chunks.last().error?.failureDetails?.get("recovery_code"))
+                assertEquals(kind, kotlinx.serialization.json.JsonPrimitive(409), chunks.last().error?.failureDetails?.get("recovery_http_status"))
                 assertEquals(kind, false, chunks.last().error?.retryable)
                 assertTrue(kind, chunks.none { it.choices.orEmpty().any { choice -> !choice.effectiveDelta.toolCalls.isNullOrEmpty() || choice.finishReason == "stop" } })
                 assertEquals(kind, kind in setOf("partial", "failed", "tool_calls"), chunks.any { chunk -> chunk.choices.orEmpty().any { !it.effectiveDelta.content.isNullOrBlank() } })
+            }
+        }
+    }
+
+    @Test fun gatewayObservationsRequireHeaderProofAndRequestSnapshotSurvivesBothResponseFormats() = runTest {
+        for (stream in listOf(false, true)) {
+            for (verified in listOf(false, true)) {
+                val provenance = """"gateway_provenance":{"schema_version":1,"origin":"BACKEND_RESPONSE","requested_model":"fixture","reported_model":"fixture","model_identity":"MATCHED","http_status":200},"gateway_timing":{"measurement_scope":"physical_backend_request","backend_first_output_ms":5,"delivery_mode":"completion_buffered"},"gateway_delivery":{"measurement_scope":"gateway_asgi_stream","delivery_mode":"completion_buffered","first_event_submit_ms":1,"first_event_send_completed_ms":2}"""
+                val packet = if (stream) """{"choices":[{"delta":{"content":"answer"},"finish_reason":"stop"}],$provenance}""" else """{"choices":[{"message":{"content":"answer"},"finish_reason":"stop"}],$provenance}"""
+                val body = if (stream) "data: $packet\n\ndata: [DONE]\n\n" else packet
+                val headers = io.ktor.http.Headers.build {
+                    append(HttpHeaders.ContentType, if (stream) "text/event-stream" else "application/json")
+                    if (verified) append("X-Gateway-Instance-ID", "a".repeat(32))
+                }
+                withApi(MockEngine { respond(body, headers = headers) }) { api ->
+                    val selected = config.copy(profileRevision = "b".repeat(64), configuredProfileReasoning = false)
+                    val chunks = api.streamChatCompletion(request.copy(stream = stream), 5, selected).toList()
+                    assertEquals("answer", chunks.flatMap { it.choices.orEmpty() }.mapNotNull { it.effectiveDelta.content }.joinToString(""))
+                    assertEquals(verified, chunks.any { it.gatewayProvenance != null })
+                    assertEquals(verified, chunks.any { it.gatewayTiming != null })
+                    assertEquals(verified, chunks.any { it.gatewayDeliveryTiming != null })
+                    assertTrue(chunks.any { it.providerResponseTiming?.firstParsedPayloadMs != null })
+                    assertTrue(chunks.any { it.reasoningControlReceipt?.profileRevision == "b".repeat(64) && it.reasoningControlReceipt?.configuredProfileReasoning == false })
+                    assertTrue(chunks.none { it.error != null })
+                }
             }
         }
     }

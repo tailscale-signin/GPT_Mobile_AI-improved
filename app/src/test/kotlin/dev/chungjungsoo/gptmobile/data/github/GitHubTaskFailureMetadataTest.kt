@@ -9,6 +9,18 @@ import org.junit.Assert.assertFalse
 import org.junit.Test
 
 class GitHubTaskFailureMetadataTest {
+    @Test fun incompleteAcceptanceRetainsTaskContinuationWithoutProviderRetry() {
+        for (code in listOf("GITHUB_TASK_INCOMPLETE", "GITHUB_EVIDENCE_REQUIRED", "GITHUB_EVIDENCE_RETENTION_INCOMPLETE")) {
+            val failure = ProviderEvent.Failed("Required evidence is missing", errorCode = code, taskOutcome = "PARTIAL")
+            val metadata = GitHubTaskLifecycle.failureMetadata(failure)
+            assertEquals(JsonPrimitive("TASK_VERIFICATION"), metadata["failure_domain"])
+            assertEquals(JsonPrimitive(true), metadata["continuation_required"])
+            assertEquals(JsonPrimitive(false), metadata["retryable_without_new_input"])
+            assertEquals(GitHubTaskLifecycle.State.PARTIAL, GitHubTaskLifecycle.progress(failure, 0))
+            assertEquals(GitHubTaskLifecycle.State.BLOCKED, GitHubTaskLifecycle.progress(failure.copy(taskOutcome = "BLOCKED"), 1))
+        }
+    }
+
     @Test fun typedAmbiguousWriteCannotBecomeRetryableTimeout() {
         val failure = ProviderEvent.Failed("Request timed out", errorCode = "DISPATCH_OUTCOME_UNKNOWN")
         val metadata = GitHubTaskLifecycle.failureMetadata(failure)

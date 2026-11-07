@@ -7,6 +7,8 @@ import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.diagnostics.AndroidDiagnosticExportMemory
 import dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder
+import dev.chungjungsoo.gptmobile.data.diagnostics.CapturedJournalTimeline
+import dev.chungjungsoo.gptmobile.data.diagnostics.CapturedJournalTimelineFailure
 import dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticCaptureLogSnapshot
 import dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticCaptureOptions
 import dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticCaptureResult
@@ -27,6 +29,7 @@ import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
 import dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig
 import dev.chungjungsoo.gptmobile.data.research.ResearchSessionStore
 import java.io.File
+import java.io.FileOutputStream
 import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -38,7 +41,7 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.encodeToJsonElement
 import kotlinx.serialization.json.put
 
-internal fun diagnosticCaptureIdentity(chatId: Int): String = "${BuildConfig.APPLICATION_ID}:$chatId:${BuildConfig.APP_COMMIT}:staged-v2"
+internal fun diagnosticCaptureIdentity(chatId: Int): String = "${BuildConfig.APPLICATION_ID}:$chatId:${BuildConfig.APP_COMMIT}:staged-v4"
 
 /** UI snapshots are small references; history comes from bounded database/file producers. */
 internal suspend fun writeStagedChatDiagnostics(
@@ -70,7 +73,13 @@ internal suspend fun writeStagedChatDiagnostics(
                 stillAuthorized()
             },
             onSessionReady = { sessionDirectory = it },
-            resumable = !room.isTemporary
+            traceStage = { stage ->
+                val trace = dev.chungjungsoo.gptmobile.data.diagnostics.CombinedOperationTrace.begin("diagnostic_$stage", dev.chungjungsoo.gptmobile.data.diagnostics.CombinedOperationOwner(screen = "DiagnosticExport"))
+                val finish: () -> Unit = { dev.chungjungsoo.gptmobile.data.diagnostics.CombinedOperationTrace.end(trace) }
+                finish
+            },
+            resumable = !room.isTemporary,
+            deferArchiveHandoff = !room.isTemporary
         )
         val maximumCharacters = if (reducedMemory) 12 * 1024 else 96 * 1024
         // A single measured source row may exceed one JSONL record; redact it once, then chunk.
@@ -83,16 +92,19 @@ internal suspend fun writeStagedChatDiagnostics(
             guard()
             stillAuthorized()
         }
-        suspend fun DiagnosticStageSink.emit(value: kotlinx.serialization.json.JsonElement, evidence: Boolean = true) {
-            authorized()
-            checkBudget()
-            val bounded = DiagnosticValueProjector(maximumSourceCharacters) { omit(it) }.element(value)
-            val redacted = redactChatDebugData(bounded, credentials).toString()
-            if (redacted.length <= maximumCharacters / 2) {
-                record(redacted, evidence)
-            } else {
-                // Escaping can expand a character six-fold; leave space for envelope metadata.
-                DiagnosticRecordChunks.encode(redacted, maximumCharacters / 8).forEach { record(it.toString(), evidence) }
+        suspend fun DiagnosticStageSink.emit(value: kotlinx.serialization.json.JsonElement, evidence: Boolean = true, projected: Boolean = false) {
+            logicalRecord {
+                authorized()
+                checkBudget()
+                // Database cells already share one bounded projector. Do not parse or expand them again.
+                val bounded = if (projected) value else DiagnosticValueProjector(maximumSourceCharacters) { omit(it) }.element(value)
+                val redacted = redactChatDebugData(bounded, credentials).toString()
+                if (redacted.length <= maximumCharacters / 2) {
+                    record(redacted, evidence)
+                } else {
+                    // Escaping can expand a character six-fold; leave space for envelope metadata.
+                    DiagnosticRecordChunks.encode(redacted, maximumCharacters / 8).forEach { record(it.toString(), evidence) }
+                }
             }
         }
         suspend fun captureLogs(sink: DiagnosticStageSink, critical: Boolean) {
@@ -145,6 +157,20 @@ internal suspend fun writeStagedChatDiagnostics(
             }
         }
         val stages = mutableListOf(
+            DiagnosticCaptureStage("latest_state", "latest-state.jsonl", refreshOnResume = true) { sink ->
+                sink.emit(
+                    buildJsonObject {
+                        put("kind", "latest_state_projection")
+                        put("scope", "Latest retained run verdict, accepted policy fragments, tool receipt, pending work, and GitHub verification/review/budget/output/task checkpoints. Full history follows in independently cursor-backed stages.")
+                        put("capturedAtMillis", System.currentTimeMillis())
+                    },
+                    evidence = false
+                )
+                database.capture(room.id, "latest_state", maximumCharacters, {
+                    authorized()
+                    sink.checkBudget()
+                }, { sink.emit(it, projected = true) }, { sink.omit(it) }, maximumSourceBytes = maximumSourceCharacters, metadata = { sink.emit(it, evidence = false, projected = true) })
+            },
             DiagnosticCaptureStage("critical_logs", "critical-app-logs.jsonl", critical = true, lowMemorySafe = true, emptyReason = "NO_RETAINED_CRITICAL_LOGS") { captureLogs(it, critical = true) },
             DiagnosticCaptureStage("capture_context", "capture-context.jsonl", lowMemorySafe = true) { sink ->
                 sink.emit(
@@ -159,7 +185,9 @@ internal suspend fun writeStagedChatDiagnostics(
                         put("representation", "Independent JSONL sections; database field names and bounded decoded storage values. Combined text is retained as durable blocks.")
                         put("consistency", "Each stage has its own timestamp and table high-watermark. Live changes and resumed stages are not a transaction snapshot.")
                         put("recordChunking", "diagnostic_record_chunk records reassemble by recordId/chunkIndex; verify each chunkSha256 and the recordSha256 over concatenated UTF-8 content before parsing JSON.")
+                        put("captureParts", "All chunks of a logical record stay in one archive part. Resume advances frozen database table cursors and references earlier archive/section digests; retain previous parts to reconstruct complete captured history.")
                         put("timelineKeys", "Journal eventId/runId/invocationId and database run_id/parentRunId/call_id join source records. Sequence orders each journal stream; stage intervals qualify cross-section comparisons.")
+                        put("drawTimingScope", "Measured FIRST_VISIBLE_TEXT records observe Compose drawContent completion for the owned run/fence/part, with processSession and monotonicNanos. They do not confirm display presentation or identify the provider invocation that supplied verified/synthesized output; per-HTTP first_ui_paint_ms remains unmeasured without explicit lineage.")
                         put("sourceDigests", "Record digests describe their original stored representations. Credential redaction can change text; stage file hashes certify the bytes in this export.")
                         put("logSnapshotScope", "Logs are frozen independently per log section and capture session, then retained for interrupted stages. Resume does not replace captured evidence after ring rotation. Start a new capture to collect newer logs.")
                         put("profileScope", "Current configured profiles; actual routing evidence is in runs and invocations, not inferred from settings.")
@@ -190,14 +218,19 @@ internal suspend fun writeStagedChatDiagnostics(
                         sink.emit(json.encodeToJsonElement(profile.copy(token = null, secretRef = null)))
                     }
                 }
+            },
+            DiagnosticCaptureStage("tool_catalog", "tool-catalog.jsonl", lowMemorySafe = true, refreshOnResume = true) { sink ->
+                dev.chungjungsoo.gptmobile.data.agent.ToolCatalogDiagnostics.snapshot().forEach { row ->
+                    sink.emit(row, evidence = row["kind"] == JsonPrimitive("tool_catalog_stage"))
+                }
             }
         )
         listOf("tool_receipts", "invocations", "runs", "conversation", "workspace", "answer_segments", "combined_documents", "research_database").forEach { section ->
-            stages += DiagnosticCaptureStage(section, "${section.replace('_', '-')}.jsonl") { sink ->
+            stages += DiagnosticCaptureStage(section, "${section.replace('_', '-')}.jsonl", resumableRecords = true) { sink ->
                 database.capture(room.id, section, maximumCharacters, {
                     authorized()
                     sink.checkBudget()
-                }, { sink.emit(it) }, { sink.omit(it) }, maximumSourceBytes = maximumSourceCharacters, metadata = { sink.emit(it, evidence = false) })
+                }, { sink.emit(it, projected = true) }, { sink.omit(it) }, maximumSourceBytes = maximumSourceCharacters, metadata = { sink.emit(it, evidence = false, projected = true) }, resumeCursor = sink.resumeCursor, checkpoint = sink::checkpoint)
             }
         }
         stages += DiagnosticCaptureStage("live_messages", "live-messages.jsonl") { sink ->
@@ -256,13 +289,13 @@ internal suspend fun writeStagedChatDiagnostics(
                 }, { sink.omit(it) })
             }
         }
-        stages += DiagnosticCaptureStage("timeline", "timeline.jsonl") { sink ->
+        stages += DiagnosticCaptureStage("timeline", "timeline.jsonl", refreshOnResume = true) { sink ->
             sink.emit(
                 buildJsonObject {
                     put("kind", "timeline_coverage")
                     put("sources", "agent_runs,tool_events,model_invocations,run_journal")
                     put("ordering", "Streaming source order; sort timestampMillis then eventId for display. Journal streamId/sequence is authoritative within each stream.")
-                    put("consistency", "Each source is observed independently at a frozen row or sequence boundary. A terminal parent with a RUNNING child requires lifecycle reconciliation; it is not proof of a stuck request.")
+                    put("consistency", "Database sources have independent frozen row boundaries. Journal observations are projected from the exact verified run-journal.jsonl in this capture, without reopening the live journal. A terminal parent with a RUNNING child requires lifecycle reconciliation; it is not proof of a stuck request.")
                 },
                 evidence = false
             )
@@ -273,25 +306,23 @@ internal suspend fun writeStagedChatDiagnostics(
                 val event = DiagnosticTimeline.database(row, System.currentTimeMillis())
                 if (event == null) sink.omit("TIMELINE_SOURCE_UNAVAILABLE") else sink.emit(event)
             }, { sink.omit(it) }, metadata = { sink.emit(it, evidence = false) })
-            val journal = RunDiagnostics.journal
-            if (journal == null) {
-                sink.omit("RUN_JOURNAL_UNAVAILABLE")
-            } else {
-                database.capture(room.id, "run_index", maximumCharacters, {
-                    authorized()
-                    sink.checkBudget()
-                }, { row ->
-                    val runId = ((row["fields"] as? JsonObject)?.get("run_id") as? JsonPrimitive)?.contentOrNull
-                    if (runId == null) {
-                        sink.omit("RUN_JOURNAL_ID_UNAVAILABLE")
-                    } else {
-                        val coverage = journal.stream(runId, {
+            try {
+                // One rollback boundary prevents a damaged captured journal from
+                // contributing apparently valid timeline events before its final hash check.
+                sink.logicalRecord {
+                    val coverage = CapturedJournalTimeline.stream(
+                        checkNotNull(sessionDirectory),
+                        beforeRead = {
                             authorized()
                             sink.checkBudget()
-                        }) { sink.emit(DiagnosticTimeline.journal(it)) }
-                        if (coverage.missingSequences > 0 || coverage.missingBatches > 0 || coverage.unreadableCheckpoints > 0 || coverage.unknownTailStreams > 0 || coverage.storageFailed) sink.omit("TIMELINE_JOURNAL_COVERAGE_INCOMPLETE")
-                    }
-                }, { sink.omit(it) })
+                        },
+                        consume = { row, evidence -> sink.emit(row, evidence, projected = true) },
+                        omitted = { sink.omit(it) }
+                    )
+                    sink.emit(coverage, evidence = false, projected = true)
+                }
+            } catch (failure: CapturedJournalTimelineFailure) {
+                sink.omit(failure.code)
             }
         }
         stages += DiagnosticCaptureStage("runtime_incidents", "runtime-incidents.jsonl", lowMemorySafe = true, emptyReason = "NO_RETAINED_RUNTIME_INCIDENTS") { sink ->
@@ -306,7 +337,31 @@ internal suspend fun writeStagedChatDiagnostics(
                 buildJsonObject {
                     put("diagnosticsCollection", features.diagnosticsCollection)
                     put("localAssistPolicy", json.encodeToJsonElement(features.localAssistPolicy))
-                    put("scope", "Current diagnostic and local-assist settings. Accepted per-run policies are retained in runs.jsonl; unrelated preference histories are excluded.")
+                    put("configurationEvidence", "CURRENT_SNAPSHOT_NOT_EXECUTION_PROOF")
+                    put("currentChatReasoningOverride", json.encodeToJsonElement(tools.reasoning ?: features.conversationReasoning[room.id]))
+                    put(
+                        "reasoningByProfile",
+                        buildJsonObject {
+                            profiles.filter { it.compatibleType == dev.chungjungsoo.gptmobile.data.model.ClientType.LLAMA }.forEach { profile ->
+                                put(
+                                    profile.uid,
+                                    buildJsonObject {
+                                        put("legacyEnabled", profile.reasoning)
+                                        put("explicitMode", json.encodeToJsonElement(features.llamaReasoningModes[profile.uid]))
+                                        put("resolvedPreference", dev.chungjungsoo.gptmobile.data.context.ReasoningPolicy.preference(profile.reasoning, features.llamaReasoningModes[profile.uid], tools.reasoning ?: features.conversationReasoning[room.id]).name)
+                                        put("observedComputation", "NOT_MEASURED_BY_SETTINGS")
+                                    }
+                                )
+                            }
+                        }
+                    )
+                    put(
+                        "engineeringGatewayByProfile",
+                        buildJsonObject {
+                            profiles.forEach { profile -> put(profile.uid, json.encodeToJsonElement(features.githubProfileOverrides[profile.uid]?.engineeringGatewayProfileUid)) }
+                        }
+                    )
+                    put("scope", "Current diagnostic, local-assist, reasoning and explicit engineering-route settings. Accepted per-run policies are retained in runs.jsonl; observed routing and reasoning require invocation receipts. Unrelated preference histories are excluded.")
                 },
                 evidence = false
             )
@@ -314,17 +369,22 @@ internal suspend fun writeStagedChatDiagnostics(
         try {
             authorized()
             val session = if (resume && !room.isTemporary) StagedDiagnosticCapture.findResumableSession(workDirectory, identity) ?: error("No unfinished diagnostic capture is available for this conversation.") else null
-            val result = StagedDiagnosticCapture.capture(workDirectory, identity, stages, options, session)
+            if (session != null) sessionDirectory = File(workDirectory, "diagnostic-capture-checkpoints/$session")
+            val result = session?.let { StagedDiagnosticCapture.pendingArchive(workDirectory, identity, it) }
+                ?: StagedDiagnosticCapture.capture(workDirectory, identity, stages, options, session)
             authorized()
             check(destinationDirectory.mkdirs() || destinationDirectory.isDirectory)
             val destination = File(destinationDirectory, result.file.name)
             val partial = File(destinationDirectory, "${destination.name}.partial")
             try {
-                result.file.inputStream().use { source -> partial.outputStream().buffered(options.bufferBytes).use { source.copyTo(it, options.bufferBytes) } }
+                FileOutputStream(partial).use { output ->
+                    result.file.inputStream().use { source -> source.copyTo(output, options.bufferBytes) }
+                    output.fd.sync()
+                }
                 authorized()
                 check(partial.renameTo(destination)) { "Unable to publish diagnostic archive" }
                 publishedFile = destination
-                result.file.delete()
+                if (room.isTemporary) result.file.delete() else StagedDiagnosticCapture.acknowledgeArchiveHandoff(workDirectory, result)
                 result.copy(file = destination)
             } finally {
                 partial.delete()

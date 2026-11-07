@@ -50,6 +50,13 @@ internal object GitHubAuthorizationBoundary {
         return action in setOf("resolve_context", "task_context") && ref.isNotBlank() && !ref.matches(Regex("[a-fA-F0-9]{40}|[a-fA-F0-9]{64}"))
     }
 
+    /** A staged draft can use a read grant only while it cannot publish a commit. */
+    fun isLocalPatchStaging(tool: String, arguments: JsonObject): Boolean {
+        val native = if (tool == "github") arguments else dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.nativeArguments(tool, arguments) ?: return false
+        return native["action"] == JsonPrimitive("stage_patch") &&
+            (native["commit_immediately"] == null || native["commit_immediately"] == JsonPrimitive(false))
+    }
+
     fun requiresElevatedAuthorization(tool: String, arguments: JsonObject): Boolean {
         val operation = if (tool == "github") (arguments["action"] as? JsonPrimitive)?.content.orEmpty() else tool.substringAfterLast("__")
         val method = (arguments["method"] as? JsonPrimitive)?.content.orEmpty()

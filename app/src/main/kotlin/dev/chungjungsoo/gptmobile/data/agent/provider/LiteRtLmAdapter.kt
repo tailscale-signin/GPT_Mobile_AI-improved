@@ -1165,7 +1165,7 @@ class LiteRtLmAdapter(
         }
         val projected = if (modelEvidenceRemaining != null) {
             val allowance = maxOf(128, (modelEvidenceRemaining.get() - 384) / 2)
-            val compacted = dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.compact(result.content, allowance)
+            val compacted = LocalPromptToolBridge.compactResult(toolName, result, allowance)
             result.copy(content = compacted, retainedContent = result.retainedContent ?: result.content.takeIf { compacted != result.content })
         } else {
             result

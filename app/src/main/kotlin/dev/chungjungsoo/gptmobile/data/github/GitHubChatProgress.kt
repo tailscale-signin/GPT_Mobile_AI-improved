@@ -204,7 +204,7 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
         private fun operationSummary(name: String, args: kotlinx.serialization.json.JsonObject?): String {
             val action = (args?.get("action") as? kotlinx.serialization.json.JsonPrimitive)?.content.orEmpty()
             val purpose = when (name.substringBefore("__") to action) {
-                "github_ci" to "logs" -> "I’m reading the job output to locate the failing step and its error."
+                "github_ci" to "logs" -> "I’m reading the recorded job output and checking its observed result."
                 "github_ci" to "jobs" -> "I’m identifying which jobs ran, failed or were skipped before opening their logs."
                 "github_ci" to "workflows" -> "I’m finding the available workflows so validation uses a real workflow definition."
                 "github_ci" to "runs" -> "I’m locating the workflow attempt associated with this revision."

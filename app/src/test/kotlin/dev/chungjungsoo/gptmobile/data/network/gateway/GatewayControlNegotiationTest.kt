@@ -75,7 +75,7 @@ class GatewayControlNegotiationTest {
         val configurations = mutableListOf<ProviderRequestConfig>()
         var discoveredInstance: String? = null
         var failure: Exception? = null
-        override suspend fun getCapabilities(config: ProviderRequestConfig): GatewayCapabilities? {
+        override suspend fun getCapabilities(config: ProviderRequestConfig, forceRefresh: Boolean): GatewayCapabilities? {
             probes++
             configurations += config
             discoveredInstance?.let { GatewayClientDiagnostics.observeInstance(config, it) }

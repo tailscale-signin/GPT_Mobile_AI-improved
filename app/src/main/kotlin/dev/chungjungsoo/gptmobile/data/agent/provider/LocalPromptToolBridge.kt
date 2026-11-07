@@ -1,12 +1,18 @@
 package dev.chungjungsoo.gptmobile.data.agent.provider
 
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
+import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
+import dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog
+import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
+import dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 internal data class PromptToolCall(val name: String, val argumentsJson: String)
 internal data class ToolMarkupUpdate(val visibleText: String, val captured: Boolean)
@@ -121,6 +127,38 @@ internal class LocalPromptToolOutput {
 
 /** Tool bridge for local runtimes whose model format has no native function-call decoder. */
 internal object LocalPromptToolBridge {
+    /** Catalog admission is bounded control data; verbose coverage must not evict the returned names. */
+    fun compactResult(tool: String, result: AgentToolResult, maxBytes: Int): ToolResultContent {
+        val catalog = if (tool == ProgressiveToolCatalog.NAME && !result.isError) {
+            ToolResultEnvelope.element(result.retainedContent ?: result.content) as? JsonObject
+        } else {
+            null
+        }
+        val content = if (catalog?.get("available_next_round") is JsonArray) {
+            ToolResultContent.Json(
+                buildJsonObject {
+                    put("available_next_round", JsonArray(catalogNames(catalog["available_next_round"]).map { name -> buildJsonObject { put("name", name) } }))
+                    for (key in listOf("unknown_names", "schema_budget_excluded", "context_budget_excluded")) {
+                        (catalog[key] as? JsonArray)?.let { values ->
+                            put(key, JsonArray(values.take(16).mapNotNull { boundedName(it)?.let(::JsonPrimitive) }))
+                        }
+                    }
+                    catalog["catalog_unchanged"]?.takeIf { it == JsonPrimitive(true) || it == JsonPrimitive(false) }?.let { put("catalog_unchanged", it) }
+                    put("availability_note", "Only returned registered schemas may be admitted. Permissions and execution budgets are unchanged; omitted schemas are not available.")
+                }
+            )
+        } else {
+            result.content
+        }
+        return ToolResultEnvelope.compact(content, maxBytes)
+    }
+
+    private fun boundedName(value: JsonElement?): String? =
+        (value as? JsonPrimitive)?.takeIf { it.isString }?.content?.takeIf { it.isNotBlank() && it.length <= 256 }
+
+    private fun catalogNames(value: JsonElement?): Set<String> = (value as? JsonArray).orEmpty().take(16)
+        .mapNotNull { boundedName((it as? JsonObject)?.get("name")) }.toSet()
+
     fun discoveredToolNames(result: String): Set<String> {
         val envelope = runCatching { Json.parseToJsonElement(result) as? JsonObject }.getOrNull() ?: return emptySet()
         if (envelope["schema"] != JsonPrimitive("gptmobile.tool-result.v1") ||
@@ -130,9 +168,7 @@ internal object LocalPromptToolBridge {
             return emptySet()
         }
         val payload = envelope["data"] as? JsonObject ?: return emptySet()
-        return (payload["available_next_round"] as? JsonArray).orEmpty().take(16)
-            .mapNotNull { ((it as? JsonObject)?.get("name") as? JsonPrimitive)?.takeIf { it.isString }?.content?.takeIf { it.isNotBlank() && it.length <= 256 } }
-            .toSet()
+        return catalogNames(payload["available_next_round"])
     }
 
     private val json = Json { ignoreUnknownKeys = true }

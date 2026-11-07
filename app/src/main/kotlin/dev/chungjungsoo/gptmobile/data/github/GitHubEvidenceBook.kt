@@ -30,7 +30,8 @@ internal class GitHubEvidenceBook(
     private val latestVerdict: suspend () -> JsonObject? = { null },
     private val currentToolContracts: Map<String, JsonObject> = emptyMap(),
     private val retentionLimitRecords: Int = 4096,
-    private val retentionLimitBytes: Int = 16 * 1024 * 1024
+    private val retentionLimitBytes: Int = 16 * 1024 * 1024,
+    private val runtimeIdentity: () -> JsonObject = GitHubRuntimeIdentity::current
 ) {
     init {
         require(retentionLimitRecords in 1..4096)
@@ -45,6 +46,8 @@ internal class GitHubEvidenceBook(
     private var epoch = 0L
     private var observedHead: String? = null
     private var overflow = false
+
+    @Volatile private var taskContract: JsonObject? = null
 
     /** Stable task identity already includes account, conversation, repository and branch scope. */
     fun checkpointBinding(): String = binding
@@ -120,7 +123,10 @@ internal class GitHubEvidenceBook(
         val immutable = GitHubOperationTool.immutableRead(call.name, effectiveArguments)
         val native = if (operation == "github") effectiveArguments else GitHubOperationTool.nativeArguments(call.name, effectiveArguments)
         val action = (native?.get("action") as? JsonPrimitive)?.contentOrNull.orEmpty()
-        val mutation = action in GitHubWorkspaceClient.writeActions - "stage_patch" || action in setOf("create_branch", "update_file", "create_pull_request", "create_issue_comment", "dispatch_workflow", "rerun_workflow", "rerun_failed_jobs", "cancel_workflow")
+        val mutation = action in GitHubWorkspaceClient.writeActions - "stage_patch" ||
+            action == "stage_patch" &&
+            native?.get("commit_immediately") == JsonPrimitive(true) ||
+            action in setOf("create_branch", "update_file", "create_pull_request", "create_issue_comment", "dispatch_workflow", "rerun_workflow", "rerun_failed_jobs", "cancel_workflow")
         val root = (content as? JsonObject)?.let { (it["data"] as? JsonObject) ?: it }
         val head = (
             listOf("head_sha", "commit_sha").firstNotNullOfOrNull { (root?.get(it) as? JsonPrimitive)?.contentOrNull }
@@ -148,6 +154,7 @@ internal class GitHubEvidenceBook(
             put("call_id", call.callId)
             put("tool", call.name)
             put("repository", if (selected) repository else "$owner/$repo")
+            put("runtime_identity", runtimeIdentity())
             put("branch", targetBranch)
             put("workspace_branch", branch)
             val resourceBranch = (root?.get("head_branch") as? JsonPrimitive)?.contentOrNull
@@ -186,6 +193,7 @@ internal class GitHubEvidenceBook(
             put("dispatched", result.dispatched)
             put("shared_result", result.sharedResult)
             put("evidence_origin", origin)
+            put("remote_mutation", mutation)
             if (result.retainedContent != null && result.executionReceipt?.get("retained_original_complete") == JsonPrimitive(true)) {
                 put("retained_result_complete", true)
                 put("retained_remote_continuations", result.executionReceipt?.get("retained_remote_continuations") ?: kotlinx.serialization.json.JsonArray(emptyList()))
@@ -409,6 +417,80 @@ internal class GitHubEvidenceBook(
 
     suspend fun diagnostic(): JsonObject? = latestVerdict()?.takeIf { it["binding"] == JsonPrimitive(binding) }
 
+    /** Freeze task identity and ceilings before the first provider round, in either chat surface. */
+    suspend fun retainTaskContract(task: String, sourceMessageId: Int, tools: List<dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition>, callLimit: Int) = mutex.withLock {
+        val key = "task_contract"
+        val previous = taskContract ?: load(key)
+        if (previous != null) {
+            check(previous["binding"] == JsonPrimitive(binding) && previous["repository"] == JsonPrimitive(repository) && previous["source_message_id"] == JsonPrimitive(sourceMessageId)) {
+                "GITHUB_TASK_IDENTITY_CHANGED: The retained task belongs to a different accepted request. No operation was dispatched."
+            }
+            taskContract = previous
+            return@withLock
+        }
+        val acceptedAt = now()
+        val duration = GitHubExecutionLimits.requestedDurationMillis(task)
+        val accepted = buildJsonObject {
+            put("schema", "github.task-contract.v1")
+            put("binding", binding)
+            put("source_message_id", sourceMessageId)
+            put("repository", repository)
+            put("accepted_branch", branch)
+            put("request_digest", digest(task))
+            put("requested_actions", task)
+            put("acceptance_criteria", JsonArray(GitHubRequestCompletion.requirements(task).map(::JsonPrimitive)))
+            put("required_tool_names", JsonArray(tools.filter { it.modelVisible }.map { JsonPrimitive(it.name) }.distinct()))
+            put("accepted_at_ms", acceptedAt)
+            put("tool_call_limit", callLimit.coerceAtLeast(0))
+            duration?.let { put("deadline_at_ms", acceptedAt + it.coerceAtMost(Long.MAX_VALUE - acceptedAt)) }
+            put("receipt_store", "github-evidence:$binding")
+            put("remaining_work_store", "verification_current_" + digest(binding).take(24))
+            put("cleanup_policy", "Owned fixtures remain obligations until their deletion is verified; unknown writes require reconciliation before retry.")
+            put("completion_policy", "Invocation, response delivery and task acceptance are independent. Only verified criteria complete the task.")
+        }
+        save(key, accepted)
+        // Temporary chats intentionally omit persistent workspace rows. They still
+        // obey this invocation's accepted deadline and cannot silently renew it.
+        taskContract = accepted
+    }
+
+    suspend fun remainingTaskMillis(): Long? = ((taskContract ?: load("task_contract"))?.get("deadline_at_ms") as? JsonPrimitive)?.longOrNull
+        ?.let { (it - now()).coerceAtLeast(0) }
+
+    suspend fun acceptedTaskRequest(): String? = ((taskContract ?: load("task_contract"))?.get("requested_actions") as? JsonPrimitive)?.contentOrNull
+
+    /** One bounded delivery snapshot, separate from immutable operation receipts and their verdict. */
+    suspend fun retainAnswer(text: String, verdict: JsonObject) {
+        require(text.isNotBlank() && text.length <= 1_048_576)
+        val receiptDigest = digest(snapshot().first.keys.sorted().joinToString("\n"))
+        saveCurrent(
+            "answer",
+            buildJsonObject {
+                put("schema", "github.saved-answer.v1")
+                put("binding", binding)
+                put("text", text)
+                put("text_sha256", digest(text))
+                put("receipt_set_digest", receiptDigest)
+                put("verdict", verdict)
+            }
+        )
+    }
+
+    suspend fun retainedAnswer(): Pair<String, JsonObject>? {
+        val saved = load("answer_current_" + digest(binding).take(24)) ?: return null
+        val text = (saved["text"] as? JsonPrimitive)?.contentOrNull ?: return null
+        val verdict = saved["verdict"] as? JsonObject ?: return null
+        if (saved["binding"] != JsonPrimitive(binding) ||
+            text.isBlank() ||
+            text.length > 1_048_576 ||
+            saved["text_sha256"] != JsonPrimitive(digest(text)) ||
+            saved["receipt_set_digest"] != JsonPrimitive(digest(snapshot().first.keys.sorted().joinToString("\n")))
+        ) {
+            return null
+        }
+        return text to verdict
+    }
+
     suspend fun retainPolicy(revision: String, tools: List<dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition>) {
         val policy = buildJsonObject {
             put("schema", "github.policy-snapshot.v1")
@@ -434,7 +516,7 @@ internal class GitHubEvidenceBook(
         val (receipts, _) = snapshot()
         val checkpoint = GitHubTestChecklist.checkpoint(task, receipts, tools)
         val retention = retentionStatus()
-        val previous = diagnostic()
+        val previous = diagnostic() ?: load("verification_current_" + digest(binding).take(24))
         if (previous == null) {
             save(
                 "verification_plan_" + digest("$binding|$task").take(24),
@@ -450,14 +532,20 @@ internal class GitHubEvidenceBook(
             )
         }
         val publishedProgressDigest = publishedChecklistDigest(previous)
-        val requirements = GitHubRequestCompletion.requirements(task).map { requirement ->
-            buildJsonObject {
-                put("id", GitHubRequestCompletion.id(requirement))
-                put("requirement", requirement)
-                put("status", if (failureCode == null) "UNTESTED" else "BLOCKED")
-                put("acceptance_state", if (failureCode == null) "NOT_TESTED" else "BLOCKED")
-                put("acceptance", if (failureCode == null) "Acceptance verification remains pending; completed API calls do not establish this requirement" else "Workflow interrupted by $failureCode before acceptance verification")
-            }
+        val requirements = if (GitHubTestChecklist.integration(task)) {
+            GitHubIntegrationAcceptance.requirements(task, receipts, tools)
+        } else {
+            JsonArray(
+                GitHubRequestCompletion.requirements(task).map { requirement ->
+                    buildJsonObject {
+                        put("id", GitHubRequestCompletion.id(requirement))
+                        put("requirement", requirement)
+                        put("status", if (failureCode == null) "UNTESTED" else "BLOCKED")
+                        put("acceptance_state", if (failureCode == null) "NOT_TESTED" else "BLOCKED")
+                        put("acceptance", if (failureCode == null) "Acceptance verification remains pending; completed API calls do not establish this requirement" else "Workflow interrupted by $failureCode before acceptance verification")
+                    }
+                }
+            )
         }
         val progress = GitHubAcceptanceLedger.attach(
             buildJsonObject {
@@ -475,8 +563,8 @@ internal class GitHubEvidenceBook(
                 put("task_state", GitHubTaskLifecycle.progress(failure ?: failureCode?.let { ProviderEvent.Failed(it, errorCode = it) }, receipts.size).name)
                 failure?.let { GitHubTaskLifecycle.failureMetadata(it).forEach { (key, value) -> put(key, value) } }
                 failureCode?.let { put("failure_code", it) }
-                put("requirements", kotlinx.serialization.json.JsonArray(requirements))
-                put("remaining_requirements", kotlinx.serialization.json.JsonArray(requirements))
+                put("requirements", requirements)
+                put("remaining_requirements", JsonArray(requirements.filter { (it as JsonObject)["acceptance_state"] != JsonPrimitive("PASS") }))
                 put("test_checklist", checkpoint)
                 put("evidence_count", receipts.size)
             }
@@ -484,12 +572,12 @@ internal class GitHubEvidenceBook(
         // The existing latest-verification query can recover this status even if
         // the process dies before a final response or a final verifier exists.
         val durable = GitHubExecutionLedger.attach(progress, receipts)
-        save("verification_progress_" + digest("$binding|$durable").take(24), durable)
+        saveCurrent("verification", durable)
     }
 
     suspend fun retainChecklist(value: JsonObject) {
         val checkpoint = GitHubExecutionLedger.attach(GitHubAcceptanceLedger.attach(JsonObject(value + retentionStatus())), snapshot().first)
-        save("checklist_" + digest("$binding|$checkpoint").take(24), JsonObject(checkpoint + ("binding" to JsonPrimitive(binding))))
+        saveCurrent("checklist", JsonObject(checkpoint + ("binding" to JsonPrimitive(binding))))
     }
 
     suspend fun retainVerdict(value: JsonObject): JsonObject {
@@ -522,11 +610,44 @@ internal class GitHubEvidenceBook(
         val execution = GitHubExecutionLedger.attach(checked, snapshot().first)
         val checkpoint = JsonObject(execution + ("task_state" to JsonPrimitive(GitHubTaskLifecycle.terminal(execution).name)))
         val durable = JsonObject(checkpoint + ("binding" to JsonPrimitive(binding)))
-        save("verification_" + digest("$binding|$checkpoint").take(24), durable)
+        saveCurrent("verification", durable)
         return durable
     }
 
+    /** Full projections replace only their task-current slot; immutable operation evidence is never rewritten. */
+    private suspend fun saveCurrent(kind: String, value: JsonObject) {
+        val id = "${kind}_current_" + digest(binding).take(24)
+        val previous = load(id)
+        fun summary(snapshot: JsonObject): JsonObject = buildJsonObject {
+            put("schema", "github.verification-event.v1")
+            put("binding", binding)
+            put("snapshot_id", id)
+            listOf("phase", "task_state", "task_outcome", "failure_code", "verification_failure", "completion_verified", "response_prepared", "response_delivered", "evidence_count", "progress_state").forEach { field -> snapshot[field]?.let { put(field, it) } }
+            (snapshot["stop_reason"] as? JsonObject)?.get("code")?.let { put("stop_code", it) }
+            val requirements = (snapshot["requirements"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
+            put("requirements", JsonArray(requirements.map { row -> JsonObject(row.filterKeys { it in setOf("id", "status", "acceptance_state") }) }))
+            val checklist = (snapshot["test_checklist"] as? JsonObject) ?: snapshot
+            val capabilities = (checklist["capabilities"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
+            put("capability_states", buildJsonObject { capabilities.groupingBy { (it["status"] as? JsonPrimitive)?.content.orEmpty() }.eachCount().toSortedMap().forEach { (state, count) -> put(state, count) } })
+            (checklist["authorized_catalog"] as? JsonObject)?.get("inventory_version")?.let { put("inventory_version", it) }
+        }
+        val event = summary(value)
+        save(id, value)
+        if (previous == null || summary(previous) != event) {
+            val observed = now()
+            val delta = JsonObject(
+                event + buildJsonObject {
+                    put("observed_at_ms", observed)
+                    put("snapshot_sha256", digest(value.toString()))
+                }
+            )
+            save("verification_event_" + digest("$binding|$kind|$delta").take(24), delta)
+        }
+    }
+
     companion object {
+        fun currentSnapshot(id: String): Boolean = id.matches(Regex("(?:verification|checklist|answer)_current_[a-f0-9]{24}"))
+
         /** Preparing a verdict does not prove that its visible delivery completed. */
         fun publishedChecklistDigest(checkpoint: JsonObject?): JsonPrimitive? =
             (

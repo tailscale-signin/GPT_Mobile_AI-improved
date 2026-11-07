@@ -278,7 +278,7 @@ class GitHubRepositoryStateStore private constructor(private val directoryProvid
         if (id !in publicationClaims && directory?.let { File(File(it, "publication-claims"), "$id.claim").isFile || archivedClaims(File(it, "publication-claims"), id.take(2)).contains(id) } != true) return null
         return buildJsonObject {
             put("schema_version", 1)
-            put("execution_id", key.removePrefix("execution:"))
+            put("execution_id", key.substringAfter(':'))
             put("status", "RECONCILE_REQUIRED")
             put("receipt_available", false)
             put("reason", "The publication fence remains, but its cached receipt is unavailable. Reconcile remote state; do not repeat this write.")
@@ -392,7 +392,7 @@ class GitHubRepositoryStateStore private constructor(private val directoryProvid
         const val MAX_PUBLICATION_CLAIMS = 16_384
         const val MAX_PROTECTED_BYTES = 16L * 1024 * 1024
         const val MAX_PROTECTED_RECORD_BYTES = 160 * 1024
-        private val CLAIM_KEY = Regex("execution:[a-f0-9]{64}")
+        private val CLAIM_KEY = Regex("(?:execution|fixture):[a-f0-9]{64}")
         private const val KEY = "github-repository-state-v1"
         fun digest(value: String): String = MessageDigest.getInstance("SHA-256").digest(value.encodeToByteArray()).joinToString("") { "%02x".format(it) }
     }

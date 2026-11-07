@@ -117,6 +117,28 @@ class GatewayCoordinatorRecoveryTest {
         coVerify(exactly = 1) { f.chats.restoreGatewayAnswer("run", "saved-job", "Saved answer", 42, AgentRunStatus.EVIDENCE_MISSING, any()) }
     }
 
+    @Test fun savedFailureRetainsOriginalCauseWithoutRepeatedAutomaticReads() = runTest {
+        for (github in listOf(false, true)) {
+            val f = Fixture(github = github)
+            f.state = AgentRunStatus.FAILED
+            f.error = "GATEWAY_OUTCOME_UNKNOWN: stream disconnected"
+            coEvery { f.gateway.getJobResult("saved-job", any()) } returns f.complete.copy(
+                status = "failed",
+                structuredError = kotlinx.serialization.json.Json.parseToJsonElement("""{"code":"backend_template_invalid","message":"Jinja Exception: System message must be at the beginning","retryable":false,"failed_stage":"backend_template"}""") as kotlinx.serialization.json.JsonObject
+            )
+            val coordinator = f.coordinator()
+            coordinator.recoverInterruptedGatewayRuns()
+            assertEquals(AgentRunStatus.FAILED, f.state)
+            assertTrue(f.error.orEmpty().contains("GATEWAY_SAVED_RESULT_FAILED: BACKEND_TEMPLATE_INVALID"))
+            assertTrue(GatewayOutcomeRecovery.requiresReconciliation(f.error.orEmpty()))
+            assertTrue(!GatewayOutcomeRecovery.canReadSavedResult(f.run.copy(status = f.state, terminalError = f.error)))
+            coordinator.recoverInterruptedGatewayRuns()
+            coVerify(exactly = 1) { f.gateway.getJobResult("saved-job", any()) }
+            coVerify(exactly = 1) { f.chats.restoreGatewayAnswer("run", "saved-job", "Saved answer", 42, AgentRunStatus.FAILED, any()) }
+            coVerify(exactly = 0) { f.gateway.cancelJob(any(), any()) }
+        }
+    }
+
     @Test fun streamFailureWithUnknownOutcomeStillReadsItsSavedJob() = runTest {
         val f = Fixture()
         f.state = AgentRunStatus.FAILED

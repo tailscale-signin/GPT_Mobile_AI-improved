@@ -111,7 +111,7 @@ internal object GitHubEvidencePolicy {
         }
     }
 
-    fun render(answer: JsonObject, receipts: Map<String, JsonObject>, now: Long, epoch: Long, task: String = "", tools: List<dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition> = emptyList()): Pair<String, JsonObject> {
+    fun render(answer: JsonObject, receipts: Map<String, JsonObject>, now: Long, epoch: Long, task: String = "", tools: List<dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition> = emptyList(), remainingToolCalls: Int? = null): Pair<String, JsonObject> {
         val claims = answer["claims"] as? JsonArray ?: error("Missing claim-level evidence response")
         require(claims.size in 1..128) { "Claim count exceeds the verification bound" }
         val checked = mutableListOf<JsonObject>()
@@ -201,7 +201,7 @@ internal object GitHubEvidencePolicy {
         val facts = lines.filter { it.startsWith("| ") }.distinct()
         val notes = lines.filter { it.isNotBlank() && !it.startsWith("| ") }.distinct()
         val text = if (GitHubTaskCoverage.matches(task)) {
-            "# GitHub verification report\n\n" + GitHubTaskCoverage.render(receipts, task, tools) +
+            "# GitHub verification report\n\n" + GitHubTaskCoverage.render(receipts, task, tools, remainingToolCalls) +
                 if (facts.isNotEmpty()) "\n## Verified observations\n\n| Detail | Result |\n| --- | --- |\n" + facts.joinToString("\n") else ""
         } else {
             GitHubAnswerPresentation.render(task, facts, notes, excerpts, questions.map { safe(it.take(240)) })
@@ -276,7 +276,7 @@ internal object GitHubEvidencePolicy {
     }
 
     /** Deterministic test reporting does not need another model to rediscover execution receipts. */
-    fun testing(receipts: Map<String, JsonObject>, now: Long, epoch: Long, task: String, tools: List<dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition> = emptyList()): Pair<String, JsonObject> {
+    fun testing(receipts: Map<String, JsonObject>, now: Long, epoch: Long, task: String, tools: List<dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition> = emptyList(), remainingToolCalls: Int? = null): Pair<String, JsonObject> {
         val claims = mutableListOf<JsonObject>()
         val operations = mutableSetOf<String>()
         for ((id, receipt) in receipts.entries.reversed()) {
@@ -302,7 +302,7 @@ internal object GitHubEvidencePolicy {
             put("kind", "not_measured")
             put("subject", "Full requested test coverage requires execution evidence")
         }
-        val (text, report) = render(buildJsonObject { put("claims", JsonArray(claims)) }, receipts, now, epoch, task, tools)
+        val (text, report) = render(buildJsonObject { put("claims", JsonArray(claims)) }, receipts, now, epoch, task, tools, remainingToolCalls)
         val complete = GitHubTestChecklist.apiComplete(task, receipts, tools)
         return text to JsonObject(
             report + buildJsonObject {
@@ -310,22 +310,9 @@ internal object GitHubEvidencePolicy {
                 put("partial", !complete)
                 put("task_outcome", if (complete) "COMPLETED" else "PARTIAL")
                 put("completion_scope", "Authorized API action coverage; device and overall application health are not inferred")
-                if (complete) {
-                    put("remaining_requirements", JsonArray(emptyList()))
-                    put(
-                        "requirements",
-                        JsonArray(
-                            GitHubRequestCompletion.requirements(task).map { requirement ->
-                                buildJsonObject {
-                                    put("id", GitHubRequestCompletion.id(requirement))
-                                    put("requirement", requirement)
-                                    put("status", "PASSED")
-                                    put("acceptance", "Authorized API action coverage only")
-                                }
-                            }
-                        )
-                    )
-                }
+                val requirements = GitHubIntegrationAcceptance.requirements(task, receipts, tools)
+                put("requirements", requirements)
+                put("remaining_requirements", JsonArray(requirements.filter { (it as JsonObject)["acceptance_state"] != JsonPrimitive("PASS") }))
                 if (receipts.values.none { it["trusted"] == JsonPrimitive(true) }) put("failure_code", "GITHUB_EVIDENCE_REQUIRED")
             }
         )

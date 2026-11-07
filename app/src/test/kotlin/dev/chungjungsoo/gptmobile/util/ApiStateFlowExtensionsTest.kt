@@ -287,6 +287,26 @@ class ApiStateFlowExtensionsTest {
         assertEquals(1, changed.attemptCount)
     }
 
+    @Test fun taskVerificationPersistsSeparatelyFromProviderFailureAfterAUsableAnswer() = runBlocking {
+        for (code in listOf("GITHUB_TASK_INCOMPLETE", "GITHUB_EVIDENCE_REQUIRED")) {
+            var saved = emptyList<AssistantTimelineItem>()
+            var text = ""
+            val result = flowOf(ApiState.Success("Retained provider answer"), ApiState.Error("Acceptance evidence remains incomplete", errorCode = code, taskOutcome = "PARTIAL"))
+                .collectApiStateUpdates(onUpdate = { content, _, timeline ->
+                    text = content
+                    saved = timeline
+                })
+            assertTrue(result is ApiStateFlowOutcome.Failed)
+            assertEquals("Retained provider answer", text)
+            assertTrue(saved.none { it.profileFailure != null })
+            val row = saved.single { it.taskVerificationFailure != null }
+            val restored = kotlinx.serialization.json.Json.decodeFromString<AssistantTimelineItem>(kotlinx.serialization.json.Json.encodeToString(AssistantTimelineItem.serializer(), row))
+            assertEquals(if (code == "GITHUB_TASK_INCOMPLETE") "TASK_INCOMPLETE" else "EVIDENCE_REQUIRED", restored.taskVerificationFailure?.category)
+            assertEquals("verification", restored.taskVerificationFailure?.phase)
+            assertEquals(null, restored.profileFailure)
+        }
+    }
+
     @Test fun typedFailurePhaseAndDispatchSurvivePartialAnswerPersistence() = runBlocking {
         var saved = emptyList<AssistantTimelineItem>()
         val details = kotlinx.serialization.json.buildJsonObject {

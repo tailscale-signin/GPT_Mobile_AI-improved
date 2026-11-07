@@ -22,6 +22,27 @@ import org.junit.Test
 class GatewayCapabilityDiscoveryTest {
     private val config = ProviderRequestConfig("https://capability-discovery.example/v1", "credential", extraHeaders = mapOf("X-Api-Key" to "custom credential"))
 
+    @org.junit.Before fun clearRememberedSurfaces() = GatewaySurfacePolicy.shared.invalidate()
+
+    @Test fun unsupportedCapabilityProbeIsCachedPerCredentialAndEndpoint() = runBlocking {
+        var calls = 0
+        HttpClient(
+            MockEngine {
+                calls++
+                respond("not found", HttpStatusCode.NotFound)
+            }
+        ).use { http ->
+            val network = mockk<NetworkClient>()
+            every { network() } returns http
+            val api = GatewayAPIImpl(network)
+            repeat(3) { assertNull(api.getCapabilities(config)) }
+            assertEquals(1, calls)
+            assertNull(api.getCapabilities(config.copy(token = "another credential")))
+            assertNull(api.getCapabilities(config.copy(apiUrl = "https://another-route.example/v1")))
+            assertEquals(3, calls)
+        }
+    }
+
     @Test fun fullRouteCapabilitiesDecodeAfterOneMetadataGetWithoutInference() = runBlocking {
         for (name in listOf("gateway-v15-capabilities-legacy-mixed.json", "gateway-v15-capabilities-full.json")) {
             val fixture = requireNotNull(javaClass.classLoader?.getResourceAsStream(name)).bufferedReader().use { it.readText() }
@@ -157,6 +178,7 @@ class GatewayCapabilityDiscoveryTest {
 
     @Test fun onlyDefiniteUnsupportedStatusesRepresentADirectInferenceRoute() = runBlocking {
         for (status in listOf(HttpStatusCode.NotFound, HttpStatusCode.NotImplemented, HttpStatusCode.Forbidden, HttpStatusCode.ServiceUnavailable)) {
+            GatewaySurfacePolicy.shared.invalidate()
             val client = HttpClient(
                 MockEngine { request ->
                     assertEquals("GET", request.method.value)

@@ -113,13 +113,14 @@ async def chat(request: Request):
     payload = None
     stage = "request_validation"
     request_id = request.headers.get("x-request-id") or uuid.uuid4().hex
-    def rejected(code, message, status=400, retryable=False):
+    def rejected(code, message, status=400, retryable=False, details=None):
         source = getattr(request, "_json", payload)
         source = source if isinstance(source, dict) else {}
         job_id = request.headers.get("x-gateway-job-id") or source.get("gateway_job_id") or source.get("_gateway_job_id")
         error = {"code": code, "failureCode": code, "message": message,
                  "retryable": retryable, "failed_stage": stage,
-                 "dispatch_state": "not_dispatched" if stage != "model_execution" else "unknown"}
+                 "dispatch_state": "not_dispatched" if stage != "model_execution" else "unknown",
+                 **(details or {})}
         if isinstance(job_id, str) and len(job_id) <= 256:
             error["job_id"] = job_id
         if request_id and len(request_id) <= 256:
@@ -175,7 +176,7 @@ async def chat(request: Request):
             stage = "model_execution"
         elif exc.code.startswith(("client_tool_", "terminal_job_")):
             stage = "tool_continuation"
-        return rejected(exc.code, str(exc), exc.status)
+        return rejected(exc.code, str(exc), exc.status, details=exc.details)
     except ValueError:
         # Unknown exception text may contain prompt content. Preserve location and
         # identifiers without exposing raw input or misclassifying it as verification.

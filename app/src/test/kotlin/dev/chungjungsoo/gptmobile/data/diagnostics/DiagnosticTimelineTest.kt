@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.diagnostics
 
 import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.long
@@ -10,6 +11,33 @@ import org.junit.Assert.assertFalse
 import org.junit.Test
 
 class DiagnosticTimelineTest {
+    @Test fun capturedDrawRetainsItsRunClockAndPartWithoutInventingProviderOrDisplayTiming() {
+        val draw = buildJsonObject {
+            put("eventId", "draw")
+            put("runId", "run")
+            put("streamId", "process:run")
+            put("processSession", "process")
+            put("sequence", 2)
+            put("capturedAtMillis", 123)
+            put("monotonicNanos", 123_456_789L)
+            put("kind", "FIRST_VISIBLE_TEXT")
+            put("measured", true)
+            put("fence", 7)
+            put("outputPartId", "0:1")
+        }
+        val observation = requireNotNull(DiagnosticTimeline.journal(draw))
+        assertEquals(JsonPrimitive("rendered_run_stream"), observation["measurementScope"])
+        assertEquals(JsonPrimitive("COMPOSE_DRAW_CONTENT_RETURNED"), observation["observedBoundary"])
+        assertEquals(JsonPrimitive("UNLINKED"), observation["invocationAssociation"])
+        assertEquals(JsonPrimitive("process"), observation["processSession"])
+        assertEquals(JsonPrimitive(123_456_789L), observation["monotonicNanos"])
+        assertEquals(JsonPrimitive(7L), observation["ownershipFence"])
+        assertEquals(JsonPrimitive("0:1"), observation["outputPartId"])
+        assertEquals(JsonNull, observation["displayPresentationConfirmed"])
+        assertFalse(observation.containsKey("invocationId"))
+        assertFalse(observation.containsKey("elapsedMillis"))
+    }
+
     @Test fun runningChildOfPartialRunRequiresReconciliationWithoutInventingCompletion() {
         val result = requireNotNull(DiagnosticTimeline.database(invocation("RUNNING"), 1_800_000))
         assertEquals("REQUIRES_LIFECYCLE_RECONCILIATION", result["reconciliation"]!!.jsonPrimitive.content)

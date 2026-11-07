@@ -18,6 +18,76 @@ import org.junit.Test
 class GitHubPaginationBoundaryTest {
     private fun json(text: String) = Json.parseToJsonElement(text).jsonObject
 
+    @Test fun repositoryRecoveryUsesTheSameAuthorizedConnectionAlias() = runBlocking {
+        val backend = object : AgentTool {
+            override val definition = AgentToolDefinition("github", "test", JsonObject(emptyMap()))
+            override suspend fun execute(callId: String, arguments: JsonObject) = AgentToolResult(
+                callId,
+                ToolResultContent.Json(json("""{"schema":"github.repository-admission.v1","dispatched":false,"recovery_call":{"tool":"github_context","arguments":{"action":"resolve","owner":"o","repo":"r","refresh":true}}}""")),
+                true,
+                errorCode = "GITHUB_REPOSITORY_UNAVAILABLE",
+                dispatched = false
+            )
+        }
+        val tool = GitHubOperationTool("github_ci", backend, "scoped-recovery", "github_ci__selected")
+        val result = tool.execute("blocked", JsonObject(emptyMap()))
+        assertFalse(result.dispatched)
+        val recovery = (result.content as ToolResultContent.Json).value.jsonObject.getValue("data").jsonObject.getValue("recovery_call").jsonObject
+        assertEquals(JsonPrimitive("github_context__selected"), recovery["tool"])
+        assertEquals(json("""{"action":"resolve","owner":"o","repo":"r","refresh":true}"""), recovery["arguments"])
+    }
+
+    @Test fun reorderedNonAdjacentDuplicatePagesCannotInventTraversalProgress() {
+        val boundary = GitHubPaginationBoundary()
+        fun args(page: Int) = json("""{"action":"list_workflows","page":$page,"per_page":2}""")
+        assertFalse(boundary.repeatsRemotePage("github_ci", args(1), json("""{"workflows":[{"id":1},{"id":2}]}""")))
+        assertFalse(boundary.repeatsRemotePage("github_ci", args(2), json("""{"workflows":[{"id":3},{"id":4}]}""")))
+        val repeated = boundary.assessPage("github_ci", args(3), json("""{"has_more":true,"total_count":8,"workflows":[{"id":2},{"id":1}]}"""))
+        assertEquals("GITHUB_PAGINATION_STALLED", repeated.errorCode)
+        val progress = repeated.data.getValue("pagination_progress").jsonObject
+        assertEquals(JsonPrimitive(4), progress["unique_records_observed"])
+        assertEquals(JsonPrimitive(0), progress["new_records_on_page"])
+        assertEquals(JsonPrimitive(false), progress["complete"])
+        assertFalse(repeated.data.containsKey("continuation"))
+    }
+
+    @Test fun partialOverlapsAreDeduplicatedAndAnUnaccountedReportedTotalStaysIncomplete() {
+        val boundary = GitHubPaginationBoundary()
+        boundary.assessPage("github_ci", json("""{"action":"list_workflows","page":1,"per_page":2}"""), json("""{"has_more":true,"total_count":4,"workflows":[{"id":1},{"id":2}]}"""))
+        val final = boundary.assessPage("github_ci", json("""{"action":"list_workflows","page":2,"per_page":2}"""), json("""{"has_more":false,"total_count":4,"workflows":[{"id":2},{"id":3}]}"""))
+        assertEquals("GITHUB_PAGINATION_INCOMPLETE", final.errorCode)
+        assertEquals(json("""{"workflows":[{"id":3}]}""")["workflows"], final.data["workflows"])
+        assertEquals(JsonPrimitive(3), final.data.getValue("pagination_progress").jsonObject["unique_records_observed"])
+        assertEquals(JsonPrimitive(false), final.data.getValue("pagination_progress").jsonObject["complete"])
+    }
+
+    @Test fun omittedWorkflowDefaultsAndExplicitContinuationShareOneTraversal() = runBlocking {
+        val requests = mutableListOf<JsonObject>()
+        val backend = object : AgentTool {
+            override val definition = AgentToolDefinition("github", "test", JsonObject(emptyMap()))
+            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+                requests += arguments
+                val body = if (arguments["page"] == JsonPrimitive(2)) {
+                    """{"has_more":false,"total_count":2,"workflows":[{"id":2}]}"""
+                } else {
+                    """{"has_more":true,"total_count":2,"workflows":[{"id":1}],"continuation":{"action":"list_workflows","page":2,"per_page":30}}"""
+                }
+                return AgentToolResult(callId, ToolResultContent.Json(json(body)), false)
+            }
+        }
+        val tool = GitHubOperationTool("github_ci", backend, "exact-pagination")
+        val first = tool.execute("first", JsonObject(emptyMap()))
+        val continuation = (first.content as ToolResultContent.Json).value.jsonObject.getValue("continuation_call").jsonObject
+        assertEquals(JsonPrimitive("github_ci"), continuation["tool"])
+        val final = tool.execute("second", continuation.getValue("arguments").jsonObject)
+        assertFalse(final.toString(), final.isError)
+        val progress = final.executionReceipt!!.getValue("pagination_progress").jsonObject
+        assertEquals(JsonPrimitive(2), progress["unique_records_observed"])
+        assertEquals(JsonPrimitive(true), progress["complete"])
+        assertEquals(JsonPrimitive("NOT_MEASURED"), progress["acceptance_status"])
+        assertEquals(listOf(JsonPrimitive("list_workflows"), JsonPrimitive("list_workflows")), requests.map { it["action"] })
+    }
+
     @Test fun repeatedRemoteRowsStopTraversalButDistinctPagesAndLocalFragmentsRemainAllowed() = runBlocking {
         var requests = 0
         val backend = object : AgentTool {

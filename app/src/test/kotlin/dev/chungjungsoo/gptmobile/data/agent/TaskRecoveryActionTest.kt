@@ -10,6 +10,22 @@ import org.junit.Test
 class TaskRecoveryActionTest {
     private fun user(id: Int, text: String) = MessageV2(id = id, chatId = 1, content = text, platformType = null)
 
+    @Test fun shortOperationalFollowUpsRetainRootAcrossRestartWithoutRenewingBudget() {
+        val task = "Test all authorized GitHub integration tools.\nBudget: at most 256 tool calls and 60 minutes."
+        val commands = listOf("do the remaining work", "finalize", "show the full report", "proceed", "finish the remaining work")
+        val history = mutableListOf(user(1, task))
+        for ((index, command) in commands.withIndex()) {
+            history += user(index + 2, command)
+            val resolved = requireNotNull(resolveTaskRecovery(history))
+            assertEquals(1, resolved.sourceMessageId)
+            assertEquals(task, resolved.originalRequest)
+            assertFalse(resolved.renewsToolBudget)
+            assertFalse(resolved.retryUndispatchedBudgetFailures)
+        }
+        assertNull(resolveTaskRecovery(history + user(10, "Explain the water cycle") + user(11, "do the remaining work")))
+        assertNull(resolveTaskRecovery(listOf(user(1, "show the full report"))))
+    }
+
     @Test fun approvedCommitAndFailureQuestionsRetainTheOriginalTaskAcrossRestart() {
         val task = user(1, "Test all authorized GitHub integration tools")
         val commit = user(3, "GitHub workspace: o/r\nBranch: test-branch\n\nCommit ${"a".repeat(40)} was approved and published. Continue from the saved task using this exact commit. Subscribe with github_watch_checks when CI is pending; do not repeat the commit.")

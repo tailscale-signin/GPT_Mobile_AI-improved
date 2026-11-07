@@ -128,11 +128,31 @@ object ChatResponseActionParser {
     /** A selected suggestion is a request for an answer, never another offer to the user. */
     fun answerRequest(raw: String): String? {
         val prompt = raw.trim().takeIf(String::isNotBlank) ?: return null
+        val batchPrefix = listOf("Please address each of these:", "Please answer each of these directly:")
+            .firstOrNull(prompt::startsWith)
+        if (batchPrefix != null) {
+            val items = prompt.removePrefix(batchPrefix).split(';').map(String::trim).filter(String::isNotBlank)
+            if (items.isEmpty()) return null
+            val requests = items.map { singleAnswerRequest(it) ?: return null }
+            return "Please answer each of these directly: ${requests.joinToString("; ")}"
+        }
+        return singleAnswerRequest(prompt)
+    }
+
+    private fun singleAnswerRequest(raw: String): String? {
+        val prompt = raw.removePrefix("Please answer this follow-up directly: ").trim()
+            .takeIf(String::isNotBlank) ?: return null
+        // A cached suggestion can outlive the response that offered it. Apply the
+        // same guard at dispatch as at extraction; the model cannot supply user facts.
+        if (requiresUserInformation(prompt)) return null
         val offer = Regex("""(?i)^(?:would you like|do you want)\s+(?:me\s+to\s+|to\s+)?(.+?)\?$|^(?:shall i|should i|can i)\s+(.+?)\?$""").find(prompt)
         val action = offer?.groupValues?.drop(1)?.firstOrNull(String::isNotBlank)
-        if (action != null) return "Please ${action.replaceFirstChar { it.lowercase(Locale.ROOT) }}."
-        if (prompt.startsWith("Please address each of these:")) return prompt.replaceFirst("Please address each of these:", "Please answer each of these directly:")
-        return if (prompt.endsWith('?')) "Please answer this follow-up directly: $prompt" else prompt
+        val request = when {
+            action != null -> "Please ${action.replaceFirstChar { it.lowercase(Locale.ROOT) }}."
+            prompt.endsWith('?') -> "Please answer this follow-up directly: $prompt"
+            else -> prompt
+        }
+        return request.takeUnless(::requiresUserInformation)
     }
 
     /** Short labels are presentation only; tapping a chip sends its complete question. */
@@ -224,8 +244,7 @@ object ChatResponseActionParser {
         if (cleaned.isBlank() || (requireQuestion && !body.endsWith("?"))) return null
         if (Regex("""(?i)^(?:continue|proceed|more(?: details| information)?|tell me more|learn more|examples|explain further|keep going)$""").matches(cleaned)) return null
         // Do not turn the assistant's questions about unknown user details into invented answers.
-        if (Regex("""(?i)^(?:what|which|where|when|how)\b.*\b(?:are you|do you|is your|your (?:name|budget|location|version))\b""").containsMatchIn(cleaned)) return null
-        if (Regex("""(?i)^(?:any specific|what would you like|which .*would you like|is there anything)\b""").containsMatchIn(cleaned)) return null
+        if (requiresUserInformation(cleaned)) return null
         val prompt = if (offeredAction == null && body.endsWith("?")) cleaned + "?" else cleaned
         return DynamicActionOption(
             label = generateShortLabel(topic ?: cleaned, null),
@@ -233,6 +252,13 @@ object ChatResponseActionParser {
             isOption = isOption,
             iconType = classifyIconType(prompt)
         )
+    }
+
+    internal fun requiresUserInformation(raw: String): Boolean {
+        val prompt = sanitizeOptionText(raw.removePrefix("Please answer this follow-up directly: "))
+        if (Regex("""(?i)^(?:any specific|what would you like|which .*would you like|is there anything)\b""").containsMatchIn(prompt)) return true
+        if (Regex("""(?i)^(?:what|which|where|when|how|who)\b.*\b(?:are you|do you|did you|have you|will you|is your|your (?:name|budget|location|version|repository|repo|branch|account|preference)|you (?:want|prefer|use|selected|chose|mean|have|need))\b""").containsMatchIn(prompt)) return true
+        return Regex("""(?i)^(?:yes,\s*)?(?:(?:please|can you|could you|would you)\s+)?(?:provide|share|specify|enter|paste|select|choose|confirm)\s+(?:your|the)\s+(?:repository|repo|owner|branch|account|version|budget|location|credentials|token)\b""").containsMatchIn(prompt)
     }
 
     fun sanitizeOptionText(raw: String): String = raw.trim()

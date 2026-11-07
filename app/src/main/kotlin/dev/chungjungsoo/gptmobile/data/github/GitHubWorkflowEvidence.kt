@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.github
 
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -17,6 +18,40 @@ internal object GitHubWorkflowEvidence {
                 put("message", "GitHub returned a non-object response for a workflow resource.")
             }
         )
+
+    /** Definition timestamps describe only the captured page, never a run or build. */
+    fun definitionPageEvidence(values: JsonArray, totalCount: Int?, page: Int, perPage: Int): JsonObject {
+        val dated = values.mapNotNull { value ->
+            val row = value as? JsonObject ?: return@mapNotNull null
+            val timestamp = (row["updated_at"] as? JsonPrimitive)?.content ?: return@mapNotNull null
+            runCatching { java.time.Instant.parse(timestamp) }.getOrNull()?.let { it to row }
+        }
+        val latest = dated.maxOfOrNull { it.first }
+        val complete = page == 1 && totalCount != null && totalCount >= 0 && totalCount <= perPage && values.size == totalCount
+        return buildJsonObject {
+            put("resource_type", "workflow_definitions")
+            put("sort_field_for_latest", "updated_at")
+            put("latest_scope", "PARSED_TIMESTAMPS_IN_CAPTURED_PAGE")
+            put("timestamp_count", dated.size)
+            put("unusable_timestamp_count", values.size - dated.size)
+            put("collection_coverage_complete", complete)
+            put("latest_global_established", complete && dated.size == values.size && latest != null)
+            if (latest != null) {
+                put("latest_observed_updated_at", latest.toString())
+                put(
+                    "latest_observed_workflows",
+                    JsonArray(
+                        dated.filter { it.first == latest }.map { (_, row) ->
+                            JsonObject(row.filterKeys { it in setOf("id", "name", "path", "updated_at") })
+                        }
+                    )
+                )
+            }
+            put("branch_head_verified", false)
+            put("workflow_run_verified", false)
+            put("build_status_verified", false)
+        }
+    }
 
     fun validateRun(run: JsonObject, arguments: JsonObject) = validate(run, arguments, "run_id", "workflow run")
 

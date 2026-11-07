@@ -23,6 +23,52 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class InvocationLedgerTest {
+    @Test fun terminalEvidencePersistsRequestedSerializedAndBackendObservationsIndependently() = runTest {
+        val dao = mockk<InvocationDao>(relaxed = true)
+        every { dao.recent() } returns flowOf(emptyList())
+        val database = mockk<ChatDatabaseV2>()
+        every { database.invocationDao() } returns dao
+        val ledger = InvocationLedger(database)
+        val receipt = dev.chungjungsoo.gptmobile.data.network.ReasoningControlReceipt(
+            disableRequested = true,
+            transmittedControl = "reasoning_effort=low",
+            transmitsDisable = false,
+            providerSupport = "EFFORT_ONLY",
+            profileRevision = "a".repeat(64),
+            configuredProfileReasoning = false,
+            requestedMode = "OFF"
+        )
+        val provenance = dev.chungjungsoo.gptmobile.data.dto.openai.response.GatewayGenerationProvenance(1, "BACKEND_RESPONSE", "selected-model", "selected-model", "MATCHED", 200).evidence("selected-model")
+        val session = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flowOf(
+                ProviderEvent.Usage(reasoningControlReceipt = receipt, phase = dev.chungjungsoo.gptmobile.data.agent.ProviderUsagePhase.INITIAL),
+                ProviderEvent.Usage(gatewayProvenance = provenance, providerResponseTiming = dev.chungjungsoo.gptmobile.data.network.ProviderResponseTiming(2, 7, 30), gatewayDeliveryTiming = dev.chungjungsoo.gptmobile.data.dto.openai.response.GatewayDeliveryTiming("gateway_asgi_stream", "completion_buffered", 1.0, 2.0, 20.0, 21.0, 22.0, 3), gatewayTiming = dev.chungjungsoo.gptmobile.data.dto.openai.response.GatewayGenerationTiming("physical_backend_request", 10.0, 20.0, 10.0, 30.0, 2.0, 5.0, "completion_buffered"), phase = dev.chungjungsoo.gptmobile.data.agent.ProviderUsagePhase.INTERIM),
+                ProviderEvent.TextDelta("Retained answer"),
+                ProviderEvent.Usage(inputTokens = 23, outputTokens = 11),
+                ProviderEvent.Completed
+            )
+        }
+        ledger.wrap(session, "run", "turn", "CUSTOM", "selected-model", "primary", 100, 500, 1000)
+            .streamRound(emptyList(), emptyList()).collect { event ->
+                if (event == ProviderEvent.Completed) {
+                    val live = ledger.active.value.values.single()
+                    val evidence = kotlinx.serialization.json.Json.parseToJsonElement(requireNotNull(live.usageEvidenceJson)).jsonObject
+                    assertEquals(receipt.evidence(), evidence["request_settings"])
+                    assertEquals(provenance, evidence["gateway_provenance"])
+                    assertEquals("30", evidence.getValue("response_parsing").jsonObject.getValue("first_parsed_payload_ms").jsonPrimitive.content)
+                    assertEquals(kotlinx.serialization.json.JsonNull, evidence.getValue("gateway_delivery").jsonObject["socket_flush_confirmed"])
+                    val timing = evidence.getValue("gateway_timing").jsonObject
+                    assertEquals("completion_buffered", timing.getValue("delivery_mode").jsonPrimitive.content)
+                    assertEquals(kotlinx.serialization.json.JsonNull, timing["first_user_visible_text_ms"])
+                    assertEquals(23L, live.observedInputTokens)
+                    assertEquals(11L, live.observedOutputTokens)
+                    assertEquals(null, live.actualRuntime)
+                    assertTrue(!live.estimated)
+                }
+            }
+        coVerify(atLeast = 1) { dao.save(match { it.usageEvidenceJson?.contains("request_settings") == true }) }
+    }
+
     @Test fun terminalDeliveryAlreadyExposesFinalLiveStatusAndSeparatelyMeasuredUsage() = runTest {
         for (failed in listOf(false, true)) {
             val dao = mockk<InvocationDao>(relaxed = true)

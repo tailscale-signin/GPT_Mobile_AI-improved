@@ -5,6 +5,7 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -25,6 +26,10 @@ class RunJournalCoverageTest {
         assertEquals(0, coverage.missingBatches)
         assertEquals(0, coverage.unknownTailStreams)
         assertTrue(coverage.missingRanges.isEmpty())
+        assertEquals(vault.rows.keys.count { it.startsWith("journal-") }.toLong(), coverage.decodedBatchCount)
+        assertTrue(requireNotNull(coverage.boundaryLockWaitNanos) >= 0)
+        assertTrue(requireNotNull(coverage.checkpointReadDecodeNanos) >= 0)
+        assertTrue(requireNotNull(coverage.batchReadDecodeNanos) >= 0)
         assertEquals(5, journal.snapshot(setOf("run")).events.size)
     }
 
@@ -114,7 +119,10 @@ class RunJournalCoverageTest {
         assertTrue(vault.rows.keys.any { it.startsWith("journalcheckpoint-") })
         journal.revokeRun("run")
         assertTrue(vault.rows.isEmpty())
-        assertTrue(journal.stream("run", {}) { error("Private event leaked") }.privacySuppressed)
+        val coverage = journal.stream("run", {}) { error("Private event leaked") }
+        assertTrue(coverage.privacySuppressed)
+        assertNull(coverage.decodedBatchCount)
+        assertNull(coverage.batchReadDecodeNanos)
     }
 
     @Test fun intervalCoverageDeduplicatesOutOfOrderBatchesAndBoundsGapManifest() {

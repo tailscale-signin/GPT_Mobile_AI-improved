@@ -32,6 +32,53 @@ class GatewayCapacityHandshakeTest {
         mapOf("contractVersion" to JsonPrimitive(1), "gatewayVersion" to JsonPrimitive("15.0.0"), "instanceId" to JsonPrimitive("b".repeat(32)), "selectedModel" to selected)
     ).toString()
 
+    private fun control(): JsonObject = Json.parseToJsonElement(
+        """{"schemaVersion":1,"parameter":"enable_thinking","templateProbeVerified":true,
+            "evidenceOrigin":"GATEWAY_OBSERVED_TEMPLATE_PROBE","capabilityRevision":"${"a".repeat(64)}",
+            "templateDigest":"${"c".repeat(64)}","enabledPromptDigest":"${"d".repeat(64)}",
+            "disabledPromptDigest":"${"e".repeat(64)}","observedAtMillis":1793960000000}"""
+    ).jsonObject
+
+    @Test fun anObservedGatewayDoesNotProbeAdministrativePropsToUseVerifiedReasoningControl() = runTest {
+        withContext(Dispatchers.Default) {
+            val selected = config.copy(apiUrl = "http://127.0.0.1:29881/v1")
+            dev.chungjungsoo.gptmobile.data.network.gateway.GatewayClientDiagnostics.observeInstance(selected, "b".repeat(32))
+            var calls = 0
+            HttpClient(
+                MockEngine { request ->
+                    calls++
+                    assertEquals("/v1/gateway/capabilities", request.url.encodedPath)
+                    respond(handshake(JsonObject(observation + ("reasoningControl" to control()))))
+                }
+            ).use { http ->
+                val repository = LlamaCapacityRepository({ http })
+                val capacity = requireNotNull(repository.discover(selected, "selected-model"))
+                assertEquals(ReasoningTemplateControl.ENABLE_THINKING, repository.reasoningControl(selected, "selected-model", capacity))
+                assertEquals(1, calls)
+                assertEquals(ReasoningMode.OFF, ReasoningPolicy.resolve(ReasoningMode.OFF, true, repository.reasoningControl(selected, "selected-model", capacity)).effective)
+            }
+        }
+    }
+
+    @Test fun gatewayReasoningProofRejectsChangedModelRevisionAndUnmeasuredToggles() {
+        val capacity = requireNotNull(parseGatewayCapacity(handshake(), config, "selected-model", 1))
+        fun body(proof: JsonObject) = handshake(JsonObject(observation + ("reasoningControl" to proof)))
+        assertEquals(ReasoningTemplateControl.ENABLE_THINKING, parseGatewayReasoningControl(body(control()), capacity))
+        for (change in listOf(
+            "capabilityRevision" to JsonPrimitive("f".repeat(64)),
+            "templateProbeVerified" to JsonPrimitive(false),
+            "templateProbeVerified" to JsonPrimitive("true"),
+            "parameter" to JsonPrimitive("reasoning_effort"),
+            "enabledPromptDigest" to JsonPrimitive("e".repeat(64)),
+            "observedAtMillis" to JsonPrimitive(0),
+            "evidenceOrigin" to JsonPrimitive("MODEL_CATALOG")
+        )) {
+            assertNull(parseGatewayReasoningControl(body(JsonObject(control() + change)), capacity))
+        }
+        val changedModel = JsonObject(observation + ("reasoningControl" to control()) + ("reportedModel" to JsonPrimitive("other-model")))
+        assertNull(parseGatewayReasoningControl(handshake(changedModel), capacity))
+    }
+
     @Test fun restrictedPropsUseOnlyTheAlreadyIdentifiedGatewaysExactSelectedModel() = runTest {
         withContext(Dispatchers.Default) {
             val paths = mutableListOf<String>()

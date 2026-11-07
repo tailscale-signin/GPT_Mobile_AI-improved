@@ -216,7 +216,10 @@ internal class AppAuditPluginServices @Inject constructor(
     }
 
     private suspend fun capabilities(profile: PlatformV2): AppAuditObservation = try {
-        val capability = gateway.getCapabilities(ProviderRequestConfig(profile.apiUrl, profile.token, profileUid = profile.uid, requestRole = "app-audit"))
+        val capability = gateway.getCapabilities(
+            ProviderRequestConfig(profile.apiUrl, profile.token, profileUid = profile.uid, requestRole = "app-audit"),
+            forceRefresh = true
+        )
         AppAuditObservation(
             if (capability == null) AppAuditOutcome.UNAVAILABLE else AppAuditOutcome.PASS,
             if (capability == null) "GATEWAY_NOT_SUPPORTED" else "GATEWAY_CAPABILITY_VERIFIED",

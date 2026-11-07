@@ -11,6 +11,16 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class McpFailurePresentationTest {
+    @Test fun dnsFailureIsDistinctFromAuthenticationAndOnlyNamesTheAffectedConnection() {
+        val result = mcpFailurePresentation(java.net.UnknownHostException("Server hostname could not be resolved"), McpConnectionHealth())
+        assertEquals("DNS_FAILURE", result.outcome)
+        assertEquals("DNS_FAILED", result.errorCode)
+        assertEquals(true, result.retryable)
+        assertFalse(result.authenticationRequired)
+        assertTrue(result.message.contains("DNS and VPN"))
+        assertTrue(result.message.contains("Other connections"))
+    }
+
     @Test fun permanentFailuresRetainTheirCodeAndOriginalDetailThroughARepeatedBackoff() {
         val failures = listOf(
             Triple("TLS_FAILURE", "TLS_FAILURE", "TLS authentication handshake failed"),

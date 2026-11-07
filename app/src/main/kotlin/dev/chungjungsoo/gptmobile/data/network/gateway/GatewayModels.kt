@@ -128,6 +128,8 @@ data class GatewayJobResult(
     @SerialName("result_quality")
     val resultQuality: String? = null,
     val error: String? = null,
+    @SerialName("structured_error")
+    val structuredError: kotlinx.serialization.json.JsonObject? = null,
     @SerialName("completed_at")
     @Serializable(with = GatewayEpochSecondsSerializer::class)
     val completedAt: Long? = null,
@@ -142,7 +144,9 @@ data class GatewaySavedJob(
     @SerialName("execution_isolation_schema") val executionIsolationSchema: Int? = null,
     @SerialName("execution_isolation_scope") val executionIsolationScope: String? = null,
     @SerialName("execution_isolation") val executionIsolation: String? = null,
-    @SerialName("server_tools_allowed") val serverToolsAllowed: Boolean? = null
+    @SerialName("server_tools_allowed") val serverToolsAllowed: Boolean? = null,
+    @SerialName("status_code") val statusCode: Int? = null,
+    @SerialName("pending_client_tool_call_ids") val pendingClientToolCallIds: List<String> = emptyList()
 )
 
 /**

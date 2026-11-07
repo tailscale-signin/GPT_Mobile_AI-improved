@@ -60,7 +60,8 @@ data class ResolvedAgentTool(
     val nativeGitHub: Boolean = false,
     val nativeGitHubAuthenticated: Boolean = false,
     val nativeMarketplace: Boolean = false,
-    val authorizationIdentity: String? = null
+    val authorizationIdentity: String? = null,
+    val gitHubPlanningContext: dev.chungjungsoo.gptmobile.data.github.GitHubPlanningContext? = null
 )
 
 class AgentToolResolver @Inject constructor(
@@ -443,12 +444,22 @@ class AgentToolResolver @Inject constructor(
             if (current == null || current != platform || !current.enabled) throw DispatchPolicyChangedException(listOf("profile"))
             if (!live.remoteMcpConnections || current.disableAllTools || current.disableRemoteTools) throw DispatchPolicyChangedException(listOf("tool_inventory"))
             val currentBindings = toolConnectionRepository.listBindingsWithConnections(profileUid)
-            val words = Regex("[\\p{L}\\p{N}]+").findAll(query.lowercase(java.util.Locale.ROOT)).map { it.value }.filter { it.length > 2 }.toSet() + if (isGitHubTask(query)) setOf("github", "git") else emptySet()
+            val discoveryTask = query.ifBlank { catalogTask }
+            val githubDiscovery = isGitHubTask(discoveryTask)
+            val words = Regex("[\\p{L}\\p{N}]+").findAll(discoveryTask.lowercase(java.util.Locale.ROOT)).map { it.value }.filter { it.length > 2 }.toSet() + if (githubDiscovery) setOf("github", "git") else emptySet()
             // Recheck the same provenance decision before network discovery as well as
             // before execution. Repeating a tool name cannot reveal a policy-hidden tool.
             val targets = coldBindings.filter { it in currentBindings && pluginEnabledForBinding(live, profileUid, it) && discoveryAllowed(it) }
                 .groupBy { it.binding.connectionUid }
-                .values.filter { group -> group.first().binding.connectionUid !in attemptedConnections || group.any { it.binding.toolName in names || names.any { name -> name.endsWith("__" + it.binding.toolName) } } }
+                .values.filter { group ->
+                    !githubDiscovery ||
+                        group.any { item ->
+                            item.binding.toolName in names ||
+                                names.any { it.endsWith("__" + item.binding.toolName) } ||
+                                GitHubOperationTool.operationName(item.binding.toolName) != null ||
+                                Regex("(?i)github|gitmcp").containsMatchIn(item.binding.toolName + " " + item.connection?.name)
+                        }
+                }.filter { group -> group.first().binding.connectionUid !in attemptedConnections || group.any { it.binding.toolName in names || names.any { name -> name.endsWith("__" + it.binding.toolName) } } }
                 .sortedByDescending { group ->
                     group.count { item -> item.binding.toolName in names || names.any { it.endsWith("__" + item.binding.toolName) } } * 100 +
                         words.count { word -> group.any { word in (it.binding.toolName + " " + it.connection?.name).lowercase(java.util.Locale.ROOT) } }
@@ -1311,6 +1322,7 @@ class AgentToolResolver @Inject constructor(
         } else {
             null
         }
+        val selectedRepository = workspaceContext?.repository ?: actualConnection?.let { gitHubWorkspaceStore?.get(it.connectionUid) }
         val tool = GitHubTool(
             apiToken = token,
             apiOrigins = dev.chungjungsoo.gptmobile.data.github.GitHubApiOrigins.fromEndpoint(actualConnection?.endpointUrl),
@@ -1320,7 +1332,8 @@ class AgentToolResolver @Inject constructor(
             featureSettings = features,
             modelToolName = actualConnection?.let { "github__${it.alias}" } ?: BuiltInAgentTool.GITHUB,
             accountName = actualConnection?.name,
-            repositoryContext = workspaceContext?.repository ?: actualConnection?.let { gitHubWorkspaceStore?.get(it.connectionUid) },
+            repositoryContext = selectedRepository,
+            taskRequest = userMessage?.content,
             connectionUid = actualConnection?.connectionUid.orEmpty(), conversationId = userMessage?.chatId?.toString().orEmpty(), taskId = userMessage?.let { "${it.chatId}:${it.id}" }.orEmpty(),
             persistentState = userMessage?.chatId?.let { factVault?.scopeForChat(it)?.isTemporary != true } ?: true,
             stateStore = gitHubRepositoryState,
@@ -1345,10 +1358,11 @@ class AgentToolResolver @Inject constructor(
                 null
             }
         )
+        val planningContext = tool.planningContext()
         val admittedProfile = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }?.let { GitHubChatPolicy.platform(it, features, workspaceContext) }
         // resolved() normally wraps telemetry immediately; this backend must stay
         // concrete until its compact operations have been expanded above.
-        return tool.resolved(actualConnection?.connectionUid, actualConnection?.name, BuiltInAgentTool.GITHUB).copy(tool = tool, nativeGitHub = true, nativeGitHubAuthenticated = tool.hasCredential, authorizationIdentity = durableIdentity, canReuseResult = {
+        return tool.resolved(actualConnection?.connectionUid, actualConnection?.name, BuiltInAgentTool.GITHUB).copy(tool = tool, nativeGitHub = true, nativeGitHubAuthenticated = tool.hasCredential, authorizationIdentity = durableIdentity, gitHubPlanningContext = planningContext, canReuseResult = {
             val live = GitHubChatPolicy.features(settingRepository.getFeatureSettings(), profileUid, workspaceContext)
             val current = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == profileUid }?.let { GitHubChatPolicy.platform(it, live, workspaceContext) }
             val currentConnection = actualConnection?.let { toolConnectionRepository.getConnection(it.connectionUid) }
@@ -1397,7 +1411,8 @@ class AgentToolResolver @Inject constructor(
     /** Keep scope assembly outside the large suspending resolver's DEX method. */
     private fun scopedGitHubMessage(message: MessageV2?, context: dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext?): MessageV2? {
         if (message == null || context == null) return message
-        return message.copy(content = context.promptContext() + "\n\n" + message.content)
+        if (dev.chungjungsoo.gptmobile.data.agent.CurrentRequestContract.from(message.content).conversational) return message
+        return message.copy(content = context.promptContext(message.content) + "\n\n" + message.content)
     }
 
     private suspend fun githubCatalogTask(profileUid: String, userMessage: MessageV2?, selectedRepository: Boolean): String {

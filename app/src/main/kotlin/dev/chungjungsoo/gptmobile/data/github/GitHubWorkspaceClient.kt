@@ -66,13 +66,14 @@ class GitHubWorkspaceClient(
     private val durableIdentity: String = GitHubRepositoryStateStore.digest(token),
     private val legacyCredentialIdentities: List<String> = emptyList(),
     private val credentialProvider: (suspend () -> String)? = null,
-    private val apiOrigins: GitHubApiOrigins = GitHubApiOrigins.GITHUB_COM
+    private val apiOrigins: GitHubApiOrigins = GitHubApiOrigins.GITHUB_COM,
+    refAvailability: GitHubRefAvailability? = null
 ) {
     private val responseCache = responseCache ?: if (client === sharedClient) GitHubSessionCaches.forCredential(token, apiOrigins.hostIdentity) else GitHubResponseCache()
     private val rateLimits = rateLimits ?: if (client === sharedClient) GitHubSessionCaches.rateLimitsForCredential(token, apiOrigins.hostIdentity) else GitHubRateLimitManager()
     private val scheduler = scheduler ?: if (client === sharedClient) GitHubSessionCaches.schedulerForCredential(token, apiOrigins.hostIdentity) else GitHubRequestScheduler()
     private val authenticationRejected = authenticationRejected ?: if (client === sharedClient) GitHubSessionCaches.authenticationForCredential(token, apiOrigins.hostIdentity) else java.util.concurrent.atomic.AtomicBoolean()
-    private val refAvailability = if (client === sharedClient) GitHubSessionCaches.refsForCredential(token, apiOrigins.hostIdentity) else GitHubRefAvailability()
+    private val refAvailability = refAvailability ?: if (client === sharedClient) GitHubSessionCaches.refsForCredential(token, apiOrigins.hostIdentity) else GitHubRefAvailability()
 
     companion object {
         const val API_VERSION = "2026-03-10"
@@ -101,7 +102,7 @@ class GitHubWorkspaceClient(
         )
         val writeActions = setOf(
             "commit_files", "stage_patch", "commit_staged_patch",
-            "create_tag", "create_issue", "update_issue", "delete_branch",
+            "create_tag", "create_issue", "update_issue", "delete_branch", "delete_fixture_branch",
             "create_release",
             "update_release",
             "publish_release", "update_pull_request", "mark_ready_for_review", "submit_pull_request_review", "merge_pull_request",
@@ -133,12 +134,15 @@ class GitHubWorkspaceClient(
         )
     }
     private val executionScope = listOf(durableIdentity, connectionUid, conversationId, taskId).joinToString(":")
+    private val ownedFixtures by lazy { GitHubOwnedFixtures(repositoryState, executionScope) }
     private val releaseReceiptScope = listOf(durableIdentity, connectionUid, conversationId).joinToString(":")
     private val executionJournal by lazy {
         GitHubExecutionJournal(repositoryState, executionScope, legacyScopes = legacyCredentialIdentities.map { listOf(it, connectionUid, conversationId, taskId).joinToString(":") })
     }
     suspend fun taskSnapshot(): GitHubTaskSnapshot? = repositorySession.snapshot()
     suspend fun taskContext(): GitHubRepositoryContext? = repositorySession.context()
+    internal suspend fun retainFixtureCreation(arguments: JsonObject, receipt: JsonObject): JsonObject =
+        ownedFixtures.register("/repos/${segment(arguments.getValue("owner").jsonPrimitive.content)}/${segment(arguments.getValue("repo").jsonPrimitive.content)}", arguments, receipt)
     internal suspend fun trackExecution(action: String, arguments: JsonObject, reconcile: (suspend () -> JsonElement?)? = null, block: suspend () -> JsonElement): JsonObject {
         if (action != "publish_release") return executionJournal.run(action, arguments, reconcile = reconcile, block = block).jsonObject
         val retained = hasRetainedRequestClaim(action, arguments)
@@ -231,9 +235,11 @@ class GitHubWorkspaceClient(
         }
         val root = "/repos/${segment(owner)}/${segment(repo)}"
         if (action == "resolve_context" && args["refresh"] == JsonPrimitive(true)) {
+            refAvailability.revalidateRepository(root)
             val selectedRef = field("commit_sha").ifBlank { field("ref").ifBlank { field("branch").ifBlank { repositorySession.context()?.ref.orEmpty() } } }
             if (selectedRef.isNotBlank()) refAvailability.revalidate(root, selectedRef)
         }
+        if (action == "repository_details" && args["refresh"] == JsonPrimitive(true)) refAvailability.revalidateRepository(root)
         if (action == "get_branch_head" && args["refresh"] == JsonPrimitive(true)) {
             refAvailability.revalidateBranch(root, required("branch"))
         }
@@ -248,7 +254,7 @@ class GitHubWorkspaceClient(
                     put("number", number)
                 }
             )
-            return GitHubHeaderQuery.normalize(response, pullRequest)
+            return GitHubHeaderQuery.normalize(response, pullRequest, args)
         }
         val ref = field("commit_sha").ifBlank { field("ref").ifBlank { field("branch") } }
         if (action in setOf("resolve_context", "task_context", "index_status", "build_index", "workflow_catalog", "search_repository", "read_ranges", "stage_patch", "commit_staged_patch", "changed_since", "recovery_context")) {
@@ -390,6 +396,17 @@ class GitHubWorkspaceClient(
             "list_tags" -> pageResult(request("$root/tags?$pagination"), page, perPage, "name", "commit", "zipball_url", "tarball_url")
             "release_status" -> releaseStatus(root, args)
             "delete_branch" -> deleteBranch(root, args)
+            "delete_fixture_branch" -> ownedFixtures.cleanup(
+                root,
+                args,
+                repositorySession.context()?.ref,
+                read = { requestUntracked(it, HttpMethod.Get, null, false, forceLiveRead = true) },
+                delete = {
+                    request(it, HttpMethod.Delete)
+                    responseCache.invalidateMutable(root)
+                },
+                reconcile = { reconcileCommit(root, it, forceLiveRead = true) }
+            )
             "create_tag" -> createTag(root, args)
             "create_issue", "update_issue" -> issueMutation(root, action, args)
             "create_release" -> createRelease(root, args)
@@ -1118,14 +1135,14 @@ class GitHubWorkspaceClient(
     }
 
     private suspend fun commitFiles(root: String, args: JsonObject): JsonObject {
-        engineeringPrepare?.let { return it(root, args) }
-        require(token.isNotBlank()) { "Connect a GitHub account before committing." }
         val branch = args["branch"]?.jsonPrimitive?.content.orEmpty()
         require(branch.isNotBlank()) { "An explicit working branch is required." }
         val expected = args["expected_head_sha"]?.jsonPrimitive?.content.orEmpty()
         require(Regex("[a-fA-F0-9]{40}").matches(expected)) { "Read the branch head first and supply expected_head_sha." }
         val message = args["message"]?.jsonPrimitive?.content.orEmpty()
         require(message.isNotBlank() && message.length <= 4000) { "A commit message of at most 4,000 characters is required." }
+        engineeringPrepare?.let { return it(root, args) }
+        require(token.isNotBlank()) { "Connect a GitHub account before committing." }
         val files = args["files"]?.jsonArray ?: error("files is required.")
         require(files.size in 1..20) { "Commit between 1 and 20 text files at a time." }
         val paths = files.map { it.jsonObject["path"]?.jsonPrimitive?.content.orEmpty().also { filePath(it) } }
@@ -1153,7 +1170,24 @@ class GitHubWorkspaceClient(
         val head = observedRef["object"]?.jsonObject?.get("sha")?.jsonPrimitive?.content
         if (head != expected) {
             reconcileCommit(root, args, observedRef)?.let { return it }
-            error("Branch changed since it was read. Refresh and review changes before retrying; the remote parent and complete tree did not prove this patch was applied.")
+            throw GitHubReadValidation(
+                "GITHUB_HEAD_CONFLICT",
+                buildJsonObject {
+                    put("schema", "github.branch-conflict.v1")
+                    put("error_code", "GITHUB_HEAD_CONFLICT")
+                    put("branch", branch)
+                    put("expected_head_sha", expected)
+                    head?.let { put("observed_head_sha", it) }
+                    put("phase", "PRE_DISPATCH")
+                    put("dispatched", false)
+                    put("remote_mutation_performed", false)
+                    put("observation_scope", "CURRENT_INVOCATION")
+                    put("prior_publication_fences", "PRESERVED")
+                    put("retryable", false)
+                    put("message", "Branch changed since it was read. The remote parent and complete tree did not prove this patch was applied. No new mutation was dispatched; existing uncertain publication claims remain authoritative.")
+                    put("next_action", "Inspect the observed branch head and retained execution receipts, review the diff, then stage a new patch only after prior uncertain work is reconciled.")
+                }
+            )
         }
         val baseCommit = request("$root/git/commits/$expected").jsonObject
         val baseTree = baseCommit["tree"]?.jsonObject?.get("sha")?.jsonPrimitive?.content ?: error("Missing base tree.")
@@ -1196,6 +1230,7 @@ class GitHubWorkspaceClient(
                 }
             )
         }
+        ownedFixtures.prepareCommit(root, args)
         val treeSha = request("$root/git/trees", HttpMethod.Post, tree).jsonObject["sha"] ?: error("Missing new tree SHA.")
         val commit = request(
             "$root/git/commits",
@@ -1216,7 +1251,7 @@ class GitHubWorkspaceClient(
             }
         )
         responseCache.invalidateMutable(root)
-        return buildJsonObject {
+        val receipt = buildJsonObject {
             put("sha", sha)
             put("branch", branch)
             put("expected_head_sha", sha)
@@ -1226,16 +1261,19 @@ class GitHubWorkspaceClient(
             put("files_changed", files.size)
             put("next_action", "Reuse these file statuses and blob SHAs; do not re-fetch file contents merely to confirm the write. New edits require this head and these blob SHAs.")
         }
+        ownedFixtures.acceptCommit(root, args, receipt)
+        return receipt
     }
 
-    private suspend fun reconcileCommit(root: String, args: JsonObject, observedRef: JsonObject? = null): JsonObject? {
-        val receipt = GitHubCommitReconciliation.recover(root, args, observedRef) { request(it) } ?: return null
+    private suspend fun reconcileCommit(root: String, args: JsonObject, observedRef: JsonObject? = null, forceLiveRead: Boolean = false): JsonObject? {
+        val receipt = GitHubCommitReconciliation.recover(root, args, observedRef) { if (forceLiveRead) requestUntracked(it, HttpMethod.Get, null, false, forceLiveRead = true) else request(it) } ?: return null
         val path = "$root/git/refs/heads/${segment(args.getValue("branch").jsonPrimitive.content)}"
         val body = buildJsonObject {
             put("sha", receipt.getValue("sha"))
             put("force", false)
         }
         acceptHttpRemoteProof(path, HttpMethod.Patch, body, receipt)
+        ownedFixtures.acceptCommit(root, args, receipt)
         return receipt
     }
 
@@ -2308,7 +2346,8 @@ class GitHubWorkspaceClient(
         path: String,
         method: HttpMethod,
         body: JsonObject?,
-        authenticated: Boolean
+        authenticated: Boolean,
+        forceLiveRead: Boolean = false
     ): JsonElement {
         refreshCredential()
         if (authenticated || method != HttpMethod.Get) require(token.isNotBlank()) { "A GitHub credential is required." }
@@ -2316,7 +2355,7 @@ class GitHubWorkspaceClient(
         if (method == HttpMethod.Get) refAvailability.requireAvailable(path)
         val cacheKey = "${apiOrigins.rest}:$durableIdentity:${GitHubRepositoryStateStore.digest(token)}:${method.value}:$path"
         val cacheable = conditionalReads && method == HttpMethod.Get && path != "/rate_limit"
-        val forceLive = kotlinx.coroutines.currentCoroutineContext()[GitHubDispatchAccounting]?.forceLiveReads == true
+        val forceLive = forceLiveRead || kotlinx.coroutines.currentCoroutineContext()[GitHubDispatchAccounting]?.forceLiveReads == true
         val cached = if (cacheable && !forceLive) responseCache.get(cacheKey) else null
         // Mutable branch heads and permission checks are always revalidated.
         val freshList = path.startsWith("/user/repos") || path.startsWith("/user/installations") || path.matches(Regex("/repos/[^/]+/[^/]+/(?:branches|contents)(?:[?].*)?"))
@@ -2420,7 +2459,16 @@ class GitHubWorkspaceClient(
                                 githubMessage,
                                 response.headers["X-RateLimit-Remaining"],
                                 method != HttpMethod.Get
+                            ),
+                        evidence = if (response.status.value == 404) {
+                            GitHubFailurePolicy.notFoundEvidence(
+                                endpoint = path,
+                                reportedOAuthScopes = response.headers["X-OAuth-Scopes"],
+                                acceptedOAuthScopes = response.headers["X-Accepted-OAuth-Scopes"]
                             )
+                        } else {
+                            null
+                        }
                     )
                 }
                 val parsed = if (text.isBlank()) JsonObject(emptyMap()) else json.parseToJsonElement(text)

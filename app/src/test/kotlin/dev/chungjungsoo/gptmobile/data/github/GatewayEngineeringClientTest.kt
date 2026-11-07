@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.github
 
 import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
+import dev.chungjungsoo.gptmobile.data.network.gateway.GatewaySurfacePolicy
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
@@ -25,6 +26,24 @@ class GatewayEngineeringClientTest {
     private fun http(engine: MockEngine) = HttpClient(engine) {
         install(HttpTimeout)
         followRedirects = false
+    }
+
+    @Test fun aConfirmedDirectRouteSkipsEngineeringDiscoveryUntilItsIdentityChanges() = runTest {
+        val direct = config.copy(apiUrl = "https://confirmed-direct.example/v1")
+        GatewaySurfacePolicy.shared.observe(GatewaySurfacePolicy.identity(direct), GatewaySurfacePolicy.Surface.CAPABILITIES, 404)
+        var calls = 0
+        http(
+            MockEngine {
+                calls++
+                respond("""{"service":"engineering-gateway","protocol_version":1,"enabled":true,"principal_id":"new-account"}""")
+            }
+        ).use { http ->
+            val client = GatewayEngineeringClient(http)
+            assertTrue(runCatching { client.capabilities(direct) }.exceptionOrNull() is GatewayGraphUnavailableException)
+            assertEquals(0, calls)
+            assertEquals("new-account", client.principal(direct.copy(token = "new-token")))
+            assertEquals(1, calls)
+        }
     }
 
     @Test fun directNetworkIpAndHostnameDoNotRequireCredentials() = runTest {

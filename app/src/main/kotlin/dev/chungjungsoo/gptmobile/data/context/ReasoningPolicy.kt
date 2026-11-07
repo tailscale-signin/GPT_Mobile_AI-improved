@@ -21,9 +21,18 @@ data class ReasoningDecision(
 
 /** A template prefill check verifies a control, not the model's observed computation or answer. */
 object ReasoningPolicy {
+    /** Missing enum preferences migrate the old off switch to OFF; only an explicit AUTO keeps the template default. */
+    fun preference(legacyEnabled: Boolean, explicit: ReasoningMode?, conversation: Boolean? = null): ReasoningMode = when (conversation) {
+        false -> ReasoningMode.OFF
+        true -> ReasoningMode.ON
+        null -> explicit ?: if (legacyEnabled) ReasoningMode.AUTO else ReasoningMode.OFF
+    }
+
     fun forRequest(requested: ReasoningMode, allowed: Boolean, maximize: Boolean, helper: Boolean, control: ReasoningTemplateControl?): ReasoningDecision = when {
-        requested != ReasoningMode.AUTO -> resolve(requested, true, control)
-        helper || !allowed -> boundedHelper(control).copy(requested = requested)
+        requested == ReasoningMode.OFF -> resolve(requested, true, control)
+        !allowed -> resolve(requested, false, control)
+        requested != ReasoningMode.AUTO -> resolve(requested, allowed, control)
+        helper -> boundedHelper(control).copy(requested = requested)
         maximize && allowed -> strongestSupported(true, control).copy(requested = requested)
         else -> resolve(requested, allowed, control)
     }
@@ -38,7 +47,7 @@ object ReasoningPolicy {
     fun strongestSupported(allowed: Boolean, control: ReasoningTemplateControl?): ReasoningDecision =
         resolve(if (allowed && control != null) ReasoningMode.ON else ReasoningMode.AUTO, allowed, control)
 
-    /** Internal JSON helpers prefer OFF, but an unverified route must remain usable in Auto. */
+    /** When reasoning is permitted, helpers prefer verified OFF and otherwise preserve AUTO. */
     fun boundedHelper(control: ReasoningTemplateControl?): ReasoningDecision =
         resolve(if (control != null) ReasoningMode.OFF else ReasoningMode.AUTO, true, control)
 

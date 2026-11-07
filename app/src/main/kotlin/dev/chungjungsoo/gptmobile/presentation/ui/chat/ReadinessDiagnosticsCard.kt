@@ -42,10 +42,12 @@ internal fun ReadinessDiagnosticsCard(runId: String?, running: Boolean) {
         phases.forEach { (phase, samples) ->
             Text("${phase?.name?.replace('_', ' ') ?: "Preparation"}: ${samples.sumOf { it.elapsedMillis ?: 0 }} ms · ${samples.count { it.successful == false }} unsuccessful", style = MaterialTheme.typography.bodySmall)
         }
-        val firstText = events.firstOrNull { it.kind == RunDiagnosticKind.FIRST_TEXT && it.role in setOf(dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticRole.PRIMARY, dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticRole.CONTRIBUTOR, dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticRole.SYNTHESIS) }
         val visible = events.firstOrNull { it.kind == RunDiagnosticKind.FIRST_VISIBLE_TEXT }
-        if (firstText?.processSession == visible?.processSession && firstText?.monotonicNanos != null && visible?.monotonicNanos != null && visible.monotonicNanos >= firstText.monotonicNanos) {
-            Text("First parsed answer to first draw: ${((visible.monotonicNanos - firstText.monotonicNanos) / 1_000_000).coerceAtLeast(0)} ms", style = MaterialTheme.typography.bodySmall)
+        val drawDelay = dev.chungjungsoo.gptmobile.data.diagnostics.linkedParsedToDrawMillis(events)
+        if (drawDelay != null) {
+            Text("First parsed answer to first draw: $drawDelay ms · linked invocation", style = MaterialTheme.typography.bodySmall)
+        } else if (visible != null) {
+            Text("First answer draw observed for this run. Provider-to-draw latency is unmeasured because the rendered output has no invocation link.", style = MaterialTheme.typography.bodySmall)
         }
         Text("${events.count { it.kind == RunDiagnosticKind.HTTP_CALL_START }} observed HTTP attempts · ${events.count { it.kind == RunDiagnosticKind.REQUEST_BODY_END }} body writes completed · ${events.count { it.kind == RunDiagnosticKind.RESPONSE_HEADERS }} response headers", style = MaterialTheme.typography.bodySmall)
         events.lastOrNull { it.kind == RunDiagnosticKind.PROVIDER_COOLDOWN }?.let { Text("Provider cooldown observed: ${it.elapsedMillis ?: 0} ms", style = MaterialTheme.typography.bodySmall) }

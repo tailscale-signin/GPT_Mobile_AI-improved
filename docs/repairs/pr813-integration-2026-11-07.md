@@ -1,0 +1,73 @@
+# PR 813: GitHub qualification and diagnostic recovery
+
+## Scope and source identity
+
+This repair integrates `main` at `3ac89ceafd9083f67da30e92f9f93aae27be4600` into PR 813, whose original head was `4ad5f7d35fd69b0ff274e2b27c1c83caecc721e1`. The request is to repair the outstanding PR, implement the diagnostic findings and subsequent GitHub workflow improvements, validate the resulting revision, and merge it to `main`. The existing application version remains 0.9.66.6, build 140; no release or tag is created by this work.
+
+The supplied external GitHub test report is an output-quality reference. Its 89-tool catalog, call counts, pagination mismatch and fixture results are not copied into app receipts. The app reports its actual authorized catalog, observed operations, exact identities and missing prerequisites.
+
+The durable engineering checkpoint is `pr813-integration-2026-11-07-task.json` in this directory. Exact published-head CI and merge evidence are recorded there or in the linked PR checks; historical passing workflows do not qualify a new revision.
+
+## Changes and acceptance boundaries
+
+| Area | Implemented behavior | Regression evidence |
+| --- | --- | --- |
+| Independent acceptance | Catalog/read discovery, owned fixture cleanup, runtime/source binding, evidence classification and overall API coverage have separate predicates and receipt IDs. Mentioning device evidence does not veto unrelated criteria. | Archived five-requirement prompt, supported/unsupported criteria and source identity tests. |
+| Measured report | Tool dispositions, capability actions, inventory traversal, criterion results, exact resources, cleanup, build/source identity, evidence classes, stop reason and remaining work are retained separately. | Catalog, report and checkpoint tests derive counts from declarations and observations. |
+| Catalog discovery | Version-bound discovery continuations establish a complete denominator. The integration preset makes all currently authorized GitHub schemas initially available, while preserving ordinary progressive selection and schema limits. | Preset and multi-page catalog tests, including version/count mismatches. |
+| Native discovery control | A compact catalog control projection preserves later-round mounting information when general tool evidence is bounded. Full retained evidence is separate. | Unknown-name then successful discovery under the original 4096-byte allowance. |
+| Fixture coverage | A task/account-scoped owned branch can exercise exact synthetic content creation, read/search/diff, staging, commit and verified cleanup. Cleanup verifies durable origin/current heads, exact content history and dependency absence. | Owned fixture and planner tests, interrupted publication/deletion and cold-store recovery. |
+| Forced live reads | Tree, blob, workflow metadata and content-search caches honor the invocation's live policy. The task stays at its accepted immutable revision. Receipts explicitly record performed, not performed or incompletely observed transport. | Warm-cache then forced-read tests; failed transport cannot reuse a cached success. |
+| Explicit write target | A supplied working branch and current SHA are authoritative arguments without changing ambient workspace selection. A locally observed stale head returns `GITHUB_HEAD_CONFLICT` with expected/observed SHAs before a new mutation, preserving prior publication fences. Default-branch, repository authorization and content safeguards remain in force. | Explicit target, structured conflict and unchanged selected-branch tests. |
+| Stage-and-commit | `commit_immediately=true` requires an explicit branch, expected head and commit message. The exact stage and publication intent are retained before commit. Retrying through the separate commit facade reuses the same publication identity. | Cold-store restart, lost response, read-back reconciliation, missing argument and changed-target cases. |
+| Read ergonomics | A range can use `max_lines` or `end_line=-1`; both absent use the bounded default. EOF traversal still obeys line/byte limits and supplies exact continuation at the pinned commit. Conflicting bounds are rejected. | Known source reads, 2105-line EOF continuation and conflicting arguments. |
+| Inline CI watch | Optional `wait_timeout_seconds` (1–30) runs an ephemeral read-only watch and returns a terminal observation or an explicit pending timeout within the call deadline. It does not depend on background wakeups. Omitting the option retains durable background watching. | Immediate result, real transport cancellation, timeout, observation-generation fencing and default-mode tests. |
+| Diagnostic export | Frozen high-watermarks and committed row cursors advance later archive parts. Logical chunk groups are atomic; interrupted groups are rolled back. Prior archive digests preserve cross-part identity. Current verdict, policy, budget, cleanup and remaining work are exported before older snapshots. | Workspace exceeding 16 MiB, 15-chunk interruption, smaller-budget retry, damaged cursors, and Room-backed priority/cursor tests. |
+| Snapshot duplication | Full checklist/verification state uses stable current identities. Compact append events retain transitions; original tool evidence stays immutable. Latest-verdict loading prefers the full current checkpoint. | Stable checkpoint and event/evidence-retention tests. |
+| Reasoning policy | Explicit OFF survives role changes, continuation, restored jobs and answer repair. The wire receipt separates request controls from independently confirmed effective settings. | Role, restore, serialized-control and confirmation tests. |
+| Failure taxonomy | A successful provider response with an incomplete task gets task-verification metadata, not a provider-health failure or provider-removal suggestion. | Coordinator, task lifecycle, retry eligibility and failure presentation tests. |
+| Rendering/recovery | Completed answers switch to lazy visual pages above 4096 characters, with 2048-character presentation pages and unchanged durable bytes. Measurement modifiers keep stable identity. Frame windows flush at intervals/pause and retain sampled run IDs. Only a conservatively identified unfinished prose tail may be repaired without rewriting completed paragraphs. | Content-preserving paging, frame run coverage and selective tail-repair tests. |
+| Existing PR blockers | Main/PR conflicts are resolved without losing either diagnostic or App audit work. Stale test expectations and actual recovery/pagination bugs are corrected. The oversized response coroutine is divided into non-inline stages under the unchanged DEX threshold. | Focused regressions plus current-head Android compilation, unit tests and packaged DEX gate. |
+
+## Exact request regression
+
+The independent evaluator is exercised with the captured request, including its budget and integration preset:
+
+```text
+Test all authorized GitHub integration tools.
+Acceptance criteria:
+- Discover the authorized tool catalog and observe representative reads before pagination
+- Exercise permitted mutations only in an owned disposable fixture and verify cleanup
+- Bind acceptance to the running app build and exact repository revision
+- Keep device, live account and mocked test outcomes separate
+Budget: at most 256 tool calls and 60 minutes. Preserve a checkpoint and identify remaining work if the budget ends.
+[github-workflow-preset:test_integration]
+```
+
+A supported criterion can pass while overall coverage is partial. The presence of “device” in the classification requirement does not invent a device test and does not invalidate catalog or cleanup proof. Runtime build identity is added only to new process-generated receipts; restored evidence cannot acquire the identity of a newer app. The app-source SHA and target-repository SHA are separate identities.
+
+## Publication and cleanup semantics
+
+The single-call stage-and-commit option is a durable workflow, not a multi-endpoint GitHub transaction. Repository head/blob checks and non-force ref publication remain in force. The code does not claim a server-side atomic expected-head lease for REST ref updates or deletion. An uncertain publication is reconciled through observed remote state before another action, and a recorded uncertain deletion is never blindly replayed.
+
+Local staging may retain its existing read grant. Immediate publication is classified as a write, so a read-only policy cannot publish through `stage_patch`. Existing exact approval and persisted engineering-review behavior remain effective. A queued review without a published commit SHA is not accepted as a successful content fixture and does not authorize premature branch cleanup.
+
+Fixture authority is narrow: the persisted record permits known synthetic content and its owned branch only. General branch deletion still blocks unmerged commits and other unsafe dependencies. Unsupported mutation families remain explicit blockers until their own ownership, prerequisites and cleanup routes are implemented. Remote audit events and unreferenced Git objects may remain after active fixture state is cleaned up.
+
+## Export and performance semantics
+
+Archive integrity and logical completeness are distinct. A retained chunk envelope is not treated as a complete logical row. Resume progresses from a committed durable cursor, references already published archive parts, and fails explicitly if a published continuation is damaged. Lowering the retry budget does not silently discard an unpublished committed prefix. Progress labels describe completed/referenced export stages, not a percentage of all historical evidence.
+
+Stable current snapshots remove repeated full records from the historical workspace export. The changes reduce structural duplication and avoid repeated projection work; they do not assert a measured physical-device allocation, latency or jank improvement. Frame evidence now records which resumed windows and runs were observed, and lifecycle gaps remain explicit. Storage pages keep their original 8192-character boundary; only visual pages become smaller.
+
+The answer-tail optimization applies only to sufficiently long plain prose with an observed unfinished final paragraph and no other unmet answer requirement. Fenced code, tables, lists, quotations, short answers and other contract failures keep full validation/recovery. The assembled answer is validated again after repair; completed prefix bytes are preserved.
+
+## Verification record
+
+Focused JVM tests use the actual changed production logic with explicit Android, provider or HTTP boundaries. They are mocked host evidence, not a claim of live app/gateway or device execution. The focused suites cover catalog-budget recovery, reasoning policy, task-failure taxonomy, cache bypass, source read bounds, publication interruption/restart, export caps/continuation, and content-preserving rendering.
+
+The final local fast gate passed all 398 host tests, checked 1255 literal regular expressions (75 dynamic patterns were outside that static check), and passed resource, icon, provenance and scope checks. All 157 changed Kotlin files passed ktlint 1.3.1. Focused suites passed 125 distinct GitHub acceptance/catalog/watch tests (120-test and 9-test runs with four shared cases), 88 runtime/reasoning/taxonomy/fixture tests, 19 session/render tests and 41 export tests; one heap-specific assumption was skipped in the general export run and its independent 64 MiB gate passed with 20,000 rows and 163,840,000 generated bytes. Five API transport tests also passed, including actual loopback sockets stalled before headers and during body consumption. These suite counts describe their individual runs and are not an app-wide coverage percentage.
+
+`bash scripts/validate-local.sh fast` is the canonical local gate. The generated architecture and App audit inventories must be refreshed after the final source edits. Full Android unit/Room/adapter tests, lint, build, native package checks and the unchanged DEX size gate must pass on the exact published PR head. Merge requires a fresh head/base check; the resulting `main` workflows are checked separately.
+
+No connected physical device or live running APK is available in this coding environment. Current-device acceptance, live account qualification through the newly built app, provider-confirmed effective reasoning behavior, physical inference acceleration and measured rendering/allocation improvements remain separate execution evidence. The application now reports those absences instead of turning API smoke checks or historical CI into device qualification.

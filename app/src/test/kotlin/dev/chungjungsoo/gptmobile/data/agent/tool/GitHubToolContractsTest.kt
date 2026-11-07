@@ -160,11 +160,13 @@ class GitHubToolContractsTest {
     @Test fun artifactsAreEmptySuccessfullyAndPaginationKeepsTheRun() = runTest {
         val http = HttpClient(
             MockEngine { request ->
+                if (request.url.encodedPath == "/repos/o/r/actions/runs/8") return@MockEngine respond("""{"id":8,"head_sha":"$sha"}""")
+                if (request.url.encodedPath == "/repos/o/r/actions/runs/8/artifacts") return@MockEngine respond("""{"total_count":0,"artifacts":[]}""")
                 if (request.url.encodedPath == "/repos/o/r/actions/runs/7") return@MockEngine respond("""{"id":7,"head_sha":"$sha"}""")
                 assertEquals("/repos/o/r/actions/runs/7/artifacts", request.url.encodedPath)
                 assertEquals("1", request.url.parameters["per_page"])
                 if (request.url.parameters["page"] == "2") {
-                    respond("""{"total_count":0,"artifacts":[]}""")
+                    respond("""{"total_count":2,"artifacts":[{"id":9,"name":"coverage"}]}""")
                 } else {
                     respond("""{"total_count":2,"artifacts":[{"id":8,"name":"report"}]}""")
                 }
@@ -179,8 +181,14 @@ class GitHubToolContractsTest {
             val second = tool.execute("page2", next)
             assertFalse(second.isError)
             val body = data(second)["data"]!!.jsonObject
-            assertEquals(JsonPrimitive(true), body["empty"])
+            assertEquals(JsonPrimitive(false), body["empty"])
             assertEquals(JsonPrimitive(false), body["has_more"])
+            assertEquals(JsonPrimitive(9), body["artifacts"]!!.jsonArray.single().jsonObject["id"])
+            assertEquals(JsonPrimitive(true), body["pagination_progress"]!!.jsonObject["complete"])
+            val empty = tool.execute("empty", call("artifacts", """, "run_id":8, "per_page":1"""))
+            assertFalse(empty.isError)
+            assertEquals(JsonPrimitive(true), data(empty)["data"]!!.jsonObject["empty"])
+            assertEquals(JsonPrimitive(false), data(empty)["data"]!!.jsonObject["has_more"])
         } finally {
             http.close()
         }

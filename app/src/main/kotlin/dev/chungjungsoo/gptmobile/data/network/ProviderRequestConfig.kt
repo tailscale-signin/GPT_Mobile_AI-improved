@@ -14,6 +14,8 @@ data class ProviderRequestConfig(
     val queuePersistent: Boolean = false,
     val openRouterReceipt: dev.chungjungsoo.gptmobile.data.openrouter.account.OpenRouterReceiptContext? = null,
     val profileUid: String? = null,
+    val profileRevision: String? = null,
+    val configuredProfileReasoning: Boolean? = null,
     val providerType: String? = null,
     val requestRole: String = "primary",
     val lockedModel: String? = null,

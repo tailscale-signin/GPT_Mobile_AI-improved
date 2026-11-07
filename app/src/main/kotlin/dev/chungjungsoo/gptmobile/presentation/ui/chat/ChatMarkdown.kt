@@ -283,6 +283,12 @@ private fun ChatMarkdownContent(
     }
     val parsed = rendered.parsed
     val firstDrawn = remember(outputTrace?.runId, outputTrace?.fence) { java.util.concurrent.atomic.AtomicBoolean() }
+    val contentDrawn = {
+        onContentDrawn?.invoke()
+        if (outputTrace != null && firstDrawn.compareAndSet(false, true)) {
+            dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.firstVisibleDraw(outputTrace)
+        }
+    }
     val combinedMarkdown = rendered.markdown
     val renderedDigest = rendered.contentDigest
     val profileIndex = rendered.profileIndex
@@ -660,17 +666,29 @@ private fun ChatMarkdownContent(
             val parserFailed = renderedDigest != null && parserState !is MarkdownParseState.Loading && parserState !is MarkdownParseState.Success
             val animations = markdownAnimations(animateTextSize = { this })
             val layoutOwner = remember(outputTrace, rendered.contentDigest) { CombinedOperationOwner(runId = outputTrace?.runId, revisionId = rendered.contentDigest, blockId = outputTrace?.partId, digest = rendered.contentDigest, messageId = outputTrace?.messageId, profileUid = outputTrace?.profileUid) }
+            // Replacing a layout lambda invalidates measurement even when its content
+            // and constraints are unchanged. Retain it across unrelated chat updates;
+            // Compose still invalidates text for width, density, font scale and style.
+            val measurementModifier = remember(layoutOwner) {
+                Modifier.layout { measurable, constraints ->
+                    val measured = CombinedOperationTrace.measure("text_measure", layoutOwner) { measurable.measure(constraints) }
+                    layout(measured.width, measured.height) {
+                        CombinedOperationTrace.measure("text_layout", layoutOwner) { measured.placeRelative(0, 0) }
+                    }
+                }
+            }
 
             Box(Modifier.heightIn(min = if (awaitingContent) minimumPendingHeight else 0.dp), propagateMinConstraints = true) {
                 if (formattingFailed || parserTimedOut || parserFailed) {
+                    val fallbackContent = dev.chungjungsoo.gptmobile.data.conversation.ConversationSubject.withoutMetadata(content)
                     Column(modifier) {
                         Text(
-                            dev.chungjungsoo.gptmobile.data.conversation.ConversationSubject.withoutMetadata(content),
+                            fallbackContent,
                             style = answerBodyStyle(),
                             color = normalTextColor,
                             modifier = Modifier.drawWithContent {
                                 drawContent()
-                                if (content.isNotBlank()) onContentDrawn?.invoke()
+                                if (size.width > 0 && size.height > 0 && fallbackContent.isNotBlank()) contentDrawn()
                             }
                         )
                         Text("Formatting unavailable. Your response is preserved.", modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
@@ -692,16 +710,10 @@ private fun ChatMarkdownContent(
                             components = components,
                             typography = chatMarkdownTypography(answerForeground),
                             animations = animations,
-                            modifier = modifier.layout { measurable, constraints ->
-                                val measured = CombinedOperationTrace.measure("text_measure", layoutOwner) { measurable.measure(constraints) }
-                                layout(measured.width, measured.height) {
-                                    CombinedOperationTrace.measure("text_layout", layoutOwner) { measured.placeRelative(0, 0) }
-                                }
-                            }.drawWithContent {
+                            modifier = modifier.then(measurementModifier).drawWithContent {
                                 drawContent()
-                                if (interactionOwner.accepts(renderedDigest) && !awaitingContent && parserState is MarkdownParseState.Success && combinedMarkdown.isNotBlank()) {
-                                    onContentDrawn?.invoke()
-                                    if (outputTrace != null && firstDrawn.compareAndSet(false, true)) dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.record(outputTrace.runId, dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.FIRST_VISIBLE_TEXT, fence = outputTrace.fence)
+                                if (size.width > 0 && size.height > 0 && interactionOwner.accepts(renderedDigest) && !awaitingContent && parserState is MarkdownParseState.Success && combinedMarkdown.isNotBlank()) {
+                                    contentDrawn()
                                 }
                             }
                         )

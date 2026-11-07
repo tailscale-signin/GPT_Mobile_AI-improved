@@ -251,7 +251,7 @@ class GitHubOperationToolTest {
 
     @Test fun commitHistoryContinuationPreservesPinnedTipAndReadAction() = runBlocking {
         val backend = Backend().apply {
-            body = args("""{"items":[],"has_more":true,"continuation":{"action":"list_commits","ref":"$sha","commit_sha":"$sha","page":2}}""")
+            body = args("""{"items":[{"sha":"$sha"}],"has_more":true,"continuation":{"action":"list_commits","ref":"$sha","commit_sha":"$sha","page":2}}""")
         }
         val tool = GitHubOperationTool("github_context", backend, "commit-pages")
         val first = tool.execute("first", args("""{"action":"commits","ref":"main"}"""))
@@ -288,7 +288,7 @@ class GitHubOperationToolTest {
 
     @Test fun workflowDefinitionContinuationRetainsFacadeActionAndPinnedRevision() = runBlocking {
         val backend = Backend().apply {
-            body = args("""{"workflows":[],"has_more":true,"continuation":{"action":"workflow_catalog","commit_sha":"$sha","index_cursor":4}}""")
+            body = args("""{"workflows":[{"path":".github/workflows/build.yml"},{"path":".github/workflows/lint.yml"},{"path":".github/workflows/test.yml"},{"path":".github/workflows/release.yml"}],"total_count":5,"has_more":true,"continuation":{"action":"workflow_catalog","commit_sha":"$sha","index_cursor":4}}""")
         }
         val tool = GitHubOperationTool("github_ci", backend, "workflow-definitions")
         val first = tool.execute("first", args("""{"action":"definitions","ref":"main"}"""))
@@ -298,7 +298,11 @@ class GitHubOperationToolTest {
         assertEquals("definitions", next.getValue("action").jsonPrimitive.content)
         assertEquals(sha, next.getValue("commit_sha").jsonPrimitive.content)
         assertEquals("4", next.getValue("index_cursor").jsonPrimitive.content)
-        tool.execute("next", next)
+        backend.body = args("""{"workflows":[{"path":".github/workflows/acceptance.yml"}],"total_count":5,"has_more":false}""")
+        val last = tool.execute("next", next)
+        assertFalse(last.isError)
+        assertEquals(JsonPrimitive(false), result(last).getValue("data").jsonObject["has_more"])
+        assertFalse(result(last).getValue("data").jsonObject.containsKey("pagination_progress"))
         assertEquals("workflow_catalog", backend.calls.last().getValue("action").jsonPrimitive.content)
     }
 

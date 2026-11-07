@@ -41,7 +41,8 @@ internal object GitHubTaskCoverage {
             val root = (receipt["result"] as? JsonObject)?.let { (it["data"] as? JsonObject) ?: it }
             val resourceBranch = receipt.text("resource_branch").ifBlank { (root?.get("head_branch") as? JsonPrimitive)?.contentOrNull.orEmpty() }
             val identifiedResource = tool == "github_ci" && (args?.containsKey("run_id") == true || args?.containsKey("job_id") == true)
-            listOf(tool, action, resourceBranch.ifBlank { if (identifiedResource) "Resource branch not recorded" else receipt.text("branch") }, receipt.text("source_head_sha"), args?.text("pull_number").orEmpty())
+            listOf(tool, action, resourceBranch.ifBlank { if (identifiedResource) "Resource branch not recorded" else receipt.text("branch") }, receipt.text("source_head_sha"), args?.text("pull_number").orEmpty()) +
+                listOf("run_id", "job_id", "workflow_id", "issue_number", "artifact_id").map { args?.text(it).orEmpty() }
         }.map { (key, observations) ->
             val successful = observations.count { it["success"] == JsonPrimitive(true) }
             val errors = observations.mapNotNull { it.text("error_code").takeIf { code -> code.isNotBlank() && code != "null" } }.distinct()
@@ -51,6 +52,7 @@ internal object GitHubTaskCoverage {
                 put("branch", key[2])
                 put("commit_sha", key[3])
                 put("pull_number", key[4])
+                listOf("run_id", "job_id", "workflow_id", "issue_number", "artifact_id").forEachIndexed { index, field -> if (key[index + 5].isNotBlank()) put(field, key[index + 5]) }
                 put("successful_observations", successful)
                 put("failed_observations", observations.size - successful)
                 put("error_codes", JsonArray(errors.map(::JsonPrimitive)))
@@ -69,7 +71,11 @@ internal object GitHubTaskCoverage {
             }
         }
 
-    fun render(receipts: Map<String, JsonObject>, task: String = "test all tools", tools: List<dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition> = emptyList()): String = buildString {
+    fun render(receipts: Map<String, JsonObject>, task: String = "test all tools", tools: List<dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition> = emptyList(), remainingToolCalls: Int? = null): String = buildString {
+        if (GitHubTestChecklist.integration(task)) {
+            append(GitHubIntegrationReport.render(task, receipts, tools, remainingToolCalls))
+            return@buildString
+        }
         val complete = GitHubTestChecklist.apiComplete(task, receipts, tools)
         append(if (complete) "**Task outcome: authorized API coverage completed.** This covers the requested API capabilities, not device health or all application test suites.\n\n" else "**Task outcome: partial verification.** The table records observed tool operations, including failures. It does not establish that every feature or test suite passed.\n\n")
         val rows = rows(receipts)

@@ -88,6 +88,7 @@ def load_diagnostic_log(path: Path) -> dict:
     signatures = {}
     primary = {}
     identity_sources = defaultdict(set)
+    source_events = defaultdict(list)
     continuations = defaultdict(set)
     references = []
     reference_positions = set()
@@ -137,10 +138,12 @@ def load_diagnostic_log(path: Path) -> dict:
                     sha = reference.get("payloadSha256")
                     position = (source, source_line)
                     if (source_line == 0 or canonical_line == 0 or position in reference_positions
+                            or source not in LOG_SOURCES or canonical_source not in LOG_SOURCES
+                            or source == canonical_source and canonical_line >= source_line
                             or not isinstance(sha, str) or re.fullmatch(r"[a-f0-9]{64}", sha) is None):
                         raise ValueError("Invalid or repeated diagnostic duplicate reference")
                     reference_positions.add(position)
-                    references.append((target, canonical_source))
+                    references.append((target, source, source_line, canonical_source, canonical_line, counts["rows"]))
                     if len(references) > MAX_LOG_ROWS:
                         raise ValueError("Diagnostic duplicate-reference bound exceeded")
                     if source in LOG_SOURCES:
@@ -154,6 +157,7 @@ def load_diagnostic_log(path: Path) -> dict:
             identity_sources[event_id].add(source)
             if source in LOG_SOURCES:
                 counts["retainedSourceRecords"] += 1
+                source_events[source].append((event_id, counts["rows"]))
             for flag in ("truncatedAtSource", "truncatedAtExport"):
                 if type(row.get(flag)) is not bool:
                     raise ValueError("Invalid diagnostic truncation flag")
@@ -223,8 +227,23 @@ def load_diagnostic_log(path: Path) -> dict:
     for parent, sequences in continuations.items():
         if parent not in primary or max(sequences) != len(sequences):
             raise ValueError("Orphan or incomplete diagnostic continuation sequence")
-    for target, source in references:
-        if source not in identity_sources.get(target, set()):
+    # Spool rows retain their source order. A duplicate reference occupies its
+    # declared source line, so the remaining positions identify full exported
+    # rows without retaining or reprinting their private message bodies.
+    canonical_positions = {}
+    for source in LOG_SOURCES:
+        omitted = {line for name, line in reference_positions if name == source}
+        events = source_events[source]
+        total = len(events) + len(omitted)
+        if omitted and max(omitted) > total:
+            raise ValueError("Diagnostic duplicate source line exceeds retained source")
+        iterator = iter(events)
+        for position in range(1, total + 1):
+            if position not in omitted:
+                canonical_positions[(source, position)] = next(iterator)
+    for target, source, source_line, canonical_source, canonical_line, batch_line in references:
+        canonical = canonical_positions.get((canonical_source, canonical_line))
+        if canonical is None or canonical[0] != target or canonical[1] >= batch_line:
             raise ValueError("Diagnostic duplicate reference lacks its canonical event")
     warnings = []
     if capture is None:

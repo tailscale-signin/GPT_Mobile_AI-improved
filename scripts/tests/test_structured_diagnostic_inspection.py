@@ -94,8 +94,49 @@ class StructuredDiagnosticInspectionTest(unittest.TestCase):
     def test_canonical_reference_can_point_to_continuation(self):
         rows = self.fixture()
         rows[-1]["references"][0]["eventId"] = "failure:1"
+        rows[-1]["references"][0]["canonicalLine"] = 2
         result, _ = self.inspect(rows)
         self.assertEqual("retained-log-records-inspected", result["result"])
+
+    def test_rejects_self_forward_wrong_position_and_out_of_range_references(self):
+        for change in ("self", "forward", "wrong-position", "outside-canonical", "outside-source", "historical"):
+            rows = self.fixture()
+            reference = rows[-1]["references"][0]
+            if change == "self":
+                reference["captureSource"] = "critical.log"
+            elif change == "forward":
+                reference.update(captureSource="critical.log", canonicalLine=2)
+            elif change == "wrong-position":
+                reference["canonicalLine"] = 2
+            elif change == "outside-canonical":
+                reference["canonicalLine"] = 99999
+            elif change == "outside-source":
+                reference["sourceLine"] = 99999
+            else:
+                reference.update(canonicalSource="unknown", eventId="export")
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                self.inspect(rows)
+
+    def test_valid_same_source_recap_and_later_source_positions_reconcile(self):
+        rows = self.fixture()
+        rows[-1]["references"][0].update(captureSource="critical.log", sourceLine=2)
+        result, _ = self.inspect(rows)
+        self.assertEqual("retained-log-records-inspected", result["result"])
+        self.assertTrue(result["capture"]["recordCountMatches"])
+        # After a recapture at line2, the full continuation occupies source line3.
+        rows[-1]["references"].append(dict(eventId="failure:1", captureSource="previous.log", sourceLine=1,
+                                           canonicalSource="critical.log", canonicalLine=3, payloadSha256="b" * 64))
+        rows[-1]["referenceCount"] = 2
+        rows[1]["fields"]["retainedRecords"] += 1
+        result, _ = self.inspect(rows)
+        self.assertEqual(2, result["counts"]["duplicateReferences"])
+
+    def test_reference_cannot_claim_a_canonical_row_exported_later(self):
+        rows = self.fixture()
+        batch = rows.pop()
+        rows.insert(2, batch)
+        with self.assertRaises(ValueError):
+            self.inspect(rows)
 
     def test_rejects_orphan_gap_and_wrong_continuation_identity(self):
         for parent, sequence, identity in (("missing", 1, "missing:1"), ("failure", 2, "failure:2"), ("failure", 1, "wrong")):

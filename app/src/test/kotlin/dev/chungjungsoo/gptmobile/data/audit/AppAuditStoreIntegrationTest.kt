@@ -210,7 +210,7 @@ class AppAuditStoreIntegrationTest {
             assertFalse(coordinator.serviceReady(audit.id))
             assertEquals("INTERRUPTED", context.getSharedPreferences("benchmark_execution_v1", Context.MODE_PRIVATE).getString("status", null))
             assertTrue(coordinator.errorMutable.value.orEmpty().contains("did not acknowledge"))
-            val backup = Json { ignoreUnknownKeys = true }.decodeFromString<BenchmarkBackupPayload>(store.exportJson(includeScoreHistory = false))
+            val backup = Json { ignoreUnknownKeys = true }.decodeFromString<BenchmarkBackupPayload>(store.exportJson(includeScoreHistory = true))
             assertEquals(1, backup.batchEvents.count { it.type == "FOREGROUND_READINESS_TIMEOUT" })
 
             val unacknowledgedResume = checkNotNull(coordinator.resumeBatch(audit.id))
@@ -301,7 +301,7 @@ class AppAuditStoreIntegrationTest {
             assertEquals(0, dispatches)
             assertTrue(coordinator.errorMutable.value.orEmpty().contains("preparation exceeded"))
             assertFalse(coordinator.errorMutable.value.orEmpty().contains("did not acknowledge"))
-            val backup = Json { ignoreUnknownKeys = true }.decodeFromString<BenchmarkBackupPayload>(store.exportJson(includeScoreHistory = false))
+            val backup = Json { ignoreUnknownKeys = true }.decodeFromString<BenchmarkBackupPayload>(store.exportJson(includeScoreHistory = true))
             assertEquals(1, backup.batchEvents.count { it.type == "PREPARATION_TIMEOUT" })
             assertEquals(0, backup.batchEvents.count { it.type == "FOREGROUND_READINESS_TIMEOUT" })
         } finally {

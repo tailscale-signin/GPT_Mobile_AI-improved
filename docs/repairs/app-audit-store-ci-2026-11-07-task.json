@@ -1,0 +1,40 @@
+{
+  "schema": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "feat/comprehensive-app-benchmark-2026-11-07",
+  "base_sha": "0dec13431c7639a6206e6f92e029f5fe8ce7cd17",
+  "parent_pr": 812,
+  "working_branch": "work/app-audit-store-ci-2026-11-07",
+  "intent": "Correct two timeout regression fixtures to request the existing detailed export before asserting canonical batch event history.",
+  "state": "IMPLEMENTED_AND_FOCUSED_VERIFIED_FOR_INTEGRATION",
+  "owned_paths": [
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditStoreIntegrationTest.kt"
+  ],
+  "task_store": "engineering_agent_checkpoints (existing engineering task store)",
+  "observed_failure": {
+    "workflow_run_id": 42389318283,
+    "job_id": 128453339064,
+    "artifact_id": 13582160971,
+    "artifact_sha256": "d75423845ef389ed6b0c8d226110fbd10f1238c926ec2d66b865ae7b1e7b4a70",
+    "tested_source_sha": "4a680b9b0a30784dd99c2011feb454239f649fb9",
+    "methods": [
+      "preparationTimeoutAfterManifestCommitRetainsItsDistinctCauseAndNoDispatch",
+      "foregroundPromotionTimeoutRetainsReceiptsAndResumesOnlyUntouchedChecks"
+    ],
+    "diagnosis": "Both tests requested includeScoreHistory=false, which intentionally excludes batchEvents, then expected a timeout event. Every preceding durable interruption and receipt assertion passed."
+  },
+  "preservation": [
+    "Preserve all exact event-count and execution behavior assertions.",
+    "Do not change production export, coordinator, persistence, timeout, or resume behavior.",
+    "Do not change heap limits, dependencies, CI gates, generated inventory, or remote refs."
+  ],
+  "remote_mutations": false,
+  "validation": {
+    "diff": "Exactly two includeScoreHistory arguments change from false to true; all eight test methods and every assertion remain unchanged. No production source changes.",
+    "ktlint": "PASS: pinned ktlint 1.3.1 on AppAuditStoreIntegrationTest; git diff --check clean.",
+    "canonical_fast": "PASS: 398 host tests in 26.294 seconds; Android regex check 1234 literal patterns, 73 dynamic patterns not evaluated, zero errors. Resource preflight passed. Physical QNN device execution remains unverified.",
+    "independent_review": "Gateway agent confirms both flags select the existing persisted event stream; original event counts, receipt preservation, no-dispatch and no-replay assertions and timeout bounds are unchanged.",
+    "full_android": "Not run locally: no Android SDK. Exact old-head audit artifact verifies both failures at event lookup after preceding durable-state assertions, and the existing true-mode detailed-export Room test passes. Corrected timeout methods require the new-head Android CI run; no success claimed for unexecuted assertions.",
+    "remote_mutations": false
+  }
+}

@@ -101,7 +101,15 @@
       "github_session_classifier_tests": 85,
       "github_source_hashes_stable": true,
       "canonical_fast_tests": 361,
-      "source_checkpoint": "7cf03c0"
+      "source_checkpoint": "7cf03c0",
+      "runner_budget_baseline": {
+        "head": "dbbe22a",
+        "focused_tests": 13,
+        "existing_regressions": 93,
+        "status": "PASSED",
+        "source_hashes_stable": true,
+        "scope": "Actual AgentRunner, contracts, ToolExecutionBudget, schedulers, catalog, checkpoints and metadata; unrelated Android/provider/Combined boundaries use host adapters."
+      }
     },
     "constraints": [
       "Precheck=false only at proven pre-invocation boundaries",
@@ -126,7 +134,8 @@
       "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProfileFailureRecordTest.kt": "62226e613f56112dcbbd72bd9295d662f57fe7d89ea38f261cf9b24c42e4b958",
       "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubPolicyInvalidationTest.kt": "24ba123a93d10c68652f3b617ed4720532b2e50f9f1e3c66f15847cb13cf8149",
       "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentPolicyInvalidationTest.kt": "7c089954b037467d0c627117a38d99d53dae626fea21858bad7791fc3aea1353",
-      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolPolicyInvalidationTest.kt": "cad0506bf839af2e2146c9b41ac259e0f57dfa5802ec8d24784d74cdb77e5dd5"
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolPolicyInvalidationTest.kt": "9401ff33d8c462b132045a52b8035d328a24dfb81f6c97cfd28fc844ff87e74c",
+      "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/MeasuredAgentTool.kt": "f5331d37cac6f8377c9d4472fd3d934c6c9dd4f61af184849686fc449d318f54"
     },
     "provider_guard_followup": {
       "base_sha": "7cf03c0",
@@ -134,9 +143,27 @@
       "state": "SOURCE_CHECKPOINT_PENDING_EXECUTION",
       "validation": {
         "ktlint": "PASSED",
-        "behavioral_execution": "PENDING_HOST_HARNESS_AND_ANDROID_CI"
+        "behavioral_execution": "PASSED_IN_DBBE22A_HOST_SUITE"
       }
     },
-    "fixture_adjustment": "Distinct queued mutations expect DISPATCH_POLICY_CHANGED from the legacy queue and the intelligent scheduler's earlier DEPENDENCY_FAILED precheck. Both retain exactly one invocation/unknown outcome, one round, no discovery and false-dispatch sibling receipts. The observed-success case separately requires a typed authority-latch rejection. No journal or scheduler production semantics changed."
+    "fixture_adjustment": "Distinct queued mutations expect DISPATCH_POLICY_CHANGED from the legacy queue and the intelligent scheduler's earlier DEPENDENCY_FAILED precheck. Both retain exactly one invocation/unknown outcome, one round, no discovery and false-dispatch sibling receipts. The observed-success case separately requires a typed authority-latch rejection. No journal or scheduler production semantics changed.",
+    "measured_wrapper_followup": {
+      "base_sha": "dbbe22a",
+      "state": "SOURCE_CHECKPOINT_PENDING_EXECUTION",
+      "confirmed_defect": "Actual MeasuredAgentTool returned false dispatch for an authority-coded ToolAuthorizationRejected after a fixture side effect.",
+      "scope": [
+        "MeasuredAgentTool.kt",
+        "ToolPolicyInvalidationTest.kt"
+      ],
+      "constraints": [
+        "Ordinary deterministic permission refusals unchanged",
+        "Optional telemetry callback remains observational",
+        "No additional mutation replay or resource allowance"
+      ],
+      "validation": {
+        "ktlint": "PASSED",
+        "behavioral_execution": "PENDING_HOST_HARNESS_AND_ANDROID_CI"
+      }
+    }
   }
 }

@@ -36,16 +36,21 @@ class MeasuredAgentTool(
             delegate.execute(callId, arguments)
         } catch (cancellation: CancellationException) {
             throw cancellation
-        } catch (rejected: dev.chungjungsoo.gptmobile.data.permissions.ToolAuthorizationRejected) {
-            AgentToolResult(callId, ToolResultContent.Text(rejected.message.orEmpty()), isError = true, errorCode = rejected.code, dispatched = false)
         } catch (error: Exception) {
-            val cause = ToolFailureMetadata.classify(error)
-            ToolFailureMetadata.receipt(
-                AgentToolResult(callId, ToolResultContent.Text(error.message ?: "Tool execution failed."), isError = true, errorCode = if (replaySafe) cause else "DISPATCH_OUTCOME_UNKNOWN"),
-                definition.name,
-                diagnosticCode = cause,
-                replaySafe = replaySafe
-            )
+            if (error is dev.chungjungsoo.gptmobile.data.permissions.ToolAuthorizationRejected && ToolFailureMetadata.authorityCode(error) == null) {
+                AgentToolResult(callId, ToolResultContent.Text(error.message.orEmpty()), isError = true, errorCode = error.code, dispatched = false)
+            } else {
+                // The delegate was invoked. An authority change cannot establish
+                // that a mutation had no effect, even when carried by a refusal type.
+                val cause = ToolFailureMetadata.authorityCode(error) ?: ToolFailureMetadata.classify(error)
+                val failure = AgentToolResult(callId, ToolResultContent.Text(error.message ?: "Tool execution failed."), isError = true, errorCode = if (replaySafe) cause else "DISPATCH_OUTCOME_UNKNOWN")
+                ToolFailureMetadata.receipt(
+                    ToolFailureMetadata.withAuthorityFailure(failure, error, "tool_execution") ?: failure,
+                    definition.name,
+                    diagnosticCode = cause,
+                    replaySafe = replaySafe
+                )
+            }
         }
         val normalized = ToolFailureMetadata.receipt(result, definition.name, replaySafe = replaySafe)
         val measured = normalized.copy(

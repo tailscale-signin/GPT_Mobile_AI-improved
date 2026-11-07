@@ -145,6 +145,37 @@ class ToolPolicyInvalidationTest {
         }
     }
 
+    @Test fun measuredMutationAuthorityFailureCannotBecomeAnUnsentRefusal() = runTest {
+        for ((code, policy) in listOf(
+            "DISPATCH_POLICY_CHANGED" to DispatchPolicyChangedException(listOf("engineering")),
+            "POLICY_STALE" to dev.chungjungsoo.gptmobile.data.permissions.ToolAuthorizationRejected("POLICY_STALE", "Selected authority changed")
+        )) {
+            var effects = 0
+            val measured = dev.chungjungsoo.gptmobile.data.agent.tool.MeasuredAgentTool(
+                tool("write_fixture") {
+                    effects++
+                    throw policy
+                }
+            )
+            val budget = ToolExecutionBudget(AgentRunLimits(maxToolCalls = 3))
+            val bound = budget.bind(measured)
+            val firstArgs = buildJsonObject { put("operation_id", 1) }
+            val first = bound.execute("first", firstArgs)
+            assertEquals("DISPATCH_OUTCOME_UNKNOWN", first.errorCode)
+            assertTrue(first.dispatched)
+            assertEquals("UNKNOWN_OUTCOME", ToolResultEnvelope.executionState(first))
+            assertEquals(code, ToolFailureMetadata.authorityCode(first))
+            assertEquals(JsonPrimitive(true), first.executionReceipt?.get("requires_reconciliation"))
+            val queued = bound.execute("queued", buildJsonObject { put("operation_id", 2) })
+            assertEquals(code, queued.errorCode)
+            assertFalse(queued.dispatched)
+            assertEquals("PRECHECK_REJECTED", ToolResultEnvelope.executionState(queued))
+            assertEquals("RECONCILIATION_REQUIRED", bound.execute("repeat", firstArgs).errorCode)
+            assertEquals(1, effects)
+            assertEquals(1, budget.usedCalls())
+        }
+    }
+
     private fun assertPrecheck(result: AgentToolResult) {
         assertTrue(result.isError)
         assertFalse(result.dispatched)

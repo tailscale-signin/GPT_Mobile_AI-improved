@@ -403,6 +403,28 @@ class DisplayReadinessTest(unittest.TestCase):
                 self.assertEqual(3, now())
                 self.assertEqual([], device.mutations())
 
+    def test_exiting_home_waits_for_a_live_foreground_without_relaunching(self):
+        device = self.device()
+        ready = device.window_dump
+        exiting = ready.replace(emulator.TEST_HOME + '}', emulator.TEST_HOME + ' EXITING}')
+        device.window_dump = exiting
+        now, wait = self.clock()
+        with self.assertRaisesRegex(TimeoutError, 'last focus=.*EXITING'):
+            emulator.settle_display(device, now=now, wait=wait, ready_timeout=3)
+        self.assertEqual(3, now())
+        self.assertEqual([], device.mutations())
+
+        device = self.device()
+        device.window_states = [exiting]
+        now, wait = self.clock()
+        report = emulator.settle_display(device, now=now, wait=wait, ready_timeout=3)
+        self.assertEqual('READY', report['status'])
+        self.assertEqual(2, report['readiness_attempts'])
+        self.assertEqual(1, now())
+        self.assertEqual([], device.mutations())
+        self.assertEqual(1, sum('wait-for-broadcast-idle' in command for command, _ in device.calls))
+        self.assertEqual(1, sum('wait-for-application-barrier' in command for command, _ in device.calls))
+
     def test_empty_malformed_or_ambiguous_dumps_fail_closed(self):
         valid_processes = self.device().process_dump
         invalid_processes = ('', 'permission denied', 'ACTIVITY MANAGER RUNNING PROCESSES (dumpsys activity processes)',

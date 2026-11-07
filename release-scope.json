@@ -31,7 +31,9 @@
     "Stabilize CI and release validation by isolating source generation, compilation and lint in bounded processes.",
     "Stream URL retrieval into bounded buffers or complete temporary documents; continue PDFs with page/text offsets and pinned source identity, and disclose incomplete coverage and exhausted budgets.",
     "Validate MCP catalogs before publishing tool readiness, separate connection/catalog/gateway/inference evidence and add explicit bounded generation probes.",
-    "Bind gateway answer colour and badges to locally observed response headers or a matching saved job; clear stale proof per response, preserve historical source ranges and require capability confirmation for recognized gateway software even without debug controls."
+    "Bind gateway answer colour and badges to locally observed response headers or a matching saved job; clear stale proof per response, preserve historical source ranges and require capability confirmation for recognized gateway software even without debug controls.",
+    "Close the final release-dispatch changed-argument replay gap with protected payload reconciliation, and verify exact draft release identities and downloaded assets before publication.",
+    "Preserve the merged emulator boot/display readiness and diagnostics, while rejecting an exiting test HOME window as readiness evidence."
   ],
   "limitations": [
     "Android GPU qualification requires compatible-device receipts for actual offload, prefill, decode, repeated requests and cancel/recovery; host tests do not establish those results.",
@@ -872,6 +874,9 @@
     "scripts/tests/test_staged_diagnostic_inspection.py",
     "scripts/validate-local.sh",
     "scripts/verify_published_release.py",
-    "scripts/verify_release_identity.py"
+    "scripts/verify_release_identity.py",
+    "docs/repairs/diagnostic-final-reconciliation-2026-11-07.md",
+    "scripts/tests/test_published_release.py",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubDispatchReceiptTest.kt"
   ]
 }

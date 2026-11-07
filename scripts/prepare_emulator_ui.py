@@ -177,7 +177,9 @@ def settle_display(run=subprocess.run, now=time.monotonic, wait=time.sleep, read
             raise ValueError('Android focused window was malformed')
         if re.search(r'Not Responding|Application Error|App Error|aerr|anr', focus, re.IGNORECASE):
             raise ValueError(f'Android error window obstructs the fixture: {focus}')
-        if re.search(r'\bu0 ' + re.escape(TEST_HOME) + r'(?=[\s}])', focus) and 'true' not in waiting + frozen:
+        # WindowState appends " EXITING" while a window is being removed;
+        # its component name alone does not establish a live HOME foreground.
+        if re.fullmatch(r'Window\{[0-9a-fA-F]+ u0 ' + re.escape(TEST_HOME) + r'\}', focus) and 'true' not in waiting + frozen:
             return {'schema_version': 3, 'status': 'READY', 'selected_test_home': TEST_HOME,
                     'display_size': actual_size, 'density_dpi': density, 'font_scale': actual_font,
                     'foreground_window': focus, 'readiness_attempts': attempts,

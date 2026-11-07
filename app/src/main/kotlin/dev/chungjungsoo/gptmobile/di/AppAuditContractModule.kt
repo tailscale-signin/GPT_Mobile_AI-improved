@@ -7,6 +7,7 @@ import dagger.hilt.components.SingletonComponent
 import dagger.multibindings.IntoSet
 import dev.chungjungsoo.gptmobile.data.audit.AppAuditAppearanceProbeSource
 import dev.chungjungsoo.gptmobile.data.audit.AppAuditBehaviorProbeSource
+import dev.chungjungsoo.gptmobile.data.audit.AppAuditMemoryProbeSource
 import dev.chungjungsoo.gptmobile.data.audit.AppAuditProbeSource
 import dev.chungjungsoo.gptmobile.data.audit.AppAuditResearchProbeSource
 
@@ -21,4 +22,7 @@ internal abstract class AppAuditContractModule {
 
     @Binds @IntoSet
     abstract fun research(source: AppAuditResearchProbeSource): AppAuditProbeSource
+
+    @Binds @IntoSet
+    abstract fun memory(source: AppAuditMemoryProbeSource): AppAuditProbeSource
 }

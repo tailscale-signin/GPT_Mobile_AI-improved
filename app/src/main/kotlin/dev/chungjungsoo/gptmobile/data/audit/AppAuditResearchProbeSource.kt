@@ -10,7 +10,7 @@ internal class AppAuditResearchProbeSource @Inject constructor() :
     AppAuditFixtureSource(
         "research_contract",
         listOf(
-            AppAuditFixture("authority_projection_v1", "Public research transfer excludes private context", listOf("research", "auth_and_security", "memory_and_rag")) {
+            AppAuditFixture("authority_projection_v1", "Public research transfer excludes private context", listOf("research", "auth_and_security")) {
                 val privateMarker = "app-audit-private-canary"
                 val public = ResearchSource("S1", "https://example.org/audit", "Fixture study", "Read", "A captured public fixture passage.", publicCapture = true, retrievalReceipt = "audit-read")
                 val private = public.copy(id = "S2", publicCapture = false, passage = privateMarker)

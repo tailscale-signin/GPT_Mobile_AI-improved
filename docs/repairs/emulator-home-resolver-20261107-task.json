@@ -1,0 +1,77 @@
+{
+  "schema": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "work/app-audit-ui-20261107",
+  "base_sha": "3b3b619137319c0e6929d32737fe3f8c718daa7d",
+  "parent_pr": 811,
+  "integration_branch": "feat/comprehensive-app-benchmark-2026-11-07",
+  "working_branch": "work/emulator-home-resolver-20261107",
+  "intent": "Recover the exact Android HOME resolver after installing the instrumentation fixture only when bounded read-only enumeration proves the fixture and stock launcher candidates, retaining the existing readiness deadline, barriers and one-shot mutation/readback contract.",
+  "state": "VALIDATED_READY_FOR_INTEGRATION",
+  "owned_paths": [
+    "scripts/prepare_emulator_ui.py",
+    "scripts/tests/test_prepare_emulator_ui.py"
+  ],
+  "confirmed_evidence": {
+    "head": "c980ad3b4c13f8d9dd8bb4b5a393f4263d3b197f",
+    "origin": "Parent inspection of the exact-head API34 CI artifact",
+    "observation": "android/com.android.internal.app.ResolverActivity persisted for the 60-second readiness window; ROLE_HOME was not set; the test APK installed and instrumentation never began.",
+    "local_source": "Discovery only accepts a stock launcher or TEST_HOME before the later set-home selection, so this exact resolver cannot advance.",
+    "parent_retry": "Parent reports the existing c980 API34 single failed-job retry passed 55 tests; this fix addresses the separately reproduced setup deadlock and does not reinterpret the original failed attempt."
+  },
+  "upstream_command_contract": {
+    "android14_sha256": "7c554cc6e5b39a979c3aa6f63a20a139d85a94114f285d7fd1923b98f046ae13",
+    "android16_sha256": "96c8109b2c84abdc0cf145e5bbf88751375cf3c25a6b4bd5fb719055370a1387",
+    "source": "AOSP PackageManagerShellCommand.java in android-14.0.0_r1 and android-16.0.0_r1",
+    "contract": "query-activities --components emits one flattened component per line, or No activities found; --brief alone also prints metadata/headers.",
+    "evidence_directory": "/workspace/scratch/22f000a845c8/emulator-home-review",
+    "urls": [
+      "https://android.googlesource.com/platform/frameworks/base/+/android-14.0.0_r1/services/core/java/com/android/server/pm/PackageManagerShellCommand.java?format=TEXT",
+      "https://android.googlesource.com/platform/frameworks/base/+/android-16.0.0_r1/services/core/java/com/android/server/pm/PackageManagerShellCommand.java?format=TEXT"
+    ]
+  },
+  "constraints": [
+    "Only android/com.android.internal.app.ResolverActivity can enter resolver recovery.",
+    "Require exact TEST_HOME and at least one stock launcher; unknown, fallback, missing, duplicate or malformed candidates cannot authorize selection.",
+    "All read-only discovery consumes the original finite <=60-second deadline.",
+    "No changes to ANR/crash detection, barriers, display settling, package disabling, mutation retries or instrumentation acceptance."
+  ],
+  "validation": {
+    "baseline": {
+      "result": "New positive resolver behavior test fails against unchanged production script with bounded TimeoutError before any mutation.",
+      "source_sha256": "021c1e00f449e9075ec6531ed261d38d8e22a23e802177117b7b18677357dcd1",
+      "log_sha256": "efd3b333cbcea1f53160d79a5d22119cfb9d41953fc86c1741a5ef2e619f76d8"
+    },
+    "focused": {
+      "command": "python -m unittest scripts.tests.test_prepare_emulator_ui",
+      "tests": 45,
+      "failures": 0,
+      "errors": 0,
+      "new_resolver_test_methods": 10,
+      "log_sha256": "53d708a37cd2686b103b85a572225655e5bc85fe8380dbb06e7b4a785774aed0"
+    },
+    "canonical_fast": {
+      "command": "bash scripts/validate-local.sh fast",
+      "exit_code": 0,
+      "python_tests": 397,
+      "inventory": "Temporarily regenerated for checks then restored exactly; combined generated inventory remains parent-owned.",
+      "log_sha256": "c23d60c84665835d0649576e0842615ec62f140839186e18528bdfe6e119ed54"
+    },
+    "source_hashes": {
+      "command": "python -m unittest scripts.tests.test_prepare_emulator_ui",
+      "exit_code": 0,
+      "source_sha256": "d2b314f8ee3950208d3e31f40775e19b121028b35890581a838580cb31474e3a",
+      "test_sha256": "25765e6a8214ad2c4b94eccd8b381764558aeb69a4acc863384e6fcb9de562c3"
+    },
+    "device": "No local Android SDK/adb or emulator execution; updated exact-head Android CI remains required. Host fixture/native diagnostic messages are test data, not device qualification."
+  },
+  "task_store": "engineering_agent_checkpoints",
+  "recorded_at_utc": "2026-11-07T15:17:28.388161+00:00",
+  "implementation": {
+    "entry": "Only the exact Android ResolverActivity invokes query-activities --components --user 0 for MAIN/HOME.",
+    "candidate_validation": "At most 16 unique component lines and 8192 characters; exact TEST_HOME, at least one stock allowlisted launcher, and no other candidates. Missing or boot fallback/unknown candidates are observed read-only within the original deadline. Malformed/duplicate/oversized output fails before mutation.",
+    "preserved": "Original finite <=60-second deadline; transient read-only transport retry only; installed-fixture check; broadcast/process barriers; one set-home call; exact readback and successful launch; ANR reporting and display settling unchanged.",
+    "report": "Successful resolver recovery records the exact accepted HOME candidate list."
+  },
+  "updated_at_utc": "2026-11-07T15:25:09.717193+00:00"
+}

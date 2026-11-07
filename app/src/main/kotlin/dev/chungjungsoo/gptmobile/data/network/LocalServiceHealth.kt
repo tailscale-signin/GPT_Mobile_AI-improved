@@ -18,6 +18,7 @@ enum class ConnectionHealth {
     ROUTE_UNAVAILABLE,
     CONNECTION_REFUSED,
     AUTHENTICATION_FAILED,
+    TLS_FAILED,
     CONNECT_TIMEOUT,
     HTTP_ERROR,
     MCP_HANDSHAKE_FAILED,
@@ -106,6 +107,7 @@ internal object LocalServiceHealth {
         causes.filterIsInstance<LocalServiceUnavailableException>().firstOrNull()?.let { return it.health }
         val message = causes.joinToString { it.message.orEmpty().take(512) }.lowercase()
         return when {
+            causes.any { it is javax.net.ssl.SSLException || it is java.security.cert.CertificateException } -> ConnectionHealth.TLS_FAILED
             causes.any { it is java.net.UnknownHostException || it is java.nio.channels.UnresolvedAddressException } -> ConnectionHealth.DNS_FAILED
             "dns_recovery" in message -> ConnectionHealth.DNS_RECOVERY
             "mcp_stream_idle_timeout" in message -> ConnectionHealth.STREAM_IDLE_TIMEOUT
@@ -126,7 +128,10 @@ internal object LocalServiceHealth {
     }
 
     fun recordFailure(url: String, failure: Throwable) {
-        if (generateSequence(failure) { it.cause?.takeUnless { cause -> cause === it } }.take(8).any { it is kotlinx.coroutines.CancellationException } || failure.message.orEmpty().startsWith("LOCAL_SERVICE_UNREACHABLE:")) return
+        val causes = generateSequence(failure) { it.cause?.takeUnless { cause -> cause === it } }.take(8)
+        // A denied preflight/cooldown is not another physical connection attempt,
+        // including when an SDK or gateway layer wraps the original exception.
+        if (causes.any { it is kotlinx.coroutines.CancellationException || it is LocalServiceUnavailableException }) return
         val uri = endpoint(url) ?: return
         val health = classify(failure)
         if (endpointLocality(url) == EndpointLocality.EXTERNAL) dev.chungjungsoo.gptmobile.data.research.academic.ResearchConnectivityGate.shared.failed(uri.host, failure)

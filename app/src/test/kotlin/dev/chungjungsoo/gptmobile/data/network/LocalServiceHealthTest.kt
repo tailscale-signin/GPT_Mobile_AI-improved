@@ -17,6 +17,12 @@ class LocalServiceHealthTest {
         assertEquals(ConnectionHealth.REQUEST_TIMEOUT, LocalServiceHealth.classify(dev.chungjungsoo.gptmobile.data.agent.tool.McpRequestTimeoutException("tools/list", 100)))
     }
 
+    @Test fun wrappedTlsFailureCannotBeMisclassifiedAsAnMcpHandshakeOrTimeout() {
+        val failure = java.io.IOException("MCP initialization timed out", javax.net.ssl.SSLHandshakeException("Certificate verification failed"))
+        assertEquals(ConnectionHealth.TLS_FAILED, LocalServiceHealth.classify(failure))
+        assertEquals(ConnectionHealth.TLS_FAILED, LocalServiceHealth.classify(java.security.cert.CertificateException("Certificate expired")))
+    }
+
     @Test fun recoveryCoordinationAndIntentionalCancellationDoNotCreateEndpointFailures() {
         val url = "https://recovery.example/mcp"
         LocalServiceHealth.recordFailure(url, IllegalStateException("DNS_RECOVERY: probe already owned"))
@@ -42,6 +48,21 @@ class LocalServiceHealthTest {
         assertTrue(failure.message.orEmpty().contains("retryAfterMs="))
         LocalServiceHealth.checkAgain(url)
         assertEquals(0L, LocalServiceHealth.retryAfterMillis(url))
+    }
+
+    @Test fun wrappedCooldownRejectionDoesNotCreateAnotherTransportAttempt() {
+        val url = "http://100.64.0.2:8080/v1"
+        LocalServiceHealth.recordLocalFailure(url, java.net.ConnectException("Connection refused"))
+        val originalWindow = LocalServiceHealth.retryAfterMillis(url)
+        val rejection = assertThrows(java.io.IOException::class.java) { LocalServiceHealth.requireAvailable(url) }
+        val wrapped = IllegalStateException("Gateway discovery failed", java.io.IOException("client wrapper", rejection))
+
+        repeat(4) { LocalServiceHealth.recordLocalFailure(url, wrapped) }
+
+        assertTrue(LocalServiceHealth.retryAfterMillis(url) <= originalWindow)
+        assertEquals(ConnectionHealth.CONNECTION_REFUSED, LocalServiceHealth.health(url))
+        LocalServiceHealth.checkAgain(url)
+        LocalServiceHealth.requireAvailable(url)
     }
 
     @Test fun timeoutDoesNotBlockAnotherPortAndHandshakeIsRequiredForHealthy() {

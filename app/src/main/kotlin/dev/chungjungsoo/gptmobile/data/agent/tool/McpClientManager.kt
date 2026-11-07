@@ -65,8 +65,10 @@ data class McpConnectionHealth(
     val failedStage: String? = null,
     val toolReadiness: McpToolReadiness = McpToolReadiness.NOT_DISCOVERED,
     val executionVerified: Boolean? = null,
-    val executionObservedAtMs: Long? = null
+    val executionObservedAtMs: Long? = null,
+    val lastErrorCode: String? = null
 ) {
+    val failureRetryable: Boolean? get() = if (lastFailureAtMs == null || state == McpConnectionHealthState.CONNECTED) null else nextRetryAtMs?.let { it != Long.MAX_VALUE }
     val toolsReady: Boolean get() = state == McpConnectionHealthState.CONNECTED && toolReadiness == McpToolReadiness.READY
 }
 
@@ -597,6 +599,7 @@ class McpClientManager internal constructor(
                     nextRetryAtMs = null,
                     connectionHealth = dev.chungjungsoo.gptmobile.data.network.ConnectionHealth.HEALTHY,
                     lastError = null,
+                    lastErrorCode = null,
                     failedStage = null,
                     availableToolCount = availableToolCount ?: previous.availableToolCount,
                     toolReadiness = when {
@@ -630,8 +633,20 @@ class McpClientManager internal constructor(
                 val delay = retryDelayMs(failures) + retryJitterMs().coerceIn(0, 1000)
                 val authenticationRequired = error.isMcpUnauthorized()
                 val failureClass = dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.classify(error)
+                val tlsFailed = failureClass == dev.chungjungsoo.gptmobile.data.network.ConnectionHealth.TLS_FAILED
+                val requiresReconnect = error is McpEndpointConfigurationException || error is McpProtocolConfigurationException || authenticationRequired || tlsFailed
+                val errorCode = when {
+                    error is McpProtocolConfigurationException -> error.diagnosticCode
+                    error is McpEndpointConfigurationException -> "MCP_ENDPOINT_CONFIGURATION"
+                    error is McpCatalogueTimeoutException -> "MCP_CATALOG_TIMEOUT"
+                    authenticationRequired -> "MCP_AUTHENTICATION_REQUIRED"
+                    tlsFailed -> "TLS_FAILURE"
+                    failureClass != dev.chungjungsoo.gptmobile.data.network.ConnectionHealth.UNKNOWN -> failureClass.name
+                    else -> "MCP_FAILURE_UNCLASSIFIED"
+                }
                 val failedStage = when (failureClass) {
                     dev.chungjungsoo.gptmobile.data.network.ConnectionHealth.DNS_FAILED -> "dns"
+                    dev.chungjungsoo.gptmobile.data.network.ConnectionHealth.TLS_FAILED -> "tls"
                     dev.chungjungsoo.gptmobile.data.network.ConnectionHealth.CONNECT_TIMEOUT,
                     dev.chungjungsoo.gptmobile.data.network.ConnectionHealth.CONNECTION_REFUSED,
                     dev.chungjungsoo.gptmobile.data.network.ConnectionHealth.ROUTE_UNAVAILABLE -> "connection"
@@ -644,12 +659,13 @@ class McpClientManager internal constructor(
                     state = when {
                         authenticationRequired -> McpConnectionHealthState.AUTHENTICATION_REQUIRED
                         error is McpCatalogueTimeoutException -> McpConnectionHealthState.DEGRADED
-                        error is McpEndpointConfigurationException || error is McpProtocolConfigurationException || failures >= CIRCUIT_BREAKER_FAILURES -> McpConnectionHealthState.UNREACHABLE
+                        requiresReconnect || failures >= CIRCUIT_BREAKER_FAILURES -> McpConnectionHealthState.UNREACHABLE
                         else -> McpConnectionHealthState.DEGRADED
                     },
                     lastFailureAtMs = now,
                     consecutiveFailures = failures,
-                    nextRetryAtMs = if (error is McpEndpointConfigurationException || error is McpProtocolConfigurationException || authenticationRequired) Long.MAX_VALUE else retryAtMs ?: (now + delay),
+                    nextRetryAtMs = if (requiresReconnect) Long.MAX_VALUE else retryAtMs ?: (now + delay),
+                    lastErrorCode = errorCode,
                     lastError = "[$failedStage] " + dev.chungjungsoo.gptmobile.data.diagnostics.redactLogMessage(error.message.orEmpty().take(1024)),
                     failedStage = failedStage,
                     connectionHealth = failureClass,
@@ -660,7 +676,7 @@ class McpClientManager internal constructor(
             statistics?.observeHealth(connectionUid, updated.state.name, "PASSIVE_FAILURE", now)
             AppLogRecorder.record(
                 "MCP",
-                "Health · connection=$connectionUid · state=${updated.state} · failures=${updated.consecutiveFailures} · retryAtMs=${updated.nextRetryAtMs} · failureClass=${updated.connectionHealth} · failedStage=${updated.failedStage} · error=${updated.lastError.orEmpty()}",
+                "Health · connection=$connectionUid · state=${updated.state} · failures=${updated.consecutiveFailures} · retryAtMs=${updated.nextRetryAtMs} · failureClass=${updated.connectionHealth} · failedStage=${updated.failedStage} · errorCode=${updated.lastErrorCode} · retryable=${updated.failureRetryable} · error=${updated.lastError.orEmpty()}",
                 "W"
             )
         }

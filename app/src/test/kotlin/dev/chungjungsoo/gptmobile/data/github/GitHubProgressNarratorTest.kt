@@ -16,7 +16,7 @@ import org.junit.Test
 
 class GitHubProgressNarratorTest {
     private fun state(revision: Long = 1) = GitHubProgressSnapshot(revision, "Inspect workflow failures", 2, 1, "Reading build logs", listOf("Job 7 returned a failed result.", "Read the workflow definition."), "Inspect the failed step")
-    private val prose = "The workflow definition and the result from job 7 are available. One operation needs recovery, so the next step is to inspect its failing output and preserve the findings already collected."
+    private val prose = "The workflow definition and the result from job 7 are available. An operation needs recovery, so the next step is to inspect its failing output and preserve the findings already collected."
 
     private fun session(vararg events: ProviderEvent) = object : AgentProviderSession {
         override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
@@ -192,6 +192,9 @@ class GitHubProgressNarratorTest {
         assertEquals(null, GitHubProgressNarrator.validSummary("All complete. $prose", evidence))
         assertEquals(null, GitHubProgressNarrator.validSummary("All tests passed. $prose", evidence))
         assertEquals(null, GitHubProgressNarrator.validSummary("The repair was merged. $prose", evidence))
+        assertEquals(null, GitHubProgressNarrator.validSummary("Seven tools were tested. $prose", evidence))
+        assertEquals(null, GitHubProgressNarrator.validSummary("7 tools were tested. $prose", evidence))
+        assertEquals(null, GitHubProgressNarrator.validSummary("2 authorized tools remain. $prose", evidence))
     }
 
     @Test fun roleConstraintsKeepTheSelectedRouteAndDisableToolsAndReasoning() {

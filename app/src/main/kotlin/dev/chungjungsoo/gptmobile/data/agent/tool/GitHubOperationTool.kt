@@ -24,7 +24,9 @@ internal class GitHubOperationTool(
     private val validateSavedViewAccess: suspend () -> Unit = {}
 ) : AgentTool {
     override val managesExecutionBudget get() = backend.managesExecutionBudget
-    override val definition = definition(operation, modelName)
+    override val definition = definition(operation, modelName).let { definition ->
+        (backend as? GitHubTool)?.let { definition.copy(description = definition.description + it.planningDescription()) } ?: definition
+    }
     private val pagination = GitHubPaginationBoundary()
     private val rejectedCalls = linkedMapOf<JsonObject, AgentToolResult>()
 
@@ -242,36 +244,42 @@ internal class GitHubOperationTool(
         }
         val native = nativeArguments(operation, JsonObject(arguments - "response_detail"))
             ?: return AgentToolResult(callId, ToolResultContent.Text("Unsupported GitHub operation."), true, errorCode = "INVALID_ARGUMENTS", dispatched = false)
-        pagination.completedPage(operation, arguments)?.let { lastPage ->
-            val repeated = pagination.stoppedOnRepetition(operation, arguments)
+        pagination.completedPage(operation, native)?.let { lastPage ->
+            val error = pagination.completionError(operation, native)
             return AgentToolResult(
                 callId,
                 ToolResultContent.Json(
                     buildJsonObject {
-                        put("pagination_complete", !repeated)
+                        put("pagination_complete", error == null)
                         put("last_remote_page", lastPage)
-                        put("message", if (repeated) "Remote pagination stopped because consecutive pages repeated the same records. Coverage remains incomplete. Use retained results or deliberately refresh page 1." else "The retained response ended remote pagination. Read its saved view_cursor for local fragments, or refresh page 1 for a new remote observation.")
+                        put("message", if (error != null) "Remote pagination stopped with incomplete coverage. Use retained results or deliberately refresh page 1 with verify_live=true." else "The retained response ended remote pagination. Read its saved view_cursor for local fragments, or refresh page 1 with verify_live=true for a new remote observation.")
                     }
                 ),
-                repeated,
-                errorCode = "GITHUB_PAGINATION_STALLED".takeIf { repeated },
+                error != null,
+                errorCode = error,
                 dispatched = false
             )
         }
         val original = backend.execute(callId, native)
         val validation = ((original.content as? ToolResultContent.Json)?.value as? JsonObject)
-            ?.takeIf { original.isError && it["schema"] == JsonPrimitive("github.read_validation.v1") }
-        val result = if (validation != null) {
-            val actions = (validation["corrective_actions"] as? JsonArray).orEmpty().map { raw ->
-                val correction = raw as? JsonObject ?: return@map raw
+            ?.takeIf { original.isError && it["schema"] in setOf(JsonPrimitive("github.read_validation.v1"), JsonPrimitive("github.ref-admission.v1"), JsonPrimitive("github.repository-admission.v1")) }
+        var result = if (validation != null) {
+            fun scopedCorrection(correction: JsonObject): JsonObject {
                 val name = (correction["tool"] as? JsonPrimitive)?.content.orEmpty()
-                if (name in setOf("github_search", "github_read", "github_context")) {
+                return if (name in setOf("github_search", "github_read", "github_context")) {
                     JsonObject(correction + ("tool" to JsonPrimitive(name + definition.name.removePrefix(operation))))
                 } else {
                     correction
                 }
             }
-            original.copy(content = ToolResultContent.Json(JsonObject(validation + ("corrective_actions" to JsonArray(actions)))))
+            val scoped = buildJsonObject {
+                validation.forEach { (name, value) -> put(name, value) }
+                (validation["corrective_actions"] as? JsonArray)?.let { actions -> put("corrective_actions", JsonArray(actions.map { raw -> (raw as? JsonObject)?.let(::scopedCorrection) ?: raw })) }
+                listOf("recovery_call", "correction_call", "source_recovery_call").forEach { key ->
+                    (validation[key] as? JsonObject)?.let { put(key, scopedCorrection(it)) }
+                }
+            }
+            original.copy(content = ToolResultContent.Json(scoped))
         } else if (operation == "github_read" && original.errorCode == "EVIDENCE_UNAVAILABLE") {
             original.copy(
                 content = ToolResultContent.Json(
@@ -329,33 +337,32 @@ internal class GitHubOperationTool(
         } else {
             original
         }
-        val data = when (val content = result.content) {
+        var data = when (val content = result.content) {
             is ToolResultContent.Json -> content.value as? JsonObject
             is ToolResultContent.Text -> runCatching { kotlinx.serialization.json.Json.parseToJsonElement(content.text) as? JsonObject }.getOrNull()
             else -> null
         }
         if (!result.isError && data != null) {
-            if (pagination.repeatsRemotePage(operation, arguments, data)) {
-                val stopped = JsonObject(
-                    data.filterKeys { it !in setOf("continuation", "continuation_call", "remote_continuations", "next_page") } + buildJsonObject {
-                        put("schema", "github.pagination.v1")
-                        put("reason", "REPEATED_REMOTE_PAGE")
-                        put("complete", false)
-                        put("has_more", false)
-                        put("traversal_state", "STALLED")
-                        put("upstream_has_more", data["has_more"] ?: JsonPrimitive(false))
-                        put("message", "The next remote page repeated the previous upstream records. Traversal stopped with incomplete coverage. Refresh page 1 deliberately for a new observation.")
-                    }
-                )
+            val assessment = pagination.assessPage(operation, native, data)
+            if (assessment.errorCode != null) {
                 return result.copy(
-                    content = ToolResultContent.Json(stopped),
-                    retainedContent = ToolResultContent.Json(stopped),
-                    executionReceipt = JsonObject(result.executionReceipt.orEmpty() + mapOf("traversal_state" to JsonPrimitive("STALLED"), "has_more" to JsonPrimitive(false))),
+                    content = ToolResultContent.Json(assessment.data),
+                    retainedContent = result.retainedContent ?: result.content,
+                    executionReceipt = JsonObject(result.executionReceipt.orEmpty() + mapOf("traversal_state" to assessment.data.getValue("traversal_state"), "has_more" to JsonPrimitive(false), "pagination_progress" to assessment.data.getValue("pagination_progress"))),
                     isError = true,
-                    errorCode = "GITHUB_PAGINATION_STALLED"
+                    errorCode = assessment.errorCode
                 )
             }
-            pagination.observe(operation, arguments, data)
+            if (assessment.data != data) {
+                result = result.copy(
+                    content = ToolResultContent.Json(assessment.data),
+                    retainedContent = result.retainedContent ?: result.content,
+                    executionReceipt = JsonObject(result.executionReceipt.orEmpty() + ("pagination_progress" to assessment.data.getValue("pagination_progress")))
+                )
+                data = assessment.data
+            } else {
+                pagination.observe(operation, native, data)
+            }
         }
         val paged = if (!result.isError && data?.get("has_more") == JsonPrimitive(true) && "continuation" !in data && operation != "github_search") {
             result.copy(content = ToolResultContent.Json(JsonObject(data + ("continuation" to JsonObject(native + ("page" to JsonPrimitive(((arguments["page"] as? JsonPrimitive)?.content?.toIntOrNull() ?: 1) + 1)))))))

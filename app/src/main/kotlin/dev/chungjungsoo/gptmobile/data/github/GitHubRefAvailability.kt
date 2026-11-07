@@ -7,13 +7,14 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
 /** Credential-local negative observations, never a default-branch fallback or proof of deletion. */
-internal class GitHubRefAvailability(
+class GitHubRefAvailability(
     private val now: () -> Long = { System.nanoTime() / 1_000_000 },
     private val cooldownMillis: Long = 30_000
 ) {
     private data class Ref(val repository: String, val kind: String, val encoded: String, val lookup: Boolean)
     private data class Rejection(val status: Int, val until: Long)
     private val rejected = LinkedHashMap<String, Rejection>()
+    private val repositories = LinkedHashMap<String, Rejection>()
 
     init {
         require(cooldownMillis in 1..60_000)
@@ -36,7 +37,49 @@ internal class GitHubRefAvailability(
 
     private fun Ref.key() = "$repository:$kind:$encoded"
 
+    private fun repository(path: String): Pair<String, Boolean>? {
+        val parts = path.substringBefore('?').split('/').filter(String::isNotEmpty)
+        if (parts.size < 3 || parts[0] != "repos") return null
+        return (parts[1] + "/" + parts[2]).lowercase(Locale.ROOT) to (parts.size == 3)
+    }
+
     @Synchronized fun requireAvailable(path: String) {
+        repository(path)?.first?.let { repository ->
+            repositories[repository]?.let { observed ->
+                val remaining = observed.until - now()
+                if (remaining <= 0) {
+                    repositories.remove(repository)
+                } else {
+                    throw GitHubReadValidation(
+                        "GITHUB_REPOSITORY_UNAVAILABLE",
+                        buildJsonObject {
+                            put("schema", "github.repository-admission.v1")
+                            put("reason", "RECENT_REPOSITORY_LOOKUP_REJECTED")
+                            put("repository", repository)
+                            put("observed_http_status", observed.status)
+                            put("retry_after_ms", remaining)
+                            put("dispatched", false)
+                            put("message", "The exact repository lookup returned 404. Dependent requests are paused; this does not establish deletion or insufficient OAuth scopes. Confirm the target/account, then explicitly resolve with refresh=true. No replacement repository was selected.")
+                            put(
+                                "recovery_call",
+                                buildJsonObject {
+                                    put("tool", "github_context")
+                                    put(
+                                        "arguments",
+                                        buildJsonObject {
+                                            put("action", "resolve")
+                                            put("owner", repository.substringBefore('/'))
+                                            put("repo", repository.substringAfter('/'))
+                                            put("refresh", true)
+                                        }
+                                    )
+                                }
+                            )
+                        }
+                    )
+                }
+            }
+        }
         val ref = ref(path) ?: return
         val observed = rejected[ref.key()] ?: return
         val remaining = observed.until - now()
@@ -76,6 +119,13 @@ internal class GitHubRefAvailability(
     }
 
     @Synchronized fun failed(path: String, status: Int, message: String) {
+        if (status == 404) {
+            repository(path)?.takeIf { it.second }?.first?.let { repository ->
+                repositories.entries.removeAll { it.value.until <= now() }
+                repositories[repository] = Rejection(status, now() + cooldownMillis)
+                while (repositories.size > 128) repositories.remove(repositories.keys.first())
+            }
+        }
         val ref = ref(path)?.takeIf { it.lookup } ?: return
         val missing = status == 404 ||
             status == 422 &&
@@ -88,7 +138,13 @@ internal class GitHubRefAvailability(
     }
 
     @Synchronized fun succeeded(path: String) {
+        repository(path)?.takeIf { it.second }?.let { repositories.remove(it.first) }
         ref(path)?.takeIf { it.lookup }?.let { rejected.remove(it.key()) }
+    }
+
+    /** Only an explicit repository refresh or a new credential releases a repository lookup failure. */
+    @Synchronized fun revalidateRepository(root: String) {
+        repository(root)?.takeIf { it.second }?.let { repositories.remove(it.first) }
     }
 
     /** Explicit revalidation or credential replacement only; ordinary retries do not clear it. */
@@ -104,5 +160,8 @@ internal class GitHubRefAvailability(
         rejected.remove(key)
     }
 
-    @Synchronized fun clear() = rejected.clear()
+    @Synchronized fun clear() {
+        rejected.clear()
+        repositories.clear()
+    }
 }

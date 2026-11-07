@@ -60,13 +60,18 @@ class GitHubValidationRecoveryTest {
                 val result = GitHubTool("token", http).execute("failed", json("""{"action":"get_issue","owner":"o","repo":"r","issue_number":7}"""))
                 assertTrue(result.isError)
                 assertEquals(code, result.errorCode)
-                val text = (result.content as ToolResultContent.Text).text
+                val text = result.content.toString()
                 assertFalse(text.contains("private-rejected-value"))
                 if (status == 422) {
                     assertTrue(text.contains("field=number"))
                     assertTrue(text.contains("not retried unchanged"))
                 }
-                if (status == 404) assertTrue(text.contains("does not exist") && text.contains("cannot see"))
+                if (status == 404) {
+                    val evidence = (result.content as ToolResultContent.Json).value.jsonObject
+                    assertEquals(JsonPrimitive(false), evidence["resource_absence_verified"])
+                    assertEquals(JsonPrimitive(false), evidence["permission_deficit_verified"])
+                    assertEquals(JsonPrimitive("get_issue"), evidence["action"])
+                }
                 assertEquals(1, requests)
             }
         }

@@ -66,13 +66,14 @@ class GitHubWorkspaceClient(
     private val durableIdentity: String = GitHubRepositoryStateStore.digest(token),
     private val legacyCredentialIdentities: List<String> = emptyList(),
     private val credentialProvider: (suspend () -> String)? = null,
-    private val apiOrigins: GitHubApiOrigins = GitHubApiOrigins.GITHUB_COM
+    private val apiOrigins: GitHubApiOrigins = GitHubApiOrigins.GITHUB_COM,
+    refAvailability: GitHubRefAvailability? = null
 ) {
     private val responseCache = responseCache ?: if (client === sharedClient) GitHubSessionCaches.forCredential(token, apiOrigins.hostIdentity) else GitHubResponseCache()
     private val rateLimits = rateLimits ?: if (client === sharedClient) GitHubSessionCaches.rateLimitsForCredential(token, apiOrigins.hostIdentity) else GitHubRateLimitManager()
     private val scheduler = scheduler ?: if (client === sharedClient) GitHubSessionCaches.schedulerForCredential(token, apiOrigins.hostIdentity) else GitHubRequestScheduler()
     private val authenticationRejected = authenticationRejected ?: if (client === sharedClient) GitHubSessionCaches.authenticationForCredential(token, apiOrigins.hostIdentity) else java.util.concurrent.atomic.AtomicBoolean()
-    private val refAvailability = if (client === sharedClient) GitHubSessionCaches.refsForCredential(token, apiOrigins.hostIdentity) else GitHubRefAvailability()
+    private val refAvailability = refAvailability ?: if (client === sharedClient) GitHubSessionCaches.refsForCredential(token, apiOrigins.hostIdentity) else GitHubRefAvailability()
 
     companion object {
         const val API_VERSION = "2026-03-10"
@@ -231,9 +232,11 @@ class GitHubWorkspaceClient(
         }
         val root = "/repos/${segment(owner)}/${segment(repo)}"
         if (action == "resolve_context" && args["refresh"] == JsonPrimitive(true)) {
+            refAvailability.revalidateRepository(root)
             val selectedRef = field("commit_sha").ifBlank { field("ref").ifBlank { field("branch").ifBlank { repositorySession.context()?.ref.orEmpty() } } }
             if (selectedRef.isNotBlank()) refAvailability.revalidate(root, selectedRef)
         }
+        if (action == "repository_details" && args["refresh"] == JsonPrimitive(true)) refAvailability.revalidateRepository(root)
         if (action == "get_branch_head" && args["refresh"] == JsonPrimitive(true)) {
             refAvailability.revalidateBranch(root, required("branch"))
         }
@@ -2420,7 +2423,16 @@ class GitHubWorkspaceClient(
                                 githubMessage,
                                 response.headers["X-RateLimit-Remaining"],
                                 method != HttpMethod.Get
+                            ),
+                        evidence = if (response.status.value == 404) {
+                            GitHubFailurePolicy.notFoundEvidence(
+                                endpoint = path,
+                                reportedOAuthScopes = response.headers["X-OAuth-Scopes"],
+                                acceptedOAuthScopes = response.headers["X-Accepted-OAuth-Scopes"]
                             )
+                        } else {
+                            null
+                        }
                     )
                 }
                 val parsed = if (text.isBlank()) JsonObject(emptyMap()) else json.parseToJsonElement(text)

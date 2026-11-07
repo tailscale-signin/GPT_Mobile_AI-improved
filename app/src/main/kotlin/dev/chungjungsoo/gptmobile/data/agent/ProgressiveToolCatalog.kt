@@ -15,24 +15,29 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
     // retain their own wrapped child admission rather than charging this facade too.
     override val coordinatesChildWork = true
     private var advanced = advancedTask(task)
+    private val conversational = CurrentRequestContract.from(task).conversational
     private val toolAllowance get() = if (advanced) 16 else INITIAL_TOOLS
     private val schemaAllowance get() = if (advanced) MAX_SCHEMA_TOKEN_ALLOWANCE else SCHEMA_TOKEN_ALLOWANCE
     private val taskText = task
     private val candidates = definitions.filter { it.modelVisible }.associateBy { it.name }.toMutableMap()
     private val deferredEngineering = setOf("github_write", "github_commit", "github_stage_patch", "github_release", "github_watch_checks")
     private val taskRequired = definitions.filter { definition ->
-        definition.name == "read_recovery_context" ||
-            AgentToolCapability.USER_DECISION in definition.capabilities ||
+        !conversational &&
             (
-                dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(definition.name) in
-                    dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.taskTools(task) &&
-                    dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(definition.name) !in deferredEngineering
+                definition.name == "read_recovery_context" ||
+                    AgentToolCapability.USER_DECISION in definition.capabilities ||
+                    (
+                        dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(definition.name) in
+                            dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.taskTools(task) &&
+                            dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(definition.name) !in deferredEngineering
+                        )
                 )
     }
     private val requiredCapabilities = if (Regex("(?i)\\b(research|search|sources|papers|studies|latest|news|verify|article|citations)\\b").containsMatchIn(task)) setOf(AgentToolCapability.WEB_SEARCH, AgentToolCapability.PAGE_READER) else emptySet()
     private val omissions = mutableMapOf<String, String>()
-    private val active = window(taskRequired + ranked(task).filter { (initialNames == null || it.name in initialNames) && dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it.name) !in deferredEngineering }).map { it.name }.toMutableSet()
+    private val active = (if (conversational) emptyList() else window(taskRequired + ranked(task).filter { (initialNames == null || it.name in initialNames) && dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it.name) !in deferredEngineering })).map { it.name }.toMutableSet()
     private val discovered = active.toMutableSet()
+    private val advertisedContracts = mutableSetOf<String>()
 
     // A catalog lives for one run: repeated discovery should not refetch the same cold source.
     private val acquiredQueryKeys = mutableSetOf<String>()
@@ -40,6 +45,9 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
     private val acquisitionMutex = Mutex()
     private data class Observation(val contract: String, val outcome: String, val at: Long, val errorCode: String?, val succeeded: Int, val failed: Int, val unknown: Int)
     private val observations = mutableMapOf<String, Observation>()
+    private val observedCalls = linkedSetOf<String>()
+    private var listedInventoryVersion: String? = null
+    private val listedInventory = mutableSetOf<String>()
     private var lastSelection: String? = null
     private var unchangedSelections = 0
 
@@ -48,16 +56,18 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
     @Synchronized
     internal fun recordObservation(name: String, result: AgentToolResult, observedAtEpochMillis: Long = System.currentTimeMillis()) {
         if (!result.dispatched || result.sharedResult) return
-        val candidate = candidates[name] ?: return
+        val candidate = candidates[resolveName(name)] ?: return
         val contract = contractFingerprint(candidate)
-        val previous = observations[name]?.takeIf { it.contract == contract }
+        if (!observedCalls.add("${candidate.name}:$contract:${result.callId}")) return
+        while (observedCalls.size > 8192) observedCalls.remove(observedCalls.first())
+        val previous = observations[candidate.name]?.takeIf { it.contract == contract }
         val outcome = when {
             result.errorCode in ToolResultEnvelope.unknownOutcomeCodes -> "unknown"
             result.isError -> "failed"
             else -> "succeeded"
         }
         fun count(old: Int?, matches: Boolean) = ((old ?: 0).toLong() + if (matches) 1 else 0).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
-        observations[name] = Observation(
+        observations[candidate.name] = Observation(
             contract,
             outcome,
             observedAtEpochMillis,
@@ -66,6 +76,25 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
             count(previous?.failed, outcome == "failed"),
             count(previous?.unknown, outcome == "unknown")
         )
+    }
+
+    private fun coverage(): JsonObject {
+        val current = candidates.values.mapNotNull { tool -> observations[tool.name]?.takeIf { it.contract == contractFingerprint(tool) } }
+        return buildJsonObject {
+            put("schema", "tools.discovery-coverage.v1")
+            put("scope", "current_run_authorized_contracts")
+            put("authorized_tools", candidates.size)
+            put("inventory_entries_listed", listedInventory.size)
+            put("schemas_ever_advertised", candidates.values.count { "${it.name}:${contractFingerprint(it)}" in advertisedContracts })
+            put("schemas_selected_for_next_round", active.size)
+            put("distinct_tools_dispatched", current.size)
+            put("dispatched_calls", current.sumOf { it.succeeded.toLong() + it.failed + it.unknown })
+            put("successful_calls", current.sumOf { it.succeeded.toLong() })
+            put("failed_calls", current.sumOf { it.failed.toLong() })
+            put("unknown_outcome_calls", current.sumOf { it.unknown.toLong() })
+            put("acceptance_status", "NOT_MEASURED")
+            put("interpretation", "Inventory entries and advertised schemas are not executed tests. Only dispatched receipts increment execution counts; acceptance requires its own criterion-linked evidence.")
+        }
     }
     override val definition = AgentToolDefinition(
         NAME,
@@ -131,6 +160,7 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
 
     @Synchronized
     internal fun recordSelection(allowed: List<AgentToolDefinition>, selected: List<AgentToolDefinition>) {
+        selected.filter { it.name in candidates }.forEach { advertisedContracts += "${it.name}:${contractFingerprint(it)}" }
         val omitted = selectionOmissions(allowed)
         val identity = fingerprint(selected.joinToString { it.name + contractFingerprint(it) } + omitted.toSortedMap())
         if (identity == lastSelection) {
@@ -141,9 +171,7 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
         lastSelection = identity
         unchangedSelections = 0
         dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("ToolCatalog", "SELECTED_SCHEMA · authorized=${(candidates.keys + allowed.map { it.name }).size} · admittedToRound=${allowed.size} · advertised=${selected.size} · names=${selected.joinToString { it.name }} · omitted=${omitted.size} · omissionReasons=${omitted.values.groupingBy { it }.eachCount().toSortedMap()} · estimatedTokens=${selected.sumOf { schemaTokens(it).toLong() }} · measurement=UTF8_ESTIMATE")
-        omitted.forEach { (name, reason) ->
-            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("ToolCatalog", "TOOL_OMITTED · stage=catalog · name=$name · reason=$reason · schemaAllowance=$schemaAllowance")
-        }
+        ToolCatalogDiagnostics.recordOmissions("catalog", omitted, schemaAllowance.toLong())
     }
 
     override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
@@ -194,7 +222,7 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
             val previousActive = active.toSet()
             // Cold inventory must seed an executable window, otherwise an empty call can
             // discover tools forever while every subsequent request advertises only us.
-            if (active.isEmpty()) {
+            if (active.isEmpty() && !conversational) {
                 active.addAll(
                     window(
                         ranked(taskText).filter {
@@ -226,6 +254,11 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
             }
             val items = inventory.drop(cursor).take(12)
             val next = cursor + items.size
+            if (listedInventoryVersion != version) {
+                listedInventoryVersion = version
+                listedInventory.clear()
+            }
+            listedInventory.addAll(items.map { it.name })
             return@synchronized AgentToolResult(
                 callId,
                 ToolResultContent.Json(
@@ -287,6 +320,10 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
                         put("inventory_version", version)
                         put("contract_version", 1)
                         put("returned", items.size)
+                        put("inventory_offset", cursor)
+                        put("inventory_remaining_after_page", inventory.size - next)
+                        put("inventory_entries_not_yet_listed", inventory.size - listedInventory.size)
+                        put("coverage", coverage())
                         put("has_more", next < inventory.size)
                         if (next < inventory.size) {
                             put(
@@ -347,8 +384,9 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
             put("unknown_names", JsonArray(names.filterNot(candidates::containsKey).map(::JsonPrimitive)))
             if (names.any { it !in candidates }) put("unknown_name_recovery", "These names are absent from this authorized catalog. Choose exact names from discovery; do not repeat unchanged unknown-name requests. Retry only after the catalog changes.")
             put("authorized_tool_count", candidates.size)
-            put("remaining_tool_count", candidates.size - discovered.size)
+            put("remaining_tool_count", candidates.size - discovered.count { it in candidates })
             put("advertised_tool_count", active.size)
+            put("coverage", coverage())
             put("catalog_unchanged", previousActive == active)
             put("newly_advertised", JsonArray(active.filterNot { it in previousActive }.map(::JsonPrimitive)))
             if (previousActive == active) put("next_step", "No new schemas became available. Use an advertised tool or produce a partial answer; do not repeat this identical discovery.")
@@ -400,8 +438,10 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
                 name == needle -> 10000
                 operation != null -> if (operation in github) 1000 - github.indexOf(operation) else 0
                 github.isNotEmpty() && "github" in name -> 900
+                // A GitHub discovery can be more specific than the original turn. Generic
+                // words such as "status" must not pull in Health or unrelated web tools.
+                github.isNotEmpty() -> 0
                 tool.capabilities.any { it in requiredCapabilities } -> 500
-                github.isNotEmpty() && needle == taskText.lowercase(java.util.Locale.ROOT).trim() -> 0
                 needle.isNotEmpty() && needle in name -> 100
                 else -> words.sumOf { word -> (if (word in name) 8 else 0) + (if (word in description) 1 else 0) }
             }

@@ -1,0 +1,46 @@
+{
+  "schema": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "91dfce15bc481c4bbdb088bcadd28489436dbb1b",
+  "integration_parent_sha": "08459550ef15c3a4528f4a5e08b8095b255150ea",
+  "working_branch": "work/diagnostic-research-8597579",
+  "intent": "Prevent a later public capture from authorizing inherited restricted source metadata during cross-authority evidence transfer; preserve usable public excerpts, exact same-authority snapshots and spent-work counters.",
+  "state": "IMPLEMENTED_HOST_VALIDATED_ANDROID_CI_PENDING",
+  "confirmed_findings": [
+    "The public read transition uses ResearchSource.copy and can retain title, bibliography and other fields from an earlier restricted discovery.",
+    "The explicit snapshot projection still forwarded the entire public-marked source; an actual production ResearchDeliveryPacket regression demonstrated that the inherited restricted title reaches the destination packet.",
+    "Public excerpt evidence must remain usable without importing a source title, full-text coverage proof or archive references whose public provenance is unknown."
+  ],
+  "owned_paths": [
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/research/ResearchEvidenceTransfer.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/research/ResearchEvidenceTransferTest.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/research/delivery/ResearchDeliveryPacket.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/research/ResearchPublicCaptureTransferTest.kt"
+  ],
+  "validation": {
+    "focused_host": "PASS: 10 JUnit tests (5 existing transfer tests and 5 new public-capture/actual-delivery tests), actual production policy, complete ResearchEvidence DTO and ResearchDeliveryPacket; includes JSON restore and 512-token handoff.",
+    "baseline_regression": "EXPECTED FAILURE: the exact new repository source-to-delivery privacy regression fails against unchanged transfer and delivery classes from integration parent08459550ef15c3a4528f4a5e08b8095b255150ea. Loaded class origins and failure at the restricted-metadata assertion are recorded.",
+    "canonical_fast": "PASS: final bash scripts/validate-local.sh fast; 374 script tests plus policy/dependency/secret/regex/resource checks. New parser tests on the root integration branch are outside this branch base.",
+    "ktlint": "PASS: ktlint1.3.1 on all four changed Kotlin files; git diff --check passed.",
+    "android_full_build": "NOT RUN locally: Android SDK/adb and cached Gradle distribution are unavailable. Full Android CI remains required.",
+    "physical_device": "NOT RUN: no compatible device or private gateway execution available.",
+    "main_ref_rechecked": "91dfce15bc481c4bbdb088bcadd28489436dbb1b",
+    "host_boundaries": [
+      "Android AppLogRecorder replaced only by a tag/prefix-checked logging sink.",
+      "ResearchSession and ResearchModelEvent DTO declarations copied from production; the source shell-detection helper is extracted unchanged.",
+      "ResearchReportStructure enum values provide the DTO parse boundary; the real ResearchSnapshot parse implementation executes.",
+      "ProviderLimitDecision, ProviderOutcome, ResearchStageMetrics, ResearchStageCursor and DelegationPlanCheckpoint serializer-only boundary adapters are unpopulated and unexercised."
+    ]
+  },
+  "private_diagnostics_committed": false,
+  "task_store": "engineering_agent_checkpoints (existing engineering task store)",
+  "runtime_checkpoint_note": "Development checkpoint only; no fabricated application or provider receipts.",
+  "changes": [
+    "Build cross-authority ResearchSource projections from the authorized public URL, captured passage, receipt, capture time and bounded work depth. Rebuild identity from public bytes; omit inherited metadata, reader attribution and archive references.",
+    "Mark transferred readable captures as partial, unreviewed excerpts. Preserve the original passage exactly and keep metadata omissions visible in compact delivery packets.",
+    "Use a URL/receipt/body-hash binding in the existing metadataProvenance field so only an unchanged app-created public projection may establish delivery relevance through its public passage. This binding is a mutation guard, not an independent access grant.",
+    "Preserve the exact original snapshot for the same authority, along with original metadata/completion. Cross-authority completion, review context and derived run context remain cleared; spent-work counters stay intact."
+  ],
+  "evidence_limit": "The mixed-provenance defect is reproduced with synthetic fixtures through production DTO and delivery code. This does not assert that private data was transmitted in the supplied device capture."
+}

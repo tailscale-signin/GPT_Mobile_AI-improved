@@ -17,7 +17,7 @@ class ResearchEvidenceTransferTest {
 
     @Test fun publicLookingUrlWithoutRetrievalProvenanceRemainsRestricted() {
         val source = ResearchSource("S1", "https://example.org/private", "Private", "Read", "Restricted captured material.")
-        val result = authorizedResearchTransfer(listOf(ResearchSession("run", 1, ResearchSnapshot("task", sources = listOf(source)), authority = "account-a")), "account-b")
+        val result = authorizedResearchTransfer(listOf(ResearchSession("run", 1, ResearchSnapshot("task", sources = listOf(source, source.copy(id = "S2", publicCapture = true, retrievalReceipt = " "))), authority = "account-a")), "account-b")
         assertEquals(0, result.single().sources.size)
     }
 
@@ -50,7 +50,9 @@ class ResearchEvidenceTransferTest {
             numericalFactBindingRequired = true
         )
         val transferred = authorizedResearchTransfer(listOf(ResearchSession("run", 2, snapshot, authority = "worker-authority")), "writer-authority").single()
-        assertEquals(listOf(source), transferred.sources)
+        assertEquals(source.id, transferred.sources.single().id)
+        assertEquals(source.passage, transferred.sources.single().passage)
+        assertEquals(source.retrievalReceipt, transferred.sources.single().retrievalReceipt)
         assertFalse(transferred.json().toString().contains(privateContext))
         assertFalse(transferred.complete)
         assertTrue(transferred.claims.isEmpty())
@@ -64,6 +66,7 @@ class ResearchEvidenceTransferTest {
         assertEquals(snapshot.taskChatId, transferred.taskChatId)
         assertEquals(snapshot.originatingUserMessageId, transferred.originatingUserMessageId)
         assertEquals(snapshot.attempts, transferred.attempts)
+        assertEquals(snapshot.round, transferred.round)
         assertEquals(snapshot.searches, transferred.searches)
         assertEquals(snapshot.engineResponses, transferred.engineResponses)
         assertEquals(snapshot.engineFailures, transferred.engineFailures)

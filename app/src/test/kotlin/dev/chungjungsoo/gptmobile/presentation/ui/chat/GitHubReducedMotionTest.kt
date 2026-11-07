@@ -46,9 +46,17 @@ class GitHubReducedMotionTest {
         compose.onNodeWithTag("github_loading_bar").assertIsDisplayed()
         compose.onNodeWithContentDescription("Checking workflows").assertExists()
         compose.runOnIdle { durationScale.scaleFactor = 1f }
+        // runOnIdle synchronizes before its action. Publish this snapshot write
+        // before advancing the clock: no animation is running at scale zero.
+        compose.waitForIdle()
         compose.mainClock.advanceTimeBy(400)
-        compose.runOnIdle { assertTrue(phase.value != 0.5f) }
+        val resumedPhase = compose.runOnIdle {
+            phase.value.also { assertTrue("Enabled animations must leave the stationary phase", it != 0.5f) }
+        }
+        compose.mainClock.advanceTimeBy(400)
+        compose.runOnIdle { assertTrue("Resumed progress must advance between frames", phase.value != resumedPhase) }
         compose.runOnIdle { durationScale.scaleFactor = 0f }
+        compose.waitForIdle()
         compose.mainClock.advanceTimeBy(32)
         compose.runOnIdle { assertEquals(0.5f, phase.value, 0f) }
         compose.mainClock.advanceTimeBy(2400)

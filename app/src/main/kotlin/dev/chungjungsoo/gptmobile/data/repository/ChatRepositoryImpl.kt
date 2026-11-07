@@ -4398,6 +4398,16 @@ class ChatRepositoryImpl(
         val selectedGitHubTargets = effectiveTools.filter { it.nativeGitHub }.mapNotNull { it.gitHubPlanningContext }
             .filter { it.repository != null && it.connectionUid.isNotBlank() }.distinctBy { it.connectionUid to it.repository }
         dev.chungjungsoo.gptmobile.data.agent.requireNativeGitHubTarget(requiresNativeAcceptance, if (chatToolConfig?.github != null) 1 else selectedGitHubTargets.size)
+        val boundGitHubRepository = chatToolConfig?.github?.repository
+            ?: selectedGitHubTargets.singleOrNull()?.repository?.takeIf { requiresNativeAcceptance }
+        val boundGitHubConnection = chatToolConfig?.github?.connectionUid
+            ?: selectedGitHubTargets.singleOrNull()?.connectionUid?.takeIf { requiresNativeAcceptance }
+        fun bindGitHubTarget(resolved: ResolvedAgentTool): dev.chungjungsoo.gptmobile.data.agent.AgentTool =
+            if (resolved.nativeGitHub && boundGitHubRepository != null) {
+                dev.chungjungsoo.gptmobile.data.github.GitHubBoundRepositoryTool(resolved.tool, boundGitHubRepository, resolved.connectionUid == boundGitHubConnection)
+            } else {
+                resolved.tool
+            }
         val requestedOutputTokens = contextPlan.outputTokens
         // Delegation saves input/replay tokens. Its brief budget must never cap the
         // user's final answer (a 256-token brief cannot satisfy a 1000-word task).
@@ -4508,7 +4518,7 @@ class ChatRepositoryImpl(
                 ClientType.LITERT_LM -> liteRtLmAdapter.openSession(
                     turns,
                     invocationPlatform,
-                    if (textOnly) emptyList() else effectiveTools.map { it.tool },
+                    if (textOnly) emptyList() else effectiveTools.map(::bindGitHubTarget),
                     constraints,
                     fallbackSystemPrompt = liveToolSystemPrompt(platform.systemPrompt, emptyList(), compact = true, deferCapabilities = true, researchReport = chatToolConfig?.research?.researchToggle == true),
                     advertisedTools = if (textOnly) emptyList() else contextPlan.tools,
@@ -5026,7 +5036,7 @@ class ChatRepositoryImpl(
         val runnerTools = if (groundedSession.handlesToolsInternally) {
             emptyList()
         } else {
-            effectiveTools.map { it.tool }
+            effectiveTools.map(::bindGitHubTarget)
         }
 
         val catalog = effectiveTools.firstNotNullOfOrNull { it.progressiveCatalog } ?: if (budgetSettings.adaptiveToolCatalog && !groundedSession.handlesToolsInternally) {
@@ -5287,7 +5297,7 @@ class ChatRepositoryImpl(
             } else {
                 null
             }
-        ).run(advertisedSession, executableTools, dynamicTools = { effectiveTools.flatMap { it.dynamicTools?.invoke().orEmpty() }.map { it.tool } }, selectDefinitions = { definitions -> catalog?.selected(definitions) ?: definitions })
+        ).run(advertisedSession, executableTools, dynamicTools = { effectiveTools.flatMap { it.dynamicTools?.invoke().orEmpty() }.map(::bindGitHubTarget) }, selectDefinitions = { definitions -> catalog?.selected(definitions) ?: definitions })
         try {
             streamAgentEvents(agentEvents, platform, runId, resolvedTools.size, trace, chatToolConfig?.combined != null, resolvedOutputCap, dispatchAuthority, githubChat = chatToolConfig?.github != null).collect { send(it) }
         } finally {

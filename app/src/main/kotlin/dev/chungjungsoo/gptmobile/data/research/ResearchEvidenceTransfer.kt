@@ -4,16 +4,36 @@ import dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder
 
 /** Per-capture transport provenance, never catalog equality or URL appearance alone. */
 internal fun authorizedResearchTransfer(sessions: List<ResearchSession>, writerAuthority: String?): List<ResearchSnapshot> = sessions.map { session ->
+    val sameAuthority = session.authority == writerAuthority
     val sources = session.snapshot.sources.filter { source ->
-        session.authority == writerAuthority || source.publicCapture && source.retrievalReceipt.isNotBlank()
+        sameAuthority || source.publicCapture && source.retrievalReceipt.isNotBlank()
     }
-    val ids = sources.mapTo(hashSetOf()) { it.id }
     AppLogRecorder.record("CombinedEvidence", "TRANSFER_MANIFEST · runId=${session.runId} · included=${sources.size} · excluded=${session.snapshot.sources.size - sources.size} · exclusionReason=AUTHORITY_NOT_GRANTED · readable=${sources.count { it.readable }}")
-    session.snapshot.copy(
-        deferredStage = session.snapshot.deferredStage.takeIf { session.authority == writerAuthority },
+    if (sameAuthority) return@map session.snapshot
+    // Callers bind the task to the accepted user turn before reaching this boundary.
+    // A public retrieval authorizes its captured source, not a worker's derived
+    // questions, claims, queries, review, tool history or delegated execution plan.
+    // Construct a projection so newly added snapshot fields stay private by default.
+    // Keep spent-work counters: sharing evidence cannot reset an existing budget.
+    val original = session.snapshot
+    ResearchSnapshot(
+        task = original.task,
+        phase = "Shared public evidence",
+        round = original.round,
+        searches = original.searches,
+        attempts = original.attempts,
+        engineResponses = original.engineResponses,
+        engineFailures = original.engineFailures,
         sources = sources,
-        claims = session.snapshot.claims.filter { it.sourceId in ids },
-        toolEvents = if (session.authority == writerAuthority) session.snapshot.toolEvents else session.snapshot.toolEvents.filter { it.sourceIds.isNotEmpty() && it.sourceIds.all(ids::contains) },
-        notes = if (session.authority == writerAuthority) session.snapshot.notes else listOf("Only individually authorized public captures were transferred; restricted run context was omitted")
+        planningStatus = "Destination planning required",
+        notes = listOf("Only individually authorized public captures were transferred; restricted run context was omitted. Analyze the retained captures within the destination's authority before claiming completion."),
+        updatedAt = original.updatedAt,
+        targetSources = original.targetSources,
+        taskId = original.taskId,
+        rootWorkId = original.rootWorkId,
+        originatingUserMessageId = original.originatingUserMessageId,
+        taskChatId = original.taskChatId,
+        numericalFactBindingRequired = original.numericalFactBindingRequired,
+        reportStructure = original.reportStructure
     )
 }

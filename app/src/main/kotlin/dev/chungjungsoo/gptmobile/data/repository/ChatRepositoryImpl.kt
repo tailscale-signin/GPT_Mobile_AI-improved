@@ -4362,7 +4362,7 @@ class ChatRepositoryImpl(
         val boundGitHubConnection: String?,
         val editorialPass: Boolean,
         val capKey: String,
-        val resolvedOutputCap: Int?,
+        val resolvedOutputCap: Int,
         val requestConstraints: RequestConstraints
     )
 
@@ -4455,7 +4455,7 @@ class ChatRepositoryImpl(
         delegationSettings: dev.chungjungsoo.gptmobile.data.model.ModelDelegationSettings,
         effectiveTools: List<ResolvedAgentTool>,
         githubEffectiveTask: String,
-        resolvedOutputCap: Int?,
+        resolvedOutputCap: Int,
         reservedFinalToolCalls: Int,
         toolBudgetSourceMessageId: Int?,
         dispatchAuthority: dev.chungjungsoo.gptmobile.data.context.RequestAuthorizationGuard,

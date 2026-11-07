@@ -31,7 +31,12 @@
       },
       "scope": "actual changed production with platform boundaries; Room/Android cases awaitCI"
     },
-    "exact_head_ci": "NOT_YET_PUBLISHED",
+    "exact_head_ci": {
+      "head": "daf4f82f86137445f2eab8d34bfa4efd881e1145",
+      "status": "COMPILATION_FAILED",
+      "job_url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/42408253695/job/128510554721",
+      "cause": "The extracted admission/runner widened the non-null resolved output-token allowance to Int?, causing two TokenBudgetSettings.copy argument errors. Restore Int at both helper boundaries."
+    },
     "device_tests": "NOT_RUN_NO_CONNECTED_DEVICE",
     "focused_github": {
       "tests_passed": 125,
@@ -83,6 +88,13 @@
       "production_files": 2229,
       "areas": 26,
       "refreshed": true
+    },
+    "compilation_followup": {
+      "change": "Preserve non-null output allowance at both extracted helper boundaries.",
+      "canonical_fast_passed": true,
+      "python_tests_passed": 398,
+      "changed_source_ktlint_passed": true,
+      "inventories_refreshed": true
     }
   },
   "accepted_scope": [
@@ -101,8 +113,8 @@
     "line reads with max_lines or EOF continuation"
   ],
   "pending": [
-    "commit and publish exact tree with guarded remote head",
-    "wait for required checks on the published head",
+    "publish the validated output-token type correction",
+    "wait for required checks on the new published head",
     "merge with exact-head precondition and verify resulting main"
   ],
   "checkpoint_semantics": "Source-validation snapshot. The exact published commit, required checks and merge outcome are authoritative in PR 813 and its current checks."

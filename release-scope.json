@@ -52,7 +52,7 @@
   "limitations": [
     "Android GPU qualification requires compatible-device receipts for actual offload, prefill, decode, repeated requests and cancel/recovery; host tests do not establish those results.",
     "Android webhook push, complete approval/activity history, unified model readiness, full mutation fixtures, attestation retrieval and remaining performance/accessibility work are partial.",
-    "Automated mutation fixtures cover owned disposable branch creation, dependency inspection and cleanup; content writes, releases, merges and cancellations require separately authorized fixture plans.",
+    "Automated mutation fixtures cover owned disposable branch and fixed synthetic content/stage/commit lifecycles with verified cleanup; arbitrary content writes, releases, merges and cancellations require separately authorized fixture plans.",
     "Browser PKCE requires its broker and verified HTTPS callback deployment.",
     "Checkpoint loading objectives and local recovery counters do not establish end-to-end recovery time or remote transaction reconciliation.",
     "Compiler-resolved Kotlin/Java navigation, a dedicated conflict workspace and native GitHub Enterprise support remain unimplemented; the integration expansion is partial.",

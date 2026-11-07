@@ -88,7 +88,7 @@ The existing signed-release pipeline verifies exact-commit tests, required main 
 - Voice speech services, GitHub prompt anchoring during physical gestures/IME/rotation, process death and reboot still require device acceptance. This release does not claim those cases passed.
 - The Android signed release does not install or publish a new Windows gateway package; Windows installer checks are tracked separately.
 - External Graphify server behavior and physical-device graph, speech and scrolling performance have not been qualified by these host and emulator checks.
-- Automated mutation fixtures cover owned disposable branch creation, dependency inspection and cleanup; content writes, releases, merges and cancellations require separately authorized fixture plans.
+- Automated mutation fixtures cover owned disposable branch and fixed synthetic content/stage/commit lifecycles with verified cleanup; arbitrary content writes, releases, merges and cancellations require separately authorized fixture plans.
 - External Graphify execution, compiler-resolved navigation, and physical-device graph, speech and UI performance remain unqualified; host and emulator evidence does not establish those outcomes.
 - The November 3 build-138 chat audit implements bounded UI and planner repairs; full mutation fixtures, retained-page capacity recovery and physical-device acceptance remain incomplete.
 - The November 4 GitHub workspace repairs do not qualify physical-device process death, UI frame pacing or private Llama/server reachability; those outcomes require live device and service receipts. Saved evidence remains quota bounded, and an unavailable mutation result must be reconciled rather than replayed.

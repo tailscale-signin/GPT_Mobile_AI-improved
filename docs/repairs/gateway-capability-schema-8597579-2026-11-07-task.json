@@ -1,0 +1,76 @@
+{
+  "schema": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "fix/diagnostic-remediation-8597579-2026-11-07",
+  "base_sha": "56de2367158efdee3be953bab9f78a813c24c8b6",
+  "published_base_sha": "bf8e5f764bbbc8cac942e31ee0709344e0b02ac5",
+  "parent_pull_request": 811,
+  "working_branch": "work/gateway-capabilities-8597579",
+  "intent": "Repair the source-confirmed capability response contract: feature flags must be JSON booleans, descriptive icon and numeric disconnect-grace metadata belong in typed fields, and Android compatibility must be tested against complete actual-route fixtures.",
+  "state": "SERVER_IMPLEMENTED_VERIFIED",
+  "ownership": [
+    "Python gateway capability response schema",
+    "Complete sanitized actual-route capability fixtures shared with Android tests",
+    "Server-side schema and fixture drift behavior regressions"
+  ],
+  "constraints": [
+    "Android production changes are owned by diagnostic_execution.",
+    "Root owns gateway package manifest, architecture index, release integration and remote writes.",
+    "Keep package validation, authorization, model identity and inference verification unchanged.",
+    "Fixtures contain deterministic local test state only, never private configuration or diagnostic logs."
+  ],
+  "confirmed_defect": {
+    "source": "gateway/gateway_v13.py gateway_capabilities, inherited by the v14/v15 composition root",
+    "non_boolean_feature_entries": {
+      "gateway_server_icon": "string",
+      "disconnect_grace": "integer"
+    },
+    "baseline_regression": "The strict-boolean feature test failed on all six actual Uvicorn HTTP route aliases before the runtime edit.",
+    "historical_scope": "This is a reproduced source/response contract defect. It does not establish which field caused any private historical decode failure when the response body and decoder exception were not captured."
+  },
+  "implementation": [
+    "Remove icon and disconnect-grace metadata from features; retain all actual feature booleans.",
+    "Reuse the existing ui_contract.gateway_tool_icon string and expose numeric singleflight.disconnect_grace_seconds.",
+    "Capture complete pre-fix and corrected responses through a real locally launched Uvicorn gateway with intact package validation, middleware and startup lifecycle.",
+    "Keep canonical fixtures inside the gateway package and identical Android test-resource copies; enforce both route equality and copy equality."
+  ],
+  "fixtures": {
+    "legacy": {
+      "name": "gateway-v15-capabilities-legacy-mixed.json",
+      "top_level_fields": 26,
+      "feature_entries": 94,
+      "non_boolean_feature_entries": 2,
+      "source_sha": "56de2367158efdee3be953bab9f78a813c24c8b6"
+    },
+    "corrected": {
+      "name": "gateway-v15-capabilities-full.json",
+      "top_level_fields": 27,
+      "feature_entries": 92,
+      "non_boolean_feature_entries": 0
+    },
+    "normalization": [
+      "build.sourceCommit replaced with forty zeroes after validating its shape",
+      "instanceId replaced with thirty-two zeroes after validating its shape"
+    ],
+    "fields_removed": 0,
+    "model_inference_requests_during_capability_capture": 0
+  },
+  "validation": {
+    "gateway_capability_contract": {"passed": 3, "seconds": 3.010, "route_aliases": 6},
+    "gateway_v14_regressions": {"passed": 24, "seconds": 5.521},
+    "gateway_real_http_regression": {"passed": 1, "seconds": 2.256},
+    "canonical_fast": {
+      "command": "bash scripts/validate-local.sh fast",
+      "passed": 378,
+      "seconds": 21.466,
+      "exit_code": 0,
+      "includes_android_fixture_copy_check": true
+    },
+    "python": "/workspace/scratch/22f000a845c8/diagnostic-gateway-venv/bin/python",
+    "package_validation": "Root authorized a temporary generated source manifest for actual-route validation. It is restored before commit; integration owns final manifest regeneration.",
+    "limits": [
+      "Android decoding/negotiation tests are owned by diagnostic_execution and are not included in these server counts.",
+      "No private deployment repair, Android device, external provider or hardware execution is asserted."
+    ]
+  }
+}

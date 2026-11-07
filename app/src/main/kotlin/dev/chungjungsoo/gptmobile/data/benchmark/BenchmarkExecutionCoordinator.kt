@@ -4,6 +4,9 @@ import android.content.Context
 import android.content.Intent
 import androidx.core.content.ContextCompat
 import dagger.hilt.android.qualifiers.ApplicationContext
+import dev.chungjungsoo.gptmobile.data.audit.AppAuditCatalog
+import dev.chungjungsoo.gptmobile.data.audit.AppAuditOptions
+import dev.chungjungsoo.gptmobile.data.audit.interrupted
 import dev.chungjungsoo.gptmobile.presentation.service.BenchmarkForegroundService
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -29,7 +32,8 @@ import kotlinx.coroutines.withTimeoutOrNull
 class BenchmarkExecutionCoordinator @Inject constructor(
     @param:ApplicationContext context: Context,
     private val benchmarkStore: BenchmarkStore,
-    private val batchRunner: BenchmarkBatchRunner? = null
+    private val batchRunner: BenchmarkBatchRunner? = null,
+    private val auditCatalog: AppAuditCatalog? = null
 ) {
     private val appContext = context.applicationContext
 
@@ -173,7 +177,7 @@ class BenchmarkExecutionCoordinator @Inject constructor(
                 val reason = BenchmarkFailure("STORAGE_CHECKPOINT_FAILED", "checkpoint", "Canonical storage is unavailable; the queue is paused.", owner = "storage", scope = "batch")
                 val activeItem = batch.items.firstOrNull { it.state == BenchmarkQueueState.RUNNING }
                 val run = benchmarkStore.history.value.firstOrNull { it.id == activeItem?.runId }?.copy(finished = true, state = "INTERRUPTED", endedAt = now, stoppedReason = reason.message)
-                benchmarkStore.checkpoint(batch.copy(state = BenchmarkBatchState.STORAGE_PAUSED, activeOrdinal = null, endedAt = now, storageWarning = reason.message, items = batch.items.map { if (it.state == BenchmarkQueueState.RUNNING) it.copy(state = BenchmarkQueueState.INTERRUPTED, endedAt = now, failure = reason) else it }), run, event = "STORAGE_PAUSED")
+                benchmarkStore.checkpoint(batch.copy(state = BenchmarkBatchState.STORAGE_PAUSED, activeOrdinal = null, endedAt = now, storageWarning = reason.message, audit = batch.audit?.interrupted(now, "STORAGE_CHECKPOINT_FAILED"), items = batch.items.map { if (it.state == BenchmarkQueueState.RUNNING) it.copy(state = BenchmarkQueueState.INTERRUPTED, endedAt = now, failure = reason) else it }), run, event = "STORAGE_PAUSED")
             }
         } catch (checkpointFailure: Exception) {
             // Preserve the original error; recovery will reconcile the last committed cursor.
@@ -193,6 +197,21 @@ class BenchmarkExecutionCoordinator @Inject constructor(
 
     internal fun startBatch(batch: BenchmarkBatch): Job? = launch(batch.id, prepare = { benchmarkStore.checkpoint(batch, event = "MANIFEST_SAVED") }) {
         checkNotNull(batchRunner).run(batch.id) { progressMutable.value = it }
+    }
+
+    /** App checks never require or manufacture a model profile. */
+    fun startAudit(options: AppAuditOptions = AppAuditOptions()): Boolean {
+        val catalog = auditCatalog ?: return false
+        val id = java.util.UUID.randomUUID().toString()
+        return launch(
+            session = id,
+            prepare = {
+                val audit = catalog.create(options, id = id)
+                benchmarkStore.checkpoint(BenchmarkBatch(id, BenchmarkMode.APP_AUDIT, audit.startedAtEpochMs, emptyList(), audit = audit), event = "MANIFEST_SAVED")
+            }
+        ) {
+            checkNotNull(batchRunner).run(id) { progressMutable.value = it }
+        } != null
     }
 
     internal fun resumeBatch(id: String): Job? {

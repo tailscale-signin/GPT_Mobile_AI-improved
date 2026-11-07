@@ -6,6 +6,8 @@ import android.os.Build
 import android.os.Debug
 import android.os.PowerManager
 import dagger.hilt.android.qualifiers.ApplicationContext
+import dev.chungjungsoo.gptmobile.data.audit.AppAuditRunner
+import dev.chungjungsoo.gptmobile.data.audit.interrupted
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.localruntime.InferenceAdmission
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalRuntime
@@ -53,7 +55,8 @@ class BenchmarkBatchRunner @Inject constructor(
     private val chats: ChatRepository,
     private val settings: SettingRepository,
     private val runtime: LocalRuntime,
-    @param:ApplicationContext private val context: Context
+    @param:ApplicationContext private val context: Context,
+    private val appAuditRunner: AppAuditRunner? = null
 ) {
     @Volatile private var child: Deferred<BenchmarkRun>? = null
 
@@ -98,6 +101,15 @@ class BenchmarkBatchRunner @Inject constructor(
         requestedStop = null
         localCleanupBlocked = false
         try {
+            if (batch.mode == BenchmarkMode.APP_AUDIT || batch.audit != null) {
+                val runner = appAuditRunner
+                if (runner == null) {
+                    checkpoint(batch.copy(state = BenchmarkBatchState.COMPLETED_WITH_FAILURES, endedAt = System.currentTimeMillis(), storageWarning = "App audit execution is unavailable."), event = "AUDIT_RUNNER_UNAVAILABLE")
+                } else {
+                    runner.run(id, progress)
+                }
+                return
+            }
             while (true) {
                 currentCoroutineContext().ensureActive()
                 batch = checkNotNull(store.batch(id))
@@ -148,7 +160,7 @@ class BenchmarkBatchRunner @Inject constructor(
                     val message = "Results could not be checkpointed. Queue paused; pending profiles are retained."
                     val now = System.currentTimeMillis()
                     val failedRun = latest.items.firstOrNull { it.state == BenchmarkQueueState.RUNNING }?.let { item -> store.history.value.firstOrNull { it.id == item.runId } }?.copy(finished = true, endedAt = now, state = "INTERRUPTED", stoppedReason = message)
-                    store.checkpoint(latest.copy(state = BenchmarkBatchState.STORAGE_PAUSED, activeOrdinal = null, endedAt = now, storageWarning = message, items = latest.items.map { if (it.state == BenchmarkQueueState.RUNNING) it.copy(state = BenchmarkQueueState.INTERRUPTED, endedAt = now, failure = BenchmarkFailure("STORAGE_CHECKPOINT_FAILED", "checkpoint", message, owner = "storage", scope = "batch")) else it }), failedRun, event = "STORAGE_PAUSED")
+                    store.checkpoint(latest.copy(state = BenchmarkBatchState.STORAGE_PAUSED, activeOrdinal = null, endedAt = now, storageWarning = message, audit = latest.audit?.interrupted(now, "STORAGE_CHECKPOINT_FAILED"), items = latest.items.map { if (it.state == BenchmarkQueueState.RUNNING) it.copy(state = BenchmarkQueueState.INTERRUPTED, endedAt = now, failure = BenchmarkFailure("STORAGE_CHECKPOINT_FAILED", "checkpoint", message, owner = "storage", scope = "batch")) else it }), failedRun, event = "STORAGE_PAUSED")
                 }
             }
             throw failure
@@ -576,6 +588,11 @@ class BenchmarkBatchRunner @Inject constructor(
 
     private suspend fun interrupt(id: String, origin: BenchmarkStopOrigin) {
         val batch = store.batch(id) ?: return
+        if (batch.mode == BenchmarkMode.APP_AUDIT || batch.audit != null) {
+            val now = System.currentTimeMillis()
+            store.checkpoint(batch.copy(state = if (origin == BenchmarkStopOrigin.USER_STOP) BenchmarkBatchState.STOPPED else BenchmarkBatchState.INTERRUPTED, stopOrigin = origin, activeOrdinal = null, endedAt = now, audit = batch.audit?.interrupted(now, origin.name)), event = "AUDIT_INTERRUPTED")
+            return
+        }
         val ordinal = activeOrdinal
         val active = batch.items.firstOrNull { it.ordinal == ordinal }
         val run = active?.let { item -> store.history.value.firstOrNull { it.id == item.runId } }?.copy(finished = true, canceled = origin == BenchmarkStopOrigin.USER_STOP, state = "INTERRUPTED", cancellationOrigin = origin, endedAt = System.currentTimeMillis(), stoppedReason = if (origin == BenchmarkStopOrigin.USER_STOP) "Stopped by user." else "Benchmark interrupted; committed measurements are retained.")

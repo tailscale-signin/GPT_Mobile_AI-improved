@@ -10,6 +10,7 @@ internal object BenchmarkSuiteRegistry {
     fun legacyStandard(agent: Boolean) = BenchmarkSuite7.legacyStandard(agent)
 
     fun cases(mode: BenchmarkMode, rotationSeed: Long): List<BenchmarkCase> {
+        if (mode == BenchmarkMode.APP_AUDIT) return emptyList()
         if (mode == BenchmarkMode.PERFORMANCE) return BenchmarkPerformanceSuite.cases()
         if (mode == BenchmarkMode.CPU_EXPERIMENT) return BenchmarkCpuExperiment.cases()
         if (mode == BenchmarkMode.DELEGATION) return delegationBenchmarkSuite()
@@ -23,6 +24,7 @@ internal object BenchmarkSuiteRegistry {
 }
 
 internal fun benchmarkSuiteForVersion(version: Int, mode: BenchmarkMode, rotationSeed: Long = 0): List<BenchmarkCase> = when {
+    mode == BenchmarkMode.APP_AUDIT -> emptyList()
     mode == BenchmarkMode.CPU_EXPERIMENT && version >= 9 -> BenchmarkCpuExperiment.cases()
     version == 10 -> BenchmarkSuiteRegistry.cases(mode, rotationSeed)
     version == 9 -> when (mode) {

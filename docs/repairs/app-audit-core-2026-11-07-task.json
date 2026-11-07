@@ -1,0 +1,31 @@
+{
+  "schema": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "fix/diagnostic-remediation-8597579-2026-11-07",
+  "base_sha": "c980ad3b4c13f8d9dd8bb4b5a393f4263d3b197f",
+  "parent_pr": 811,
+  "working_branch": "work/app-audit-core-2026-11-07",
+  "intent": "Add a profile-independent app audit catalogue and bounded probe engine under the existing durable benchmark coordinator/store, with explicit evidence, status, coverage and score denominators.",
+  "state": "CONTRACT_ALIGNED_BEFORE_SOURCE_EDITS",
+  "owned_paths": [
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditModels.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditCatalog.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditRunner.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditLocalProbeSource.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkModels.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkBatchModels.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkBatchRunner.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkExecutionCoordinator.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkStore.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/audit"
+  ],
+  "preservation": [
+    "No new coordinator, database or model profile is invented for app audits.",
+    "Save the frozen catalogue before probes and retain attempted/unknown outcomes through cancellation, storage failures and process recovery.",
+    "Use stable allowlisted probes and selected authority; never generically invoke all tools or replay uncertain work.",
+    "Keep pass/fail separate from skipped, blocked, unavailable and untested and never claim source-line coverage from functional probes.",
+    "Leave existing benchmark scores and model benchmark behavior unchanged."
+  ],
+  "task_store": "engineering_agent_checkpoints (existing engineering task store)",
+  "remote_mutations": false
+}

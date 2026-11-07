@@ -1,0 +1,88 @@
+{
+  "schema": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "fix/diagnostic-remediation-8597579-2026-11-07",
+  "base_sha": "bf8e5f764bbbc8cac942e31ee0709344e0b02ac5",
+  "parent_pr": 811,
+  "working_branch": "work/gateway-capability-compat-8597579",
+  "intent": "Decode actual mixed gateway capability feature metadata without enabling anything except literal JSON boolean true, preserve capability/isolation schema checks, and expose only sanitized bounded decoder reason and schema field path.",
+  "state": "LOCAL_BEHAVIOR_VALIDATED_PENDING_INTEGRATED_ANDROID_CI",
+  "owned_scope": [
+    "GatewayModels.kt",
+    "GatewayAPIImpl.kt",
+    "Android capability decoder, discovery and negotiation behavior tests"
+  ],
+  "coordination": "Gateway agent owns Python routes, contract schema, and full real-route fixed/legacy-mixed fixtures. Root owns publication, architecture/release metadata and exact-head Android CI.",
+  "observed_failure": {
+    "app_version": "0.9.66.6",
+    "app_commit_prefix": "91df",
+    "stage": "capability_decode_after_http_200",
+    "legacy_nonboolean_feature_keys": [
+      "gateway_server_icon",
+      "disconnect_grace"
+    ],
+    "model_request_sent": false,
+    "evidence_basis": "Reported decoder mismatch; capture shows capability HTTP200 followed by discovery failure but does not include response body or original decoder cause. Full actual-route fixtures independently reproduce mixed feature types."
+  },
+  "preserved_constraints": [
+    "Only literal JSON boolean true enables a feature",
+    "Other schema and key-free authorization checks remain enforced",
+    "Discovery failure cannot remove required gateway isolation",
+    "No raw body, credentials, host payload or original decoder cause in diagnostics",
+    "No implicit model fallback or remote mutations"
+  ],
+  "validation": {
+    "focused_host": {
+      "status": "PASSED",
+      "tests": 31,
+      "runtime": "Java17 / Kotlin2.4.20 / kotlinx.serialization1.11.0 / JUnit4.13.2",
+      "source_hashes_stable": true,
+      "scope": "Actual capability model/API/network client/request configuration/metadata reader/control negotiation/route cache/connection policy; MockEngine and MockK HTTP, Android/log/unused DTO host boundaries."
+    },
+    "independent_review": {
+      "status": "PASSED",
+      "behavioral_probes": 3,
+      "source_hashes_stable": true,
+      "scope": "Actual API nullable/default behavior, schema paths, captured diagnostic log privacy, bounded inspection exhaustion; no unresolved concrete findings."
+    },
+    "canonical_fast": {
+      "status": "PASSED",
+      "tests": 377,
+      "command": "bash scripts/validate-local.sh fast"
+    },
+    "ktlint": {
+      "status": "PASSED",
+      "version": "1.3.1",
+      "changed_kotlin_files": 5
+    },
+    "diff_whitespace": "PASSED",
+    "android_full": {
+      "status": "NOT_RUN_ENVIRONMENT",
+      "reason": "Host has Java17 and no Android SDK/adb; root runs full exact-head Android CI after integration."
+    },
+    "live_model_inference": "NOT_RUN",
+    "server_route_fixture_capture": "Owned and verified separately by gateway work package"
+  },
+  "remote_mutations_performed": false,
+  "implemented": [
+    "Retain mixed feature JsonElements while enabling only literal JSON boolean true",
+    "Keep original streaming serializer acceptance/configuration and existing schema/authorization/isolation checks",
+    "Derive bounded diagnostic reason/path only after rejection; redact arbitrary map keys and discard raw decoder cause",
+    "Exercise both full captured routes through actual API and control negotiation without inference or profile/model substitution"
+  ],
+  "integration_dependency": {
+    "commit": "608f0d61a84e3984df111e7dd433548dde5f4afe",
+    "scope": "Server metadata correction and both complete route fixtures, owned by gateway agent"
+  },
+  "source_sha256": {
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayAPIImpl.kt": "6c6f96438d050482bc901b7d19b384fe745b0aef62bff2035df1f54a3baeddf1",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayModels.kt": "44c9242fd4351cade326f6f44921d4ecacf383f77245a88e3e96a517b70ef2f5",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayCapabilityDiscoveryTest.kt": "12dcc1d7a682259bc334b205cb829aa98fa95a5a6828041802c4481a141b1f34",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayControlNegotiationTest.kt": "f8d26bbe72a7b7acce561dd734ce6302fe57bf8ed996bbac6704922c3051abc4",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayV14CapabilitiesTest.kt": "5be71f9fb1bbb39c7d1d138b852c51cdd15d2f600367f86eba5395cfb20978a4"
+  },
+  "fixture_sha256": {
+    "gateway-v15-capabilities-full.json": "f924ea63e5d7a61ac5e9da16932f48d15a03c57bcfa5badc89831c8df7f32154",
+    "gateway-v15-capabilities-legacy-mixed.json": "e6832c3e2ead06c013ec2072a6bceedacb45a04c5129d19001c4e6e465e56d8c"
+  }
+}

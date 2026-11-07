@@ -42,7 +42,8 @@ sealed interface ProviderEvent {
         val actualRuntime: String? = null,
         val reasoningTokens: Int? = null,
         val phase: ProviderUsagePhase = ProviderUsagePhase.FINAL,
-        val writerObservationKey: String? = null
+        val writerObservationKey: String? = null,
+        val gatewayTiming: dev.chungjungsoo.gptmobile.data.dto.openai.response.GatewayGenerationTiming? = null
     ) : ProviderEvent
 
     /** Effective provider request settings after profile preferences and hard request constraints are resolved. */

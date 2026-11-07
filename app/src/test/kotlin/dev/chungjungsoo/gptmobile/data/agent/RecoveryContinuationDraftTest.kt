@@ -38,6 +38,14 @@ class RecoveryContinuationDraftTest {
         assertEquals("", recoveryContinuationDraft(recovery(draft), null, "Answer briefly"))
     }
 
+    @Test fun failedTaskReportsAreEvidenceRatherThanAnAppendedAnswerPrefix() = runTest {
+        val blocked = "BLOCKED: The integration test could not finish."
+        assertEquals("", recoveryContinuationDraft(recovery(blocked, "FAILED"), descriptor, "Test all GitHub tools"))
+        assertEquals("", recoveryContinuationDraft(recovery(blocked, "FAILED"), descriptor.copy(action = TaskRecoveryAction.RETRY_FAILED_STAGE), "Answer briefly"))
+        assertEquals("", recoveryContinuationDraft(recovery(blocked, "FAILED"), descriptor.copy(action = TaskRecoveryAction.RETRY_WRITING), "Answer briefly"))
+        assertEquals(blocked, recoveryContinuationDraft(recovery(blocked), descriptor.copy(continuationPrefixDigest = researchHash(blocked)), "Test all GitHub tools"))
+    }
+
     @Test fun absentContinuationIdentityDoesNotChangeLegacySerializedDescriptors() {
         val codec = Json { encodeDefaults = true }
         assertFalse(codec.encodeToString(descriptor).contains("continuationPrefixDigest"))

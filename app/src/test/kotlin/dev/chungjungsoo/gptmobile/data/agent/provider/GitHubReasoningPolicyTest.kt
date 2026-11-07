@@ -4,11 +4,22 @@ import dev.chungjungsoo.gptmobile.data.context.ReasoningMode
 import dev.chungjungsoo.gptmobile.data.context.ReasoningPolicy
 import dev.chungjungsoo.gptmobile.data.context.ReasoningTemplateControl
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubReasoningPolicyTest {
+    @Test fun reviewCompatibilityPreflightHasABoundedVisibleOutputAllowance() {
+        val primary = RequestConstraints(maxOutputTokens = 8192, allowReasoning = true, maximizeReasoning = true)
+        val preflight = primary.forRole("github-review-preflight")
+        assertEquals(512, preflight.maxOutputTokens)
+        assertFalse(preflight.allowReasoning)
+        assertFalse(preflight.maximizeReasoning)
+        assertEquals(128, primary.copy(maxOutputTokens = 128).forRole("github-review-preflight").maxOutputTokens)
+        assertEquals(8192, primary.forRole("primary").maxOutputTokens)
+    }
+
     @Test fun explicitReasoningModesTakePriorityOverInternalMaximumPreference() {
         val off = ReasoningPolicy.forRequest(ReasoningMode.OFF, allowed = true, maximize = true, helper = false, control = ReasoningTemplateControl.ENABLE_THINKING)
         assertEquals(ReasoningMode.OFF, off.requested)

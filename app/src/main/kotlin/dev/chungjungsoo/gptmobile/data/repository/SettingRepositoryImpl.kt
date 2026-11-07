@@ -177,7 +177,9 @@ class SettingRepositoryImpl @Inject constructor(
             transform(
                 current.copy(
                     localAssistPolicy = current.localAssistPolicy.migrateProcessingPermissions(profiles),
-                    settingsHome = current.settingsHome.migrate(profiles.filter { it.enabled }.map { it.uid })
+                    settingsHome = current.settingsHome.migrate(profiles.filter { it.enabled }.map { it.uid }),
+                    llamaReasoningModes = migratedLlamaReasoning(current, profiles),
+                    llamaReasoningMigrationVersion = 1
                 )
             )
         }.also {
@@ -187,15 +189,25 @@ class SettingRepositoryImpl @Inject constructor(
     }
 
     private suspend fun migrateAssistPermissions(settings: AppFeatureSettings): AppFeatureSettings {
-        if (settings.localAssistPolicy.permissionVersion >= 1 && settings.settingsHome.schemaVersion >= 2) return settings
+        if (settings.localAssistPolicy.permissionVersion >= 1 && settings.settingsHome.schemaVersion >= 2 && settings.llamaReasoningMigrationVersion >= 1) return settings
         val profiles = fetchPlatformV2s()
         return settingDataSource.mutateFeatureSettings { current ->
             current.copy(
                 localAssistPolicy = current.localAssistPolicy.migrateProcessingPermissions(profiles),
-                settingsHome = current.settingsHome.migrate(profiles.filter { it.enabled }.map { it.uid })
+                settingsHome = current.settingsHome.migrate(profiles.filter { it.enabled }.map { it.uid }),
+                llamaReasoningModes = migratedLlamaReasoning(current, profiles),
+                llamaReasoningMigrationVersion = 1
             )
         }
     }
+
+    private fun migratedLlamaReasoning(settings: AppFeatureSettings, profiles: List<PlatformV2>): Map<String, dev.chungjungsoo.gptmobile.data.context.ReasoningMode> =
+        if (settings.llamaReasoningMigrationVersion >= 1) {
+            settings.llamaReasoningModes
+        } else {
+            settings.llamaReasoningModes + profiles.filter { it.compatibleType == ClientType.LLAMA && it.uid !in settings.llamaReasoningModes }
+                .associate { it.uid to dev.chungjungsoo.gptmobile.data.context.ReasoningPolicy.preference(it.reasoning, null) }
+        }
 
     override suspend fun getLocalRuntimeBackend(): LocalRuntimeBackend =
         settingDataSource.getLocalRuntimeBackend()
@@ -420,6 +432,11 @@ class SettingRepositoryImpl @Inject constructor(
         if (!platform.enabled) providerActivation?.revoke(platform.uid)
         val securedPlatform = securePlatform(platform.copy(enabled = platform.enabled && FreeAiProvider.fromApiUrl(platform.apiUrl)?.isRetired != true && !providerActivationRequired(platform)))
         platformV2Dao.editPlatform(securedPlatform)
+        if (platform.compatibleType == ClientType.LLAMA && previous?.reasoning != platform.reasoning) {
+            settingDataSource.mutateFeatureSettings { current ->
+                current.copy(llamaReasoningModes = current.llamaReasoningModes + (platform.uid to dev.chungjungsoo.gptmobile.data.context.ReasoningPolicy.preference(platform.reasoning, null)))
+            }
+        }
         if ((securedPlatform.providerConnectionUid == null || securedPlatform.compatibleType == ClientType.FREE) &&
             previousSecretRef != securedPlatform.secretRef
         ) {

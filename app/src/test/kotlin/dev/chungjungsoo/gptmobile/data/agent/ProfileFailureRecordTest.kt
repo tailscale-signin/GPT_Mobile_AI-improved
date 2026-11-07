@@ -6,6 +6,25 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ProfileFailureRecordTest {
+    @Test fun gatewayContractReceiptsRetainStageAndDoNotBecomeRetryableConnectionFailures() {
+        val details = kotlinx.serialization.json.Json.parseToJsonElement("""{"failed_stage":"tool_continuation","dispatch_state":"not_dispatched","retryable":false}""") as kotlinx.serialization.json.JsonObject
+        val failure = ProfileFailureRecord.fromProvider("The saved connection needs tool results", "client_tool_results_required", details)
+        val restored = kotlinx.serialization.json.Json.decodeFromString<ProfileFailureRecord>(kotlinx.serialization.json.Json.encodeToString(ProfileFailureRecord.serializer(), failure))
+        assertEquals("CLIENT_TOOL_RESULTS_REQUIRED", restored.category)
+        assertEquals("tool_continuation", restored.phase)
+        assertEquals(false, restored.dispatched)
+        assertEquals(RemoteRequestAcceptance.NO, restored.remoteAcceptance)
+        assertFalse(restored.retryAllowed)
+        val terminal = ProfileFailureRecord.fromProvider("Terminal result unavailable on this connection", "terminal_job_not_resumable")
+        assertEquals("TERMINAL_JOB_NOT_RESUMABLE", terminal.category)
+        assertFalse(terminal.retryAllowed)
+        assertFalse(ProfileFailureRecord.fromProvider("Temporary connection problem", details = details).retryAllowed)
+        val newRejection = ProfileFailureRecord.fromProvider("A connection cannot accept this request", "future_contract_error", kotlinx.serialization.json.Json.parseToJsonElement("""{"http_status":422,"failed_stage":"request_validation","retryable":false}""") as kotlinx.serialization.json.JsonObject)
+        assertEquals("REQUEST_REJECTED", newRejection.category)
+        assertEquals("request_validation", newRejection.phase)
+        assertFalse(newRejection.retryAllowed)
+    }
+
     @Test fun typedAuthorityRejectionRetainsItsActualPrecheckFactsAfterPersistence() {
         for (code in listOf("DISPATCH_POLICY_CHANGED", "POLICY_STALE", "STALE_INVENTORY")) {
             val details = kotlinx.serialization.json.buildJsonObject {

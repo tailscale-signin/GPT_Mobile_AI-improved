@@ -25,6 +25,7 @@ import dev.chungjungsoo.gptmobile.data.network.gateway.hasClientOwnedExecutionPr
 import dev.chungjungsoo.gptmobile.data.network.gateway.matchesRequestedModel
 import dev.chungjungsoo.gptmobile.data.network.gateway.recoverableContent
 import dev.chungjungsoo.gptmobile.data.network.gateway.recoveryDisposition
+import dev.chungjungsoo.gptmobile.data.network.gateway.savedFailure
 import dev.chungjungsoo.gptmobile.data.repository.ChatRepository
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import dev.chungjungsoo.gptmobile.presentation.service.AgentRunForegroundService
@@ -589,10 +590,13 @@ class AgentRunCoordinator @Inject constructor(
                 val uncertainty = if (GatewayOutcomeRecovery.requiresReconciliation(run.terminalError.orEmpty()) && status != AgentRunStatus.COMPLETED) "${GatewayOutcomeRecovery.ERROR_CODE}: " else ""
                 val error = when {
                     status == AgentRunStatus.COMPLETED -> null
+                    disposition == GatewayResultDisposition.FAILED ->
+                        "${uncertainty}GATEWAY_SAVED_RESULT_FAILED: " +
+                            (result.savedFailure()?.let { "${it.code}: ${it.message}" } ?: "GATEWAY_JOB_${result.status.uppercase()}")
                     requiresVerification && isolatedCompletion -> "${GatewayOutcomeRecovery.ISOLATED_RESULT_PREFIX} The saved generation was isolated from server tools. Task acceptance and answer verification remain pending; resume from the retained client operation receipts."
                     requiresVerification -> "${uncertainty}GATEWAY_RECOVERED_RESULT_UNVERIFIED: Saved gateway output was recovered. Task acceptance and answer verification remain pending; continue from the retained receipts."
                     disposition == GatewayResultDisposition.PARTIAL -> "${uncertainty}GATEWAY_SAVED_RESULT_PARTIAL: The saved answer is incomplete. Resume only the unfinished work."
-                    else -> uncertainty + "GATEWAY_SAVED_RESULT_FAILED: " + (result.error?.take(500) ?: "GATEWAY_JOB_${result.status.uppercase()}")
+                    else -> "${uncertainty}GATEWAY_SAVED_RESULT_FAILED: GATEWAY_JOB_${result.status.uppercase()}"
                 }
                 if (content == null) {
                     chatRepository.finishInterruptedAgentRun(
@@ -1013,7 +1017,7 @@ class AgentRunCoordinator @Inject constructor(
                 val completedAt = currentEpochSeconds()
                 val message = terminalFailure.message ?: "Unknown provider error."
                 val revokedWait = terminalFailure is dev.chungjungsoo.gptmobile.data.context.ProviderWaitAuthorityChanged
-                val status = if (revokedWait) AgentRunStatus.INTERRUPTED else AgentRunStatus.FAILED
+                val status = if (revokedWait) AgentRunStatus.INTERRUPTED else acceptanceFailureStatus(message)
                 if (finishUnavailablePolicy(terminalFailure, status)) return@withContext
                 if (assistantMessage.content.isBlank() && !revokedWait) {
                     val fallback = runCatching { chatRepository.publishCombinedRetainedFallback(request.runId, message) }.getOrNull()
@@ -1105,6 +1109,14 @@ internal fun resolvePublishInterval(
     return policy.streamPublishIntervalMillis.coerceAtLeast(33L)
 }
 
+/** Response delivery never upgrades missing task acceptance to success or a generic transport error. */
+internal fun acceptanceFailureStatus(message: String): String = when (ProfileFailureRecord.classify(message).category) {
+    "EVIDENCE_REQUIRED" -> AgentRunStatus.EVIDENCE_MISSING
+    "TASK_INCOMPLETE" -> AgentRunStatus.PARTIAL
+    "REVIEW_INPUT_REQUIRED" -> AgentRunStatus.BLOCKED
+    else -> AgentRunStatus.FAILED
+}
+
 internal fun terminalAgentMessage(message: MessageV2, error: String?, completedAt: Long): MessageV2 {
     if (error == null) return message.copy(createdAt = completedAt).resetActiveRevision()
 
@@ -1121,7 +1133,7 @@ internal fun ApiStateFlowOutcome.toTerminalUpdate(): AgentRunTerminalUpdate = wh
         when {
             errorCode == "QUEUE_JOB_PENDING" -> AgentRunStatus.WAITING_REMOTE_JOB
             taskOutcome == "BLOCKED" || errorCode in setOf("GITHUB_REVIEW_BLOCKED", "REVIEW_INPUT_REQUIRED") -> AgentRunStatus.BLOCKED
-            errorCode == "GITHUB_EVIDENCE_REQUIRED" -> AgentRunStatus.EVIDENCE_MISSING
+            errorCode in setOf("GITHUB_EVIDENCE_REQUIRED", "GITHUB_EVIDENCE_RETENTION_INCOMPLETE") -> AgentRunStatus.EVIDENCE_MISSING
             taskOutcome == "PARTIAL" -> AgentRunStatus.PARTIAL
             else -> AgentRunStatus.FAILED
         },

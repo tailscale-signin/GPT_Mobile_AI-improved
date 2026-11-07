@@ -32,5 +32,13 @@ internal suspend fun recoveryContinuationDraft(
         }
         return draft
     }
+    // A failed task report is evidence for the next attempt, not an accepted visible
+    // prefix. Typed quota continuations above alone may require its exact bytes.
+    if (descriptor.action in setOf(TaskRecoveryAction.RETRY_FAILED_STAGE, TaskRecoveryAction.RETRY_WRITING) ||
+        dev.chungjungsoo.gptmobile.data.github.GitHubTestChecklist.integration(request) ||
+        dev.chungjungsoo.gptmobile.data.github.GitHubRequestCompletion.requiresRepositoryEvidence(request)
+    ) {
+        return ""
+    }
     return draft.takeIf { recovery?.answerCompleted(descriptor.generationId) == false || LongResponsePolicy.needsMore(it, LongResponsePolicy.requestedWords(request)) }.orEmpty()
 }

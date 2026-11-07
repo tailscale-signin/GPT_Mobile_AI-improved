@@ -259,6 +259,7 @@ class InvocationLedger @Inject constructor(
             var reasoningState: String? = null
             var generatedBytes = 0L
             val visibleFingerprint = dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.takeIf { it.enabled }?.let { dev.chungjungsoo.gptmobile.data.diagnostics.OutputFingerprintAccumulator() }
+            var gatewayTiming: dev.chungjungsoo.gptmobile.data.dto.openai.response.GatewayGenerationTiming? = null
             var firstReasoningRecorded = false
             var firstToolRecorded = false
             var toolCallCount = 0
@@ -281,6 +282,17 @@ class InvocationLedger @Inject constructor(
                 put("output", outputCounter.evidence())
                 put("final_usage_complete", kotlinx.serialization.json.JsonPrimitive(!estimatedUsage()))
                 put("cost_confirmed", kotlinx.serialization.json.JsonPrimitive(costConfirmed))
+                gatewayTiming?.observedFields()?.takeIf { it.isNotEmpty() }?.let { timings ->
+                    put(
+                        "gateway_timing",
+                        kotlinx.serialization.json.buildJsonObject {
+                            put("measurement_scope", kotlinx.serialization.json.JsonPrimitive("physical_backend_request"))
+                            timings.forEach { (name, value) -> put(name, kotlinx.serialization.json.JsonPrimitive(value)) }
+                            // UI publication is measured by the run journal, never inferred from backend output.
+                            put("first_user_visible_text_ms", kotlinx.serialization.json.JsonNull)
+                        }
+                    )
+                }
             }.toString()
             var providerReasoningTokens: Int? = null
             var finishReason: String? = null
@@ -337,6 +349,7 @@ class InvocationLedger @Inject constructor(
                                 )
                             }
                             is ProviderEvent.Usage -> {
+                                event.gatewayTiming?.takeIf { it.observedFields().isNotEmpty() }?.let { gatewayTiming = it }
                                 inputCounter.accept(event.inputTokens, event.cumulative, event.inputSource, event.phase)
                                 outputCounter.accept(event.outputTokens, event.cumulative, event.outputSource, event.phase)
                                 input = inputCounter.value?.coerceAtMost(Int.MAX_VALUE.toLong())?.toInt()

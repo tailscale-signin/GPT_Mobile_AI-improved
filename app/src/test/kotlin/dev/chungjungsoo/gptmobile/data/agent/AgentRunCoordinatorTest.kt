@@ -22,6 +22,14 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AgentRunCoordinatorTest {
+    @Test fun responseDeliveryCannotHideMissingOrIncompleteTaskAcceptance() {
+        assertEquals(AgentRunStatus.EVIDENCE_MISSING, acceptanceFailureStatus("GITHUB_EVIDENCE_RETENTION_INCOMPLETE: Missing receipt"))
+        assertEquals(AgentRunStatus.PARTIAL, acceptanceFailureStatus("GITHUB_TASK_INCOMPLETE: Required tests not run"))
+        assertEquals(AgentRunStatus.FAILED, acceptanceFailureStatus("HTTP 500 provider failed"))
+        assertEquals(AgentRunStatus.BLOCKED, acceptanceFailureStatus("GITHUB_REPOSITORY_TARGET_REQUIRED: Select a target"))
+        assertEquals(AgentRunStatus.BLOCKED, acceptanceFailureStatus("GITHUB_REPOSITORY_TARGET_AMBIGUOUS: Select a target"))
+    }
+
     @Test fun savedGatewayCompletionDoesNotCertifyTaskAcceptanceAndPartialNeverBecomesSuccess() {
         val complete = dev.chungjungsoo.gptmobile.data.network.gateway.GatewayResultDisposition.COMPLETE
         val partial = dev.chungjungsoo.gptmobile.data.network.gateway.GatewayResultDisposition.PARTIAL

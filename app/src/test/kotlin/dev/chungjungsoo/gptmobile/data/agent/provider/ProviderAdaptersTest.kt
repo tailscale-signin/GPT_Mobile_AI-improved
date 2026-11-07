@@ -249,6 +249,57 @@ class ProviderAdaptersTest {
         assertEquals("false", api.configs.single().extraHeaders["X-Gateway-Allow-Local-Tools"])
     }
 
+    @Test fun trailingTransportFailureCannotReplaceAnOriginalStructuredRejection() = runBlocking {
+        val details = kotlinx.serialization.json.buildJsonObject {
+            put("failed_stage", JsonPrimitive("tool_continuation"))
+            put("retryable", JsonPrimitive(false))
+            put("job_id", JsonPrimitive("saved"))
+        }
+        val api = FakeOpenAIAPI(
+            chatRounds = ArrayDeque(
+                listOf(
+                    kotlinx.coroutines.flow.flow {
+                        emit(ChatCompletionChunk(error = dev.chungjungsoo.gptmobile.data.dto.openai.response.ErrorDetail("Return pending results", code = "client_tool_results_required", retryable = false, failureDetails = details)))
+                        throw java.io.IOException("Connection reset")
+                    }
+                )
+            )
+        )
+        val events = OpenAICompatibleAdapter(api, FakeGroqAPI(), attachmentEncoder())
+            .openSession(turns(), platform(ClientType.LLAMA)).streamRound(emptyList(), emptyList()).toList()
+        val failure = events.filterIsInstance<ProviderEvent.Failed>().last()
+        assertEquals("CLIENT_TOOL_RESULTS_REQUIRED", failure.errorCode)
+        assertEquals(details, failure.failureDetails)
+        assertEquals("Return pending results", failure.message)
+    }
+
+    @Test fun recoveredPartialAnswerSurvivesItsFailureWithoutExecutingRecoveredCalls() = runBlocking {
+        val chunk = ChatCompletionChunk(
+            gatewayMetadata = GatewayResponseMetadata(jobId = "saved", singleflightRole = "saved_result"),
+            choices = listOf(Choice(delta = Delta(content = "Retained partial answer.", toolCalls = listOf(ChatToolCallDelta(index = 0, id = "must-not-run", function = ChatFunctionDelta(name = "github_write", arguments = "{}")))), finishReason = "tool_calls")),
+            error = dev.chungjungsoo.gptmobile.data.dto.openai.response.ErrorDetail("Saved template rejected", code = "BACKEND_TEMPLATE_INVALID", retryable = false)
+        )
+        val api = FakeOpenAIAPI(chatRounds = ArrayDeque(listOf(flowOf(chunk))))
+        val events = OpenAICompatibleAdapter(api, FakeGroqAPI(), attachmentEncoder())
+            .openSession(turns(), platform(ClientType.LLAMA)).streamRound(emptyList(), emptyList()).toList()
+        assertEquals("Retained partial answer.", events.filterIsInstance<ProviderEvent.TextDelta>().joinToString("") { it.text })
+        assertTrue(events.none { it is ProviderEvent.ToolCall || it is ProviderEvent.Completed })
+        assertEquals("BACKEND_TEMPLATE_INVALID", events.filterIsInstance<ProviderEvent.Failed>().last().errorCode)
+        assertEquals(1, api.chatRequests.size)
+    }
+
+    @Test fun gatewayFinalizationPreservesFailedResultIdsWithoutAdvertisingTools() = runBlocking {
+        val api = FakeOpenAIAPI(chatRounds = ArrayDeque(listOf(flowOf(ChatCompletionChunk(gatewayMetadata = GatewayResponseMetadata(jobId = "saved"))), emptyFlow())))
+        val session = OpenAICompatibleAdapter(api, FakeGroqAPI(), attachmentEncoder()).openSession(turns(), platform(ClientType.LLAMA))
+        session.streamRound(listOf(definition), emptyList()).toList()
+        session.streamRound(emptyList(), listOf(AgentToolExchange(listOf(call), listOf(result.copy(isError = true))))).toList()
+        val request = api.chatRequests.last()
+        assertEquals("saved", api.configs.last().extraHeaders["X-Gateway-Job-ID"])
+        assertEquals(call.callId, request.messages.last { it.role == dev.chungjungsoo.gptmobile.data.dto.openai.common.Role.TOOL }.toolCallId)
+        assertTrue(request.tools.isNullOrEmpty())
+        assertEquals("none", request.toolChoice)
+    }
+
     @Test fun freeContinuationPreservesFullAnswerDigestOutsideTheBoundedWirePrompt() = runBlocking {
         val api = FakeOpenAIAPI(chatRounds = ArrayDeque(listOf(flowOf(ChatCompletionChunk(choices = listOf(Choice(delta = Delta(content = "Continued answer."), finishReason = "stop")))))))
         val digest = dev.chungjungsoo.gptmobile.data.research.researchHash("Full committed answer which is not replayed in the wire prompt.")
@@ -1047,6 +1098,78 @@ class ProviderAdaptersTest {
         assertEquals(expectedHeaders + mapOf("X-Gateway-Job-ID" to "job-123", "X-Gateway-Allow-Local-Tools" to "false"), api.configs.last().extraHeaders)
         assertEquals("none", api.chatRequests.last().toolChoice)
         assertTrue(api.chatRequests.last().tools.isNullOrEmpty())
+        val finalMessages = api.chatRequests.last().messages
+        assertEquals(call.callId, finalMessages.single { it.role == dev.chungjungsoo.gptmobile.data.dto.openai.common.Role.TOOL }.toolCallId)
+        assertEquals(call.callId, finalMessages.last { it.role == dev.chungjungsoo.gptmobile.data.dto.openai.common.Role.ASSISTANT }.toolCalls!!.single().id)
+    }
+
+    @Test fun restoredLlamaSessionReturnsPendingResultsToTheOriginalJobBeforeMetadataArrives() = runBlocking {
+        val profile = platform(ClientType.LLAMA)
+        val saved = dev.chungjungsoo.gptmobile.data.network.gateway.GatewayJobResult(
+            "saved-job",
+            "waiting_for_client_tool",
+            job = dev.chungjungsoo.gptmobile.data.network.gateway.GatewaySavedJob(model = profile.model, jobId = "saved-job", pendingClientToolCallIds = listOf(call.callId)),
+            result = ChatCompletionChunk(model = profile.model, choices = listOf(Choice(message = Delta(toolCalls = listOf(ChatToolCallDelta(id = call.callId, function = ChatFunctionDelta(name = call.name, arguments = call.arguments.toString())))))))
+        )
+        val binding = dev.chungjungsoo.gptmobile.data.network.gateway.GatewayContinuationBinding.verified(profile.uid, profile.apiUrl, profile.model, "saved-job", saved)
+        for (isError in listOf(false, true)) {
+            val api = FakeOpenAIAPI(chatRounds = ArrayDeque(listOf(emptyFlow())))
+            OpenAICompatibleAdapter(api, FakeGroqAPI(), attachmentEncoder())
+                .openSession(turns(), profile, RequestConstraints(restoredGatewayJob = binding, lockSelectedRoute = true))
+                .streamRound(emptyList(), listOf(AgentToolExchange(listOf(call.copy(name = "older_call")), listOf(result)), AgentToolExchange(listOf(call), listOf(result.copy(isError = isError))))).toList()
+            assertEquals("saved-job", api.configs.single().extraHeaders["X-Gateway-Job-ID"])
+            val request = api.chatRequests.single()
+            assertEquals("none", request.toolChoice)
+            assertTrue(request.tools.isNullOrEmpty())
+            assertEquals(call.callId, request.messages.last { it.role == dev.chungjungsoo.gptmobile.data.dto.openai.common.Role.TOOL }.toolCallId)
+            assertEquals(call.callId, request.messages.last { it.role == dev.chungjungsoo.gptmobile.data.dto.openai.common.Role.ASSISTANT }.toolCalls!!.single().id)
+        }
+        val rejected = FakeOpenAIAPI(chatRounds = ArrayDeque(listOf(emptyFlow())))
+        val missing = runCatching {
+            OpenAICompatibleAdapter(rejected, FakeGroqAPI(), attachmentEncoder())
+                .openSession(turns(), profile, RequestConstraints(restoredGatewayJob = binding))
+                .streamRound(emptyList(), emptyList()).toList()
+        }.exceptionOrNull()
+        assertTrue(missing?.message.orEmpty().contains("CLIENT_TOOL_RESULTS_REQUIRED"))
+        assertTrue(rejected.chatRequests.isEmpty())
+        assertNull(RequestConstraints(restoredGatewayJob = binding).forRole("github-review").restoredGatewayJob)
+    }
+
+    @Test fun verifiedTerminalStageKeepsRealUserBoundaryUntilNewJobArrivesThenUsesItsLiveIds() = runBlocking {
+        val original = turns().single().copy(userMessage = MessageV2(content = "Check the repository", platformType = null), isCurrentTurn = false)
+        val continuation = turns().single().copy(userMessage = MessageV2(content = "Continue unfinished work", platformType = null))
+        for (isError in listOf(false, true)) {
+            val api = FakeOpenAIAPI(chatRounds = ArrayDeque(listOf(emptyFlow(), flowOf(ChatCompletionChunk(gatewayMetadata = GatewayResponseMetadata(jobId = "new-job"))), emptyFlow())))
+            val session = OpenAICompatibleAdapter(api, FakeGroqAPI(), attachmentEncoder())
+                .openSession(listOf(original, continuation), platform(ClientType.LLAMA), RequestConstraints(gatewayNewStageAfterTerminal = true, lockSelectedRoute = true))
+            val retained = AgentToolExchange(listOf(call), listOf(result.copy(content = ToolResultContent.Text(if (isError) "TOOL_FAILED: retained failure" else "retained success"), isError = isError)))
+            session.streamRound(listOf(definition), listOf(retained)).toList()
+            session.streamRound(listOf(definition), listOf(retained)).toList()
+            val liveCall = call.copy(arguments = buildJsonObject { put("city", "Osaka") }) // Same opaque ID, a new live batch.
+            session.streamRound(emptyList(), listOf(retained, AgentToolExchange(listOf(liveCall), listOf(result)))).toList()
+            for (index in 0..1) {
+                val request = api.chatRequests[index]
+                assertNull(api.configs[index].extraHeaders["X-Gateway-Job-ID"])
+                assertEquals(dev.chungjungsoo.gptmobile.data.dto.openai.common.Role.USER, request.messages.last().role)
+                assertEquals("Continue unfinished work", (request.messages.last().content!!.single() as dev.chungjungsoo.gptmobile.data.dto.openai.common.TextContent).text)
+                assertEquals(1, request.messages.count { message -> message.content.orEmpty().filterIsInstance<dev.chungjungsoo.gptmobile.data.dto.openai.common.TextContent>().any { it.text == "Continue unfinished work" } })
+                assertTrue(request.messages.single { it.role == dev.chungjungsoo.gptmobile.data.dto.openai.common.Role.TOOL }.content.toString().contains(if (isError) "TOOL_FAILED" else "retained success"))
+            }
+            assertEquals("new-job", api.configs.last().extraHeaders["X-Gateway-Job-ID"])
+            val latest = api.chatRequests.last().messages.last { it.role == dev.chungjungsoo.gptmobile.data.dto.openai.common.Role.ASSISTANT }.toolCalls!!.single()
+            assertEquals(call.callId, latest.id)
+            assertEquals(liveCall.arguments.toString(), latest.function.arguments)
+        }
+        for (history in listOf(emptyList(), turns())) {
+            val api = FakeOpenAIAPI(chatRounds = ArrayDeque(listOf(emptyFlow())))
+            val failure = runCatching {
+                OpenAICompatibleAdapter(api, FakeGroqAPI(), attachmentEncoder())
+                    .openSession(history, platform(ClientType.LLAMA), RequestConstraints(gatewayNewStageAfterTerminal = true))
+                    .streamRound(emptyList(), listOf(AgentToolExchange(listOf(call), listOf(result)))).toList()
+            }.exceptionOrNull()
+            assertTrue(failure?.message.orEmpty().contains("GATEWAY_NEW_STAGE_BOUNDARY_REQUIRED"))
+            assertTrue(api.chatRequests.isEmpty())
+        }
     }
 
     @Test

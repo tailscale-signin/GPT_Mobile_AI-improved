@@ -44,6 +44,7 @@ data class DiagnosticCaptureOptions(
     val memorySampler: () -> DiagnosticExportMemory = DiagnosticExportMemory::sample,
     val guard: () -> Unit = {},
     val onSessionReady: (File) -> Unit = {},
+    val traceStage: (String) -> (() -> Unit) = { {} },
     val resumable: Boolean = true,
     val deferArchiveHandoff: Boolean = false
 ) {
@@ -167,7 +168,8 @@ class DiagnosticStageSink internal constructor(
         if (bytes + size > maxBytes) throw DiagnosticCaptureLimit("STAGE_OR_ARCHIVE_BYTE_LIMIT")
         writer.write(redactedRecord)
         writer.write("\n")
-        writer.flush()
+        // The bounded writer drains at checkpoints, rollback and stage finish (also
+        // on failure). Avoid a separate file write for every tiny journal event.
         bytes += size
         records++
         if (evidence) evidenceRecords++
@@ -520,7 +522,12 @@ object StagedDiagnosticCapture {
                         )
                         initialCursor?.let(target::checkpoint)
                     } else {
-                        stage.capture(target)
+                        val endTrace = options.traceStage(stage.id)
+                        try {
+                            stage.capture(target)
+                        } finally {
+                            endTrace()
+                        }
                     }
                 } catch (problem: Throwable) {
                     target.discardUncommitted()
@@ -841,7 +848,7 @@ object StagedDiagnosticCapture {
     }
 
     private fun digestText(value: String): String = hex(MessageDigest.getInstance("SHA-256").digest(value.toByteArray(Charsets.UTF_8)))
-    private fun hex(bytes: ByteArray): String = bytes.joinToString("") { "%02x".format(it) }
+    private fun hex(bytes: ByteArray): String = DiagnosticRecordChunks.hex(bytes)
     private fun JsonObject.text(name: String): String? = (this[name] as? JsonPrimitive)?.takeUnless { it == JsonNull }?.content
     private fun JsonObject.long(name: String): Long? = text(name)?.toLongOrNull()
 }

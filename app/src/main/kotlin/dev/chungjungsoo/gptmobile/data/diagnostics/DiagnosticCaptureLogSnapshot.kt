@@ -203,7 +203,7 @@ internal object DiagnosticCaptureLogSnapshot {
                 hash.update(buffer, 0, size)
             }
         }
-        return hash.digest().joinToString("") { "%02x".format(it) }
+        return DiagnosticRecordChunks.hex(hash.digest())
     }
 
     private fun JsonObject.text(key: String) = (get(key) as? JsonPrimitive)?.content.orEmpty()

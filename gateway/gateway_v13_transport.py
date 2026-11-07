@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import threading
 import time
@@ -260,6 +261,8 @@ def _post_once(session, url, request, connect_timeout, idle_timeout, deadline_at
     response, watcher, last_state = None, None, None
     terminal_seen_at = None
     last_progress, last_size = 0.0, -1
+    backend_response_headers_ms = None
+    backend_first_event_ms = None
     backend_first_output_ms = None
     backend_first_visible_output_ms = None
     backend_first_reasoning_output_ms = None
@@ -279,9 +282,11 @@ def _post_once(session, url, request, connect_timeout, idle_timeout, deadline_at
 
     def observed(state):
         nonlocal last_progress, last_size, last_state, terminal_seen_at, backend_first_output_ms
-        nonlocal backend_first_visible_output_ms, backend_first_reasoning_output_ms
+        nonlocal backend_first_visible_output_ms, backend_first_reasoning_output_ms, backend_first_event_ms
         last_state = state
         now = time.monotonic()
+        if backend_first_event_ms is None:
+            backend_first_event_ms = round((now - started) * 1000, 3)
         if state.finish is not None and terminal_seen_at is None:
             terminal_seen_at = now
         size = state.generated_characters + len(state.calls)
@@ -309,6 +314,7 @@ def _post_once(session, url, request, connect_timeout, idle_timeout, deadline_at
         dispatch_headers = {**(headers or {}), **diagnostic_trace_headers(), **selected_dispatch_headers()}
         started = time.monotonic()
         response = session.post(url, json=request, stream=True, timeout=(connect, idle), headers=dispatch_headers, allow_redirects=False)
+        backend_response_headers_ms = round((time.monotonic() - started) * 1000, 3)
         watcher = threading.Thread(target=watch, daemon=True, name="gateway-backend-deadline")
         watcher.start()
         if response.status_code != 200:
@@ -337,6 +343,9 @@ def _post_once(session, url, request, connect_timeout, idle_timeout, deadline_at
         if expired.is_set() or time.monotonic() >= deadline_at:
             raise GatewayContractError("Backend model deadline exceeded.", "backend_deadline_exceeded", 504)
         data["gateway_timing"] = {"measurement_scope": "physical_backend_request",
+                                  "delivery_mode": "completion_buffered",
+                                  "backend_response_headers_ms": backend_response_headers_ms,
+                                  "backend_first_event_ms": backend_first_event_ms,
                                   "backend_first_output_ms": backend_first_output_ms,
                                   "backend_first_visible_output_ms": backend_first_visible_output_ms,
                                   "backend_first_reasoning_output_ms": backend_first_reasoning_output_ms,
@@ -344,7 +353,19 @@ def _post_once(session, url, request, connect_timeout, idle_timeout, deadline_at
                                   "first_user_visible_text_ms": None}
         reported = data.get("model")
         reported = reported if isinstance(reported, str) and 0 < len(reported) <= 512 and all(ord(c) >= 32 for c in reported) else None
+        serialized_controls = {}
+        for container, key in (("reasoning", "enabled"), ("chat_template_kwargs", "enable_thinking"), ("chat_template_kwargs", "thinking")):
+            values = request.get(container)
+            value = values.get(key) if isinstance(values, dict) else None
+            if isinstance(value, bool):
+                serialized_controls[f"{container}.{key}"] = value
+        effort = request.get("reasoning_effort")
+        if isinstance(effort, str) and effort in {"none", "minimal", "low", "medium", "high", "xhigh"}:
+            serialized_controls["reasoning_effort"] = effort
         data["gateway_provenance"] = {"schema_version": 1, "origin": "BACKEND_RESPONSE",
+                                      "backend_endpoint_digest": hashlib.sha256(url.encode("utf-8")).hexdigest(),
+                                      "serialized_controls": serialized_controls, "effective_controls": None,
+                                      "runtime_identity": None, "effective_settings_source": "NOT_MEASURED",
                                       "requested_model": request.get("model"), "reported_model": reported,
                                       "model_identity": "UNAVAILABLE" if reported is None else "MATCHED" if reported == request.get("model") else "DIFFERENT",
                                       "http_status": response.status_code, "accelerator": None}

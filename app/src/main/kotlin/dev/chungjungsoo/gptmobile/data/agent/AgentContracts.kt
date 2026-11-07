@@ -43,7 +43,11 @@ sealed interface ProviderEvent {
         val reasoningTokens: Int? = null,
         val phase: ProviderUsagePhase = ProviderUsagePhase.FINAL,
         val writerObservationKey: String? = null,
-        val gatewayTiming: dev.chungjungsoo.gptmobile.data.dto.openai.response.GatewayGenerationTiming? = null
+        val gatewayTiming: dev.chungjungsoo.gptmobile.data.dto.openai.response.GatewayGenerationTiming? = null,
+        val reasoningControlReceipt: dev.chungjungsoo.gptmobile.data.network.ReasoningControlReceipt? = null,
+        val gatewayProvenance: JsonObject? = null,
+        val gatewayDeliveryTiming: dev.chungjungsoo.gptmobile.data.dto.openai.response.GatewayDeliveryTiming? = null,
+        val providerResponseTiming: dev.chungjungsoo.gptmobile.data.network.ProviderResponseTiming? = null
     ) : ProviderEvent
 
     /** Effective provider request settings after profile preferences and hard request constraints are resolved. */

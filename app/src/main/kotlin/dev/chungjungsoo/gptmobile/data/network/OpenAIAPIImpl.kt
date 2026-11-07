@@ -184,7 +184,8 @@ class OpenAIAPIImpl @Inject constructor(
                 config.freeDiagnostics?.stage = "preparation"
                 var admittedOutputTokens: Int? = null
                 val admittedPayload = requestPreparation.prepare(NetworkClient.openAIJson.encodeToString(preparedRequest), config.copy(onSerializedOutputTokens = { admittedOutputTokens = it }), preparedRequest.model, null)
-                val reasoningControlReceipt = ReasoningControlReceipt.fromPayload(admittedPayload, config.allowReasoning, config.reasoningMode)
+                val reasoningControlReceipt = ReasoningControlReceipt.fromPayload(admittedPayload, config.allowReasoning, config.reasoningMode, config.profileRevision, config.configuredProfileReasoning)
+                emit(ChatCompletionChunk(reasoningControlReceipt = reasoningControlReceipt))
                 // Continuation needs the admitted physical cap in every chat mode,
                 // including ordinary Free chats whose profile allows a larger output.
                 if (free != null || config.captureGenerationReceipt || config.requestRole == "synthesis") admittedOutputTokens?.let { emit(ChatCompletionChunk(serializedOutputTokens = it)) }
@@ -201,6 +202,7 @@ class OpenAIAPIImpl @Inject constructor(
                     config.freeDiagnostics?.stage = "dispatch"
                     config.freeDiagnostics?.attempted()
                     dispatchStarted = true
+                    val responseObserver = ProviderResponseObserver()
                     dispatchRetryGuard.dispatched()
                     networkClient().preparePost(endpoint) {
                         applyPlatformStreamingTimeout(timeoutSeconds, workerBudget, connectionTimeout)
@@ -211,6 +213,8 @@ class OpenAIAPIImpl @Inject constructor(
                         GatewayClientDiagnostics.requestHeaders(config).forEach { (key, value) -> header(key, value) }
                         if (LocalEndpointConnectionPolicy.freshConnection(endpoint)) header(HttpHeaders.Connection, "close")
                     }.execute { response ->
+                        responseObserver.headersReceived()
+                        emit(ChatCompletionChunk(providerResponseTiming = responseObserver.snapshot()))
                         ProviderConnectivityPreflight.responseReceived(config.apiUrl)
                         GatewayClientDiagnostics.observe(config, response.status.value) { response.headers[it] }
                         config.freeDiagnostics?.responded()
@@ -332,6 +336,10 @@ class OpenAIAPIImpl @Inject constructor(
                                     if (choice.message != null && choice.finishReason == null) choice.copy(finishReason = "stop") else choice
                                 },
                                 gatewayMetadata = gatewayMetadata,
+                                gatewayProvenance = decoded.gatewayProvenance?.takeIf { gatewayMetadata.transportVerified },
+                                gatewayTiming = decoded.gatewayTiming?.takeIf { gatewayMetadata.transportVerified },
+                                gatewayDeliveryTiming = decoded.gatewayDeliveryTiming?.takeIf { gatewayMetadata.transportVerified },
+                                providerResponseTiming = responseObserver.parsed(decoded.hasAssistantGeneratedOutput()),
                                 reasoningControlReceipt = reasoningControlReceipt,
                                 error = decoded.error?.let { error ->
                                     val category = providerPayloadFailure(error.code, error.message, preparedRequest.toolChoice, !preparedRequest.tools.isNullOrEmpty())
@@ -365,7 +373,7 @@ class OpenAIAPIImpl @Inject constructor(
                                 }
                             }
                             if (free != null && !chunk.model.isNullOrBlank()) dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("FreeProvider", "MODEL_RESOLVED · profile=${config.profileUid} · requested=${request.model} · resolved=${chunk.model} · capabilityVerification=unverified")
-                            chunk.gatewayTiming?.record(providerRequestIdentity { response.headers[it] })
+                            chunk.gatewayTiming?.takeIf { gatewayMetadata.transportVerified }?.record(providerRequestIdentity { response.headers[it] })
                             emit(chunk)
                             if (free != null) {
                                 freeResponseOutcome(
@@ -416,6 +424,7 @@ class OpenAIAPIImpl @Inject constructor(
                                 config.freeDiagnostics?.response = config.freeDiagnostics?.response?.copy(discardedChunks = parseFailures)
                                 continue
                             }
+                            val parsingTiming = responseObserver.parsed(decoded.hasAssistantGeneratedOutput())
                             config.freeDiagnostics?.response = config.freeDiagnostics?.response?.withChunk(decoded)
                             usageReceipt.observe(decoded.usage, decoded.hasAssistantStreamPayload())
                             if (!receivedAssistantPayload && !receivedGatewayToolActivity) {
@@ -443,12 +452,12 @@ class OpenAIAPIImpl @Inject constructor(
                                     )
                                 )
                             } ?: decoded
-                            chunk.gatewayTiming?.record(providerRequestIdentity { response.headers[it] })
+                            chunk.gatewayTiming?.takeIf { gatewayMetadata.transportVerified }?.record(providerRequestIdentity { response.headers[it] })
                             chunk.timings?.let { timings ->
                                 fun measured(value: Double?): String = value?.takeIf { it.isFinite() && it >= 0 }?.toString() ?: "Not measured"
                                 dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Provider", "SERVER_TIMINGS · requestId=${providerRequestIdentity { response.headers[it] }} · queueMs=${measured(timings.queueMs)} · prefillMs=${measured(timings.promptMs)} · generationMs=${measured(timings.predictedMs)} · promptTokens=${timings.promptTokens ?: "Not measured"} · generatedTokens=${timings.predictedTokens ?: "Not measured"}")
                             }
-                            val observedChunk = chunk.copy(reasoningControlReceipt = reasoningControlReceipt, observedFinishReason = chunk.choices.orEmpty().firstNotNullOfOrNull { it.finishReason })
+                            val observedChunk = chunk.copy(gatewayProvenance = chunk.gatewayProvenance?.takeIf { gatewayMetadata.transportVerified }, gatewayTiming = chunk.gatewayTiming?.takeIf { gatewayMetadata.transportVerified }, gatewayDeliveryTiming = chunk.gatewayDeliveryTiming?.takeIf { gatewayMetadata.transportVerified }, providerResponseTiming = parsingTiming, reasoningControlReceipt = reasoningControlReceipt, observedFinishReason = chunk.choices.orEmpty().firstNotNullOfOrNull { it.finishReason })
                             if (free != null && !chunk.model.isNullOrBlank() && resolvedFreeModel != chunk.model) {
                                 resolvedFreeModel = chunk.model
                                 dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("FreeProvider", "MODEL_RESOLVED · profile=${config.profileUid} · requested=${request.model} · resolved=${chunk.model} · capabilityVerification=unverified")
@@ -845,6 +854,12 @@ class OpenAIAPIImpl @Inject constructor(
         }
     }.flowOn(Dispatchers.IO)
 }
+
+private fun ChatCompletionChunk.hasAssistantGeneratedOutput(): Boolean =
+    choices.orEmpty().any { choice ->
+        val delta = choice.effectiveDelta
+        !delta.content.isNullOrEmpty() || !delta.effectiveReasoning.isNullOrEmpty() || !delta.toolCalls.isNullOrEmpty()
+    }
 
 private fun ChatCompletionChunk.hasAssistantStreamPayload(): Boolean =
     choices.orEmpty().any { choice ->

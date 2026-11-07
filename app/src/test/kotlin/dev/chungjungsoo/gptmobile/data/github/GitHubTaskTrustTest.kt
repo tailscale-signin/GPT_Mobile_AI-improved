@@ -1,0 +1,219 @@
+package dev.chungjungsoo.gptmobile.data.github
+
+import dev.chungjungsoo.gptmobile.data.agent.AgentProviderSession
+import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
+import dev.chungjungsoo.gptmobile.data.agent.AgentToolExchange
+import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class GitHubTaskTrustTest {
+    private val read = AgentToolDefinition("github_read", "Read the accepted repository", JsonObject(emptyMap()))
+    private fun answer(text: String) = object : AgentProviderSession {
+        override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) =
+            flowOf(ProviderEvent.TextDelta(text), ProviderEvent.Completed)
+    }
+
+    @Test fun acceptedTaskAndDeadlineSurviveRestartAndCannotChangeSourceIdentity() = runBlocking {
+        val saved = mutableMapOf<String, JsonObject>()
+        var now = 1_000L
+        fun open() = GitHubEvidenceBook("binding", "owner/repo", "feature", setOf(read.name), { now }, load = { saved[it] }, save = { key, value -> saved[key] = value })
+        val task = "Fix the repository bug.\nBudget: at most 12 tool calls and 60 minutes."
+        open().retainTaskContract(task, 7, listOf(read), 12)
+        val original = saved.getValue("task_contract")
+        assertEquals(JsonPrimitive("owner/repo"), original["repository"])
+        assertEquals(JsonPrimitive(12), original["tool_call_limit"])
+        now += 30_000L
+        val restored = open()
+        restored.retainTaskContract(task, 7, listOf(read), 99)
+        assertEquals(original, saved.getValue("task_contract"))
+        assertEquals(3_570_000L, restored.remainingTaskMillis())
+        assertEquals(task, restored.acceptedTaskRequest())
+        assertTrue(runCatching { restored.retainTaskContract(task, 8, listOf(read), 12) }.isFailure)
+        now += 3_600_000L
+        assertEquals(0L, restored.remainingTaskMillis())
+    }
+
+    @Test fun durationReadsExplicitBudgetAndDoesNotInferDeadlinesFromNarrative() {
+        assertEquals(3_600_000L, GitHubExecutionLimits.requestedDurationMillis("Budget: at most 256 tool calls and 60 minutes."))
+        assertEquals(30_000L, GitHubExecutionLimits.requestedDurationMillis("Complete within 30 seconds"))
+        assertNull(GitHubExecutionLimits.requestedDurationMillis("The previous export took 35 seconds. Fix the repository."))
+        assertNull(GitHubExecutionLimits.requestedDurationMillis("At most 50 tool calls. Inspect failures from the last 30 minutes."))
+        assertNull(GitHubExecutionLimits.requestedDurationMillis("Work within src and inspect events from the last 2 hours."))
+        assertEquals(60_000L, GitHubExecutionLimits.requestedDurationMillis("Budget: 1 minutes. Inspect events from the last 20 hours."))
+        assertFalse(GitHubTaskContinuity.reuse("proceed", ""))
+        assertTrue(GitHubTaskContinuity.reportOnly("Please show the full report!"))
+    }
+
+    @Test fun temporaryTaskStillEnforcesAcceptedDeadlineWithoutPersistentStorage() = runBlocking {
+        var now = 1_000L
+        val book = GitHubEvidenceBook("b", "o/r", "feature", setOf(read.name), now = { now })
+        val task = "Fix the repository within 30 seconds"
+        book.retainTaskContract(task, 1, listOf(read), 10)
+        assertEquals(task, book.acceptedTaskRequest())
+        assertEquals(30_000L, book.remainingTaskMillis())
+        now += 40_000L
+        book.retainTaskContract(task, 1, listOf(read), 99)
+        assertEquals(0L, book.remainingTaskMillis())
+        assertTrue(runCatching { book.retainTaskContract(task, 2, listOf(read), 10) }.isFailure)
+    }
+
+    @Test fun everyRecoveryAliasRetainsTheSameAcceptedTask() {
+        val task = "Fix the repository and validate the changes within 60 minutes"
+        val controls = listOf("continue research", "retry full", "proceed primary-only", "proceed primary only", "continue primary-only", "continue primary only", "primary-only", "retry writing", "resume writing")
+        for (control in controls) {
+            assertTrue(control, dev.chungjungsoo.gptmobile.data.agent.TaskRecoveryAction.fromText(control) != null)
+            assertTrue(control, GitHubTaskContinuity.reuse(control, task))
+            assertTrue(control, GitHubTaskContinuity.reuse("Please $control!", task))
+        }
+    }
+
+    @Test fun diagnosticFollowUpExplainsSavedTaskWithoutRestartingItsOperations() = runBlocking {
+        val book = GitHubEvidenceBook("b", "o/r", "feature", setOf(read.name), latestVerdict = {
+            buildJsonObject {
+                put("binding", "b")
+                put("verification_failure", "GITHUB_TASK_INCOMPLETE")
+            }
+        })
+        val provider = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = error("A diagnostic question cannot restart the task")
+        }
+        val gate = GitHubVerifiedSession(provider, book, "Fix the repository and publish", { 8192 }, { error("No formatter") }, {}, {}, currentRequest = "Why did the previous response stop?", openExecutionContinuation = { error("No corrective execution") })
+        val events = gate.streamRound(listOf(read), emptyList()).toList()
+        assertTrue(events.none { it is ProviderEvent.ToolCall })
+        assertTrue(events.filterIsInstance<ProviderEvent.TextDelta>().single().text.contains("GITHUB_TASK_INCOMPLETE"))
+        assertEquals(ProviderEvent.Completed, events.last())
+    }
+
+    @Test fun writingRetryRestoresSavedAnswerWithoutReplayingAcceptedOperations() = runBlocking {
+        val saved = mutableMapOf<String, JsonObject>()
+        fun book() = GitHubEvidenceBook("b", "o/r", "feature", setOf(read.name), load = { saved[it] }, save = { key, value -> saved[key] = value })
+        val evidence = book()
+        val verdict = buildJsonObject {
+            put("task_outcome", "PARTIAL")
+            put("completion_verified", false)
+        }
+        evidence.retainAnswer("Verified file reading finished; implementation remains blocked.", verdict)
+        val provider = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = error("Writing retry must not invoke model operations")
+        }
+        val gate = GitHubVerifiedSession(provider, book(), "Fix the repository and publish", { 8192 }, { error("No extraction") }, {}, {}, currentRequest = "retry writing")
+        val events = gate.streamRound(listOf(read), emptyList()).toList()
+        assertTrue(events.none { it is ProviderEvent.ToolCall })
+        assertTrue(events.filterIsInstance<ProviderEvent.TextDelta>().single().text.contains("Verified file reading finished; implementation remains blocked."))
+        assertEquals("PARTIAL", (events.last() as ProviderEvent.Failed).taskOutcome)
+        val key = saved.keys.single { it.startsWith("answer_current_") }
+        saved[key] = JsonObject(saved.getValue(key) + ("text" to JsonPrimitive("corrupted")))
+        assertNull(book().retainedAnswer())
+    }
+
+    @Test fun planWithoutCallsGetsOneToolCapableCorrectionAndNeverPublishesThePlanAsProof() = runBlocking {
+        var corrections = 0
+        var correctionPrompt = ""
+        val call = ProviderEvent.ToolCall("read-once", read.name, buildJsonObject { put("path", "app.kt") })
+        val book = GitHubEvidenceBook("b", "o/r", "feature", setOf(read.name))
+        val session = GitHubVerifiedSession(
+            answer("I will read the file and fix everything."), book, "Fix the bug in app.kt", { 8192 }, { answer("{\"claims\":[]}") }, {}, {},
+            currentRequest = "do the remaining work",
+            openExecutionContinuation = { prompt ->
+                corrections++
+                correctionPrompt = prompt
+                object : AgentProviderSession {
+                    override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flowOf(call, ProviderEvent.Completed).also { assertEquals(listOf(read), tools) }
+                }
+            }
+        )
+        val first = session.streamRound(listOf(read), emptyList()).toList()
+        assertEquals(listOf(call), first.filterIsInstance<ProviderEvent.ToolCall>())
+        assertTrue(first.none { it is ProviderEvent.TextDelta })
+        assertTrue(correctionPrompt.contains("Newest user instruction:\ndo the remaining work"))
+        val second = session.streamRound(listOf(read), emptyList()).toList()
+        assertEquals(1, corrections)
+        assertTrue(second.last() is ProviderEvent.Failed)
+        assertTrue(second.none { it is ProviderEvent.Completed })
+        assertFalse(second.filterIsInstance<ProviderEvent.TextDelta>().joinToString { it.text }.contains("fix everything"))
+    }
+
+    @Test fun reportOnlyAndExpiredTaskNeverEnterProviderOrDispatchOperations() = runBlocking {
+        val saved = mutableMapOf<String, JsonObject>()
+        var now = 0L
+        val book = GitHubEvidenceBook("b", "o/r", "feature", setOf(read.name), { now }, load = { saved[it] }, save = { key, value -> saved[key] = value })
+        book.retainTaskContract("Test all GitHub tools.\nBudget: 1 seconds", 1, listOf(read), 10)
+        val provider = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = error("No provider or tool execution is authorized by report delivery or an expired task")
+        }
+        for (current in listOf("show the full report", "proceed")) {
+            if (current == "proceed") now = 2_000L
+            val session = GitHubVerifiedSession(provider, book, "Test all GitHub tools", { 8192 }, { error("No extraction") }, {}, {}, currentRequest = current)
+            val events = session.streamRound(listOf(read), emptyList()).toList()
+            assertTrue(events.none { it is ProviderEvent.ToolCall || it is ProviderEvent.Completed })
+            assertTrue(events.any { it is ProviderEvent.TextDelta && it.text.isNotBlank() })
+            assertEquals(if (current == "proceed") "BLOCKED" else "PARTIAL", (events.last() as ProviderEvent.Failed).taskOutcome)
+        }
+    }
+
+    @Test fun correctiveProseCannotBypassReviewOrBecomeExecutionEvidence() = runBlocking {
+        val book = GitHubEvidenceBook("b", "o/r", "feature", setOf(read.name))
+        val session = GitHubVerifiedSession(
+            answer("I will implement this next."),
+            book,
+            "Fix the bug in app.kt",
+            { 8192 },
+            { error("Unreviewed correction must not enter claim extraction") },
+            {},
+            {},
+            openExecutionContinuation = { answer("Everything is fixed and tested; 87 successful calls.") }
+        )
+        val events = session.streamRound(listOf(read), emptyList()).toList()
+        assertTrue(events.none { it is ProviderEvent.Completed })
+        assertTrue(events.last() is ProviderEvent.Failed)
+        assertFalse(events.filterIsInstance<ProviderEvent.TextDelta>().joinToString { it.text }.contains("87 successful"))
+    }
+
+    @Test fun correctiveContextRetainsScopeAndMeasuredCountsWithoutAccumulatedPlans() {
+        val receipts = (1..200).associate {
+            "r$it" to buildJsonObject {
+                put("tool", "github_read")
+                put("success", true)
+                put("private_plan", "repeat me")
+            }
+        }
+        val prompt = GitHubExecutionContinuation.prompt("Fix owner/repo at feature; do not merge", "finish the remaining work", receipts, null)
+        assertTrue(prompt.contains("do not merge"))
+        assertTrue(prompt.contains("\"retained_receipt_count\":200"))
+        assertTrue(prompt.contains("\"included_receipt_count\":64"))
+        assertFalse(prompt.contains("repeat me"))
+        assertTrue(prompt.length < 12_000)
+    }
+
+    @Test fun resumedContextPreservesExactActionSelectorsWithoutCopyingBodiesOrOldPlans() {
+        val receipt = buildJsonObject {
+            put("tool", "github_issue")
+            put(
+                "arguments",
+                buildJsonObject {
+                    put("action", "update")
+                    put("issue_number", 42)
+                    put("body", "old plan and private content")
+                }
+            )
+        }
+        val prompt = GitHubExecutionContinuation.prompt("Fix the selected repository; do not merge", "proceed primary-only", mapOf("receipt-1" to receipt), null, corrective = false)
+        assertTrue(prompt.contains("\"issue_number\":42"))
+        assertTrue(prompt.contains("proceed primary-only"))
+        assertTrue(prompt.contains("do not merge"))
+        assertFalse(prompt.contains("old plan and private content"))
+        assertFalse(prompt.contains("previous answer proposed"))
+        assertFalse(prompt.contains("single corrective attempt"))
+    }
+}

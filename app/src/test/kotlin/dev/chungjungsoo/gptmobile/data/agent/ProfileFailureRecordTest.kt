@@ -42,7 +42,7 @@ class ProfileFailureRecordTest {
         assertFalse(newRejection.retryAllowed)
     }
 
-    @Test fun typedAuthorityRejectionRetainsItsActualPrecheckFactsAfterPersistence() {
+    @Test fun typedLocalRejectionRetainsItsActualPrecheckFactsAfterPersistence() {
         for (code in listOf("DISPATCH_POLICY_CHANGED", "POLICY_STALE", "STALE_INVENTORY")) {
             val details = kotlinx.serialization.json.buildJsonObject {
                 put("failed_stage", kotlinx.serialization.json.JsonPrimitive("tool_precheck"))
@@ -59,13 +59,40 @@ class ProfileFailureRecordTest {
         }
     }
 
-    @Test fun authorityCodeAndProviderProseCannotInventARejectionReceipt() {
+    @Test fun localFailureCodeAndProviderProseCannotInventARejectionReceipt() {
         for (code in listOf("DISPATCH_POLICY_CHANGED", "POLICY_STALE", "STALE_INVENTORY")) {
             val failure = ProfileFailureRecord.fromProvider("dispatched=false; No request was dispatched", code)
             assertFalse(failure.retryAllowed)
             assertEquals(null, failure.dispatched)
             assertEquals(RemoteRequestAcceptance.UNKNOWN, failure.remoteAcceptance)
         }
+    }
+
+    @Test fun inventoryPaginationAndReadinessRetainTheirOwnStagesAfterPersistence() {
+        val pending = RequiredToolReadinessFailure("ACQUISITION_PENDING", "github_ci__github_api", "Catalog acquisition is pending.")
+        val timedOut = RequiredToolReadinessFailure("ACQUISITION_TIMED_OUT", "github_ci__github_api", "Catalog acquisition timed out.")
+        for (blocked in listOf(pending, timedOut)) {
+            val record = ProfileFailureRecord.fromProvider("The connection is still selected", blocked.errorCode, blocked.failureDetails)
+            val restored = kotlinx.serialization.json.Json.decodeFromString<ProfileFailureRecord>(kotlinx.serialization.json.Json.encodeToString(ProfileFailureRecord.serializer(), record))
+            assertEquals(blocked.errorCode, restored.category)
+            assertEquals("tool_readiness", restored.phase)
+            assertEquals(false, restored.dispatched)
+            assertEquals(RemoteRequestAcceptance.NO, restored.remoteAcceptance)
+            assertEquals(blocked === timedOut, restored.retryAllowed)
+        }
+        val pagination = ProfileFailureRecord.fromProvider(
+            "Restart with the exact correction call",
+            "STALE_INVENTORY",
+            kotlinx.serialization.json.buildJsonObject {
+                put("failed_stage", kotlinx.serialization.json.JsonPrimitive("inventory_pagination"))
+                put("dispatched", kotlinx.serialization.json.JsonPrimitive(false))
+                put("retryable", kotlinx.serialization.json.JsonPrimitive(false))
+            }
+        )
+        assertEquals("inventory_pagination", pagination.phase)
+        assertEquals("STALE_INVENTORY", pagination.category)
+        assertEquals(RemoteRequestAcceptance.NO, pagination.remoteAcceptance)
+        assertFalse(pagination.retryAllowed)
     }
 
     @Test fun earlierUnknownOutcomeOutranksAConflictingAuthorityPrecheck() {

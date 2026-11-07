@@ -1,0 +1,96 @@
+{
+  "schema": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "3ac89ceafd9083f67da30e92f9f93aae27be4600",
+  "original_pr_head": "156ca471af822bc6a0619fb7395ab869d151a535",
+  "working_branch": "fix/diagnostic-remediation-8597579-2026-11-07",
+  "pull_request": 813,
+  "intent": "Implement all F01-F23 findings in the supplied diagnostic review, preserve existing branch changes, validate actual behavior, and publish to the requested branch.",
+  "state": "VALIDATED_FOR_PUBLICATION",
+  "task_store": "engineering_agent_checkpoints",
+  "task_store_key": "diagnostic-task-trust-2026-11-07",
+  "accepted_scope": [
+    "F01-F03: durable operational intent, truthful task completion, execution-aware recovery",
+    "F04-F08: discovery continuation, measured reporting, explicit aliases and follow-up continuity",
+    "F09-F15: terminal reconciliation, fixture safety, typed failures and operation evidence",
+    "F16-F21: capability caching, stream provenance, bounded rendering/export and task context",
+    "F22-F23: input lifecycle and compact diagnostic changes"
+  ],
+  "pending": [
+    "publish this F01-F23 patch and verify remote branch identity",
+    "observe required Android/CI checks on the published commit and repair relevant failures"
+  ],
+  "validation": {
+    "device": "NOT_RUN_NO_CONNECTED_DEVICE",
+    "live_account_through_app": "NOT_RUN_NO_RUNNING_APK",
+    "physical_performance": "NOT_MEASURED",
+    "canonical_fast": {
+      "passed": true,
+      "python_tests": 398,
+      "android_regex_literals": 1272,
+      "android_dynamic_patterns_not_evaluated": 75,
+      "resource_xml_files": 30
+    },
+    "changed_source_ktlint": {
+      "passed": true,
+      "files": 82
+    },
+    "gateway_focused_python": {
+      "passed": true,
+      "tests": 73
+    },
+    "gateway_focused_kotlin": {
+      "passed": true,
+      "tests": 29,
+      "scope": "current production source with explicit host dependency boundaries"
+    },
+    "diagnostic_export_core": {
+      "passed": 54,
+      "assumption_skipped": 1
+    },
+    "diagnostic_journal_coverage_draw": {
+      "passed": 28
+    },
+    "diagnostic_export_adapter": {
+      "passed": 17
+    },
+    "diagnostic_catalog_frame": {
+      "passed": 12
+    },
+    "diagnostic_heap_stress": {
+      "passed": true,
+      "heap_mib": 64,
+      "records": 20000,
+      "source_bytes": 163840000
+    },
+    "full_android_local": "NOT_RUN_JDK21_AND_SDK37_UNAVAILABLE",
+    "exact_published_head_ci": "PENDING_PUBLICATION",
+    "task_catalog_evidence_jvm": {
+      "passed": 215,
+      "production_files": 83,
+      "repository_test_files": 25,
+      "host_boundary_files": 26,
+      "source_drift": false
+    },
+    "gateway_full": {
+      "passed": 560,
+      "skipped": 1,
+      "python_suites": 49,
+      "browser_tests_passed": 7,
+      "duration_seconds": 142.698,
+      "stress_events": 50000,
+      "stress_full_sync_commits": 782,
+      "watchdogs_unchanged": true
+    }
+  },
+  "reconciled_remote_head": "423b917196419605a6c789810d3d469c55d09ce8",
+  "reconciled_remote_change": "Preserved concurrent Kotlin SQL fixture typing repair and its existing task checkpoint; fixture source matched the local repair exactly.",
+  "verification_boundaries": [
+    "Focused JVM suites compile current production implementations with explicit Android/service boundaries; full Android CI remains required.",
+    "Diagnostic suite counts overlap and must not be summed into a unique-test count.",
+    "Physical socket flush, physical display presentation, unlinked per-invocation UI paint, loaded weights and accelerator execution remain unmeasured.",
+    "Gateway content delivery remains completion_buffered for complete-result processing and tool validation."
+  ],
+  "checkpoint_semantics": "Source-validation snapshot before publication. Current branch identity, CI outcomes and PR state are authoritative in PR 813; earlier check results do not qualify a later commit."
+}

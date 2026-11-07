@@ -47,6 +47,8 @@ internal class GitHubEvidenceBook(
     private var observedHead: String? = null
     private var overflow = false
 
+    @Volatile private var taskContract: JsonObject? = null
+
     /** Stable task identity already includes account, conversation, repository and branch scope. */
     fun checkpointBinding(): String = binding
 
@@ -415,6 +417,80 @@ internal class GitHubEvidenceBook(
 
     suspend fun diagnostic(): JsonObject? = latestVerdict()?.takeIf { it["binding"] == JsonPrimitive(binding) }
 
+    /** Freeze task identity and ceilings before the first provider round, in either chat surface. */
+    suspend fun retainTaskContract(task: String, sourceMessageId: Int, tools: List<dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition>, callLimit: Int) = mutex.withLock {
+        val key = "task_contract"
+        val previous = taskContract ?: load(key)
+        if (previous != null) {
+            check(previous["binding"] == JsonPrimitive(binding) && previous["repository"] == JsonPrimitive(repository) && previous["source_message_id"] == JsonPrimitive(sourceMessageId)) {
+                "GITHUB_TASK_IDENTITY_CHANGED: The retained task belongs to a different accepted request. No operation was dispatched."
+            }
+            taskContract = previous
+            return@withLock
+        }
+        val acceptedAt = now()
+        val duration = GitHubExecutionLimits.requestedDurationMillis(task)
+        val accepted = buildJsonObject {
+            put("schema", "github.task-contract.v1")
+            put("binding", binding)
+            put("source_message_id", sourceMessageId)
+            put("repository", repository)
+            put("accepted_branch", branch)
+            put("request_digest", digest(task))
+            put("requested_actions", task)
+            put("acceptance_criteria", JsonArray(GitHubRequestCompletion.requirements(task).map(::JsonPrimitive)))
+            put("required_tool_names", JsonArray(tools.filter { it.modelVisible }.map { JsonPrimitive(it.name) }.distinct()))
+            put("accepted_at_ms", acceptedAt)
+            put("tool_call_limit", callLimit.coerceAtLeast(0))
+            duration?.let { put("deadline_at_ms", acceptedAt + it.coerceAtMost(Long.MAX_VALUE - acceptedAt)) }
+            put("receipt_store", "github-evidence:$binding")
+            put("remaining_work_store", "verification_current_" + digest(binding).take(24))
+            put("cleanup_policy", "Owned fixtures remain obligations until their deletion is verified; unknown writes require reconciliation before retry.")
+            put("completion_policy", "Invocation, response delivery and task acceptance are independent. Only verified criteria complete the task.")
+        }
+        save(key, accepted)
+        // Temporary chats intentionally omit persistent workspace rows. They still
+        // obey this invocation's accepted deadline and cannot silently renew it.
+        taskContract = accepted
+    }
+
+    suspend fun remainingTaskMillis(): Long? = ((taskContract ?: load("task_contract"))?.get("deadline_at_ms") as? JsonPrimitive)?.longOrNull
+        ?.let { (it - now()).coerceAtLeast(0) }
+
+    suspend fun acceptedTaskRequest(): String? = ((taskContract ?: load("task_contract"))?.get("requested_actions") as? JsonPrimitive)?.contentOrNull
+
+    /** One bounded delivery snapshot, separate from immutable operation receipts and their verdict. */
+    suspend fun retainAnswer(text: String, verdict: JsonObject) {
+        require(text.isNotBlank() && text.length <= 1_048_576)
+        val receiptDigest = digest(snapshot().first.keys.sorted().joinToString("\n"))
+        saveCurrent(
+            "answer",
+            buildJsonObject {
+                put("schema", "github.saved-answer.v1")
+                put("binding", binding)
+                put("text", text)
+                put("text_sha256", digest(text))
+                put("receipt_set_digest", receiptDigest)
+                put("verdict", verdict)
+            }
+        )
+    }
+
+    suspend fun retainedAnswer(): Pair<String, JsonObject>? {
+        val saved = load("answer_current_" + digest(binding).take(24)) ?: return null
+        val text = (saved["text"] as? JsonPrimitive)?.contentOrNull ?: return null
+        val verdict = saved["verdict"] as? JsonObject ?: return null
+        if (saved["binding"] != JsonPrimitive(binding) ||
+            text.isBlank() ||
+            text.length > 1_048_576 ||
+            saved["text_sha256"] != JsonPrimitive(digest(text)) ||
+            saved["receipt_set_digest"] != JsonPrimitive(digest(snapshot().first.keys.sorted().joinToString("\n")))
+        ) {
+            return null
+        }
+        return text to verdict
+    }
+
     suspend fun retainPolicy(revision: String, tools: List<dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition>) {
         val policy = buildJsonObject {
             put("schema", "github.policy-snapshot.v1")
@@ -570,7 +646,7 @@ internal class GitHubEvidenceBook(
     }
 
     companion object {
-        fun currentSnapshot(id: String): Boolean = id.matches(Regex("(?:verification|checklist)_current_[a-f0-9]{24}"))
+        fun currentSnapshot(id: String): Boolean = id.matches(Regex("(?:verification|checklist|answer)_current_[a-f0-9]{24}"))
 
         /** Preparing a verdict does not prove that its visible delivery completed. */
         fun publishedChecklistDigest(checkpoint: JsonObject?): JsonPrimitive? =

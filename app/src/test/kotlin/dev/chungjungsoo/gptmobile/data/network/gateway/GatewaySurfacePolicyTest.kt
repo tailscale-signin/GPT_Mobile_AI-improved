@@ -47,4 +47,18 @@ class GatewaySurfacePolicyTest {
         assertNull(policy.rememberedStatus("selected", GatewaySurfacePolicy.Surface.CAPABILITIES))
         assertEquals(404, policy.rememberedStatus("other", GatewaySurfacePolicy.Surface.CAPABILITIES))
     }
+
+    @Test fun explicitAdministrativeRestrictionSurvivesTimeUntilRouteIdentityOrReconnectChanges() {
+        var now = 0L
+        val policy = GatewaySurfacePolicy({ now }, ttlMillis = 100)
+        val route = "route|credential|network|instance|revision"
+        for (surface in listOf(GatewaySurfacePolicy.Surface.PROPS, GatewaySurfacePolicy.Surface.HEALTH)) {
+            policy.observe(route, surface, 403, "remote_surface_not_admitted")
+            now += 86_400_000L
+            assertEquals(403, policy.rememberedStatus(route, surface))
+            assertNull(policy.rememberedStatus("$route-new-revision", surface))
+            policy.invalidate(route, surface)
+            assertNull(policy.rememberedStatus(route, surface))
+        }
+    }
 }

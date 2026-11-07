@@ -78,7 +78,7 @@ internal class GatewayTerminalRecovery(private val api: GatewayAPI) {
         val reported = (rejection["job_id"] as? JsonPrimitive)?.contentOrNull
         val bound = requested?.matches(Regex("[A-Za-z0-9_-]{1,128}")) == true && requested == reported && (responseJobId == null || responseJobId == requested)
         val saved = if (bound) api.getJobResult(requireNotNull(requested), config) else null
-        val verified = saved?.takeIf { it.jobId == requested && it.matchesRequestedModel(model) }
+        val verified = saved?.takeIf { it.jobId == requested && (it.job?.jobId == null || it.job.jobId == requested) && it.matchesRequestedModel(model) }
         val disposition = verified?.recoveryDisposition ?: GatewayResultDisposition.UNAVAILABLE
         val retainedText = verified?.takeIf { it.status.lowercase() in setOf("completed", "failed", "cancelled", "canceled", "interrupted") }?.recoverableContent
         val original = verified?.savedFailure()
@@ -92,16 +92,18 @@ internal class GatewayTerminalRecovery(private val api: GatewayAPI) {
                 null
             } else {
                 ErrorDetail(
-                    message = original?.message ?: when (disposition) {
-                        GatewayResultDisposition.PARTIAL -> "The gateway saved a partial answer. That text was recovered; the terminal job was not restarted. Resume only its unfinished work."
-                        GatewayResultDisposition.FAILED -> "The saved gateway job ended without a complete answer. Its terminal result was read; the request was not replayed."
-                        else -> "The terminal gateway job has no verified complete result available on this connection. Reconnect to its saved job; the request was not replayed."
+                    message = original?.message ?: when {
+                        !bound -> "The gateway rejected continuation, but this response did not identify a verified saved job. Check the connection and saved task history; no request or tool action was replayed."
+                        disposition == GatewayResultDisposition.PARTIAL -> "The gateway saved a partial answer. That text was recovered; the terminal job was not restarted. Resume only its unfinished work."
+                        disposition == GatewayResultDisposition.FAILED -> "The saved gateway job ended without a complete answer. Its terminal result was read; the request was not replayed."
+                        else -> "The gateway job $requested could not be reconciled with a verified complete result on this connection. Reconnect and check that job's saved result; the request was not replayed."
                     },
                     code = original?.code ?: "TERMINAL_JOB_NOT_RESUMABLE",
                     type = original?.type ?: "gateway_terminal_result",
                     retryable = false,
                     failureDetails = JsonObject(
                         (original?.failureDetails ?: rejection) + mapOf(
+                            "recovery_identity_verified" to JsonPrimitive(bound),
                             "retryable" to JsonPrimitive(false),
                             "recovery_code" to JsonPrimitive("TERMINAL_JOB_NOT_RESUMABLE"),
                             "recovery_http_status" to JsonPrimitive(httpStatus),

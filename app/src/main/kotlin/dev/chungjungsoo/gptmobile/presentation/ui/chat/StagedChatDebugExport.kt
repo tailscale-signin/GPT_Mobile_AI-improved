@@ -7,6 +7,8 @@ import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.diagnostics.AndroidDiagnosticExportMemory
 import dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder
+import dev.chungjungsoo.gptmobile.data.diagnostics.CapturedJournalTimeline
+import dev.chungjungsoo.gptmobile.data.diagnostics.CapturedJournalTimelineFailure
 import dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticCaptureLogSnapshot
 import dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticCaptureOptions
 import dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticCaptureResult
@@ -39,7 +41,7 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.encodeToJsonElement
 import kotlinx.serialization.json.put
 
-internal fun diagnosticCaptureIdentity(chatId: Int): String = "${BuildConfig.APPLICATION_ID}:$chatId:${BuildConfig.APP_COMMIT}:staged-v3"
+internal fun diagnosticCaptureIdentity(chatId: Int): String = "${BuildConfig.APPLICATION_ID}:$chatId:${BuildConfig.APP_COMMIT}:staged-v4"
 
 /** UI snapshots are small references; history comes from bounded database/file producers. */
 internal suspend fun writeStagedChatDiagnostics(
@@ -71,6 +73,11 @@ internal suspend fun writeStagedChatDiagnostics(
                 stillAuthorized()
             },
             onSessionReady = { sessionDirectory = it },
+            traceStage = { stage ->
+                val trace = dev.chungjungsoo.gptmobile.data.diagnostics.CombinedOperationTrace.begin("diagnostic_$stage", dev.chungjungsoo.gptmobile.data.diagnostics.CombinedOperationOwner(screen = "DiagnosticExport"))
+                val finish: () -> Unit = { dev.chungjungsoo.gptmobile.data.diagnostics.CombinedOperationTrace.end(trace) }
+                finish
+            },
             resumable = !room.isTemporary,
             deferArchiveHandoff = !room.isTemporary
         )
@@ -180,6 +187,7 @@ internal suspend fun writeStagedChatDiagnostics(
                         put("recordChunking", "diagnostic_record_chunk records reassemble by recordId/chunkIndex; verify each chunkSha256 and the recordSha256 over concatenated UTF-8 content before parsing JSON.")
                         put("captureParts", "All chunks of a logical record stay in one archive part. Resume advances frozen database table cursors and references earlier archive/section digests; retain previous parts to reconstruct complete captured history.")
                         put("timelineKeys", "Journal eventId/runId/invocationId and database run_id/parentRunId/call_id join source records. Sequence orders each journal stream; stage intervals qualify cross-section comparisons.")
+                        put("drawTimingScope", "Measured FIRST_VISIBLE_TEXT records observe Compose drawContent completion for the owned run/fence/part, with processSession and monotonicNanos. They do not confirm display presentation or identify the provider invocation that supplied verified/synthesized output; per-HTTP first_ui_paint_ms remains unmeasured without explicit lineage.")
                         put("sourceDigests", "Record digests describe their original stored representations. Credential redaction can change text; stage file hashes certify the bytes in this export.")
                         put("logSnapshotScope", "Logs are frozen independently per log section and capture session, then retained for interrupted stages. Resume does not replace captured evidence after ring rotation. Start a new capture to collect newer logs.")
                         put("profileScope", "Current configured profiles; actual routing evidence is in runs and invocations, not inferred from settings.")
@@ -209,6 +217,11 @@ internal suspend fun writeStagedChatDiagnostics(
                     } else {
                         sink.emit(json.encodeToJsonElement(profile.copy(token = null, secretRef = null)))
                     }
+                }
+            },
+            DiagnosticCaptureStage("tool_catalog", "tool-catalog.jsonl", lowMemorySafe = true, refreshOnResume = true) { sink ->
+                dev.chungjungsoo.gptmobile.data.agent.ToolCatalogDiagnostics.snapshot().forEach { row ->
+                    sink.emit(row, evidence = row["kind"] == JsonPrimitive("tool_catalog_stage"))
                 }
             }
         )
@@ -276,13 +289,13 @@ internal suspend fun writeStagedChatDiagnostics(
                 }, { sink.omit(it) })
             }
         }
-        stages += DiagnosticCaptureStage("timeline", "timeline.jsonl") { sink ->
+        stages += DiagnosticCaptureStage("timeline", "timeline.jsonl", refreshOnResume = true) { sink ->
             sink.emit(
                 buildJsonObject {
                     put("kind", "timeline_coverage")
                     put("sources", "agent_runs,tool_events,model_invocations,run_journal")
                     put("ordering", "Streaming source order; sort timestampMillis then eventId for display. Journal streamId/sequence is authoritative within each stream.")
-                    put("consistency", "Each source is observed independently at a frozen row or sequence boundary. A terminal parent with a RUNNING child requires lifecycle reconciliation; it is not proof of a stuck request.")
+                    put("consistency", "Database sources have independent frozen row boundaries. Journal observations are projected from the exact verified run-journal.jsonl in this capture, without reopening the live journal. A terminal parent with a RUNNING child requires lifecycle reconciliation; it is not proof of a stuck request.")
                 },
                 evidence = false
             )
@@ -293,25 +306,23 @@ internal suspend fun writeStagedChatDiagnostics(
                 val event = DiagnosticTimeline.database(row, System.currentTimeMillis())
                 if (event == null) sink.omit("TIMELINE_SOURCE_UNAVAILABLE") else sink.emit(event)
             }, { sink.omit(it) }, metadata = { sink.emit(it, evidence = false) })
-            val journal = RunDiagnostics.journal
-            if (journal == null) {
-                sink.omit("RUN_JOURNAL_UNAVAILABLE")
-            } else {
-                database.capture(room.id, "run_index", maximumCharacters, {
-                    authorized()
-                    sink.checkBudget()
-                }, { row ->
-                    val runId = ((row["fields"] as? JsonObject)?.get("run_id") as? JsonPrimitive)?.contentOrNull
-                    if (runId == null) {
-                        sink.omit("RUN_JOURNAL_ID_UNAVAILABLE")
-                    } else {
-                        val coverage = journal.stream(runId, {
+            try {
+                // One rollback boundary prevents a damaged captured journal from
+                // contributing apparently valid timeline events before its final hash check.
+                sink.logicalRecord {
+                    val coverage = CapturedJournalTimeline.stream(
+                        checkNotNull(sessionDirectory),
+                        beforeRead = {
                             authorized()
                             sink.checkBudget()
-                        }) { sink.emit(DiagnosticTimeline.journal(it)) }
-                        if (coverage.missingSequences > 0 || coverage.missingBatches > 0 || coverage.unreadableCheckpoints > 0 || coverage.unknownTailStreams > 0 || coverage.storageFailed) sink.omit("TIMELINE_JOURNAL_COVERAGE_INCOMPLETE")
-                    }
-                }, { sink.omit(it) })
+                        },
+                        consume = { row, evidence -> sink.emit(row, evidence, projected = true) },
+                        omitted = { sink.omit(it) }
+                    )
+                    sink.emit(coverage, evidence = false, projected = true)
+                }
+            } catch (failure: CapturedJournalTimelineFailure) {
+                sink.omit(failure.code)
             }
         }
         stages += DiagnosticCaptureStage("runtime_incidents", "runtime-incidents.jsonl", lowMemorySafe = true, emptyReason = "NO_RETAINED_RUNTIME_INCIDENTS") { sink ->

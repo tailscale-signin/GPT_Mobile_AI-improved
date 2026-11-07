@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.readiness
 
+import dev.chungjungsoo.gptmobile.data.agent.explicitlyRequiredToolNames
 import java.util.Locale
 
 internal enum class PreparationKind { DIRECT, CONTEXTUAL, REQUIRED_WORK }
@@ -11,7 +12,7 @@ internal data class PreparationPlan(val kind: PreparationKind, val optionalBudge
 /** Whole accepted message only. Readiness never overrides a required workflow or recovery. */
 internal object SendPreparationPlanner {
     fun classify(text: String, hasAttachments: Boolean = false, hasHistory: Boolean = false, requiredWorkflow: Boolean = false, recovery: Boolean = false, synthesis: Boolean = false): PreparationPlan {
-        if (requiredWorkflow || hasAttachments || recovery || synthesis) return PreparationPlan(PreparationKind.REQUIRED_WORK, 0)
+        if (requiredWorkflow || hasAttachments || recovery || synthesis || explicitlyRequiredToolNames(text).isNotEmpty()) return PreparationPlan(PreparationKind.REQUIRED_WORK, 0)
         val normalized = text.replace(Regex("[\\p{Z}\\s]+"), " ").trim().trim('!', '.', '?').trim().lowercase(Locale.ROOT)
         val direct = normalized in setOf("hi", "hello", "hey", "good morning", "good afternoon", "good evening", "thanks", "thank you")
         return PreparationPlan(if (direct) PreparationKind.DIRECT else PreparationKind.CONTEXTUAL, if (direct) 0 else 250)

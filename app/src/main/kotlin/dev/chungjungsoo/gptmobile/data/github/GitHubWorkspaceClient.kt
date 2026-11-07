@@ -254,7 +254,7 @@ class GitHubWorkspaceClient(
                     put("number", number)
                 }
             )
-            return GitHubHeaderQuery.normalize(response, pullRequest)
+            return GitHubHeaderQuery.normalize(response, pullRequest, args)
         }
         val ref = field("commit_sha").ifBlank { field("ref").ifBlank { field("branch") } }
         if (action in setOf("resolve_context", "task_context", "index_status", "build_index", "workflow_catalog", "search_repository", "read_ranges", "stage_patch", "commit_staged_patch", "changed_since", "recovery_context")) {

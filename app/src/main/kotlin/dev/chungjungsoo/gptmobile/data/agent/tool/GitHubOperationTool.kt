@@ -63,7 +63,18 @@ internal class GitHubOperationTool(
         }
         dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("GitHubToolTrace", "GITHUB_TOOL_COMPLETED · trace=$trace")
         val incident = result.executionReceipt?.get("incident_id") ?: JsonPrimitive("github:" + dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore.digest(scope + "|" + callId).take(24))
-        return result.copy(executionReceipt = JsonObject(result.executionReceipt.orEmpty() + mapOf("tool_trace" to trace, "incident_id" to incident)))
+        return result.copy(
+            executionReceipt = JsonObject(
+                result.executionReceipt.orEmpty() + buildJsonObject {
+                    put("tool_trace", trace)
+                    put("incident_id", incident)
+                    put("model_tool_name", definition.name)
+                    put("original_arguments", dev.chungjungsoo.gptmobile.data.github.GitHubArgumentProvenance.sanitize(arguments))
+                    put("argument_provenance", "SANITIZED_BOUNDED_PROJECTION")
+                    if ("resolved_arguments" !in result.executionReceipt.orEmpty()) put("resolved_arguments", kotlinx.serialization.json.JsonNull)
+                }
+            )
+        )
     }
 
     private suspend fun executeOperation(callId: String, arguments: JsonObject): AgentToolResult {
@@ -260,7 +271,14 @@ internal class GitHubOperationTool(
                 dispatched = false
             )
         }
-        val original = backend.execute(callId, native)
+        val executed = backend.execute(callId, native)
+        val original = executed.copy(
+            executionReceipt = JsonObject(
+                executed.executionReceipt.orEmpty() + buildJsonObject {
+                    put("resolved_arguments", dev.chungjungsoo.gptmobile.data.github.GitHubArgumentProvenance.sanitize(native))
+                }
+            )
+        )
         val validation = ((original.content as? ToolResultContent.Json)?.value as? JsonObject)
             ?.takeIf { original.isError && it["schema"] in setOf(JsonPrimitive("github.read_validation.v1"), JsonPrimitive("github.ref-admission.v1"), JsonPrimitive("github.repository-admission.v1")) }
         var result = if (validation != null) {

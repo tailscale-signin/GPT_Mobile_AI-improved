@@ -42,6 +42,14 @@ data class ChatCompletionChunk(
     val timings: ChatCompletionTimings? = null,
     @SerialName("gateway_timing")
     val gatewayTiming: GatewayGenerationTiming? = null,
+    @SerialName("gateway_provenance")
+    val gatewayProvenance: GatewayGenerationProvenance? = null,
+
+    @SerialName("gateway_delivery")
+    val gatewayDeliveryTiming: GatewayDeliveryTiming? = null,
+
+    @kotlinx.serialization.Transient
+    val providerResponseTiming: dev.chungjungsoo.gptmobile.data.network.ProviderResponseTiming? = null,
 
     // Transport-owned signal: only an explicit SSE [DONE], never an arbitrary socket EOF.
     @Transient
@@ -305,7 +313,10 @@ data class GatewayGenerationTiming(
     @SerialName("backend_first_output_ms") val firstOutputMs: Double? = null,
     @SerialName("backend_first_visible_output_ms") val firstVisibleOutputMs: Double? = null,
     @SerialName("backend_first_reasoning_output_ms") val firstReasoningOutputMs: Double? = null,
-    @SerialName("backend_completion_ms") val completionMs: Double? = null
+    @SerialName("backend_completion_ms") val completionMs: Double? = null,
+    @SerialName("backend_response_headers_ms") val responseHeadersMs: Double? = null,
+    @SerialName("backend_first_event_ms") val firstEventMs: Double? = null,
+    @SerialName("delivery_mode") val deliveryMode: String? = null
 ) {
     fun observedFields(): Map<String, Double> = if (measurementScope != "physical_backend_request") {
         emptyMap()
@@ -314,7 +325,9 @@ data class GatewayGenerationTiming(
             "backend_first_output_ms" to firstOutputMs,
             "backend_first_visible_output_ms" to firstVisibleOutputMs,
             "backend_first_reasoning_output_ms" to firstReasoningOutputMs,
-            "backend_completion_ms" to completionMs
+            "backend_completion_ms" to completionMs,
+            "backend_response_headers_ms" to responseHeadersMs,
+            "backend_first_event_ms" to firstEventMs
         ).mapNotNull { (name, value) -> value?.takeIf { it.isFinite() && it in 0.0..86_400_000.0 }?.let { name to it } }.toMap()
     }
 }

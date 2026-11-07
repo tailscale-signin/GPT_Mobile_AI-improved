@@ -95,10 +95,14 @@ class RunDiagnosticJournalTest {
             enabled = true
             setRunPrivacy("answer", false)
         }
-        repeat(3) { journal.record("answer", RunDiagnosticKind.FIRST_VISIBLE_TEXT, fence = 1) }
-        journal.record("answer", RunDiagnosticKind.FIRST_VISIBLE_TEXT, fence = 2)
+        repeat(3) { journal.firstVisibleDraw(OutputTraceOwner("answer", 1, "0:pending")) }
+        journal.firstVisibleDraw(OutputTraceOwner("answer", 2, "0:1"))
         val snapshot = journal.snapshot(setOf("answer"))
-        assertEquals(listOf(1L, 2L), snapshot.events.filter { it.kind == RunDiagnosticKind.FIRST_VISIBLE_TEXT }.map { it.fence })
+        val draws = snapshot.events.filter { it.kind == RunDiagnosticKind.FIRST_VISIBLE_TEXT }
+        assertEquals(listOf(1L, 2L), draws.map { it.fence })
+        assertTrue(draws.all { it.measured == true && it.invocationId == null && it.elapsedMillis == null && it.monotonicNanos != null })
+        assertEquals(outputTracePartId("0:pending"), draws.first().outputPartId)
+        assertEquals("0:1", draws.last().outputPartId)
     }
 
     @Test fun outputTracingStoresRepresentationBoundFingerprintsWithoutContentOrPrivateRuns() = runTest {

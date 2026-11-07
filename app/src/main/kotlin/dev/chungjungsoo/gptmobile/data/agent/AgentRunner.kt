@@ -855,13 +855,15 @@ class AgentRunner(
         var schemaTokens = selectedSchemas.filter { it.name in executableToolByName }.sumOf { ProgressiveToolCatalog.schemaTokens(it).toLong() }
         val contextWithoutInitialSchemas = (limits.initialContextTokens.toLong() - initialSchemaTokens).coerceAtLeast(0)
         val schemaAllowance = minOf(ProgressiveToolCatalog.MAX_SCHEMA_TOKEN_ALLOWANCE.toLong(), (limits.contextTokens.toLong() - contextWithoutInitialSchemas - replayTokens - limits.finalResponseReserveTokens).coerceAtLeast(0))
+        val omitted = linkedMapOf<String, String>()
         val admitted = additions.filter { tool ->
             val cost = ProgressiveToolCatalog.schemaTokens(tool.definition)
             val fits = tool.definition.name in selectedNames && schemaTokens + cost <= schemaAllowance
             if (fits) schemaTokens += cost
-            if (!fits) AppLogRecorder.record("ToolCatalog", "TOOL_OMITTED · stage=dynamic_admission · name=${tool.definition.name} · reason=${if (tool.definition.name !in selectedNames) "CATALOG_NOT_SELECTED" else "REMAINING_CONTEXT_BUDGET"} · schemaTokens=$cost · schemaAllowance=$schemaAllowance")
+            if (!fits) omitted[tool.definition.name] = if (tool.definition.name !in selectedNames) "CATALOG_NOT_SELECTED" else "REMAINING_CONTEXT_BUDGET"
             fits
         }
+        ToolCatalogDiagnostics.recordOmissions("dynamic_admission", omitted, schemaAllowance, inventoryNames = additions.map { it.definition.name })
         if (admitted.size < additions.size) emit(AgentRunEvent.Notice("Some discovered tool schemas exceed the remaining context allowance. Existing conversation context was preserved.", persistent = false))
         return ToolCatalogUpdate(executableToolByName + admitted.associateBy { it.definition.name }, (exposedDefinitions + admitted.map { it.definition }).distinctBy { it.name })
     }

@@ -52,7 +52,7 @@ class GatewayResultRecoveryTest {
         val failure = json.parseToJsonElement("""{"code":"terminal_job_not_resumable","job_id":"saved"}""").jsonObject
         val config = ProviderRequestConfig("https://gateway.test/v1", "secret", extraHeaders = mapOf("X-Gateway-Job-ID" to "saved"))
         val saved = GatewayJobResult("saved", "completed", "Recovered answer", "complete", job = GatewaySavedJob("selected"))
-        for (candidate in listOf(saved, saved.copy(jobId = "other"), saved.copy(job = GatewaySavedJob("other")), null)) {
+        for (candidate in listOf(saved, saved.copy(jobId = "other"), saved.copy(job = GatewaySavedJob("other")), saved.copy(job = GatewaySavedJob("selected", jobId = "different-job")), null)) {
             coEvery { api.getJobResult("saved", config) } returns candidate
             val recovered = requireNotNull(recovery.read(409, failure, config, "selected", "saved"))
             if (candidate == saved) {
@@ -143,6 +143,22 @@ class GatewayResultRecoveryTest {
         val result = recovery.read(409, failure, config, "selected", null)
         assertEquals("TERMINAL_JOB_NOT_RESUMABLE", result?.error?.code)
         assertTrue(result?.choices.isNullOrEmpty())
+        coVerify(exactly = 0) { api.getJobResult(any(), any()) }
+    }
+
+    @Test fun missingOrConflictingJobIdentityHasReadableExplanationWithoutInventingSavedJob() = runTest {
+        val api = mockk<GatewayAPI>()
+        val recovery = GatewayTerminalRecovery(api)
+        for ((headers, reported) in listOf(emptyMap<String, String>() to "saved", mapOf("X-Gateway-Job-ID" to "saved") to "different-job")) {
+            val config = ProviderRequestConfig("https://gateway.test/v1", "secret", extraHeaders = headers)
+            val failure = json.parseToJsonElement("""{"code":"terminal_job_not_resumable","job_id":"$reported"}""").jsonObject
+            val recovered = requireNotNull(recovery.read(409, failure, config, "selected", null))
+            assertNull(recovered.gatewayMetadata)
+            assertTrue(recovered.choices.isNullOrEmpty())
+            assertTrue(recovered.error!!.message.contains("did not identify a verified saved job"))
+            assertEquals(kotlinx.serialization.json.JsonPrimitive(false), recovered.error!!.failureDetails?.get("recovery_identity_verified"))
+            assertFalse(recovered.error!!.retryable == true)
+        }
         coVerify(exactly = 0) { api.getJobResult(any(), any()) }
     }
 }

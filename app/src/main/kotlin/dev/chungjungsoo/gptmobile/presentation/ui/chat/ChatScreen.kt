@@ -2253,12 +2253,18 @@ fun ChatInputBox(
     LaunchedEffect(chatEnabled) {
         if (!chatEnabled) releaseComposerInput()
     }
+    LaunchedEffect(isRunning) {
+        // A run may start through a quick action or a restored request. Release
+        // the previous editor session once; a new draft may still be typed while it runs.
+        if (isRunning) releaseComposerInput()
+    }
     val haptic = dev.chungjungsoo.gptmobile.presentation.common.rememberAppHaptic()
     var composerNotice by remember { mutableStateOf("") }
     val sendAction = {
         if (chatEnabled && sendButtonEnabled && (inputState.text.isNotEmpty() || selectedAttachments.isNotEmpty())) {
             haptic(dev.chungjungsoo.gptmobile.presentation.common.AppHaptic.CONFIRMATION)
             composerNotice = "Sending message"
+            releaseComposerInput()
             onSendButtonClick()
         }
     }

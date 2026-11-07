@@ -182,4 +182,30 @@ class GitHubIntegrationAcceptanceTest {
         assertTrue(bounded.contains("Budget remaining: 2"))
         assertTrue(bounded.contains("VERIFICATION_RESERVE_REACHED"))
     }
+
+    @Test fun discoveryCountsCannotBeSuppliedByPayloadAndIncludeOnlyRetainedReceipts() {
+        val observed = catalog(0, 2)
+        val payload = observed.getValue("result").jsonObject
+        val poisonedCounts = JsonObject(observed + ("result" to JsonObject(payload + ("coverage" to json("""{"successful_calls":87,"dispatched_calls":87,"pages":9}""")))))
+        val records = mapOf("only-receipt" to poisonedCounts)
+        val state = GitHubAuthorizedCatalog.snapshot(records, tools)
+        assertEquals(JsonPrimitive(1), state["discovery_calls_observed"])
+        assertEquals(JsonPrimitive(1), state["discovery_calls_succeeded"])
+        assertEquals(JsonPrimitive(1), state["inventory_pages_verified"])
+        assertEquals(JsonPrimitive(false), state["complete"])
+        val report = GitHubIntegrationReport.render(task, records, tools)
+        assertTrue(report.contains("Discovery: 1/1 retained calls succeeded; 1 version-bound pages verified"))
+        assertFalse(report.contains("87"))
+        assertFalse(report.contains("9 pages"))
+    }
+
+    @Test fun staleCatalogOffersOneExactReadRestartWithoutAuthorityChanges() {
+        fun stale(id: String) = JsonObject(receipt(id, GitHubAuthorizedCatalog.TOOL, json("""{"inventory_cursor":0,"inventory_version":"1"}"""), json("""{"schema":"tools.inventory-restart.v1","error_code":"STALE_INVENTORY","permissions_changed":false,"restart_offered":true,"correction_call":{"tool":"discover_available_tools","arguments":{}}}"""), "LOCAL") + mapOf("success" to JsonPrimitive(false), "error_code" to JsonPrimitive("STALE_INVENTORY")))
+        val records = linkedMapOf("bad-first" to stale("bad-first"))
+        val next = requireNotNull(GitHubAuthorizedCatalog.next(tools, records))
+        assertEquals(JsonObject(emptyMap()), next.arguments)
+        assertTrue(next.callId.startsWith("catalog-restart-"))
+        records["bad-second"] = stale("bad-second")
+        assertNull(GitHubAuthorizedCatalog.next(tools, records))
+    }
 }

@@ -61,6 +61,8 @@ internal object GitHubIntegrationReport {
         append("**Task outcome: ${if (complete) "acceptance verified" else "partial acceptance"}.** $accepted/${criteria.size} requested criteria verified. ")
         append("$exercised/${activeNames.size} known authorized GitHub tools have live observations. ")
         append(if (catalog["denominator_final"] == JsonPrimitive(true)) "The authorized catalog is complete.\n\n" else "The all-tools denominator remains provisional until authorized catalog discovery is exhausted.\n\n")
+        append("Discovery: ${catalog.text("discovery_calls_succeeded")}/${catalog.text("discovery_calls_observed")} retained calls succeeded; ${catalog.text("inventory_pages_verified")} version-bound pages verified. ")
+        append("${catalog.text("observed_tool_count")} authorized tool names observed, including ${catalog.text("observed_github_tool_count")} GitHub tools. Inventory discovery does not establish tool execution or operation verification.\n\n")
         append("### Tool outcomes\n\n| Outcome | Tools | Meaning |\n| --- | ---: | --- |\n")
         linkedMapOf(
             "PASSED" to "Every requested action of this tool has a qualifying response; execution scope is recorded per capability.",

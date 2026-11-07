@@ -26,6 +26,7 @@ import uvicorn
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
+from gateway_stream_observation import ObservedCompletionStream
 from gateway_security import DeviceAuthentication, current_device, device_store
 from gateway_v13_transport import backend_template_failure, post_chat as v13_post_chat
 from v14.inference_execution import before_physical_dispatch, observe_physical_response, selected_dispatch_headers
@@ -19432,7 +19433,7 @@ async def chat_completions(
     # waiting for the model/tool loop to finish. The generator
     # sends keepalive chunks while that work continues.
     if wants_stream:
-        return StreamingResponse(
+        return ObservedCompletionStream(
             stream_chat_with_keepalive(
                 incoming_payload,
                 gateway_job_id,

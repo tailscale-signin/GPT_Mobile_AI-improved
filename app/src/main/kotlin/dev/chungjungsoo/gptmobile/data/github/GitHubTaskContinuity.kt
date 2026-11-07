@@ -2,6 +2,9 @@ package dev.chungjungsoo.gptmobile.data.github
 
 /** Only explicit controls and equivalent integration-test requests may reuse the active task. */
 internal object GitHubTaskContinuity {
+    private fun normalized(text: String): String = request(text).lowercase(java.util.Locale.ROOT)
+        .trimEnd('.', '!', '?').trim().replace(Regex("\\s+"), " ").removePrefix("please ")
+
     /** Strip only the exact workspace header emitted by GitHubProgrammerViewModel. */
     fun request(text: String): String = text.trim().replaceFirst(
         Regex("^GitHub workspace: [^\\s/]+/[^\\s/]+\\r?\\nBranch: [^\\r\\n]+\\r?\\n\\r?\\n"),
@@ -22,12 +25,27 @@ internal object GitHubTaskContinuity {
         "^Commit ([a-fA-F0-9]{40}) was approved and published\\. Continue from the saved task using this exact commit\\. Subscribe with github_watch_checks when CI is pending; do not repeat the commit\\.$"
     ).matchEntire(request(text))?.groupValues?.get(1)?.lowercase(java.util.Locale.ROOT)
 
-    fun control(text: String): Boolean = request(text).lowercase(java.util.Locale.ROOT).trimEnd('.', '!', '?').trim() in
-        setOf("test again", "retest", "continue", "continue run", "continue response", "resume", "proceed", "retry", "retry failed stage", "try again") ||
+    fun control(text: String): Boolean = normalized(text) in
+        setOf(
+            "test again", "retest", "continue", "continue research", "continue run", "continue response", "resume", "proceed",
+            "retry", "retry full", "retry failed stage", "try again", "proceed primary-only", "proceed primary only",
+            "continue primary-only", "continue primary only", "primary-only"
+        ) ||
         publishedCommit(text) != null
 
-    fun followUp(text: String): Boolean = request(text).lowercase(java.util.Locale.ROOT).trimEnd('.', '!', '?') in
-        setOf("yes", "yes please", "do it", "fix", "fix it", "fix them", "apply the fixes", "implement the fixes")
+    fun followUp(text: String): Boolean = normalized(text) in
+        setOf(
+            "yes", "yes please", "do it", "fix", "fix it", "fix them", "apply the fixes", "implement the fixes",
+            "finish", "finish it", "finish the task", "finish the work", "finalize", "complete the task",
+            "do the remaining work", "do all remaining work", "finish the remaining work", "complete the remaining work",
+            "continue the work", "proceed with the remaining work", "go ahead"
+        )
+
+    /** A request for the saved report authorizes delivery, not another mutation or test run. */
+    fun reportOnly(text: String): Boolean = normalized(text) in
+        setOf("show the report", "show the full report", "give me the full report", "show me the full report", "full report", "show the results", "summarize the results", "retry writing", "resume writing", "continue writing")
+
+    fun continuation(text: String): Boolean = control(text) || followUp(text) || reportOnly(text) || diagnostic(text)
 
     fun resolved(current: String, previous: String): String {
         if (!followUp(current) || previous.isBlank()) return request(current)
@@ -36,12 +54,12 @@ internal object GitHubTaskContinuity {
     }
 
     fun reuse(current: String, previous: String): Boolean = previous.isNotBlank() &&
-        followUp(current) ||
-        diagnostic(current) ||
-        control(current) ||
-        GitHubTestChecklist.integration(request(current)) &&
-        GitHubTestChecklist.integration(request(previous)) &&
-        !Regex("(?i)\\b(?:new|fresh|restart|start over|different)\\b").containsMatchIn(request(current))
+        (
+            continuation(current) ||
+                GitHubTestChecklist.integration(request(current)) &&
+                GitHubTestChecklist.integration(request(previous)) &&
+                !Regex("(?i)\\b(?:new|fresh|restart|start over|different)\\b").containsMatchIn(request(current))
+            )
 
     fun explain(verdict: kotlinx.serialization.json.JsonObject?, receipts: Map<String, kotlinx.serialization.json.JsonObject>): String {
         fun kotlinx.serialization.json.JsonObject.text(key: String) = (get(key) as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { it.isString }?.content.orEmpty()

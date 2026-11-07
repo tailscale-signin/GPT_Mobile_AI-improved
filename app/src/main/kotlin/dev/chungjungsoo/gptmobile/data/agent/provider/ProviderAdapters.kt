@@ -387,6 +387,8 @@ class OpenAICompatibleAdapter @Inject constructor(
         fun requestConfiguration(activeKey: String, requestTools: List<ChatFunctionTool>?, freshOnce: Boolean, llamaGatewayHeaders: Map<String, String>): ProviderRequestConfig = ProviderRequestConfig(
             apiUrl = platform.apiUrl,
             profileUid = platform.uid,
+            profileRevision = dev.chungjungsoo.gptmobile.data.context.ConfiguredDispatchAuthority.profileRevision(platform),
+            configuredProfileReasoning = platform.reasoning,
             providerType = platform.compatibleType.name,
             requestRole = constraints.requestRole ?: "primary",
             lockedModel = platform.model.takeIf { constraints.lockSelectedRoute },
@@ -794,6 +796,8 @@ class OpenAICompatibleAdapter @Inject constructor(
                         var reasoningControlSupport = "UNVERIFIED"
                         var transmitsReasoningDisable = false
                         var boundControl: String? = null
+                        var reportedControlReceipt: dev.chungjungsoo.gptmobile.data.network.ReasoningControlReceipt? = null
+                        var reportedResponseTiming: dev.chungjungsoo.gptmobile.data.network.ProviderResponseTiming? = null
                         suspend fun publishAssembly(event: ProviderEvent) {
                             if (event is ProviderEvent.Failed) {
                                 roundFailed = true
@@ -844,6 +848,10 @@ class OpenAICompatibleAdapter @Inject constructor(
                                 observedModel = chunk.model?.takeIf(String::isNotBlank) ?: observedModel
                                 observedBackend = chunk.provider?.takeIf(String::isNotBlank) ?: observedBackend
                                 chunk.reasoningControlReceipt?.let { receipt ->
+                                    if (reportedControlReceipt != receipt) {
+                                        emit(ProviderEvent.Usage(phase = ProviderUsagePhase.INITIAL, reasoningControlReceipt = receipt))
+                                        reportedControlReceipt = receipt
+                                    }
                                     reasoningControl = receipt.transmittedControl
                                     reasoningControlSupport = receipt.providerSupport
                                     transmitsReasoningDisable = receipt.transmitsDisable
@@ -868,6 +876,12 @@ class OpenAICompatibleAdapter @Inject constructor(
                                 }
                                 chunk.retryDurationMs?.let { emit(ProviderEvent.Usage(retryDurationMs = it, retryAttempts = chunk.retryAttempts, writerObservationKey = writerObservationKey)) }
                                 chunk.gatewayTiming?.takeIf { it.observedFields().isNotEmpty() }?.let { emit(ProviderEvent.Usage(gatewayTiming = it, phase = ProviderUsagePhase.INTERIM)) }
+                                chunk.gatewayProvenance?.evidence(platform.model)?.let { emit(ProviderEvent.Usage(gatewayProvenance = it, phase = ProviderUsagePhase.INTERIM)) }
+                                chunk.gatewayDeliveryTiming?.let { emit(ProviderEvent.Usage(gatewayDeliveryTiming = it, phase = ProviderUsagePhase.INTERIM)) }
+                                chunk.providerResponseTiming?.takeIf { it != reportedResponseTiming }?.let {
+                                    emit(ProviderEvent.Usage(providerResponseTiming = it, phase = ProviderUsagePhase.INTERIM))
+                                    reportedResponseTiming = it
+                                }
                                 if (chunk.streamFinished) {
                                     terminalReceived = true
                                     assembler.finish().forEach { publishAssembly(it) }

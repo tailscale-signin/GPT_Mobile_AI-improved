@@ -32,7 +32,11 @@ internal class GatewaySurfacePolicy(
         }
         if (definite) {
             if (entries.size >= 128 && key !in entries) entries.remove(entries.keys.first())
-            entries[key] = Unavailable(status, now() + ttlMillis)
+            // A gateway explicitly denying administrative surfaces will not start serving
+            // them merely because time passed. Its route/credential/network/instance
+            // identity or an explicit reconnect must change before probing again.
+            val expiresAt = if (surface == Surface.CAPABILITIES) now() + ttlMillis else Long.MAX_VALUE
+            entries[key] = Unavailable(status, expiresAt)
         } else if (status in 200..299) {
             entries.remove(key)
         }

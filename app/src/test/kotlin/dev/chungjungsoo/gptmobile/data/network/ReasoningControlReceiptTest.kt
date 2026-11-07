@@ -38,4 +38,23 @@ class ReasoningControlReceiptTest {
         assertTrue(disable.transmitsDisable)
         assertEquals("UNVERIFIED", disable.providerSupport)
     }
+
+    @Test fun requestSnapshotKeepsConfiguredIntentAndWireAcknowledgmentSeparateFromUnmeasuredEffectiveSetting() {
+        val receipt = ReasoningControlReceipt.fromPayload(
+            """{"reasoning_effort":"low"}""",
+            allowReasoning = false,
+            requestedMode = dev.chungjungsoo.gptmobile.data.context.ReasoningMode.OFF,
+            profileRevision = "a".repeat(64),
+            configuredProfileReasoning = false
+        )
+        val evidence = receipt.evidence()
+        assertEquals(kotlinx.serialization.json.JsonPrimitive("a".repeat(64)), evidence["profile_revision"])
+        assertEquals(kotlinx.serialization.json.JsonPrimitive(false), evidence["configured_profile_reasoning"])
+        assertEquals(kotlinx.serialization.json.JsonPrimitive("OFF"), evidence["requested_mode"])
+        assertEquals(kotlinx.serialization.json.JsonPrimitive("reasoning_effort=low"), evidence["serialized_control"])
+        assertEquals(kotlinx.serialization.json.JsonPrimitive(false), evidence["serialized_disable"])
+        assertEquals(kotlinx.serialization.json.JsonNull, evidence["effective_reasoning"])
+        assertEquals(kotlinx.serialization.json.JsonPrimitive("NOT_MEASURED"), evidence["effective_settings_source"])
+        assertEquals(kotlinx.serialization.json.JsonNull, receipt.copy(profileRevision = "invalid-revision").evidence()["profile_revision"])
+    }
 }

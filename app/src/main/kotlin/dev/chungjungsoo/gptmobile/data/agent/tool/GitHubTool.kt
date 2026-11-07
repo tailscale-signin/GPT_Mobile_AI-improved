@@ -1429,7 +1429,15 @@ class GitHubTool(
                 put("page", page)
                 put("per_page", perPage)
                 put("returned", values.size)
-                if (key == "workflows") put("page_ordering", "WORKFLOW_ID_ASCENDING_WITHIN_CAPTURED_PAGE")
+                if (key == "workflows") {
+                    put("page_ordering", "WORKFLOW_ID_ASCENDING_WITHIN_CAPTURED_PAGE")
+                    dev.chungjungsoo.gptmobile.data.github.GitHubWorkflowEvidence.definitionPageEvidence(
+                        values,
+                        parsed["total_count"]?.jsonPrimitive?.intOrNull,
+                        page,
+                        perPage
+                    ).forEach { (field, value) -> put(field, value) }
+                }
                 put("empty", values.isEmpty())
                 val total = parsed["total_count"]?.jsonPrimitive?.intOrNull
                 val hasMore = if (total != null) page * perPage < total else values.size == perPage

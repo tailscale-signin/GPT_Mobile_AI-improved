@@ -6,11 +6,14 @@ import org.junit.Test
 
 class GitHubTaskAcceptanceScopeTest {
     @Test fun standardChatRepositoryWorkRequiresEvidenceWhileConversationDoesNot() {
-        for (request in listOf("Test all GitHub tools", "Implement the feature and run the repository tests", "Fix the bug in app.kt")) {
+        for (request in listOf("Test all GitHub tools", "Implement the feature and run the repository tests", "Fix the bug in app.kt", "Inspect the repository", "Show workflows for the GitHub repository", "Read app.kt")) {
             assertTrue(request, requiresNativeGitHubAcceptance(request, true))
-            assertFalse(requiresNativeGitHubAcceptance(request, false))
         }
-        for (request in listOf("Hi", "Hello", "test", "test the chat", "Explain what a repository is", "Test my math skills", "Create a file in Google Drive", "List my GitHub repositories", "Find the repositories I can access on GitHub")) {
+        assertTrue(requiresNativeGitHubAcceptance("Test all GitHub tools", false))
+        assertTrue(requiresNativeGitHubAcceptance("Call github_context__github_api with action=status", false))
+        assertTrue(requiresNativeGitHubAcceptance("Use github_ci__github_api to inspect jobs", true))
+        assertFalse(requiresNativeGitHubAcceptance("Fix the bug in app.kt", false))
+        for (request in listOf("Hi", "Hello", "test", "test the chat", "Explain what a repository is", "Show me how a repository works", "Show GitHub pricing", "Test my math skills", "Create a file in Google Drive", "List my GitHub repositories", "Find the repositories I can access on GitHub")) {
             assertFalse(request, requiresNativeGitHubAcceptance(request, true))
         }
     }

@@ -70,6 +70,7 @@ object AppLogRecorder {
             reader = null
             queue.clear()
             coalescer.clear()
+            dev.chungjungsoo.gptmobile.data.agent.ToolCatalogDiagnostics.clear()
             if (mutableEnabled.value) mutableError.value = "Logging is paused for a temporary conversation. Toggle tracking after leaving it to restart Android log capture."
         } else {
             privateSessions.remove(owner)
@@ -192,6 +193,7 @@ object AppLogRecorder {
             captureEpoch.incrementAndGet()
             queue.clear()
             coalescer.clear()
+            dev.chungjungsoo.gptmobile.data.agent.ToolCatalogDiagnostics.clear()
             return
         }
         if (reader?.isActive == true || app == null || privateSessions.isNotEmpty()) return
@@ -276,6 +278,7 @@ object AppLogRecorder {
                     recent.clear()
                     recentCharacters = 0
                     coalescer.clear()
+                    dev.chungjungsoo.gptmobile.data.agent.ToolCatalogDiagnostics.clear()
                     droppedRecords.set(0)
                     droppedCriticalRecords.set(0)
                     mutableEntries.value = emptyList()

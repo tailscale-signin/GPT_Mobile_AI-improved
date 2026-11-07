@@ -283,6 +283,12 @@ private fun ChatMarkdownContent(
     }
     val parsed = rendered.parsed
     val firstDrawn = remember(outputTrace?.runId, outputTrace?.fence) { java.util.concurrent.atomic.AtomicBoolean() }
+    val contentDrawn = {
+        onContentDrawn?.invoke()
+        if (outputTrace != null && firstDrawn.compareAndSet(false, true)) {
+            dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.firstVisibleDraw(outputTrace)
+        }
+    }
     val combinedMarkdown = rendered.markdown
     val renderedDigest = rendered.contentDigest
     val profileIndex = rendered.profileIndex
@@ -674,14 +680,15 @@ private fun ChatMarkdownContent(
 
             Box(Modifier.heightIn(min = if (awaitingContent) minimumPendingHeight else 0.dp), propagateMinConstraints = true) {
                 if (formattingFailed || parserTimedOut || parserFailed) {
+                    val fallbackContent = dev.chungjungsoo.gptmobile.data.conversation.ConversationSubject.withoutMetadata(content)
                     Column(modifier) {
                         Text(
-                            dev.chungjungsoo.gptmobile.data.conversation.ConversationSubject.withoutMetadata(content),
+                            fallbackContent,
                             style = answerBodyStyle(),
                             color = normalTextColor,
                             modifier = Modifier.drawWithContent {
                                 drawContent()
-                                if (content.isNotBlank()) onContentDrawn?.invoke()
+                                if (size.width > 0 && size.height > 0 && fallbackContent.isNotBlank()) contentDrawn()
                             }
                         )
                         Text("Formatting unavailable. Your response is preserved.", modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
@@ -705,9 +712,8 @@ private fun ChatMarkdownContent(
                             animations = animations,
                             modifier = modifier.then(measurementModifier).drawWithContent {
                                 drawContent()
-                                if (interactionOwner.accepts(renderedDigest) && !awaitingContent && parserState is MarkdownParseState.Success && combinedMarkdown.isNotBlank()) {
-                                    onContentDrawn?.invoke()
-                                    if (outputTrace != null && firstDrawn.compareAndSet(false, true)) dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.record(outputTrace.runId, dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.FIRST_VISIBLE_TEXT, fence = outputTrace.fence)
+                                if (size.width > 0 && size.height > 0 && interactionOwner.accepts(renderedDigest) && !awaitingContent && parserState is MarkdownParseState.Success && combinedMarkdown.isNotBlank()) {
+                                    contentDrawn()
                                 }
                             }
                         )

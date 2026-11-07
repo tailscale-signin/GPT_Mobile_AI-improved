@@ -271,6 +271,39 @@ class MessageContractTests(unittest.TestCase):
         self.assertEqual(timing, chunks[-1]['gateway_timing'])
         self.assertEqual(result['gateway_provenance'], chunks[-1]['gateway_provenance'])
 
+    def test_delayed_backend_chunks_publish_progress_before_completion_without_claiming_live_forwarding(self):
+        events = []
+        clock = FixtureClock()
+        def stream():
+            clock.advance(0.005)
+            yield from lines({'model': 'local', 'choices': [{'delta': {'role': 'assistant'}}]}, done=False)
+            self.assertFalse(any(event['event'] == 'backend_first_output' for event in events))
+            clock.advance(0.010)
+            yield from lines({'choices': [{'delta': {'reasoning_content': 'private reasoning'}}]}, done=False)
+            self.assertTrue(any(event['event'] == 'backend_first_output' for event in events))
+            self.assertFalse(any(event['event'] == 'backend_first_visible_output' for event in events))
+            clock.advance(0.020)
+            yield from lines({'choices': [{'delta': {'content': 'Answer'}}]}, done=False)
+            self.assertTrue(any(event['event'] == 'backend_first_visible_output' for event in events))
+            clock.advance(0.025)
+            yield from lines({'choices': [{'delta': {}, 'finish_reason': 'stop'}]})
+        with patch('gateway_v13_transport.time', clock):
+            body = dict(payload(), chat_template_kwargs={'enable_thinking': False}, reasoning_effort='low')
+            result = self.run_chat(Session(Response(stream=stream())), body, progress=events.append).json()
+        timing = result['gateway_timing']
+        self.assertEqual('completion_buffered', timing['delivery_mode'])
+        self.assertEqual((0.0, 5.0, 15.0, 35.0, 60.0), tuple(timing[key] for key in (
+            'backend_response_headers_ms', 'backend_first_event_ms', 'backend_first_output_ms',
+            'backend_first_visible_output_ms', 'backend_completion_ms')))
+        provenance = result['gateway_provenance']
+        self.assertEqual({'chat_template_kwargs.enable_thinking': False, 'reasoning_effort': 'low'}, provenance['serialized_controls'])
+        self.assertEqual(64, len(provenance['backend_endpoint_digest']))
+        self.assertIsNone(provenance['effective_controls'])
+        self.assertIsNone(provenance['runtime_identity'])
+        self.assertEqual('NOT_MEASURED', provenance['effective_settings_source'])
+        self.assertIsNone(timing['first_user_visible_text_ms'])
+        self.assertNotIn('private reasoning', json.dumps(events))
+
     def test_fragmented_inline_reasoning_does_not_count_as_first_visible_answer(self):
         events = []
         clock = FixtureClock()

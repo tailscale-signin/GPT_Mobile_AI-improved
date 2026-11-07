@@ -60,6 +60,11 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
     private val listedInventory = mutableSetOf<String>()
     private var lastSelection: String? = null
     private var unchangedSelections = 0
+    private var inventoryRestartIssued = false
+
+    @Volatile private var acquisitionCode: String? = if (acquireCold == null) null else "ACQUISITION_PENDING"
+
+    internal fun acquisitionReadinessCode(): String? = acquisitionCode
 
     private fun contractFingerprint(tool: AgentToolDefinition): String = fingerprint(tool.contractVersion.toString() + ":" + tool.inputSchema.toString())
 
@@ -108,7 +113,7 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
     }
     override val definition = AgentToolDefinition(
         NAME,
-        "List authorized tools with empty arguments, or search by task or exact names. Call this when the currently advertised tools cannot perform a task. Found tools become available next round. This cannot grant permissions or install tools.",
+        "List authorized tools with empty arguments, or search by task or exact names. Omit inventory_version on the first page; later pages must use the exact returned continuation_call. Inventory versions are opaque, never invent one. Found tools become available next round. This cannot grant permissions or install tools.",
         buildJsonObject {
             put("type", "object")
             put(
@@ -137,7 +142,13 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
                             put("maximum", Int.MAX_VALUE)
                         }
                     )
-                    put("inventory_version", buildJsonObject { put("type", "string") })
+                    put(
+                        "inventory_version",
+                        buildJsonObject {
+                            put("type", "string")
+                            put("description", "Opaque version from the previous inventory page. Omit for the first page; never use a guessed version.")
+                        }
+                    )
                 }
             )
             put("additionalProperties", false)
@@ -181,7 +192,7 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
         lastSelection = identity
         unchangedSelections = 0
         dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("ToolCatalog", "SELECTED_SCHEMA · authorized=${(candidates.keys + allowed.map { it.name }).size} · admittedToRound=${allowed.size} · advertised=${selected.size} · names=${selected.joinToString { it.name }} · omitted=${omitted.size} · omissionReasons=${omitted.values.groupingBy { it }.eachCount().toSortedMap()} · estimatedTokens=${selected.sumOf { schemaTokens(it).toLong() }} · measurement=UTF8_ESTIMATE")
-        ToolCatalogDiagnostics.recordOmissions("catalog", omitted, schemaAllowance.toLong())
+        ToolCatalogDiagnostics.recordOmissions("catalog", omitted, schemaAllowance.toLong(), inventoryNames = (candidates.keys + allowed.map { it.name }).toSet())
     }
 
     override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
@@ -197,7 +208,18 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
             acquisitionMutex.withLock {
                 val version = synchronized(this) { fingerprint(candidates.values.sortedBy { it.name }.joinToString { it.name + contractFingerprint(it) }) }
                 if (key !in acquiredQueryKeys && unknownNameVersions[key] != version) {
-                    val acquired = acquireCold.invoke(query, names).filter { it.modelVisible }
+                    acquisitionCode = "ACQUISITION_PENDING"
+                    val acquired = try {
+                        acquireCold.invoke(query, names).filter { it.modelVisible }
+                    } catch (timeout: kotlinx.coroutines.TimeoutCancellationException) {
+                        acquisitionCode = "ACQUISITION_TIMED_OUT"
+                        throw timeout
+                    } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                        throw cancelled
+                    } catch (failure: Exception) {
+                        acquisitionCode = "ACQUISITION_FAILED"
+                        throw failure
+                    }
                     if (acquired.isNotEmpty()) {
                         synchronized(this) {
                             acquired.forEach { candidates[it.name] = it }
@@ -209,6 +231,7 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
                         unknownNameVersions[key] = version
                         while (unknownNameVersions.size > 128) unknownNameVersions.remove(unknownNameVersions.keys.first())
                     }
+                    acquisitionCode = null
                 }
             }
         }
@@ -246,7 +269,9 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
                 discovered.addAll(active)
             }
             val inventory = candidates.values.sortedBy { it.name }
-            val cursor = (arguments["inventory_cursor"] as? JsonPrimitive)?.content?.toIntOrNull() ?: 0
+            val cursorValue = arguments["inventory_cursor"]
+            val cursor = if (cursorValue == null) 0 else (cursorValue as? JsonPrimitive)?.takeUnless { it.isString }?.content?.toIntOrNull()
+            if (cursor == null) return@synchronized AgentToolResult(callId, ToolResultContent.Text("inventory_cursor must be the exact integer returned in continuation_call."), true, errorCode = "INVALID_ARGUMENTS", dispatched = false)
             if (cursor !in 0..inventory.size) return@synchronized AgentToolResult(callId, ToolResultContent.Text("Invalid inventory_cursor; use the exact continuation_call from the preceding inventory page."), true, errorCode = "INVALID_ARGUMENTS", dispatched = false)
             val version = fingerprint(
                 JsonArray(
@@ -263,7 +288,40 @@ class ProgressiveToolCatalog(definitions: List<AgentToolDefinition>, task: Strin
             )
             val expectedVersion = (arguments["inventory_version"] as? JsonPrimitive)?.content
             if ((cursor > 0 && expectedVersion == null) || (expectedVersion != null && expectedVersion != version)) {
-                return@synchronized AgentToolResult(callId, ToolResultContent.Text("Tool inventory changed or its version is missing; restart inventory at the first page."), true, errorCode = "STALE_INVENTORY", dispatched = false)
+                val offerRestart = !inventoryRestartIssued
+                inventoryRestartIssued = true
+                return@synchronized AgentToolResult(
+                    callId,
+                    ToolResultContent.Json(
+                        buildJsonObject {
+                            put("schema", "tools.inventory-restart.v1")
+                            put("error_code", "STALE_INVENTORY")
+                            put("message", if (offerRestart) "The inventory version is missing or stale. Use the exact correction_call once to restart this read." else "Inventory restart was already offered for this run. Stop repeating stale arguments and retain the partial catalog coverage.")
+                            put("permissions_changed", false)
+                            put("restart_offered", offerRestart)
+                            if (offerRestart) {
+                                put(
+                                    "correction_call",
+                                    buildJsonObject {
+                                        put("tool", NAME)
+                                        put("arguments", JsonObject(emptyMap()))
+                                    }
+                                )
+                            }
+                            put("coverage", coverage())
+                        }
+                    ),
+                    true,
+                    errorCode = "STALE_INVENTORY",
+                    dispatched = false,
+                    executionReceipt = buildJsonObject {
+                        put("failed_stage", "inventory_pagination")
+                        put("catalog_pagination_invalidated", true)
+                        put("retryable", false)
+                        put("requires_argument_correction", offerRestart)
+                        put("permissions_changed", false)
+                    }
+                )
             }
             // The explicit integration preset mounts all authorized GitHub schemas at
             // admission. Its compact inventory is listed in one bounded batch when possible.

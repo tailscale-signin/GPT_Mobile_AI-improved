@@ -107,6 +107,12 @@ internal object GitHubAuthorizedCatalog {
             put("complete", complete && invalid == null)
             put("denominator_final", complete && invalid == null)
             put("inventory_version", version)
+            put("discovery_calls_observed", observations.size)
+            put("discovery_calls_succeeded", observations.count { it["success"] == JsonPrimitive(true) })
+            put("discovery_calls_failed", observations.count { it["success"] != JsonPrimitive(true) })
+            put("inventory_pages_received", pages.size)
+            put("inventory_pages_verified", ids.size)
+            put("call_count_scope", "CURRENT_TASK_RETAINED_DISCOVERY_RECEIPTS")
             expected?.let { put("authorized_tool_count", it) }
             put("observed_tool_count", names.size)
             put("observed_github_tool_count", names.count(::github))
@@ -123,7 +129,27 @@ internal object GitHubAuthorizedCatalog {
     fun next(tools: List<AgentToolDefinition>, receipts: Map<String, JsonObject>, catalogTools: List<AgentToolDefinition> = tools): ProviderEvent.ToolCall? {
         val tool = tools.firstOrNull { it.name == TOOL && it.modelVisible } ?: return null
         val state = snapshot(receipts, catalogTools)
-        if (state["complete"] == JsonPrimitive(true) || state.text("status") == "BLOCKED") return null
+        if (state["complete"] == JsonPrimitive(true)) return null
+        val observations = receipts.values.filter { it.text("tool") == TOOL && it["trusted"] == JsonPrimitive(true) && it["verification_eligible"] != JsonPrimitive(false) }
+        val stale = observations.lastOrNull { it["success"] != JsonPrimitive(true) && it.text("error_code") == "STALE_INVENTORY" }
+        if (stale != null && observations.lastOrNull() == stale) {
+            val error = data(stale)
+            val correction = error?.get("correction_call") as? JsonObject
+            val arguments = correction?.get("arguments") as? JsonObject
+            val offeredRestarts = observations.count { data(it)?.get("restart_offered") == JsonPrimitive(true) }
+            if (error?.text("schema") == "tools.inventory-restart.v1" &&
+                error["permissions_changed"] == JsonPrimitive(false) &&
+                error["restart_offered"] == JsonPrimitive(true) &&
+                offeredRestarts == 1 &&
+                correction?.text("tool") == TOOL &&
+                arguments?.isEmpty() == true &&
+                ToolArgumentValidator.errors(arguments, tool.inputSchema).isEmpty()
+            ) {
+                return ProviderEvent.ToolCall("catalog-restart-" + GitHubEvidenceBook.digest(stale.text("receipt_id")).take(20), tool.name, arguments)
+            }
+            return null
+        }
+        if (state.text("status") == "BLOCKED") return null
         val arguments = (state["continuation_call"] as? JsonObject)?.get("arguments") as? JsonObject
             ?: JsonObject(emptyMap()).takeIf { state.text("status") == "NOT_OBSERVED" } ?: return null
         if (ToolArgumentValidator.errors(arguments, tool.inputSchema).isNotEmpty() ||

@@ -1853,7 +1853,7 @@ class ChatRepositoryImpl(
             val traceSequences = java.util.concurrent.atomic.AtomicInteger()
             var delegatedTools = emptyList<ResolvedAgentTool>()
             suspend fun emitAll(states: Flow<ApiState>) = states.collect { state ->
-                githubProgress?.observe(state)
+                val publicState = if (githubProgress == null) state else githubProgress.forward(state)
                 when (state) {
                     is ApiState.Success, is ApiState.CombinedAnswer -> activity.set("Writing response")
                     is ApiState.Thinking -> activity.set("Thinking")
@@ -1875,7 +1875,7 @@ class ChatRepositoryImpl(
                     }
                     else -> Unit
                 }
-                if (githubProgress == null || state !is ApiState.ProgressCheckpoint && state !is ApiState.ActivitySummary) send(state)
+                publicState?.let { send(it) }
             }
             val statusJob = launch {
                 if (githubProgress != null) {

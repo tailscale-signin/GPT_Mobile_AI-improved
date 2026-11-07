@@ -9,7 +9,7 @@ internal object GitHubProgressPresentation {
         PreviewKind.ATTENTION to "failed|failure|problem|error|attention|recovering",
         PreviewKind.WEB to "internet|web|webpages?|websites?|online|browsing",
         PreviewKind.EDIT to "editing|writing|patch(?:ing)?|implementing|change request|requested change|response together",
-        PreviewKind.CHECKS to "builds?|tests?|testing|checks|validation|verifying",
+        PreviewKind.CHECKS to "builds?|tests?|testing|checks?|validation|verifying",
         PreviewKind.BRANCH to "branches|branch|commits?|pull requests?|merging",
         PreviewKind.INSPECT to "search(?:ing)?|files?|source|code|reading|examining|inspecting",
         PreviewKind.REVIEW to "review(?:ing)?|results?|comparing"
@@ -46,15 +46,17 @@ internal object GitHubProgressPresentation {
     private val duration = Regex("""\b\d{1,4}:\d{2}(?::\d{2})?\b|\b\d+\s*(?:ms|s|seconds?|minutes?|hours?)\s+elapsed\b|\belapsed\s*[:=]\s*\d+\s*(?:ms|s|seconds?|minutes?|hours?)?""", RegexOption.IGNORE_CASE)
     private val prefix = Regex("""^status\b\s*(?:[:·|—-]\s*)?""", RegexOption.IGNORE_CASE)
 
-    private val internalOperation = Regex("\\b(?:github_|tool_)[A-Za-z0-9_]+\\b")
-    private val publicWords = mapOf("receipts" to "recorded results", "receipt" to "recorded result", "dispatch" to "request", "schema" to "tool definition", "checkpoint" to "saved progress", "prefill" to "model preparation", "provenance" to "source evidence")
+    // Technical words inside source paths and identifiers must retain their exact spelling.
+    private fun publicWord(pattern: String) = Regex("(?<![A-Za-z0-9_./\\\\`-])(?:$pattern)(?![A-Za-z0-9_./\\\\`-])", RegexOption.IGNORE_CASE)
+    private val internalOperation = publicWord("(?:github_|tool_)[A-Za-z0-9_]+")
+    private val publicWords = mapOf("receipts" to "recorded results", "receipt" to "recorded result", "dispatch" to "request", "schema" to "tool definition", "checkpoint" to "saved progress", "prefill" to "model preparation", "provenance" to "source evidence").map { (internal, public) -> publicWord(internal) to public }
 
     fun preview(raw: String): String {
         val text = raw.trim()
         if (text.isBlank()) return ""
         val redacted = dev.chungjungsoo.gptmobile.data.diagnostics.redactChatDebugData(kotlinx.serialization.json.JsonPrimitive(text)) as kotlinx.serialization.json.JsonPrimitive
         var visible = internalOperation.replace(redacted.content) { it.value.removePrefix("github_").removePrefix("tool_").replace('_', ' ') }
-        publicWords.forEach { (internal, public) -> visible = visible.replace(Regex("\\b$internal\\b", RegexOption.IGNORE_CASE), public) }
+        publicWords.forEach { (internal, public) -> visible = visible.replace(internal, public) }
         return visible
     }
 

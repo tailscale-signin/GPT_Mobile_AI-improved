@@ -77,8 +77,9 @@ history trims older entries. Full summaries preserve the distinct details of rec
 work. Optional AI prose comes exclusively from the selected profile; local factual
 acknowledgements and observed counters remain explicitly non-model-authored.
 
-Narration runs between work rounds, at most once per new evidence revision and no
-more frequently than 15 seconds. It receives bounded public observations rather
+Narration runs between work rounds, at most once per new evidence revision and
+starts attempts no more frequently than 15 seconds. Completed prose is published
+immediately, before the next tool event can supersede its pending state. It receives bounded public observations rather
 than raw tool payloads or private reasoning. A slow/unavailable selected model does
 not trigger another model and cannot wait indefinitely. Progress prose cannot
 establish passing tests, a published change or overall acceptance.
@@ -105,12 +106,20 @@ are supplied by the harnesses; these runs do not substitute for the Android buil
   permission tests against the current branch.
 - 22 graph presentation/ViewModel, activity and terminal-loading tests. Full
   Compose rendering and icon geometry tests require the Android CI runtime.
-- 46 progress, narration, frame deadline and error classification tests, including
-  selected-session generation, budget admission, timeout and terminal-code precedence.
+- 69 progress, narration, frame deadline and error classification/compatibility tests,
+  including selected-session generation, budget admission, timeout, immediate
+  publication, exact source-path preservation and terminal-code precedence.
 
-Full Android compilation, Compose/Robolectric tests and required CI checks must be
-evaluated on the published candidate. A prior branch's green result is not evidence
-for this branch. No merge or release is performed by this repair task.
+The first combined candidate, `965f81066179b921c757e17430a4140a11abbcf8`,
+passed both full Android unit suites, JaCoCo coverage, Android lint, review APK and
+benchmark compilation, API 34/API 36 emulator acceptance, CodeQL, and the complete
+Linux/Windows gateway and installer checks. The final follow-up preserves exact
+source paths and publishes completed selected-profile prose immediately; it also
+passes the 69-test focused suite and the canonical fast checks.
+
+The current head's check results on [PR #809](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/809/checks)
+are authoritative for final Android and release-gate qualification. A prior head's
+green result does not replace them. No merge or release is performed by this task.
 
 ## Remaining operational acceptance
 

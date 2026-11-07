@@ -18,6 +18,8 @@ class GitHubProgressPresentationTest {
             "Reading the relevant source files." to GitHubProgressPresentation.PreviewKind.INSPECT,
             "Editing the source files." to GitHubProgressPresentation.PreviewKind.EDIT,
             "Inspecting the build and test results." to GitHubProgressPresentation.PreviewKind.CHECKS,
+            "Check 2/8" to GitHubProgressPresentation.PreviewKind.CHECKS,
+            "Checks: 3/8 complete" to GitHubProgressPresentation.PreviewKind.CHECKS,
             "Checking the pull request and its current review state." to GitHubProgressPresentation.PreviewKind.BRANCH,
             "Waiting for the build checks." to GitHubProgressPresentation.PreviewKind.WAIT,
             "A step needs attention." to GitHubProgressPresentation.PreviewKind.ATTENTION,
@@ -58,5 +60,15 @@ class GitHubProgressPresentationTest {
         assertEquals("Reading files", GitHubProgressPresentation.activity("  Reading   files... \nAnother milestone"))
         assertEquals("Preparing the requested repository checks", GitHubProgressPresentation.activity("Status"))
         assertEquals("Preparing the requested repository checks", GitHubProgressPresentation.activity("\n  "))
+    }
+
+    @Test fun detailedPreviewsPreserveRealSourcePathsAndQuotedIdentifiers() {
+        listOf(
+            "Reading gateway/github_client.py and docs/schema.json.",
+            "Inspecting tool_config.yaml, receipt.txt and dispatch-worker.kt.",
+            "Comparing `schema` with `github_read` in the implementation.",
+            "Opening C:\\source\\github_client.py."
+        ).forEach { assertEquals(it, GitHubProgressPresentation.preview(it)) }
+        assertEquals("Reviewing read before request", GitHubProgressPresentation.preview("Reviewing github_read before dispatch"))
     }
 }

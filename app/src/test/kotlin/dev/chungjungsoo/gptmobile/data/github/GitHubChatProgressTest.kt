@@ -171,4 +171,22 @@ class GitHubChatProgressTest {
         assertFalse(summary.modelAuthored)
         assertTrue(summary.text.contains("1 operations need recovery"))
     }
+
+    @Test fun selectedProseIsDeliveredBeforeTheNextToolEventWithoutWaitingForTheTicker() {
+        var clock = 0L
+        val progress = GitHubChatProgress("Inspect the repository") { clock }
+        progress.tick()
+        clock = 15_000
+        progress.tick()
+        clock = 18_000
+        val prose = ApiState.ActivitySummary("The workflow definition identifies the relevant validation jobs. I will now inspect the failed step and compare its output with the repository changes.", modelAuthored = true)
+        assertEquals(prose, progress.forward(prose))
+        val started = ApiState.GatewayProgressChanged(GatewayProgress(event = "tool_started", toolName = "github_ci", toolCallId = "job-log"))
+        assertEquals(started, progress.forward(started))
+        clock = 18_250
+        assertTrue(progress.tick().none { it is ApiState.ActivitySummary })
+        assertEquals(prose.text, progress.heartbeat())
+        assertEquals(null, progress.forward(prose))
+        assertEquals(null, progress.forward(ApiState.ProgressCheckpoint("Check 3/8")))
+    }
 }

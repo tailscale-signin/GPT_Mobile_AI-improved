@@ -5,7 +5,7 @@
   "base_sha": "223b7c9f1dbf1ecaa77b65936ca112817cfb6a9b",
   "working_branch": "fix/diagnostic-reliability-008174e2-2026-11-06",
   "intent": "Repair confirmed failures in diagnostic archive 008174e2 and close remaining source-backed gaps across the twelve requested reliability areas on a new branch.",
-  "state": "READY_FOR_CANDIDATE_CI",
+  "state": "IMPLEMENTATION_COMPLETE",
   "inputs": {
     "archive": "partial-diagnostics-008174e2-2918-4f4f-895e-86fff69cfe95-6d5c244d-4f96-477c-8961-e6983455d127.zip",
     "archive_recovered": true
@@ -25,10 +25,11 @@
     "gateway": "PASS: 496 Python cases (1 environmental LAN skip), 7 browser tests; 50,000-event/782-commit journal stress",
     "diagnostic_host": "PASS: 51 tests, including 64 MiB heap runs",
     "mcp_host": "PASS: 50 actual-SDK tests; prior failure reproduced",
-    "progress_frame_error_host": "PASS: 46 tests including selected-profile narration, replay reserve, timeout, stale-summary invalidation, frame fallback and unknown-outcome precedence",
-    "android_ci": "PENDING publication of candidate; no SDK/JDK21 in local environment",
+    "progress_frame_error_host": "PASS: 69 tests including selected-profile narration, replay reserve, timeout, immediate publication, source-path preservation, frame fallback and typed/unknown-outcome precedence",
+    "android_ci": "Initial combined head 965f81066179b921c757e17430a4140a11abbcf8 passed both full Android unit suites and coverage, review APK/instrumentation/benchmark compile, Android lint, API34/API36 emulator acceptance and CodeQL. Final-head qualification is tracked by PR809 current checks, not inferred from this earlier result.",
     "inherited_verification_host": "PASS: 89 tests, including actual ToolApprovalManager",
-    "ui_host": "PASS: 22 graph/ViewModel/activity/loading tests; full Compose tests await Android CI"
+    "ui_host": "PASS: 22 graph/ViewModel/activity/loading tests; full Compose tests await Android CI",
+    "gateway_ci": "Initial combined head passed Ubuntu and Windows Python3.12/3.13 plus Windows installer/smoke."
   },
   "runtime_checkpoint_note": "This versioned development checkpoint does not fabricate application or gateway execution receipts.",
   "additional_scope": [
@@ -36,5 +37,10 @@
     "Detailed selected-profile progress with stable animated counters",
     "Centered response spinner and authoritative terminal loading state",
     "GitHub UI/back-end wiring audit and bounded job recovery"
+  ],
+  "review_url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/809",
+  "final_followup": [
+    "Publish completed authored prose in the observing flow before the next tool round can invalidate it",
+    "Preserve source paths and quoted identifiers in readable previews; classify singular Check counters consistently"
   ]
 }

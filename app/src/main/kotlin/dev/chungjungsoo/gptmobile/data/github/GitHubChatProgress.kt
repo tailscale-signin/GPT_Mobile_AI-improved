@@ -80,6 +80,27 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
         }
     }
 
+    /** A completed selected-profile update is public before the next tool round starts. */
+    @Synchronized fun forward(event: ApiState): ApiState? {
+        observe(event)
+        return when (event) {
+            is ApiState.ProgressCheckpoint -> null
+            is ApiState.ActivitySummary -> {
+                val generated = pendingSummary.takeIf { pendingSummaryRevision == revision } ?: return null
+                pendingSummary = null
+                val key = GitHubProgressPresentation.lineKey(generated.text)
+                if (key == lastSummaryKey) return null
+                summary = generated.text
+                lastSummaryKey = key
+                lastSummaryRevision = revision
+                lastSummaryAt = now()
+                initial = false
+                generated
+            }
+            else -> event
+        }
+    }
+
     @Synchronized fun observe(event: ApiState) {
         when (event) {
             is ApiState.GatewayProgressChanged -> {

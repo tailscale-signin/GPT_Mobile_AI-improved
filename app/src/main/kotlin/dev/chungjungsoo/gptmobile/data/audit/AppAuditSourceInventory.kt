@@ -9,13 +9,13 @@ data class AppAuditSourceArea(val id: String, val label: String, val fileCount: 
 object AppAuditSourceInventory {
     val schemaVersion: Int = 1
     val assetPath: String = "diagnostics/app-code-inventory.json"
-    val sourceDigest: String = "d5e857befeb1723980a3ec903823d77e7442551a77739f0ff5d884e15be96268"
+    val sourceDigest: String = "406f893176bf87853d48f2b2ffc24696a61cf7655b165497e6a358399d477200"
     val fileCount: Int = 2238
-    val lineCount: Int = 346040
+    val lineCount: Int = 346064
     val lineCoverageAvailable: Boolean = false
     val areas: List<AppAuditSourceArea> = listOf(
         AppAuditSourceArea("android_shell", "Android application and lifecycle", 68, 7093),
-        AppAuditSourceArea("chat_ui", "Chat, rendering and interaction", 479, 83921),
+        AppAuditSourceArea("chat_ui", "Chat, rendering and interaction", 479, 83933),
         AppAuditSourceArea("accessibility_and_localization", "Accessibility, themes and UI resources", 193, 8998),
         AppAuditSourceArea("agent_execution", "Agent execution and recovery", 197, 31772),
         AppAuditSourceArea("agent_tools", "Built-in tool routing and execution", 98, 20962),
@@ -25,7 +25,7 @@ object AppAuditSourceInventory {
         AppAuditSourceArea("models_and_profiles", "Model profiles and settings", 40, 3968),
         AppAuditSourceArea("local_inference", "Local inference and admission", 110, 14661),
         AppAuditSourceArea("gateway_client", "Android gateway client", 20, 3285),
-        AppAuditSourceArea("network", "Networking and readiness", 92, 8111),
+        AppAuditSourceArea("network", "Networking and readiness", 92, 8123),
         AppAuditSourceArea("github", "GitHub and engineering workspace", 155, 22243),
         AppAuditSourceArea("research", "Research and source acquisition", 111, 13875),
         AppAuditSourceArea("memory_and_rag", "Memory, retrieval and indexing", 40, 4794),

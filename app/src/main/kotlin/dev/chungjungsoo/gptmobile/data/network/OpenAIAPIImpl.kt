@@ -128,6 +128,8 @@ class OpenAIAPIImpl @Inject constructor(
         var requestedHealthModel = request.model
         var transportRetries = 0
         val transportStartedNs = System.nanoTime()
+        var activeControlReceipt: ReasoningControlReceipt? = null
+        var activeResponseObserver: ProviderResponseObserver? = null
         try {
             val free = config.freeProvider
             if (free != null) {
@@ -173,10 +175,14 @@ class OpenAIAPIImpl @Inject constructor(
                 FreeQueuedTransport(networkClient(), requestPreparation).generate(preparedRequest, config, timeoutSeconds) { emit(it) }
                 return@flow
             }
-            config = gatewayControls.prepare(GatewayClientDiagnostics.withHeaders(config, request.model))
+            config = ProviderConnectivityPreflight.withAvailability(config.apiUrl) {
+                gatewayControls.prepare(GatewayClientDiagnostics.withHeaders(config, request.model))
+            }
             val endpoint = config.buildEndpoint("chat/completions")
 
             val executeRequest: suspend () -> Unit = {
+                activeControlReceipt = null
+                activeResponseObserver = null
                 LocalConnectionPreflight.requireReady(config.apiUrl)
                 config.freeDiagnostics?.permitAcquiredAt = ProviderElapsedClock.now()
                 if (transportRetries > 0) emit(ChatCompletionChunk(retryDurationMs = (System.nanoTime() - transportStartedNs) / 1_000_000, retryAttempts = transportRetries))
@@ -184,8 +190,9 @@ class OpenAIAPIImpl @Inject constructor(
                 config.freeDiagnostics?.stage = "preparation"
                 var admittedOutputTokens: Int? = null
                 val admittedPayload = requestPreparation.prepare(NetworkClient.openAIJson.encodeToString(preparedRequest), config.copy(onSerializedOutputTokens = { admittedOutputTokens = it }), preparedRequest.model, null)
-                val reasoningControlReceipt = ReasoningControlReceipt.fromPayload(admittedPayload, config)
-                emit(ChatCompletionChunk(reasoningControlReceipt = reasoningControlReceipt))
+                // The serializer bridge retains intent even when no response arrives. A
+                // request observation must not masquerade as a provider response chunk.
+                val reasoningControlReceipt = ReasoningControlReceipt.fromPayload(admittedPayload, config).also { activeControlReceipt = it }
                 // Continuation needs the admitted physical cap in every chat mode,
                 // including ordinary Free chats whose profile allows a larger output.
                 if (free != null || config.captureGenerationReceipt || config.requestRole == "synthesis") admittedOutputTokens?.let { emit(ChatCompletionChunk(serializedOutputTokens = it)) }
@@ -202,7 +209,7 @@ class OpenAIAPIImpl @Inject constructor(
                     config.freeDiagnostics?.stage = "dispatch"
                     config.freeDiagnostics?.attempted()
                     dispatchStarted = true
-                    val responseObserver = ProviderResponseObserver()
+                    val responseObserver = ProviderResponseObserver().also { activeResponseObserver = it }
                     dispatchRetryGuard.dispatched()
                     networkClient().preparePost(endpoint) {
                         applyPlatformStreamingTimeout(timeoutSeconds, workerBudget, connectionTimeout)
@@ -214,7 +221,6 @@ class OpenAIAPIImpl @Inject constructor(
                         if (LocalEndpointConnectionPolicy.freshConnection(endpoint)) header(HttpHeaders.Connection, "close")
                     }.execute { response ->
                         responseObserver.headersReceived()
-                        emit(ChatCompletionChunk(providerResponseTiming = responseObserver.snapshot()))
                         ProviderConnectivityPreflight.responseReceived(config.apiUrl)
                         GatewayClientDiagnostics.observe(config, response.status.value) { response.headers[it] }
                         config.freeDiagnostics?.responded()
@@ -223,13 +229,13 @@ class OpenAIAPIImpl @Inject constructor(
                             // Error responses also own durable job identity. Publish trusted headers
                             // before any saved-result lookup which may itself lose connectivity.
                             gatewayResponseMetadata { response.headers[it] }?.let { metadata ->
-                                emit(ChatCompletionChunk(gatewayMetadata = metadata))
+                                emit(ChatCompletionChunk(gatewayMetadata = metadata, providerResponseTiming = responseObserver.snapshot(), reasoningControlReceipt = reasoningControlReceipt))
                             }
                             if (free == null) {
                                 gatewayRecovery.read(response.status.value, structuredProviderFailure(errorBody, response.status.value), config, preparedRequest.model, response.headers["X-Gateway-Job-ID"])?.let { saved ->
                                     receivedAssistantPayload = receivedAssistantPayload || saved.hasAssistantStreamPayload()
                                     receivedTerminal = true
-                                    emit(saved)
+                                    emit(saved.copy(providerResponseTiming = responseObserver.snapshot(), reasoningControlReceipt = reasoningControlReceipt))
                                     return@execute
                                 }
                             }
@@ -288,6 +294,8 @@ class OpenAIAPIImpl @Inject constructor(
                             val contract = dev.chungjungsoo.gptmobile.data.network.error.ProviderContractFailure.find(errorBody)
                             emit(
                                 ChatCompletionChunk(
+                                    providerResponseTiming = responseObserver.snapshot(),
+                                    reasoningControlReceipt = reasoningControlReceipt,
                                     error = ErrorDetail(
                                         message = contract?.message ?: if (free?.acceptsUserToken == true || response.status.value !in setOf(401, 402, 403)) config.readableProviderError(errorMessage, response.status.value.toString()) else errorMessage,
                                         type = if (contract != null) "provider_contract_error" else config.freeDiagnostics?.category?.name ?: "http_error",
@@ -488,14 +496,14 @@ class OpenAIAPIImpl @Inject constructor(
                         }
                         // Observe an empty response before its terminal error or retry decision.
                         if (firstChunk) {
-                            emit(ChatCompletionChunk(gatewayMetadata = gatewayMetadata))
+                            emit(ChatCompletionChunk(gatewayMetadata = gatewayMetadata, providerResponseTiming = responseObserver.snapshot(), reasoningControlReceipt = reasoningControlReceipt))
                         }
                         if (!receivedTerminal) throw java.io.EOFException("STREAM_INTERRUPTED: provider closed SSE before a completion marker")
                         usageReceipt.completed(!receivedError && parseFailures == 0)
                         if (parseFailures > 0 && !receivedError) {
                             receivedError = true
                             config.freeDiagnostics?.category = FreeFailureCategory.STREAM_DEGRADED
-                            emit(ChatCompletionChunk(error = ErrorDetail("STREAM_DEGRADED: $parseFailures response chunks could not be decoded. Usable text was retained, but completeness and tool arguments cannot be verified.", "stream_degraded", code = "STREAM_DEGRADED")))
+                            emit(ChatCompletionChunk(error = ErrorDetail("STREAM_DEGRADED: $parseFailures response chunks could not be decoded. Usable text was retained, but completeness and tool arguments cannot be verified.", "stream_degraded", code = "STREAM_DEGRADED"), providerResponseTiming = responseObserver.snapshot(), reasoningControlReceipt = reasoningControlReceipt))
                         }
                         if (receivedTerminal && receivedToolCalls && !receivedError) emit(ChatCompletionChunk(streamFinished = true))
                         if (free != null) {
@@ -596,6 +604,8 @@ class OpenAIAPIImpl @Inject constructor(
             }
             emit(
                 ChatCompletionChunk(
+                    providerResponseTiming = activeResponseObserver?.snapshot(),
+                    reasoningControlReceipt = activeControlReceipt,
                     error = ErrorDetail(
                         message = errorMessage,
                         type = if (config.freeProvider != null) (config.freeDiagnostics?.category ?: freeFailureCategory(e)).name else providerFailure?.type ?: if (transportFailure == NetworkFailureKind.UNKNOWN) "provider_error" else "network_error",
@@ -665,7 +675,9 @@ class OpenAIAPIImpl @Inject constructor(
         var preparedRequest = request.withModelSamplingPolicy()
         var effectiveConfig = config
         try {
-            effectiveConfig = gatewayControls.prepare(GatewayClientDiagnostics.withHeaders(config, request.model))
+            effectiveConfig = ProviderConnectivityPreflight.withAvailability(config.apiUrl) {
+                gatewayControls.prepare(GatewayClientDiagnostics.withHeaders(config, request.model))
+            }
             val endpoint = effectiveConfig.buildEndpoint("responses")
 
             ResilientStreamingClient.executeWithRetry(

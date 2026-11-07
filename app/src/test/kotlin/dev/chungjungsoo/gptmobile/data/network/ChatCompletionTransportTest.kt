@@ -63,6 +63,9 @@ class ChatCompletionTransportTest {
         assertTrue(chunk.gatewayMetadata?.transportVerified == true)
         assertEquals(20, chunk.usage?.totalTokens)
         assertEquals(null, chunk.error)
+        assertTrue(chunk.reasoningControlReceipt != null)
+        assertTrue(chunk.providerResponseTiming?.responseHeadersMs != null)
+        assertTrue(chunk.providerResponseTiming?.firstParsedPayloadMs != null)
     }
 
     @Test
@@ -140,8 +143,25 @@ class ChatCompletionTransportTest {
                 assertEquals(done, chunks.any { it.streamFinished })
                 assertEquals(!done, chunks.any { it.error != null })
                 assertTrue(chunks.first().choices!!.single().effectiveDelta.toolCalls!!.isNotEmpty())
+                assertTrue(chunks.first().reasoningControlReceipt != null)
+                assertTrue(chunks.first().providerResponseTiming?.responseHeadersMs != null)
+                assertTrue(chunks.first().providerResponseTiming?.firstParsedPayloadMs != null)
             }
         }
+    }
+
+    @Test fun httpFailureCarriesObservedHeadersAndAdmittedIntentOnItsSingleErrorChunk() = withResponse(
+        "application/json",
+        """{"error":{"message":"Invalid request"}}""",
+        headers = emptyMap(),
+        status = 400
+    ) { api, config, _ ->
+        val chunk = runBlocking { api.streamChatCompletion(request(false), 5, config).toList().single() }
+        assertEquals("400", chunk.error?.code)
+        assertTrue(chunk.reasoningControlReceipt != null)
+        assertTrue(chunk.providerResponseTiming?.responseHeadersMs != null)
+        assertEquals(null, chunk.providerResponseTiming?.firstParsedPayloadMs)
+        assertEquals(null, chunk.choices)
     }
 
     @Test

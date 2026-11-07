@@ -10,13 +10,24 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.InputMode
+import androidx.compose.ui.input.InputModeManager
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.node.RootForTest
+import androidx.compose.ui.platform.LocalInputModeManager
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.SemanticsOwner
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.getAllSemanticsNodes
+import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.assertIsNotFocused
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performKeyInput
 import androidx.compose.ui.test.performTextInput
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -37,8 +48,10 @@ class ComposerInputLifecycleTest {
         var sent: String? = null
         val input = TextFieldState("A complete draft")
         compose.setContent {
+            val semanticsOwner = (LocalView.current as RootForTest).semanticsOwner
             MaterialTheme {
                 ChatInputBox(inputState = input, attachmentsEnabled = false, onComposerFocusChanged = { focused = it }) {
+                    assertEditorReleasedFocus(semanticsOwner)
                     assertFalse(focused)
                     sent = input.text.toString()
                 }
@@ -63,6 +76,71 @@ class ComposerInputLifecycleTest {
         compose.onNodeWithContentDescription("Message input").performClick().performTextInput(" after start")
         compose.onNodeWithContentDescription("Message input").assertIsFocused()
         compose.runOnIdle { assertTrue(input.text.toString().contains("after start")) }
+    }
+
+    @Test fun keyboardShortcutReleasesActualEditorFocusBeforeDispatchAndAllowsAFreshDraft() {
+        lateinit var inputModeManager: InputModeManager
+        var focused = false
+        var sent: String? = null
+        var sends = 0
+        val input = TextFieldState("Exact keyboard draft")
+        compose.setContent {
+            inputModeManager = LocalInputModeManager.current
+            val semanticsOwner = (LocalView.current as RootForTest).semanticsOwner
+            MaterialTheme {
+                ChatInputBox(inputState = input, attachmentsEnabled = false, onComposerFocusChanged = { focused = it }) {
+                    assertEditorReleasedFocus(semanticsOwner)
+                    assertFalse(focused)
+                    sent = input.text.toString()
+                    sends++
+                }
+            }
+        }
+        compose.runOnIdle { assertTrue(inputModeManager.requestInputMode(InputMode.Keyboard)) }
+        compose.onNodeWithContentDescription("Message input").performClick().assertIsFocused()
+        compose.runOnIdle {
+            assertEquals(InputMode.Keyboard, inputModeManager.inputMode)
+            assertTrue(focused)
+        }
+        compose.onNodeWithContentDescription("Message input").performKeyInput {
+            keyDown(Key.CtrlLeft)
+            keyDown(Key.Enter)
+            keyUp(Key.Enter)
+            keyUp(Key.CtrlLeft)
+        }
+        compose.onNodeWithContentDescription("Message input").assertIsNotFocused()
+        compose.runOnIdle {
+            assertEquals(1, sends)
+            assertEquals("Exact keyboard draft", sent)
+            assertEquals("Exact keyboard draft", input.text.toString())
+            assertFalse(focused)
+        }
+        compose.onNodeWithContentDescription("Message input").performClick().performTextInput(" another draft")
+        compose.onNodeWithContentDescription("Message input").assertIsFocused()
+        compose.runOnIdle {
+            assertTrue(focused)
+            assertTrue(input.text.toString().contains("another draft"))
+            assertEquals(1, sends)
+        }
+    }
+
+    @Test fun runStartDoesNotStealAnotherEditorsInputSession() {
+        var running by mutableStateOf(false)
+        val input = TextFieldState("Retained composer draft")
+        compose.setContent {
+            MaterialTheme {
+                Column {
+                    ChatInputBox(inputState = input, attachmentsEnabled = false, isRunning = running)
+                    androidx.compose.foundation.text.BasicTextField(state = rememberTextFieldState("Other draft"), modifier = Modifier.testTag("other_editor"))
+                }
+            }
+        }
+        compose.onNodeWithContentDescription("Message input").performClick()
+        compose.onNodeWithTag("other_editor").performClick().assertIsFocused()
+        compose.runOnIdle { running = true }
+        compose.onNodeWithTag("other_editor").assertIsFocused()
+        compose.onNodeWithContentDescription("Message input").assertIsNotFocused()
+        compose.runOnIdle { assertEquals("Retained composer draft", input.text.toString()) }
     }
 
     @Test fun disposingAnUnfocusedComposerDoesNotDismissAnotherEditorsSession() {
@@ -105,5 +183,14 @@ class ComposerInputLifecycleTest {
         }
         compose.onNodeWithContentDescription("Message input").assertIsNotFocused()
         compose.runOnIdle { assertEquals("Retained draft", input.text.toString()) }
+    }
+
+    private fun assertEditorReleasedFocus(owner: SemanticsOwner) {
+        // Read fresh semantics on the dispatch thread; the reporting callback alone
+        // must not be able to conceal an editor that still owns the input session.
+        val editor = owner.getAllSemanticsNodes(mergingEnabled = true).single {
+            it.config.getOrNull(SemanticsProperties.ContentDescription)?.contains("Message input") == true
+        }
+        assertFalse("Editor still owns focus at dispatch", editor.config[SemanticsProperties.Focused])
     }
 }

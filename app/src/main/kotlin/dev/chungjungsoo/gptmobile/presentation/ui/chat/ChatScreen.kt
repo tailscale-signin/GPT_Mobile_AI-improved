@@ -88,6 +88,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.focusTarget
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -2232,22 +2233,31 @@ fun ChatInputBox(
     val chatInputLineLimits = TextFieldLineLimits.MultiLine(maxHeightInLines = 20)
     val hasQuestionText = inputState.text.isNotEmpty()
     val inputFocus = remember(inputState) { androidx.compose.ui.focus.FocusRequester() }
+    val composerContainerFocus = remember(inputState) { androidx.compose.ui.focus.FocusRequester() }
     val composerFocusManager = LocalFocusManager.current
     val composerKeyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
     val reportComposerFocus by androidx.compose.runtime.rememberUpdatedState(onComposerFocusChanged)
     var composerFocused by remember(inputState) { mutableStateOf(false) }
     val releaseComposerInput = {
-        // A tab can remove only the composer while the parent chat stays mounted.
-        // Release this editor's input session without dismissing another field's focus.
+        // Clearing the Android owner's focus can immediately focus the first editor
+        // again in keyboard mode. Keep owner focus on this non-editable container,
+        // and let the editor's actual focus event report that its session ended.
         if (composerFocused) {
-            composerFocused = false
+            inputFocus.freeFocus()
+            composerContainerFocus.requestFocus()
             composerKeyboard?.hide()
-            composerFocusManager.clearFocus(force = true)
         }
-        reportComposerFocus(false)
     }
     DisposableEffect(inputState, composerFocusManager, composerKeyboard) {
-        onDispose { releaseComposerInput() }
+        onDispose {
+            // The container is leaving too, so it cannot retain focus. Never clear
+            // another editor's session when only this composer is removed.
+            if (composerFocused) {
+                composerKeyboard?.hide()
+                composerFocusManager.clearFocus(force = true)
+            }
+            reportComposerFocus(false)
+        }
     }
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) { releaseComposerInput() }
     LaunchedEffect(chatEnabled) {
@@ -2290,6 +2300,8 @@ fun ChatInputBox(
 
     Box(
         modifier = modifier
+            .focusRequester(composerContainerFocus)
+            .focusTarget()
             .fillMaxWidth()
             .background(Color.Transparent)
             .padding(horizontal = 16.dp, vertical = 8.dp)

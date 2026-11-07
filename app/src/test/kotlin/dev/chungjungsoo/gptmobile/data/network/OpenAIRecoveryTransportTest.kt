@@ -28,33 +28,39 @@ class OpenAIRecoveryTransportTest {
 
     @org.junit.After fun clearConnectivity() = LocalServiceHealth.networkChanged()
 
-    private val config = ProviderRequestConfig("https://fixture.invalid/v1/", null)
+    // Gateway identity survives network epochs; independent mock routes must not inherit it.
+    private val fixtureHost = "recovery-${java.util.UUID.randomUUID()}.fixture.invalid"
+    private val config = ProviderRequestConfig("https://$fixtureHost/v1/", null)
     private val request = ChatCompletionRequest(model = "fixture", messages = listOf(dev.chungjungsoo.gptmobile.data.dto.openai.request.ChatMessage(role = dev.chungjungsoo.gptmobile.data.dto.openai.common.Role.USER, content = listOf(dev.chungjungsoo.gptmobile.data.dto.openai.common.TextContent("Transport fixture request.")))))
 
     @Test fun knownDeviceOutageRetainsTypedPrecheckEvidenceWithoutProviderDispatch() = runTest {
         DeviceNetworkDiagnostics.episodes.networkChanged("test-disconnected", "DISCONNECTED")
         var calls = 0
         try {
-            withApi(
-                MockEngine {
-                    calls++
-                    error("No request should be sent")
+            for (knownGateway in listOf(false, true)) {
+                val selected = config.copy(apiUrl = "https://outage-$knownGateway.$fixtureHost/v1/")
+                if (knownGateway) dev.chungjungsoo.gptmobile.data.network.gateway.GatewayClientDiagnostics.observeInstance(selected, "a".repeat(32))
+                withApi(
+                    MockEngine {
+                        calls++
+                        error("No request should be sent")
+                    }
+                ) { api ->
+                    val error = requireNotNull(api.streamChatCompletion(request, 5, selected).toList().last().error)
+                    assertEquals(0, calls)
+                    assertEquals("NETWORK_DISCONNECTED", error.code)
+                    val failure = dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.fromProvider(error.message, error.code, error.failureDetails)
+                    assertEquals(false, failure.dispatched)
+                    assertEquals("provider_admission", failure.phase)
+                    val input = listOf(dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponseInputMessage("user", dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponseInputContent.text("Saved prompt")))
+                    val responseError = api.streamResponses(ResponsesRequest(model = "fixture", input = input), 5, selected).toList()
+                        .filterIsInstance<dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseErrorEvent>().single()
+                    val providerFailure = dev.chungjungsoo.gptmobile.data.agent.provider.OpenAIResponsesEventAssembler().accept(responseError).single() as dev.chungjungsoo.gptmobile.data.agent.ProviderEvent.Failed
+                    val responseFailure = dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.fromProvider(providerFailure.message, providerFailure.errorCode, providerFailure.failureDetails)
+                    assertEquals(0, calls)
+                    assertEquals(false, responseFailure.dispatched)
+                    assertEquals("provider_admission", responseFailure.phase)
                 }
-            ) { api ->
-                val error = requireNotNull(api.streamChatCompletion(request, 5, config).toList().last().error)
-                assertEquals(0, calls)
-                assertEquals("NETWORK_DISCONNECTED", error.code)
-                val failure = dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.fromProvider(error.message, error.code, error.failureDetails)
-                assertEquals(false, failure.dispatched)
-                assertEquals("provider_admission", failure.phase)
-                val input = listOf(dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponseInputMessage("user", dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponseInputContent.text("Saved prompt")))
-                val responseError = api.streamResponses(ResponsesRequest(model = "fixture", input = input), 5, config).toList()
-                    .filterIsInstance<dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseErrorEvent>().single()
-                val providerFailure = dev.chungjungsoo.gptmobile.data.agent.provider.OpenAIResponsesEventAssembler().accept(responseError).single() as dev.chungjungsoo.gptmobile.data.agent.ProviderEvent.Failed
-                val responseFailure = dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.fromProvider(providerFailure.message, providerFailure.errorCode, providerFailure.failureDetails)
-                assertEquals(0, calls)
-                assertEquals(false, responseFailure.dispatched)
-                assertEquals("provider_admission", responseFailure.phase)
             }
         } finally {
             DeviceNetworkDiagnostics.episodes.networkChanged(null, "UNKNOWN")
@@ -120,7 +126,7 @@ class OpenAIRecoveryTransportTest {
         for (responses in listOf(false, true)) {
             for (status in listOf(HttpStatusCode.TooManyRequests, HttpStatusCode.ServiceUnavailable)) {
                 var attempts = 0
-                val isolated = config.copy(apiUrl = "https://http-${status.value}-$responses.fixture.invalid/v1/")
+                val isolated = config.copy(apiUrl = "https://http-${status.value}-$responses.$fixtureHost/v1/")
                 withApi(
                     MockEngine {
                         attempts++
@@ -157,7 +163,7 @@ class OpenAIRecoveryTransportTest {
     @Test fun knownHttpFailureDoesNotOverrideAnAmbiguousGatewayMutation() = runTest {
         for (responses in listOf(false, true)) {
             var attempts = 0
-            val gatewayConfig = config.copy(apiUrl = "https://http-gateway-$responses.fixture.invalid/v1/", extraHeaders = mapOf("X-Gateway-Allow-Local-Tools" to "true"))
+            val gatewayConfig = config.copy(apiUrl = "https://http-gateway-$responses.$fixtureHost/v1/", extraHeaders = mapOf("X-Gateway-Allow-Local-Tools" to "true"))
             withApi(
                 MockEngine { incoming ->
                     if (incoming.url.encodedPath.endsWith("gateway/capabilities")) {
@@ -420,7 +426,7 @@ class OpenAIRecoveryTransportTest {
                     if (verified) append("X-Gateway-Instance-ID", "a".repeat(32))
                 }
                 withApi(MockEngine { respond(body, headers = headers) }) { api ->
-                    val selected = config.copy(profileRevision = "b".repeat(64), configuredProfileReasoning = false)
+                    val selected = config.copy(apiUrl = "https://stream-$stream-verified-$verified.$fixtureHost/v1/", profileRevision = "b".repeat(64), configuredProfileReasoning = false)
                     val chunks = api.streamChatCompletion(request.copy(stream = stream), 5, selected).toList()
                     assertEquals("answer", chunks.flatMap { it.choices.orEmpty() }.mapNotNull { it.effectiveDelta.content }.joinToString(""))
                     assertEquals(verified, chunks.any { it.gatewayProvenance != null })

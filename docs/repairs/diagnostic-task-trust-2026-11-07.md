@@ -80,7 +80,7 @@ absence is not permission to invent selectors or repeat writes.
 | F19 | Timeline reuses the captured journal; source/chunk hashes and counts are verified; serialization and hashing are bounded; resume refreshes partial derived stages | Frozen-source adapter regression, corrupt-source rollback, cancellation/resume, coverage, and 64 MiB heap gate |
 | F20 | Immutable profile revision, configured/requested/serialized reasoning, backend-reported model, and endpoint digest remain distinct from unmeasured runtime facts | Reasoning receipt, provenance DTO, parser, transport, and invocation-ledger tests |
 | F21 | Resumed and corrective repository prompts use the accepted task and bounded execution ledger instead of accumulated plans | Exact selector, constraint, latest-intent, bounded-count, and private-body exclusion tests |
-| F22 | Composer input ownership is released before send, at externally started runs, and on disposal without clearing the draft or stealing another editor's focus | Three added Compose lifecycle regressions; Android CI required |
+| F22 | Composer input ownership is released before send, at externally started runs, and on disposal without clearing the draft or stealing another editor's focus | Six Compose lifecycle regressions, including actual focus at dispatch and keyboard mode; Android CI required |
 | F23 | Routine omissions become compact changes; bounded inventory snapshots are exported; actual authority failures retain detailed warnings | Snapshot/diff/clear/privacy tests and staged-export adapter tests |
 
 ## CI integration follow-up
@@ -115,6 +115,48 @@ payload, including a transport failure that never emits a usage event. Retries
 preserve earlier settings, and overflow has an explicit omission count. Only
 allowlisted reasoning controls are retained; prompt bodies, credentials, and
 unacknowledged effective settings are excluded.
+
+The complete Android unit run on `41cb3135a417183b8a6638d4fa447524872ed57e`
+compiled all production and test sources, then executed 7,667 tests: 7,642 passed,
+20 failed, and five were skipped. The failures were confined to three transport
+test classes and two composer lifecycle cases. Android lint, both API 34 and API
+36 emulator jobs, all four gateway matrix jobs, the Windows installer, CodeQL,
+and the APK catalog/download contract job passed on that predecessor. Its review
+APK and benchmark compilation also passed. All three packaged APK variants passed
+runtime, privacy, native alignment and DEX checks; the largest checked method was
+15,900 code units, below the unchanged 16,383 limit.
+
+The transport follow-up removes synthetic request-receipt and header-only chunks
+from the provider response stream. Actual success, recovered-result, error and
+degraded-stream chunks retain their observed timing and admitted reasoning
+receipt. The serialization-to-ledger bridge still records attempts that receive
+no response. Both OpenAI transport entry points now apply connectivity admission
+before gateway capability negotiation, so a known device outage cannot dispatch
+an otherwise valid gateway probe.
+
+Recovery fixtures use independent mock route identities. A verified gateway
+instance deliberately survives network epochs in production; sharing one mock
+host across unrelated cases previously caused later direct-provider tests to
+perform gateway discovery. Exact retry counts, zero-dispatch assertions,
+partial-output retention and mutation-replay fences remain unchanged, and the
+outage regression now covers already observed gateways as well as direct routes.
+
+Composer release moves focus to its non-editable container before dispatch or a
+run-start transition. Clearing the Android focus owner in keyboard mode could
+immediately restore focus to the first editor; forcing a false reporting callback
+then concealed that real ownership. Actual editor focus events now drive the
+reported state. Disposal still releases the departing editor, and an unfocused
+composer does not dismiss another editor. The regressions retain all original
+draft and refocus assertions, inspect actual semantics during dispatch, and cover
+Ctrl+Enter and another editor's focus during run start.
+
+All 47 tests in the three affected transport classes pass in a focused JVM
+harness using 159 current production source files, three repository test files,
+36 explicit host boundary or extracted-source files, and reused catalog support
+classes. The compiled source hashes match the working tree. The six composer
+cases require actual Android/Compose CI; the host transport result does not
+qualify them. Canonical fast validation again passes 398 tests, and all six
+changed/generated Kotlin files pass formatting.
 
 ## Measurement boundaries
 

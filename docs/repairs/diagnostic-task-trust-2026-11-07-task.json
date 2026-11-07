@@ -120,6 +120,32 @@
       "prompt_limit_exclusive": 1500,
       "source_drift": false,
       "overlaps_task_evidence_suite": true
+    },
+    "completed_predecessor_android_ci": {
+      "head": "41cb3135a417183b8a6638d4fa447524872ed57e",
+      "run_id": 42416901069,
+      "unit_job_id": 128536916252,
+      "production_compilation": "PASSED",
+      "unit_test_compilation": "PASSED",
+      "tests": 7667,
+      "passed": 7642,
+      "failed": 20,
+      "skipped": 5,
+      "android_lint": "PASSED",
+      "emulator_api_34": "PASSED",
+      "emulator_api_36": "PASSED",
+      "gateway_matrix": "ALL_FOUR_PASSED",
+      "windows_installer": "PASSED",
+      "codeql": "PASSED",
+      "apk_catalog_download_contracts": "PASSED",
+      "does_not_qualify_later_head": true,
+      "review_apk_benchmark_packaging": "PASSED",
+      "review_apk_run_id": 42416859371,
+      "review_apk_job_id": 128536790413,
+      "largest_checked_dex_method_code_units": 15900,
+      "dex_warning_limit_code_units": 16383,
+      "dex_checked_methods_per_apk": 2932,
+      "packaged_variants": 3
     }
   },
   "reconciled_remote_head": "87709e6f5ff91befb4ede0f30fcbd1d48999afe7",
@@ -173,5 +199,53 @@
     ],
     "validation_state": "FOCUSED_AND_CANONICAL_FAST_PASSED",
     "exact_head_android_ci": "REQUIRED_AFTER_PUBLICATION"
+  },
+  "transport_focus_followup": {
+    "parent_head": "41cb3135a417183b8a6638d4fa447524872ed57e",
+    "observed_failure_classes": [
+      "ChatCompletionTransportTest",
+      "OpenAIRecoveryTransportTest",
+      "ProviderToolRejectionTest",
+      "ComposerInputLifecycleTest"
+    ],
+    "repairs": [
+      "Attach observed timing and admitted reasoning to real result/error chunks rather than introducing synthetic pre-output response events; retain the independent serialization-to-ledger path.",
+      "Apply connectivity admission before gateway capability negotiation in both OpenAI transports; known external outages dispatch zero requests.",
+      "Give independent recovery fixtures distinct route identities while retaining production gateway identity persistence, strict request counts and no-mutation-replay assertions.",
+      "Park composer-owned focus on its non-editable container before send or run start, rely on actual focus callbacks, preserve disposal ownership and exact drafts, and retain fresh follow-up input."
+    ],
+    "exact_head_android_ci": "REQUIRED_AFTER_PUBLICATION",
+    "composer_regressions": {
+      "tests": 6,
+      "original_assertions_preserved": true,
+      "actual_semantics_checked_during_dispatch": true,
+      "keyboard_shortcut_and_other_editor_cases_added": true,
+      "local_compose_runtime": "UNAVAILABLE_REQUIRES_ANDROID_CI"
+    },
+    "canonical_fast": {
+      "passed": true,
+      "python_tests": 398,
+      "android_regex_literals": 1274,
+      "resource_xml_files": 30
+    },
+    "changed_source_ktlint": {
+      "passed": true,
+      "files": 6,
+      "includes_generated_inventory": true
+    },
+    "transport_regression_jvm": {
+      "passed": 47,
+      "production_source_files": 159,
+      "repository_test_files": 3,
+      "explicit_host_boundary_or_excerpt_files": 36,
+      "reused_catalog_support_classes": true,
+      "source_drift": false,
+      "test_classes": [
+        "ChatCompletionTransportTest",
+        "ProviderToolRejectionTest",
+        "OpenAIRecoveryTransportTest"
+      ],
+      "scope": "Actual transport, retry, preflight, gateway negotiation, capacity and recovery source; explicit Android, accounting, journal and unused-service boundaries. Does not qualify Compose or the complete Android app."
+    }
   }
 }
